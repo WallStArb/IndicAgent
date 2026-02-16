@@ -136,7 +136,7 @@ class TestEnhancedIndicatorProcessor:
         test_stream = sk_market(env_prefix, "TEST", "1m")
         try:
             await redis_client.delete(test_stream)
-        except:
+        except Exception:
             pass
 
         # Create service but don't start full service (too heavy for test)

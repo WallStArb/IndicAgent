@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # Computed contracts list
     contracts: list[IBKRContract] = Field(default_factory=list)
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=".env")
 
     @field_validator("contracts", mode="before")
     @classmethod

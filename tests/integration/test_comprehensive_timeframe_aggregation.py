@@ -3,7 +3,8 @@
 Comprehensive Multi-Timeframe Aggregation Test
 
 Tests the complete multi-timeframe aggregation pipeline: 1m → 5m → 15m → 1h → 4h → 1d
-This validates that the timeframe aggregation system works correctly across all supported timeframes.
+This validates that the timeframe aggregation system works correctly
+across all supported timeframes.
 """
 
 import asyncio
@@ -53,7 +54,7 @@ class TestComprehensiveTimeframeAggregation:
                 stream = sk_market(env_prefix, "TEST", tf)
                 try:
                     await redis_client.delete(stream)
-                except:
+                except Exception:
                     pass
 
             # Generate comprehensive test data - 2 hours = 120 minutes of 1m bars
@@ -182,7 +183,8 @@ class TestComprehensiveTimeframeAggregation:
                     for target_tf in aggregation_order:
                         count = await self.aggregate_timeframe(symbol, target_tf)
                         print(
-                            f"  📊 Aggregated {count} {target_tf} bars from {self.aggregation_rules[target_tf]['source']}"
+                            f"  📊 Aggregated {count} {target_tf} bars"
+                            f" from {self.aggregation_rules[target_tf]['source']}"
                         )
 
                         # Small delay between aggregations
@@ -229,7 +231,10 @@ class TestComprehensiveTimeframeAggregation:
                 # Allow some flexibility but generally should have fewer bars in higher timeframes
                 assert (
                     next_count <= current_count
-                ), f"Aggregation error: {timeframe_hierarchy[i+1]} ({next_count}) should have ≤ bars than {timeframe_hierarchy[i]} ({current_count})"
+                ), (
+                    f"Aggregation error: {timeframe_hierarchy[i+1]} ({next_count})"
+                    f" should have ≤ bars than {timeframe_hierarchy[i]} ({current_count})"
+                )
 
             # Verify specific aggregation ratios make sense
             lengths[0]  # 120 bars
@@ -279,7 +284,7 @@ class TestComprehensiveTimeframeAggregation:
                 stream = sk_market(env_prefix, "ACCURACY_TEST", tf)
                 try:
                     await redis_client.delete(stream)
-                except:
+                except Exception:
                     pass
 
             # Create exactly 25 1m bars (5 complete 5m intervals)

@@ -823,10 +823,13 @@ def main():
     """Main entry point for high-frequency daemon."""
     import argparse
 
+    _settings = Settings()
     parser = argparse.ArgumentParser(description="High-Frequency TWS Daemon")
-    parser.add_argument("--host", default="172.18.176.1", help="TWS host")
-    parser.add_argument("--port", type=int, default=7497, help="TWS port")
-    parser.add_argument("--client-id", type=int, default=25, help="TWS client ID")
+    parser.add_argument("--host", default=_settings.ib_host, help="TWS host")
+    parser.add_argument("--port", type=int, default=_settings.ib_port, help="TWS port")
+    parser.add_argument(
+        "--client-id", type=int, default=_settings.ib_client_id, help="TWS client ID"
+    )
 
     args = parser.parse_args()
 

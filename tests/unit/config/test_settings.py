@@ -17,7 +17,7 @@ class TestSettings:
     def test_default_settings(self):
         """Test default settings initialization"""
         with patch.dict(os.environ, {}, clear=True):
-            settings = Settings()
+            settings = Settings(_env_file=None)
 
             assert settings.env_name == ""
             assert settings.database_url is not None

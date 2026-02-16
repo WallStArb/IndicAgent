@@ -22,10 +22,8 @@ ib_insync>=0.9.86
 # Intelligence Framework
 langgraph>=1.0.0
 
-# WebSocket
-python-socketio>=5.11.0
-
 # System Utilities
+tzdata>=2025.1
 psutil>=5.9.0
 
 # Observability

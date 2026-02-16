@@ -17,6 +17,14 @@ ignore = [
   "B008",  # Depends() in function defaults is standard FastAPI pattern
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"services/*.py" = ["E402"]
+"production/**/*.py" = ["E402"]
+"scripts/*.py" = ["E402"]
+"examples/*.py" = ["E402"]
+"tests/integration/*.py" = ["E402"]
+"tests/unit/indicators/test_incremental_manager.py" = ["E402"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["src", "production", "services"]
 

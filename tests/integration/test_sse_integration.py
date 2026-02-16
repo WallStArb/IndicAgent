@@ -334,7 +334,7 @@ class TestSSEIntegration:
         for stream in test_streams:
             try:
                 await redis_client.delete(stream)
-            except:
+            except Exception:
                 pass
 
         # Publish test data to Redis Streams
@@ -446,7 +446,7 @@ class TestSSEIntegration:
         test_stream = sk_market(env_prefix, "TEST", "1m")
         try:
             await redis_client.delete(test_stream)
-        except:
+        except Exception:
             pass
 
         # Generate high-volume test data

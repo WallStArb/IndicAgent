@@ -115,7 +115,8 @@ class SimpleSeeder:
 
             qualified_contract = details[0].contract
             print(
-                f"📋 Qualified {contract_config['symbol']}: {qualified_contract.lastTradeDateOrContractMonth}"
+                f"📋 Qualified {contract_config['symbol']}: "
+                f"{qualified_contract.lastTradeDateOrContractMonth}"
             )
 
             # Request N days of 1m bars

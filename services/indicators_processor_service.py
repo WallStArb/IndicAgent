@@ -543,7 +543,7 @@ class IndicatorProcessorService:
                 for timeframe in self.config["service"]["timeframes"]:
                     for symbol in self.config["service"]["symbols"]:
                         stream_name = sk_market(self.env_prefix, symbol, timeframe)
-                        # Ensure consumer group exists for this stream; if created now, start from '0'
+                        # Ensure consumer group exists; if created now, start from '0'
                         created_now = await self._ensure_consumer_group(stream_name)
 
                         try:

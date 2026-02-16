@@ -191,7 +191,8 @@ def benchmark_multiple_indicators(bars):
     print(f"   📈 Traditional total: {traditional_total_time*1000:.3f}ms")
     print(f"   🎯 Overall speedup: {speedup:.2f}x")
     print(
-        f"   💾 Memory efficiency: {incremental_manager.get_memory_usage()['total_bars_cached']} bars cached"
+        f"   💾 Memory efficiency: "
+        f"{incremental_manager.get_memory_usage()['total_bars_cached']} bars cached"
     )
 
     print("\n   Values comparison:")
@@ -201,7 +202,8 @@ def benchmark_multiple_indicators(bars):
         if inc_val is not None and trad_val is not None:
             diff = abs(inc_val - trad_val)
             print(
-                f"   {indicator:>3}: Incremental={inc_val:8.4f}, Traditional={trad_val:8.4f}, Diff={diff:.6f}"
+                f"   {indicator:>3}: Incremental={inc_val:8.4f},"
+                f" Traditional={trad_val:8.4f}, Diff={diff:.6f}"
             )
 
     return {
@@ -268,7 +270,8 @@ def show_memory_efficiency():
     bars_per_symbol = 1000
 
     print(
-        f"📈 Simulating {len(symbols)} symbols × {len(timeframes)} timeframes × {bars_per_symbol} bars"
+        f"📈 Simulating {len(symbols)} symbols"
+        f" × {len(timeframes)} timeframes × {bars_per_symbol} bars"
     )
     print(f"   Total bars: {len(symbols) * len(timeframes) * bars_per_symbol:,}")
 
