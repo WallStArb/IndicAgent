@@ -1,0 +1,41 @@
+[Unit]
+Description=IndicAgent Backend API (FastAPI/Uvicorn)
+After=network-online.target indicagent-indicator-processor.service indicagent-timeframe-builder.service
+Wants=network-online.target
+Requires=indicagent-indicator-processor.service indicagent-timeframe-builder.service
+
+PartOf=indicagent-master.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+WorkingDirectory=/home/bg/projects/indicagent
+Environment=PYTHONPATH=/home/bg/projects/indicagent
+ExecStart=/home/bg/projects/indicagent/.venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
+# Health check
+ExecStartPost=/bin/sleep 3
+ExecStartPost=/bin/bash -c 'timeout 30 bash -c "until curl -f http://localhost:8000/health; do sleep 2; done"'
+
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/bg/projects/indicagent/logs
+ReadOnlyPaths=/home/bg/projects/indicagent
+
+MemoryMax=512M
+CPUQuota=200%
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-backend-api
+
+[Install]
+WantedBy=multi-user.target
+
+

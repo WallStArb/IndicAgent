@@ -1,0 +1,38 @@
+[Unit]
+Description=IndicAgent Enhanced Indicator Processor Service
+After=network.target timescaledb.service dragonfly.service
+Wants=network.target
+Requires=timescaledb.service dragonfly.service
+
+[Service]
+Type=exec
+WorkingDirectory=/home/bg/projects/indicagent
+Environment=PATH=/home/bg/projects/indicagent/.venv/bin
+Environment=PYTHONPATH=/home/bg/projects/indicagent
+Environment=INDICAGENT_ENV=production
+ExecStart=/home/bg/projects/indicagent/.venv/bin/python services/indicators_enhanced_service.py --config config/enhanced_indicator_processor.json
+
+# Restart behavior
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Resource limits - Enhanced service may use more memory for state management
+MemoryMax=4G
+CPUQuota=400%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-enhanced-indicator
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/bg/projects/indicagent/logs
+ReadWritePaths=/home/bg/projects/indicagent/data
+
+[Install]
+WantedBy=multi-user.target

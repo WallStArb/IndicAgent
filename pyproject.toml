@@ -1,0 +1,36 @@
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",  # pycodestyle/pyflakes
+  "I",              # isort
+  "UP",             # pyupgrade
+  "B",              # bugbear
+]
+ignore = [
+  "B008",  # Depends() in function defaults is standard FastAPI pattern
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "production", "services"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_any_generics = false
+no_implicit_optional = true
+show_error_codes = true
+pretty = true
+exclude = [
+  "dashboard/",
+]
+
+

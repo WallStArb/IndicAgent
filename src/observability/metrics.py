@@ -1,0 +1,242 @@
+"""
+Prometheus metrics registry helper to avoid duplicate metric registration
+
+Version: 1.0.0
+Last Updated: 2025-08-09
+Status: Current ✅
+"""
+
+from __future__ import annotations
+
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+_counters: dict[str, Counter] = {}
+_gauges: dict[str, Gauge] = {}
+
+
+def counter(name: str, documentation: str) -> Counter:
+    if name in _counters:
+        return _counters[name]
+    c = Counter(name, documentation)
+    _counters[name] = c
+    return c
+
+
+def gauge(name: str, documentation: str) -> Gauge:
+    if name in _gauges:
+        return _gauges[name]
+    g = Gauge(name, documentation)
+    _gauges[name] = g
+    return g
+
+_server_started = False
+
+
+# Core engine metrics
+STREAM_READ_TOTAL = Counter("stream_messages_read_total", "Messages read", ["stream", "group"])
+STREAM_READ_LAT = Histogram("stream_read_seconds", "XREADGROUP time", ["stream", "group"])
+DB_BATCH_WRITE = Histogram("db_batch_write_seconds", "Timescale batch write time")
+ENGINE_THROUGHPUT = Gauge("engine_bars_processed", "Bars processed total")
+ENGINE_THROUGHPUT_RATE = Gauge("engine_throughput_per_sec", "Bars per second")
+
+# Service orchestrator metrics
+SERVICE_HEALTH_GAUGE = Gauge("indicagent_service_health", "Service health status", ["service"])
+SERVICE_START_TOTAL = Counter(
+    "indicagent_service_starts_total", "Total service starts", ["service"]
+)
+SERVICE_STOP_TOTAL = Counter("indicagent_service_stops_total", "Total service stops", ["service"])
+SERVICE_RESTART_TOTAL = Counter(
+    "indicagent_service_restarts_total", "Total service restarts", ["service"]
+)
+
+# Plugin execution metrics
+PLUGIN_EXECUTION_TOTAL = Counter(
+    "plugin_executions_total",
+    "Total plugin executions",
+    ["plugin_name", "symbol", "timeframe", "status"],
+)
+PLUGIN_EXECUTION_TIME = Histogram(
+    "plugin_execution_seconds", "Plugin execution time", ["plugin_name", "intelligence_tier"]
+)
+PLUGIN_FALLBACK_TOTAL = Counter(
+    "plugin_fallbacks_total", "Plugin fallbacks to direct calculation", ["plugin_name", "reason"]
+)
+PLUGIN_ACCURACY_GAUGE = Gauge(
+    "plugin_accuracy_percentage",
+    "Plugin vs direct calculation accuracy",
+    ["plugin_name", "symbol", "timeframe"],
+)
+PLUGIN_STATE_SIZE_GAUGE = Gauge(
+    "plugin_state_size_bytes", "Plugin state size in bytes", ["plugin_name", "symbol", "timeframe"]
+)
+
+# LangGraph workflow metrics
+LANGGRAPH_WORKFLOW_EXECUTION_TOTAL = Counter(
+    "langgraph_workflow_executions_total",
+    "Total LangGraph workflow executions",
+    ["workflow_name", "status"],
+)
+LANGGRAPH_WORKFLOW_DURATION = Histogram(
+    "langgraph_workflow_duration_seconds",
+    "LangGraph workflow execution time",
+    ["workflow_name", "intelligence_tier"],
+)
+LANGGRAPH_NODE_EXECUTION_TOTAL = Counter(
+    "langgraph_node_executions_total",
+    "Total LangGraph node executions",
+    ["workflow_name", "node_name", "status"],
+)
+LANGGRAPH_NODE_DURATION = Histogram(
+    "langgraph_node_duration_seconds",
+    "LangGraph node execution time",
+    ["workflow_name", "node_name"],
+)
+LANGGRAPH_AGENT_INVOCATIONS_TOTAL = Counter(
+    "langgraph_agent_invocations_total",
+    "Total agent invocations in LangGraph workflows",
+    ["agent_name", "workflow_name", "status"],
+)
+LANGGRAPH_EVENT_ROUTING_TOTAL = Counter(
+    "langgraph_event_routing_total",
+    "Total events routed by LangGraph conditional edges",
+    ["workflow_name", "source_node", "target_node", "condition"],
+)
+LANGGRAPH_STATE_SIZE_GAUGE = Gauge(
+    "langgraph_workflow_state_size_bytes",
+    "LangGraph workflow state size in bytes",
+    ["workflow_name", "symbol", "timeframe"],
+)
+LANGGRAPH_PARALLEL_EXECUTION_GAUGE = Gauge(
+    "langgraph_parallel_executions_active",
+    "Number of parallel workflow executions active",
+    ["workflow_name"],
+)
+
+# Hybrid processing metrics
+HYBRID_MODE_GAUGE = Gauge(
+    "hybrid_processing_active", "Whether hybrid mode is active", ["service", "symbol", "timeframe"]
+)
+CIRCUIT_BREAKER_STATE = Gauge(
+    "plugin_circuit_breaker_state",
+    "Circuit breaker state (0=closed, 1=open, 2=half-open)",
+    ["plugin_name"],
+)
+
+# Event-driven processing metrics
+REDIS_STREAM_EVENT_TOTAL = Counter(
+    "redis_stream_events_total",
+    "Total Redis Stream events processed",
+    ["stream_name", "consumer_group", "status"],
+)
+REDIS_STREAM_LAG_GAUGE = Gauge(
+    "redis_stream_consumer_lag_messages",
+    "Redis Stream consumer lag in messages",
+    ["stream_name", "consumer_group"],
+)
+EVENT_PROCESSING_DURATION = Histogram(
+    "event_processing_duration_seconds",
+    "Time to process Redis Stream events",
+    ["event_type", "workflow_name"],
+)
+MARKET_CONDITIONS_GAUGE = Gauge(
+    "market_conditions_detected",
+    "Current market condition classification (0=ranging, 1=trending, 2=volatile)",
+    ["symbol", "timeframe"],
+)
+
+
+def start_metrics_server(port: int = 9400) -> None:
+    """Start Prometheus metrics server with enhanced monitoring."""
+    global _server_started
+    if _server_started:
+        return
+    try:
+        start_http_server(port)
+        _server_started = True
+        print(f"📊 Prometheus metrics server started on port {port}")
+        print(f"   🔗 Metrics available at: http://localhost:{port}/metrics")
+        print("   📈 Enhanced metrics: plugin, LangGraph, event-driven processing")
+    except Exception as e:
+        print(f"⚠️  Failed to start metrics server on port {port}: {e}")
+        # Best-effort; do not crash on metrics bind issues
+        pass
+
+
+def record_plugin_execution(
+    plugin_name: str,
+    symbol: str,
+    timeframe: str,
+    duration_seconds: float,
+    status: str = "success",
+    intelligence_tier: str = "I1",
+) -> None:
+    """Record plugin execution metrics."""
+    PLUGIN_EXECUTION_TOTAL.labels(
+        plugin_name=plugin_name, symbol=symbol, timeframe=timeframe, status=status
+    ).inc()
+
+    PLUGIN_EXECUTION_TIME.labels(
+        plugin_name=plugin_name, intelligence_tier=intelligence_tier
+    ).observe(duration_seconds)
+
+
+def record_langgraph_workflow(
+    workflow_name: str,
+    duration_seconds: float,
+    status: str = "success",
+    intelligence_tier: str = "I5",
+) -> None:
+    """Record LangGraph workflow execution metrics."""
+    LANGGRAPH_WORKFLOW_EXECUTION_TOTAL.labels(workflow_name=workflow_name, status=status).inc()
+
+    LANGGRAPH_WORKFLOW_DURATION.labels(
+        workflow_name=workflow_name, intelligence_tier=intelligence_tier
+    ).observe(duration_seconds)
+
+
+def record_langgraph_node(
+    workflow_name: str, node_name: str, duration_seconds: float, status: str = "success"
+) -> None:
+    """Record LangGraph node execution metrics."""
+    LANGGRAPH_NODE_EXECUTION_TOTAL.labels(
+        workflow_name=workflow_name, node_name=node_name, status=status
+    ).inc()
+
+    LANGGRAPH_NODE_DURATION.labels(workflow_name=workflow_name, node_name=node_name).observe(
+        duration_seconds
+    )
+
+
+def record_event_routing(
+    workflow_name: str, source_node: str, target_node: str, condition: str
+) -> None:
+    """Record LangGraph conditional edge routing."""
+    LANGGRAPH_EVENT_ROUTING_TOTAL.labels(
+        workflow_name=workflow_name,
+        source_node=source_node,
+        target_node=target_node,
+        condition=condition,
+    ).inc()
+
+
+def record_redis_stream_event(
+    stream_name: str, consumer_group: str, processing_time: float, status: str = "success"
+) -> None:
+    """Record Redis Stream event processing metrics."""
+    REDIS_STREAM_EVENT_TOTAL.labels(
+        stream_name=stream_name, consumer_group=consumer_group, status=status
+    ).inc()
+
+    # Determine event type from stream name
+    if "market:" in stream_name:
+        event_type = "market_data"
+    elif "indicators:" in stream_name:
+        event_type = "indicators"
+    elif "patterns:" in stream_name:
+        event_type = "patterns"
+    else:
+        event_type = "unknown"
+
+    EVENT_PROCESSING_DURATION.labels(event_type=event_type, workflow_name="redis_streams").observe(
+        processing_time
+    )

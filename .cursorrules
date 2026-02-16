@@ -1,0 +1,41 @@
+# Cursor Rules for IndicAgent Project
+
+## Documentation Standards
+- DO NOT use emojis in documentation - they look unprofessional and childish
+- Use clear, concise language
+- Maintain professional tone throughout
+- Use proper markdown formatting
+- **All documentation must include version, date, and status information**
+- **Use format: Version: X.X.X, Last Updated: YYYY-MM-DD, Status: Current ✅**
+- **Keep documentation synchronized with codebase implementation**
+- **Update dates when making significant changes**
+
+## Code Standards
+- Follow existing code style and patterns
+- Use type hints where appropriate
+- Keep functions under 50 lines when possible
+- Add docstrings for complex functions
+ - Use `src/core/stream_keys.py` for all Redis stream names and patterns (no raw f-strings like f"market:{...}" or f"ticks:{...}")
+ - Use `src/config/Settings` for configuration in services/scripts (avoid direct `os.environ` reads)
+ - Use `src/observability/metrics.py` to create Prometheus metrics (avoid duplicate registration)
+ - Always include `env_prefix` (from `INDICAGENT_ENV`) for publishers and consumers of streams
+
+## Performance Guidelines
+- Provide focused, specific requests
+- Reference specific files when possible
+- Break down complex tasks into smaller requests
+- Use file paths to limit context scope
+
+## Project-Specific Rules
+- This is a trading platform with real-time data processing
+- Use Redis Streams for real-time data
+- Follow event-driven architecture patterns
+- Maintain clean separation between data, business logic, and API layers
+ - Services must handle SIGINT/SIGTERM gracefully, drain queues, and close async Redis clients
+ - Tests should be organized under `tests/unit`, `tests/integration`, and `tests/e2e` with pytest asyncio auto
+
+## Response Guidelines
+- Be concise and direct
+- Focus on actionable solutions
+- Provide code examples when helpful
+- Explain reasoning for architectural decisions 

@@ -1,0 +1,53 @@
+# IndicAgent Infrastructure
+# TimescaleDB + DragonflyDB + Ollama
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: timescaledb
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=indicagent
+      - TIMESCALEDB_TELEMETRY=off
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./:/workspace:rw
+
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: dragonfly
+    restart: unless-stopped
+    command:
+      - "--dir"
+      - "/data"
+      - "--dbfilename"
+      - "dump"
+      - "--snapshot_cron"
+      - "*/5 * * * *"
+    ports:
+      - "6379:6379"
+    volumes:
+      - dragonfly-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  timescale-data:
+  dragonfly-data:
+  ollama-data:
+
+
+

@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+/* ── IndicAgent Dark Institutional Trading Theme ── */
+
+:root {
+  /* Base surfaces (blue-gray undertone, not pure black) */
+  --bg-base: #080b11;
+  --bg-surface: #0f1219;
+  --bg-elevated: #171c28;
+  --bg-hover: #1e2436;
+
+  /* Borders */
+  --border-subtle: #1a2030;
+  --border-default: #242d3f;
+  --border-bright: #2f3a50;
+
+  /* Text hierarchy */
+  --text-primary: #e4e8ef;
+  --text-secondary: #8892a6;
+  --text-muted: #505a6e;
+  --text-accent: #c0c8d8;
+
+  /* Directional colors */
+  --green: #00dc82;
+  --green-dim: #00dc8233;
+  --red: #ff4757;
+  --red-dim: #ff475733;
+
+  /* Data accent colors */
+  --blue: #4c9aff;
+  --blue-dim: #4c9aff22;
+  --amber: #ffb347;
+  --amber-dim: #ffb34722;
+  --purple: #a78bfa;
+  --purple-dim: #a78bfa22;
+  --cyan: #22d3ee;
+  --cyan-dim: #22d3ee22;
+
+  /* Semantic */
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-outfit);
+  --font-mono: var(--font-jetbrains);
+}
+
+/* ── Base reset ── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright) transparent;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-outfit), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Utility classes ── */
+
+.font-data {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.text-up { color: var(--green); }
+.text-down { color: var(--red); }
+.text-neutral { color: var(--text-secondary); }
+
+.bg-up { background-color: var(--green-dim); }
+.bg-down { background-color: var(--red-dim); }
+
+.surface {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.surface-elevated {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+
+/* ── Zone labels (compact section headers) ── */
+
+.zone-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.25rem 0.5rem;
+}
+
+/* ── Pulse animation for live data ── */
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.live-pulse {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ── Subtle glow for active patterns ── */
+
+.glow-green { box-shadow: 0 0 8px var(--green-dim); }
+.glow-red { box-shadow: 0 0 8px var(--red-dim); }
+.glow-amber { box-shadow: 0 0 8px var(--amber-dim); }

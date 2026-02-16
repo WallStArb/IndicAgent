@@ -1,0 +1,30 @@
+{
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "db": 0
+  },
+  "database": {
+    "url": "postgresql://postgres:postgres@localhost:5432/indicagent"
+  },
+  "service": {
+    "timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
+    "symbols": ["ESH6", "NQH6", "RTYH6", "CLH6", "NGH6", "GCJ6", "SIH6", "HGH6", "PLJ6", "VXH6"],
+    "indicators": [
+      "RSI", "MACD", "MACD_SIGNAL", "MACD_HISTOGRAM",
+      "BB_UPPER", "BB_MIDDLE", "BB_LOWER",
+      "SMA_10", "SMA_20", "SMA_50", "EMA_12", "EMA_20", "EMA_26", "EMA_50",
+      "ATR", "STOCH_K", "STOCH_D", "CCI", "WILLIAMS_R", "MFI", "OBV", "VWAP"
+    ],
+    "batch_size": 10,
+    "processing_interval": 0.5,
+    "health_check_interval": 30,
+    "min_history_bars": 50
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/indicator_processor.log",
+    "max_size": "10MB",
+    "backup_count": 5
+  }
+}

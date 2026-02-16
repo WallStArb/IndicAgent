@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+
+from ..plugins import InputSpec
+
+
+@dataclass
+class VolatilityRegimePlugin:
+    """Classify volatility regime from ATR percentile and BB width."""
+
+    name: str = "ctx_VolatilityRegime"
+    outputs: set[str] = frozenset(
+        {"vol_regime", "vol_percentile", "vol_expansion", "bb_width_pct", "bb_width_percentile"}
+    )
+    min_lookback: int = 50
+    supports_incremental: bool = False
+    capability_tags: set[str] = frozenset({"context"})
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    lookback: int = 50
+    bb_period: int = 20
+    atr_period: int = 14
+    expansion_lag: int = 10
+    _state: dict = field(default_factory=dict)
+
+    def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
+
+        high = df["high"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
+        close = df["close"].to_numpy(dtype=float)
+
+        # ATR series: true range → rolling mean
+        prev_close = np.roll(close, 1)
+        prev_close[0] = close[0]
+        tr = np.maximum(
+            high - low,
+            np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)),
+        )
+        # Simple rolling mean ATR over atr_period
+        atr_series = np.convolve(tr, np.ones(self.atr_period) / self.atr_period, mode="valid")
+
+        if len(atr_series) < self.lookback:
+            return {}
+
+        window = atr_series[-self.lookback :]
+        current_atr = atr_series[-1]
+
+        # Percentile rank of current ATR in the lookback window
+        vol_percentile = float(np.sum(window <= current_atr) / len(window))
+
+        # Regime classification from percentile
+        if vol_percentile < 0.20:
+            vol_regime = -1.0  # LOW
+        elif vol_percentile <= 0.80:
+            vol_regime = 0.0  # NORMAL
+        elif vol_percentile <= 0.95:
+            vol_regime = 1.0  # HIGH
+        else:
+            vol_regime = 2.0  # EXTREME
+
+        # BB width as % of mid price
+        sma = np.convolve(close, np.ones(self.bb_period) / self.bb_period, mode="valid")
+        if len(sma) < self.lookback:
+            return {}
+        tail = close[self.bb_period - 1 :]
+        squared_diff = (tail - sma) ** 2
+        # Rolling std
+        bb_std = np.sqrt(
+            np.convolve(squared_diff, np.ones(self.bb_period) / self.bb_period, mode="valid")
+        )
+        if len(bb_std) == 0:
+            return {}
+        bb_upper = sma[self.bb_period - 1 :][: len(bb_std)] + 2 * bb_std
+        bb_lower = sma[self.bb_period - 1 :][: len(bb_std)] - 2 * bb_std
+        bb_mid = sma[self.bb_period - 1 :][: len(bb_std)]
+        bb_width = (bb_upper - bb_lower) / np.where(bb_mid != 0, bb_mid, 1.0)
+
+        bb_width_pct = float(bb_width[-1])
+        # Percentile of current BB width
+        bw_window = bb_width[-self.lookback :] if len(bb_width) >= self.lookback else bb_width
+        bb_width_percentile = float(np.sum(bw_window <= bb_width_pct) / len(bw_window))
+
+        # Expansion / contraction: compare current ATR vs lagged ATR
+        if len(atr_series) > self.expansion_lag:
+            lagged_atr = atr_series[-(self.expansion_lag + 1)]
+            ratio = current_atr / lagged_atr if lagged_atr > 0 else 1.0
+            if ratio > 1.05:
+                vol_expansion = 1.0
+            elif ratio < 0.95:
+                vol_expansion = -1.0
+            else:
+                vol_expansion = 0.0
+        else:
+            vol_expansion = 0.0
+
+        return {
+            "vol_regime": vol_regime,
+            "vol_percentile": round(vol_percentile, 4),
+            "vol_expansion": vol_expansion,
+            "bb_width_pct": round(bb_width_pct, 4),
+            "bb_width_percentile": round(bb_width_percentile, 4),
+        }
+
+    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+        return self.compute_full(windows)
+
+
+plugin = VolatilityRegimePlugin()

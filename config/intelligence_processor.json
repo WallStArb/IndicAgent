@@ -1,0 +1,14 @@
+{
+  "redis": { "host": "localhost", "port": 6379, "db": 0 },
+  "service": {
+    "symbols": ["ESH6", "NQH6", "RTYH6", "CLH6", "NGH6", "GCJ6", "SIH6", "HGH6", "PLJ6", "VXH6"],
+    "timeframes": ["1m", "5m", "15m", "1h"],
+    "processing_interval": 0.1,
+    "health_check_interval": 30,
+    "min_history_bars": 55
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/intelligence_processor.log"
+  }
+}
