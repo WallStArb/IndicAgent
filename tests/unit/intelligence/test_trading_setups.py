@@ -313,3 +313,75 @@ class TestMultiTimeframeAlignment:
         result = plugin.compute_full({"main": df, "features": features})
 
         assert result.get("signal_type", "none") == "none"
+
+
+# ─── SqueezeExpansion ──────────────────────────────────────────
+
+
+class TestSqueezeExpansion:
+    def test_bullish_squeeze_breakout(self):
+        """Squeeze resolved + volume expansion + bullish momentum → long signal."""
+        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+
+        close = np.concatenate([
+            np.full(80, 5050.0) + np.random.default_rng(0).normal(0, 2, 80),
+            np.linspace(5055, 5090, 20),
+        ])
+        volume = np.concatenate([np.full(80, 1000.0), np.full(20, 2500.0)])
+        df = make_ohlcv(close, volume)
+        features = {
+            "squeeze_active": 0.0,
+            "squeeze_fired": 1.0,
+            "squeeze_bars": 15.0,
+            "momentum_bias": 0.6,
+            "bb_upper": 5060.0,
+            "bb_lower": 5040.0,
+            "bb_middle": 5050.0,
+            "atr_14": 8.0,
+            "volume_sma_20": 1000.0,
+        }
+        plugin = SqueezeExpansionPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("signal_type") == "squeeze_long"
+        assert result.get("direction") == 1
+
+    def test_no_signal_during_active_squeeze(self):
+        """Squeeze still active → no signal."""
+        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+
+        close = np.full(100, 5050.0)
+        df = make_ohlcv(close)
+        features = {
+            "squeeze_active": 1.0,
+            "squeeze_fired": 0.0,
+            "momentum_bias": 0.0,
+            "atr_14": 8.0,
+        }
+        plugin = SqueezeExpansionPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("signal_type", "none") == "none"
+
+    def test_no_signal_without_volume_expansion(self):
+        """Squeeze released but volume low → no signal."""
+        from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
+
+        close = np.concatenate([np.full(80, 5050.0), np.linspace(5055, 5070, 20)])
+        volume = np.full(100, 500.0)
+        df = make_ohlcv(close, volume)
+        features = {
+            "squeeze_active": 0.0,
+            "squeeze_fired": 1.0,
+            "squeeze_bars": 15.0,
+            "momentum_bias": 0.6,
+            "bb_upper": 5060.0,
+            "bb_lower": 5040.0,
+            "bb_middle": 5050.0,
+            "atr_14": 8.0,
+            "volume_sma_20": 1000.0,
+        }
+        plugin = SqueezeExpansionPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("signal_type", "none") == "none"
