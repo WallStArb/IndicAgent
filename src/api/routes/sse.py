@@ -11,6 +11,7 @@ from ...core.stream_keys import indicators as sk_indicators
 from ...core.stream_keys import intelligence as sk_intelligence
 from ...core.stream_keys import live_tick as sk_live_tick
 from ...core.stream_keys import market as sk_market
+from ...core.stream_keys import signals as sk_signals
 from .. import dependencies
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +46,7 @@ def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
         streams.append(sk_market(env_prefix, contract, timeframe))
         streams.append(sk_indicators(env_prefix, contract, timeframe))
         streams.append(sk_intelligence(env_prefix, contract, timeframe))
+        streams.append(sk_signals(env_prefix, contract, timeframe))
     return streams
 
 
@@ -54,7 +56,7 @@ def _event_name_for_stream(stream_name: str) -> str:
     head = parts[0]
     rest = parts[1] if len(parts) > 1 else ""
     # If head is an env name (e.g., "dev"), re-evaluate from rest
-    known_domains = {"ticks", "market", "indicators", "intelligence"}
+    known_domains = {"ticks", "market", "indicators", "intelligence", "signals"}
     candidate = rest if rest and head not in known_domains else stream_name
     if candidate.startswith("ticks:"):
         return "tick_data"
@@ -64,6 +66,8 @@ def _event_name_for_stream(stream_name: str) -> str:
         return "indicator_data"
     if candidate.startswith("intelligence:"):
         return "intelligence_data"
+    if candidate.startswith("signals:"):
+        return "signal_data"
     return "message"
 
 
