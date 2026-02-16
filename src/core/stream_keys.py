@@ -34,8 +34,13 @@ def intelligence(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}intelligence:{symbol}:{timeframe}"
 
 
+def signals(env_prefix: str, symbol: str, timeframe: str) -> str:
+    return f"{env_prefix}signals:{symbol}:{timeframe}"
+
+
 def get_stream_maxlen(
-    timeframe: str, kind: Literal["ticks", "market", "indicators", "intelligence"]
+    timeframe: str,
+    kind: Literal["ticks", "market", "indicators", "intelligence", "signals"],
 ) -> int:
     if kind == "ticks":
         return 20000
@@ -49,6 +54,8 @@ def get_stream_maxlen(
         return 1000
     if kind == "intelligence":
         return 1000
+    if kind == "signals":
+        return 500
     return 1000
 
 
@@ -67,6 +74,10 @@ def indicators_pattern(env_prefix: str) -> str:
 
 def intelligence_pattern(env_prefix: str) -> str:
     return f"{env_prefix}intelligence:*:*"
+
+
+def signals_pattern(env_prefix: str) -> str:
+    return f"{env_prefix}signals:*:*"
 
 
 def patterns_pattern(env_prefix: str) -> str:
