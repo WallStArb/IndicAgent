@@ -200,15 +200,18 @@ python tests/run_all_tests.py --unit-only
 - **Done:** I1–I5 (22 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, 110 unit tests.
 - **Next:** I6 Confluence & Risk (multi-factor scoring from I3+I4+I5), then multi-timeframe confluence, smart-money concepts, I7/I8.
 
-More detail: `docs/current-status-and-priorities.md`, `docs/architecture/layered-architecture.md`, `docs/architecture/intelligence-tiers.md`.
+More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadmap/MASTER_ROADMAP.md).
 
 ---
 
-## For Developers
+## Documentation
 
-- **Conventions and commands:** `docs/for-ai-assistants/CLAUDE.md`  
-- **Stream keys and schemas:** `src/core/stream_keys.py`, `docs/architecture/stream-schemas.md`  
-- **Plugin registry and DAG:** `docs/architecture/plugin-registry-and-dag-execution.md`  
+**→ [Full Documentation](docs/README.md)**
+**→ [Current Status](docs/STATUS.md)**
+**→ [Roadmap](docs/roadmap/MASTER_ROADMAP.md)**
+**→ [Quick Start](docs/getting-started/quickstart.md)**
+
+**For AI Assistants:** [CLAUDE.md](docs/for-ai-assistants/CLAUDE.md)  
 
 ---
 
