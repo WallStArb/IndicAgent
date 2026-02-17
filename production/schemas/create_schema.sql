@@ -140,4 +140,53 @@ SELECT add_continuous_aggregate_policy('ohlcv_15m',
     if_not_exists => TRUE
 );
 
+-- Signal Ledger Table (I7 Phase 1.5 — lifecycle tracking for ML calibration)
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS signal_ledger (
+    signal_id       UUID NOT NULL DEFAULT gen_random_uuid(),
+    timestamp       TIMESTAMPTZ NOT NULL,
+    symbol          TEXT NOT NULL,
+    timeframe       TEXT NOT NULL,
+    setup_plugin    TEXT NOT NULL,
+    signal_type     TEXT NOT NULL,
+    direction       SMALLINT NOT NULL,
+    entry_price     DOUBLE PRECISION NOT NULL,
+    stop_loss       DOUBLE PRECISION NOT NULL,
+    targets         JSONB NOT NULL,
+    confidence      DOUBLE PRECISION NOT NULL,
+    confluence_score DOUBLE PRECISION NOT NULL,
+    regime_context  TEXT NOT NULL,
+    supporting_factors JSONB NOT NULL,
+    was_selected    BOOLEAN NOT NULL,
+    num_signals_bar INTEGER NOT NULL,
+    num_agreeing    INTEGER NOT NULL,
+    num_conflicting INTEGER NOT NULL,
+    resolution_method TEXT NOT NULL,
+    composite_rank  SMALLINT NOT NULL,
+    market_context  JSONB NOT NULL DEFAULT '{}',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    activated_at    TIMESTAMPTZ,
+    exit_at         TIMESTAMPTZ,
+    exit_price      DOUBLE PRECISION,
+    exit_reason     TEXT,
+    pnl_ticks       DOUBLE PRECISION,
+    pnl_r           DOUBLE PRECISION,
+    pnl_dollars     DOUBLE PRECISION,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (signal_id, timestamp)
+);
+
+SELECT create_hypertable('signal_ledger', 'timestamp',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists => TRUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_symbol_tf_ts
+    ON signal_ledger (symbol, timeframe, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_status
+    ON signal_ledger (status, symbol) WHERE status IN ('pending', 'active');
+
 NOTIFY pgsql, 'Schema created successfully';
