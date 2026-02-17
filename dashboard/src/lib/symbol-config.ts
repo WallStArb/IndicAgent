@@ -4,7 +4,7 @@ export interface SymbolInfo {
   display_name: string
   contract?: string
   description: string
-  sector: "equity_index" | "energy" | "metals" | "volatility" | "etf"
+  sector: "equity_index" | "energy" | "metals" | "volatility" | "interest_rates" | "etf"
 }
 
 export interface SymbolProfile {
@@ -22,7 +22,7 @@ export interface DashboardConfig {
   profiles: Record<string, SymbolProfile>
 }
 
-// Default configuration - will be loaded from API in production
+// Default configuration — will be replaced by GET /api/instruments fetch in future
 const defaultConfig: DashboardConfig = {
   dashboard_symbols: {
     futures: [
@@ -101,6 +101,35 @@ const defaultConfig: DashboardConfig = {
         description: "CBOE VIX Futures",
         sector: "volatility",
       },
+      // Interest Rate Futures
+      {
+        symbol: "ZN",
+        display_name: "10-Year T-Note",
+        contract: "ZNH6",
+        description: "10-Year Treasury Note Futures",
+        sector: "interest_rates",
+      },
+      {
+        symbol: "ZF",
+        display_name: "5-Year T-Note",
+        contract: "ZFH6",
+        description: "5-Year Treasury Note Futures",
+        sector: "interest_rates",
+      },
+      {
+        symbol: "ZB",
+        display_name: "30-Year T-Bond",
+        contract: "ZBH6",
+        description: "30-Year Treasury Bond Futures",
+        sector: "interest_rates",
+      },
+      {
+        symbol: "ZT",
+        display_name: "2-Year T-Note",
+        contract: "ZTH6",
+        description: "2-Year Treasury Note Futures",
+        sector: "interest_rates",
+      },
     ],
     etfs: [
       {
@@ -132,8 +161,9 @@ const defaultConfig: DashboardConfig = {
         "CL", "NG",
         "GC", "SI", "HG", "PL",
         "VX",
+        "ZN", "ZF", "ZB", "ZT",
       ],
-      description: "All 10 futures contracts",
+      description: "All 14 futures contracts",
     },
     equity_index: {
       name: "Equity Indices",
@@ -144,6 +174,11 @@ const defaultConfig: DashboardConfig = {
       name: "Commodities",
       symbols: ["CL", "NG", "GC", "SI", "HG", "PL"],
       description: "Energy and metals futures",
+    },
+    interest_rates: {
+      name: "Interest Rates",
+      symbols: ["ZN", "ZF", "ZB", "ZT"],
+      description: "Treasury futures",
     },
     etfs: {
       name: "ETF Trading",

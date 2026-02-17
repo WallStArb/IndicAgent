@@ -34,6 +34,11 @@ from .smart_money.order_blocks import plugin as ob_plugin
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
 from .structure.trend_structure import plugin as trend_plugin
+from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
+from .trading.mean_reversion import plugin as mean_revert_plugin
+from .trading.mtf_alignment import plugin as mtf_align_plugin
+from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
+from .trading.trend_following import plugin as trend_follow_plugin
 
 
 def register_all_plugins() -> None:
@@ -75,3 +80,10 @@ def register_all_plugins() -> None:
     registry.register_pattern(hmm_plugin)
 
     registry.register_pattern(ctf_plugin)
+
+    # I7 Trading Setups
+    registry.register_pattern(trend_follow_plugin)
+    registry.register_pattern(mean_revert_plugin)
+    registry.register_pattern(liq_sweep_reclaim_plugin)
+    registry.register_pattern(mtf_align_plugin)
+    registry.register_pattern(squeeze_exp_plugin)

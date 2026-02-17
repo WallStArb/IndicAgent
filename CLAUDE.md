@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.0.0
-Last Updated: 2026-02-15
-Status: I1-I6 complete — 33 plugins, 178 tests, full pipeline operational
+Version: 4.2.0
+Last Updated: 2026-02-17
+Status: I1-I7 Phase 1.5 complete — 38 plugins + 4 aggregation components, 258 tests, full pipeline operational
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -44,6 +44,7 @@ pip install -r requirements.txt
 # Infrastructure (Docker)
 docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 timescale/timescaledb:latest-pg15
 docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
+docker run -d --name ollama --gpus=all -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 ollama/ollama
 
 # Database schema
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
@@ -76,7 +77,7 @@ python production/scripts/simple_seeder.py --client-id 55 --days 7
 ### Development & Testing
 ```bash
 # Run tests
-python -m pytest tests/unit/ -v                  # Unit tests (178 passing)
+python -m pytest tests/unit/ -v                  # Unit tests (258 passing)
 python -m pytest tests/integration/ -v           # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -111,7 +112,7 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 ## Key Components
 
 ### Production Services (Active)
-- `production/daemons/high_frequency_tws_daemon.py` - High-frequency tick collection (100-500+ ticks/sec)
+- `production/daemons/high_frequency_tws_daemon.py` - Dual-stream data collection (see Data Flow below)
 - `services/indicators_processor_service.py` - Production indicator calculation daemon (Health: `:9109/health`)
 - `services/indicators_enhanced_service.py` - Enhanced service with incremental calculations (141x faster)
 - `services/timeframes_builder_service.py` - Multi-timeframe aggregation service (Health: `:9110/health`)
@@ -134,13 +135,40 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 - `src/intelligence/utils.py` - Shared utilities (peak/trough detection, helpers)
 
 ### Configuration
-- `src/config/settings.py` - Centralized application configuration with environment support
-- `config/symbol_config.py` - Centralized futures contract management
+- `src/config/settings.py` - Centralized application configuration, instrument/contract definitions, and helper functions
 - `src/observability/metrics.py` - Prometheus metrics collection and monitoring
+- `src/api/routes/instruments.py` - REST endpoint serving instrument config from DB
 
 ## Data Flow Architecture
 
-### Hot/Warm/Cold Data Pipeline
+### HF Daemon: Dual-Stream Collection
+The `hf_tws_daemon` collects two independent data streams from IBKR TWS simultaneously:
+
+1. **1m OHLCV Bars** via `reqHistoricalData` (polled every 60s)
+   - IBKR server-side aggregated bars (authoritative OHLCV + volume)
+   - Published to `market:SYMBOL:1m` streams
+   - Foundation for all indicator calculations and timeframe building
+   - NOT built from ticks — these are IBKR's own bar data
+
+2. **Live Ticks** via `reqMktData` (real-time callbacks, tick list "233")
+   - Price, bid, ask, volume updates at tick level
+   - Published to `ticks:SYMBOL:live` streams (20,000 retention per symbol)
+   - Also cached to `price:SYMBOL:latest` hash for instant UI lookups
+   - Used for sub-second dashboard updates within a candle
+
+### Pipeline Flow
+```
+IBKR TWS ─┬─ reqHistoricalData (60s poll) ─→ market:SYMBOL:1m ─→ Timeframe Builder ─→ market:SYMBOL:5m/15m/1h/4h/1d
+           │                                        ↓
+           │                              Indicator Processor ─→ indicators:SYMBOL:TIMEFRAME
+           │                                        ↓
+           │                              Intelligence Processor ─→ insights:SYMBOL:TIMEFRAME
+           │                                        ↓
+           └─ reqMktData (live ticks) ───→ ticks:SYMBOL:live ──→ SSE ──→ Dashboard
+                                          price:SYMBOL:latest
+```
+
+### Hot/Warm/Cold Data Tiers
 ```
 Hot:  IBKR TWS → hf_tws_daemon → DragonflyDB Streams → Services (sub-ms latency)
 Warm: Streams → indicator_processor → timeframe_builder → intelligence_processor → Dashboard
@@ -150,13 +178,16 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 **Key:** Real-time flow never touches database. Stream-first, database-later.
 
 ### Redis Streams Format
-- **Live Ticks:** `ticks:SYMBOL:live`
+- **Live Ticks:** `ticks:SYMBOL:live` — raw tick data from reqMktData
+- **Latest Price:** `price:SYMBOL:latest` — hash with current price/bid/ask (120s TTL)
 - **Market Data:** `market:SYMBOL:TIMEFRAME` (1m, 5m, 15m, 1h, 4h, 1d)
 - **Indicators:** `indicators:SYMBOL:TIMEFRAME`
 - **Patterns:** `patterns:SYMBOL:TIMEFRAME`
 - **Intelligence:** `insights:SYMBOL:TIMEFRAME`
+- **Signals (raw):** `signals:SYMBOL:TIMEFRAME`
+- **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
 
-## Plugin System (33 total)
+## Plugin System (38 total)
 
 ### I1 Technical Indicators (16 plugins)
 All with real incremental `compute_next()` — 141x performance boost:
@@ -180,11 +211,24 @@ All with real incremental `compute_next()` — 141x performance boost:
 ### I6 Cross-Timeframe Confluence (1 plugin)
 - Trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
 
+### I7 Trading Setups — Phase 1 (5 plugins)
+- TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion
+- Regime-adaptive setup detection with signal.v1 schema
+- ATR-based stop/target placement, confluence-weighted confidence scoring
+
+### I7 Signal Aggregation — Phase 1.5 (4 components)
+- **Signal Aggregator** (`src/intelligence/trading/aggregator.py`) — Rules-based conflict resolution with setup priority
+- **Signal Ledger** (`src/intelligence/trading/signal_ledger.py`) — Repository for signal_ledger hypertable (insert/update/query)
+- **Lifecycle Tracker** (`src/intelligence/trading/lifecycle_tracker.py`) — Pure-function state machine (pending→active→exit) with P&L
+- **Position Sizer** (`src/intelligence/trading/position_sizer.py`) — Risk-based contract calculation
+
 ## Development Standards
 
-### Primary Instruments
+### Primary Instruments (14 contracts)
 **Equity Index Futures:** ES (S&P 500), NQ (Nasdaq), RTY (Russell 2000)
-**Commodities:** CL (Crude Oil), NG (Natural Gas), GC (Gold), SI (Silver), HG (Copper), PL (Platinum)
+**Energy:** CL (Crude Oil), NG (Natural Gas)
+**Metals:** GC (Gold), SI (Silver), HG (Copper), PL (Platinum)
+**Interest Rates:** ZN (10-Year T-Note), ZF (5-Year T-Note), ZB (30-Year T-Bond), ZT (2-Year T-Note)
 **Volatility:** VX (VIX Futures)
 
 ### Naming Conventions
@@ -215,15 +259,17 @@ REDIS_URL="redis://localhost:6379/0"
 IBKR_HOST="172.18.176.1"       # WSL: Windows host IP
 IBKR_PORT=7497                 # TWS paper trading
 IBKR_CLIENT_ID=35              # Unique client ID (35+ range)
-OPENROUTER_API_KEY="your_key"  # Future AI integration (optional)
+OLLAMA_BASE_URL="http://localhost:11434"  # Local LLM inference (Docker)
+OLLAMA_DEFAULT_MODEL="qwen3:8b"           # Default model for I8 AI tier
+OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ```
 
 ## Current Development Status
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
-**Plugin System:** 33 registered (16 indicators + 17 patterns/structure/context/smart_money)
-**Test Status:** 178 unit tests passing, 0 ruff errors
-**Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → Redis → SSE → Dashboard (fully wired)
+**Plugin System:** 38 registered (16 indicators + 22 patterns/structure/context/smart_money/trading) + 4 aggregation components
+**Test Status:** 258 unit tests passing, 0 ruff errors
+**Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
 - **I1 Indicators** — 16 plugins with incremental compute_next() — WORKING
@@ -233,12 +279,25 @@ OPENROUTER_API_KEY="your_key"  # Future AI integration (optional)
 - **I5 Patterns** — 4 plugins (RSI div, BB squeeze, vol div, confluence) — WORKING
 - **I6 Smart Money** — 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM) — WORKING
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
-- **I7 Trading Outputs** — Setups and signals — NOT IMPLEMENTED
-- **I8 AI Insights** — LLM synthesis — NOT IMPLEMENTED
+- **I7 Trading Outputs** — 5 Phase 1 plugins (TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion) — WORKING
+- **I7 Signal Aggregation** — Phase 1.5: aggregator, signal ledger, lifecycle tracker, position sizer — WORKING
+- **I8 AI Insights** — LLM synthesis — NOT IMPLEMENTED (Ollama infrastructure ready)
+
+### Local LLM Infrastructure (Ollama)
+5 models available at `http://localhost:11434` (Docker, GPU-accelerated):
+| Model | Size | Family | Quant | Notes |
+|-------|------|--------|-------|-------|
+| `qwen3:8b` | 5.2 GB | Qwen3 | Q4_K_M | **Default** — best quality, built-in thinking mode |
+| `gemma3n:e4b` | 7.5 GB | Gemma3n | Q4_K_M | Google, good general reasoning |
+| `qwen3:4b` | 2.5 GB | Qwen3 | Q4_K_M | Fast variant, thinking mode |
+| `phi4-mini:3.8b` | 2.5 GB | Phi4 | Q4_K_M | Microsoft, fast inference |
+| `deepscaler:1.5b` | 3.6 GB | Qwen2 | F16 | Smallest, math/reasoning focused |
+
+**Note:** Qwen3 models use thinking mode by default — `content` field may be empty if `num_predict` is too low. Use `/no_think` prefix or set `num_predict` ≥ 500 for reliable output. Use the chat API (`/api/chat`) for multi-turn, generate API (`/api/generate`) for single-shot.
 
 ### Development Priorities
 1. **More regime models** — GARCH volatility, Kalman filter trend, chart patterns (see `docs/plans/future-indicators-backlog.md`)
-2. **I7 Trading Outputs** — Setup detection, signal generation, position sizing
+2. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
 3. **I8 AI Intelligence** — LLM interpretation with cost controls
 
 ### Completed Phases
@@ -255,6 +314,8 @@ OPENROUTER_API_KEY="your_key"  # Future AI integration (optional)
 - **I6** — Cross-timeframe confluence: 1 plugin with intelligence_cache
 - **Cleanup** — ~7,500 lines dead code removed across three rounds
 - **Deps** — pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0, Next.js 15.5
+- **I7-P1** — Trading setups Phase 1: 5 plugins, signal schema, SSE wiring, 35 new tests
+- **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
 
 ## Key References
 

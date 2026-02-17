@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..core import DatabaseManager, RedisStreamsManager
 from . import dependencies
-from .routes import health, indicators, market_data, sse
+from .routes import health, indicators, instruments, market_data, sse
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
         )
         dependencies.redis_manager = RedisStreamsManager(redis_client)
         await dependencies.redis_manager.start()
+
+        # Seed instruments table from contract config
+        await dependencies.db_manager.upsert_instruments(settings.contracts)
 
         logger.info("✅ IndicAgent API started successfully")
         yield
@@ -81,6 +84,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(indicators.router, prefix="/indicators", tags=["indicators"])
 app.include_router(market_data.router, prefix="/api", tags=["market-data"])
+app.include_router(instruments.router, prefix="/api", tags=["instruments"])
 app.include_router(sse.router, prefix="/api/sse", tags=["sse"])
 
 
