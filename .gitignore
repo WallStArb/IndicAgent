@@ -273,4 +273,4 @@ dashboard/build/
 dashboard/dist/
 
 # Screenshots
-*.png
+*.png.worktrees/
