@@ -1,0 +1,176 @@
+"""Signal Ledger Repository — data access layer for signal_ledger hypertable.
+
+Provides CRUD operations for persisting trading signals, updating their
+lifecycle status, and querying active signals.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LedgerEntry:
+    """Single row in the signal_ledger hypertable."""
+
+    signal_id: str
+    timestamp: datetime
+    symbol: str
+    timeframe: str
+    setup_plugin: str
+    signal_type: str
+    direction: int
+    entry_price: float
+    stop_loss: float
+    targets: list[float]
+    confidence: float
+    confluence_score: float
+    regime_context: str
+    supporting_factors: list[str]
+    was_selected: bool
+    num_signals_bar: int
+    num_agreeing: int
+    num_conflicting: int
+    resolution_method: str
+    composite_rank: int
+    market_context: dict = field(default_factory=dict)
+    status: str = "pending"
+
+    def to_insert_params(self) -> tuple:
+        """Return a 22-element tuple ready for batch INSERT.
+
+        JSONB columns (targets, supporting_factors, market_context) are
+        serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
+        """
+        return (
+            self.signal_id,
+            self.timestamp,
+            self.symbol,
+            self.timeframe,
+            self.setup_plugin,
+            self.signal_type,
+            self.direction,
+            self.entry_price,
+            self.stop_loss,
+            json.dumps(self.targets),
+            self.confidence,
+            self.confluence_score,
+            self.regime_context,
+            json.dumps(self.supporting_factors),
+            self.was_selected,
+            self.num_signals_bar,
+            self.num_agreeing,
+            self.num_conflicting,
+            self.resolution_method,
+            self.composite_rank,
+            json.dumps(self.market_context),
+            self.status,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Repository functions
+# ---------------------------------------------------------------------------
+
+_INSERT_SQL = """
+INSERT INTO signal_ledger (
+    signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
+    direction, entry_price, stop_loss, targets,
+    confidence, confluence_score, regime_context, supporting_factors,
+    was_selected, num_signals_bar, num_agreeing, num_conflicting,
+    resolution_method, composite_rank, market_context, status
+) VALUES (
+    $1::uuid, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10::jsonb,
+    $11, $12, $13, $14::jsonb,
+    $15, $16, $17, $18,
+    $19, $20, $21::jsonb, $22
+)
+"""
+
+_UPDATE_STATUS_SQL = """
+UPDATE signal_ledger
+SET status = $2,
+    activated_at = $3,
+    exit_at = $4,
+    exit_price = $5,
+    exit_reason = $6,
+    pnl_ticks = $7,
+    pnl_r = $8,
+    pnl_dollars = $9
+WHERE signal_id = $1::uuid
+"""
+
+_SELECT_ACTIVE_SQL = """
+SELECT * FROM signal_ledger
+WHERE status IN ('pending', 'active')
+ORDER BY timestamp DESC
+"""
+
+_SELECT_ACTIVE_BY_SYMBOL_SQL = """
+SELECT * FROM signal_ledger
+WHERE status IN ('pending', 'active') AND symbol = $1
+ORDER BY timestamp DESC
+"""
+
+
+async def insert_signals(
+    db_manager: Any,
+    entries: list[LedgerEntry],
+) -> None:
+    """Batch-insert ledger entries. No-op when *entries* is empty."""
+    if not entries:
+        return
+    params = [entry.to_insert_params() for entry in entries]
+    await db_manager.execute_batch(_INSERT_SQL, params)
+    logger.info("Inserted signals into ledger", count=len(entries))
+
+
+async def update_signal_status(
+    db_manager: Any,
+    signal_id: str,
+    *,
+    status: str,
+    activated_at: datetime | None = None,
+    exit_at: datetime | None = None,
+    exit_price: float | None = None,
+    exit_reason: str | None = None,
+    pnl_ticks: float | None = None,
+    pnl_r: float | None = None,
+    pnl_dollars: float | None = None,
+) -> None:
+    """Update a signal's lifecycle status and optional exit fields."""
+    await db_manager.execute_command(
+        _UPDATE_STATUS_SQL,
+        signal_id,
+        status,
+        activated_at,
+        exit_at,
+        exit_price,
+        exit_reason,
+        pnl_ticks,
+        pnl_r,
+        pnl_dollars,
+    )
+    logger.info("Updated signal status", signal_id=signal_id, status=status)
+
+
+async def get_active_signals(
+    db_manager: Any,
+    symbol: str | None = None,
+) -> list[dict]:
+    """Return pending/active signals, optionally filtered by *symbol*."""
+    if symbol is not None:
+        return await db_manager.execute_query(_SELECT_ACTIVE_BY_SYMBOL_SQL, symbol)
+    return await db_manager.execute_query(_SELECT_ACTIVE_SQL)

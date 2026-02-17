@@ -38,9 +38,13 @@ def signals(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}signals:{symbol}:{timeframe}"
 
 
+def signals_aggregated(env_prefix: str, symbol: str, timeframe: str) -> str:
+    return f"{env_prefix}signals:{symbol}:{timeframe}:aggregated"
+
+
 def get_stream_maxlen(
     timeframe: str,
-    kind: Literal["ticks", "market", "indicators", "intelligence", "signals"],
+    kind: Literal["ticks", "market", "indicators", "intelligence", "signals", "signals_aggregated"],
 ) -> int:
     if kind == "ticks":
         return 20000
@@ -56,6 +60,8 @@ def get_stream_maxlen(
         return 1000
     if kind == "signals":
         return 500
+    if kind == "signals_aggregated":
+        return 200
     return 1000
 
 
