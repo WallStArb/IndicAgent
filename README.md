@@ -131,7 +131,7 @@ uvicorn src.api.main:app --reload
 cd dashboard && npm install && npm run dev
 ```
 
-Health: `curl http://localhost:9109/health` (indicator processor), `curl http://localhost:9110/health` (timeframe builder). See `CLAUDE.md` for full commands and systemd usage.
+Health: `curl http://localhost:9109/health` (indicator processor), `curl http://localhost:9110/health` (timeframe builder). See `docs/for-ai-assistants/CLAUDE.md` for full commands and systemd usage.
 
 ---
 
@@ -206,7 +206,7 @@ More detail: `docs/current-status-and-priorities.md`, `docs/architecture/layered
 
 ## For Developers
 
-- **Conventions and commands:** `CLAUDE.md`  
+- **Conventions and commands:** `docs/for-ai-assistants/CLAUDE.md`  
 - **Stream keys and schemas:** `src/core/stream_keys.py`, `docs/architecture/stream-schemas.md`  
 - **Plugin registry and DAG:** `docs/architecture/plugin-registry-and-dag-execution.md`  
 
