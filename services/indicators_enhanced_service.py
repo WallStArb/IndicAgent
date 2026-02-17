@@ -41,8 +41,7 @@ import pandas as pd
 import redis.asyncio as redis
 import structlog
 
-from config.symbol_config import get_active_contracts
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import market as sk_market

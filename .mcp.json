@@ -7,9 +7,6 @@
         "REF_API_KEY": "${REF_API_KEY}"
       }
     },
-    "semgrep": {
-      "command": "semgrep-mcp"
-    },
     "playwright": {
       "command": "npx",
       "args": ["-y", "@playwright/mcp"]

@@ -38,7 +38,7 @@ import redis.asyncio as redis
 import structlog
 from aiohttp import web, web_request
 
-from config.symbol_config import get_active_contracts
+from src.config.settings import get_active_contracts
 
 # Import our components
 from src.core.redis_streams_manager import RedisStreamsManager

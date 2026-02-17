@@ -23,6 +23,10 @@ class IBKRContract(BaseModel):
     base: str
     exchange: str
     expiry: str
+    name: str = ""
+    point_value: float = 0
+    tick_size: float = 0
+    sector: str = ""
 
 
 class Settings(BaseSettings):
@@ -73,23 +77,73 @@ class Settings(BaseSettings):
             except Exception:
                 # Fall through to defaults
                 pass
-        # Defaults: All configured futures contracts (10 total)
+        # Defaults: All configured futures contracts (14 total)
         # Front-month contracts as of Feb 2026
         return [
             # Equity Index Futures — March 2026 (H6)
-            IBKRContract(symbol="ESH6", base="ES", exchange="CME", expiry="20260320"),
-            IBKRContract(symbol="NQH6", base="NQ", exchange="CME", expiry="20260320"),
-            IBKRContract(symbol="RTYH6", base="RTY", exchange="CME", expiry="20260320"),
+            IBKRContract(
+                symbol="ESH6", base="ES", exchange="CME", expiry="20260320",
+                name="E-mini S&P 500", point_value=50, tick_size=0.25, sector="equity_index",
+            ),
+            IBKRContract(
+                symbol="NQH6", base="NQ", exchange="CME", expiry="20260320",
+                name="E-mini Nasdaq", point_value=20, tick_size=0.25, sector="equity_index",
+            ),
+            IBKRContract(
+                symbol="RTYH6", base="RTY", exchange="CME", expiry="20260320",
+                name="E-mini Russell 2000", point_value=50, tick_size=0.10, sector="equity_index",
+            ),
             # Energy Futures — March/April 2026
-            IBKRContract(symbol="CLH6", base="CL", exchange="NYMEX", expiry="20260220"),
-            IBKRContract(symbol="NGH6", base="NG", exchange="NYMEX", expiry="20260225"),
+            IBKRContract(
+                symbol="CLH6", base="CL", exchange="NYMEX", expiry="20260220",
+                name="Crude Oil WTI", point_value=1000, tick_size=0.01, sector="energy",
+            ),
+            IBKRContract(
+                symbol="NGH6", base="NG", exchange="NYMEX", expiry="20260225",
+                name="Natural Gas", point_value=10000, tick_size=0.001, sector="energy",
+            ),
             # Precious & Industrial Metals — April 2026
-            IBKRContract(symbol="GCJ6", base="GC", exchange="COMEX", expiry="20260428"),
-            IBKRContract(symbol="SIH6", base="SI", exchange="COMEX", expiry="20260327"),
-            IBKRContract(symbol="HGH6", base="HG", exchange="COMEX", expiry="20260327"),
-            IBKRContract(symbol="PLJ6", base="PL", exchange="NYMEX", expiry="20260428"),
+            IBKRContract(
+                symbol="GCJ6", base="GC", exchange="COMEX", expiry="20260428",
+                name="Gold", point_value=100, tick_size=0.10, sector="metals",
+            ),
+            IBKRContract(
+                symbol="SIH6", base="SI", exchange="COMEX", expiry="20260327",
+                name="Silver", point_value=5000, tick_size=0.005, sector="metals",
+            ),
+            IBKRContract(
+                symbol="HGH6", base="HG", exchange="COMEX", expiry="20260327",
+                name="Copper", point_value=25000, tick_size=0.0005, sector="metals",
+            ),
+            IBKRContract(
+                symbol="PLJ6", base="PL", exchange="NYMEX", expiry="20260428",
+                name="Platinum", point_value=50, tick_size=0.10, sector="metals",
+            ),
             # Volatility — March 2026 (IBKR uses "VIX" not "VX")
-            IBKRContract(symbol="VXH6", base="VIX", exchange="CFE", expiry="20260318"),
+            IBKRContract(
+                symbol="VXH6", base="VIX", exchange="CFE", expiry="20260318",
+                name="CBOE VIX Futures", point_value=1000, tick_size=0.05, sector="volatility",
+            ),
+            # Interest Rate Futures — March 2026
+            IBKRContract(
+                symbol="ZNH6", base="ZN", exchange="CBOT", expiry="20260320",
+                name="10-Year T-Note", point_value=1000,
+                tick_size=0.015625, sector="interest_rates",
+            ),
+            IBKRContract(
+                symbol="ZFH6", base="ZF", exchange="CBOT", expiry="20260331",
+                name="5-Year T-Note", point_value=1000,
+                tick_size=0.0078125, sector="interest_rates",
+            ),
+            IBKRContract(
+                symbol="ZBH6", base="ZB", exchange="CBOT", expiry="20260320",
+                name="30-Year T-Bond", point_value=1000, tick_size=0.03125, sector="interest_rates",
+            ),
+            IBKRContract(
+                symbol="ZTH6", base="ZT", exchange="CBOT", expiry="20260331",
+                name="2-Year T-Note", point_value=2000,
+                tick_size=0.0078125, sector="interest_rates",
+            ),
         ]
 
     @field_validator("ib_host", mode="before")
@@ -106,3 +160,57 @@ class Settings(BaseSettings):
             return v
         port = os.getenv("IBKR_PORT") or os.getenv("IB_PORT")
         return int(port) if port else None
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers — drop-in replacements for config.symbol_config
+# ---------------------------------------------------------------------------
+
+_settings_singleton: Settings | None = None
+
+
+def _default_settings() -> Settings:
+    """Lazily create a module-level Settings instance."""
+    global _settings_singleton  # noqa: PLW0603
+    if _settings_singleton is None:
+        _settings_singleton = Settings()
+    return _settings_singleton
+
+
+def get_active_contracts(settings: Settings | None = None) -> list[str]:
+    """Return active contract symbol strings (e.g. ['ESH6', 'NQH6', ...])."""
+    s = settings or _default_settings()
+    return [c.symbol for c in s.contracts]
+
+
+def get_base_symbols(settings: Settings | None = None) -> list[str]:
+    """Return unique base symbols (e.g. ['ES', 'NQ', ...])."""
+    s = settings or _default_settings()
+    seen: set[str] = set()
+    result: list[str] = []
+    for c in s.contracts:
+        if c.base not in seen:
+            seen.add(c.base)
+            result.append(c.base)
+    return result
+
+
+def get_contract_info(symbol: str, settings: Settings | None = None) -> IBKRContract | None:
+    """Lookup contract by symbol (e.g. 'ESH6') or base (e.g. 'ES')."""
+    s = settings or _default_settings()
+    for c in s.contracts:
+        if c.symbol == symbol or c.base == symbol:
+            return c
+    return None
+
+
+def get_point_value(symbol: str, settings: Settings | None = None) -> float | None:
+    """Get point value for a contract symbol or base symbol."""
+    c = get_contract_info(symbol, settings)
+    return c.point_value if c else None
+
+
+def get_tick_size(symbol: str, settings: Settings | None = None) -> float | None:
+    """Get tick size for a contract symbol or base symbol."""
+    c = get_contract_info(symbol, settings)
+    return c.tick_size if c else None
