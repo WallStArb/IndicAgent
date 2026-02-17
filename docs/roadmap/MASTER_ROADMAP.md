@@ -463,7 +463,7 @@ Use this framework to prioritize when multiple options exist:
 
 ## Archive References
 
-**Completed Plans (Moved to `docs/plans/archive/`):**
+**Completed Plans (Moved to `docs/_archive/designs/`):**
 - All `-implementation.md` files for completed features
 - Individual plugin design docs (smart money, BOCPD, HMM already built)
 
