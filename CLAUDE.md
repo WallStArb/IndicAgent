@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.1.0
-Last Updated: 2026-02-16
-Status: I1-I7 Phase 1 complete — 38 plugins, 213 tests, full pipeline operational
+Version: 4.2.0
+Last Updated: 2026-02-17
+Status: I1-I7 Phase 1.5 complete — 38 plugins + 4 aggregation components, 258 tests, full pipeline operational
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -77,7 +77,7 @@ python production/scripts/simple_seeder.py --client-id 55 --days 7
 ### Development & Testing
 ```bash
 # Run tests
-python -m pytest tests/unit/ -v                  # Unit tests (178 passing)
+python -m pytest tests/unit/ -v                  # Unit tests (258 passing)
 python -m pytest tests/integration/ -v           # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -184,6 +184,8 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 - **Indicators:** `indicators:SYMBOL:TIMEFRAME`
 - **Patterns:** `patterns:SYMBOL:TIMEFRAME`
 - **Intelligence:** `insights:SYMBOL:TIMEFRAME`
+- **Signals (raw):** `signals:SYMBOL:TIMEFRAME`
+- **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
 
 ## Plugin System (38 total)
 
@@ -213,6 +215,12 @@ All with real incremental `compute_next()` — 141x performance boost:
 - TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion
 - Regime-adaptive setup detection with signal.v1 schema
 - ATR-based stop/target placement, confluence-weighted confidence scoring
+
+### I7 Signal Aggregation — Phase 1.5 (4 components)
+- **Signal Aggregator** (`src/intelligence/trading/aggregator.py`) — Rules-based conflict resolution with setup priority
+- **Signal Ledger** (`src/intelligence/trading/signal_ledger.py`) — Repository for signal_ledger hypertable (insert/update/query)
+- **Lifecycle Tracker** (`src/intelligence/trading/lifecycle_tracker.py`) — Pure-function state machine (pending→active→exit) with P&L
+- **Position Sizer** (`src/intelligence/trading/position_sizer.py`) — Risk-based contract calculation
 
 ## Development Standards
 
@@ -259,8 +267,8 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ## Current Development Status
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
-**Plugin System:** 38 registered (16 indicators + 22 patterns/structure/context/smart_money/trading)
-**Test Status:** 213 unit tests passing, 0 ruff errors
+**Plugin System:** 38 registered (16 indicators + 22 patterns/structure/context/smart_money/trading) + 4 aggregation components
+**Test Status:** 258 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
@@ -272,6 +280,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I6 Smart Money** — 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM) — WORKING
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
 - **I7 Trading Outputs** — 5 Phase 1 plugins (TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion) — WORKING
+- **I7 Signal Aggregation** — Phase 1.5: aggregator, signal ledger, lifecycle tracker, position sizer — WORKING
 - **I8 AI Insights** — LLM synthesis — NOT IMPLEMENTED (Ollama infrastructure ready)
 
 ### Local LLM Infrastructure (Ollama)
@@ -288,7 +297,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 
 ### Development Priorities
 1. **More regime models** — GARCH volatility, Kalman filter trend, chart patterns (see `docs/plans/future-indicators-backlog.md`)
-2. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns), signal aggregation
+2. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
 3. **I8 AI Intelligence** — LLM interpretation with cost controls
 
 ### Completed Phases
@@ -306,6 +315,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **Cleanup** — ~7,500 lines dead code removed across three rounds
 - **Deps** — pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0, Next.js 15.5
 - **I7-P1** — Trading setups Phase 1: 5 plugins, signal schema, SSE wiring, 35 new tests
+- **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
 
 ## Key References
 
