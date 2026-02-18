@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils import find_peaks, find_troughs
 
 
 @dataclass
@@ -45,16 +46,13 @@ class SupportResistancePlugin:
         current_price = float(close[-1])
         n_bars = len(df)
 
-        # Detect pivot highs and lows — track (price, bar_index) tuples
-        pivot_highs: list[tuple[float, int]] = []
-        pivot_lows: list[tuple[float, int]] = []
+        # Detect pivot highs and lows using shared vectorized functions
         w = self.window
+        peak_indices = find_peaks(high, n=w)
+        trough_indices = find_troughs(low, n=w)
 
-        for i in range(w, len(high) - w):
-            if high[i] == np.max(high[i - w : i + w + 1]):
-                pivot_highs.append((float(high[i]), i))
-            if low[i] == np.min(low[i - w : i + w + 1]):
-                pivot_lows.append((float(low[i]), i))
+        pivot_highs = [(float(high[i]), i) for i in peak_indices]
+        pivot_lows = [(float(low[i]), i) for i in trough_indices]
 
         # Cluster nearby levels
         resistance_clusters = self._cluster_levels(pivot_highs, current_price)
