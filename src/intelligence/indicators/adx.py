@@ -46,21 +46,21 @@ class ADXPlugin:
         close = df["close"].to_numpy(dtype=float)
         out: dict[str, Any] = {}
         for p in self.periods:
-            adx, plus_di, minus_di = self._adx_np(high, low, close, p)
+            adx, plus_di, minus_di, state = self._adx_np(high, low, close, p)
             if adx is not None:
                 out[f"adx_{p}"] = adx
                 out[f"plus_di_{p}"] = plus_di
                 out[f"minus_di_{p}"] = minus_di
-        self._seed_state(frames)
+                self._state[f"adx_{p}"] = state
         return out
 
     def _adx_np(
         self, high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int
-    ) -> tuple[float | None, float, float]:
-        """Compute ADX using Wilder's smoothing."""
+    ) -> tuple[float | None, float, float, dict[str, Any]]:
+        """Compute ADX using Wilder's smoothing. Returns (adx, +DI, -DI, state)."""
         n = len(high)
         if n < period * 2 + 1:
-            return None, 0.0, 0.0
+            return None, 0.0, 0.0, {}
 
         # Directional Movement
         plus_dm = np.zeros(n)
@@ -105,7 +105,7 @@ class ADXPlugin:
             dx_values.append(dx)
 
         if len(dx_values) < period:
-            return None, 0.0, 0.0
+            return None, 0.0, 0.0, {}
 
         # ADX: Wilder's smoothing of DX
         adx = float(np.mean(dx_values[:period]))
@@ -120,77 +120,17 @@ class ADXPlugin:
             final_plus_di = 100.0 * smoothed_plus_dm / smoothed_tr
             final_minus_di = 100.0 * smoothed_minus_dm / smoothed_tr
 
-        return float(adx), float(final_plus_di), float(final_minus_di)
+        state = {
+            "smoothed_plus_dm": smoothed_plus_dm,
+            "smoothed_minus_dm": smoothed_minus_dm,
+            "smoothed_tr": smoothed_tr,
+            "adx": adx,
+            "prev_high": float(high[-1]),
+            "prev_low": float(low[-1]),
+            "prev_close": float(close[-1]),
+        }
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
-        """Extract Wilder's smoothing state for incremental updates."""
-        df = frames.get("main")
-        if df is None:
-            return
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
-        close = df["close"].to_numpy(dtype=float)
-        n = len(high)
-
-        for p in self.periods:
-            if n < p * 2 + 1:
-                continue
-            alpha = 1.0 / p
-
-            plus_dm = np.zeros(n)
-            minus_dm = np.zeros(n)
-            tr = np.zeros(n)
-            tr[0] = high[0] - low[0]
-
-            for i in range(1, n):
-                up_move = high[i] - high[i - 1]
-                down_move = low[i - 1] - low[i]
-                plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
-                minus_dm[i] = (
-                    down_move if (down_move > up_move and down_move > 0) else 0.0
-                )
-                tr[i] = max(
-                    high[i] - low[i],
-                    abs(high[i] - close[i - 1]),
-                    abs(low[i] - close[i - 1]),
-                )
-
-            smoothed_plus_dm = float(np.mean(plus_dm[1 : p + 1]))
-            smoothed_minus_dm = float(np.mean(minus_dm[1 : p + 1]))
-            smoothed_tr = float(np.mean(tr[1 : p + 1]))
-
-            dx_values = []
-            for i in range(p + 1, n):
-                smoothed_plus_dm = (1 - alpha) * smoothed_plus_dm + alpha * plus_dm[i]
-                smoothed_minus_dm = (
-                    (1 - alpha) * smoothed_minus_dm + alpha * minus_dm[i]
-                )
-                smoothed_tr = (1 - alpha) * smoothed_tr + alpha * tr[i]
-
-                if smoothed_tr == 0:
-                    pdi = 0.0
-                    mdi = 0.0
-                else:
-                    pdi = 100.0 * smoothed_plus_dm / smoothed_tr
-                    mdi = 100.0 * smoothed_minus_dm / smoothed_tr
-
-                di_sum = pdi + mdi
-                dx = 100.0 * abs(pdi - mdi) / di_sum if di_sum != 0 else 0.0
-                dx_values.append(dx)
-
-            adx = float(np.mean(dx_values[:p]))
-            for dx in dx_values[p:]:
-                adx = (1 - alpha) * adx + alpha * dx
-
-            self._state[f"adx_{p}"] = {
-                "smoothed_plus_dm": smoothed_plus_dm,
-                "smoothed_minus_dm": smoothed_minus_dm,
-                "smoothed_tr": smoothed_tr,
-                "adx": adx,
-                "prev_high": float(high[-1]),
-                "prev_low": float(low[-1]),
-                "prev_close": float(close[-1]),
-            }
+        return float(adx), float(final_plus_di), float(final_minus_di), state
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         if not self._state:
