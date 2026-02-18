@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -45,5 +46,5 @@ def find_troughs(data: np.ndarray, n: int) -> list[int]:
 
 
 def is_num(x: Any) -> bool:
-    """Check if value is a valid finite numeric type."""
-    return isinstance(x, int | float)
+    """Check if value is a valid finite numeric type (rejects NaN and Inf)."""
+    return isinstance(x, int | float) and math.isfinite(x)

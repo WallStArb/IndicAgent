@@ -92,3 +92,18 @@ class TestIsNum:
     def test_bool_is_int_subclass(self):
         # In Python, bool is a subclass of int — is_num returns True
         assert is_num(True) is True
+
+    def test_nan_rejected(self):
+        assert is_num(float("nan")) is False
+
+    def test_inf_rejected(self):
+        assert is_num(float("inf")) is False
+
+    def test_negative_inf_rejected(self):
+        assert is_num(float("-inf")) is False
+
+    def test_zero(self):
+        assert is_num(0) is True
+
+    def test_negative_float(self):
+        assert is_num(-3.14) is True
