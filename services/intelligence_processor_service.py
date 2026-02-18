@@ -360,7 +360,7 @@ class IntelligenceProcessorService:
 
             if intelligence:
                 await self._publish_intelligence(
-                    symbol, timeframe, intelligence, bar_data["timestamp"]
+                    symbol, timeframe, intelligence, bar_data["timestamp"], bar_data
                 )
                 await self._persist_intelligence(
                     symbol, timeframe, intelligence, bar_data["timestamp"]
@@ -591,6 +591,7 @@ class IntelligenceProcessorService:
         timeframe: str,
         intelligence: dict[str, Any],
         timestamp: datetime,
+        bar_data: dict[str, Any] | None = None,
     ) -> None:
         stream_name = sk_intelligence(self.env_prefix, symbol, timeframe)
         message: dict[str, str] = {
@@ -598,6 +599,13 @@ class IntelligenceProcessorService:
             "symbol": symbol,
             "timeframe": timeframe,
         }
+        # Include raw bar OHLCV so downstream services need only one stream
+        if bar_data:
+            message["open"]   = str(bar_data.get("open", ""))
+            message["high"]   = str(bar_data.get("high", ""))
+            message["low"]    = str(bar_data.get("low", ""))
+            message["close"]  = str(bar_data.get("close", ""))
+            message["volume"] = str(bar_data.get("volume", ""))
         for k, v in intelligence.items():
             message[k] = str(v)
 
