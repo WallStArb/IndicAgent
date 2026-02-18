@@ -24,6 +24,7 @@ from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
 from .patterns.confluence import plugin as confluence_plugin
+from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.rsi_divergence import plugin as rsi_div_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
 from .plugins import registry
@@ -66,6 +67,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(squeeze_plugin)
     registry.register_pattern(vol_div_plugin)
     registry.register_pattern(confluence_plugin)
+    registry.register_pattern(trend_confluence_plugin)
 
     registry.register_pattern(swing_plugin)
     registry.register_pattern(sr_plugin)
