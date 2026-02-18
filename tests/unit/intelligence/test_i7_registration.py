@@ -23,6 +23,6 @@ class TestI7Registration:
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 16 indicators + 22 patterns = 38 total."""
+        """Should have 17 indicators + 22 patterns = 39 total (after Supertrend; grows to 41 with GARCH + TrendConfluence)."""
         total = len(registry.indicators) + len(registry.patterns)
-        assert total == 38, f"Expected 38, got {total} (indicators={len(registry.indicators)}, patterns={len(registry.patterns)})"
+        assert total == 39, f"Expected 39, got {total} (indicators={len(registry.indicators)}, patterns={len(registry.patterns)})"

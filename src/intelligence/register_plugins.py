@@ -18,6 +18,7 @@ from .indicators.obv import plugin as obv_plugin
 from .indicators.roc_ppo import plugin as roc_ppo_plugin
 from .indicators.rsi import plugin as rsi_plugin
 from .indicators.stochastic import plugin as stoch_plugin
+from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
@@ -54,6 +55,7 @@ def register_all_plugins() -> None:
     registry.register_indicator(mfi_plugin)
     registry.register_indicator(obv_plugin)
     registry.register_indicator(vwap_plugin)
+    registry.register_indicator(supertrend_plugin)
     registry.register_indicator(adx_plugin)
     registry.register_indicator(keltner_plugin)
     registry.register_indicator(donchian_plugin)

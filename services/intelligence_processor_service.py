@@ -63,6 +63,7 @@ I1_PLUGINS = [
     "MFI",
     "OBV",
     "VWAP",
+    "Supertrend",
 ]
 
 I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
