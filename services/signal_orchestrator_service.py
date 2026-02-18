@@ -21,7 +21,7 @@ import signal
 import sys
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -38,7 +38,6 @@ import structlog  # noqa: E402
 from src.config.settings import Settings, get_point_value  # noqa: E402
 from src.core.database_manager import DatabaseManager  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
-    intelligence_pattern,
     signals_aggregated,
 )
 from src.intelligence.plugins import registry  # noqa: E402
@@ -197,7 +196,7 @@ class SignalOrchestratorService:
     def __init__(self, config_file: str | None = None):
         self.running = False
         self.shutdown_requested = False
-        self.start_time = datetime.now(tz=timezone.utc)
+        self.start_time = datetime.now(tz=UTC)
 
         self.config = self._load_config(config_file)
         self._setup_logging()
@@ -613,7 +612,7 @@ class SignalOrchestratorService:
     ) -> None:
         try:
             raw_ts = fields.get(b"timestamp", b"").decode()
-            timestamp = datetime.fromisoformat(raw_ts) if raw_ts else datetime.now(tz=timezone.utc)
+            timestamp = datetime.fromisoformat(raw_ts) if raw_ts else datetime.now(tz=UTC)
 
             bar, features = parse_intelligence_message(fields)
 
@@ -644,7 +643,7 @@ class SignalOrchestratorService:
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
             try:
-                uptime = int((datetime.now(tz=timezone.utc) - self.start_time).total_seconds())
+                uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 interval = self.config["service"]["health_check_interval"]
                 if uptime % interval == 0:
