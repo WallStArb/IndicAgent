@@ -67,7 +67,7 @@ I1_PLUGINS = [
 ]
 
 I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
-I4_PLUGINS = ["ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext"]
+I4_PLUGINS = ["ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext", "ctx_GARCHVolatility"]
 I5_PLUGINS = ["RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence"]
 SMC_PLUGINS = [
     "smc_BOSCHoCH",

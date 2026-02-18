@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .composites.ma_composites import plugin as ma_compare_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
+from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
@@ -73,6 +74,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(vol_regime_plugin)
     registry.register_pattern(trend_regime_plugin)
     registry.register_pattern(momentum_ctx_plugin)
+    registry.register_pattern(garch_vol_plugin)
 
     registry.register_pattern(bos_choch_plugin)
     registry.register_pattern(fvg_plugin)
