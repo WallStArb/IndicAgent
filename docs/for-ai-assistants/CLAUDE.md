@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.2.0
-Last Updated: 2026-02-17
-Status: I1-I7 Phase 1.5 complete — 38 plugins + 4 aggregation components, 258 tests, full pipeline operational
+Version: 4.3.0
+Last Updated: 2026-02-18
+Status: I1-I7 Phase 2 signal orchestration active — 38 plugins + 4 aggregation components + SignalOrchestrator, 277 tests, data collection live
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -62,6 +62,7 @@ curl http://localhost:9109/health    # Indicator Processor health
 curl http://localhost:9109/metrics   # Indicator Processor metrics (Prometheus)
 curl http://localhost:9110/health    # Timeframe Builder health
 curl http://localhost:9110/metrics   # Timeframe Builder metrics (Prometheus)
+curl http://localhost:9112/metrics   # Signal Orchestrator metrics (Prometheus)
 
 # Individual services
 python production/daemons/high_frequency_tws_daemon.py --client-id 35  # High-freq data (use unique client ID)
@@ -69,6 +70,7 @@ python services/indicators_processor_service.py --config config/indicator_proces
 python services/indicators_enhanced_service.py --config config/enhanced_indicator_processor.json  # 141x faster incremental calculations
 python services/timeframes_builder_service.py --config config/timeframe_builder_service.json
 python services/coordination_parallel_service.py --config config/parallel_coordinator.json  # Service coordination
+python services/signal_orchestrator_service.py --config config/signal_orchestrator.json  # I7 signal orchestration
 
 # Historical data seeding
 python production/scripts/simple_seeder.py --client-id 55 --days 7
@@ -117,6 +119,7 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 - `services/indicators_enhanced_service.py` - Enhanced service with incremental calculations (141x faster)
 - `services/timeframes_builder_service.py` - Multi-timeframe aggregation service (Health: `:9110/health`)
 - `services/coordination_parallel_service.py` - Parallel service coordination
+- `services/signal_orchestrator_service.py` - I7 signal orchestration: runs plugins, aggregates, persists to signal_ledger, tracks lifecycle (Health: `:9112/metrics`)
 - `src/api/main.py` - FastAPI backend with health monitoring and SSE support
 - `src/api/routes/sse.py` - Server-Sent Events for real-time dashboard communication
 - `dashboard/` - Next.js React dashboard with live visualization
@@ -183,7 +186,7 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 - **Market Data:** `market:SYMBOL:TIMEFRAME` (1m, 5m, 15m, 1h, 4h, 1d)
 - **Indicators:** `indicators:SYMBOL:TIMEFRAME`
 - **Patterns:** `patterns:SYMBOL:TIMEFRAME`
-- **Intelligence:** `insights:SYMBOL:TIMEFRAME`
+- **Intelligence:** `intelligence:SYMBOL:TIMEFRAME` — includes OHLCV + all feature fields (enriched 2026-02-18)
 - **Signals (raw):** `signals:SYMBOL:TIMEFRAME`
 - **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
 
@@ -248,6 +251,8 @@ All with real incremental `compute_next()` — 141x performance boost:
 - **Data Architecture**: Hot/warm/cold. Never write to database in hot path.
 - **IBKR**: Tick list `"233"` for futures. Unique client IDs (35+ range). IBKR uses "VIX" not "VX" for VIX futures symbol.
 - **Plugin protocol**: All plugins use `PatternPlugin` protocol. Register via `registry.register_indicator()` or `registry.register_pattern()` in `register_plugins.py`. Access via `registry.indicators` / `registry.patterns` (not private `_indicators`).
+- **Git worktrees**: Use `git -C /absolute/path/to/worktree` — never relative `.worktrees/path` (gitignored, silently resolves to parent repo).
+- **Pytest**: Use `.venv/bin/pytest` not `python -m pytest` (no module). Integration tests have pre-existing failures needing live infra — only unit tests are CI-clean.
 - **References**: Stream schemas: `docs/architecture/stream-schemas.md`. Intelligence tiers: `docs/architecture/intelligence-tiers.md`.
 
 ## Environment Variables
@@ -268,7 +273,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
 **Plugin System:** 38 registered (16 indicators + 22 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 258 unit tests passing, 0 ruff errors
+**Test Status:** 277 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
@@ -281,6 +286,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
 - **I7 Trading Outputs** — 5 Phase 1 plugins (TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion) — WORKING
 - **I7 Signal Aggregation** — Phase 1.5: aggregator, signal ledger, lifecycle tracker, position sizer — WORKING
+- **I7 Signal Orchestrator** — `SignalOrchestratorService`: runs 5 I7 plugins per bar, aggregates, persists all signals to `signal_ledger`, tracks lifecycle — WORKING (data collection active)
 - **I8 AI Insights** — LLM synthesis — NOT IMPLEMENTED (Ollama infrastructure ready)
 
 ### Local LLM Infrastructure (Ollama)
@@ -316,6 +322,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **Deps** — pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0, Next.js 15.5
 - **I7-P1** — Trading setups Phase 1: 5 plugins, signal schema, SSE wiring, 35 new tests
 - **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
+- **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
 
 ## Key References
 
