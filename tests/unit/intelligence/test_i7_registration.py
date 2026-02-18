@@ -25,4 +25,6 @@ class TestI7Registration:
     def test_total_plugin_count(self):
         """Should have 17 indicators + 24 patterns = 41 total (v4.3.0)."""
         total = len(registry.indicators) + len(registry.patterns)
-        assert total == 41, f"Expected 41, got {total} (indicators={len(registry.indicators)}, patterns={len(registry.patterns)})"
+        n_ind = len(registry.indicators)
+        n_pat = len(registry.patterns)
+        assert total == 41, f"Expected 41, got {total} (indicators={n_ind}, patterns={n_pat})"

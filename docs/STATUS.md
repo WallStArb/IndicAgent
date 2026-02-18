@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-17
-> **Version:** 4.2.0
-> **Phase:** I7 Phase 1.5 Complete
+> **Last Updated:** 2026-02-18
+> **Version:** 4.3.0
+> **Phase:** I1-I5 Uplift Complete
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I7)
-**Test Coverage:** 258 tests passing, 0 lint errors
+**Test Coverage:** 309 unit tests passing, 0 lint errors
 **Data Collection:** Active (ES, NQ, RTY + 11 more contracts)
 
 ---
@@ -33,18 +33,18 @@
 
 | Tier | Name | Plugins | Status | Details |
 |------|------|---------|--------|---------|
-| I1 | Technical Indicators | 16 | COMPLETE | [Reference](reference/plugins/i1-indicators.md) |
+| I1 | Technical Indicators | 17 | COMPLETE | [Reference](reference/plugins/i1-indicators.md) |
 | I2 | Composite Indicators | — | COMPLETE | Built-in (crossovers, slopes) |
 | I3 | Market Structure | 3 | COMPLETE | [Reference](reference/plugins/i3-structure.md) |
-| I4 | Context Classification | 3 | COMPLETE | [Reference](reference/plugins/i4-context.md) |
-| I5 | Pattern Detection | 4 | COMPLETE | [Reference](reference/plugins/i5-patterns.md) |
+| I4 | Context Classification | 4 | COMPLETE | [Reference](reference/plugins/i4-context.md) |
+| I5 | Pattern Detection | 5 | COMPLETE | [Reference](reference/plugins/i5-patterns.md) |
 | I6 | Smart Money Concepts | 6 | COMPLETE | [Reference](reference/plugins/i6-smart-money.md) |
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE | [Reference](reference/plugins/i6-smart-money.md) |
 | I7 | Trading Setups | 5 | PHASE_1_COMPLETE | [Reference](reference/plugins/i7-trading.md) |
 | I7 | Signal Aggregation | 4 components | PHASE_1.5_BUILT | Not wired to services |
 | I8 | AI Intelligence | 0 | NOT_STARTED | [Roadmap](roadmap/MASTER_ROADMAP.md#phase-9) |
 
-**Total Plugins:** 38 registered
+**Total Plugins:** 41 registered
 
 ---
 
@@ -99,6 +99,18 @@ See [MASTER_ROADMAP.md](roadmap/MASTER_ROADMAP.md) for detailed priorities.
 ---
 
 ## Recent Changes
+
+### 2026-02-18 (v4.3.0)
+- FIX `is_num` NaN/Inf vulnerability (math.isfinite guard)
+- FIX VWAP session reset on date boundary + add SD bands (±1σ, ±2σ)
+- FIX TrendRegime consumes upstream sma_20/sma_50 from features
+- PERF Vectorize find_peaks/find_troughs with numpy (~50-100x speedup)
+- REFACTOR ADX deduplication — single-pass computation (remove _seed_state)
+- REFACTOR SupportResistance uses shared vectorized peak detection
+- ADD Supertrend indicator (ATR-based binary trend direction, I1)
+- ADD GARCH(1,1) volatility forecast (conditional vol + regime, I4)
+- ADD TrendConfluence pattern (6-signal trend aggregation, I5)
+- TEST +51 new unit tests (258 → 309 total)
 
 ### 2026-02-17 (v4.2.0)
 - COMPLETE I7 Phase 1.5: Signal aggregation components (aggregator, ledger, lifecycle, sizer)

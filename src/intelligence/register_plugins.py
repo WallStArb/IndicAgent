@@ -24,8 +24,8 @@ from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
 from .patterns.confluence import plugin as confluence_plugin
-from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.rsi_divergence import plugin as rsi_div_plugin
+from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
 from .plugins import registry
 from .smart_money.bocpd_changepoint import plugin as bocpd_plugin

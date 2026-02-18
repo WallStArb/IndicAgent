@@ -95,7 +95,9 @@ class TestTrendConfluence:
         }
         plugin = TrendConfluencePlugin()
         result = plugin.compute_full({"features": features})
-        expected_strength = abs(result["trend_confluence_score"]) * result["trend_confluence_agreement"]
+        expected_strength = (
+            abs(result["trend_confluence_score"]) * result["trend_confluence_agreement"]
+        )
         assert abs(result["trend_confluence_strength"] - expected_strength) < 1e-6
 
     def test_output_keys(self):

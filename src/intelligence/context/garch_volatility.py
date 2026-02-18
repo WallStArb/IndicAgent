@@ -123,7 +123,9 @@ class GARCHVolatilityPlugin:
 
         realized_returns = deque(s["realized_returns"], maxlen=20)
         realized_returns.append(epsilon)
-        realized_vol = float(np.std(list(realized_returns))) if len(realized_returns) >= 2 else garch_sigma
+        realized_vol = (
+            float(np.std(list(realized_returns))) if len(realized_returns) >= 2 else garch_sigma
+        )
 
         vol_ratio = garch_sigma / realized_vol if realized_vol > 1e-10 else 1.0
 

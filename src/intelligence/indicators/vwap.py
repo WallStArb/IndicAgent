@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
-
-import math
 
 import numpy as np
 import pandas as pd
@@ -25,7 +24,8 @@ class VWAPPlugin:
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = frames.get("main")
-        if df is None or len(df) == 0 or not {"high", "low", "close", "volume"}.issubset(df.columns):
+        required = {"high", "low", "close", "volume"}
+        if df is None or len(df) == 0 or not required.issubset(df.columns):
             return {}
 
         # Detect session boundary: use last day's data only
