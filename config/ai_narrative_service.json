@@ -1,0 +1,24 @@
+{
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "db": 0
+  },
+  "service": {
+    "symbols": ["ESH6", "NQH6", "RTYH6"],
+    "timeframes": ["5m", "15m"],
+    "processing_interval": 0.1,
+    "health_check_interval": 30
+  },
+  "ollama": {
+    "base_url": "http://localhost:11434",
+    "model": "qwen3:8b",
+    "timeout_sec": 15.0
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/ai_narrative.log",
+    "max_size": "10MB",
+    "backup_count": 5
+  }
+}

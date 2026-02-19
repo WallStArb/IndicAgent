@@ -48,7 +48,10 @@ def narratives(env_prefix: str, symbol: str, timeframe: str) -> str:
 
 def get_stream_maxlen(
     timeframe: str,
-    kind: Literal["ticks", "market", "indicators", "intelligence", "signals", "signals_aggregated", "narratives"],
+    kind: Literal[
+        "ticks", "market", "indicators", "intelligence",
+        "signals", "signals_aggregated", "narratives",
+    ],
 ) -> int:
     if kind == "ticks":
         return 20000
