@@ -97,3 +97,7 @@ def signals_pattern(env_prefix: str) -> str:
 
 def patterns_pattern(env_prefix: str) -> str:
     return f"{env_prefix}patterns:*"
+
+
+def narratives_pattern(env_prefix: str) -> str:
+    return f"{env_prefix}narratives:*:*"
