@@ -341,8 +341,10 @@ class IntelligenceProcessorService:
         message_id: bytes,
     ) -> None:
         try:
+            bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
+            bar_source = fields.get(b"source", b"").decode()
             bar_data = {
-                "timestamp": datetime.fromisoformat(fields[b"timestamp"].decode()),
+                "timestamp": bar_ts,
                 "open": float(fields[b"open"].decode()),
                 "high": float(fields[b"high"].decode()),
                 "low": float(fields[b"low"].decode()),
@@ -351,7 +353,18 @@ class IntelligenceProcessorService:
             }
 
             key = f"{symbol}:{timeframe}"
-            self.bar_history[key].append(bar_data)
+            history = self.bar_history[key]
+
+            if bar_source == "authoritative":
+                # Correction: update history, skip pipeline
+                if history and history[-1]["timestamp"] == bar_ts:
+                    history[-1] = bar_data  # in-place correction
+                else:
+                    history.append(bar_data)  # no prior provisional; add to history
+                await self.redis_client.xack(stream_name, self.consumer_group, message_id)
+                return
+
+            history.append(bar_data)
 
             calc_start = time.time()
             intelligence = await self._calculate_intelligence(
