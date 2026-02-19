@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.3.0
-Last Updated: 2026-02-18
-Status: I1-I7 Phase 2 signal orchestration active — 38 plugins + 4 aggregation components + SignalOrchestrator, 277 tests, data collection live
+Version: 4.3.1
+Last Updated: 2026-02-19
+Status: I1-I7 Phase 2 signal orchestration active — 38 plugins + 4 aggregation components + SignalOrchestrator, 345 tests, data collection live with provisional bars
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -147,28 +147,33 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 ### HF Daemon: Dual-Stream Collection
 The `hf_tws_daemon` collects two independent data streams from IBKR TWS simultaneously:
 
-1. **1m OHLCV Bars** via `reqHistoricalData` (polled every 60s)
-   - IBKR server-side aggregated bars (authoritative OHLCV + volume)
-   - Published to `market:SYMBOL:1m` streams
-   - Foundation for all indicator calculations and timeframe building
-   - NOT built from ticks — these are IBKR's own bar data
+1. **1m OHLCV Bars** — two events per minute per symbol (low-latency design):
+   - **Provisional bar** (`source: "tick_derived"`) at :00 — built from tick accumulator, triggers pipeline immediately (~1s latency)
+   - **Authoritative bar** (`source: "authoritative"`) at :05 — from `reqHistoricalData`, silently corrects history in-place (5–10s latency)
+   - Published to `market:SYMBOL:1m` streams; downstream services filter on `source` field
 
 2. **Live Ticks** via `reqMktData` (real-time callbacks, tick list "233")
    - Price, bid, ask, volume updates at tick level
    - Published to `ticks:SYMBOL:live` streams (20,000 retention per symbol)
    - Also cached to `price:SYMBOL:latest` hash for instant UI lookups
-   - Used for sub-second dashboard updates within a candle
+   - Tick accumulator tracks per-minute OHLCV for provisional bar generation
+
+### Bar Source Field (added 2026-02-19)
+- `source: "tick_derived"` — provisional bar from tick accumulator, triggers pipeline (~1s latency)
+- `source: "authoritative"` — confirmed bar from reqHistoricalData, updates history only (5–10s latency)
+- Missing/other source — treated as tick_derived (backward compat with old daemon versions)
 
 ### Pipeline Flow
 ```
-IBKR TWS ─┬─ reqHistoricalData (60s poll) ─→ market:SYMBOL:1m ─→ Timeframe Builder ─→ market:SYMBOL:5m/15m/1h/4h/1d
-           │                                        ↓
-           │                              Indicator Processor ─→ indicators:SYMBOL:TIMEFRAME
-           │                                        ↓
-           │                              Intelligence Processor ─→ insights:SYMBOL:TIMEFRAME
-           │                                        ↓
-           └─ reqMktData (live ticks) ───→ ticks:SYMBOL:live ──→ SSE ──→ Dashboard
-                                          price:SYMBOL:latest
+IBKR TWS ─┬─ reqHistoricalData (:05 each min) ─→ market:SYMBOL:1m (authoritative) ─→ history correction only
+           │                                              ↓ (tick_derived at :00)
+           │                                    Intelligence Processor ─→ insights:SYMBOL:TIMEFRAME
+           │                                              ↓
+           │                                    Timeframe Builder ─→ market:SYMBOL:5m/15m/1h/4h/1d
+           │
+           └─ reqMktData (live ticks) ─→ tick_accum → provisional bar at :00
+                                       → ticks:SYMBOL:live ──→ SSE ──→ Dashboard
+                                         price:SYMBOL:latest
 ```
 
 ### Hot/Warm/Cold Data Tiers

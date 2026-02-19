@@ -34,7 +34,6 @@ import structlog
 from ib_insync import IB, Future, Ticker
 from prometheus_client import start_http_server
 
-from src.core.stream_keys import live_tick as sk_live_tick
 from src.core.stream_keys import market as sk_market
 from src.observability.metrics import counter as prom_counter
 from src.observability.metrics import gauge as prom_gauge
