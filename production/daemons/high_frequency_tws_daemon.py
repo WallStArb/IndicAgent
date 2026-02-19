@@ -17,7 +17,6 @@ import signal
 import sys
 import threading
 import time
-from collections import deque
 from datetime import datetime
 from datetime import time as dtime
 from pathlib import Path
@@ -88,13 +87,9 @@ class HighFrequencyTWSDaemon:
         # High-frequency metrics
         self.ticks_processed = 0
         self.bars_processed = 0
-        self.tick_buffer = deque(maxlen=1000)  # Buffer for batch processing
-        self.max_buffer_size = 1000
         self.dropped_ticks = 0
         self.start_time: datetime | None = None
         self.last_health_check = 0
-        self.last_flush_time: float = 0.0
-        self.flush_interval_sec: float = 0.25
         self.last_tick_signature: dict[str, tuple] = {}
         self.reconnects = 0
 
@@ -102,7 +97,6 @@ class HighFrequencyTWSDaemon:
         self.contracts = [c.model_dump() for c in self.settings.contracts]
 
         # Performance optimization settings
-        self.batch_size = 10  # Process ticks in batches
         self.health_check_interval = 30  # Log every 30 seconds
 
         # Stream namespacing by environment (e.g., dev:, prod:)
@@ -119,8 +113,6 @@ class HighFrequencyTWSDaemon:
         self.tickers_by_symbol: dict[str, Ticker] = {}
 
         # 1-minute bar polling (reqRealTimeBars doesn't work reliably)
-        self.bar_polling_interval = 60.0  # Poll every 60 seconds for 1m bars
-        self.last_bar_poll = 0.0
         self.last_bar_timestamps: dict[str, str] = {}  # Track last bar per symbol
 
         # Metrics
@@ -138,7 +130,6 @@ class HighFrequencyTWSDaemon:
         )
         self.m_bars = prom_counter("indicagent_bars_total", "Total bars processed")
         self.m_reconnects = prom_counter("indicagent_ibkr_reconnects_total", "IBKR reconnects")
-        self.g_buffer = prom_gauge("indicagent_tick_buffer_size", "Current tick buffer size")
         self.g_connected = prom_gauge("indicagent_ibkr_connected", "1 when connected")
         self.g_tick_queue = prom_gauge("indicagent_tick_queue_size", "Async tick queue depth")
 
@@ -246,42 +237,6 @@ class HighFrequencyTWSDaemon:
                         self.m_dropped.inc()
                         self.m_dropped_by_reason.labels(reason="async_enqueue_error").inc()
                         logger.warning("Async enqueue failed", error=str(e))
-                else:
-                    # Legacy synchronous path with local dedup + buffer
-                    signature = (
-                        tick_data.get("price"),
-                        tick_data.get("bid"),
-                        tick_data.get("ask"),
-                        tick_data.get("bid_size"),
-                        tick_data.get("ask_size"),
-                        tick_data.get("volume"),
-                        tick_data.get("last"),
-                        tick_data.get("last_size"),
-                    )
-                    if self.last_tick_signature.get(symbol) == signature:
-                        continue
-                    self.last_tick_signature[symbol] = signature
-
-                    if len(self.tick_buffer) >= self.max_buffer_size:
-                        self.dropped_ticks += 1
-                        self.m_dropped.inc()
-                        self.m_dropped_by_reason.labels(reason="buffer_full").inc()
-                        continue
-
-                    self.tick_buffer.append((symbol, tick_data))
-                    self.ticks_processed += 1
-                    self.m_ticks.inc()
-                    self.g_buffer.set(len(self.tick_buffer))
-
-        # Process buffered ticks only in legacy synchronous mode
-        if not self.use_async_publish:
-            now = time.time()
-            if (
-                len(self.tick_buffer) >= self.batch_size
-                or (now - self.last_flush_time) >= self.flush_interval_sec
-            ):
-                self.process_tick_buffer()
-                self.last_flush_time = now
 
     @staticmethod
     def _build_tick_data(symbol: str, ticker: Ticker, now: datetime) -> dict[str, Any]:
@@ -321,38 +276,6 @@ class HighFrequencyTWSDaemon:
             # Keep critical path robust; upstream validation handles anomalies
             pass
         return tick_data
-
-    def process_tick_buffer(self):
-        """Process buffered ticks in batch for performance."""
-        if not self.redis_client or not self.tick_buffer:
-            return
-
-        try:
-            pipe = self.redis_client.pipeline(transaction=False)
-            # Process all buffered ticks
-            while self.tick_buffer:
-                symbol, tick_data = self.tick_buffer.popleft()
-
-                # Publish to live tick stream with bounded retention
-                live_stream = sk_live_tick(self.env_prefix, symbol)
-                pipe.xadd(live_stream, tick_data, maxlen=20000, approximate=True)
-
-                # Cache latest price for instant UI lookups
-                price_key = f"{self.env_prefix}price:{symbol}:latest"
-                # Use HSET mapping for extensibility
-                price_mapping = {
-                    "price": tick_data.get("price", ""),
-                    "bid": tick_data.get("bid", ""),
-                    "ask": tick_data.get("ask", ""),
-                    "timestamp": tick_data.get("timestamp", ""),
-                }
-                pipe.hset(price_key, mapping=price_mapping)
-                pipe.expire(price_key, 120)
-
-            pipe.execute()
-        except Exception as e:
-            logger.warning("Batch tick processing error", error=str(e))
-            # On failure, do not drop data already popped; future ticks continue
 
     def subscribe_to_contracts(self) -> bool:
         """Subscribe to high-frequency tick data."""
@@ -487,7 +410,6 @@ class HighFrequencyTWSDaemon:
             tick_rate_per_sec=round(tick_rate, 2),
             performance=performance,
             symbols=len(self.subscribed_symbols),
-            buffer_size=len(self.tick_buffer),
         )
 
     def run(self) -> None:
@@ -571,15 +493,6 @@ class HighFrequencyTWSDaemon:
                     if now_ts - self.last_mode_check_ts >= self.mode_check_interval:
                         self.last_mode_check_ts = now_ts
                         self.adjust_subscription_intensity()
-
-                    # Poll for 1m bars (since reqRealTimeBars doesn't work reliably)
-                    if now_ts - self.last_bar_poll >= self.bar_polling_interval:
-                        self.poll_1m_bars()
-                        self.last_bar_poll = now_ts
-
-                    # Process any remaining buffered ticks
-                    if self.tick_buffer:
-                        self.process_tick_buffer()
 
                     # Health monitoring
                     self.health_check()
@@ -727,10 +640,6 @@ class HighFrequencyTWSDaemon:
                 fut.result(timeout=3.0)
         except Exception as e:
             logger.warning("Async queue drain failed", error=str(e))
-        finally:
-            if self.tick_buffer:
-                logger.info("Processing remaining tick buffer", count=len(self.tick_buffer))
-                self.process_tick_buffer()
 
         # Disconnect from TWS
         if self.ib and self.ib.isConnected():
