@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.3.1
+Version: 4.4.0
 Last Updated: 2026-02-19
-Status: I1-I7 Phase 2 signal orchestration active — 38 plugins + 4 aggregation components + SignalOrchestrator, 345 tests, data collection live with provisional bars
+Status: I1-I7 Phase 2 signal orchestration active — 41 plugins + 4 aggregation components + SignalOrchestrator, 345 tests, data collection live with provisional bars
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -79,8 +79,8 @@ python production/scripts/simple_seeder.py --client-id 55 --days 7
 ### Development & Testing
 ```bash
 # Run tests
-python -m pytest tests/unit/ -v                  # Unit tests (258 passing)
-python -m pytest tests/integration/ -v           # Integration tests (requires Redis + PostgreSQL)
+.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (345 passing) — use .venv/bin/python, not bare python/python3
+.venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
 python tests/run_all_tests.py --coverage         # With coverage reporting
