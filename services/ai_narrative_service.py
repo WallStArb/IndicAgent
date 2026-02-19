@@ -105,6 +105,7 @@ async def call_ollama_async(
     model: str,
     prompt: str,
     timeout: float = 15.0,
+    num_predict: int = 500,
 ) -> str | None:
     """Call Ollama /api/chat in a thread. Returns narrative text or None on failure.
 
@@ -119,7 +120,7 @@ async def call_ollama_async(
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
-            "options": {"num_predict": 200},
+            "options": {"num_predict": num_predict},
         }
         data = json.dumps(payload).encode()
         req = urllib.request.Request(
@@ -133,7 +134,10 @@ async def call_ollama_async(
 
     try:
         return await to_thread(_call)
-    except Exception:
+    except Exception as exc:
+        structlog.get_logger(__name__).warning(
+            "Ollama call failed", model=model, error=str(exc)
+        )
         return None
 
 
@@ -153,7 +157,7 @@ class AINarrativeService:
         self._setup_logging()
 
         self.redis_client: redis.Redis | None = None
-        self.consumer_group = f"ai_narrative_{int(time.time())}"
+        self.consumer_group = "ai_narrative"
         self.consumer_name = f"narrative_{os.getpid()}"
 
         settings = Settings()
@@ -215,6 +219,7 @@ class AINarrativeService:
                 "base_url": "http://localhost:11434",
                 "model": "qwen3:8b",
                 "timeout_sec": 15.0,
+                "num_predict": 500,
             },
             "logging": {
                 "level": "INFO",
@@ -321,8 +326,7 @@ class AINarrativeService:
             signal_data = parse_aggregated_signal(fields)
             if signal_data is None:
                 self.narratives_skipped_total.inc()
-                await self.redis_client.xack(stream_name, self.consumer_group, message_id)
-                return
+                return  # finally will xack
 
             prompt = build_narrative_prompt(signal_data)
             t0 = time.time()
@@ -331,6 +335,7 @@ class AINarrativeService:
                 self.ollama_model,
                 prompt,
                 self.ollama_timeout,
+                int(self.config["ollama"].get("num_predict", 500)),
             )
             latency_ms = (time.time() - t0) * 1000
             self.ollama_latency_ms.set(latency_ms)
@@ -370,8 +375,6 @@ class AINarrativeService:
                     timeframe=timeframe,
                 )
 
-            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
-
         except Exception as e:
             self.logger.error(
                 "Error processing signal message",
@@ -381,6 +384,8 @@ class AINarrativeService:
             )
             self.error_count_total.inc()
             self._error_count += 1
+        finally:
+            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
 
     # ------------------------------------------------------------------
     # Main service loops

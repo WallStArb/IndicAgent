@@ -13,7 +13,8 @@
   "ollama": {
     "base_url": "http://localhost:11434",
     "model": "qwen3:8b",
-    "timeout_sec": 15.0
+    "timeout_sec": 15.0,
+    "num_predict": 500
   },
   "logging": {
     "level": "INFO",

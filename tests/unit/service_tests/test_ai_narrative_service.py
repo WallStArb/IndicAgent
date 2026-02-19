@@ -120,3 +120,34 @@ async def test_process_message_handles_ollama_failure():
 
     svc.redis_client.xadd.assert_not_called()
     svc.redis_client.xack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_message_acks_on_redis_publish_failure():
+    """Even if xadd raises, message must still be acked to avoid PEL accumulation."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xadd.side_effect = Exception("Redis write failed")
+
+    fields = {
+        b"direction": b"1",
+        b"symbol": b"ESH6",
+        b"timeframe": b"5m",
+        b"timestamp": b"2026-02-19T14:05:00",
+        b"confidence": b"0.74",
+        b"confluence_score": b"0.0",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following",
+        b"entry_price": b"5102.50",
+        b"stop_loss": b"5094.00",
+        b"targets": b"5112.00",
+        b"regime_context": b"trending_up",
+        b"supporting_factors": b"BOS confirmed",
+    }
+    with patch("services.ai_narrative_service.call_ollama_async", return_value="Some narrative."):
+        await svc._process_single_message(
+            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+        )
+
+    # Must ack even though xadd raised
+    svc.redis_client.xack.assert_called_once()
