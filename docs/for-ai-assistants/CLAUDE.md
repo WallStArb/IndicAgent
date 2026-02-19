@@ -2,7 +2,7 @@
 
 Version: 4.4.0
 Last Updated: 2026-02-19
-Status: I1-I7 Phase 2 signal orchestration active — 41 plugins + 4 aggregation components + SignalOrchestrator, 345 tests, data collection live with provisional bars
+Status: I1-I8 pipeline complete — 41 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 354 tests, data collection live with provisional bars
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -120,6 +120,7 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 - `services/timeframes_builder_service.py` - Multi-timeframe aggregation service (Health: `:9110/health`)
 - `services/coordination_parallel_service.py` - Parallel service coordination
 - `services/signal_orchestrator_service.py` - I7 signal orchestration: runs plugins, aggregates, persists to signal_ledger, tracks lifecycle (Health: `:9112/metrics`)
+- `services/ai_narrative_service.py` - I8 AI narrative synthesis: LLM narratives from selected signals via Ollama qwen3:8b, published to narratives:SYMBOL:TF stream (Metrics: `:9113/metrics`)
 - `src/api/main.py` - FastAPI backend with health monitoring and SSE support
 - `src/api/routes/sse.py` - Server-Sent Events for real-time dashboard communication
 - `dashboard/` - Next.js React dashboard with live visualization
@@ -292,7 +293,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I7 Trading Outputs** — 5 Phase 1 plugins (TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion) — WORKING
 - **I7 Signal Aggregation** — Phase 1.5: aggregator, signal ledger, lifecycle tracker, position sizer — WORKING
 - **I7 Signal Orchestrator** — `SignalOrchestratorService`: runs 5 I7 plugins per bar, aggregates, persists all signals to `signal_ledger`, tracks lifecycle — WORKING (data collection active)
-- **I8 AI Insights** — LLM synthesis — NOT IMPLEMENTED (Ollama infrastructure ready)
+- **I8 AI Intelligence** — AINarrativeService: selected signals → Ollama qwen3:8b → human-readable narratives → narratives:SYMBOL:TF stream — WORKING
 
 ### Local LLM Infrastructure (Ollama)
 5 models available at `http://localhost:11434` (Docker, GPU-accelerated):
@@ -307,9 +308,9 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 **Note:** Qwen3 models use thinking mode by default — `content` field may be empty if `num_predict` is too low. Use `/no_think` prefix or set `num_predict` ≥ 500 for reliable output. Use the chat API (`/api/chat`) for multi-turn, generate API (`/api/generate`) for single-shot.
 
 ### Development Priorities
-1. **More regime models** — GARCH volatility, Kalman filter trend, chart patterns (see `docs/plans/future-indicators-backlog.md`)
-2. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
-3. **I8 AI Intelligence** — LLM interpretation with cost controls
+1. **Dashboard narrative panel** — Wire narratives:SYMBOL:TF stream to SSE + add dashboard panel to display current AI narrative per symbol
+2. **More regime models** — GARCH volatility, Kalman filter trend, chart patterns (see `docs/plans/future-indicators-backlog.md`)
+3. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
 
 ### Completed Phases
 - **LG-1** — LangGraph event-driven workflows, circuit breakers
@@ -328,6 +329,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I7-P1** — Trading setups Phase 1: 5 plugins, signal schema, SSE wiring, 35 new tests
 - **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
 - **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
+- **I8-Narrative** — AINarrativeService: Ollama qwen3:8b synthesis, 9 new tests, narratives stream, stable consumer group, finally-xack pattern
 
 ## Key References
 
