@@ -501,6 +501,17 @@ class HighFrequencyTWSDaemon:
                         self.last_mode_check_ts = now_ts
                         self.adjust_subscription_intensity()
 
+                    # Minute-boundary bar events
+                    now = datetime.now()
+                    # Flush provisional bar at start of each new minute (seconds 0-4)
+                    if now.second < 5 and self.last_provisional_minute != now.minute:
+                        self.last_provisional_minute = now.minute
+                        self._flush_provisional_bars(now)
+                    # Fire authoritative poll at :05+ past each minute
+                    if now.second >= 5 and self.last_bar_poll_minute != now.minute:
+                        self.last_bar_poll_minute = now.minute
+                        self.poll_1m_bars()
+
                     # Health monitoring
                     self.health_check()
 
@@ -597,6 +608,45 @@ class HighFrequencyTWSDaemon:
             if volume is not None:
                 acc["vol_current"] = volume
 
+    def _flush_provisional_bars(self, now: datetime) -> None:
+        """Publish tick-derived provisional bars for the just-closed minute.
+
+        Called at the start of each new minute (second 0-4). Emits bars with
+        source='tick_derived' so downstream services can trigger immediately.
+        The authoritative reqHistoricalData correction arrives ~5s later.
+        """
+        if not self.redis_client:
+            return
+        closed_minute_ts = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
+        closed_minute = closed_minute_ts.minute
+
+        for symbol, acc in list(self.tick_accum.items()):
+            if acc.get("minute") != closed_minute:
+                continue
+            if not acc.get("close"):
+                continue
+            volume = max(0, acc["vol_current"] - acc["vol_start"])
+            bar_data = {
+                "timestamp": closed_minute_ts.isoformat(),
+                "symbol": symbol,
+                "timeframe": "1m",
+                "open": str(acc["open"]),
+                "high": str(acc["high"]),
+                "low": str(acc["low"]),
+                "close": str(acc["close"]),
+                "volume": str(volume),
+                "source": "tick_derived",
+            }
+            stream_name = sk_market(self.env_prefix, symbol, "1m")
+            self.redis_client.xadd(stream_name, bar_data, maxlen=2000, approximate=True)
+            self.m_bars.inc()
+            logger.info(
+                "Provisional 1m bar flushed",
+                symbol=symbol,
+                ts=closed_minute_ts.isoformat(),
+                close=acc["close"],
+            )
+
     def poll_1m_bars(self) -> None:
         """Poll for 1-minute bars using historical data since reqRealTimeBars is unreliable."""
         if not self.ib or not self.connected:
@@ -639,7 +689,7 @@ class HighFrequencyTWSDaemon:
                         "low": str(bar.low),
                         "close": str(bar.close),
                         "volume": str(bar.volume),
-                        "source": "hf_tws_daemon_poll",
+                        "source": "authoritative",
                     }
 
                     # Publish to Redis stream
