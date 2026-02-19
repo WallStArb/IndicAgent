@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-18
-> **Version:** 4.3.0
-> **Phase:** I1-I5 Uplift Complete
+> **Last Updated:** 2026-02-19
+> **Version:** 4.4.0
+> **Phase:** I1-I8 Pipeline Complete
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I7)
-**Test Coverage:** 309 unit tests passing, 0 lint errors
+**Test Coverage:** 357 unit tests passing, 0 lint errors
 **Data Collection:** Active (ES, NQ, RTY + 11 more contracts)
 
 ---
@@ -24,6 +24,8 @@
 | Enhanced Processor | RUNNING | 1.0.0 | :9109/health |
 | Timeframe Builder | RUNNING | 2.0.0 | :9110/health |
 | Intelligence Processor | RUNNING | 2.5.0 | N/A |
+| Signal Orchestrator | RUNNING | 1.0.0 | :9112/health |
+| AI Narrative Service | RUNNING | 1.0.0 | :9113/health |
 | Backend API | RUNNING | 4.1.0 | :8000/health |
 | Dashboard | RUNNING | 1.5.0 | http://localhost:3000 |
 
@@ -41,8 +43,8 @@
 | I6 | Smart Money Concepts | 6 | COMPLETE | [Reference](reference/plugins/i6-smart-money.md) |
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE | [Reference](reference/plugins/i6-smart-money.md) |
 | I7 | Trading Setups | 5 | PHASE_1_COMPLETE | [Reference](reference/plugins/i7-trading.md) |
-| I7 | Signal Aggregation | 4 components | PHASE_1.5_BUILT | Not wired to services |
-| I8 | AI Intelligence | 0 | NOT_STARTED | [Roadmap](roadmap/MASTER_ROADMAP.md#phase-9) |
+| I7 | Signal Aggregation | 4 components | RUNNING | Signal Orchestrator service wired |
+| I8 | AI Intelligence | 1 service | WORKING | Ollama qwen3:8b, narratives stream |
 
 **Total Plugins:** 41 registered
 
@@ -59,6 +61,7 @@
 - Indicators: `indicators:SYMBOL:TIMEFRAME`
 - Intelligence: `intelligence:SYMBOL:TIMEFRAME`
 - Signals: `signals:SYMBOL:TIMEFRAME:aggregated`
+- Narratives: `narratives:SYMBOL:TIMEFRAME`
 
 See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
@@ -94,11 +97,19 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 See [MASTER_ROADMAP.md](roadmap/MASTER_ROADMAP.md) for detailed priorities.
 
-**Immediate Priority:** Phase 1 - Signal Orchestrator Service (critical blocker for ML calibration)
+**Immediate Priority:** Dashboard Narrative Panel — wire `narratives:SYMBOL:TF` stream to SSE endpoint and dashboard React component
 
 ---
 
 ## Recent Changes
+
+### 2026-02-19 (v4.4.0)
+- COMPLETE I8 AI Narrative Service: Ollama qwen3:8b narratives from `signals:aggregated`
+- COMPLETE Data Collection Efficiency: provisional bars (tick_derived at :00) + authoritative correction (histData at :05)
+- ADD `narratives:SYMBOL:TF` stream (maxlen=100) + `narrative:SYMBOL:TF:latest` hash cache (90s TTL)
+- ADD `source` field to bar messages: `tick_derived` vs `authoritative`
+- ADD xack-in-finally PEL safety pattern to AINarrativeService and SignalOrchestrator
+- TEST +48 new unit tests (309 → 357 total)
 
 ### 2026-02-18 (v4.3.0)
 - FIX `is_num` NaN/Inf vulnerability (math.isfinite guard)

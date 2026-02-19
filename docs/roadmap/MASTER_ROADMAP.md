@@ -1,85 +1,62 @@
 # IndicAgent Master Roadmap
 
-> **Last Updated:** 2026-02-17
-> **Current Version:** 4.2.0
-> **Current Status:** I7 Phase 1.5 Complete — Foundation ready for live trading integration
+> **Last Updated:** 2026-02-19
+> **Current Version:** 4.4.0
+> **Current Status:** I7+I8 Pipeline Complete — Full pipeline from data collection to AI narratives operational
 
 ---
 
 ## Current State (What's Working)
 
-### Intelligence Pipeline (Fully Operational)
+### Full Intelligence Pipeline (Operational End-to-End)
 ```
-IBKR TWS → I1 Indicators (16 plugins) → I3 Structure (3) → I4 Context (3) →
-I5 Patterns (4) → I6 Smart Money (6) → I6 Confluence (1) →
-I7 Trading Setups (5) → Redis Streams → SSE → Dashboard
+IBKR TWS → I1 Indicators (17 plugins) → I3 Structure (3) → I4 Context (4) →
+I5 Patterns (5) → I6 Smart Money (6) → I6 Confluence (1) →
+I7 Trading Setups (5) → Signal Orchestrator → signals:aggregated →
+I8 AI Narrative Service → narratives:SYMBOL:TF → (Dashboard — next)
 ```
 
-### I7 Signal Aggregation (Phase 1.5 — Components Built, Not Wired)
+### I7 Signal Infrastructure (All Running)
 - ✅ Signal Ledger (TimescaleDB hypertable with lifecycle tracking)
 - ✅ Rules-Based Aggregator (priority-based conflict resolution)
 - ✅ Lifecycle Tracker (state machine with P&L calculations)
 - ✅ Position Sizer (risk-based contract calculator)
-- ❌ Signal Orchestrator Service (NOT BUILT — critical gap)
-- ❌ Position Manager Service (NOT BUILT — critical gap)
-- ❌ Dashboard Signal Panel (NOT BUILT)
+- ✅ Signal Orchestrator Service (RUNNING — :9112, collecting ES/NQ/RTY 5m+15m)
+- ✅ AI Narrative Service (RUNNING — :9113, Ollama qwen3:8b narratives)
+- ❌ Dashboard Signal/Narrative Panel (NOT BUILT — next priority)
 
-**Data Collection Status:** ⚠️ **NOT COLLECTING** — orchestrator service doesn't exist
+### Data Collection Status
+- **Bars:** Provisional at :00 (tick-derived OHLCV) + authoritative correction at :05 (reqHistoricalData)
+- **Signals:** ~30 signals/day flowing into signal_ledger via Signal Orchestrator
+- **Narratives:** Human-readable AI summaries published per selected signal
 
 ---
 
 ## Phase Priorities
 
-### **PHASE 1: Live Trading Infrastructure (CRITICAL — Do This First)**
+### **PHASE 1: Live Trading Infrastructure (COMPLETE ✅)**
 
-**Goal:** Start collecting real signal data for ML calibration
+**Goal:** Start collecting real signal data for ML calibration — DONE
 
-**Why This First?** Everything else is blocked on having real signal outcome data. The ML scoring model needs 500+ signals with P&L. We can't get that without the orchestrator running.
+**Result:** Signal Orchestrator running, collecting ~30 signals/day into signal_ledger. AI Narrative Service publishing human-readable summaries. Data collection fully operational as of 2026-02-19.
 
-#### Task 1.1: Signal Orchestrator Service
-**File:** `services/signal_orchestrator_service.py`
-**Config:** `config/signal_orchestrator.json`
+#### ✅ Task 1.1: Signal Orchestrator Service — DONE
+- `services/signal_orchestrator_service.py` + `config/signal_orchestrator.json`
+- Subscribes to intelligence streams, calls all 5 I7 plugins, aggregates, publishes to `signals:SYMBOL:TF:aggregated`
+- Health at :9112/health
 
-```python
-# Responsibilities:
-# 1. Subscribe to indicators:*:* and intelligence:*:*
-# 2. On each bar: call all 5 setup plugins
-# 3. Aggregate signals via aggregator.aggregate()
-# 4. Insert ALL signals to signal_ledger (winners + losers)
-# 5. Publish winner to signals:*:*:aggregated
-# 6. Health: :9111/health, :9111/metrics
-```
+#### ✅ Task 1.2: AI Narrative Service — DONE (was planned as I8)
+- `services/ai_narrative_service.py` + `config/ai_narrative_service.json`
+- Consumes `signals:aggregated`, calls Ollama qwen3:8b, publishes to `narratives:SYMBOL:TF`
+- Health at :9113/health
 
-**Symbols:** ES, NQ, RTY (start with 3)
-**Timeframes:** 5m, 15m (start with 2)
-**Expected signal rate:** ~30 signals/day → 500 signals in ~17 days
+#### ❌ Task 1.3: Dashboard Signal/Narrative Panel — NOT YET BUILT
+**Component:** `dashboard/src/components/SignalPanel.tsx` + `NarrativePanel.tsx`
+- Connect to `signals:*:*:aggregated` SSE stream for live signal display
+- Connect to `narratives:SYMBOL:TF` SSE stream for AI narrative display
+- Show active/pending/exited signals with P&L tracking
 
-#### Task 1.2: Position Manager Service
-**File:** `services/position_manager_service.py`
-**Config:** `config/position_manager.json`
-
-```python
-# Responsibilities:
-# 1. Query active signals from database every bar
-# 2. Evaluate lifecycle transitions via lifecycle_tracker
-# 3. Update signal_ledger with new statuses/P&L
-# 4. Track partial fills (scale out at targets)
-# 5. Health: :9112/health, :9112/metrics
-```
-
-#### Task 1.3: Systemd Service Units
-- `indicagent-signal-orchestrator.service`
-- `indicagent-position-manager.service`
-- Add to monitoring (health checks, metrics, journalctl)
-
-#### Task 1.4: Dashboard Signal Panel (Optional for Phase 1)
-**Component:** `dashboard/src/components/SignalPanel.tsx`
-- Connect to `signals:*:*:aggregated` SSE stream
-- Display active/pending/exited signals
-- Show P&L tracking, aggregation metadata
-
-**Estimated Duration:** 3-5 days (orchestrator is the hard part)
-**Success Criteria:** 30+ signals/day flowing into signal_ledger with lifecycle updates
+**Success Criteria:** Dashboard displays live signals and AI narratives in real time
 
 ---
 
@@ -369,17 +346,19 @@ Run both aggregators in parallel:
 
 ---
 
-### **PHASE 9: I8 AI Intelligence Tier**
+### **PHASE 9: I8 AI Intelligence Tier (PARTIALLY COMPLETE)**
 
 **Goal:** LLM-powered analysis and synthesis
 
-**Current:** Ollama infrastructure ready (5 models available at :11434)
+**Current:** AI Narrative Service running (`:9113`) — signal commentary operational
 
-**Use Cases:**
-1. **Signal Commentary**
-   - LLM reads aggregated signal + market context
-   - Generates plain-English explanation
-   - "ES 5m LONG signal from TrendFollowing setup. Entry at 5100 because EMA crossed bullish while trend regime is +0.8 (strong bullish). Stop at 5085 (15 ticks = 1 ATR). Targets at 5115/5130/5145. Confidence 75% boosted from SqueezeExpansion agreement."
+**Completed:**
+- ✅ **Signal Commentary** — `AINarrativeService` generates concise 2-3 sentence narratives per selected signal via Ollama qwen3:8b. Output includes entry/stop/targets, regime context, and supporting factors.
+  - Published to `narratives:SYMBOL:TF` stream (maxlen=100)
+  - Cached to `narrative:SYMBOL:TF:latest` hash with 90s TTL
+
+**Remaining Use Cases:**
+1. **Dashboard Narrative Panel** — SSE wiring + React component (highest priority)
 
 2. **Pattern Recognition**
    - LLM analyzes chart patterns from OHLC data
@@ -435,7 +414,7 @@ Use this framework to prioritize when multiple options exist:
 4. **Is it a nice-to-have?** → Defer until core is solid (I8 AI commentary)
 5. **Does it require external data we don't have?** → Defer until data available (orderflow)
 
-**Current Answer:** Build Phase 1 (Signal Orchestrator + Position Manager) immediately. Everything else waits.
+**Current Answer:** Phase 1 complete. Next: Dashboard Narrative Panel (Priority 1), then Kalman Filter (Priority 2), then more I7 setup plugins (Priority 3), then ML calibration once 500+ signals collected.
 
 ---
 

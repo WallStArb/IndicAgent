@@ -1,8 +1,8 @@
 # Intelligence Engine Tiers (I1–I8)
 
-**Version:** 3.0.0
-**Last Updated:** 2026-02-14
-**Status:** I1-I6 Complete, SMC Complete, 32 Plugins Registered
+**Version:** 4.4.0
+**Last Updated:** 2026-02-19
+**Status:** I1-I8 Complete, 41 Plugins Registered, 357 Tests Passing
 
 ## Overview
 
@@ -228,39 +228,44 @@ capability_tags = {
 ## **Intelligence Platform Integration**
 
 ### **Service Architecture Integration**
-The I1-I8 framework integrates seamlessly with IndicAgent's service-based architecture:
+The I1-I8 framework integrates with IndicAgent's service-based architecture:
 
-- **Data Foundation:** `indicators_processor_service` (and `indicators_enhanced_service`) provide I1 raw features
-- **Intelligence Processing:** Plugin framework handles I2-I8 advanced intelligence
-- **Distribution:** Redis Streams distribute intelligence across all tiers
-- **Consumption:** External intelligence consumers access processed intelligence
+- **Data Foundation:** `hf-tws-daemon` collects IBKR ticks → provisional bars; `indicator-processor` and `enhanced-processor` provide I1 raw features
+- **Intelligence Processing:** `intelligence-processor` runs the full I1→I3→I4→I5→SMC→I6 pipeline; `signal-orchestrator` (:9112) runs I7 plugins and aggregation
+- **AI Synthesis:** `ai-narrative` (:9113) consumes selected signals and publishes Ollama-generated narratives
+- **Distribution:** Redis Streams (`indicators:`, `intelligence:`, `signals:aggregated`, `narratives:`) distribute data across all tiers
+- **Persistence:** `signal_ledger` TimescaleDB hypertable stores all signals with lifecycle + P&L tracking
 
-### **AI Intelligence Framework (Planned)**
-- **Multi-Agent System:** I8 tier will implement AI agent coordination
-- **OpenRouter Integration:** Cost-optimized LLM access for intelligence synthesis (planned)
-- **Human-Readable Output:** AI-powered market narratives and intelligence explanations (planned)
+### **AI Intelligence Framework (Operational)**
+- **Local LLM:** Ollama at `http://localhost:11434` with qwen3:8b (5.2GB, GPU-accelerated) as default
+- **Human-Readable Output:** AI-powered market narratives generated per selected signal, streamed to `narratives:SYMBOL:TF`
+- **Cost Control:** `/no_think` prefix suppresses qwen3:8b chain-of-thought; 15s timeout; streams only fire when a setup is selected
 
 ---
 
 ## **Intelligence Development Status**
 
-### **Completed Tiers (Production Ready)**
-- **I1 Technical Indicators:** 12 plugins with real incremental compute_next() -- RSI, MACD, SMA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP (141x performance boost)
+### **Completed Tiers (All Production Ready)**
+- **I1 Technical Indicators:** 17 plugins with real incremental compute_next() — RSI, MACD, SMA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, GARCH(1,1) (141x performance boost)
 - **I2 Composite Indicators:** Crossovers, slopes, distances via `src/intelligence/composites/`
-- **I3 Market Structure:** 3 plugins in `src/intelligence/structure/` -- swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure (regime + integrity)
-- **I4 Context/Regime:** 3 plugins in `src/intelligence/context/` -- volatility regime (ATR percentile, BB width), trend regime (SMA alignment + I3 blending), momentum context (multi-oscillator scoring)
-- **I5 Pattern Recognition:** 4 plugins in `src/intelligence/patterns/` -- RSI divergence (peak/trough N-neighbor), Bollinger squeeze (TTM-style), volume divergence (OBV vs price), multi-indicator confluence
-
-- **SMC Smart Money:** 6 plugins in `src/intelligence/smart_money/` -- BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD change point, HMM regime
-- **I6 Cross-Timeframe Confluence:** 1 plugin in `src/intelligence/confluence/` -- trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
+- **I3 Market Structure:** 3 plugins in `src/intelligence/structure/` — swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure (regime + integrity)
+- **I4 Context/Regime:** 4 plugins in `src/intelligence/context/` — volatility regime (ATR percentile, BB width), trend regime (SMA alignment + I3 blending), momentum context (multi-oscillator scoring), GARCH volatility forecast (conditional vol + vol regime)
+- **I5 Pattern Recognition:** 5 plugins in `src/intelligence/patterns/` — RSI divergence (peak/trough N-neighbor), Bollinger squeeze (TTM-style), volume divergence (OBV vs price), multi-indicator confluence, trend confluence (6-signal aggregation)
+- **SMC Smart Money:** 6 plugins in `src/intelligence/smart_money/` — BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD change point, HMM regime
+- **I6 Cross-Timeframe Confluence:** 1 plugin in `src/intelligence/confluence/` — trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
+- **I7 Trading Setups:** 5 plugins in `src/intelligence/trading/` — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion
+- **I7 Signal Aggregation:** 4 components — signal_ledger (TimescaleDB hypertable), rules-based aggregator, lifecycle tracker, position sizer
+- **I7 Signal Orchestrator:** `services/signal_orchestrator_service.py` — live service subscribing to intelligence streams, calling all 5 I7 plugins, publishing selected signals to `signals:SYMBOL:TF:aggregated` (port 9112)
+- **I8 AI Narrative:** `services/ai_narrative_service.py` — consumes `signals:aggregated`, calls Ollama qwen3:8b locally, publishes 2-3 sentence trade narratives to `narratives:SYMBOL:TF` stream and hash cache (port 9113)
 
 ### **Not Yet Implemented**
-- **I7 Intelligence Outputs:** Validated setups and actionable intelligence signals
-- **I8 AI Synthesis:** OpenRouter LLM integration for market narratives and insights
+- **Dashboard Signal/Narrative Panel** — SSE wiring for `signals:aggregated` and `narratives:` streams (next priority)
+- **I7 Phase 2** — 9 additional setup plugins (VWAP Deviation, Momentum Breakout, Supply/Demand Zone, etc.)
+- **ML Scoring Model** — XGBoost calibration of aggregator (requires 500+ signals in ledger)
 
 ### **Totals**
-- **32 registered plugins:** 16 indicators + 4 I5 patterns + 3 I3 structure + 3 I4 context + 5 SMC smart money + 1 I6 confluence
-- **172 unit tests passing**, 0 ruff errors
+- **41 registered plugins:** 17 I1 indicators + 5 I5 patterns + 3 I3 structure + 4 I4 context + 6 SMC smart money + 1 I6 confluence + 5 I7 setups
+- **357 unit tests passing**, 0 ruff errors
 
 ---
 

@@ -1,8 +1,8 @@
 # Intelligence Stream Schemas & Data Contracts
 
-**Version:** 2.1.0
-**Last Updated:** 2026-02-12
-**Status:** Schema Specifications — bar.v1 and features.v1 operational, remaining schemas defined for future tiers
+**Version:** 2.2.0
+**Last Updated:** 2026-02-19
+**Status:** bar.v1, features.v1, signals.aggregated, and narratives.v1 operational; composite/pattern/regime schemas defined for future tiers
 
 ## Executive Summary
 
@@ -384,6 +384,41 @@ prod:insight:ES:1h       # I8 AI Intelligence
 }
 ```
 
+### **`narrative.v1` - I8 AI Signal Narrative**
+**Intelligence Tier:** I8 AI Insights
+**Schema Version:** `narrative/1.0`
+**Stream Pattern:** `narratives:SYMBOL:TIMEFRAME`
+**Cache Key:** `narrative:SYMBOL:TIMEFRAME:latest` (hash, 90s TTL)
+
+```python
+{
+    "symbol": str,          # Trading symbol (e.g., "ESH6")
+    "timeframe": str,       # Timeframe (5m, 15m)
+    "timestamp": str,       # UTC ISO-8601 timestamp
+    "narrative": str,       # 2-3 sentence human-readable trade narrative
+    "action_bias": str,     # "bullish" | "bearish"
+    "confidence": str,      # Signal confidence as string float (e.g., "0.74")
+    "model": str,           # LLM model used (e.g., "qwen3:8b")
+    "latency_ms": str,      # Ollama call latency as string int
+}
+```
+
+**Example:**
+```json
+{
+    "symbol": "ESH6",
+    "timeframe": "5m",
+    "timestamp": "2026-02-19T14:05:00",
+    "narrative": "ES is establishing a trend-following long setup with price trading above aligned EMAs in a trending-up regime. Entry at 5892.25 offers a favorable risk/reward with stop at 5880.00 (1 ATR) and targets at 5905/5920/5935. RSI divergence and squeeze expansion provide additional confluence.",
+    "action_bias": "bullish",
+    "confidence": "0.74",
+    "model": "qwen3:8b",
+    "latency_ms": "1243"
+}
+```
+
+**Note:** Published by `AINarrativeService` only when `selected_signal is not None` and `direction != 0` — natural cost control limits calls to ~6/minute across 3 symbols × 2 timeframes.
+
 ---
 
 ## **Schema Validation & Standards**
@@ -413,20 +448,19 @@ VOLUME_TYPE = int                                  # Volume as integer
 ## **Implementation Status**
 
 ### **Current Status**
-- **`bar.v1`** - Operational in production with IBKR live data
-- **`features.v1`** - Operational with 12 indicator plugins (legacy format)
-- **`composite.v1`** - Schema defined, not yet implemented
-- **`regime.v1`** - Schema defined, not yet implemented
+- **`bar.v1`** - Operational. The `source` field distinguishes: `tick_derived` (provisional bar published at :00 from live ticks), `authoritative` (correction published at :05 from reqHistoricalData), `ibkr_live` (legacy)
+- **`features.v1`** - Operational with 17 I1 indicator plugins, output via `indicators:SYMBOL:TF` stream
+- **`narrative.v1`** - Operational. Published by `AINarrativeService` to `narratives:SYMBOL:TF`; cached to `narrative:SYMBOL:TF:latest` hash with 90s TTL
+- **`signals:aggregated`** - Operational. Published by `SignalOrchestrator` with all I7 signal fields
 
-### **Schema Gaps**
-- **`pattern.v1`** - Schema defined, pattern detection engines not yet implemented
-- **Advanced composite.v1** - I5-I7 intelligence schemas defined, engines not yet implemented
-- **Cross-timeframe patterns** - Multi-timeframe schemas defined, processing not yet implemented
+### **Schema Gaps (Future Implementation)**
+- **`composite.v1`** - Schema defined; intelligence:SYMBOL:TF stream carries I3-I6 data in practice (not strict composite.v1 format)
+- **`regime.v1`** - Schema defined, not yet implemented as separate stream
+- **`pattern.v1`** - Schema defined, pattern data included in intelligence stream
 
-### **Architecture Complete**
-- **`insight.v1`** - AI intelligence schema defined, OpenRouter integration not yet implemented
-- **Database integration** - Enhanced storage schemas defined, not yet deployed to production
-- **Stream distribution** - Redis Streams operational, intelligence-aware streams not yet integrated
+### **Not Yet Built**
+- **`insight.v1`** - Richer multi-factor AI schema; `narrative.v1` covers I8 for now
+- **Formal stream validation** - Schemas are informal contracts; no runtime schema enforcement yet
 
 ---
 
