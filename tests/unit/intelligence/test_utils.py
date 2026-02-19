@@ -73,6 +73,70 @@ class TestFindTroughs:
         assert troughs == [10]
 
 
+# ─── Vectorized find_peaks / find_troughs tests ───────────────
+
+
+class TestFindPeaksVectorized:
+    """Tests that vectorized implementation matches original behavior exactly."""
+
+    def test_matches_basic_peak(self):
+        data = np.array([1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 3, 2, 1])
+        peaks = find_peaks(data, n=2)
+        assert 4 in peaks
+
+    def test_matches_tied_peak(self):
+        data = np.array([1.0, 2, 3, 5, 5, 5, 3, 2, 1, 0, 0, 0, 0, 0, 0])
+        peaks = find_peaks(data, n=2)
+        assert len(peaks) > 0
+        assert all(data[p] == 5.0 for p in peaks)
+
+    def test_matches_flat_line(self):
+        data = np.full(20, 100.0)
+        assert find_peaks(data, n=3) == []
+
+    def test_matches_single_spike(self):
+        data = np.zeros(20)
+        data[10] = 1.0
+        peaks = find_peaks(data, n=3)
+        assert peaks == [10]
+
+    def test_large_array_n5(self):
+        """Realistic size: 120 bars, n=5 (used by SwingDetector)."""
+        rng = np.random.default_rng(42)
+        data = np.cumsum(rng.standard_normal(120))
+        peaks = find_peaks(data, n=5)
+        for p in peaks:
+            for j in range(1, 6):
+                assert data[p] >= data[p - j]
+                assert data[p] >= data[p + j]
+
+    def test_edge_n_equals_1(self):
+        data = np.array([1.0, 3.0, 1.0, 2.0, 1.0])
+        peaks = find_peaks(data, n=1)
+        assert 1 in peaks  # value 3.0
+
+    def test_empty_when_too_short(self):
+        data = np.array([1.0, 2.0])
+        assert find_peaks(data, n=1) == []
+
+
+class TestFindTroughsVectorized:
+    def test_large_array_n5(self):
+        rng = np.random.default_rng(42)
+        data = np.cumsum(rng.standard_normal(120))
+        troughs = find_troughs(data, n=5)
+        for t in troughs:
+            for j in range(1, 6):
+                assert data[t] <= data[t - j]
+                assert data[t] <= data[t + j]
+
+    def test_matches_single_dip(self):
+        data = np.ones(20)
+        data[10] = 0.0
+        troughs = find_troughs(data, n=3)
+        assert troughs == [10]
+
+
 # ─── is_num ────────────────────────────────────────────────────
 
 
@@ -92,3 +156,18 @@ class TestIsNum:
     def test_bool_is_int_subclass(self):
         # In Python, bool is a subclass of int — is_num returns True
         assert is_num(True) is True
+
+    def test_nan_rejected(self):
+        assert is_num(float("nan")) is False
+
+    def test_inf_rejected(self):
+        assert is_num(float("inf")) is False
+
+    def test_negative_inf_rejected(self):
+        assert is_num(float("-inf")) is False
+
+    def test_zero(self):
+        assert is_num(0) is True
+
+    def test_negative_float(self):
+        assert is_num(-3.14) is True

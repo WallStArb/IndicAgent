@@ -63,11 +63,12 @@ I1_PLUGINS = [
     "MFI",
     "OBV",
     "VWAP",
+    "Supertrend",
 ]
 
 I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
-I4_PLUGINS = ["ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext"]
-I5_PLUGINS = ["RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence"]
+I4_PLUGINS = ["ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext", "ctx_GARCHVolatility"]
+I5_PLUGINS = ["RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence", "TrendConfluence"]
 SMC_PLUGINS = [
     "smc_BOSCHoCH",
     "smc_FairValueGap",

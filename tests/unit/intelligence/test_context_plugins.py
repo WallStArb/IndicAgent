@@ -133,6 +133,42 @@ class TestTrendRegime:
         assert plugin.compute_full({"main": None}) == {}
 
 
+# ─── TrendRegime Feature Consumption ─────────────────────────
+
+
+class TestTrendRegimeFeatureConsumption:
+    def test_uses_upstream_sma_when_available(self):
+        """TrendRegime should read sma_20/sma_50 from features dict."""
+        from src.intelligence.context.trend_regime import TrendRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(rng.standard_normal(100) * 0.5)
+        df = pd.DataFrame({"close": close, "high": close + 1, "low": close - 1})
+
+        # Inject known SMA values via features — these should override computation
+        known_sma20 = 4990.0  # Below price → bullish signal
+        known_sma50 = 4980.0  # Below SMA20 → strong bullish
+        features = {"sma_20": known_sma20, "sma_50": known_sma50}
+
+        plugin = TrendRegimePlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        # Should use the injected values, producing strong bullish if price > sma20 > sma50
+        assert result["ma_alignment"] == 2.0  # strong bullish
+
+    def test_falls_back_when_features_missing(self):
+        """Without upstream SMAs, should compute from OHLCV (existing behavior)."""
+        from src.intelligence.context.trend_regime import TrendRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(rng.standard_normal(100) * 0.5)
+        df = pd.DataFrame({"close": close, "high": close + 1, "low": close - 1})
+
+        plugin = TrendRegimePlugin()
+        result = plugin.compute_full({"main": df})
+        assert "trend_regime" in result
+
+
 # ─── Momentum Context ─────────────────────────────────────────
 
 

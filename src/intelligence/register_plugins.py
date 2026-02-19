@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .composites.ma_composites import plugin as ma_compare_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
+from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
@@ -18,11 +19,13 @@ from .indicators.obv import plugin as obv_plugin
 from .indicators.roc_ppo import plugin as roc_ppo_plugin
 from .indicators.rsi import plugin as rsi_plugin
 from .indicators.stochastic import plugin as stoch_plugin
+from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
 from .patterns.confluence import plugin as confluence_plugin
 from .patterns.rsi_divergence import plugin as rsi_div_plugin
+from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
 from .plugins import registry
 from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
@@ -54,6 +57,7 @@ def register_all_plugins() -> None:
     registry.register_indicator(mfi_plugin)
     registry.register_indicator(obv_plugin)
     registry.register_indicator(vwap_plugin)
+    registry.register_indicator(supertrend_plugin)
     registry.register_indicator(adx_plugin)
     registry.register_indicator(keltner_plugin)
     registry.register_indicator(donchian_plugin)
@@ -63,6 +67,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(squeeze_plugin)
     registry.register_pattern(vol_div_plugin)
     registry.register_pattern(confluence_plugin)
+    registry.register_pattern(trend_confluence_plugin)
 
     registry.register_pattern(swing_plugin)
     registry.register_pattern(sr_plugin)
@@ -71,6 +76,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(vol_regime_plugin)
     registry.register_pattern(trend_regime_plugin)
     registry.register_pattern(momentum_ctx_plugin)
+    registry.register_pattern(garch_vol_plugin)
 
     registry.register_pattern(bos_choch_plugin)
     registry.register_pattern(fvg_plugin)

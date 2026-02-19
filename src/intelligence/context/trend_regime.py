@@ -30,11 +30,18 @@ class TrendRegimePlugin:
             return {}
 
         close = df["close"].to_numpy(dtype=float)
-
-        # Compute SMAs from OHLCV
-        sma20 = float(np.mean(close[-self.sma_fast :]))
-        sma50 = float(np.mean(close[-self.sma_slow :]))
         price = float(close[-1])
+
+        # Prefer upstream SMA values from I1 MovingAverages plugin
+        features = frames.get("features")
+        sma20 = features.get("sma_20") if isinstance(features, dict) else None
+        sma50 = features.get("sma_50") if isinstance(features, dict) else None
+
+        # Fall back to direct computation if upstream unavailable
+        if not isinstance(sma20, (int, float)):
+            sma20 = float(np.mean(close[-self.sma_fast :]))
+        if not isinstance(sma50, (int, float)):
+            sma50 = float(np.mean(close[-self.sma_slow :]))
 
         # MA alignment scoring
         if price > sma20 > sma50:
@@ -52,7 +59,6 @@ class TrendRegimePlugin:
         ma_norm = ma_signal / 2.0
 
         # Try to blend with I3 structure data
-        features = frames.get("features")
         has_structure = (
             isinstance(features, dict)
             and "trend_direction" in features
