@@ -42,6 +42,10 @@ def signals_aggregated(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}signals:{symbol}:{timeframe}:aggregated"
 
 
+def narratives(env_prefix: str, symbol: str, timeframe: str) -> str:
+    return f"{env_prefix}narratives:{symbol}:{timeframe}"
+
+
 def get_stream_maxlen(
     timeframe: str,
     kind: Literal["ticks", "market", "indicators", "intelligence", "signals", "signals_aggregated"],
