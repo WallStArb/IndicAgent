@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import logging  # noqa: F401  # used in _setup_logging (added in Task 2)
 import os
 import signal
 import sys
