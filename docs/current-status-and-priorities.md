@@ -1,8 +1,8 @@
 # IndicAgent - Current Status & Development Priorities
 
-**Version:** 4.4.0
+**Version:** 4.5.0
 **Last Updated:** 2026-02-19
-**Status:** I1-I8 Complete, 41 Plugins, 357 Tests Passing
+**Status:** I1-I8 Complete, 42 Plugins, 366 Tests Passing
 
 ## Current Status: Full Intelligence Pipeline Operational
 
@@ -13,7 +13,7 @@
 - **I1 Technical Indicators** — 17 plugins with real incremental compute_next() (141x performance boost), including Supertrend and GARCH volatility
 - **I2 Composite Indicators** — Crossovers, slopes, distances via `src/intelligence/composites/`
 - **I3 Market Structure** — 3 plugins: swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure (regime + integrity)
-- **I4 Context Classification** — 4 plugins: volatility regime (ATR percentile, BB width), trend regime (SMA alignment + I3 blending), momentum context (multi-oscillator scoring), GARCH(1,1) conditional volatility + regime
+- **I4 Context Classification** — 5 plugins: volatility regime (ATR percentile, BB width), trend regime (SMA alignment + I3 blending), momentum context (multi-oscillator scoring), GARCH(1,1) conditional volatility + regime, Kalman filter trend (filtered fair value, slope, uncertainty bands, 7 outputs)
 - **I5 Pattern Detection** — 5 plugins: RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, trend confluence (6-signal aggregation)
 - **I6 Smart Money Concepts** — 6 plugins: BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD change point, HMM regime classification
 - **I6 Cross-Timeframe Confluence** — 1 plugin: trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
@@ -30,7 +30,7 @@
 - **Dashboard** — Next.js 15 / React 19 trading dashboard with price hero, indicator grid, pattern/structure/context/smart money/confluence panels
 
 **Infrastructure Status: PRODUCTION READY**
-**Test Status: 357 unit tests passing, 0 ruff errors**
+**Test Status: 366 unit tests passing, 0 ruff errors**
 
 ---
 
@@ -47,7 +47,6 @@
 ### Priority 2: More Regime & Market Identification
 **Probabilistic models for regime detection and trend estimation**
 
-- Kalman Filter Trend — latent-state trend estimation with adaptive noise (complements existing GARCH)
 - Chart patterns (double top/bottom, head & shoulders, triangles/wedges)
 - See `docs/plans/future-indicators-backlog.md` for full specs
 
@@ -80,7 +79,7 @@
 | **PI-1** | 16 indicator plugins with hybrid processing | Complete |
 | **T2** | Tier 2 refactor: calculations.py + redis_streams_manager.py split into mixins | Complete |
 | **I3** | Market structure: 3 plugins (swing detector, support/resistance, trend structure) | Complete |
-| **I4** | Context classification: 3 plugins (volatility regime, trend regime, momentum context) | Complete |
+| **I4** | Context classification: 5 plugins (volatility regime, trend regime, momentum context, GARCH vol, Kalman trend) | Complete |
 | **I5** | Pattern detection: 4 plugins (RSI divergence, Bollinger squeeze, volume divergence, confluence) | Complete |
 | **FH** | Foundation hardening: shared utils, temporal metadata, continuous scores | Complete |
 | **SMC** | Smart money concepts: 6 plugins (BOS/CHoCH, FVG, OB, liq sweeps, BOCPD, HMM) | Complete |
@@ -93,12 +92,13 @@
 | **I7-Orch** | Signal Orchestrator Service: live signal collection running (port 9112) | Complete |
 | **DataEff** | Data collection efficiency: provisional bars at :00, authoritative correction at :05 | Complete |
 | **I8** | AI Narrative Service: Ollama qwen3:8b narratives from aggregated signals (port 9113) | Complete |
+| **I4-Kalman** | ctx_KalmanTrend: 1D Kalman filter, 7 outputs, optional GARCH-adaptive R, 9 tests | Complete |
 
 ---
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 41 registered (17 I1 indicators + 5 I5 patterns + 3 I3 structure + 4 I4 context + 6 SMC smart money + 1 I6 confluence + 5 I7 setups)
+**Plugin Totals:** 42 registered (17 I1 indicators + 5 I5 patterns + 3 I3 structure + 5 I4 context + 6 SMC smart money + 1 I6 confluence + 5 I7 setups)
 **Services:** hf-tws-daemon, indicator-processor, enhanced-processor, timeframe-builder, intelligence-processor, signal-orchestrator (:9112), ai-narrative (:9113)
 **Stack:** Python 3.13, FastAPI 0.129, Redis 7.1/DragonflyDB, TimescaleDB, LangGraph 1.0, Ollama
 **Dashboard:** Next.js 15.5 / React 19 / Tailwind v4
