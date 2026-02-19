@@ -17,7 +17,7 @@ import signal
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 from typing import Any
@@ -111,6 +111,12 @@ class HighFrequencyTWSDaemon:
 
         # IBKR subscriptions state
         self.tickers_by_symbol: dict[str, Ticker] = {}
+
+        # Minute-boundary bar polling (replaces 60s countdown)
+        self.last_bar_poll_minute: int = -1       # wall-clock minute of last authoritative poll
+        self.last_provisional_minute: int = -1    # wall-clock minute of last provisional flush
+        # Per-symbol tick accumulator for provisional bars
+        self.tick_accum: dict[str, dict] = {}
 
         # 1-minute bar polling (reqRealTimeBars doesn't work reliably)
         self.last_bar_timestamps: dict[str, str] = {}  # Track last bar per symbol
@@ -232,6 +238,7 @@ class HighFrequencyTWSDaemon:
                         )
                         self.ticks_processed += 1
                         self.m_ticks.inc()
+                        self._update_tick_accumulator(symbol, tick_data, current_time)
                     except Exception as e:
                         self.dropped_ticks += 1
                         self.m_dropped.inc()
@@ -562,6 +569,33 @@ class HighFrequencyTWSDaemon:
             self.current_mode = new_mode
         except Exception as e:
             logger.warning("Failed to adjust subscription intensity", error=str(e))
+
+    def _update_tick_accumulator(self, symbol: str, tick_data: dict, now: datetime) -> None:
+        """Update per-symbol OHLCV accumulator from a tick. Thread-safe under Python GIL."""
+        last = tick_data.get("last")
+        volume = tick_data.get("volume")
+        if not last:
+            return
+        current_minute = now.minute
+        if symbol not in self.tick_accum or self.tick_accum[symbol].get("minute") != current_minute:
+            self.tick_accum[symbol] = {
+                "minute": current_minute,
+                "open": last,
+                "high": last,
+                "low": last,
+                "close": last,
+                "vol_start": volume or 0,
+                "vol_current": volume or 0,
+            }
+        else:
+            acc = self.tick_accum[symbol]
+            if last > acc["high"]:
+                acc["high"] = last
+            if last < acc["low"]:
+                acc["low"] = last
+            acc["close"] = last
+            if volume is not None:
+                acc["vol_current"] = volume
 
     def poll_1m_bars(self) -> None:
         """Poll for 1-minute bars using historical data since reqRealTimeBars is unreliable."""
