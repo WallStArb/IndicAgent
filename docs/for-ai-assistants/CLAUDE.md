@@ -208,8 +208,8 @@ All with real incremental `compute_next()` — 141x performance boost:
 ### I3 Market Structure (3 plugins)
 - Swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure
 
-### I4 Context Classification (4 plugins)
-- Volatility regime, trend regime, momentum context
+### I4 Context Classification (5 plugins)
+- Volatility regime, trend regime, momentum context, GARCH volatility (conditional vol forecast, 4 outputs)
 - Kalman filter trend (adaptive trend estimation, fair value, 7 outputs)
 
 ### I5 Pattern Detection (4 plugins)
@@ -284,10 +284,10 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
-- **I1 Indicators** — 16 plugins with incremental compute_next() — WORKING
+- **I1 Indicators** — 17 plugins with incremental compute_next() — WORKING
 - **I2 Composites** — Crossovers, slopes, distances — WORKING
 - **I3 Structure** — 3 plugins (swing, S/R, trend) — WORKING
-- **I4 Context** — 4 plugins (vol regime, trend regime, momentum, Kalman trend) — WORKING
+- **I4 Context** — 5 plugins (vol regime, trend regime, momentum, GARCH vol, Kalman trend) — WORKING
 - **I5 Patterns** — 4 plugins (RSI div, BB squeeze, vol div, confluence) — WORKING
 - **I6 Smart Money** — 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM) — WORKING
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
@@ -310,7 +310,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 
 ### Development Priorities
 1. **Dashboard narrative panel** — Wire narratives:SYMBOL:TF stream to SSE + add dashboard panel to display current AI narrative per symbol
-2. **More regime models** — GARCH volatility, Kalman filter trend, chart patterns (see `docs/plans/future-indicators-backlog.md`)
+2. **More regime models** — Chart patterns (see `docs/plans/future-indicators-backlog.md`)
 3. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
 
 ### Completed Phases
@@ -320,7 +320,9 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **PI-1** — 16 indicator plugins with hybrid processing
 - **T2** — Tier 2 refactor: calculations.py + redis_streams_manager.py → mixins
 - **I3** — Market structure: 3 plugins
-- **I4** — Context classification: 3 plugins
+- **I4** — Context classification: vol regime, trend regime, momentum (3 original plugins)
+- **I4-GARCH** — ctx_GARCHVolatility: GARCH(1,1) conditional vol forecast, 4 outputs (sigma, vol_ratio, vol_regime, shock)
+- **I4-Kalman** — ctx_KalmanTrend: 1D Kalman filter (local level model), 7 outputs (trend, slope, price_position, uncertainty, upper, lower, gain), optional GARCH-adaptive R, 9 new tests
 - **I5** — Pattern detection: 4 plugins
 - **FH** — Foundation hardening: shared utils, temporal metadata, continuous scores
 - **SMC** — Smart money: 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM regime)
@@ -331,7 +333,6 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
 - **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
 - **I8-Narrative** — AINarrativeService: Ollama qwen3:8b synthesis, 9 new tests, narratives stream, stable consumer group, finally-xack pattern
-- **I4-Kalman** — ctx_KalmanTrend: 1D Kalman filter (local level model), 7 outputs (trend, slope, price_position, uncertainty, upper, lower, gain), optional GARCH-adaptive R, 9 new tests
 
 ## Key References
 
