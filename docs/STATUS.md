@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-19
-> **Version:** 4.6.0
-> **Phase:** I1-I8 Pipeline Complete — 45 plugins, 383 tests
+> **Last Updated:** 2026-02-20
+> **Version:** 4.8.0
+> **Phase:** I7 Phase 2 underway — 53 plugins, 453 tests
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I8)
-**Test Coverage:** 383 unit tests passing, 0 lint errors
+**Test Coverage:** 453 unit tests passing, 0 lint errors
 **Data Collection:** Active (ES, NQ, RTY + 11 more contracts)
 
 ---
@@ -35,36 +35,40 @@
 
 | Tier | Name | Plugins | Status |
 |------|------|---------|--------|
-| I1 | Technical Indicators | 17 | COMPLETE |
+| I1 | Technical Indicators | 23 | COMPLETE (6 new in v4.7.0) |
 | I2 | Composite Indicators | — | COMPLETE (built-in: crossovers, slopes) |
 | I3 | Market Structure | 3 | COMPLETE |
 | I4 | Context Classification | 5 | COMPLETE |
 | I5 | Pattern Detection | 8 | COMPLETE |
 | I6 | Smart Money Concepts | 6 | COMPLETE |
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE |
-| I7 | Trading Setups | 5 | PHASE_1_COMPLETE |
+| I7 | Trading Setups | 7 | PHASE_2_IN_PROGRESS (2 added in v4.8.0) |
 | I7 | Signal Aggregation | 4 components | RUNNING |
 | I8 | AI Intelligence | 1 service | WORKING |
 
-**Total Plugins:** 45 registered
+**Total Plugins:** 53 registered (23 indicators + 30 patterns)
+
+### Known Issues
+
+| Issue | Impact | Fix |
+|-------|--------|-----|
+| Track A I1 indicators not in `I1_PLUGINS` | `ind_ParabolicSAR`, `ind_StochRSI`, `ind_CMF`, `ind_Aroon`, `ind_ChandelierExit`, `ind_HistoricalVolatility` are registered in the registry but excluded from `I1_PLUGINS` in `intelligence_processor_service.py` — they don't run in the live pipeline | Add 6 names to `I1_PLUGINS` list (trivial one-liner each); no logic changes needed |
 
 ---
 
 ## Development Priorities
 
-### Priority 1: Dashboard Narrative Panel
-**Wire the I8 narrative stream to the trading dashboard**
+### Priority 1: Fix Track A I1_PLUGINS Gap
+**Wire 6 registered-but-inactive indicators into the live pipeline**
 
-- SSE endpoint for `narratives:SYMBOL:TF` stream
-- Dashboard React component showing live AI-generated trade narratives
-- Real-time update whenever a new signal fires and narrative is generated
-- This closes the human feedback loop on I7 signal quality
+- `ind_ParabolicSAR`, `ind_StochRSI`, `ind_CMF`, `ind_Aroon`, `ind_ChandelierExit`, `ind_HistoricalVolatility`
+- Add each name to `I1_PLUGINS` list in `services/intelligence_processor_service.py`
+- No logic changes — trivial one-liner fix per plugin
+- Unlocks these outputs as features for all downstream I3–I7 plugins
 
 ### Priority 2: I7 Phase 2 — More Setup Plugins
-**Expand signal coverage with additional setup plugins**
+**Continue expanding signal coverage (7 of 14 target plugins remaining)**
 
-- VWAP Deviation Setup (mean reversion on ES/NQ)
-- Momentum Breakout Setup (ROC spike + volume confirmation)
 - Supply/Demand Zone Setup
 - Gap Analysis Setup (session open trades)
 - See `docs/roadmap/MASTER_ROADMAP.md` Phase 4 for full list
@@ -152,7 +156,7 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 45 registered (17 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 5 I7)
+**Plugin Totals:** 53 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 7 I7)
 **Services:** hf-tws-daemon, indicator-processor, enhanced-processor, timeframe-builder, intelligence-processor, signal-orchestrator (:9112), ai-narrative (:9113)
 **Stack:** Python 3.13, FastAPI 0.129, Redis 7.1/DragonflyDB, TimescaleDB, LangGraph 1.0, Ollama
 **Dashboard:** Next.js 15.5 / React 19 / Tailwind v4
@@ -165,6 +169,17 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 ---
 
 ## Recent Changes
+
+### 2026-02-20 (v4.8.0)
+- COMPLETE I7 Phase 2: trad_VWAPDeviation (VWAP mean-reversion, 2σ gate) + trad_MomentumBreakout (triple-gate: ROC+vol+structure)
+- ADD ROC_PPO to I1_PLUGINS — roc_14 now available in features dict for all downstream plugins
+- COMPLETE Dashboard Signal/Narrative Panel — SignalPanel (per-symbol) + NarrativePanel (global AI feed) wired to SSE
+- TEST +16 tests (437 → 453 total)
+- KNOWN ISSUE: Track A I1 indicators registered but not in I1_PLUGINS (see Known Issues above)
+
+### 2026-02-20 (v4.7.0)
+- COMPLETE Track A: 6 new I1 indicators — ind_ParabolicSAR, ind_StochRSI, ind_CMF, ind_Aroon, ind_ChandelierExit, ind_HistoricalVolatility
+- TEST +54 tests (383 → 437 total)
 
 ### 2026-02-19 (v4.6.0)
 - COMPLETE I5 chart pattern plugins: patt_DoubleTB, patt_HeadShoulders, patt_TriangleWedge
