@@ -25,8 +25,11 @@ from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
 from .patterns.confluence import plugin as confluence_plugin
+from .patterns.double_top_bottom import plugin as double_tb_plugin
+from .patterns.head_shoulders import plugin as head_shoulders_plugin
 from .patterns.rsi_divergence import plugin as rsi_div_plugin
 from .patterns.trend_confluence import plugin as trend_confluence_plugin
+from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
 from .plugins import registry
 from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
@@ -88,6 +91,11 @@ def register_all_plugins() -> None:
     registry.register_pattern(hmm_plugin)
 
     registry.register_pattern(ctf_plugin)
+
+    # I5 Chart Patterns
+    registry.register_pattern(double_tb_plugin)
+    registry.register_pattern(head_shoulders_plugin)
+    registry.register_pattern(triangle_wedge_plugin)
 
     # I7 Trading Setups
     registry.register_pattern(trend_follow_plugin)
