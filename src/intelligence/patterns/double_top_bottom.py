@@ -46,8 +46,12 @@ class DoubleTBPlugin:
 
         raw_peaks = find_peaks(high, self.neighbor)
         raw_troughs = find_troughs(low, self.neighbor)
-        peaks = self._filter_swings(raw_peaks, high, self.amplitude_thr, self.min_swing_bars, keep_max=True)
-        troughs = self._filter_swings(raw_troughs, low, self.amplitude_thr, self.min_swing_bars, keep_max=False)
+        peaks = self._filter_swings(
+            raw_peaks, high, self.amplitude_thr, self.min_swing_bars, keep_max=True
+        )
+        troughs = self._filter_swings(
+            raw_troughs, low, self.amplitude_thr, self.min_swing_bars, keep_max=False
+        )
 
         current_close = float(close[-1])
 

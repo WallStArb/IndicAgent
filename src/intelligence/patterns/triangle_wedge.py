@@ -47,7 +47,9 @@ class TriangleWedgePlugin:
 
         # Upper trendline: peaks of high
         raw_peaks = find_peaks(high, self.neighbor)
-        peaks = self._filter_swings(raw_peaks, high, self.amplitude_thr, self.min_swing_bars, keep_max=True)
+        peaks = self._filter_swings(
+            raw_peaks, high, self.amplitude_thr, self.min_swing_bars, keep_max=True
+        )
 
         # Lower trendline: try find_troughs(low) first; if the lower trendline's troughs are
         # above the surrounding base (e.g., rising-wedge scenarios where low injections create
@@ -55,10 +57,14 @@ class TriangleWedgePlugin:
         # find_peaks(low) instead — the "peaks of low" are local-maximum support touches that
         # correctly capture the rising lower channel.
         raw_troughs = find_troughs(low, self.neighbor)
-        troughs_min = self._filter_swings(raw_troughs, low, self.amplitude_thr, self.min_swing_bars, keep_max=False)
+        troughs_min = self._filter_swings(
+            raw_troughs, low, self.amplitude_thr, self.min_swing_bars, keep_max=False
+        )
 
         raw_low_peaks = find_peaks(low, self.neighbor)
-        troughs_max = self._filter_swings(raw_low_peaks, low, self.amplitude_thr, self.min_swing_bars, keep_max=True)
+        troughs_max = self._filter_swings(
+            raw_low_peaks, low, self.amplitude_thr, self.min_swing_bars, keep_max=True
+        )
 
         troughs = self._pick_lower_trendline(troughs_min, troughs_max, low)
 
