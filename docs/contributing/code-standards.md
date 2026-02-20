@@ -44,7 +44,32 @@ Examples:
 
 ## Code Organization
 
-[TODO: Expand with more conventions from CLAUDE.md]
+### Plugin files
+
+Each plugin lives in its tier directory under `src/intelligence/`:
+
+```
+src/intelligence/
+├── indicators/     # I1 — ind_*
+├── composites/     # I2
+├── market_structure/ # I3 — struct_*
+├── context/        # I4 — ctx_*
+├── patterns/       # I5 — patt_*
+├── smart_money/    # I6 SMC — smc_*
+├── confluence/     # I6 cross-timeframe
+└── setups/         # I7 — setup_*
+```
+
+### Service files
+
+Services live in `services/` and follow the pattern `[name]_service.py`. They accept `--config <path>` and load JSON config from `config/`.
+
+### Key principles
+
+- **Incremental compute** — plugins implement `compute_next(bar)` for single-bar updates, not batch recompute
+- **No global state** — plugins are stateful objects; each symbol+timeframe gets its own instance
+- **Explicit warmup** — every plugin declares `warmup_period`; return `None` or `{}` until satisfied
+- **Line length:** 100 characters (configured in `pyproject.toml`)
 
 ---
 

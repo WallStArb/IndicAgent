@@ -103,7 +103,7 @@ You should see checks for tables, indexes, hypertables, and continuous aggregate
 | Item | Location |
 |------|----------|
 | Docker Compose (TimescaleDB + Dragonfly + Ollama) | `production/docker-compose.yml` |
-| DB migrations (run in order) | `production/migrations/001_*.sql` … `006_*.sql` |
+| DB migrations (run in order) | `production/migrations/001_*.sql` … `007_*.sql` |
 | Single-file schema (dev reference) | `production/schemas/create_schema.sql` |
 | Apply migrations | `production/scripts/db_setup.sh` |
 | Verify schema | `production/scripts/db_verify.sh` |

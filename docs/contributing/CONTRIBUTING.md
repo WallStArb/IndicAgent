@@ -37,7 +37,7 @@ See [Adding Plugins Guide](../guides/adding-plugins.md)
 
 1. Update STATUS.md if adding plugins or changing versions
 2. Add tests for new functionality
-3. Ensure all tests pass: `pytest tests/`
+3. Ensure all tests pass: `.venv/bin/python3 -m pytest tests/ --ignore=tests/integration -q`
 4. Update relevant documentation
 5. Use conventional commits: `feat:`, `fix:`, `docs:`, etc.
 

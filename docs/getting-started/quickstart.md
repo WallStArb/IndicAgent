@@ -14,17 +14,17 @@ Get IndicAgent running in 5 minutes.
 
 ## Steps
 
-### 1. Clone Repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/yourusername/indicagent.git
 cd indicagent
 ```
 
-### 2. Setup Environment
+### 2. Set Up the Python Environment
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -32,17 +32,25 @@ pip install -r requirements.txt
 ### 3. Start Infrastructure
 
 ```bash
-docker-compose up -d
+docker compose -f production/docker-compose.yml up -d
 ```
 
-### 4. Start Services
+Starts TimescaleDB (port 5432), DragonflyDB (port 6379), and Ollama (port 11434).
+
+### 4. Apply Database Migrations
 
 ```bash
-python production/daemons/high_frequency_tws_daemon.py --client-id 35
-python services/indicators_processor_service.py --config config/indicator_processor_service.json
+bash production/scripts/db_setup.sh
 ```
 
-### 5. Start Dashboard
+### 5. Start Services
+
+```bash
+python3 production/daemons/high_frequency_tws_daemon.py --client-id 35
+python3 services/intelligence_processor_service.py --config config/intelligence_processor.json
+```
+
+### 6. Start Dashboard
 
 ```bash
 cd dashboard
@@ -56,10 +64,6 @@ Open http://localhost:3000
 
 ## Next Steps
 
-- **Full Installation:** [installation.md](installation.md) for detailed setup
-- **First Plugin:** [first-plugin.md](first-plugin.md) to write your first plugin
-- **Architecture:** [architecture-overview.md](architecture-overview.md) to understand the system
-
----
-
-**Status:** See [STATUS.md](../STATUS.md) for current versions
+- **Full Installation:** [installation.md](installation.md) for infrastructure details and IBKR setup
+- **First Plugin:** [first-plugin.md](first-plugin.md) to write your first intelligence plugin
+- **Architecture:** [architecture-overview.md](architecture-overview.md) to understand the pipeline

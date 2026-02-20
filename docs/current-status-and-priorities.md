@@ -80,7 +80,7 @@
 | **T2** | Tier 2 refactor: calculations.py + redis_streams_manager.py split into mixins | Complete |
 | **I3** | Market structure: 3 plugins (swing detector, support/resistance, trend structure) | Complete |
 | **I4** | Context classification: 5 plugins (volatility regime, trend regime, momentum context, GARCH vol, Kalman trend) | Complete |
-| **I5** | Pattern detection: 4 plugins (RSI divergence, Bollinger squeeze, volume divergence, confluence) | Complete |
+| **I5** | Pattern detection: 5 plugins (RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, trend confluence) | Complete |
 | **FH** | Foundation hardening: shared utils, temporal metadata, continuous scores | Complete |
 | **SMC** | Smart money concepts: 6 plugins (BOS/CHoCH, FVG, OB, liq sweeps, BOCPD, HMM) | Complete |
 | **I6** | Cross-timeframe confluence: trend/structure/regime/pattern alignment scoring | Complete |
