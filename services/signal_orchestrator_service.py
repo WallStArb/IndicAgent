@@ -64,6 +64,8 @@ I7_PLUGINS = [
     "trad_LiquiditySweepReclaim",
     "trad_MTFAlignment",
     "trad_SqueezeExpansion",
+    "trad_VWAPDeviation",
+    "trad_MomentumBreakout",
 ]
 
 # Fields that are metadata / OHLCV — everything else is a feature
