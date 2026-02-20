@@ -13,7 +13,13 @@ from .indicators.bollinger import plugin as bb_plugin
 from .indicators.cci import plugin as cci_plugin
 from .indicators.donchian import plugin as donchian_plugin
 from .indicators.keltner import plugin as keltner_plugin
+from .indicators.aroon import plugin as aroon_plugin
+from .indicators.chandelier import plugin as chandelier_plugin
+from .indicators.cmf import plugin as cmf_plugin
+from .indicators.historical_volatility import plugin as hv_plugin
 from .indicators.macd import plugin as macd_plugin
+from .indicators.parabolic_sar import plugin as psar_plugin
+from .indicators.stochastic_rsi import plugin as stoch_rsi_plugin
 from .indicators.mfi import plugin as mfi_plugin
 from .indicators.moving_averages import plugin as ma_plugin
 from .indicators.obv import plugin as obv_plugin
@@ -66,6 +72,12 @@ def register_all_plugins() -> None:
     registry.register_indicator(keltner_plugin)
     registry.register_indicator(donchian_plugin)
     registry.register_indicator(roc_ppo_plugin)
+    registry.register_indicator(aroon_plugin)
+    registry.register_indicator(chandelier_plugin)
+    registry.register_indicator(cmf_plugin)
+    registry.register_indicator(hv_plugin)
+    registry.register_indicator(psar_plugin)
+    registry.register_indicator(stoch_rsi_plugin)
 
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)

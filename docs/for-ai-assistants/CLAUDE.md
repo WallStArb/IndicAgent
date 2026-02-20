@@ -2,7 +2,7 @@
 
 Version: 4.6.0
 Last Updated: 2026-02-19
-Status: I1-I8 pipeline complete — 45 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 380 tests, data collection live with provisional bars
+Status: I1-I8 pipeline complete — 51 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 430 tests, data collection live with provisional bars
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -137,7 +137,7 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 ### Intelligence Framework
 - `src/intelligence/plugins.py` - Plugin registry (`registry.indicators`, `registry.patterns`)
 - `src/intelligence/dag.py` - DAG execution engine with dependency resolution
-- `src/intelligence/register_plugins.py` - Centralized plugin registration (45 total)
+- `src/intelligence/register_plugins.py` - Centralized plugin registration (51 total)
 - `src/intelligence/utils.py` - Shared utilities (peak/trough detection, helpers)
 
 ### Configuration
@@ -199,14 +199,14 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 - **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
 - **Narratives:** `narratives:SYMBOL:TIMEFRAME` — AI narrative text stream (I8 output); `narrative:SYMBOL:TF:latest` hash (90s TTL)
 
-## Plugin System (45 total)
+## Plugin System (51 total)
 
-### I1 Technical Indicators (17 plugins)
+### I1 Technical Indicators (23 plugins)
 All with real incremental `compute_next()` — 141x performance boost:
-- **Trend:** SMA/EMA, MACD, ADX/DMI
-- **Momentum:** RSI, Stochastic, Williams %R, CCI, ROC/PPO
-- **Volatility:** Bollinger Bands, ATR, Keltner Channels, Donchian Channels
-- **Volume:** OBV, MFI, VWAP
+- **Trend:** SMA/EMA, MACD, ADX/DMI, Parabolic SAR, Aroon
+- **Momentum:** RSI, Stochastic, Williams %R, CCI, ROC/PPO, Stochastic RSI
+- **Volatility:** Bollinger Bands, ATR, Keltner Channels, Donchian Channels, Chandelier Exit, Historical Volatility
+- **Volume:** OBV, MFI, VWAP, CMF
 
 ### I3 Market Structure (3 plugins)
 - Swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure
@@ -283,12 +283,12 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ## Current Development Status
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
-**Plugin System:** 45 registered (17 indicators + 28 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 380 unit tests passing, 0 ruff errors
+**Plugin System:** 51 registered (23 indicators + 28 patterns/structure/context/smart_money/trading) + 4 aggregation components
+**Test Status:** 428 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
-- **I1 Indicators** — 17 plugins with incremental compute_next() — WORKING
+- **I1 Indicators** — 23 plugins with incremental compute_next() — WORKING
 - **I2 Composites** — Crossovers, slopes, distances — WORKING
 - **I3 Structure** — 3 plugins (swing, S/R, trend) — WORKING
 - **I4 Context** — 5 plugins (vol regime, trend regime, momentum, GARCH vol, Kalman trend) — WORKING
