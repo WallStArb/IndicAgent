@@ -11,20 +11,22 @@ class TestI7Registration:
         register_all_plugins()
 
     def test_i7_plugins_registered(self):
-        """All 5 Phase 1 I7 plugins should be in the registry."""
+        """All 7 I7 plugins should be in the registry."""
         expected_i7 = {
             "trad_TrendFollowing",
             "trad_MeanReversion",
             "trad_LiquiditySweepReclaim",
             "trad_MTFAlignment",
             "trad_SqueezeExpansion",
+            "trad_VWAPDeviation",
+            "trad_MomentumBreakout",
         }
         registered = set(registry.patterns.keys())
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 23 indicators + 28 patterns = 51 total (v4.7.0)."""
+        """Should have 23 indicators + 30 patterns = 53 total."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 51, f"Expected 51, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 53, f"Expected 53, got {total} (indicators={n_ind}, patterns={n_pat})"
