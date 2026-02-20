@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.5.0
+Version: 4.6.0
 Last Updated: 2026-02-19
-Status: I1-I8 pipeline complete — 42 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 366 tests, data collection live with provisional bars
+Status: I1-I8 pipeline complete — 45 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 380 tests, data collection live with provisional bars
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -79,7 +79,7 @@ python production/scripts/simple_seeder.py --client-id 55 --days 7
 ### Development & Testing
 ```bash
 # Run tests
-.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (366 passing) — use .venv/bin/python, not bare python/python3
+.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (380 passing) — use .venv/bin/python, not bare python/python3
 .venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -135,7 +135,7 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 ### Intelligence Framework
 - `src/intelligence/plugins.py` - Plugin registry (`registry.indicators`, `registry.patterns`)
 - `src/intelligence/dag.py` - DAG execution engine with dependency resolution
-- `src/intelligence/register_plugins.py` - Centralized plugin registration (42 total)
+- `src/intelligence/register_plugins.py` - Centralized plugin registration (45 total)
 - `src/intelligence/utils.py` - Shared utilities (peak/trough detection, helpers)
 
 ### Configuration
@@ -196,7 +196,7 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 - **Signals (raw):** `signals:SYMBOL:TIMEFRAME`
 - **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
 
-## Plugin System (42 total)
+## Plugin System (45 total)
 
 ### I1 Technical Indicators (17 plugins)
 All with real incremental `compute_next()` — 141x performance boost:
@@ -212,8 +212,9 @@ All with real incremental `compute_next()` — 141x performance boost:
 - Volatility regime, trend regime, momentum context, GARCH volatility (conditional vol forecast, 4 outputs)
 - Kalman filter trend (adaptive trend estimation, fair value, 7 outputs)
 
-### I5 Pattern Detection (4 plugins)
-- RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence
+### I5 Pattern Detection (7 plugins)
+- RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, trend confluence
+- Chart patterns: Double Top/Bottom (`patt_DoubleTB`), Head & Shoulders / Inverse H&S (`patt_HeadShoulders`), Triangle & Wedge (`patt_TriangleWedge`)
 
 ### I6 Smart Money Concepts (6 plugins)
 - BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD change point, HMM regime classification
@@ -279,8 +280,8 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ## Current Development Status
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
-**Plugin System:** 42 registered (17 indicators + 25 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 366 unit tests passing, 0 ruff errors
+**Plugin System:** 45 registered (17 indicators + 28 patterns/structure/context/smart_money/trading) + 4 aggregation components
+**Test Status:** 380 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
@@ -288,7 +289,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I2 Composites** — Crossovers, slopes, distances — WORKING
 - **I3 Structure** — 3 plugins (swing, S/R, trend) — WORKING
 - **I4 Context** — 5 plugins (vol regime, trend regime, momentum, GARCH vol, Kalman trend) — WORKING
-- **I5 Patterns** — 4 plugins (RSI div, BB squeeze, vol div, confluence) — WORKING
+- **I5 Patterns** — 7 plugins (RSI div, BB squeeze, vol div, confluence, trend confluence, Double Top/Bottom, Head & Shoulders, Triangle/Wedge) — WORKING
 - **I6 Smart Money** — 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM) — WORKING
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
 - **I7 Trading Outputs** — 5 Phase 1 plugins (TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion) — WORKING
@@ -333,6 +334,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
 - **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
 - **I8-Narrative** — AINarrativeService: Ollama qwen3:8b synthesis, 9 new tests, narratives stream, stable consumer group, finally-xack pattern
+- **I5-Charts** — 3 chart pattern plugins (DoubleTB, HeadShoulders, TriangleWedge): TDD with phantom-peak-aware pair/triplet iteration, dual lower trendline selection, 17 new tests
 
 ## Key References
 
