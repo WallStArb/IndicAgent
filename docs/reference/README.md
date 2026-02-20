@@ -28,9 +28,9 @@ Plugin protocol, registration, lifecycle
 - [I4: Context Classification](plugins/i4-context.md) — 3 plugins
 - [I5: Pattern Detection](plugins/i5-patterns.md) — 4 plugins
 - [I6: Smart Money Concepts](plugins/i6-smart-money.md) — 7 plugins
-- [I7: Trading Setups](plugins/i7-trading.md) — 5 plugins
+- [I7: Trading Setups](plugins/i7-trading.md) — 7 plugins
 
-**Total:** 45 plugins
+**Total:** 53 plugins
 
 See [STATUS.md](../../STATUS.md) for current counts.
 

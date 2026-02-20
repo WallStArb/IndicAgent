@@ -1,8 +1,8 @@
 # IndicAgent Master Roadmap
 
-> **Last Updated:** 2026-02-19
-> **Current Version:** 4.6.0
-> **Current Status:** I1-I8 Complete — 45 plugins, 383 tests, full pipeline from data collection to AI narratives operational
+> **Last Updated:** 2026-02-20
+> **Current Version:** 4.8.0
+> **Current Status:** I1-I8 Complete — 53 plugins, 453 tests, full pipeline including Dashboard Signal/Narrative Panel operational
 
 ---
 
@@ -10,10 +10,10 @@
 
 ### Full Intelligence Pipeline (Operational End-to-End)
 ```
-IBKR TWS → I1 Indicators (17 plugins) → I3 Structure (3) → I4 Context (5) →
+IBKR TWS → I1 Indicators (23 plugins) → I3 Structure (3) → I4 Context (5) →
 I5 Patterns (8) → I6 Smart Money (6) → I6 Confluence (1) →
-I7 Trading Setups (5) → Signal Orchestrator → signals:aggregated →
-I8 AI Narrative Service → narratives:SYMBOL:TF → (Dashboard — next)
+I7 Trading Setups (7) → Signal Orchestrator → signals:aggregated →
+I8 AI Narrative Service → narratives:SYMBOL:TF → Dashboard (SignalPanel + NarrativePanel)
 ```
 
 ### I7 Signal Infrastructure (All Running)
@@ -23,7 +23,7 @@ I8 AI Narrative Service → narratives:SYMBOL:TF → (Dashboard — next)
 - ✅ Position Sizer (risk-based contract calculator)
 - ✅ Signal Orchestrator Service (RUNNING — :9112, collecting ES/NQ/RTY 5m+15m)
 - ✅ AI Narrative Service (RUNNING — :9113, Ollama qwen3:8b narratives)
-- ❌ Dashboard Signal/Narrative Panel (NOT BUILT — next priority)
+- ✅ Dashboard Signal/Narrative Panel (DONE — SignalPanel + NarrativePanel wired to SSE)
 
 ### Data Collection Status
 - **Bars:** Provisional at :00 (tick-derived OHLCV) + authoritative correction at :05 (reqHistoricalData)
@@ -42,7 +42,7 @@ I8 AI Narrative Service → narratives:SYMBOL:TF → (Dashboard — next)
 
 #### ✅ Task 1.1: Signal Orchestrator Service — DONE
 - `services/signal_orchestrator_service.py` + `config/signal_orchestrator.json`
-- Subscribes to intelligence streams, calls all 5 I7 plugins, aggregates, publishes to `signals:SYMBOL:TF:aggregated`
+- Subscribes to intelligence streams, calls all I7 plugins (7 as of v4.8.0), aggregates, publishes to `signals:SYMBOL:TF:aggregated`
 - Health at :9112/health
 
 #### ✅ Task 1.2: AI Narrative Service — DONE (was planned as I8)
@@ -50,13 +50,12 @@ I8 AI Narrative Service → narratives:SYMBOL:TF → (Dashboard — next)
 - Consumes `signals:aggregated`, calls Ollama qwen3:8b, publishes to `narratives:SYMBOL:TF`
 - Health at :9113/health
 
-#### ❌ Task 1.3: Dashboard Signal/Narrative Panel — NOT YET BUILT
-**Component:** `dashboard/src/components/SignalPanel.tsx` + `NarrativePanel.tsx`
-- Connect to `signals:*:*:aggregated` SSE stream for live signal display
-- Connect to `narratives:SYMBOL:TF` SSE stream for AI narrative display
-- Show active/pending/exited signals with P&L tracking
-
-**Success Criteria:** Dashboard displays live signals and AI narratives in real time
+#### ✅ Task 1.3: Dashboard Signal/Narrative Panel — DONE
+**Components:** `dashboard/src/components/signal-panel.tsx` + `narrative-panel.tsx`
+- SSE streams: `signals:aggregated` + `narratives:` wired in `src/api/routes/sse.py`
+- Hook: `dashboard/src/hooks/use-market-stream.ts` handles `signal_data` + `narrative_data` events
+- SignalPanel: per-symbol row in SymbolCard showing active signals
+- NarrativePanel: full-width bottom strip showing global AI narrative feed
 
 ---
 
@@ -119,7 +118,7 @@ Extract training features from signal_ledger:
   - atr (float)
   - volume_ratio (float)
   - swing_structure (categorical)
-- setup_plugin (categorical → one-hot: 5 plugins)
+- setup_plugin (categorical → one-hot: 7+ plugins)
 - num_signals_bar (int)
 - num_agreeing (int)
 - num_conflicting (int)
@@ -179,21 +178,19 @@ Run both aggregators in parallel:
 
 **Goal:** Increase signal diversity and coverage
 
-**Current:** 5 setup plugins (TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion)
+**Current:** 7 setup plugins (Phase 1: TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion; Phase 2: VWAPDeviation, MomentumBreakout)
 
-**Target:** 14 total plugins (+9)
+**Target:** 14 total plugins (+7 remaining)
 
 #### High-Priority Plugins (Add These Next)
 
-1. **VWAP Deviation Setup**
-   - Directory: `src/intelligence/trading/vwap_deviation.py`
-   - Logic: Price deviates >2σ from VWAP → reversion signal
-   - Best for: Mean reversion on high-volume instruments (ES, NQ)
+1. ✅ **VWAP Deviation Setup** — DONE (v4.8.0)
+   - File: `src/intelligence/trading/vwap_deviation.py`
+   - Logic: Price deviates >2σ from VWAP → reversion signal; T1=VWAP, T2=1σ band
 
-2. **Momentum Breakout Setup**
-   - Directory: `src/intelligence/trading/momentum_breakout.py`
-   - Logic: ROC spike + volume confirmation + structure break
-   - Best for: Trending moves after consolidation
+2. ✅ **Momentum Breakout Setup** — DONE (v4.8.0)
+   - File: `src/intelligence/trading/momentum_breakout.py`
+   - Logic: Triple-gate (ROC spike + vol expansion + structure break); stop at broken structure level
 
 3. **Supply/Demand Zone Setup**
    - Directory: `src/intelligence/trading/supply_demand_zones.py`
@@ -421,10 +418,10 @@ Use this framework to prioritize when multiple options exist:
 ## Success Metrics
 
 ### Short-Term (1 Month)
-- [ ] Signal orchestrator running 24/7
+- [x] Signal orchestrator running 24/7
 - [ ] 500+ signals collected in signal_ledger
 - [ ] Clean lifecycle transitions (pending→active→exit)
-- [ ] Dashboard shows live signals
+- [x] Dashboard shows live signals and AI narratives
 
 ### Medium-Term (3 Months)
 - [ ] ML scoring model deployed and outperforming rules-based

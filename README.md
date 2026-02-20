@@ -4,8 +4,8 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 4.6.0  
-**Last Updated:** 2026-02-20  
+**Version:** 4.8.0
+**Last Updated:** 2026-02-20
 **Status:** I1-I8 Pipeline Complete
 
 ---
@@ -24,7 +24,7 @@ IndicAgent turns **live futures data** into **structured market intelligence** i
 |--------|--------|
 | **Data in** | IBKR TWS (ES, NQ, RTY, CL, GC, etc.), 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); optional TimescaleDB for history |
-| **Intelligence** | 45 plugins: I1 (17), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (5); I7 signal aggregation + I8 AI narratives operational |
+| **Intelligence** | 53 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (7); I7 signal aggregation + I8 AI narratives + Dashboard panel operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 15 / React 19, Ollama |
 | **Deployment** | Small independent services over streams; SSE for dashboard; Signal Orchestrator (:9112), AI Narrative (:9113) |
 
@@ -80,13 +80,13 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 
 | Tier | Name | Purpose | Status |
 |------|------|---------|--------|
-| **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, etc. (17 plugins) | Operational |
+| **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, etc. (23 plugins) | Operational |
 | **I2** | Composites | Crossovers, slopes, distances | Operational (composites/) |
 | **I3** | Market structure | Swings (HH/HL/LH/LL), support/resistance, trend structure (3 plugins) | Operational |
 | **I4** | Context | Volatility regime, trend regime, momentum context, GARCH, Kalman trend (5 plugins) | Operational |
 | **I5** | Patterns | RSI divergence, Bollinger squeeze, volume divergence, confluence, chart patterns (8 plugins) | Operational |
 | **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD, HMM; cross-timeframe confluence | Operational |
-| **I7** | Trading outputs | 5 setup plugins; signal aggregation (ledger, aggregator, lifecycle, sizer); Signal Orchestrator service | Operational |
+| **I7** | Trading outputs | 7 setup plugins (incl. VWAPDeviation, MomentumBreakout); signal aggregation (ledger, aggregator, lifecycle, sizer); Signal Orchestrator service | Operational |
 | **I8** | AI intelligence | AI Narrative Service (Ollama qwen3:8b from aggregated signals) | Working |
 
 So today the platform is **data + I1–I8**; next focus is dashboard narrative panel, I7 Phase 2 setups, and ML scoring calibration.
@@ -206,8 +206,8 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status and Next Steps
 
-- **Done:** I1–I8 (45 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, 383 unit tests.
-- **Next:** Dashboard narrative panel (wire I8 stream to UI), I7 Phase 2 setups (VWAP deviation, momentum breakout, supply/demand, gap), ML scoring model calibration (after 500+ signals with P&L).
+- **Done:** I1–I8 (53 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, Dashboard Signal/Narrative Panel, 453 unit tests.
+- **Next:** Fix Track A I1_PLUGINS gap (6 registered-but-inactive indicators), I7 Phase 2 continued (7 more setup plugins), ML scoring model calibration (after 500+ signals with P&L).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadmap/MASTER_ROADMAP.md).
 
@@ -224,4 +224,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadma
 
 ---
 
-**Version:** 4.6.0 | **Status:** I1–I8 complete, 45 plugins, 383 tests | **Focus:** Dashboard narrative, I7 Phase 2, ML scoring
+**Version:** 4.8.0 | **Status:** I1–I8 complete, 53 plugins, 453 tests | **Focus:** I1_PLUGINS fix, I7 Phase 2, ML scoring

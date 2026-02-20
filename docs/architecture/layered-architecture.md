@@ -92,8 +92,8 @@ class PatternDetectionService:
 
 **Intelligence Processing:**
 - **I5 Pattern Recognition:** 4 plugins -- RSI divergence (peak/trough N-neighbor), Bollinger squeeze (TTM-style BB-inside-KC), volume divergence (OBV slope vs price slope), multi-indicator confluence scoring -- COMPLETED
-- **I6 Confluence Analysis:** Plugin-based multi-timeframe pattern validation, risk-adjusted scoring -- NOT YET IMPLEMENTED
-- **I7 Trading Signals:** Plugin-based validated setups, actionable intelligence, market opportunities -- NOT YET IMPLEMENTED
+- **I6 Confluence Analysis:** Plugin-based multi-timeframe pattern validation, risk-adjusted scoring
+- **I7 Trading Signals:** Plugin-based validated setups, actionable intelligence, market opportunities
 
 **Output Streams:** `patterns:SYMBOL:TIMEFRAME` (I5-I7)
 **Status:** I5 Complete (4 plugins), I6-I7 not yet implemented
@@ -260,7 +260,7 @@ Pipeline: production_intelligence_pipeline
 |-------------------|--------|--------------|
 | **LangGraph Workflows** | Operational | Event-driven processing, circuit breakers, state management |
 | **Stream-Native Processing** | Operational | Unified market processor, intelligence-aware streams |
-| **Plugin Integration** | Operational | 45 plugins (17 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 5 I7), DAG execution |
+| **Plugin Integration** | Operational | 53 plugins (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 7 I7), DAG execution |
 | **Observability** | Operational | Prometheus metrics, OpenTelemetry tracing, structured logging |
 
 ## **Development Status & Priorities**

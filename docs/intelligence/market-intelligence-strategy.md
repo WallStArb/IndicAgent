@@ -2,7 +2,7 @@
 
 **Version:** 2.2.0  
 **Last Updated:** 2026-02-12  
-**Status:** Historical Strategy Reference — I1-I8 are now operational (45 plugins). See `docs/STATUS.md` for current state.
+**Status:** Historical Strategy Reference — I1-I8 are now operational (53 plugins). See `docs/STATUS.md` for current state.
 
 ##  Intelligence Platform Vision
 

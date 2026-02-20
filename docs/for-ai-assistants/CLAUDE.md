@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.6.0
-Last Updated: 2026-02-19
-Status: I1-I8 pipeline complete — 51 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 430 tests, data collection live with provisional bars
+Version: 4.8.0
+Last Updated: 2026-02-20
+Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService + Dashboard Signal/Narrative Panel, 453 tests
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -81,7 +81,7 @@ python production/scripts/simple_seeder.py --client-id 55 --days 7
 ### Development & Testing
 ```bash
 # Run tests
-.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (380 passing) — use .venv/bin/python3, not bare python/python3
+.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (453 passing) — use .venv/bin/python3, not bare python/python3
 .venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -137,7 +137,7 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 ### Intelligence Framework
 - `src/intelligence/plugins.py` - Plugin registry (`registry.indicators`, `registry.patterns`)
 - `src/intelligence/dag.py` - DAG execution engine with dependency resolution
-- `src/intelligence/register_plugins.py` - Centralized plugin registration (51 total)
+- `src/intelligence/register_plugins.py` - Centralized plugin registration (53 total)
 - `src/intelligence/utils.py` - Shared utilities (peak/trough detection, helpers)
 
 ### Configuration
@@ -199,7 +199,7 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 - **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
 - **Narratives:** `narratives:SYMBOL:TIMEFRAME` — AI narrative text stream (I8 output); `narrative:SYMBOL:TF:latest` hash (90s TTL)
 
-## Plugin System (51 total)
+## Plugin System (53 total)
 
 ### I1 Technical Indicators (23 plugins)
 All with real incremental `compute_next()` — 141x performance boost:
@@ -215,7 +215,7 @@ All with real incremental `compute_next()` — 141x performance boost:
 - Volatility regime, trend regime, momentum context, GARCH volatility (conditional vol forecast, 4 outputs)
 - Kalman filter trend (adaptive trend estimation, fair value, 7 outputs)
 
-### I5 Pattern Detection (7 plugins)
+### I5 Pattern Detection (8 plugins)
 - RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, trend confluence
 - Chart patterns: Double Top/Bottom (`patt_DoubleTB`), Head & Shoulders / Inverse H&S (`patt_HeadShoulders`), Triangle & Wedge (`patt_TriangleWedge`)
 
@@ -225,8 +225,9 @@ All with real incremental `compute_next()` — 141x performance boost:
 ### I6 Cross-Timeframe Confluence (1 plugin)
 - Trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
 
-### I7 Trading Setups — Phase 1 (5 plugins)
-- TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion
+### I7 Trading Setups — Phase 1+2 (7 plugins)
+- Phase 1: TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion
+- Phase 2: VWAPDeviation (2σ mean-reversion, VWAP T1/1σ-band T2), MomentumBreakout (triple-gate: ROC+vol+structure break)
 - Regime-adaptive setup detection with signal.v1 schema
 - ATR-based stop/target placement, confluence-weighted confidence scoring
 
@@ -283,8 +284,8 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ## Current Development Status
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
-**Plugin System:** 51 registered (23 indicators + 28 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 428 unit tests passing, 0 ruff errors
+**Plugin System:** 53 registered (23 indicators + 30 patterns/structure/context/smart_money/trading) + 4 aggregation components
+**Test Status:** 453 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
@@ -292,12 +293,13 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I2 Composites** — Crossovers, slopes, distances — WORKING
 - **I3 Structure** — 3 plugins (swing, S/R, trend) — WORKING
 - **I4 Context** — 5 plugins (vol regime, trend regime, momentum, GARCH vol, Kalman trend) — WORKING
-- **I5 Patterns** — 7 plugins (RSI div, BB squeeze, vol div, confluence, trend confluence, Double Top/Bottom, Head & Shoulders, Triangle/Wedge) — WORKING
+- **I5 Patterns** — 8 plugins (RSI div, BB squeeze, vol div, confluence, trend confluence, Double Top/Bottom, Head & Shoulders, Triangle/Wedge) — WORKING
 - **I6 Smart Money** — 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM) — WORKING
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
-- **I7 Trading Outputs** — 5 Phase 1 plugins (TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion) — WORKING
+- **I7 Trading Outputs** — 7 plugins (Phase 1: TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion; Phase 2: VWAPDeviation, MomentumBreakout) — WORKING
 - **I7 Signal Aggregation** — Phase 1.5: aggregator, signal ledger, lifecycle tracker, position sizer — WORKING
-- **I7 Signal Orchestrator** — `SignalOrchestratorService`: runs 5 I7 plugins per bar, aggregates, persists all signals to `signal_ledger`, tracks lifecycle — WORKING (data collection active)
+- **I7 Signal Orchestrator** — `SignalOrchestratorService`: runs 7 I7 plugins per bar, aggregates, persists all signals to `signal_ledger`, tracks lifecycle — WORKING (data collection active)
+- **Dashboard Panel** — SignalPanel (per-symbol) + NarrativePanel (global AI feed) wired to SSE (`signals:aggregated` + `narratives:` streams) — WORKING
 - **I8 AI Intelligence** — AINarrativeService: selected signals → Ollama qwen3:8b → human-readable narratives → narratives:SYMBOL:TF stream — WORKING
 
 ### Local LLM Infrastructure (Ollama)
@@ -313,9 +315,9 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 **Note:** Qwen3 models use thinking mode by default — `content` field may be empty if `num_predict` is too low. Use `/no_think` prefix or set `num_predict` ≥ 500 for reliable output. Use the chat API (`/api/chat`) for multi-turn, generate API (`/api/generate`) for single-shot.
 
 ### Development Priorities
-1. **Dashboard narrative panel** — Wire narratives:SYMBOL:TF stream to SSE + add dashboard panel to display current AI narrative per symbol
-2. **More regime models** — Chart patterns (see `docs/plans/future-indicators-backlog.md`)
-3. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
+1. **Fix Track A I1_PLUGINS gap** — `ind_ParabolicSAR`, `ind_StochRSI`, `ind_CMF`, `ind_Aroon`, `ind_ChandelierExit`, `ind_HistoricalVolatility` registered but not in `I1_PLUGINS` in `services/intelligence_processor_service.py` — trivial one-liner fix each
+2. **I7 Phase 2 continued** — 7 more setup plugins remaining (Supply/Demand zones, Gap Analysis, Candlestick patterns, Session Extremes, etc. — see `docs/roadmap/MASTER_ROADMAP.md` Phase 4)
+3. **ML scoring model** — Replace rules-based aggregator once 500+ signals collected in `signal_ledger` (~17 days at 30/day)
 
 ### Completed Phases
 - **LG-1** — LangGraph event-driven workflows, circuit breakers
@@ -338,6 +340,9 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
 - **I8-Narrative** — AINarrativeService: Ollama qwen3:8b synthesis, 9 new tests, narratives stream, stable consumer group, finally-xack pattern
 - **I5-Charts** — 3 chart pattern plugins (DoubleTB, HeadShoulders, TriangleWedge): TDD with phantom-peak-aware pair/triplet iteration, dual lower trendline selection, 17 new tests
+- **Track-A-I1** — 6 new I1 indicators (ParabolicSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility), all incremental, 54 new tests; **NOTE: registered but NOT yet in I1_PLUGINS (see Priority 1)**
+- **Dashboard-Panel** — SSE wiring for signals:aggregated + narratives: streams, SignalPanel + NarrativePanel React components, 6 new tests
+- **I7-P2** — VWAPDeviation + MomentumBreakout setup plugins, ROC_PPO added to I1_PLUGINS, 16 new tests
 
 ## Key References
 

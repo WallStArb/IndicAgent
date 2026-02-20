@@ -12,7 +12,7 @@
 **[`docs/STATUS.md`](STATUS.md)**
 
 That document provides:
-- **Current achievements** (I1-I8 complete, 45 plugins, 383 tests)
+- **Current achievements** (I1-I8 complete, 53 plugins, 453 tests)
 - **Ranked priorities** (dashboard narrative panel, I7 phase 2, ML scoring)
 - **Completed phases** with detailed descriptions
 - **Recent changes** per version
