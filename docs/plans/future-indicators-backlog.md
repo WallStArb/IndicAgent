@@ -14,40 +14,55 @@
 
 ---
 
-## Priority Queue — Next Up
+## Active Roadmap (2026-02-20)
 
-### 1. Parabolic SAR
-- **Category:** Trend
-- **Why:** Trailing stop / trend reversal detection. Complements ADX (strength) with discrete flip signals.
-- **Incremental:** Yes — SAR updates from previous SAR + AF (acceleration factor), pure state machine.
-- **Outputs:** `psar_value`, `psar_direction` (+1/-1)
+Three planned tracks — each is a self-contained branch. Design doc: `docs/plans/2026-02-20-i1-i3-improvements-design.md`.
 
-### 2. Chaikin Money Flow (CMF)
-- **Category:** Volume
-- **Why:** Accumulation/distribution pressure over N periods. Detects institutional buying/selling that OBV misses (OBV is cumulative, CMF is windowed).
-- **Incremental:** Yes — rolling window of money flow volume / total volume.
-- **Outputs:** `cmf_20` (-1 to +1 range)
+### Track A: New I1 Indicators — `feature/i1-new-indicators` ⬅ Next Up
+
+| Plugin | Name | Key Outputs |
+|---|---|---|
+| Parabolic SAR | `ind_ParabolicSAR` | `psar_value`, `psar_direction` |
+| Stochastic RSI | `ind_StochRSI` | `stoch_rsi_k_14`, `stoch_rsi_d_14` |
+| Chandelier Exit | `ind_ChandelierExit` | `chandelier_long_22`, `chandelier_short_22` |
+| Historical Volatility | `ind_HistoricalVolatility` | `hv_20`, `hv_ratio_20` |
+| Aroon | `ind_Aroon` | `aroon_up_25`, `aroon_down_25`, `aroon_osc_25` |
+| Chaikin Money Flow | `ind_CMF` | `cmf_20` |
+
+~35 new tests. I1 count: 17 → 23.
+
+### Track B: I3 Structure Enhancements — `feature/i3-structure-enhancements`
+
+Enhance existing 3 plugins (no new plugins):
+- `struct_SupportResistance`: add `resistance_2`, `support_2`, `sr_zone_width`, volume-weighted strength
+- `struct_SwingDetector`: add `swing_high_magnitude`, `swing_low_magnitude`
+- `struct_TrendStructure`: add `recent_leg_strength`, `swing_alternation`
+
+~20 new tests.
+
+### Track C: Momentum Composite — `feature/i1-momentum-composite`
+
+New plugin `ind_MomentumComposite` in `src/intelligence/composites/momentum_composite.py`:
+- `ema_stack_score` (−4 to +4), `golden_death_cross`, `adx_trend_qualified`, `momentum_consensus` (−3 to +3), `vol_squeeze_rank` (0–1)
+
+~15 new tests.
 
 ---
 
-## Batch 3 — Mean Reversion & Volatility
+## Deferred — Absorbed into Active Roadmap Track A
 
-### Stochastic RSI
-- **Category:** Momentum
-- **Why:** RSI of RSI — catches extreme overbought/oversold that regular RSI misses. Very effective for futures scalping.
-- **Incremental:** Yes — maintain RSI rolling window, apply Stochastic formula on top.
-- **Outputs:** `stoch_rsi_k_14`, `stoch_rsi_d_14`
+The following were previously listed as "next up" or in Batch 3 — all are now part of Track A (`feature/i1-new-indicators`). See Active Roadmap above.
 
-### Aroon
-- **Category:** Trend
-- **Why:** Measures how many bars since the highest high / lowest low. Unique "trend age" signal not covered by any current indicator.
-- **Incremental:** Yes — rolling deque of highs/lows (same pattern as Donchian).
-- **Outputs:** `aroon_up_25`, `aroon_down_25`, `aroon_osc_25`
+- Parabolic SAR → `ind_ParabolicSAR`
+- Chaikin Money Flow → `ind_CMF`
+- Stochastic RSI → `ind_StochRSI`
+- Aroon → `ind_Aroon`
+- Chandelier Exit → `ind_ChandelierExit`
+- Historical Volatility → `ind_HistoricalVolatility`
 
-### Chandelier Exit
-- **Category:** Volatility
-- **Why:** ATR-based trailing stop levels. Pairs with SuperTrend for exit management. Uses highest high - ATR*multiplier for long, lowest low + ATR*multiplier for short.
-- **Incremental:** Yes — rolling high/low window + ATR state (already have ATR).
+---
+
+## Batch 4 — Advanced Volume & Realized Volatility
 - **Outputs:** `chandelier_long_22`, `chandelier_short_22`
 
 ---
@@ -67,10 +82,7 @@
 - **Outputs:** `vwma_20`
 
 ### Historical Volatility (HV)
-- **Category:** Volatility
-- **Why:** Realized volatility (annualized std of log returns). Critical for VIX futures traders — compare HV to implied vol.
-- **Incremental:** Yes — online variance (same pattern as Bollinger Bands).
-- **Outputs:** `hv_20`, `hv_ratio_20` (HV / HV_SMA for vol regime)
+- **Status:** Absorbed into Track A — see Active Roadmap
 
 ---
 
