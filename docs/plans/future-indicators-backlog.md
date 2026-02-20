@@ -18,7 +18,7 @@
 
 Three planned tracks — each is a self-contained branch. Design doc: `docs/plans/2026-02-20-i1-i3-improvements-design.md`.
 
-### Track A: New I1 Indicators — `feature/i1-new-indicators` ⬅ Next Up
+### Track A: New I1 Indicators — ✅ COMPLETED (v4.7.0)
 
 | Plugin | Name | Key Outputs |
 |---|---|---|
