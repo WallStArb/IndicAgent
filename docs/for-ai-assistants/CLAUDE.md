@@ -342,7 +342,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ## Key References
 
 **Status & Planning:**
-- `docs/current-status-and-priorities.md` — Development status and ranked priorities
+- `docs/STATUS.md` — Development status, ranked priorities, and completed phases
 - `docs/plans/future-indicators-backlog.md` — Detailed plugin specs for GARCH, Kalman, chart patterns, and batched indicators
 - `docs/architecture/intelligence-tiers.md` — I1-I8 framework
 - `docs/architecture/plugin-registry-and-dag-execution.md` — Plugin framework design

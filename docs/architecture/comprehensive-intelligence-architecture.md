@@ -258,7 +258,7 @@ plugin_metrics: "metrics:plugins"                   # Plugin performance monitor
 
 ### Implementation Guides
 - [Development Roadmap](../development-roadmap.md) - Plugin integration phases and timeline
-- [Intelligence Platform Overview](../intelligence-platform-overview.md) - Executive overview
+- [Platform Status](../STATUS.md) - Current state, priorities, and completed phases
 - [Stream Schemas](stream-schemas.md) - Data format and event specifications
 
 ### Configuration & Setup

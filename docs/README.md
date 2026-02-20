@@ -24,7 +24,7 @@ Choose your path based on what you need:
 **→ [Data Pipeline](concepts/data-pipeline.md)** — Hot/warm/cold data flow
 
 ### Looking up specifics?
-**→ [Plugin Reference](reference/plugins/)** — All 38 plugins documented
+**→ [Plugin Reference](reference/plugins/)** — All 45 plugins documented
 **→ [API Reference](reference/api/)** — REST endpoints, SSE protocol
 **→ [Stream Schemas](reference/schemas/stream-schemas.md)** — Redis data formats
 
@@ -47,9 +47,9 @@ docs/
 ├── concepts/              ← Deep architectural understanding
 ├── reference/             ← API & technical specs
 ├── roadmap/               ← MASTER_ROADMAP.md
+├── plans/                 ← Design docs and implementation plans (historical)
 ├── contributing/          ← For contributors
-├── for-ai-assistants/     ← CLAUDE.md
-└── _archive/              ← Historical docs (read-only)
+└── for-ai-assistants/     ← CLAUDE.md
 ```
 
 ---

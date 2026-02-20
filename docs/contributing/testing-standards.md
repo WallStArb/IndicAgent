@@ -17,7 +17,7 @@ Test guidelines for IndicAgent.
 .venv/bin/python3 -m pytest tests/unit/ --cov=src --cov-report=term-missing -q
 ```
 
-**Current:** 366 unit tests passing, 0 ruff errors. Integration tests require running infrastructure and have pre-existing failures unrelated to unit work.
+**Current:** 383 unit tests passing, 0 ruff errors. Integration tests require running infrastructure and have pre-existing failures unrelated to unit work.
 
 ---
 

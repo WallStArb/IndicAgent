@@ -1,8 +1,8 @@
 # Intelligence Engine Tiers (I1–I8)
 
-**Version:** 4.4.0
+**Version:** 4.6.0
 **Last Updated:** 2026-02-19
-**Status:** I1-I8 Complete, 41 Plugins Registered, 357 Tests Passing
+**Status:** I1-I8 Complete, 45 Plugins Registered, 383 Tests Passing
 
 ## Overview
 
@@ -264,8 +264,8 @@ The I1-I8 framework integrates with IndicAgent's service-based architecture:
 - **ML Scoring Model** — XGBoost calibration of aggregator (requires 500+ signals in ledger)
 
 ### **Totals**
-- **41 registered plugins:** 17 I1 indicators + 5 I5 patterns + 3 I3 structure + 4 I4 context + 6 SMC smart money + 1 I6 confluence + 5 I7 setups
-- **357 unit tests passing**, 0 ruff errors
+- **45 registered plugins:** 17 I1 indicators + 8 I5 patterns + 3 I3 structure + 5 I4 context + 6 SMC smart money + 1 I6 confluence + 5 I7 setups
+- **383 unit tests passing**, 0 ruff errors
 
 ---
 

@@ -2,13 +2,13 @@
 
 **Version:** 2.2.0
 **Last Updated:** 2026-02-12
-**Status:** Architecture Reference — I5 pattern detection now operational (4 plugins). This doc focuses on planned I6-I8 AI capabilities.
+**Status:** Historical Architecture Reference — I6-I8 are now operational (see STATUS.md). This doc captures the original design intent; the implemented architecture uses Ollama locally rather than LiteLLM/OpenRouter.
 
 ## Executive Summary
 
 Comprehensive technical architecture for AI intelligence systems within IndicAgent. Provides sophisticated, modular foundation for market intelligence extraction that integrates seamlessly with existing infrastructure. Built on proven frameworks (LangGraph, LiteLLM, OpenRouter) with enterprise-grade observability, safety, and realistic deployment patterns.
 
-**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I5 are operational (22 plugins); this doc focuses on planned I6-I8 AI capabilities.
+**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are now operational (45 plugins). See `docs/STATUS.md` for current state.
 
 ## Scope and Non-Goals
 

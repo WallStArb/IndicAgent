@@ -23,7 +23,7 @@ All 41 registered plugins.
 - [I6: Smart Money Concepts](i6-smart-money.md) — 7 plugins
 - [I7: Trading Setups](i7-trading.md) — 5 plugins
 
-**Total:** 41 plugins
+**Total:** 45 plugins
 
 See [STATUS.md](../../STATUS.md) for current counts.
 

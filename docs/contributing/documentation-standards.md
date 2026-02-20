@@ -161,10 +161,8 @@ Maintain professional appearance through consistent formatting:
 /docs/
 ├── README.md                          # Main navigation (standard uppercase)
 ├── documentation-standards.md         # This file (kebab-case)
-├── intelligence-platform-overview.md  # Core documents (kebab-case)
-├── development-roadmap.md            # Core documents (kebab-case)
-├── current-status-and-priorities.md   # Current development focus
-├── documentation-audit.md            # README/CLAUDE/docs alignment audit
+├── STATUS.md                          # Single source of truth: state, priorities, history
+├── development-roadmap.md            # Navigation redirect to STATUS.md and MASTER_ROADMAP.md
 ├── architecture/                     # Technical architecture
 │   ├── layered-architecture.md       # Overall system architecture
 │   ├── intelligence-tiers.md         # I1-I8 intelligence classification

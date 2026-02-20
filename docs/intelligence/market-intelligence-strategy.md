@@ -2,7 +2,7 @@
 
 **Version:** 2.2.0  
 **Last Updated:** 2026-02-12  
-**Status:** Strategy reference — I1-I5 operational (22 plugins). This doc guides I6-I8 agent evolution.
+**Status:** Historical Strategy Reference — I1-I8 are now operational (45 plugins). See `docs/STATUS.md` for current state.
 
 ##  Intelligence Platform Vision
 
