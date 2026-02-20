@@ -10,6 +10,8 @@ import { ContextPanel } from "./context-panel";
 import { PatternPanel } from "./pattern-panel";
 import { SmartMoneyPanel } from "./smart-money-panel";
 import { ConfluencePanel } from "./confluence-panel";
+import { SignalPanel } from "./signal-panel";
+import { NarrativePanel } from "./narrative-panel";
 import type { Timeframe, ConnectionStatus, SymbolData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 
@@ -26,7 +28,7 @@ export default function TradingDashboard() {
     [activeProfile, profiles]
   );
 
-  const { symbolData, connectionStatus, lastUpdate } = useMarketStream(
+  const { symbolData, connectionStatus, lastUpdate, narratives } = useMarketStream(
     timeframe,
     symbols
   );
@@ -112,6 +114,9 @@ export default function TradingDashboard() {
         </div>
       </main>
 
+      {/* ── AI Narrative Feed ── */}
+      <NarrativePanel narratives={narratives} />
+
       {/* ── Footer ── */}
       <footer className="flex items-center justify-between px-3 py-1 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">
         <span className="text-[0.6rem] text-[var(--text-muted)]">
@@ -154,6 +159,9 @@ function SymbolCard({ data }: { data: SymbolData }) {
       </div>
       <div className="border-t border-[var(--border-subtle)]">
         <ConfluencePanel confluence={data.confluence} />
+      </div>
+      <div className="border-t border-[var(--border-subtle)]">
+        <SignalPanel signal={data.signal} />
       </div>
     </div>
   );

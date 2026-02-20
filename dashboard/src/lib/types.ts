@@ -150,6 +150,30 @@ export interface ConfluenceData {
   ctf_highest_aligned_tf?: number; // minutes (5, 15, 60, etc.)
 }
 
+// ── I7 Trading Signals ──
+
+export interface SignalData {
+  direction: "long" | "short";
+  signal_type: string;           // e.g., "trend_long", "mean_rev_short"
+  setup_plugin: string;          // e.g., "ind_TrendFollowing"
+  confidence: number;            // 0.0–1.0
+  entry_price: number;
+  stop_loss: number;
+  regime_context: string;        // "bullish" | "bearish"
+  timestamp: string;
+}
+
+// ── I8 AI Narratives ──
+
+export interface NarrativeData {
+  symbol: string;
+  timeframe: string;
+  narrative: string;             // AI-generated text (Redis key: "narrative")
+  action_bias: string;           // "bullish" | "bearish"
+  timestamp: string;
+  receivedAt: number;            // Date.now() when received — for staleness tracking
+}
+
 // ── Combined symbol state ──
 
 export interface SymbolData {
@@ -163,6 +187,7 @@ export interface SymbolData {
   patterns: PatternData | null;
   smartMoney: SmartMoneyData | null;
   confluence: ConfluenceData | null;
+  signal: SignalData | null;
   lastUpdate: number;
 }
 

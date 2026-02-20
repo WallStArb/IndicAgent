@@ -10,6 +10,8 @@ import type {
   PatternData,
   SmartMoneyData,
   ConfluenceData,
+  SignalData,
+  NarrativeData,
   ConnectionStatus,
   Timeframe,
 } from "@/lib/types";
@@ -34,6 +36,7 @@ function emptySymbolData(symbol: string): SymbolData {
     patterns: null,
     smartMoney: null,
     confluence: null,
+    signal: null,
     lastUpdate: 0,
   };
 }
@@ -163,6 +166,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("connecting");
   const [lastUpdate, setLastUpdate] = useState(0);
+  const [narratives, setNarratives] = useState<Record<string, NarrativeData>>({});
   const esRef = useRef<EventSource | null>(null);
 
   // Stable identity for the symbols list
@@ -304,11 +308,63 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       touch();
     });
 
+    // --- Aggregated signal data (I7) ---
+    es.addEventListener("signal_data", (evt) => {
+      const { payload } = JSON.parse(evt.data);
+      const sym = contractToBase(payload.symbol || "");
+      if (!sym) return;
+      const dir = parseInt(String(payload.direction || "0"));
+      if (dir === 0) return; // Skip no-signal entries
+
+      const signal: SignalData = {
+        direction: dir > 0 ? "long" : "short",
+        signal_type: String(payload.signal_type || ""),
+        setup_plugin: String(payload.setup_plugin || ""),
+        confidence: parseFloat(String(payload.confidence || "0")),
+        entry_price: parseFloat(String(payload.entry_price || "0")),
+        stop_loss: parseFloat(String(payload.stop_loss || "0")),
+        regime_context: String(payload.regime_context || ""),
+        timestamp: String(payload.timestamp || ""),
+      };
+
+      setSymbolData((prev) => {
+        const old = prev[sym];
+        if (!old) return prev;
+        return { ...prev, [sym]: { ...old, signal, lastUpdate: Date.now() } };
+      });
+      touch();
+    });
+
+    // --- AI narrative data (I8) ---
+    es.addEventListener("narrative_data", (evt) => {
+      const { stream, payload } = JSON.parse(evt.data);
+      const sym = contractToBase(payload.symbol || "");
+      if (!sym || !payload.narrative) return;
+
+      // Key by "SYMBOL:TF" — extract TF from stream name "narratives:ESH6:5m"
+      const parts = (stream as string).split(":");
+      const tf = parts[parts.length - 1] || timeframe;
+      const key = `${sym}:${tf}`;
+
+      setNarratives((prev) => ({
+        ...prev,
+        [key]: {
+          symbol: sym,
+          timeframe: tf,
+          narrative: String(payload.narrative),
+          action_bias: String(payload.action_bias || ""),
+          timestamp: String(payload.timestamp || ""),
+          receivedAt: Date.now(),
+        },
+      }));
+      touch();
+    });
+
     return () => {
       es.close();
       esRef.current = null;
     };
   }, [timeframe, symbolsCsv, touch]);
 
-  return { symbolData, connectionStatus, lastUpdate };
+  return { symbolData, connectionStatus, lastUpdate, narratives };
 }
