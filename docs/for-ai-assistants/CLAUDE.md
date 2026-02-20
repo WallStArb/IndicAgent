@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 4.5.0
+Version: 4.5.1
 Last Updated: 2026-02-19
 Status: I1-I8 pipeline complete — 42 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService, 366 tests, data collection live with provisional bars
 
@@ -46,8 +46,9 @@ docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 time
 docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
 docker run -d --name ollama --gpus=all -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 ollama/ollama
 
-# Database schema
+# Database schema (base + numbered migrations in order)
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
+for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"; done
 ```
 
 ### System Operations
@@ -71,6 +72,7 @@ python services/indicators_enhanced_service.py --config config/enhanced_indicato
 python services/timeframes_builder_service.py --config config/timeframe_builder_service.json
 python services/coordination_parallel_service.py --config config/parallel_coordinator.json  # Service coordination
 python services/signal_orchestrator_service.py --config config/signal_orchestrator.json  # I7 signal orchestration
+python services/ai_narrative_service.py --config config/ai_narrative_service.json        # I8 AI narratives (Metrics: :9113/metrics)
 
 # Historical data seeding
 python production/scripts/simple_seeder.py --client-id 55 --days 7
@@ -79,7 +81,7 @@ python production/scripts/simple_seeder.py --client-id 55 --days 7
 ### Development & Testing
 ```bash
 # Run tests
-.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (366 passing) — use .venv/bin/python, not bare python/python3
+.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (366 passing) — use .venv/bin/python3, not bare python/python3
 .venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -195,6 +197,7 @@ Cold: Services → Background Archival → TimescaleDB → Historical Analysis /
 - **Intelligence:** `intelligence:SYMBOL:TIMEFRAME` — includes OHLCV + all feature fields (enriched 2026-02-18)
 - **Signals (raw):** `signals:SYMBOL:TIMEFRAME`
 - **Signals (aggregated):** `signals:SYMBOL:TIMEFRAME:aggregated`
+- **Narratives:** `narratives:SYMBOL:TIMEFRAME` — AI narrative text stream (I8 output); `narrative:SYMBOL:TF:latest` hash (90s TTL)
 
 ## Plugin System (42 total)
 
@@ -313,26 +316,6 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 2. **More regime models** — Chart patterns (see `docs/plans/future-indicators-backlog.md`)
 3. **I7 Trading Outputs Phase 2** — 9 more setup plugins (VWAP, momentum, chart patterns)
 
-### Completed Phases
-- **LG-1** — LangGraph event-driven workflows, circuit breakers
-- **CQ-1** — Code quality: 1,323 lint fixes, formatting
-- **PR-2** — Production: test runner, incremental_manager, parallel services, SSE
-- **PI-1** — 16 indicator plugins with hybrid processing
-- **T2** — Tier 2 refactor: calculations.py + redis_streams_manager.py → mixins
-- **I3** — Market structure: 3 plugins
-- **I4** — Context classification: vol regime, trend regime, momentum (3 original plugins)
-- **I4-GARCH** — ctx_GARCHVolatility: GARCH(1,1) conditional vol forecast, 4 outputs (sigma, vol_ratio, vol_regime, shock)
-- **I4-Kalman** — ctx_KalmanTrend: 1D Kalman filter (local level model), 7 outputs (trend, slope, price_position, uncertainty, upper, lower, gain), optional GARCH-adaptive R, 9 new tests
-- **I5** — Pattern detection: 4 plugins
-- **FH** — Foundation hardening: shared utils, temporal metadata, continuous scores
-- **SMC** — Smart money: 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM regime)
-- **I6** — Cross-timeframe confluence: 1 plugin with intelligence_cache
-- **Cleanup** — ~7,500 lines dead code removed across three rounds
-- **Deps** — pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0, Next.js 15.5
-- **I7-P1** — Trading setups Phase 1: 5 plugins, signal schema, SSE wiring, 35 new tests
-- **I7-P1.5** — Signal aggregation: rules-based aggregator, signal ledger hypertable, lifecycle tracker, position sizer, 45 new tests
-- **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
-- **I8-Narrative** — AINarrativeService: Ollama qwen3:8b synthesis, 9 new tests, narratives stream, stable consumer group, finally-xack pattern
 
 ## Key References
 
