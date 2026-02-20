@@ -26,8 +26,9 @@ Test guidelines for IndicAgent.
 ```
 tests/
 ├── unit/           # Fast, isolated — no Redis, no DB, no network
+│   ├── core/       # Core infrastructure tests (circuit breaker, state manager, metrics)
 │   ├── indicators/ # I1 indicator plugin tests
-│   ├── patterns/   # I5 pattern plugin tests
+│   ├── intelligence/ # I1–I8 plugin tests (context, patterns, structure, etc.)
 │   └── ...
 └── integration/    # Multi-component tests (requires Redis + PostgreSQL)
 ```
