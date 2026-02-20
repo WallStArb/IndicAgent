@@ -1,16 +1,18 @@
 # IndicAgent Trading Intelligence Platform
 
-**Version:** 2.8.0  
-**Last Updated:** 2026-02-12  
-**Status:** I3 Structure + I4 Context + I5 Pattern Detection Complete
+**Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
+
+**Version:** 4.6.0  
+**Last Updated:** 2026-02-20  
+**Status:** I1-I8 Pipeline Complete
 
 ---
 
 ## What It Is
 
-IndicAgent turns **live futures data** into **structured market intelligence** in real time. It ingests ticks from Interactive Brokers, builds bars and technical indicators, then runs a plugin-based pipeline that adds **market structure** (swings, support/resistance), **context** (volatility and trend regime), and **pattern detection** (divergence, squeeze, confluence). Results are published to Redis Streams and served to a live dashboard or downstream systems. The database is used for history and backtesting, not the real-time path, so latency stays low.
+IndicAgent turns **live futures data** into **structured market intelligence** in real time. It ingests ticks from Interactive Brokers, builds bars and technical indicators, then runs a plugin-based pipeline that adds **market structure** (swings, support/resistance), **context** (volatility and trend regime), **pattern detection** (divergence, squeeze, confluence), **smart money concepts** (BOS/CHoCH, FVG, order blocks, liquidity sweeps), **cross-timeframe confluence**, **trading setups and signals**, and **AI-generated narratives**. Results are published to Redis Streams and served to a live dashboard or downstream systems. The database is used for history and backtesting, not the real-time path, so latency stays low.
 
-**In one sentence:** A production-ready, plugin-native platform that turns IBKR futures ticks into real-time indicators, structure, context, and patterns over Redis Streams, with a Next.js dashboard and a clear path to confluence scoring and AI-derived insights.
+**In one sentence:** A production-ready, plugin-native platform that turns IBKR futures ticks into real-time indicators, structure, context, patterns, SMC, confluence, signals, and AI narratives over Redis Streams, with a Next.js dashboard.
 
 ---
 
@@ -19,21 +21,21 @@ IndicAgent turns **live futures data** into **structured market intelligence** i
 | Aspect | Detail |
 |--------|--------|
 | **Data in** | IBKR TWS (ES, NQ, RTY, CL, GC, etc.), 100–500+ ticks/sec |
-| **Data out** | Redis Streams (bars, indicators, structure, context, patterns); optional TimescaleDB for history |
-| **Intelligence** | 22 plugins: 12 indicators (I1), 3 structure (I3), 3 context (I4), 4 patterns (I5). I6–I8 planned. |
-| **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 15 / React 19 |
-| **Deployment** | Small independent services over streams; SSE or Socket.IO for the dashboard |
+| **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); optional TimescaleDB for history |
+| **Intelligence** | 45 plugins: I1 (17), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (5); I7 signal aggregation + I8 AI narratives operational |
+| **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 15 / React 19, Ollama |
+| **Deployment** | Small independent services over streams; SSE for dashboard; Signal Orchestrator (:9112), AI Narrative (:9113) |
 
 ---
 
 ## How It Works
 
 1. **Ingestion** – A daemon connects to IBKR TWS and publishes ticks and 1m bars to DragonflyDB (or Redis) streams.
-2. **Processing** – Separate services consume those streams: one builds multi-timeframe bars (1m→5m→15m→1h→4h→1d), another computes technical indicators (with incremental math for speed), and the intelligence service runs I3/I4/I5 plugins (structure, context, patterns) on each bar.
-3. **Distribution** – Results are written back to streams. The API and optional Socket.IO server expose them; the dashboard subscribes via SSE or WebSocket.
+2. **Processing** – Services consume streams: multi-timeframe bars (1m→5m→15m→1h→4h→1d), technical indicators (incremental), intelligence processor (I3/I4/I5/I6/I7 plugins), signal orchestrator (aggregation, ledger, lifecycle), and AI narrative service (Ollama-generated narratives from signals).
+3. **Distribution** – Results are written to streams (intelligence, signals, narratives). The API exposes SSE; the dashboard subscribes for live updates.
 4. **Storage** – Persistence to PostgreSQL/TimescaleDB is off the hot path and used for cold storage and historical context.
 
-So: **ticks → bars → indicators → structure/context/patterns → streams → dashboard (or your own consumer)**. No database in the live pipeline.
+So: **ticks → bars → indicators → structure/context/patterns/SMC/confluence → setups/signals → aggregation → AI narratives → streams → dashboard**. No database in the live pipeline.
 
 ---
 
@@ -47,11 +49,13 @@ Services are independent processes that communicate only via Redis Streams:
 |------|-----------|--------|
 | Data collection | `high_frequency_tws_daemon.py` | IBKR live ticks and 1m bars |
 | Indicators | `indicators_processor_service.py`, `indicators_enhanced_service.py` | Bar→indicators; enhanced = 141x faster incremental |
-| Intelligence | `intelligence_processor_service.py` | I3/I4/I5 plugin orchestration |
+| Intelligence | `intelligence_processor_service.py` | I3/I4/I5/I6/I7 plugin orchestration |
 | Timeframes | `timeframes_builder_service.py` | 1m→5m→15m→1h→4h→1d |
 | Coordination | `coordination_parallel_service.py` | Parallel stream consumption |
-| API | `src/api/main.py` | FastAPI, health, SSE, REST |
-| Dashboard | `dashboard/` | Next.js 15 / React 19, SSE or Socket.IO |
+| Signals | `signal_orchestrator_service.py` | Signal aggregation, ledger, lifecycle (:9112) |
+| AI narratives | `ai_narrative_service.py` | Ollama narratives from aggregated signals (:9113) |
+| API | `src/api/main.py` | FastAPI, health, SSE, REST (:8000) |
+| Dashboard | `dashboard/` | Next.js 15 / React 19, SSE |
 
 Scaling, deployment, and fault isolation are per service; there are no direct service-to-service HTTP calls in the pipeline.
 
@@ -63,8 +67,8 @@ The system is structured as four conceptual layers:
 |-------|------|----------|--------|
 | **1** | Data Foundation | Ingestion (IBKR), bar building, multi-timeframe aggregation, stream distribution | Operational |
 | **2** | Mathematical Intelligence (I1–I4) | Indicators, composites, market structure, context/regime | Operational |
-| **3** | Pattern Intelligence (I5–I7) | Pattern detection, confluence, trading outputs | I5 operational; I6–I7 next/planned |
-| **4** | AI Intelligence (I8) | LLM synthesis, narratives, cost-controlled AI | Planned |
+| **3** | Pattern Intelligence (I5–I7) | Pattern detection, SMC, confluence, trading setups, signal aggregation | Operational |
+| **4** | AI Intelligence (I8) | LLM synthesis, narratives (Ollama) | Working |
 
 Layer 1 feeds Layer 2; Layer 2 feeds Layer 3; Layer 3 feeds Layer 4. Each layer adds context on top of the previous one.
 
@@ -74,16 +78,16 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 
 | Tier | Name | Purpose | Status |
 |------|------|---------|--------|
-| **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, etc. (12 plugins) | Operational |
+| **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, etc. (17 plugins) | Operational |
 | **I2** | Composites | Crossovers, slopes, distances | Operational (composites/) |
 | **I3** | Market structure | Swings (HH/HL/LH/LL), support/resistance, trend structure (3 plugins) | Operational |
-| **I4** | Context | Volatility regime, trend regime, momentum context (3 plugins) | Operational |
-| **I5** | Patterns | RSI divergence, Bollinger squeeze, volume divergence, confluence (4 plugins) | Operational |
-| **I6** | Confluence & risk | Multi-factor scoring from I3+I4+I5 | Next |
-| **I7** | Trading outputs | Setups, signals | Planned |
-| **I8** | AI intelligence | LLM synthesis, narratives | Planned |
+| **I4** | Context | Volatility regime, trend regime, momentum context, GARCH, Kalman trend (5 plugins) | Operational |
+| **I5** | Patterns | RSI divergence, Bollinger squeeze, volume divergence, confluence, chart patterns (8 plugins) | Operational |
+| **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD, HMM; cross-timeframe confluence | Operational |
+| **I7** | Trading outputs | 5 setup plugins; signal aggregation (ledger, aggregator, lifecycle, sizer); Signal Orchestrator service | Operational |
+| **I8** | AI intelligence | AI Narrative Service (Ollama qwen3:8b from aggregated signals) | Working |
 
-So today the platform is **data + I1–I5**; I6–I8 are the roadmap.
+So today the platform is **data + I1–I8**; next focus is dashboard narrative panel, I7 Phase 2 setups, and ML scoring calibration.
 
 ### Data Path: Hot / Warm / Cold
 
@@ -95,7 +99,7 @@ So today the platform is **data + I1–I5**; I6–I8 are the roadmap.
 
 ## Quick Start
 
-**Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis).
+**Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis), Ollama (optional, for I8 AI narratives).
 
 ```bash
 # Environment
@@ -105,6 +109,7 @@ pip install -r requirements.txt
 # Infrastructure
 docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 timescale/timescaledb:latest-pg15
 docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
+# Optional for I8: install Ollama and run e.g. ollama run qwen3:8b
 
 # Schema (optional, for cold path)
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
@@ -119,6 +124,8 @@ python services/indicators_enhanced_service.py --config config/enhanced_indicato
 python services/intelligence_processor_service.py --config config/intelligence_processor.json
 python services/timeframes_builder_service.py --config config/timeframe_builder_service.json
 python services/coordination_parallel_service.py --config config/parallel_coordinator.json
+python services/signal_orchestrator_service.py --config config/signal_orchestrator.json
+python services/ai_narrative_service.py --config config/ai_narrative_service.json
 ```
 
 API and dashboard:
@@ -131,7 +138,7 @@ uvicorn src.api.main:app --reload
 cd dashboard && npm install && npm run dev
 ```
 
-Health: `curl http://localhost:9109/health` (indicator processor), `curl http://localhost:9110/health` (timeframe builder). See `docs/for-ai-assistants/CLAUDE.md` for full commands and systemd usage.
+Health: `:9109` (indicator processor), `:9110` (timeframe builder), `:9112` (signal orchestrator), `:9113` (AI narrative), `:8000` (API). See `docs/for-ai-assistants/CLAUDE.md` for full commands and systemd usage.
 
 ---
 
@@ -140,19 +147,19 @@ Health: `curl http://localhost:9109/health` (indicator processor), `curl http://
 ```
 src/
   api/                    # FastAPI, SSE, health, routes
-  config/                  # Settings
-  core/                    # Streams (facade, factory, mixins), stream_models, unified_market_processor, DB, tick publisher
-  indicators/              # calculations.py (facade), calc_modules/, incremental_manager.py
-  intelligence/            # plugins.py, contracts.py, register_plugins.py, dag.py, state.py
-                           # indicators/, patterns/, structure/, context/, composites/
-                           # langgraph_event_processor.py, langgraph_integration.py
-  observability/           # metrics, otel
-production/                # daemons, schemas, migrations, scripts
-services/                  # Service entrypoints (indicators, intelligence, timeframes, coordination)
-config/                    # JSON configs per service
-dashboard/                 # Next.js 15 / React 19
-tests/                     # unit, integration, run_all_tests.py
-docs/                      # Architecture and planning
+  config/                 # Settings
+  core/                   # Streams (facade, factory, mixins), stream_models, DB, tick publisher
+  indicators/             # calculations.py (facade), calc_modules/, incremental_manager.py
+  intelligence/           # plugins.py, contracts.py, register_plugins.py, dag.py, state.py
+                          # indicators/, patterns/, structure/, context/, composites/
+                          # smart_money/, confluence/, trading/ (setups, aggregator, ledger, lifecycle, sizer)
+  observability/          # metrics, otel
+production/               # daemons, schemas, migrations, scripts, docker-compose
+services/                 # indicators, intelligence, timeframes, coordination, signal_orchestrator, ai_narrative
+config/                   # JSON configs per service
+dashboard/                # Next.js 15 / React 19
+tests/                    # unit, integration, run_all_tests.py
+docs/                     # Architecture and planning
 ```
 
 ---
@@ -197,8 +204,8 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status and Next Steps
 
-- **Done:** I1–I5 (22 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, 110 unit tests.
-- **Next:** I6 Confluence & Risk (multi-factor scoring from I3+I4+I5), then multi-timeframe confluence, smart-money concepts, I7/I8.
+- **Done:** I1–I8 (45 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, 383 unit tests.
+- **Next:** Dashboard narrative panel (wire I8 stream to UI), I7 Phase 2 setups (VWAP deviation, momentum breakout, supply/demand, gap), ML scoring model calibration (after 500+ signals with P&L).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadmap/MASTER_ROADMAP.md).
 
@@ -215,4 +222,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadma
 
 ---
 
-**Version:** 2.8.0 | **Status:** I3 + I4 + I5 complete, 22 plugins | **Focus:** I6 Confluence & Risk
+**Version:** 4.6.0 | **Status:** I1–I8 complete, 45 plugins, 383 tests | **Focus:** Dashboard narrative, I7 Phase 2, ML scoring
