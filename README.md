@@ -1,5 +1,7 @@
 # IndicAgent Trading Intelligence Platform
 
+**Where technical indicators become agentic: autonomous pipelines from ticks to structure, signals, and narratives.**
+
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
 **Version:** 4.6.0  
