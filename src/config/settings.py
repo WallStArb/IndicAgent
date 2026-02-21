@@ -14,19 +14,13 @@ from __future__ import annotations
 
 import os
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.core.models import AssetClass, Instrument
 
-class IBKRContract(BaseModel):
-    symbol: str
-    base: str
-    exchange: str
-    expiry: str
-    name: str = ""
-    point_value: float = 0
-    tick_size: float = 0
-    sector: str = ""
+# Deprecated alias — use Instrument directly
+IBKRContract = Instrument
 
 
 class Settings(BaseSettings):
@@ -57,7 +51,7 @@ class Settings(BaseSettings):
     ibkr_contracts_json: str | None = Field(default=None, validation_alias="IBKR_CONTRACTS_JSON")
 
     # Computed contracts list
-    contracts: list[IBKRContract] = Field(default_factory=list)
+    contracts: list[Instrument] = Field(default_factory=list)
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=".env")
 
@@ -73,76 +67,115 @@ class Settings(BaseSettings):
                 import json
 
                 parsed = json.loads(raw)
-                return [IBKRContract(**item) for item in parsed if isinstance(item, dict)]
+                return [Instrument(**item) for item in parsed if isinstance(item, dict)]
             except Exception:
                 # Fall through to defaults
                 pass
-        # Defaults: All configured futures contracts (14 total)
-        # Front-month contracts as of Feb 2026
+        # Defaults: All configured futures contracts; front-month as of Feb 2026
         return [
             # Equity Index Futures — March 2026 (H6)
-            IBKRContract(
+            Instrument(
                 symbol="ESH6", base="ES", exchange="CME", expiry="20260320",
                 name="E-mini S&P 500", point_value=50, tick_size=0.25, sector="equity_index",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="NQH6", base="NQ", exchange="CME", expiry="20260320",
                 name="E-mini Nasdaq", point_value=20, tick_size=0.25, sector="equity_index",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="RTYH6", base="RTY", exchange="CME", expiry="20260320",
                 name="E-mini Russell 2000", point_value=50, tick_size=0.10, sector="equity_index",
             ),
+            Instrument(
+                symbol="YMH6", base="YM", exchange="CBOT", expiry="20260320",
+                name="E-mini Dow", point_value=5, tick_size=1.0, sector="equity_index",
+            ),
             # Energy Futures — March/April 2026
-            IBKRContract(
+            Instrument(
                 symbol="CLH6", base="CL", exchange="NYMEX", expiry="20260220",
                 name="Crude Oil WTI", point_value=1000, tick_size=0.01, sector="energy",
             ),
-            IBKRContract(
+            Instrument(
+                symbol="BZH6", base="BZ", exchange="NYMEX", expiry="20260220",
+                name="Brent Crude", point_value=1000, tick_size=0.01, sector="energy",
+            ),
+            Instrument(
                 symbol="NGH6", base="NG", exchange="NYMEX", expiry="20260225",
                 name="Natural Gas", point_value=10000, tick_size=0.001, sector="energy",
             ),
             # Precious & Industrial Metals — April 2026
-            IBKRContract(
+            Instrument(
                 symbol="GCJ6", base="GC", exchange="COMEX", expiry="20260428",
                 name="Gold", point_value=100, tick_size=0.10, sector="metals",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="SIH6", base="SI", exchange="COMEX", expiry="20260327",
                 name="Silver", point_value=5000, tick_size=0.005, sector="metals",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="HGH6", base="HG", exchange="COMEX", expiry="20260327",
                 name="Copper", point_value=25000, tick_size=0.0005, sector="metals",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="PLJ6", base="PL", exchange="NYMEX", expiry="20260428",
                 name="Platinum", point_value=50, tick_size=0.10, sector="metals",
             ),
             # Volatility — March 2026 (IBKR uses "VIX" not "VX")
-            IBKRContract(
+            Instrument(
                 symbol="VXH6", base="VIX", exchange="CFE", expiry="20260318",
                 name="CBOE VIX Futures", point_value=1000, tick_size=0.05, sector="volatility",
             ),
             # Interest Rate Futures — March 2026
-            IBKRContract(
+            Instrument(
                 symbol="ZNH6", base="ZN", exchange="CBOT", expiry="20260320",
                 name="10-Year T-Note", point_value=1000,
                 tick_size=0.015625, sector="interest_rates",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="ZFH6", base="ZF", exchange="CBOT", expiry="20260331",
                 name="5-Year T-Note", point_value=1000,
                 tick_size=0.0078125, sector="interest_rates",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="ZBH6", base="ZB", exchange="CBOT", expiry="20260320",
                 name="30-Year T-Bond", point_value=1000, tick_size=0.03125, sector="interest_rates",
             ),
-            IBKRContract(
+            Instrument(
                 symbol="ZTH6", base="ZT", exchange="CBOT", expiry="20260331",
                 name="2-Year T-Note", point_value=2000,
                 tick_size=0.0078125, sector="interest_rates",
+            ),
+            # SOFR — March 2026
+            Instrument(
+                symbol="SR1H6", base="SR1", exchange="CME", expiry="20260317",
+                name="SOFR 1-Month", point_value=2500, tick_size=0.0025, sector="interest_rates",
+            ),
+            # Agriculture — March 2026 (CBOT)
+            Instrument(
+                symbol="ZSH6", base="ZS", exchange="CBOT", expiry="20260313",
+                name="Soybeans", point_value=50, tick_size=0.25, sector="agriculture",
+            ),
+            Instrument(
+                symbol="ZCH6", base="ZC", exchange="CBOT", expiry="20260313",
+                name="Corn", point_value=50, tick_size=0.25, sector="agriculture",
+            ),
+            Instrument(
+                symbol="ZWH6", base="ZW", exchange="CBOT", expiry="20260313",
+                name="Wheat", point_value=50, tick_size=0.25, sector="agriculture",
+            ),
+            # FX — March 2026 (CME; point_value = USD per 0.0001 move)
+            Instrument(
+                symbol="6EH6", base="6E", exchange="CME", expiry="20260316",
+                name="Euro FX", point_value=12.50, tick_size=0.00005, sector="fx",
+            ),
+            Instrument(
+                symbol="6JH6", base="6J", exchange="CME", expiry="20260316",
+                name="Japanese Yen", point_value=6.25, tick_size=0.0000005, sector="fx",
+            ),
+            # Crypto — March 2026 (CME)
+            Instrument(
+                symbol="BTCH6", base="BTC", exchange="CME", expiry="20260327",
+                name="Bitcoin", point_value=5, tick_size=5.0, sector="crypto",
             ),
         ]
 
@@ -195,7 +228,7 @@ def get_base_symbols(settings: Settings | None = None) -> list[str]:
     return result
 
 
-def get_contract_info(symbol: str, settings: Settings | None = None) -> IBKRContract | None:
+def get_contract_info(symbol: str, settings: Settings | None = None) -> Instrument | None:
     """Lookup contract by symbol (e.g. 'ESH6') or base (e.g. 'ES')."""
     s = settings or _default_settings()
     for c in s.contracts:

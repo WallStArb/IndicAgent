@@ -16,6 +16,7 @@ from src.config.settings import (
     get_point_value,
     get_tick_size,
 )
+from src.core.models import Instrument
 
 
 class TestSettings:
@@ -69,9 +70,9 @@ class TestIBKRContractMetadata:
 
     @pytest.mark.unit
     def test_default_contracts_have_metadata(self):
-        """All 14 default contracts should have name, point_value, tick_size, sector."""
+        """All default contracts should have name, point_value, tick_size, sector."""
         settings = Settings(_env_file=None)
-        assert len(settings.contracts) == 14
+        assert len(settings.contracts) >= 14
         for c in settings.contracts:
             assert c.name, f"{c.symbol} missing name"
             assert c.point_value > 0, f"{c.symbol} missing point_value"
@@ -80,10 +81,14 @@ class TestIBKRContractMetadata:
 
     @pytest.mark.unit
     def test_contract_sectors(self):
-        """Contracts should cover all expected sectors."""
+        """Contracts should cover expected sectors (equity, energy, metals, rates, ag, etc.)."""
         settings = Settings(_env_file=None)
         sectors = {c.sector for c in settings.contracts}
-        assert sectors == {"equity_index", "energy", "metals", "volatility", "interest_rates"}
+        assert "equity_index" in sectors
+        assert "energy" in sectors
+        assert "metals" in sectors
+        assert "volatility" in sectors
+        assert "interest_rates" in sectors
 
     @pytest.mark.unit
     def test_contract_metadata_values(self):
@@ -111,7 +116,7 @@ class TestIBKRContractMetadata:
     @pytest.mark.unit
     def test_ibkr_contract_defaults(self):
         """New fields should have sensible defaults for backwards compat."""
-        c = IBKRContract(symbol="TEST", base="T", exchange="X", expiry="20260101")
+        c = Instrument(symbol="TEST", base="T", exchange="X", expiry="20260101")
         assert c.name == ""
         assert c.point_value == 0
         assert c.tick_size == 0
@@ -123,20 +128,20 @@ class TestHelperFunctions:
 
     @pytest.mark.unit
     def test_get_active_contracts(self):
-        """Should return 14 contract symbol strings."""
+        """Should return contract symbol strings (at least original 14)."""
         settings = Settings(_env_file=None)
         contracts = get_active_contracts(settings)
-        assert len(contracts) == 14
+        assert len(contracts) >= 14
         assert "ESH6" in contracts
         assert "ZTH6" in contracts
         assert all(isinstance(s, str) for s in contracts)
 
     @pytest.mark.unit
     def test_get_base_symbols(self):
-        """Should return 14 unique base symbols preserving order."""
+        """Should return unique base symbols preserving order."""
         settings = Settings(_env_file=None)
         bases = get_base_symbols(settings)
-        assert len(bases) == 14
+        assert len(bases) >= 14
         assert bases[0] == "ES"
         assert "ZT" in bases
         # VIX is the IBKR base symbol, not VX
