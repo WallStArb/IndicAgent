@@ -33,6 +33,10 @@ Real-time futures trading intelligence platform with plugin-native architecture,
 ### Documentation Updates
 - `claude-md-improver` — Periodic CLAUDE.md quality audit (run when numbers feel stale)
 
+### Library & Framework Documentation
+- Use `context7-plugin:docs` skill for any library/framework question — FastAPI, Next.js, SQLAlchemy, LangGraph, pytest, Redis, etc.
+- Do not guess at API signatures or config options — check Context7 first (MCP + plugin both installed)
+
 ## Core Commands
 
 ### Development Setup
