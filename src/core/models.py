@@ -9,6 +9,33 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class AssetClass(StrEnum):
+    """Asset class classification."""
+
+    FUTURES = "futures"
+    EQUITY = "equity"
+    CRYPTO = "crypto"
+    FX = "fx"
+    OPTION = "option"
+
+
+class Instrument(BaseModel):
+    """Generic tradable instrument — provider-agnostic."""
+
+    symbol: str
+    name: str = ""
+    asset_class: AssetClass = AssetClass.FUTURES
+    exchange: str = ""
+    sector: str = ""
+    tick_size: float = 0
+    # Futures-specific — empty/zero for equities and crypto
+    base: str = ""
+    expiry: str = ""
+    point_value: float = 0
+    # Escape hatch for provider-specific metadata
+    provider_meta: dict = {}
+
+
 class DataSource(StrEnum):
     """Available data sources."""
 
