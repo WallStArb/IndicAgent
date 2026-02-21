@@ -45,21 +45,59 @@ So: **ticks → bars → indicators → structure/context/patterns/SMC/confluenc
 
 ### Services (Microservices over Streams)
 
-Services are independent processes that communicate only via Redis Streams:
+Services are independent processes that communicate exclusively via Redis Streams — no
+direct service-to-service HTTP calls in the pipeline. Each service has a single responsibility
+and can be restarted or redeployed without affecting others.
 
-| Role | Component | Notes |
-|------|-----------|--------|
-| Data collection | `high_frequency_tws_daemon.py` | IBKR live ticks and 1m bars |
-| Indicators | `indicators_processor_service.py`, `indicators_enhanced_service.py` | Bar→indicators; enhanced = 141x faster incremental |
-| Intelligence | `intelligence_processor_service.py` | I3/I4/I5/I6/I7 plugin orchestration |
-| Timeframes | `timeframes_builder_service.py` | 1m→5m→15m→1h→4h→1d |
-| Coordination | `coordination_parallel_service.py` | Parallel stream consumption |
-| Signals | `signal_orchestrator_service.py` | Signal aggregation, ledger, lifecycle (:9112) |
-| AI narratives | `ai_narrative_service.py` | Ollama narratives from aggregated signals (:9113) |
-| API | `src/api/main.py` | FastAPI, health, SSE, REST (:8000) |
-| Dashboard | `dashboard/` | Next.js 15 / React 19, SSE |
+```
+IBKR TWS
+    │
+    ▼
+market_data_daemon ──────────────────────────────► ticks:SYMBOL:live
+    │                                              price:SYMBOL:latest
+    ▼
+market:SYMBOL:1m
+    │
+    ├──────────────────────────────────────────┐
+    ▼                                          ▼
+indicator_service                   bar_aggregator_service
+(23 I1 plugins, incremental)        (1m → 5m/15m/1h/4h/1d)
+one combined message per bar                  │
+    │         ◄────────────────────────────────┘
+    ▼
+indicators:SYMBOL:TF
+    │
+    ▼
+market_analysis_service
+(structure → context → patterns → SMC → confluence)
+    │
+    ▼
+intelligence:SYMBOL:TF
+    │
+    ▼
+signal_generator_service ──────────► signal_tracker_service
+(I7 setup plugins + aggregation)     (open signal lifecycle,
+    │                                 reads market:SYMBOL:1m)
+    ▼
+signals:SYMBOL:TF:aggregated
+    │
+    ▼
+narrative_service ──────────────────► narratives:SYMBOL:TF ──► SSE ──► Dashboard
+(Ollama qwen3:8b)
+```
 
-Scaling, deployment, and fault isolation are per service; there are no direct service-to-service HTTP calls in the pipeline.
+| Service | Single Responsibility | Port |
+|---------|----------------------|------|
+| `market_data_daemon` | IBKR connection, tick ingest, 1m bar formation | — |
+| `indicator_service` | 23 I1 technical indicators (incremental) | 9109 |
+| `bar_aggregator_service` | 1m → 5m/15m/1h/4h/1d resampling | 9110 |
+| `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | — |
+| `signal_generator_service` | I7 setup plugins, signal aggregation, ledger inserts | 9112 |
+| `signal_tracker_service` | Open signal lifecycle tracking (stop/target/TTL) | — |
+| `narrative_service` | I8 LLM narrative synthesis via Ollama | 9113 |
+| `api_service` | FastAPI REST + SSE fan-out to dashboard | 8000 |
+
+Full separation-of-duties reference: [`docs/architecture/service-separation.md`](docs/architecture/service-separation.md)
 
 ### Four Major Layers
 

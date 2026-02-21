@@ -60,55 +60,79 @@ systemctl --user daemon-reload
 
 ## Service Architecture
 
-### Master Orchestrator
+Each service has a single responsibility and communicates with others exclusively via Redis
+Streams. No direct service-to-service HTTP calls exist in the pipeline. This means any service
+can be restarted independently without disrupting others.
 
-The **indicagent-master.service** coordinates all other services:
+For the full separation-of-duties reference — including what each service must NOT do — see
+[`docs/architecture/service-separation.md`](../docs/architecture/service-separation.md).
 
-- Manages startup sequence based on dependencies
-- Monitors health of all services  
-- Handles coordinated shutdown
-- Manages shared resources (Redis, PostgreSQL)
-- Provides system-wide metrics
-
-**Note:** The diagram below shows core data and API services. The platform also runs **intelligence-processor** (I3/I4/I5 plugins) and **coordination_parallel_service** (parallel stream coordination). See the root [README.md](../README.md) for the full service list.
-
-### Service Dependencies
+### Stream Flow
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  Infrastructure                         │
-│              Redis + PostgreSQL                         │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│               Data Collection                           │
-│            indicagent-hf-tws.service                   │
-│         (High-frequency tick data)                     │
-└─────────────┬─────────────┬─────────────────────────────┘
-              │             │
-              ▼             ▼
-┌─────────────────────┐   ┌─────────────────────────────────┐
-│   Processing        │   │        Processing               │
-│ indicator-processor │   │   timeframe-builder             │
-│     .service        │   │      .service                   │
-└─────────────┬───────┘   └─────────────┬───────────────────┘
-              │                         │
-              └─────────────┬───────────┘
-                            │
-                            ▼
-              ┌─────────────────────────────────┐
-              │           API Layer             │
-              │    indicagent-backend-api       │
-              │         .service                │
-              └─────────────┬───────────────────┘
-                            │
-                            ▼
-              ┌─────────────────────────────────┐
-              │        WebSocket                │
-              │    indicagent-websocket         │
-              │         .service                │
-              └─────────────────────────────────┘
+Infrastructure: Redis (DragonflyDB) + PostgreSQL (TimescaleDB)
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│  market_data_daemon                                         │
+│  IBKR connection · tick ingest · 1m bar formation          │
+│  Publishes: market:SYMBOL:1m · ticks:SYMBOL:live           │
+│             price:SYMBOL:latest                             │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ market:SYMBOL:1m
+          ┌─────────────┴──────────────────────┐
+          ▼                                    ▼
+┌──────────────────────┐            ┌──────────────────────────┐
+│  indicator_service   │            │  bar_aggregator_service  │
+│  23 I1 plugins       │◄───────────│  1m → 5m/15m/1h/4h/1d   │
+│  One combined msg    │ higher TF  │  Publishes: market:      │
+│  per bar             │ bars       │  SYMBOL:5m/15m/1h/4h/1d  │
+│  Publishes:          │            └──────────────────────────┘
+│  indicators:SYMBOL:TF│
+└──────────┬───────────┘
+           │ indicators:SYMBOL:TF
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  market_analysis_service                                     │
+│  I3 structure → I4 context → I5 patterns → SMC → I6         │
+│  Publishes: intelligence:SYMBOL:TF                           │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ intelligence:SYMBOL:TF
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│  signal_generator_service                                    │
+│  7 I7 setup plugins · aggregation · signal_ledger inserts    │
+│  Publishes: signals:SYMBOL:TF:aggregated                     │
+└──────┬─────────────────────────────────────────────────────┬─┘
+       │ signals:SYMBOL:TF:aggregated    market:SYMBOL:1m    │
+       ▼                                         ▼           │
+┌─────────────────────┐             ┌────────────────────────┐│
+│  narrative_service  │             │  signal_tracker_service ││
+│  Ollama qwen3:8b    │             │  Open signal lifecycle  ││
+│  Publishes:         │             │  stop/target/TTL checks ││
+│  narratives:        │             │  Writes: signal_ledger  ││
+│  SYMBOL:TF          │             └────────────────────────┘│
+└────────┬────────────┘                                       │
+         │ narratives:SYMBOL:TF + intelligence + signals      │
+         ▼                                                    │
+┌──────────────────────────────────────────────────────────────┐
+│  api_service  (FastAPI + SSE)                                │
+│  Fan-out to dashboard · REST endpoints · health checks       │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+### Service Details
+
+| Service | Systemd Unit | Port | Health |
+|---------|-------------|------|--------|
+| `market_data_daemon` | `indicagent-hf-tws.service` | 9108 | — |
+| `indicator_service` | `indicagent-indicator-processor.service` | 9109 | `/health` |
+| `bar_aggregator_service` | `indicagent-timeframe-builder.service` | 9110 | `/health` |
+| `market_analysis_service` | `indicagent-market-analysis.service` | — | — |
+| `signal_generator_service` | `indicagent-signal-generator.service` | 9112 | `/metrics` |
+| `signal_tracker_service` | `indicagent-signal-tracker.service` | — | — |
+| `narrative_service` | `indicagent-narrative.service` | 9113 | `/metrics` |
+| `api_service` | `indicagent-backend-api.service` | 8000 | `/health` |
 
 ## Service Details
 
