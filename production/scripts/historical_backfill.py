@@ -597,3 +597,90 @@ class IBKRFetcher:
         except Exception as e:
             print(f"  {symbol}: fetch error — {e}")
             return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Historical Backfill — fetch IBKR bars + replay intelligence pipeline"
+    )
+    parser.add_argument("--days", type=int, default=90,
+                        help="Days of history to fetch (default: 90)")
+    parser.add_argument("--symbols", default=None,
+                        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all 14)")
+    parser.add_argument("--timeframes", default="1m,5m,15m,1h",
+                        help="Comma-separated timeframes for replay (default: 1m,5m,15m,1h)")
+    parser.add_argument("--client-id", type=int, default=56,
+                        help="IBKR client ID (default: 56)")
+    parser.add_argument("--fetch-only", action="store_true",
+                        help="Only fetch from IBKR → DB, skip intelligence replay")
+    parser.add_argument("--replay-only", action="store_true",
+                        help="Only replay DB → signal_ledger, skip IBKR fetch")
+    args = parser.parse_args()
+
+    settings = Settings()
+    timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
+
+    # Filter contracts
+    contracts = settings.contracts
+    if args.symbols:
+        wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
+        contracts = [c for c in contracts if c.symbol in wanted]
+        if not contracts:
+            print(f"No matching contracts for: {args.symbols}")
+            return
+
+    print(f"Historical Backfill Pipeline")
+    print(f"  Contracts : {[c.symbol for c in contracts]}")
+    print(f"  Days      : {args.days}")
+    print(f"  Timeframes: {timeframes}")
+    print(f"  Stages    : {'fetch+replay' if not (args.fetch_only or args.replay_only) else 'fetch-only' if args.fetch_only else 'replay-only'}")
+    print()
+
+    db_conn = connect_db(settings)
+
+    # --------------- Stage 1: IBKR Fetch ---------------
+    if not args.replay_only:
+        print("=== Stage 1: IBKR Fetch ===")
+        fetcher = IBKRFetcher(
+            host=settings.ib_host,
+            port=settings.ib_port,
+            client_id=args.client_id,
+        )
+        if not fetcher.connect():
+            print("Cannot connect to TWS — aborting fetch stage")
+            if args.fetch_only:
+                db_conn.close()
+                return
+            print("Continuing with replay-only...")
+        else:
+            total_bars = 0
+            for contract in contracts:
+                n = fetcher.fetch_and_store(contract, args.days, db_conn)
+                total_bars += n
+                time.sleep(2)  # IBKR pacing
+            fetcher.disconnect()
+            print(f"\nStage 1 complete: {total_bars:,} total bars stored\n")
+
+    # --------------- Stage 2: Intelligence Replay ---------------
+    if not args.fetch_only:
+        print("=== Stage 2: Intelligence Replay ===")
+        grand_total = 0
+        for contract in contracts:
+            print(f"\n{contract.symbol}:")
+            counts = replay_symbol(contract.symbol, db_conn, timeframes)
+            symbol_total = sum(counts.values())
+            grand_total += symbol_total
+            print(f"  {contract.symbol} total: {symbol_total} signals")
+
+        print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_ledger")
+
+    db_conn.close()
+    print("\nBackfill complete.")
+
+
+if __name__ == "__main__":
+    main()
