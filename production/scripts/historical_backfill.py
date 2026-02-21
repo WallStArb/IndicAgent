@@ -505,3 +505,95 @@ def replay_symbol(
         print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
 
     return signal_counts
+
+
+# ---------------------------------------------------------------------------
+# IBKR fetch stage
+# ---------------------------------------------------------------------------
+
+class IBKRFetcher:
+    """Synchronous IBKR fetcher using ib_insync."""
+
+    def __init__(self, host: str, port: int, client_id: int):
+        self.host = host
+        self.port = port
+        self.client_id = client_id
+        self.ib = None
+
+    def connect(self) -> bool:
+        from ib_insync import IB
+        self.ib = IB()
+        try:
+            self.ib.connect(host=self.host, port=self.port,
+                            clientId=self.client_id, timeout=30)
+            return self.ib.isConnected()
+        except Exception as e:
+            print(f"  IBKR connection error: {e}")
+            return False
+
+    def disconnect(self) -> None:
+        if self.ib and self.ib.isConnected():
+            self.ib.disconnect()
+
+    def fetch_and_store(
+        self,
+        contract_cfg: Any,  # IBKRContract from Settings
+        days: int,
+        db_conn: Any,
+    ) -> int:
+        """Fetch *days* of 1m bars for *contract_cfg* and upsert into DB.
+
+        Returns number of bars stored.
+        """
+        from ib_insync import Future
+
+        symbol = contract_cfg.symbol
+        print(f"  Fetching {days}D of 1m bars for {symbol}...")
+
+        try:
+            contract = Future(
+                symbol=contract_cfg.base,
+                lastTradeDateOrContractMonth=contract_cfg.expiry,
+                exchange=contract_cfg.exchange,
+            )
+            details = self.ib.reqContractDetails(contract)
+            if not details:
+                print(f"  {symbol}: no contract details — skipping")
+                return 0
+
+            qualified = details[0].contract
+            bars = self.ib.reqHistoricalData(
+                contract=qualified,
+                endDateTime="",
+                durationStr=f"{days} D",
+                barSizeSetting="1 min",
+                whatToShow="TRADES",
+                useRTH=False,  # include extended hours for metals/energy/rates
+            )
+
+            if not bars:
+                print(f"  {symbol}: no data returned")
+                return 0
+
+            bar_dicts = [
+                {
+                    "timestamp": (
+                        bar.date if hasattr(bar.date, "tzinfo")
+                        else datetime.fromisoformat(str(bar.date)).replace(tzinfo=timezone.utc)
+                    ),
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": int(bar.volume),
+                }
+                for bar in bars
+            ]
+
+            stored = store_bars(db_conn, bar_dicts, symbol, "1m")
+            print(f"  {symbol}: {len(bars)} bars fetched, {stored} stored")
+            return stored
+
+        except Exception as e:
+            print(f"  {symbol}: fetch error — {e}")
+            return 0
