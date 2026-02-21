@@ -401,3 +401,107 @@ def store_bars(conn: Any, bars: list[dict], symbol: str, timeframe: str) -> int:
         psycopg2.extras.execute_batch(cur, _STORE_SQL, params)
     conn.commit()
     return len(params)
+
+
+# ---------------------------------------------------------------------------
+# Replay orchestrator
+# ---------------------------------------------------------------------------
+
+def replay_symbol(
+    symbol: str,
+    db_conn: Any,
+    timeframes: list[str] | None = None,
+) -> dict[str, int]:
+    """Replay all bars for *symbol* through the I1→I7 pipeline.
+
+    Processes timeframes in order: 1m first, then 5m, 15m, 1h.
+    Lower-TF bar history is available as cross-TF context when processing
+    higher timeframes (same as live services).
+
+    Returns:
+        dict mapping timeframe → number of ledger entries inserted.
+    """
+    if timeframes is None:
+        timeframes = DEFAULT_TIMEFRAMES
+
+    register_all_plugins()
+
+    # Fetch all 1m bars once
+    bars_1m = fetch_1m_bars(db_conn, symbol, days=9999)  # get all available
+    if not bars_1m:
+        print(f"  {symbol}: no 1m bars in DB — run fetch stage first")
+        return {}
+
+    print(f"  {symbol}: {len(bars_1m):,} 1m bars loaded")
+
+    # Aggregate to higher timeframes upfront
+    bars_by_tf: dict[str, list[dict]] = {"1m": bars_1m}
+    for tf in ["5m", "15m", "1h"]:
+        if tf in timeframes:
+            minutes = TF_MINUTES[tf]
+            bars_by_tf[tf] = aggregate_1m_to_tf(bars_1m, minutes)
+            print(f"  {symbol}: {len(bars_by_tf[tf]):,} {tf} bars aggregated")
+
+    # Store aggregated bars in DB
+    for tf, bars in bars_by_tf.items():
+        if tf != "1m":
+            stored = store_bars(db_conn, bars, symbol, tf)
+            print(f"  {symbol}: {stored} {tf} bars stored")
+
+    # Shared state across timeframes for cross-TF context
+    bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+    intelligence_cache: dict[str, dict] = {}
+
+    signal_counts: dict[str, int] = {}
+
+    for tf in timeframes:
+        if tf not in bars_by_tf:
+            continue
+
+        bars = bars_by_tf[tf]
+        total_signals = 0
+        print(f"  {symbol}/{tf}: replaying {len(bars):,} bars...")
+
+        for i, bar in enumerate(bars):
+            ts = bar["timestamp"]
+            history_key = f"{symbol}:{tf}"
+            bar_histories[history_key].append(bar)
+            history = bar_histories[history_key]
+
+            # I1
+            i1_features = run_i1_plugins(history, symbol, tf)
+            if not i1_features:
+                continue  # not enough bars yet
+
+            # Build frames with cross-TF context (for I6 confluence)
+            df = pd.DataFrame(list(history))
+            frames: dict[str, Any] = {"main": df, "features": i1_features}
+
+            tf_hierarchy = ["1m", "5m", "15m", "1h"]
+            for other_tf in tf_hierarchy:
+                if other_tf == tf:
+                    continue
+                other_key = f"{symbol}:{other_tf}"
+                if other_key in bar_histories and len(bar_histories[other_key]) >= 50:
+                    frames[f"tf_{other_tf}"] = pd.DataFrame(list(bar_histories[other_key]))
+                cached = intelligence_cache.get(symbol, {}).get(other_tf)
+                if cached:
+                    frames[f"intel_{other_tf}"] = cached
+
+            # I3 → I6
+            intelligence = run_analysis_pipeline(frames, intelligence_cache, symbol, tf)
+
+            # Merge all features for I7
+            all_features = {**i1_features, **intelligence}
+
+            # I7 → signal_ledger
+            n = run_i7_and_persist(history, all_features, symbol, tf, ts, db_conn)
+            total_signals += n
+
+            if (i + 1) % 1000 == 0:
+                print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals so far")
+
+        signal_counts[tf] = total_signals
+        print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
+
+    return signal_counts
