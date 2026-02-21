@@ -152,3 +152,45 @@ def run_i1_plugins(
             pass  # individual plugin failure never kills the replay
 
     return features
+
+
+def run_analysis_pipeline(
+    frames: dict[str, Any],
+    intelligence_cache: dict[str, dict[str, Any]],
+    symbol: str,
+    timeframe: str,
+) -> dict[str, Any]:
+    """Run I3 → I4 → I5 → SMC → I6 plugins in tier order.
+
+    Mutates frames["features"] in-place (same as market_analysis_service).
+    Caches result in intelligence_cache[symbol][timeframe] for I6 cross-TF plugin.
+
+    Returns:
+        Merged intelligence dict from all tiers.
+    """
+    features = dict(frames.get("features", {}))
+    frames["features"] = features
+    intelligence: dict[str, Any] = {}
+
+    tier_sequence = [
+        (I3_PLUGINS, "I3"),
+        (I4_PLUGINS, "I4"),
+        (I5_PLUGINS, "I5"),
+        (SMC_PLUGINS, "SMC"),
+        (I6_PLUGINS, "I6"),
+    ]
+
+    for plugin_names, _ in tier_sequence:
+        for name in plugin_names:
+            try:
+                plugin = registry.get_pattern(name)
+                out = plugin.compute_full(frames)
+                if out:
+                    intelligence.update(out)
+                    features.update(out)
+                    frames["features"] = features
+            except Exception:
+                pass
+
+    intelligence_cache.setdefault(symbol, {})[timeframe] = intelligence
+    return intelligence

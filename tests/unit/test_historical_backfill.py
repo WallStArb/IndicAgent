@@ -8,6 +8,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "production" / "scripts"))
 
+import pandas as pd
+
 from historical_backfill import aggregate_1m_to_tf, time_bucket
 from src.intelligence.register_plugins import register_all_plugins
 
@@ -92,4 +94,36 @@ class TestRunI1Plugins:
         register_all_plugins()
         # Should not raise even if some plugins fail internally
         result = run_i1_plugins(history, "FAKE", "5m")
+        assert isinstance(result, dict)
+
+
+class TestRunAnalysisPipeline:
+    @pytest.mark.unit
+    def test_returns_dict(self):
+        from historical_backfill import run_analysis_pipeline
+        register_all_plugins()
+        df = pd.DataFrame([_bar(_ts(9, i)) for i in range(60)])
+        frames = {"main": df, "features": {"rsi_14": 55.0, "atr_14": 2.5}}
+        intel_cache: dict = {}
+        result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
+        assert isinstance(result, dict)
+
+    @pytest.mark.unit
+    def test_populates_intelligence_cache(self):
+        from historical_backfill import run_analysis_pipeline
+        register_all_plugins()
+        df = pd.DataFrame([_bar(_ts(9, i)) for i in range(60)])
+        frames = {"main": df, "features": {"rsi_14": 55.0}}
+        intel_cache: dict = {}
+        run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
+        assert "ESH6" in intel_cache
+        assert "5m" in intel_cache["ESH6"]
+
+    @pytest.mark.unit
+    def test_plugin_exception_does_not_propagate(self):
+        from historical_backfill import run_analysis_pipeline
+        frames = {"main": pd.DataFrame(), "features": {}}
+        intel_cache: dict = {}
+        # Empty DataFrame may cause some plugins to raise — should not propagate
+        result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
         assert isinstance(result, dict)
