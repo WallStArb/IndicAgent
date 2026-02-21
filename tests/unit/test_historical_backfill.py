@@ -127,3 +127,55 @@ class TestRunAnalysisPipeline:
         # Empty DataFrame may cause some plugins to raise — should not propagate
         result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
         assert isinstance(result, dict)
+
+
+class TestBuildLedgerEntries:
+    def _make_result(self, n_signals=2):
+        from src.intelligence.trading.aggregator import AggregatedResult
+        sig = {
+            "setup_plugin": "trad_TrendFollowing",
+            "signal_type": "trend_follow",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5115.0, 5130.0],
+            "confidence": 0.75,
+            "confluence_score": 0.6,
+            "regime_context": "bullish",
+            "supporting_factors": ["ema_cross"],
+            "composite_rank": 1,
+        }
+        return AggregatedResult(
+            selected_signal=sig,
+            all_ranked=[sig],
+            num_signals_fired=n_signals,
+            num_agreeing=n_signals,
+            num_conflicting=0,
+            resolution_method="sole",
+        )
+
+    @pytest.mark.unit
+    def test_returns_one_entry_per_ranked_signal(self):
+        from historical_backfill import _build_ledger_entries
+        result = self._make_result(n_signals=1)
+        entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
+        assert len(entries) == 1
+
+    @pytest.mark.unit
+    def test_selected_signal_has_was_selected_true(self):
+        from historical_backfill import _build_ledger_entries
+        result = self._make_result()
+        entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
+        selected = [e for e in entries if e.was_selected]
+        assert len(selected) == 1
+
+    @pytest.mark.unit
+    def test_empty_result_returns_empty_list(self):
+        from historical_backfill import _build_ledger_entries
+        from src.intelligence.trading.aggregator import AggregatedResult
+        result = AggregatedResult(
+            selected_signal=None, all_ranked=[], num_signals_fired=0,
+            num_agreeing=0, num_conflicting=0, resolution_method="no_signal",
+        )
+        entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
+        assert entries == []

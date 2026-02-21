@@ -194,3 +194,136 @@ def run_analysis_pipeline(
 
     intelligence_cache.setdefault(symbol, {})[timeframe] = intelligence
     return intelligence
+
+
+# ---------------------------------------------------------------------------
+# Signal generation + sync DB insert
+# ---------------------------------------------------------------------------
+
+MARKET_CONTEXT_KEYS = (
+    "trend_regime", "volatility_regime", "trend_confidence",
+    "atr_14", "rsi_14", "ctf_score", "swing_pattern",
+    "trend_strength", "volatility_percentile", "hmm_regime_state",
+)
+
+_INSERT_SYNC_SQL = """
+INSERT INTO signal_ledger (
+    signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
+    direction, entry_price, stop_loss, targets,
+    confidence, confluence_score, regime_context, supporting_factors,
+    was_selected, num_signals_bar, num_agreeing, num_conflicting,
+    resolution_method, composite_rank, market_context, status
+) VALUES (
+    %s::uuid, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s::jsonb,
+    %s, %s, %s, %s::jsonb,
+    %s, %s, %s, %s,
+    %s, %s, %s::jsonb, %s
+) ON CONFLICT DO NOTHING
+"""
+
+
+def _build_ledger_entries(
+    result: AggregatedResult,
+    symbol: str,
+    timeframe: str,
+    timestamp: datetime,
+    features: dict[str, Any],
+) -> list[LedgerEntry]:
+    """Convert an AggregatedResult into LedgerEntry objects for DB insertion."""
+    if not result.all_ranked:
+        return []
+
+    market_ctx = {k: features[k] for k in MARKET_CONTEXT_KEYS if k in features}
+
+    entries = []
+    for sig in result.all_ranked:
+        rank = sig.get("composite_rank", 99)
+        was_selected = rank == 1 and result.selected_signal is not None
+        entries.append(LedgerEntry(
+            signal_id=str(uuid4()),
+            timestamp=timestamp,
+            symbol=symbol,
+            timeframe=timeframe,
+            setup_plugin=sig.get("setup_plugin", "unknown"),
+            signal_type=sig.get("signal_type", "unknown"),
+            direction=int(sig.get("direction", 0)),
+            entry_price=float(sig.get("entry_price", 0.0)),
+            stop_loss=float(sig.get("stop_loss", 0.0)),
+            targets=[float(t) for t in sig.get("targets", [])],
+            confidence=float(sig.get("confidence", 0.0)),
+            confluence_score=float(sig.get("confluence_score", 0.0)),
+            regime_context=str(sig.get("regime_context", "")),
+            supporting_factors=list(sig.get("supporting_factors", [])),
+            was_selected=was_selected,
+            num_signals_bar=result.num_signals_fired,
+            num_agreeing=result.num_agreeing,
+            num_conflicting=result.num_conflicting,
+            resolution_method=result.resolution_method,
+            composite_rank=rank,
+            market_context=market_ctx,
+            status="pending",
+        ))
+    return entries
+
+
+def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
+    """Synchronous psycopg2 batch insert into signal_ledger."""
+    if not entries:
+        return
+    params = []
+    for e in entries:
+        params.append((
+            e.signal_id, e.timestamp, e.symbol, e.timeframe,
+            e.setup_plugin, e.signal_type, e.direction, e.entry_price, e.stop_loss,
+            json.dumps(e.targets), e.confidence, e.confluence_score,
+            e.regime_context, json.dumps(e.supporting_factors),
+            e.was_selected, e.num_signals_bar, e.num_agreeing, e.num_conflicting,
+            e.resolution_method, e.composite_rank, json.dumps(e.market_context),
+            e.status,
+        ))
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params)
+    conn.commit()
+
+
+def run_i7_and_persist(
+    bar_history: deque,
+    features: dict[str, Any],
+    symbol: str,
+    timeframe: str,
+    timestamp: datetime,
+    db_conn: Any,
+) -> int:
+    """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_ledger.
+
+    Returns number of ledger entries inserted (0 if no signals fired).
+    """
+    if len(bar_history) < MIN_BARS:
+        return 0
+
+    df = pd.DataFrame(list(bar_history))
+    frames: dict[str, Any] = {"main": df, "features": features}
+
+    raw_signals = []
+    for name in I7_PLUGINS:
+        try:
+            plugin = registry.get_pattern(name)
+            result = plugin.compute_full(frames)
+            if result and result.get("direction", 0) != 0:
+                result["setup_plugin"] = name
+                raw_signals.append(result)
+        except Exception:
+            pass
+
+    if not raw_signals:
+        return 0
+
+    trend_regime = float(features.get("trend_regime", 0.0))
+    agg_result = aggregate(raw_signals, trend_regime=trend_regime)
+    entries = _build_ledger_entries(agg_result, symbol, timeframe, timestamp, features)
+
+    if entries and db_conn is not None:
+        _insert_signals_sync(db_conn, entries)
+
+    return len(entries)
