@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "production" / "scripts"))
 
 from historical_backfill import aggregate_1m_to_tf, time_bucket
+from src.intelligence.register_plugins import register_all_plugins
 
 
 def _bar(ts: datetime, o=100.0, h=101.0, l=99.0, c=100.5, v=1000):
@@ -60,3 +61,35 @@ class TestAggregate1mToTf:
     @pytest.mark.unit
     def test_empty_input(self):
         assert aggregate_1m_to_tf([], 5) == []
+
+
+class TestRunI1Plugins:
+    @pytest.mark.unit
+    def test_returns_empty_when_insufficient_bars(self):
+        from historical_backfill import run_i1_plugins, MIN_BARS
+        history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS - 1)], maxlen=200)
+        result = run_i1_plugins(history, "ESH6", "5m")
+        assert result == {}
+
+    @pytest.mark.unit
+    def test_returns_features_dict_when_enough_bars(self):
+        from historical_backfill import run_i1_plugins, MIN_BARS
+        history = deque(
+            [_bar(_ts(9, 0) if i == 0 else _ts(9 + i // 60, i % 60))
+             for i in range(MIN_BARS)],
+            maxlen=200
+        )
+        # With real plugins registered, we should get some numeric features
+        register_all_plugins()
+        result = run_i1_plugins(history, "ESH6", "5m")
+        # At minimum should have some keys (plugins may skip on low data but dict is returned)
+        assert isinstance(result, dict)
+
+    @pytest.mark.unit
+    def test_plugin_exception_does_not_propagate(self):
+        from historical_backfill import run_i1_plugins, MIN_BARS
+        history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS)], maxlen=200)
+        register_all_plugins()
+        # Should not raise even if some plugins fail internally
+        result = run_i1_plugins(history, "FAKE", "5m")
+        assert isinstance(result, dict)

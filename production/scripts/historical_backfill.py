@@ -121,3 +121,34 @@ def aggregate_1m_to_tf(bars: list[dict], minutes: int) -> list[dict]:
             "volume": int(sum(b["volume"] for b in group)),
         })
     return result
+
+
+def run_i1_plugins(
+    bar_history: deque,
+    symbol: str,
+    timeframe: str,
+) -> dict[str, Any]:
+    """Run all I1 indicator plugins on the current bar history.
+
+    Returns empty dict if fewer than MIN_BARS are available (indicators
+    need warmup history to produce meaningful values).
+    """
+    if len(bar_history) < MIN_BARS:
+        return {}
+
+    df = pd.DataFrame(list(bar_history))
+    frames: dict[str, Any] = {"main": df, "features": {}}
+    features: dict[str, Any] = {}
+
+    for name in I1_PLUGINS:
+        try:
+            plugin = registry.get_indicator(name)
+            out = plugin.compute_full(frames)
+            if out:
+                features.update({k: v for k, v in out.items()
+                                  if isinstance(v, (int, float, str, bool))})
+                frames["features"] = features
+        except Exception:
+            pass  # individual plugin failure never kills the replay
+
+    return features
