@@ -179,3 +179,34 @@ class TestBuildLedgerEntries:
         )
         entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
         assert entries == []
+
+
+class TestFetchAndStoreBars:
+    @pytest.mark.unit
+    def test_fetch_1m_bars_queries_correct_table(self):
+        from unittest.mock import MagicMock
+        from historical_backfill import fetch_1m_bars
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [
+            (datetime(2026, 2, 1, 9, 30, tzinfo=timezone.utc), 100.0, 101.0, 99.0, 100.5, 1000)
+        ]
+        rows = fetch_1m_bars(mock_conn, "ESH6", days=1)
+        assert len(rows) == 1
+        assert rows[0]["symbol"] == "ESH6"
+        assert rows[0]["timeframe"] == "1m"
+        assert "timestamp" in rows[0]
+
+    @pytest.mark.unit
+    def test_store_bars_calls_execute_batch(self):
+        from unittest.mock import MagicMock, patch
+        from historical_backfill import store_bars
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        bars = [{"timestamp": _ts(9, 30), "open": 100.0, "high": 101.0,
+                  "low": 99.0, "close": 100.5, "volume": 1000}]
+        with patch("psycopg2.extras.execute_batch"):
+            store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
+        mock_conn.commit.assert_called_once()

@@ -327,3 +327,77 @@ def run_i7_and_persist(
         _insert_signals_sync(db_conn, entries)
 
     return len(entries)
+
+
+# ---------------------------------------------------------------------------
+# DB fetch/store layer
+# ---------------------------------------------------------------------------
+
+_FETCH_SQL = """
+SELECT timestamp, open, high, low, close, volume
+FROM market_data_ohlcv
+WHERE symbol = %s AND timeframe = '1m'
+  AND timestamp >= NOW() - INTERVAL '%s days'
+ORDER BY timestamp ASC
+"""
+
+_STORE_SQL = """
+INSERT INTO market_data_ohlcv
+    (timestamp, symbol, timeframe, open, high, low, close, volume, source)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
+"""
+
+
+def connect_db(settings: Settings) -> Any:
+    """Create a synchronous psycopg2 connection from Settings."""
+    # Parse DATABASE_URL: postgresql://user:pass@host:port/dbname
+    url = settings.database_url
+    # Simple parse — production URLs follow this pattern
+    url = url.replace("postgresql://", "").replace("postgres://", "")
+    userpass, rest = url.split("@", 1)
+    user, password = userpass.split(":", 1)
+    hostport_db = rest.split("/", 1)
+    hostport = hostport_db[0]
+    dbname = hostport_db[1] if len(hostport_db) > 1 else "indicagent"
+    host, port = (hostport.split(":", 1) if ":" in hostport else (hostport, "5432"))
+
+    return psycopg2.connect(
+        host=host, port=int(port), database=dbname, user=user, password=password
+    )
+
+
+def fetch_1m_bars(conn: Any, symbol: str, days: int) -> list[dict]:
+    """Fetch all 1m OHLCV bars for *symbol* covering the last *days* calendar days."""
+    with conn.cursor() as cur:
+        cur.execute(_FETCH_SQL, (symbol, days))
+        rows = cur.fetchall()
+    return [
+        {
+            "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=timezone.utc),
+            "symbol": symbol,
+            "timeframe": "1m",
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": int(row[5]),
+        }
+        for row in rows
+    ]
+
+
+def store_bars(conn: Any, bars: list[dict], symbol: str, timeframe: str) -> int:
+    """Upsert bars into market_data_ohlcv. Returns count inserted."""
+    if not bars:
+        return 0
+    params = [
+        (b["timestamp"], symbol, timeframe,
+         b["open"], b["high"], b["low"], b["close"], b["volume"],
+         "historical_backfill")
+        for b in bars
+    ]
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_batch(cur, _STORE_SQL, params)
+    conn.commit()
+    return len(params)
