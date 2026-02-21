@@ -1,4 +1,18 @@
 """Tests for signal generation path: plugins → aggregate → insert → publish."""
+
+# --- signal_generator_service (new name, lifecycle removed) ---
+
+def test_signal_generator_service_imports():
+    """signal_generator_service must exist and must NOT have _track_lifecycle."""
+    from unittest.mock import patch
+    with patch("services.signal_generator_service.start_metrics_server"):
+        from services.signal_generator_service import SignalGeneratorService
+        svc = SignalGeneratorService()
+    assert hasattr(svc, "_run_setup_plugins")
+    assert not hasattr(svc, "_track_lifecycle")
+
+
+# --- original orchestrator tests below ---
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
