@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.9.0
+Version: 5.0.0
 Last Updated: 2026-02-21
-Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 459 tests
+Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 459 tests, 23 contracts
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -45,10 +45,11 @@ Real-time futures trading intelligence platform with plugin-native architecture,
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Infrastructure (Docker)
-docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 timescale/timescaledb:latest-pg15
-docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
-docker run -d --name ollama --gpus=all -v ollama:/root/.ollama -p 127.0.0.1:11434:11434 ollama/ollama
+# Infrastructure
+# PostgreSQL/TimescaleDB — runs natively (not Docker): sudo systemctl start postgresql
+# Ollama — runs natively (not Docker): ollama serve
+# DragonflyDB — runs via Docker only:
+cd production && docker compose up -d dragonfly
 
 # Database schema (base + numbered migrations in order)
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
@@ -79,14 +80,15 @@ python services/signal_generator_service.py --config config/signal_generator_ser
 python services/signal_tracker_service.py --config config/signal_tracker_service.json              # Lifecycle: tracks open signals (Metrics: :9115)
 python services/ai_narrative_service.py --config config/ai_narrative_service.json                  # I8: AI narratives (Metrics: :9113)
 
-# Historical data seeding
-python production/scripts/simple_seeder.py --client-id 55 --days 7
+# Historical data seeding (simple_seeder.py RETIRED — use historical_backfill.py when built)
+# Plan: docs/plans/2026-02-21-historical-backfill.md
+# python production/scripts/historical_backfill.py --days 90  # (not yet built)
 ```
 
 ### Development & Testing
 ```bash
 # Run tests
-.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (453 passing) — use .venv/bin/python3, not bare python/python3
+.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (459 passing) — use .venv/bin/python3, not bare python/python3
 .venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -244,12 +246,15 @@ All with real incremental `compute_next()` — 141x performance boost:
 
 ## Development Standards
 
-### Primary Instruments (14 contracts)
-**Equity Index Futures:** ES (S&P 500), NQ (Nasdaq), RTY (Russell 2000)
-**Energy:** CL (Crude Oil), NG (Natural Gas)
+### Primary Instruments (23 contracts)
+**Equity Index Futures:** ES (S&P 500), NQ (Nasdaq), RTY (Russell 2000), YM (Dow)
+**Energy:** CL (Crude Oil WTI), BZ (Brent Crude), NG (Natural Gas)
 **Metals:** GC (Gold), SI (Silver), HG (Copper), PL (Platinum)
-**Interest Rates:** ZN (10-Year T-Note), ZF (5-Year T-Note), ZB (30-Year T-Bond), ZT (2-Year T-Note)
+**Interest Rates:** ZN (10-Year T-Note), ZF (5-Year T-Note), ZB (30-Year T-Bond), ZT (2-Year T-Note), SR1 (SOFR 1-Month)
 **Volatility:** VX (VIX Futures)
+**Agriculture:** ZS (Soybeans), ZC (Corn), ZW (Wheat)
+**FX/Currencies:** 6E (Euro FX), 6J (Japanese Yen)
+**Crypto:** BTC (Bitcoin Futures)
 
 ### Naming Conventions
 - **Files:** `[domain]_[purpose]_[suffix].py`
@@ -278,7 +283,7 @@ All with real incremental `compute_next()` — 141x performance boost:
 INDICAGENT_ENV="development"    # development, staging, production
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/indicagent"
 REDIS_URL="redis://localhost:6379/0"
-IBKR_HOST="172.18.176.1"       # WSL: Windows host IP
+IBKR_HOST="10.0.0.33"          # LAN: Windows host IP (set in .env)
 IBKR_PORT=7497                 # TWS paper trading
 IBKR_CLIENT_ID=35              # Unique client ID (35+ range)
 OLLAMA_BASE_URL="http://localhost:11434"  # Local LLM inference (Docker)
@@ -290,7 +295,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
 **Plugin System:** 53 registered (23 indicators + 30 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 453 unit tests passing, 0 ruff errors
+**Test Status:** 459 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
