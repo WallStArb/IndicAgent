@@ -32,6 +32,7 @@ import pandas as pd
 import redis.asyncio as redis
 import structlog
 
+from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import indicators as sk_indicators
@@ -44,11 +45,14 @@ from src.observability.metrics import (
     record_plugin_execution,
     start_metrics_server,
 )
-from services.indicator_service import parse_indicators_message
 
 I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
-I4_PLUGINS = ["ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext", "ctx_GARCHVolatility"]
-I5_PLUGINS = ["RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence", "TrendConfluence"]
+I4_PLUGINS = [
+    "ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext", "ctx_GARCHVolatility",
+]
+I5_PLUGINS = [
+    "RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence", "TrendConfluence",
+]
 SMC_PLUGINS = [
     "smc_BOSCHoCH",
     "smc_FairValueGap",
@@ -199,77 +203,48 @@ class MarketAnalysisService:
         features: dict[str, Any] = dict(frames.get("features", {}))
         frames["features"] = features
 
-        i3_results: dict[str, Any] = {}
-        for plugin_name in I3_PLUGINS:
-            t0 = time.time()
-            try:
-                p = registry.get_pattern(plugin_name)
-                result = p.compute_full(frames)
-                i3_results.update(result)
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "success", "I3")
-            except Exception as e:
-                self.logger.warning("I3 plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "I3")
+        def _run_tier(
+            plugins: list[str], tier: str, results: dict[str, Any]
+        ) -> None:
+            for pname in plugins:
+                t0 = time.time()
+                try:
+                    p = registry.get_pattern(pname)
+                    out = p.compute_full(frames)
+                    results.update(out)
+                    record_plugin_execution(
+                        pname, symbol, timeframe, time.time() - t0, "success", tier
+                    )
+                except Exception as exc:
+                    self.logger.warning(
+                        f"{tier} plugin failed", plugin=pname, error=str(exc)
+                    )
+                    record_plugin_execution(
+                        pname, symbol, timeframe, time.time() - t0, "error", tier
+                    )
 
+        i3_results: dict[str, Any] = {}
+        _run_tier(I3_PLUGINS, "I3", i3_results)
         features.update(i3_results)
         frames["features"] = features
 
         i4_results: dict[str, Any] = {}
-        for plugin_name in I4_PLUGINS:
-            t0 = time.time()
-            try:
-                p = registry.get_pattern(plugin_name)
-                result = p.compute_full(frames)
-                i4_results.update(result)
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "success", "I4")
-            except Exception as e:
-                self.logger.warning("I4 plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "I4")
-
+        _run_tier(I4_PLUGINS, "I4", i4_results)
         features.update(i4_results)
         frames["features"] = features
 
         i5_results: dict[str, Any] = {}
-        for plugin_name in I5_PLUGINS:
-            t0 = time.time()
-            try:
-                p = registry.get_pattern(plugin_name)
-                result = p.compute_full(frames)
-                i5_results.update(result)
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "success", "I5")
-            except Exception as e:
-                self.logger.warning("I5 plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "I5")
-
+        _run_tier(I5_PLUGINS, "I5", i5_results)
         features.update(i5_results)
         frames["features"] = features
 
         smc_results: dict[str, Any] = {}
-        for plugin_name in SMC_PLUGINS:
-            t0 = time.time()
-            try:
-                p = registry.get_pattern(plugin_name)
-                result = p.compute_full(frames)
-                smc_results.update(result)
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "success", "SMC")
-            except Exception as e:
-                self.logger.warning("SMC plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "SMC")
-
+        _run_tier(SMC_PLUGINS, "SMC", smc_results)
         features.update(smc_results)
         frames["features"] = features
 
         i6_results: dict[str, Any] = {}
-        for plugin_name in I6_PLUGINS:
-            t0 = time.time()
-            try:
-                p = registry.get_pattern(plugin_name)
-                result = p.compute_full(frames)
-                i6_results.update(result)
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "success", "I6")
-            except Exception as e:
-                self.logger.warning("I6 plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "I6")
+        _run_tier(I6_PLUGINS, "I6", i6_results)
 
         intelligence: dict[str, Any] = {}
         intelligence.update(i3_results)

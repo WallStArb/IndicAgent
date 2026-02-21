@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 4.8.0
-Last Updated: 2026-02-20
-Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + SignalOrchestrator + AINarrativeService + Dashboard Signal/Narrative Panel, 453 tests
+Version: 4.9.0
+Last Updated: 2026-02-21
+Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 459 tests
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -59,20 +59,21 @@ sudo systemctl restart indicagent-backend-api indicagent-websocket indicagent-hf
 journalctl -u indicagent-hf-tws -f
 
 # Health monitoring
-curl http://localhost:9109/health    # Indicator Processor health
-curl http://localhost:9109/metrics   # Indicator Processor metrics (Prometheus)
+curl http://localhost:9109/metrics   # Indicator Service metrics (Prometheus)
 curl http://localhost:9110/health    # Timeframe Builder health
 curl http://localhost:9110/metrics   # Timeframe Builder metrics (Prometheus)
-curl http://localhost:9112/metrics   # Signal Orchestrator metrics (Prometheus)
+curl http://localhost:9112/metrics   # Signal Generator metrics (Prometheus)
+curl http://localhost:9114/metrics   # Market Analysis Service metrics (Prometheus)
+curl http://localhost:9115/metrics   # Signal Tracker metrics (Prometheus)
 
 # Individual services
 python production/daemons/high_frequency_tws_daemon.py --client-id 35  # High-freq data (use unique client ID)
-python services/indicators_processor_service.py --config config/indicator_processor_service.json
-python services/indicators_enhanced_service.py --config config/enhanced_indicator_processor.json  # 141x faster incremental calculations
+python services/indicator_service.py --config config/indicator_service.json                        # I1: all 23 indicators → indicators:SYMBOL:TF
+python services/market_analysis_service.py --config config/market_analysis_service.json            # I3→I6: consumes indicators stream (Metrics: :9114)
 python services/timeframes_builder_service.py --config config/timeframe_builder_service.json
-python services/coordination_parallel_service.py --config config/parallel_coordinator.json  # Service coordination
-python services/signal_orchestrator_service.py --config config/signal_orchestrator.json  # I7 signal orchestration
-python services/ai_narrative_service.py --config config/ai_narrative_service.json        # I8 AI narratives (Metrics: :9113/metrics)
+python services/signal_generator_service.py --config config/signal_generator_service.json          # I7: generates signals (Metrics: :9112)
+python services/signal_tracker_service.py --config config/signal_tracker_service.json              # Lifecycle: tracks open signals (Metrics: :9115)
+python services/ai_narrative_service.py --config config/ai_narrative_service.json                  # I8: AI narratives (Metrics: :9113)
 
 # Historical data seeding
 python production/scripts/simple_seeder.py --client-id 55 --days 7
@@ -117,12 +118,12 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 
 ### Production Services (Active)
 - `production/daemons/high_frequency_tws_daemon.py` - Dual-stream data collection (see Data Flow below)
-- `services/indicators_processor_service.py` - Production indicator calculation daemon (Health: `:9109/health`)
-- `services/indicators_enhanced_service.py` - Enhanced service with incremental calculations (141x faster)
+- `services/indicator_service.py` - All 23 I1 plugins → combined OHLCV+indicators message to `indicators:SYMBOL:TF` (Metrics: `:9109`)
+- `services/market_analysis_service.py` - I3→I4→I5→SMC→I6 pipeline: consumes `indicators:` stream, publishes to `intelligence:` (Metrics: `:9114`)
 - `services/timeframes_builder_service.py` - Multi-timeframe aggregation service (Health: `:9110/health`)
-- `services/coordination_parallel_service.py` - Parallel service coordination
-- `services/signal_orchestrator_service.py` - I7 signal orchestration: runs plugins, aggregates, persists to signal_ledger, tracks lifecycle (Health: `:9112/metrics`)
-- `services/ai_narrative_service.py` - I8 AI narrative synthesis: LLM narratives from selected signals via Ollama qwen3:8b, published to narratives:SYMBOL:TF stream (Metrics: `:9113/metrics`)
+- `services/signal_generator_service.py` - I7 signal generation: runs plugins, aggregates, persists to signal_ledger, publishes winner (Metrics: `:9112`)
+- `services/signal_tracker_service.py` - Signal lifecycle tracking: evaluates open signals against market bars (Metrics: `:9115`)
+- `services/ai_narrative_service.py` - I8 AI narrative synthesis: LLM narratives from selected signals via Ollama qwen3:8b, published to narratives:SYMBOL:TF stream (Metrics: `:9113`)
 - `src/api/main.py` - FastAPI backend with health monitoring and SSE support
 - `src/api/routes/sse.py` - Server-Sent Events for real-time dashboard communication
 - `dashboard/` - Next.js React dashboard with live visualization
@@ -315,9 +316,8 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 **Note:** Qwen3 models use thinking mode by default — `content` field may be empty if `num_predict` is too low. Use `/no_think` prefix or set `num_predict` ≥ 500 for reliable output. Use the chat API (`/api/chat`) for multi-turn, generate API (`/api/generate`) for single-shot.
 
 ### Development Priorities
-1. **Fix Track A I1_PLUGINS gap** — `ind_ParabolicSAR`, `ind_StochRSI`, `ind_CMF`, `ind_Aroon`, `ind_ChandelierExit`, `ind_HistoricalVolatility` registered but not in `I1_PLUGINS` in `services/intelligence_processor_service.py` — trivial one-liner fix each
-2. **I7 Phase 2 continued** — 7 more setup plugins remaining (Supply/Demand zones, Gap Analysis, Candlestick patterns, Session Extremes, etc. — see `docs/roadmap/MASTER_ROADMAP.md` Phase 4)
-3. **ML scoring model** — Replace rules-based aggregator once 500+ signals collected in `signal_ledger` (~17 days at 30/day)
+1. **I7 Phase 2 continued** — 7 more setup plugins remaining (Supply/Demand zones, Gap Analysis, Candlestick patterns, Session Extremes, etc. — see `docs/roadmap/MASTER_ROADMAP.md` Phase 4)
+2. **ML scoring model** — Replace rules-based aggregator once 500+ signals collected in `signal_ledger` (~17 days at 30/day)
 
 ### Completed Phases
 - **LG-1** — LangGraph event-driven workflows, circuit breakers
@@ -340,7 +340,8 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I7-SignalOrch** — SignalOrchestratorService: full bar→plugin→aggregate→persist→lifecycle pipeline, 19 new tests, intelligence stream enriched with OHLCV
 - **I8-Narrative** — AINarrativeService: Ollama qwen3:8b synthesis, 9 new tests, narratives stream, stable consumer group, finally-xack pattern
 - **I5-Charts** — 3 chart pattern plugins (DoubleTB, HeadShoulders, TriangleWedge): TDD with phantom-peak-aware pair/triplet iteration, dual lower trendline selection, 17 new tests
-- **Track-A-I1** — 6 new I1 indicators (ParabolicSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility), all incremental, 54 new tests; **NOTE: registered but NOT yet in I1_PLUGINS (see Priority 1)**
+- **Track-A-I1** — 6 new I1 indicators (ParabolicSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility), all incremental, 54 new tests
+- **ServiceSep** — Service separation: indicator_service (all 23 I1 plugins), market_analysis_service (I3→I6), signal_generator_service (I7), signal_tracker_service (lifecycle); retired 3 old services; 9 new tests
 - **Dashboard-Panel** — SSE wiring for signals:aggregated + narratives: streams, SignalPanel + NarrativePanel React components, 6 new tests
 - **I7-P2** — VWAPDeviation + MomentumBreakout setup plugins, ROC_PPO added to I1_PLUGINS, 16 new tests
 
