@@ -4,6 +4,11 @@ Simple synchronous historical data seeder - no asyncio conflicts.
 
 Adds CLI flags for symbols and days, and reads IB host/port from Settings by default.
 """
+# DEPRECATED: This script is superseded by historical_backfill.py which:
+#   - Uses Settings.contracts (all 14 current instruments, auto-updated expiries)
+#   - Runs the full I1→I7 intelligence pipeline to populate signal_ledger
+#   - Supports multi-timeframe (1m/5m/15m/1h) bar generation
+# Use: python production/scripts/historical_backfill.py --days 90
 
 import argparse
 import sys
