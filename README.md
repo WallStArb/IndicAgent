@@ -159,12 +159,11 @@ Run services (each in its own terminal or under systemd):
 
 ```bash
 python production/daemons/high_frequency_tws_daemon.py --client-id 35
-python services/indicators_processor_service.py --config config/indicator_processor_service.json
-python services/indicators_enhanced_service.py --config config/enhanced_indicator_processor.json
-python services/intelligence_processor_service.py --config config/intelligence_processor.json
+python services/indicator_service.py --config config/indicator_service.json
+python services/market_analysis_service.py --config config/market_analysis_service.json
 python services/timeframes_builder_service.py --config config/timeframe_builder_service.json
-python services/coordination_parallel_service.py --config config/parallel_coordinator.json
-python services/signal_orchestrator_service.py --config config/signal_orchestrator.json
+python services/signal_generator_service.py --config config/signal_generator_service.json
+python services/signal_tracker_service.py --config config/signal_tracker_service.json
 python services/ai_narrative_service.py --config config/ai_narrative_service.json
 ```
 
@@ -195,7 +194,7 @@ src/
                           # smart_money/, confluence/, trading/ (setups, aggregator, ledger, lifecycle, sizer)
   observability/          # metrics, otel
 production/               # daemons, schemas, migrations, scripts, docker-compose
-services/                 # indicators, intelligence, timeframes, coordination, signal_orchestrator, ai_narrative
+services/                 # indicator, market_analysis, timeframes, signal_generator, signal_tracker, ai_narrative
 config/                   # JSON configs per service
 dashboard/                # Next.js 15 / React 19
 tests/                    # unit, integration, run_all_tests.py
