@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.2.0
+Version: 5.3.0
 Last Updated: 2026-02-22
-Status: I1-I8 pipeline complete — 57 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 542 tests, 23 contracts
+Status: I1-I8 pipeline complete — 57 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 551 tests, 23 contracts
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -89,7 +89,7 @@ python production/scripts/historical_backfill.py --replay-only      # Stage 2 on
 ### Development & Testing
 ```bash
 # Run tests
-.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (493 passing) — use .venv/bin/python3, not bare python/python3
+.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (551 passing) — use .venv/bin/python3, not bare python/python3
 .venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -239,9 +239,13 @@ All with real incremental `compute_next()` — 141x performance boost:
 ### I6 Cross-Timeframe Confluence (1 plugin)
 - Trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
 
-### I7 Trading Setups — Phase 1+2 (7 plugins)
+### I7 Trading Setups — Phase 1+2+Phase0 (9 plugins)
 - Phase 1: TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion
-- Phase 2: VWAPDeviation (2σ mean-reversion, VWAP T1/1σ-band T2), MomentumBreakout (triple-gate: ROC+vol+structure break)
+- Phase 2: VWAPDeviation (2σ mean-reversion, VWAP T1/1σ-band T2), MomentumBreakout (triple-gate: ROC+vol+structure break), LiquidityHunt, SupplyDemandSetup
+- **Phase 0 — GARCH/Kalman quality gates** (wired into 3 plugins, 2026-02-22):
+  - MeanReversion: `abs(kalman_price_position) < 1.0σ` → no signal (price too near Kalman fair value)
+  - VWAPDeviation: dynamic sigma threshold via `garch_vol_regime` — regime 0/1: 2.0σ, regime 2: 2.5σ, regime 3: 3.0σ
+  - SqueezeExpansion: hard block when `garch_vol_regime == 3` (extreme vol, top 5th percentile)
 - Regime-adaptive setup detection with signal.v1 schema
 - ATR-based stop/target placement, confluence-weighted confidence scoring
 
@@ -305,8 +309,8 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 ## Current Development Status
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
-**Plugin System:** 53 registered (23 indicators + 30 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 493 unit tests passing, 0 ruff errors
+**Plugin System:** 57 registered (23 indicators + 34 patterns/structure/context/smart_money/trading) + 4 aggregation components
+**Test Status:** 551 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
@@ -365,6 +369,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **Dashboard-Panel** — SSE wiring for signals:aggregated + narratives: streams, SignalPanel + NarrativePanel React components, 6 new tests
 - **I7-P2** — VWAPDeviation + MomentumBreakout setup plugins, ROC_PPO added to I1_PLUGINS, 16 new tests
 - **DataLayer** — DataProvider protocol, IBKRProvider (wraps all ib_insync), Instrument model, IBKRFetcher+aggregate_1m_to_tf deleted, TimescaleDB 5m/15m continuous aggregates, 17 new tests
+- **I7-Phase0** — GARCH/Kalman quality gates wired into 3 I7 plugins: MeanReversion (Kalman displacement gate), VWAPDeviation (dynamic sigma via garch_vol_regime: 2.0/2.5/3.0σ), SqueezeExpansion (hard block at regime=3), 9 new tests (542→551)
 
 ## Key References
 

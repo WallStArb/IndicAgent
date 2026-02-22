@@ -4,7 +4,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 4.9.1
+**Version:** 4.9.2
 **Last Updated:** 2026-02-22
 **Status:** I1-I8 Pipeline Complete
 
@@ -243,7 +243,7 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status and Next Steps
 
-- **Done:** I1–I8 (57 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, Dashboard Signal/Narrative Panel, 542 unit tests.
+- **Done:** I1–I8 (57 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, Dashboard Signal/Narrative Panel, GARCH/Kalman quality gates on 3 I7 plugins (Phase 0), 551 unit tests.
 - **Next:** I7 Phase 2 continued (5 more setup plugins), ML scoring model calibration (after 500+ signals with P&L).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadmap/MASTER_ROADMAP.md).
@@ -261,4 +261,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadma
 
 ---
 
-**Version:** 4.9.1 | **Status:** I1–I8 complete, 57 plugins, 542 tests | **Focus:** I7 Phase 2, ML scoring
+**Version:** 4.9.2 | **Status:** I1–I8 complete, 57 plugins, 551 tests | **Focus:** I7 Phase 2, ML scoring

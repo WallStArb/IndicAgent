@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
 > **Last Updated:** 2026-02-22
-> **Version:** 4.9.1
-> **Phase:** I7 Phase 2 underway — 57 plugins, 542 tests
+> **Version:** 4.9.2
+> **Phase:** I7 Phase 0 complete — 57 plugins, 551 tests
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I8)
-**Test Coverage:** 493 unit tests passing, 0 lint errors
+**Test Coverage:** 551 unit tests passing, 0 lint errors
 **Data Collection:** Active (ES, NQ, RTY + 11 more contracts)
 
 ---
@@ -148,7 +148,7 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 57 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 + 9 I7)
+**Plugin Totals:** 57 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 + 9 I7) | 551 unit tests
 **Services:** hf-tws-daemon, indicator-processor, enhanced-processor, timeframe-builder, intelligence-processor, signal-orchestrator (:9112), ai-narrative (:9113)
 **Stack:** Python 3.13, FastAPI 0.129, Redis 7.1/DragonflyDB, TimescaleDB, LangGraph 1.0, Ollama
 **Dashboard:** Next.js 15.5 / React 19 / Tailwind v4
@@ -161,6 +161,13 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 ---
 
 ## Recent Changes
+
+### 2026-02-22 (v4.9.2)
+- FEAT I7 Phase 0 — GARCH/Kalman quality gates wired into 3 plugins:
+  - `trad_MeanReversion`: gate on `abs(kalman_price_position) < 1.0σ` (price too near Kalman fair value → no signal)
+  - `trad_VWAPDeviation`: dynamic sigma threshold via `garch_vol_regime` (0/1: 2.0σ, 2: 2.5σ, 3: 3.0σ)
+  - `trad_SqueezeExpansion`: hard block when `garch_vol_regime == 3` (extreme vol, top 5th percentile)
+- TEST +9 tests (542 → 551 unit tests total)
 
 ### 2026-02-22 (v4.9.1)
 - REFACTOR Plugin tier lists consolidated into `TIER_*` constants in `register_plugins.py` (single source of truth)
