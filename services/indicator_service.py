@@ -35,35 +35,11 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import market as sk_market
 from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import register_all_plugins
+from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import counter, gauge, record_plugin_execution, start_metrics_server
 
-# All 23 registered I1 indicator plugin names — must match registry keys
-I1_PLUGINS = [
-    "RSI",
-    "MovingAverages",
-    "MAComposite",
-    "MACD",
-    "ATR",
-    "BollingerBands",
-    "Stochastic",
-    "CCI",
-    "WilliamsR",
-    "MFI",
-    "OBV",
-    "VWAP",
-    "Supertrend",
-    "ADX",
-    "KeltnerChannels",
-    "DonchianChannels",
-    "ROC_PPO",
-    "ind_CMF",
-    "ind_Aroon",
-    "ind_HistoricalVolatility",
-    "ind_ChandelierExit",
-    "ind_ParabolicSAR",
-    "ind_StochRSI",
-]
+# I1 plugin names — imported from register_plugins (single source of truth)
+I1_PLUGINS = TIER_I1
 
 _OHLCV_FIELDS = frozenset(
     {"timestamp", "symbol", "timeframe", "open", "high", "low", "close", "volume", "source"}
@@ -144,6 +120,7 @@ class IndicatorService:
         self._setup_logging()
 
         register_all_plugins()
+        registry.validate_tier(I1_PLUGINS, "I1")
 
         self.redis_client: redis.Redis | None = None
         self.consumer_group = f"indicator_service_{int(time.time())}"

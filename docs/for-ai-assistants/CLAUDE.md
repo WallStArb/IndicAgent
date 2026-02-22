@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.1.0
+Version: 5.2.0
 Last Updated: 2026-02-22
-Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 493 tests, 23 contracts
+Status: I1-I8 pipeline complete — 57 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 542 tests, 23 contracts
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -281,6 +281,7 @@ All with real incremental `compute_next()` — 141x performance boost:
 - **IBKR**: Tick list `"233"` for futures. Unique client IDs (35+ range). VIX futures symbol is "VX" (not "VIX"). All ib_insync logic is isolated to `src/providers/ibkr.py`.
 - **Instruments**: `Instrument` and `AssetClass` in `src/core/models.py` are the canonical types. `IBKRContract` is a deprecated alias (`IBKRContract = Instrument` in settings.py).
 - **Mock gotcha**: Use `isinstance(val, (int, float))` not `if val` when checking numeric fields — MagicMock is truthy and `float(MagicMock())` returns 1.0.
+- **Plugin tier lists — single source of truth**: `TIER_I1` … `TIER_I7` (plus `TIER_SMC`) constants in `src/intelligence/register_plugins.py` are the canonical lists. Services import them — do NOT define local string lists. Services call `registry.validate_tier()` at startup, which hard-crashes if any name is missing from the registry. Adding a new plugin: (1) register it in `register_all_plugins()`, (2) add it to the appropriate `TIER_*` constant — done everywhere automatically. Plugin names: use `grep 'name: str ='` to confirm exact value (`"ind_ParabolicSAR"`, `"smc_HMMRegime"`, etc.).
 - **TimescaleDB aggregates**: `market_data_5m` and `market_data_15m` continuous aggregate views exist (migration 008). Query them like tables for higher-TF data; Python `aggregate_1m_to_tf()` is deleted.
 - **Plugin protocol**: All plugins use `PatternPlugin` protocol. Register via `registry.register_indicator()` or `registry.register_pattern()` in `register_plugins.py`. Access via `registry.indicators` / `registry.patterns` (not private `_indicators`).
 - **Git worktrees**: Use `git -C /absolute/path/to/worktree` — never relative `.worktrees/path` (gitignored, silently resolves to parent repo).

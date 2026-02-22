@@ -62,5 +62,19 @@ class PluginRegistry:
     def list_patterns(self) -> list[str]:
         return list(self.patterns.keys())
 
+    def validate_tier(self, names: list[str], tier: str) -> None:
+        """Raise ValueError at startup if any name is not in the registry.
+
+        Checks both indicators and patterns so callers don't need to know
+        which bucket a plugin lives in.
+        """
+        all_known = set(self.indicators) | set(self.patterns)
+        unknown = [n for n in names if n not in all_known]
+        if unknown:
+            raise ValueError(
+                f"Tier {tier} references unregistered plugin(s): {unknown}. "
+                f"Check register_plugins.py and the TIER_* constants."
+            )
+
 
 registry = PluginRegistry()

@@ -41,7 +41,7 @@ from src.core.stream_keys import (  # noqa: E402
     signals_aggregated,
 )
 from src.intelligence.plugins import registry  # noqa: E402
-from src.intelligence.register_plugins import register_all_plugins  # noqa: E402
+from src.intelligence.register_plugins import TIER_I7, register_all_plugins  # noqa: E402
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate  # noqa: E402
 from src.intelligence.trading.lifecycle_tracker import evaluate_signal  # noqa: E402
 from src.intelligence.trading.signal_ledger import (  # noqa: E402
@@ -57,16 +57,8 @@ from src.observability.metrics import (  # noqa: E402
     start_metrics_server,
 )
 
-# I7 trading setup plugin names (must match names in register_plugins.py)
-I7_PLUGINS = [
-    "trad_TrendFollowing",
-    "trad_MeanReversion",
-    "trad_LiquiditySweepReclaim",
-    "trad_MTFAlignment",
-    "trad_SqueezeExpansion",
-    "trad_VWAPDeviation",
-    "trad_MomentumBreakout",
-]
+# I7 plugin names — imported from register_plugins (single source of truth)
+I7_PLUGINS = TIER_I7
 
 # Fields that are metadata / OHLCV — everything else is a feature
 _META_FIELDS = frozenset({
@@ -204,6 +196,7 @@ class SignalOrchestratorService:
         self._setup_logging()
 
         register_all_plugins()
+        registry.validate_tier(I7_PLUGINS, "I7")
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
