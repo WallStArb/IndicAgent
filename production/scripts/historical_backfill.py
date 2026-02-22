@@ -39,6 +39,7 @@ from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_ledger import LedgerEntry
+from src.providers import IBKRProvider
 
 # ---------------------------------------------------------------------------
 # Plugin lists — keep in sync with services
@@ -69,58 +70,7 @@ I7_PLUGINS = [
 ]
 
 MIN_BARS = 50
-TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
-DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h"]
-
-
-# ---------------------------------------------------------------------------
-# Timeframe aggregation
-# ---------------------------------------------------------------------------
-
-def time_bucket(ts: datetime, minutes: int) -> datetime:
-    """Floor a datetime to the nearest N-minute boundary (UTC)."""
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    epoch = ts.timestamp()
-    bucket_seconds = minutes * 60
-    floored = (epoch // bucket_seconds) * bucket_seconds
-    return datetime.fromtimestamp(floored, tz=timezone.utc)
-
-
-def aggregate_1m_to_tf(bars: list[dict], minutes: int) -> list[dict]:
-    """Aggregate a list of 1m OHLCV bar dicts into N-minute bars.
-
-    Args:
-        bars: List of dicts with keys: timestamp, open, high, low, close, volume.
-              timestamp may be datetime or ISO string.
-        minutes: Target timeframe in minutes (e.g. 5, 15, 60).
-
-    Returns:
-        List of aggregated bar dicts, sorted by timestamp ascending.
-    """
-    if not bars:
-        return []
-
-    buckets: dict[datetime, list[dict]] = defaultdict(list)
-    for bar in bars:
-        ts = bar["timestamp"]
-        if isinstance(ts, str):
-            ts = datetime.fromisoformat(ts)
-        bucket = time_bucket(ts, minutes)
-        buckets[bucket].append(bar)
-
-    result = []
-    for bucket_ts in sorted(buckets):
-        group = buckets[bucket_ts]
-        result.append({
-            "timestamp": bucket_ts,
-            "open": float(group[0]["open"]),
-            "high": float(max(b["high"] for b in group)),
-            "low": float(min(b["low"] for b in group)),
-            "close": float(group[-1]["close"]),
-            "volume": int(sum(b["volume"] for b in group)),
-        })
-    return result
+DEFAULT_TIMEFRAMES = ["1m"]
 
 
 def run_i1_plugins(
@@ -434,19 +384,9 @@ def replay_symbol(
 
     print(f"  {symbol}: {len(bars_1m):,} 1m bars loaded")
 
-    # Aggregate to higher timeframes upfront
+    # Only 1m bars are stored — higher-TF bars are materialized by TimescaleDB
+    # continuous aggregates (see db/migrations/v1.2.0_continuous_aggregates.sql)
     bars_by_tf: dict[str, list[dict]] = {"1m": bars_1m}
-    for tf in ["5m", "15m", "1h"]:
-        if tf in timeframes:
-            minutes = TF_MINUTES[tf]
-            bars_by_tf[tf] = aggregate_1m_to_tf(bars_1m, minutes)
-            print(f"  {symbol}: {len(bars_by_tf[tf]):,} {tf} bars aggregated")
-
-    # Store aggregated bars in DB
-    for tf, bars in bars_by_tf.items():
-        if tf != "1m":
-            stored = store_bars(db_conn, bars, symbol, tf)
-            print(f"  {symbol}: {stored} {tf} bars stored")
 
     # Shared state across timeframes for cross-TF context
     bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
@@ -507,96 +447,6 @@ def replay_symbol(
     return signal_counts
 
 
-# ---------------------------------------------------------------------------
-# IBKR fetch stage
-# ---------------------------------------------------------------------------
-
-class IBKRFetcher:
-    """Synchronous IBKR fetcher using ib_insync."""
-
-    def __init__(self, host: str, port: int, client_id: int):
-        self.host = host
-        self.port = port
-        self.client_id = client_id
-        self.ib = None
-
-    def connect(self) -> bool:
-        from ib_insync import IB
-        self.ib = IB()
-        try:
-            self.ib.connect(host=self.host, port=self.port,
-                            clientId=self.client_id, timeout=30)
-            return self.ib.isConnected()
-        except Exception as e:
-            print(f"  IBKR connection error: {e}")
-            return False
-
-    def disconnect(self) -> None:
-        if self.ib and self.ib.isConnected():
-            self.ib.disconnect()
-
-    def fetch_and_store(
-        self,
-        contract_cfg: Any,  # IBKRContract from Settings
-        days: int,
-        db_conn: Any,
-    ) -> int:
-        """Fetch *days* of 1m bars for *contract_cfg* and upsert into DB.
-
-        Returns number of bars stored.
-        """
-        from ib_insync import Future
-
-        symbol = contract_cfg.symbol
-        print(f"  Fetching {days}D of 1m bars for {symbol}...")
-
-        try:
-            contract = Future(
-                symbol=contract_cfg.base,
-                lastTradeDateOrContractMonth=contract_cfg.expiry,
-                exchange=contract_cfg.exchange,
-            )
-            details = self.ib.reqContractDetails(contract)
-            if not details:
-                print(f"  {symbol}: no contract details — skipping")
-                return 0
-
-            qualified = details[0].contract
-            bars = self.ib.reqHistoricalData(
-                contract=qualified,
-                endDateTime="",
-                durationStr=f"{days} D",
-                barSizeSetting="1 min",
-                whatToShow="TRADES",
-                useRTH=False,  # include extended hours for metals/energy/rates
-            )
-
-            if not bars:
-                print(f"  {symbol}: no data returned")
-                return 0
-
-            bar_dicts = [
-                {
-                    "timestamp": (
-                        bar.date if hasattr(bar.date, "tzinfo")
-                        else datetime.fromisoformat(str(bar.date)).replace(tzinfo=timezone.utc)
-                    ),
-                    "open": float(bar.open),
-                    "high": float(bar.high),
-                    "low": float(bar.low),
-                    "close": float(bar.close),
-                    "volume": int(bar.volume),
-                }
-                for bar in bars
-            ]
-
-            stored = store_bars(db_conn, bar_dicts, symbol, "1m")
-            print(f"  {symbol}: {len(bars)} bars fetched, {stored} stored")
-            return stored
-
-        except Exception as e:
-            print(f"  {symbol}: fetch error — {e}")
-            return 0
 
 
 # ---------------------------------------------------------------------------
@@ -644,25 +494,49 @@ def main() -> None:
 
     # --------------- Stage 1: IBKR Fetch ---------------
     if not args.replay_only:
+        import asyncio
         print("=== Stage 1: IBKR Fetch ===")
-        fetcher = IBKRFetcher(
+        provider = IBKRProvider(
             host=settings.ib_host,
             port=settings.ib_port,
             client_id=args.client_id,
         )
-        if not fetcher.connect():
+        if not asyncio.run(provider.connect()):
             print("Cannot connect to TWS — aborting fetch stage")
             if args.fetch_only:
                 db_conn.close()
                 return
             print("Continuing with replay-only...")
         else:
+            end_dt = datetime.now(tz=timezone.utc)
+            start_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            from datetime import timedelta
+            start_dt = start_dt - timedelta(days=args.days - 1)
             total_bars = 0
-            for contract in contracts:
-                n = fetcher.fetch_and_store(contract, args.days, db_conn)
+            for instrument in contracts:
+                asyncio.run(provider.qualify_instrument(instrument))
+                ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
+                    symbol=instrument.symbol,
+                    timeframe="1m",
+                    start=start_dt,
+                    end=end_dt,
+                ))
+                bar_dicts = [
+                    {
+                        "timestamp": b.timestamp,
+                        "open": b.open,
+                        "high": b.high,
+                        "low": b.low,
+                        "close": b.close,
+                        "volume": b.volume,
+                    }
+                    for b in ohlcv_bars
+                ]
+                n = store_bars(db_conn, bar_dicts, instrument.symbol, "1m")
                 total_bars += n
+                print(f"  {instrument.symbol}: {n} bars stored")
                 time.sleep(2)  # IBKR pacing
-            fetcher.disconnect()
+            asyncio.run(provider.disconnect())
             print(f"\nStage 1 complete: {total_bars:,} total bars stored\n")
 
     # --------------- Stage 2: Intelligence Replay ---------------
