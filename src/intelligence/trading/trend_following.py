@@ -89,6 +89,19 @@ class TrendFollowingPlugin:
         if abs(swing_pattern) >= 0.5:
             supporting.append("structure_confirmed")
 
+        # Zone friction penalty
+        in_supply = float(features.get("in_supply_zone", 0.0))
+        in_demand = float(features.get("in_demand_zone", 0.0))
+        supply_str = float(features.get("supply_strength", 0.0))
+        demand_str = float(features.get("demand_strength", 0.0))
+        if direction == 1 and in_supply == 1.0:
+            confidence -= 0.12 * supply_str
+            supporting.append("penalty_supply_zone_friction")
+        elif direction == -1 and in_demand == 1.0:
+            confidence -= 0.12 * demand_str
+            supporting.append("penalty_demand_zone_friction")
+        confidence = round(min(0.95, max(0.10, confidence)), 4)
+
         signal_type = "trend_long" if direction == 1 else "trend_short"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 

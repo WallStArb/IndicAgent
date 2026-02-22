@@ -97,6 +97,19 @@ class LiquiditySweepReclaimPlugin:
             confidence += 0.05
             supporting.append("cross_timeframe_aligned")
 
+        # Named pool significance boost
+        sweep_type_val = features.get("sweep_type", 0.0)
+        if sweep_type_val > 0:   # bullish sweep (SSL swept)
+            sig = float(features.get("ssl_significance", 0.0))
+            if sig >= 0.60:
+                confidence += min(0.10, sig * 0.12)
+                supporting.append(f"named_ssl_level_{sig:.2f}")
+        elif sweep_type_val < 0:  # bearish sweep (BSL swept)
+            sig = float(features.get("bsl_significance", 0.0))
+            if sig >= 0.60:
+                confidence += min(0.10, sig * 0.12)
+                supporting.append(f"named_bsl_level_{sig:.2f}")
+
         confidence = round(min(1.0, confidence), 4)
 
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
