@@ -177,6 +177,75 @@ class TestMeanReversion:
         assert result.get("signal_type", "none") == "none"
         assert result.get("direction", 0) == 0
 
+    def test_no_signal_when_near_kalman_fair_value(self):
+        """kalman_price_position < 1.0σ — price at fair value, no extension to revert."""
+        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+
+        close = np.full(100, 5000.0) + np.random.default_rng(10).normal(0, 2, 100)
+        close[-1] = 4980.0
+        df = make_ohlcv(close)
+        features = {
+            "trend_regime": 0.1,
+            "vol_regime": 0.5,
+            "rsi_14": 25.0,
+            "rsi_div_bullish": 0.0,
+            "rsi_div_bearish": 0.0,
+            "bb_middle": 5000.0,
+            "atr_14": 10.0,
+            "kalman_price_position": 0.5,   # < 1.0 — near fair value
+        }
+        plugin = MeanReversionPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("signal_type", "none") == "none"
+        assert result.get("direction", 0) == 0
+
+    def test_signal_fires_when_kalman_price_displaced(self):
+        """kalman_price_position >= 1.0σ — price is displaced, reversion valid."""
+        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+
+        close = np.full(100, 5000.0) + np.random.default_rng(11).normal(0, 2, 100)
+        close[-1] = 4980.0
+        df = make_ohlcv(close)
+        features = {
+            "trend_regime": 0.1,
+            "vol_regime": 0.5,
+            "rsi_14": 25.0,
+            "rsi_div_bullish": 0.0,
+            "rsi_div_bearish": 0.0,
+            "bb_middle": 5000.0,
+            "atr_14": 10.0,
+            "kalman_price_position": -1.5,  # displaced 1.5σ below fair value
+        }
+        plugin = MeanReversionPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("direction") == 1  # long reversion
+        assert result.get("signal_type") == "reversion_long"
+
+    def test_missing_kalman_data_mean_reversion_unaffected(self):
+        """No kalman_price_position in features → gate skipped, existing behavior unchanged."""
+        from src.intelligence.trading.mean_reversion import MeanReversionPlugin
+
+        close = np.full(100, 5000.0) + np.random.default_rng(12).normal(0, 2, 100)
+        close[-1] = 4980.0
+        df = make_ohlcv(close)
+        features = {
+            "trend_regime": 0.1,
+            "vol_regime": 0.5,
+            "rsi_14": 25.0,
+            "rsi_div_bullish": 0.0,
+            "rsi_div_bearish": 0.0,
+            "bb_middle": 5000.0,
+            "atr_14": 10.0,
+            # no kalman_price_position — gate must be skipped
+        }
+        plugin = MeanReversionPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        # Should still fire (same as existing test_bullish_reversion_at_support)
+        assert result.get("direction") == 1
+
 
 # ─── LiquiditySweepReclaim ──────────────────────────────────────
 

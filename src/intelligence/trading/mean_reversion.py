@@ -43,6 +43,11 @@ class MeanReversionPlugin:
         if abs(trend_regime) >= self.regime_threshold:
             return self._no_signal()
 
+        # ── Gate: price must be displaced from Kalman fair value ──
+        kalman_pos = features.get("kalman_price_position")
+        if kalman_pos is not None and abs(float(kalman_pos)) < 1.0:
+            return self._no_signal()
+
         # ── Read features ──
         rsi = features.get("rsi_14", 50.0)
         rsi_div_bull = features.get("rsi_div_bullish", 0.0)
