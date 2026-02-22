@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
 > **Last Updated:** 2026-02-22
-> **Version:** 4.9.0
-> **Phase:** I7 Phase 2 underway — 53 plugins, 493 tests
+> **Version:** 4.9.1
+> **Phase:** I7 Phase 2 underway — 57 plugins, 542 tests
 
 ---
 
@@ -40,40 +40,30 @@
 | I3 | Market Structure | 3 | COMPLETE |
 | I4 | Context Classification | 5 | COMPLETE |
 | I5 | Pattern Detection | 8 | COMPLETE |
-| I6 | Smart Money Concepts | 6 | COMPLETE |
+| I6 | Smart Money Concepts | 8 | COMPLETE (2 new in v4.9.1: LiqPools, S/D Zones) |
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE |
-| I7 | Trading Setups | 7 | PHASE_2_IN_PROGRESS (2 added in v4.8.0) |
+| I7 | Trading Setups | 9 | PHASE_2_IN_PROGRESS (4 added since v4.8.0) |
 | I7 | Signal Aggregation | 4 components | RUNNING |
 | I8 | AI Intelligence | 1 service | WORKING |
 
-**Total Plugins:** 53 registered (23 indicators + 30 patterns)
+**Total Plugins:** 57 registered (23 indicators + 34 patterns)
 
 ### Known Issues
 
-| Issue | Impact | Fix |
-|-------|--------|-----|
-| Track A I1 indicators not in `I1_PLUGINS` | `ind_ParabolicSAR`, `ind_StochRSI`, `ind_CMF`, `ind_Aroon`, `ind_ChandelierExit`, `ind_HistoricalVolatility` are registered in the registry but excluded from `I1_PLUGINS` in `intelligence_processor_service.py` — they don't run in the live pipeline | Add 6 names to `I1_PLUGINS` list (trivial one-liner each); no logic changes needed |
+None.
 
 ---
 
 ## Development Priorities
 
-### Priority 1: Fix Track A I1_PLUGINS Gap
-**Wire 6 registered-but-inactive indicators into the live pipeline**
-
-- `ind_ParabolicSAR`, `ind_StochRSI`, `ind_CMF`, `ind_Aroon`, `ind_ChandelierExit`, `ind_HistoricalVolatility`
-- Add each name to `I1_PLUGINS` list in `services/intelligence_processor_service.py`
-- No logic changes — trivial one-liner fix per plugin
-- Unlocks these outputs as features for all downstream I3–I7 plugins
-
-### Priority 2: I7 Phase 2 — More Setup Plugins
+### Priority 1: I7 Phase 2 — More Setup Plugins
 **Continue expanding signal coverage (7 of 14 target plugins remaining)**
 
-- Supply/Demand Zone Setup
+- Supply/Demand Zone Setup (fully designed — `docs/plans/2026-02-22-liquidity-pools-supply-demand-design.md`)
 - Gap Analysis Setup (session open trades)
 - See `docs/roadmap/MASTER_ROADMAP.md` Phase 4 for full list
 
-### Priority 3: ML Scoring Model Calibration
+### Priority 2: ML Scoring Model Calibration
 **Replace rules-based aggregator with a calibrated scoring model**
 
 - Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days of collection)
@@ -109,6 +99,7 @@
 | **I4-Kalman** | ctx_KalmanTrend: 1D Kalman filter, 7 outputs, optional GARCH-adaptive R, 9 tests | Complete |
 | **I5-ChartPatt** | Chart patterns: patt_DoubleTB, patt_HeadShoulders, patt_TriangleWedge (17 tests) | Complete |
 | **DataLayer** | DataProvider protocol, IBKRProvider, Instrument model, TimescaleDB 5m/15m caggs (migration 008) | Complete |
+| **PluginRegistry** | TIER_* constants in register_plugins.py (single source of truth); validate_tier() hard-crashes on bad names | Complete |
 
 ---
 
@@ -157,7 +148,7 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 53 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 7 I7)
+**Plugin Totals:** 57 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 + 9 I7)
 **Services:** hf-tws-daemon, indicator-processor, enhanced-processor, timeframe-builder, intelligence-processor, signal-orchestrator (:9112), ai-narrative (:9113)
 **Stack:** Python 3.13, FastAPI 0.129, Redis 7.1/DragonflyDB, TimescaleDB, LangGraph 1.0, Ollama
 **Dashboard:** Next.js 15.5 / React 19 / Tailwind v4
@@ -170,6 +161,14 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 ---
 
 ## Recent Changes
+
+### 2026-02-22 (v4.9.1)
+- REFACTOR Plugin tier lists consolidated into `TIER_*` constants in `register_plugins.py` (single source of truth)
+- ADD `PluginRegistry.validate_tier()` — hard crash at service startup on unknown plugin names (no more silent skips)
+- FIX All 5 service files import tier constants; hardcoded string lists eliminated
+- FIX Plugin gaps wired: smc_LiquidityPools, smc_SupplyDemandZones added to TIER_SMC; trad_LiquidityHunt, trad_SupplyDemandSetup added to TIER_I7
+- FIX Prior session gaps: ctx_KalmanTrend, patt_DoubleTB/HeadShoulders/TriangleWedge, smc_HMMRegime, MAComposite, ADX, Keltner, Donchian wired in both service files
+- TEST +49 tests (493 → 542 total)
 
 ### 2026-02-22 (v4.9.0)
 - COMPLETE Data Layer Redesign: `DataProvider` protocol, `IBKRProvider` (all ib_insync isolated), `Instrument`+`AssetClass` models, `IBKRContract` deprecated alias
