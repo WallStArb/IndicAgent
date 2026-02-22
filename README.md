@@ -4,8 +4,8 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 4.8.0
-**Last Updated:** 2026-02-20
+**Version:** 4.9.1
+**Last Updated:** 2026-02-22
 **Status:** I1-I8 Pipeline Complete
 
 ---
@@ -22,9 +22,9 @@ IndicAgent turns **live futures data** into **structured market intelligence** i
 
 | Aspect | Detail |
 |--------|--------|
-| **Data in** | IBKR TWS (ES, NQ, RTY, CL, GC, etc.), 100–500+ ticks/sec |
+| **Data in** | IBKR TWS futures: **ES**, **NQ**, **RTY** (equity indices); **CL**, **NG** (energy); **GC**, **SI**, **HG**, **PL** (metals); **VX** (volatility); **ZN**, **ZF**, **ZB**, **ZT** (rates). 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); optional TimescaleDB for history |
-| **Intelligence** | 53 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (7); I7 signal aggregation + I8 AI narratives + Dashboard panel operational |
+| **Intelligence** | 57 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (8), I6 confluence (1), I7 setups (9); I7 signal aggregation + I8 AI narratives + Dashboard panel operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 15 / React 19, Ollama |
 | **Deployment** | Small independent services over streams; SSE for dashboard; Signal Orchestrator (:9112), AI Narrative (:9113) |
 
@@ -243,8 +243,8 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status and Next Steps
 
-- **Done:** I1–I8 (53 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, Dashboard Signal/Narrative Panel, 453 unit tests.
-- **Next:** Fix Track A I1_PLUGINS gap (6 registered-but-inactive indicators), I7 Phase 2 continued (7 more setup plugins), ML scoring model calibration (after 500+ signals with P&L).
+- **Done:** I1–I8 (57 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, Dashboard Signal/Narrative Panel, 542 unit tests.
+- **Next:** I7 Phase 2 continued (5 more setup plugins), ML scoring model calibration (after 500+ signals with P&L).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadmap/MASTER_ROADMAP.md).
 
@@ -261,4 +261,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [MASTER_ROADMAP.md](docs/roadma
 
 ---
 
-**Version:** 4.8.0 | **Status:** I1–I8 complete, 53 plugins, 453 tests | **Focus:** I1_PLUGINS fix, I7 Phase 2, ML scoring
+**Version:** 4.9.1 | **Status:** I1–I8 complete, 57 plugins, 542 tests | **Focus:** I7 Phase 2, ML scoring
