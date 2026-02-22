@@ -62,6 +62,11 @@ class SqueezeExpansionPlugin:
         if current_volume <= volume_sma_20 * self.volume_expansion_threshold:
             return self._no_signal()
 
+        # ── Gate: block in extreme GARCH vol regime (regime=3, top 5th pctile) ──
+        vol_regime = int(features.get("garch_vol_regime", 1))
+        if vol_regime == 3:
+            return self._no_signal()
+
         # Direction from momentum_bias, fallback to close vs bb_middle
         momentum_bias = features.get("momentum_bias", 0.0)
         bb_middle = features.get("bb_middle", 0.0)
