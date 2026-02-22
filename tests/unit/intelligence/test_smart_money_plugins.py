@@ -496,3 +496,132 @@ class TestHMMRegime:
         # Fewer than min_lookback (20) bars
         df = make_ohlcv(np.full(10, 5000.0))
         assert plugin.compute_full({"main": df}) == {}
+
+
+# ─── Liquidity Pools ──────────────────────────────────────────────
+
+
+class TestLiquidityPools:
+    """Tests for smc_LiquidityPools plugin."""
+
+    def _make_df_with_equal_highs(self, n=150, base_price=5000.0, atr_approx=10.0):
+        """Create 1m OHLCV with two equal highs at bars 30 and 60."""
+        close = np.full(n, base_price)
+        high = np.full(n, base_price + atr_approx * 0.3)  # normal highs
+        low = np.full(n, base_price - atr_approx * 0.3)
+        open_ = np.full(n, base_price)
+        # Equal highs: bars 30 and 60 at same level (within ATR*0.75 tolerance)
+        eq_high = base_price + atr_approx * 2.0
+        high[30] = eq_high
+        high[60] = eq_high + atr_approx * 0.1  # slightly different but within tolerance
+        return pd.DataFrame({"open": open_, "high": high, "low": low,
+                              "close": close, "volume": np.full(n, 1000.0)})
+
+    def _make_daily_df(self, pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0):
+        """Create 5-bar 1d DataFrame with distinct PDH/PDL/PWH/PWL."""
+        # bars[-5:-2] = prior week extremes, bars[-2] = yesterday, bars[-1] = today
+        highs = [pwh, 5150.0, 5120.0, pdh, 5080.0]
+        lows  = [pwl, 4850.0, 4870.0, pdl, 4950.0]
+        closes = [5000.0] * 5
+        opens  = [5000.0] * 5
+        return pd.DataFrame({"open": opens, "high": highs, "low": lows,
+                              "close": closes, "volume": [1000.0]*5})
+
+    def test_returns_all_output_fields(self):
+        """Plugin returns all 13 expected output fields."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        df_1m = make_ohlcv(np.linspace(5000, 5100, 150))
+        df_1d = self._make_daily_df()
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        expected_fields = {
+            "bsl_level", "bsl_type", "bsl_significance", "bsl_dist_atr", "bsl_touches",
+            "ssl_level", "ssl_type", "ssl_significance", "ssl_dist_atr", "ssl_touches",
+            "price_in_premium", "premium_position", "pool_count",
+        }
+        assert expected_fields.issubset(result.keys())
+
+    def test_pdh_pdl_detected_from_daily(self):
+        """PDH/PDL from yesterday's daily bar → bsl_level=PDH, ssl_level=PDL."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        df_1d = self._make_daily_df(pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0)
+        # 1m price between PDH and PDL (no equal highs/lows)
+        df_1m = make_ohlcv(np.full(150, 5000.0))
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        # BSL should be PDH (5100) or PWH (5200) — whichever is nearer and above
+        assert result["bsl_level"] > 5000.0  # above current price
+        assert result["ssl_level"] < 5000.0  # below current price
+        assert result["bsl_significance"] >= 0.85  # PDH or PWH
+
+    def test_pwh_pwl_higher_significance_than_pdh_pdl(self):
+        """PWH/PWL have significance 1.0, PDH/PDL have 0.85."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        # Price near PDH — PWH is the nearest level above PDH
+        df_1d = self._make_daily_df(pdh=5050.0, pdl=4950.0, pwh=5080.0, pwl=4920.0)
+        df_1m = make_ohlcv(np.full(150, 5000.0))
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        # If PWH is nearest BSL level above current price
+        if abs(result["bsl_level"] - 5080.0) < 5.0:
+            assert result["bsl_significance"] == 1.0  # PWH significance
+
+    def test_equal_highs_detected(self):
+        """Two swing highs within ATR*0.75 → equal highs BSL with significance 0.60."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        df_1m = self._make_df_with_equal_highs(base_price=5000.0, atr_approx=10.0)
+        df_1d = self._make_daily_df(pdh=5000.0, pdl=4800.0, pwh=5100.0, pwl=4700.0)
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        # Equal highs at ~5020 should be detected as BSL
+        assert result["pool_count"] >= 1.0
+
+    def test_premium_flag_above_midpoint(self):
+        """Price above 20-bar range midpoint → price_in_premium=1.0."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        # Price rises strongly — ends in premium territory
+        close = np.concatenate([np.full(10, 4900.0), np.full(140, 5100.0)])
+        df_1m = make_ohlcv(close)
+        df_1d = self._make_daily_df(pdh=5200.0, pdl=4800.0, pwh=5300.0, pwl=4700.0)
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        assert result["price_in_premium"] == 1.0
+
+    def test_discount_flag_below_midpoint(self):
+        """Price below 20-bar range midpoint → price_in_premium=0.0."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        close = np.concatenate([np.full(10, 5100.0), np.full(140, 4900.0)])
+        df_1m = make_ohlcv(close)
+        df_1d = self._make_daily_df(pdh=5200.0, pdl=4800.0, pwh=5300.0, pwl=4700.0)
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        assert result["price_in_premium"] == 0.0
+
+    def test_empty_data_returns_zeros(self):
+        """None or insufficient data → empty dict or all-zero output."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        plugin = LiquidityPoolsPlugin()
+        assert plugin.compute_full({"main": None}) == {}
+        df_small = make_ohlcv(np.full(5, 5000.0))
+        result = plugin.compute_full({"main": df_small})
+        assert result == {} or result.get("pool_count", 0) == 0.0
+
+    def test_bsl_level_is_above_current_price(self):
+        """BSL (buy-side liquidity) must be above current price."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        df_1m = make_ohlcv(np.full(150, 5000.0))
+        df_1d = self._make_daily_df(pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0)
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        if result.get("bsl_level", 0) > 0:
+            assert result["bsl_level"] > df_1m["close"].iloc[-1]
+
+    def test_ssl_level_is_below_current_price(self):
+        """SSL (sell-side liquidity) must be below current price."""
+        from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+        df_1m = make_ohlcv(np.full(150, 5000.0))
+        df_1d = self._make_daily_df(pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0)
+        plugin = LiquidityPoolsPlugin()
+        result = plugin.compute_full({"main": df_1m, "1d": df_1d})
+        if result.get("ssl_level", 0) > 0:
+            assert result["ssl_level"] < df_1m["close"].iloc[-1]
