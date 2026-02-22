@@ -192,6 +192,8 @@ TIER_SMC: list[str] = [
     liq_sweep_plugin.name,
     bocpd_plugin.name,
     hmm_plugin.name,
+    liquidity_pools_plugin.name,
+    supply_demand_zones_plugin.name,
 ]
 
 TIER_I6: list[str] = [
@@ -206,4 +208,6 @@ TIER_I7: list[str] = [
     squeeze_exp_plugin.name,
     vwap_deviation_plugin.name,
     momentum_breakout_plugin.name,
+    liquidity_hunt_plugin.name,
+    supply_demand_setup_plugin.name,
 ]
