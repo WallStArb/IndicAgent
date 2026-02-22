@@ -8,24 +8,24 @@ from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
 from .indicators.adx import plugin as adx_plugin
+from .indicators.aroon import plugin as aroon_plugin
 from .indicators.atr import plugin as atr_plugin
 from .indicators.bollinger import plugin as bb_plugin
 from .indicators.cci import plugin as cci_plugin
-from .indicators.donchian import plugin as donchian_plugin
-from .indicators.keltner import plugin as keltner_plugin
-from .indicators.aroon import plugin as aroon_plugin
 from .indicators.chandelier import plugin as chandelier_plugin
 from .indicators.cmf import plugin as cmf_plugin
+from .indicators.donchian import plugin as donchian_plugin
 from .indicators.historical_volatility import plugin as hv_plugin
+from .indicators.keltner import plugin as keltner_plugin
 from .indicators.macd import plugin as macd_plugin
-from .indicators.parabolic_sar import plugin as psar_plugin
-from .indicators.stochastic_rsi import plugin as stoch_rsi_plugin
 from .indicators.mfi import plugin as mfi_plugin
 from .indicators.moving_averages import plugin as ma_plugin
 from .indicators.obv import plugin as obv_plugin
+from .indicators.parabolic_sar import plugin as psar_plugin
 from .indicators.roc_ppo import plugin as roc_ppo_plugin
 from .indicators.rsi import plugin as rsi_plugin
 from .indicators.stochastic import plugin as stoch_plugin
+from .indicators.stochastic_rsi import plugin as stoch_rsi_plugin
 from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
@@ -42,22 +42,22 @@ from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
 from .smart_money.bos_choch import plugin as bos_choch_plugin
 from .smart_money.fair_value_gap import plugin as fvg_plugin
 from .smart_money.hmm_regime import plugin as hmm_plugin
-from .smart_money.liquidity_sweeps import plugin as liq_sweep_plugin
 from .smart_money.liquidity_pools import plugin as liquidity_pools_plugin
-from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
+from .smart_money.liquidity_sweeps import plugin as liq_sweep_plugin
 from .smart_money.order_blocks import plugin as ob_plugin
+from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
 from .structure.trend_structure import plugin as trend_plugin
+from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
 from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
 from .trading.mean_reversion import plugin as mean_revert_plugin
-from .trading.mtf_alignment import plugin as mtf_align_plugin
 from .trading.momentum_breakout import plugin as momentum_breakout_plugin
+from .trading.mtf_alignment import plugin as mtf_align_plugin
 from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
+from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
-from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
-from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 
 
 def register_all_plugins() -> None:

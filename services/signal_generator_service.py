@@ -38,7 +38,7 @@ from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import signals_aggregated
 from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import register_all_plugins
+from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_ledger import LedgerEntry, insert_signals
 from src.observability.metrics import (
@@ -48,16 +48,8 @@ from src.observability.metrics import (
     start_metrics_server,
 )
 
-# I7 trading setup plugin names (must match names in register_plugins.py)
-I7_PLUGINS = [
-    "trad_TrendFollowing",
-    "trad_MeanReversion",
-    "trad_LiquiditySweepReclaim",
-    "trad_MTFAlignment",
-    "trad_SqueezeExpansion",
-    "trad_VWAPDeviation",
-    "trad_MomentumBreakout",
-]
+# I7 plugin names — imported from register_plugins (single source of truth)
+I7_PLUGINS = TIER_I7
 
 _META_FIELDS = frozenset({
     "timestamp", "symbol", "timeframe",
@@ -166,6 +158,7 @@ class SignalGeneratorService:
         self._setup_logging()
 
         register_all_plugins()
+        registry.validate_tier(I7_PLUGINS, "I7")
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None

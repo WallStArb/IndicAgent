@@ -35,7 +35,7 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import market as sk_market
 from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import register_all_plugins, TIER_I1
+from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import counter, gauge, record_plugin_execution, start_metrics_server
 
 # I1 plugin names — imported from register_plugins (single source of truth)

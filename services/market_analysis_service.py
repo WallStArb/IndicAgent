@@ -38,7 +38,14 @@ from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
 from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import register_all_plugins, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6
+from src.intelligence.register_plugins import (
+    TIER_I3,
+    TIER_I4,
+    TIER_I5,
+    TIER_I6,
+    TIER_SMC,
+    register_all_plugins,
+)
 from src.observability.metrics import (
     counter,
     gauge,

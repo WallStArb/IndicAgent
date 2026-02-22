@@ -42,7 +42,15 @@ from src.core.database_manager import DatabaseManager  # noqa: E402
 from src.core.stream_keys import intelligence as sk_intelligence  # noqa: E402
 from src.core.stream_keys import market as sk_market  # noqa: E402
 from src.intelligence.plugins import registry  # noqa: E402
-from src.intelligence.register_plugins import register_all_plugins, TIER_I1, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6  # noqa: E402
+from src.intelligence.register_plugins import (  # noqa: E402
+    TIER_I1,
+    TIER_I3,
+    TIER_I4,
+    TIER_I5,
+    TIER_I6,
+    TIER_SMC,
+    register_all_plugins,
+)
 from src.observability.metrics import (  # noqa: E402
     counter,
     gauge,
