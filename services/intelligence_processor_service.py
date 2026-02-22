@@ -42,7 +42,7 @@ from src.core.database_manager import DatabaseManager  # noqa: E402
 from src.core.stream_keys import intelligence as sk_intelligence  # noqa: E402
 from src.core.stream_keys import market as sk_market  # noqa: E402
 from src.intelligence.plugins import registry  # noqa: E402
-from src.intelligence.register_plugins import register_all_plugins  # noqa: E402
+from src.intelligence.register_plugins import register_all_plugins, TIER_I1, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6  # noqa: E402
 from src.observability.metrics import (  # noqa: E402
     counter,
     gauge,
@@ -51,37 +51,13 @@ from src.observability.metrics import (  # noqa: E402
 )
 
 # Plugin name lists — must match names in register_plugins.py
-I1_PLUGINS = [
-    "RSI",
-    "MovingAverages",
-    "MACD",
-    "ATR",
-    "BollingerBands",
-    "Stochastic",
-    "CCI",
-    "WilliamsR",
-    "MFI",
-    "OBV",
-    "VWAP",
-    "Supertrend",
-    "ROC_PPO",
-]
-
-I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
-I4_PLUGINS = [
-    "ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext", "ctx_GARCHVolatility",
-]
-I5_PLUGINS = [
-    "RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence", "TrendConfluence",
-]
-SMC_PLUGINS = [
-    "smc_BOSCHoCH",
-    "smc_FairValueGap",
-    "smc_OrderBlocks",
-    "smc_LiquiditySweeps",
-    "smc_BOCPDChangePoint",
-]
-I6_PLUGINS = ["i6_CrossTimeframeConfluence"]
+# Plugin tier lists — imported from register_plugins (single source of truth)
+I1_PLUGINS = TIER_I1
+I3_PLUGINS = TIER_I3
+I4_PLUGINS = TIER_I4
+I5_PLUGINS = TIER_I5
+SMC_PLUGINS = TIER_SMC
+I6_PLUGINS = TIER_I6
 
 
 class IntelligenceProcessorService:
@@ -97,6 +73,11 @@ class IntelligenceProcessorService:
 
         # Populate the plugin registry
         register_all_plugins()
+        for tier_list, tier_name in [
+            (I1_PLUGINS, "I1"), (I3_PLUGINS, "I3"), (I4_PLUGINS, "I4"),
+            (I5_PLUGINS, "I5"), (SMC_PLUGINS, "SMC"), (I6_PLUGINS, "I6"),
+        ]:
+            registry.validate_tier(tier_list, tier_name)
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
