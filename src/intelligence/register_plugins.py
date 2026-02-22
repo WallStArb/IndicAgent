@@ -127,3 +127,83 @@ def register_all_plugins() -> None:
     registry.register_pattern(momentum_breakout_plugin)
     registry.register_pattern(liquidity_hunt_plugin)
     registry.register_pattern(supply_demand_setup_plugin)
+
+# ---------------------------------------------------------------------------
+# Canonical tier plugin lists — single source of truth.
+# Built from plugin.name attributes so any rename propagates automatically.
+# Services import these instead of maintaining their own string lists.
+# ---------------------------------------------------------------------------
+
+TIER_I1: list[str] = [
+    rsi_plugin.name,
+    ma_plugin.name,
+    ma_compare_plugin.name,
+    macd_plugin.name,
+    atr_plugin.name,
+    bb_plugin.name,
+    stoch_plugin.name,
+    cci_plugin.name,
+    wr_plugin.name,
+    mfi_plugin.name,
+    obv_plugin.name,
+    vwap_plugin.name,
+    supertrend_plugin.name,
+    adx_plugin.name,
+    keltner_plugin.name,
+    donchian_plugin.name,
+    roc_ppo_plugin.name,
+    aroon_plugin.name,
+    chandelier_plugin.name,
+    cmf_plugin.name,
+    hv_plugin.name,
+    psar_plugin.name,
+    stoch_rsi_plugin.name,
+]
+
+TIER_I3: list[str] = [
+    swing_plugin.name,
+    sr_plugin.name,
+    trend_plugin.name,
+]
+
+TIER_I4: list[str] = [
+    vol_regime_plugin.name,
+    trend_regime_plugin.name,
+    momentum_ctx_plugin.name,
+    garch_vol_plugin.name,
+    kalman_trend_plugin.name,
+]
+
+TIER_I5: list[str] = [
+    rsi_div_plugin.name,
+    squeeze_plugin.name,
+    vol_div_plugin.name,
+    confluence_plugin.name,
+    trend_confluence_plugin.name,
+    double_tb_plugin.name,
+    head_shoulders_plugin.name,
+    triangle_wedge_plugin.name,
+]
+
+TIER_SMC: list[str] = [
+    bos_choch_plugin.name,
+    fvg_plugin.name,
+    ob_plugin.name,
+    liq_sweep_plugin.name,
+    bocpd_plugin.name,
+    hmm_plugin.name,
+]
+
+TIER_I6: list[str] = [
+    ctf_plugin.name,
+]
+
+TIER_I7: list[str] = [
+    trend_follow_plugin.name,
+    mean_revert_plugin.name,
+    liq_sweep_reclaim_plugin.name,
+    mtf_align_plugin.name,
+    squeeze_exp_plugin.name,
+    vwap_deviation_plugin.name,
+    momentum_breakout_plugin.name,
+]
