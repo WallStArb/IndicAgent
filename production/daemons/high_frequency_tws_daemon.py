@@ -31,7 +31,6 @@ from zoneinfo import ZoneInfo
 import redis
 import redis.asyncio as aioredis
 import structlog
-from ib_insync import IB, Future, Ticker
 from prometheus_client import start_http_server
 
 from src.core.stream_keys import market as sk_market
@@ -48,6 +47,7 @@ except Exception:
 
 from src.config.settings import Settings
 from src.core.async_tick_publisher import AsyncTickPublisher
+from src.providers import IBKRProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -75,13 +75,11 @@ class HighFrequencyTWSDaemon:
         self.port = port or self.settings.ib_port
         self.client_id = client_id or self.settings.ib_client_id
 
-        self.ib: IB | None = None
+        self.provider: IBKRProvider | None = None
         self.redis_client: redis.Redis | None = None
 
         self.running = False
         self.connected = False
-        self.subscribed_symbols: set[str] = set()
-        self.qualified_contracts: dict[str, object] = {}
 
         # High-frequency metrics
         self.ticks_processed = 0
@@ -107,9 +105,6 @@ class HighFrequencyTWSDaemon:
         self.current_mode: str | None = None  # 'RTH' | 'ETH' | 'CLOSED'
         self.mode_check_interval = 60  # seconds
         self.last_mode_check_ts = 0.0
-
-        # IBKR subscriptions state
-        self.tickers_by_symbol: dict[str, Ticker] = {}
 
         # Minute-boundary bar polling (replaces 60s countdown)
         self.last_bar_poll_minute: int = -1       # wall-clock minute of last authoritative poll
@@ -183,7 +178,7 @@ class HighFrequencyTWSDaemon:
             return False
 
     def connect_tws(self) -> bool:
-        """Connect to TWS with optimized settings."""
+        """Connect to TWS via IBKRProvider."""
         try:
             logger.info(
                 "Connecting to TWS for high-frequency data",
@@ -191,167 +186,73 @@ class HighFrequencyTWSDaemon:
                 port=self.port,
                 client_id=self.client_id,
             )
-
-            self.ib = IB()
-            self.ib.connect(
-                host=self.host, port=self.port, clientId=self.client_id, timeout=20, readonly=False
+            self.provider = IBKRProvider(
+                host=self.host, port=self.port, client_id=self.client_id
             )
+            # IBKRProvider.connect() is async — run it synchronously here
+            if self.loop:
+                fut = asyncio.run_coroutine_threadsafe(self.provider.connect(), self.loop)
+                connected = fut.result(timeout=30)
+            else:
+                connected = asyncio.run(self.provider.connect())
 
-            if self.ib.isConnected():
-                accounts = self.ib.managedAccounts()
+            if connected:
                 self.connected = True
                 self.g_connected.set(1)
-                logger.info("Connected to TWS successfully", accounts=accounts)
-
-                # Set up high-frequency market data processing
-                self.ib.pendingTickersEvent += self.on_pending_tickers
-                # Reconnection handling
-                self.ib.disconnectedEvent += self._on_disconnected
-                # Initialize current mode
                 self.current_mode = self.market_hours.get_mode(datetime.now())
-
+                # Qualify all configured instruments
+                self._qualify_all_instruments()
+                logger.info("Connected to TWS via IBKRProvider")
                 return True
             else:
                 logger.error("TWS connection failed")
                 return False
-
         except Exception as e:
             logger.error("TWS connection error", error=str(e))
             return False
 
-    def on_pending_tickers(self, tickers):
-        """High-frequency callback for tick updates."""
-        current_time = datetime.now()
-
-        for ticker in tickers:
-            if ticker.contract.localSymbol in self.subscribed_symbols:
-                # Extract tick data immediately
-                symbol = ticker.contract.localSymbol
-
-                # Process different tick types
-                tick_data = self._build_tick_data(symbol, ticker, current_time)
-                if self.use_async_publish and self.publisher and self.loop:
-                    try:
-                        asyncio.run_coroutine_threadsafe(
-                            self.publisher.publish_tick(symbol, tick_data), self.loop
-                        )
-                        self.ticks_processed += 1
-                        self.m_ticks.inc()
-                        self._update_tick_accumulator(symbol, tick_data, current_time)
-                    except Exception as e:
-                        self.dropped_ticks += 1
-                        self.m_dropped.inc()
-                        self.m_dropped_by_reason.labels(reason="async_enqueue_error").inc()
-                        logger.warning("Async enqueue failed", error=str(e))
-
-    @staticmethod
-    def _build_tick_data(symbol: str, ticker: Ticker, now: datetime) -> dict[str, Any]:
-        """Extract fields from ib_insync.Ticker into our tick schema."""
-        tick_data: dict[str, Any] = {
-            "symbol": symbol,
-            "timestamp": now.isoformat(),
-            "source": "hf_tws_daemon",
-        }
-        try:
-            # Market, bid/ask, sizes and last trade info
-            price = ticker.marketPrice()
-            if price and price > 0:
-                tick_data["price"] = float(price)
-            if getattr(ticker, "bid", None):
-                if ticker.bid > 0:
-                    tick_data["bid"] = float(ticker.bid)
-            if getattr(ticker, "ask", None):
-                if ticker.ask > 0:
-                    tick_data["ask"] = float(ticker.ask)
-            if getattr(ticker, "bidSize", None):
-                if ticker.bidSize > 0:
-                    tick_data["bid_size"] = int(ticker.bidSize)
-            if getattr(ticker, "askSize", None):
-                if ticker.askSize > 0:
-                    tick_data["ask_size"] = int(ticker.askSize)
-            if getattr(ticker, "volume", None):
-                if ticker.volume:
-                    tick_data["volume"] = int(ticker.volume)
-            if getattr(ticker, "last", None):
-                if ticker.last and ticker.last > 0:
-                    tick_data["last"] = float(ticker.last)
-            if getattr(ticker, "lastSize", None):
-                if ticker.lastSize:
-                    tick_data["last_size"] = int(ticker.lastSize)
-        except Exception:
-            # Keep critical path robust; upstream validation handles anomalies
-            pass
-        return tick_data
-
-    def subscribe_to_contracts(self) -> bool:
-        """Subscribe to high-frequency tick data."""
-        if not self.connected or not self.ib:
-            return False
-
-        successful_subscriptions = 0
-
-        for contract_config in self.contracts:
+    def _qualify_all_instruments(self) -> None:
+        """Qualify all configured instruments with IBKR."""
+        if not self.provider:
+            return
+        for instrument in self.settings.contracts:
             try:
-                logger.info(
-                    "Subscribing to high-frequency contract", symbol=contract_config["symbol"]
-                )
-
-                # Create and qualify contract
-                contract = Future(
-                    symbol=contract_config["base"],
-                    lastTradeDateOrContractMonth=contract_config["expiry"],
-                    exchange=contract_config["exchange"],
-                )
-
-                details = self.ib.reqContractDetails(contract)
-                if not details:
-                    logger.warning("No contract details", symbol=contract_config["symbol"])
-                    continue
-
-                qualified_contract = details[0].contract
-
-                # Subscribe to optimized tick data for futures: RTVolume for high-frequency ticks
-                tick_list = self._tick_list_for_mode(self.current_mode or "ETH")
-                ticker = self.ib.reqMktData(
-                    qualified_contract,
-                    genericTickList=tick_list,
-                    snapshot=False,
-                    regulatorySnapshot=False,
-                )
-
-                # Note: reqRealTimeBars doesn't work reliably, we'll poll 1m historical bars instead
-
-                # Store references
-                self.subscribed_symbols.add(contract_config["symbol"])
-                self.qualified_contracts[contract_config["symbol"]] = qualified_contract
-                self.tickers_by_symbol[contract_config["symbol"]] = ticker
-                successful_subscriptions += 1
-
-                logger.info(
-                    "High-frequency subscription successful",
-                    symbol=contract_config["symbol"],
-                    local_symbol=qualified_contract.localSymbol,
-                )
-
-                time.sleep(0.05)  # Minimal delay between subscriptions
-
+                if self.loop:
+                    fut = asyncio.run_coroutine_threadsafe(
+                        self.provider.qualify_instrument(instrument), self.loop
+                    )
+                    fut.result(timeout=10)
+                else:
+                    asyncio.run(self.provider.qualify_instrument(instrument))
             except Exception as e:
-                logger.error(
-                    "High-frequency subscription failed",
-                    symbol=contract_config["symbol"],
-                    error=str(e),
-                )
+                logger.warning("qualify_instrument failed", symbol=instrument.symbol, error=str(e))
 
-        if successful_subscriptions > 0:
-            logger.info(
-                "High-frequency subscriptions complete",
-                successful=successful_subscriptions,
-                total=len(self.contracts),
-            )
-            return True
-        else:
-            logger.error("No high-frequency subscriptions successful")
-            return False
+    async def _tick_loop(self) -> None:
+        """Consume ticks from IBKRProvider and publish to Redis."""
+        if not self.provider:
+            return
+        symbols = [c["symbol"] for c in self.contracts]
+        async for tick in self.provider.stream_ticks(symbols):
+            if not self.running:
+                break
+            try:
+                stream_name = sk_market(self.env_prefix, tick.symbol, "tick")
+                if self.async_redis:
+                    await self.async_redis.xadd(
+                        stream_name,
+                        tick.model_dump(mode="json"),
+                        maxlen=10000,
+                        approximate=True,
+                    )
+                tick_data = {"last": tick.price, "volume": tick.size or 0}
+                self._update_tick_accumulator(tick.symbol, tick_data, datetime.now())
+                self.ticks_processed += 1
+                self.m_ticks.inc()
+            except Exception as e:
+                self.dropped_ticks += 1
+                self.m_dropped.inc()
+                self.m_dropped_by_reason.labels(reason="tick_loop_error").inc()
+                logger.warning("Tick loop error", error=str(e))
 
     def on_bar_update(self, symbol: str, bars_list):
         """Handle 1-minute bar updates."""
@@ -458,15 +359,14 @@ class HighFrequencyTWSDaemon:
                 )
                 asyncio.run_coroutine_threadsafe(self.publisher.run(), self.loop)
 
-            # Connect to TWS
+            # Connect to TWS (also qualifies all instruments)
             if not self.connect_tws():
                 logger.error("TWS connection required for high-frequency operation")
                 return
 
-            # Subscribe to contracts
-            if not self.subscribe_to_contracts():
-                logger.error("No contract subscriptions for high-frequency operation")
-                return
+            # Start tick stream in async loop
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
 
             # Start high-frequency processing
             self.running = True
@@ -475,30 +375,29 @@ class HighFrequencyTWSDaemon:
             logger.info("High-frequency TWS daemon started successfully")
             logger.info("⚡ Real-time tick processing active...")
 
-            # Main loop - minimal processing, ticks handled by callbacks
+            # Main loop - minimal processing, ticks handled by _tick_loop
             while self.running:
                 try:
                     # Attempt reconnect if disconnected
                     if not self.connected:
                         logger.warning("Disconnected from TWS, attempting reconnect...")
                         if self.connect_tws():
-                            # Re-subscribe after reconnect
-                            self.subscribe_to_contracts()
+                            if self.loop:
+                                asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
                             self.m_reconnects.inc()
                             self.reconnects += 1
                             self._reconnect_delay = 1.0
                         else:
                             time.sleep(self._reconnect_delay)
-                            # Exponential backoff with jitter
                             self._reconnect_delay = min(
                                 self._reconnect_delay * 2 + random.uniform(0.0, 0.5), 16.0
                             )
                             continue
-                    # Adjust subscription intensity by market hours every minute
                     now_ts = time.time()
                     if now_ts - self.last_mode_check_ts >= self.mode_check_interval:
                         self.last_mode_check_ts = now_ts
-                        self.adjust_subscription_intensity()
+                        new_mode = self.market_hours.get_mode(datetime.now())
+                        self.current_mode = new_mode
 
                     # Minute-boundary bar events
                     now = datetime.now()
@@ -536,49 +435,15 @@ class HighFrequencyTWSDaemon:
         self.connected = False
         self.g_connected.set(0)
 
-    # --- Market hours & tick list management ---
+    # --- Market hours management ---
     def _tick_list_for_mode(self, mode: str) -> str:
         """Return IBKR genericTickList by market mode - simplified for futures."""
-        # For futures, start simple to avoid Error 321
         if mode == "RTH":
-            return FUTURES_TICK_TYPES["all"]  # Just RTVolume
+            return FUTURES_TICK_TYPES["all"]
         elif mode == "ETH":
-            return FUTURES_TICK_TYPES["volume"]  # Just RTVolume
+            return FUTURES_TICK_TYPES["volume"]
         else:  # CLOSED
-            return ""  # Empty - let IBKR provide default last/bid/ask
-
-    def adjust_subscription_intensity(self) -> None:
-        """Adjust tick subscriptions based on market hours (RTH/ETH/CLOSED)."""
-        if not self.ib or not self.connected:
-            return
-        new_mode = self.market_hours.get_mode(datetime.now())
-        if new_mode == self.current_mode:
-            return
-        try:
-            tick_list = self._tick_list_for_mode(new_mode)
-            # Re-subscribe each symbol with new tick list
-            for symbol, qualified_contract in self.qualified_contracts.items():
-                # Cancel existing market data if present
-                prev_ticker = self.tickers_by_symbol.get(symbol)
-                if prev_ticker is not None:
-                    try:
-                        self.ib.cancelMktData(prev_ticker.contract)
-                    except Exception:
-                        pass
-                # Request new market data with updated tick list
-                new_ticker = self.ib.reqMktData(
-                    qualified_contract,
-                    genericTickList=tick_list,
-                    snapshot=False,
-                    regulatorySnapshot=False,
-                )
-                self.tickers_by_symbol[symbol] = new_ticker
-            logger.info(
-                "Adjusted subscription intensity", old_mode=self.current_mode, new_mode=new_mode
-            )
-            self.current_mode = new_mode
-        except Exception as e:
-            logger.warning("Failed to adjust subscription intensity", error=str(e))
+            return ""
 
     def _update_tick_accumulator(self, symbol: str, tick_data: dict, now: datetime) -> None:
         """Update per-symbol OHLCV accumulator from a tick. Thread-safe under Python GIL."""
@@ -647,35 +512,31 @@ class HighFrequencyTWSDaemon:
             )
 
     def poll_1m_bars(self) -> None:
-        """Poll for 1-minute bars using historical data since reqRealTimeBars is unreliable."""
-        if not self.ib or not self.connected:
+        """Poll for 1-minute bars via IBKRProvider."""
+        if not self.provider or not self.connected:
             return
 
-        for symbol, qualified_contract in self.qualified_contracts.items():
+        now = datetime.now()
+        start = now - timedelta(minutes=2)
+
+        for contract_config in self.contracts:
+            symbol = contract_config["symbol"]
             try:
-                # Request latest 2 bars to catch new completed bars
-                bars = self.ib.reqHistoricalData(
-                    qualified_contract,
-                    endDateTime="",
-                    durationStr="120 S",  # 120 seconds = 2 minutes
-                    barSizeSetting="1 min",
-                    whatToShow="TRADES",
-                    useRTH=False,
-                    formatDate=2,  # Unix timestamp format
-                )
+                if self.loop:
+                    fut = asyncio.run_coroutine_threadsafe(
+                        self.provider.fetch_historical_bars(symbol, "1m", start, now),
+                        self.loop,
+                    )
+                    ohlcv_bars = fut.result(timeout=10)
+                else:
+                    ohlcv_bars = asyncio.run(
+                        self.provider.fetch_historical_bars(symbol, "1m", start, now)
+                    )
 
-                if not bars:
-                    continue
-
-                # Process each bar, checking for new ones
-                for bar in bars:
-                    bar_timestamp = bar.date.isoformat()
-
-                    # Skip if we've already processed this bar
+                for bar in ohlcv_bars:
+                    bar_timestamp = bar.timestamp.isoformat()
                     if self.last_bar_timestamps.get(symbol) == bar_timestamp:
                         continue
-
-                    # New bar - process it
                     self.last_bar_timestamps[symbol] = bar_timestamp
                     self.bars_processed += 1
 
@@ -690,19 +551,10 @@ class HighFrequencyTWSDaemon:
                         "volume": str(bar.volume),
                         "source": "authoritative",
                     }
-
-                    # Publish to Redis stream
                     if self.redis_client:
                         stream_name = sk_market(self.env_prefix, symbol, "1m")
                         self.redis_client.xadd(stream_name, bar_data, maxlen=2000, approximate=True)
-
-                    logger.info(
-                        "1m bar polled",
-                        symbol=symbol,
-                        time=bar.date,
-                        close=bar.close,
-                        volume=bar.volume,
-                    )
+                    logger.info("1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume)
                     self.m_bars.inc()
 
             except Exception as e:
@@ -724,10 +576,14 @@ class HighFrequencyTWSDaemon:
         except Exception as e:
             logger.warning("Async queue drain failed", error=str(e))
 
-        # Disconnect from TWS
-        if self.ib and self.ib.isConnected():
+        # Disconnect from TWS via provider
+        if self.provider and self.provider.is_connected():
             try:
-                self.ib.disconnect()
+                if self.loop:
+                    fut = asyncio.run_coroutine_threadsafe(self.provider.disconnect(), self.loop)
+                    fut.result(timeout=5)
+                else:
+                    asyncio.run(self.provider.disconnect())
                 logger.info("Disconnected from TWS")
             except Exception as e:
                 logger.warning("TWS disconnect error", error=str(e))
