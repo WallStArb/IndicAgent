@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 from ..plugins import InputSpec
 
@@ -174,7 +173,9 @@ class SupplyDemandZonesPlugin:
                 "nearest_demand_low":  dz.zone_low,
                 "demand_freshness":    round(dz.freshness, 4),
                 "demand_strength":     zone_strength(dz),
-                "demand_dist_atr":     round(abs(current_price - (dz.zone_high + dz.zone_low) / 2) / atr, 4),
+                "demand_dist_atr": round(
+                    abs(current_price - (dz.zone_high + dz.zone_low) / 2) / atr, 4
+                ),
                 "in_demand_zone":      1.0 if dz.zone_low <= current_price <= dz.zone_high else 0.0,
             })
         else:
@@ -191,7 +192,9 @@ class SupplyDemandZonesPlugin:
                 "nearest_supply_low":  sz.zone_low,
                 "supply_freshness":    round(sz.freshness, 4),
                 "supply_strength":     zone_strength(sz),
-                "supply_dist_atr":     round(abs(current_price - (sz.zone_high + sz.zone_low) / 2) / atr, 4),
+                "supply_dist_atr": round(
+                    abs(current_price - (sz.zone_high + sz.zone_low) / 2) / atr, 4
+                ),
                 "in_supply_zone":      1.0 if sz.zone_low <= current_price <= sz.zone_high else 0.0,
             })
         else:

@@ -119,7 +119,10 @@ class SupplyDemandSetupPlugin:
         fvg_type     = float(features.get("fvg_type", 0.0))
 
         act1 = sweep_det == 1.0 and sweep_recl == 1.0
-        act1_dir = (direction == 1 and sweep_type == 1.0) or (direction == -1 and sweep_type == -1.0)
+        act1_dir = (
+            (direction == 1 and sweep_type == 1.0)
+            or (direction == -1 and sweep_type == -1.0)
+        )
         act2 = fvg_det == 1.0 and fvg_type == float(direction)
 
         if act1 and act1_dir:
