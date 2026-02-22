@@ -123,10 +123,15 @@ The following were previously listed as "next up" or in Batch 3 — all are now 
 
 ## Future Pattern Ideas
 
-### Smart Money Concepts (I6) — COMPLETED
+### Smart Money Concepts (I6) — COMPLETED + 2 NEW PLANNED
+
 - ~~BOS/CHoCH, Order Blocks, FVG, Liquidity Sweeps~~ → `src/intelligence/smart_money/` (6 plugins, 28 tests)
 - ~~BOCPD Change Point Detection~~ → Bayesian online change point detection, O(1) amortized, pure numpy
 - ~~HMM Market Regime~~ → 3-state HMM (ranging/up/down), multivariate Gaussian emissions, incremental forward algorithm, pure numpy
+- **`smc_LiquidityPools`** *(planned — design: `docs/plans/2026-02-22-liquidity-pools-supply-demand-design.md`)*
+  Named institutional levels: PWH/PWL, PDH/PDL, equal highs/lows (ATR × 0.75 tolerance, 2-3+ touches), session high/low. Significance scores 0.5–1.0. Premium/discount flag (20-bar range midpoint). 1m + 1d InputSpec. 13 output fields.
+- **`smc_SupplyDemandZones`** *(planned — same design doc)*
+  Detects Rally-Base-Drop (supply) and Drop-Base-Rally (demand) origin zones on 15m. Base = body/range < 0.5, impulse = close-to-close > ATR × 1.5. Freshness lifecycle: fresh (1.0) → tested (0.5) → mitigated (0.0, removed). Strength scoring: premium/discount alignment × 1.2, FVG-inside × 1.15, age decay. Tracks 5 active zones per side. 14 output fields.
 
 ### Probabilistic & ML Models
 - ~~**BOCPD Change Point Detection**~~ — COMPLETED. `src/intelligence/smart_money/bocpd_changepoint.py`

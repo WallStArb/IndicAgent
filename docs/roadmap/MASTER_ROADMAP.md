@@ -192,10 +192,14 @@ Run both aggregators in parallel:
    - File: `src/intelligence/trading/momentum_breakout.py`
    - Logic: Triple-gate (ROC spike + vol expansion + structure break); stop at broken structure level
 
-3. **Supply/Demand Zone Setup**
-   - Directory: `src/intelligence/trading/supply_demand_zones.py`
-   - Logic: Price tests fresh zone (untouched level) + confluence
-   - Best for: Structural reversal trades
+3. **Liquidity Pools + Supply/Demand Zone Setups** *(4 plugins — fully designed)*
+   - **Design doc:** `docs/plans/2026-02-22-liquidity-pools-supply-demand-design.md`
+   - **`smc_LiquidityPools`** (I6): Named BSL/SSL levels (PWH/PWL, PDH/PDL, equal highs/lows), significance scores, premium/discount flag
+   - **`smc_SupplyDemandZones`** (I6): Rally-Base-Drop / Drop-Base-Rally zones on 15m, freshness lifecycle, strength scoring
+   - **`trad_LiquidityHunt`** (I7): Sweep of named pool (significance ≥ 0.60) + reversal — "trading with the hunters"
+   - **`trad_SupplyDemandSetup`** (I7): Fresh zone retest + rejection. Highest confidence when Act 1-2-3 confirmed (sweep → FVG → zone retest = +0.14 bonus)
+   - **Enhancements:** `trad_LiquiditySweepReclaim` (named-level boost), `trad_MomentumBreakout` + `trad_TrendFollowing` (zone friction penalty), `trad_VWAPDeviation` (zone/target confluence)
+   - ~60 new tests, 4 new plugins registered
 
 4. **Gap Analysis Setup**
    - Directory: `src/intelligence/trading/gap_analysis.py`
