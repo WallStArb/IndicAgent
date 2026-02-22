@@ -156,3 +156,35 @@ class TestStreamTicks:
         mock_ticker.ask = None
         tick = provider._normalize_ticker(mock_ticker)
         assert tick is None
+
+
+class TestResolveInstrument:
+    @pytest.mark.asyncio
+    async def test_resolves_futures_contract(self, provider, mock_ib):
+        from src.core.models import AssetClass
+
+        mock_detail = MagicMock()
+        mock_detail.contract.localSymbol = "ESH6"
+        mock_detail.longName = "E-mini S&P 500"
+        mock_detail.contract.exchange = "CME"
+        mock_detail.contract.symbol = "ES"
+        mock_detail.contract.lastTradeDateOrContractMonth = "20260320"
+        mock_detail.minTick = 0.25
+        mock_detail.contract.multiplier = "50"
+
+        mock_ib.reqContractDetails.return_value = [mock_detail]
+        provider._ib = mock_ib
+
+        instrument = await provider.resolve_instrument("ES")
+
+        assert instrument is not None
+        assert instrument.symbol == "ESH6"
+        assert instrument.asset_class == AssetClass.FUTURES
+        assert instrument.tick_size == 0.25
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_unknown_symbol(self, provider, mock_ib):
+        mock_ib.reqContractDetails.return_value = []
+        provider._ib = mock_ib
+        result = await provider.resolve_instrument("XXXXXX")
+        assert result is None
