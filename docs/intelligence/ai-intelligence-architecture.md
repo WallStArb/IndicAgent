@@ -8,7 +8,7 @@
 
 Comprehensive technical architecture for AI intelligence systems within IndicAgent. Provides sophisticated, modular foundation for market intelligence extraction that integrates seamlessly with existing infrastructure. Built on proven frameworks (LangGraph, LiteLLM, OpenRouter) with enterprise-grade observability, safety, and realistic deployment patterns.
 
-**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are now operational (53 plugins). See `docs/STATUS.md` for current state.
+**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are now operational (57 plugins). See `docs/STATUS.md` for current state.
 
 ## Scope and Non-Goals
 

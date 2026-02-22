@@ -260,7 +260,7 @@ Pipeline: production_intelligence_pipeline
 |-------------------|--------|--------------|
 | **LangGraph Workflows** | Operational | Event-driven processing, circuit breakers, state management |
 | **Stream-Native Processing** | Operational | Unified market processor, intelligence-aware streams |
-| **Plugin Integration** | Operational | 53 plugins (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 7 I7), DAG execution |
+| **Plugin Integration** | Operational | 57 plugins (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 + 9 I7), DAG execution |
 | **Observability** | Operational | Prometheus metrics, OpenTelemetry tracing, structured logging |
 
 ## **Development Status & Priorities**

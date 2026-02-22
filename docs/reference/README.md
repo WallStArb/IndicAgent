@@ -30,7 +30,7 @@ Plugin protocol, registration, lifecycle
 - [I6: Smart Money Concepts](plugins/i6-smart-money.md) — 7 plugins
 - [I7: Trading Setups](plugins/i7-trading.md) — 7 plugins
 
-**Total:** 53 plugins
+**Total:** 57 plugins
 
 See [STATUS.md](../../STATUS.md) for current counts.
 

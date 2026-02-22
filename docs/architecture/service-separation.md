@@ -181,7 +181,7 @@ market_data_daemon
               │
               ▼
     signal_generator_service
-    (7 I7 setup plugins + aggregation)
+    (9 I7 setup plugins + aggregation)
               │
               ├──────────────────────────────────────────┐
               ▼                                          │

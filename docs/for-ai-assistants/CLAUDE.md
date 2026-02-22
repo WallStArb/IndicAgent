@@ -317,9 +317,9 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I5 Patterns** — 8 plugins (RSI div, BB squeeze, vol div, confluence, trend confluence, Double Top/Bottom, Head & Shoulders, Triangle/Wedge) — WORKING
 - **I6 Smart Money** — 6 plugins (BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM) — WORKING
 - **I6 Confluence** — 1 plugin (cross-timeframe alignment) — WORKING
-- **I7 Trading Outputs** — 7 plugins (Phase 1: TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion; Phase 2: VWAPDeviation, MomentumBreakout) — WORKING
+- **I7 Trading Outputs** — 9 plugins (Phase 1: TrendFollowing, MeanReversion, LiqSweepReclaim, MTFAlignment, SqueezeExpansion; Phase 2: VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup) — WORKING
 - **I7 Signal Aggregation** — Phase 1.5: aggregator, signal ledger, lifecycle tracker, position sizer — WORKING
-- **I7 Signal Orchestrator** — `SignalOrchestratorService`: runs 7 I7 plugins per bar, aggregates, persists all signals to `signal_ledger`, tracks lifecycle — WORKING (data collection active)
+- **I7 Signal Orchestrator** — `SignalOrchestratorService`: runs 9 I7 plugins per bar, aggregates, persists all signals to `signal_ledger`, tracks lifecycle — WORKING (data collection active)
 - **Dashboard Panel** — SignalPanel (per-symbol) + NarrativePanel (global AI feed) wired to SSE (`signals:aggregated` + `narratives:` streams) — WORKING
 - **I8 AI Intelligence** — AINarrativeService: selected signals → Ollama qwen3:8b → human-readable narratives → narratives:SYMBOL:TF stream — WORKING
 

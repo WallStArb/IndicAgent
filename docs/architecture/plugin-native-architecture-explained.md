@@ -354,8 +354,8 @@ The distinction is that plugins aren't bolted onto an existing system — they A
 
 ## Current Status & Metrics
 
-- **53 plugins** registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 confluence + 7 I7 setups)
-- **Breakdown:** 23 I1 indicators + 3 I3 structure + 5 I4 context + 8 I5 patterns + 6 I6 smart money + 1 CTF + 7 I7 setups
+- **57 plugins** registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 confluence + 9 I7 setups)
+- **Breakdown:** 23 I1 indicators + 3 I3 structure + 5 I4 context + 8 I5 patterns + 8 SMC smart money + 1 CTF + 9 I7 setups
 - **170+ unit tests** passing, 0 ruff errors
 - **141x** incremental performance boost measured
 - **100-500+** ticks/sec ingestion during RTH

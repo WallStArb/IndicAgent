@@ -24,7 +24,7 @@ Choose your path based on what you need:
 **→ [Data Pipeline](concepts/data-pipeline.md)** — Hot/warm/cold data flow
 
 ### Looking up specifics?
-**→ [Plugin Reference](reference/plugins/)** — All 53 plugins documented
+**→ [Plugin Reference](reference/plugins/)** — All 57 plugins documented
 **→ [API Reference](reference/api/)** — REST endpoints, SSE protocol
 **→ [Stream Schemas](reference/schemas/stream-schemas.md)** — Redis data formats
 

@@ -255,7 +255,7 @@ The I1-I8 framework integrates with IndicAgent's service-based architecture:
 - **I6 Cross-Timeframe Confluence:** 1 plugin in `src/intelligence/confluence/` — trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
 - **I7 Trading Setups:** 7 plugins in `src/intelligence/trading/` — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout
 - **I7 Signal Aggregation:** 4 components — signal_ledger (TimescaleDB hypertable), rules-based aggregator, lifecycle tracker, position sizer
-- **I7 Signal Orchestrator:** `services/signal_orchestrator_service.py` — live service subscribing to intelligence streams, calling all 7 I7 plugins, publishing selected signals to `signals:SYMBOL:TF:aggregated` (port 9112)
+- **I7 Signal Orchestrator:** `services/signal_orchestrator_service.py` — live service subscribing to intelligence streams, calling all 9 I7 plugins, publishing selected signals to `signals:SYMBOL:TF:aggregated` (port 9112)
 - **I8 AI Narrative:** `services/ai_narrative_service.py` — consumes `signals:aggregated`, calls Ollama qwen3:8b locally, publishes 2-3 sentence trade narratives to `narratives:SYMBOL:TF` stream and hash cache (port 9113)
 
 ### **Not Yet Implemented**
@@ -264,8 +264,8 @@ The I1-I8 framework integrates with IndicAgent's service-based architecture:
 - **ML Scoring Model** — XGBoost calibration of aggregator (requires 500+ signals in ledger)
 
 ### **Totals**
-- **53 registered plugins:** 23 I1 indicators + 8 I5 patterns + 3 I3 structure + 5 I4 context + 6 SMC smart money + 1 I6 confluence + 7 I7 setups
-- **383 unit tests passing**, 0 ruff errors
+- **57 registered plugins:** 23 I1 indicators + 8 I5 patterns + 3 I3 structure + 5 I4 context + 8 SMC smart money + 1 I6 confluence + 9 I7 setups
+- **542 unit tests passing**, 0 ruff errors
 
 ---
 
