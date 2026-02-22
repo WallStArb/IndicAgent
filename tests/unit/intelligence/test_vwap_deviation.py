@@ -128,3 +128,58 @@ class TestVWAPDeviation:
         plugin = VWAPDeviationPlugin()
         result = plugin.compute_full({"main": df, "features": {}})
         assert result == {} or result.get("signal_type", "none") == "none"
+
+    def test_no_signal_in_high_vol_at_exactly_2sigma(self):
+        """High vol (vol_regime=2) at exactly 2.0σ — below 2.5σ threshold, no signal."""
+        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+
+        vwap, vwap_std = 5000.0, 10.0
+        # Place price at exactly 2.0σ below vwap
+        price = vwap - 2.0 * vwap_std   # = 4980.0, exactly at old 2σ boundary
+        close = np.full(50, vwap)
+        close[-1] = price
+        df = make_ohlcv(close)
+        features = _features(price=price, vwap=vwap, vwap_std=vwap_std)
+        features["garch_vol_regime"] = 2   # high vol — threshold raised to 2.5σ
+
+        plugin = VWAPDeviationPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("signal_type", "none") == "none"
+        assert result.get("direction", 0) == 0
+
+    def test_signal_fires_above_dynamic_threshold_in_high_vol(self):
+        """High vol (vol_regime=2) at 2.6σ — exceeds 2.5σ threshold, signal fires."""
+        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+
+        vwap, vwap_std = 5000.0, 10.0
+        price = vwap - 2.6 * vwap_std   # = 4974.0, above 2.5σ threshold
+        close = np.full(50, vwap)
+        close[-1] = price
+        df = make_ohlcv(close)
+        features = _features(price=price, vwap=vwap, vwap_std=vwap_std)
+        features["garch_vol_regime"] = 2
+
+        plugin = VWAPDeviationPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("direction") == 1
+        assert result.get("signal_type") == "vwap_reversion_long"
+
+    def test_extreme_vol_requires_3sigma(self):
+        """Extreme vol (vol_regime=3) at 2.9σ — below 3.0σ threshold, no signal."""
+        from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
+
+        vwap, vwap_std = 5000.0, 10.0
+        price = vwap + 2.9 * vwap_std   # = 5029.0, below 3.0σ threshold
+        close = np.full(50, vwap)
+        close[-1] = price
+        df = make_ohlcv(close)
+        features = _features(price=price, vwap=vwap, vwap_std=vwap_std)
+        features["garch_vol_regime"] = 3   # extreme vol — threshold raised to 3.0σ
+
+        plugin = VWAPDeviationPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+
+        assert result.get("signal_type", "none") == "none"
+        assert result.get("direction", 0) == 0

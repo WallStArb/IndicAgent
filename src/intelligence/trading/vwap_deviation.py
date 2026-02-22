@@ -9,6 +9,8 @@ import numpy as np
 
 from ..plugins import InputSpec
 
+_VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
+
 
 @dataclass
 class VWAPDeviationPlugin:
@@ -55,12 +57,15 @@ class VWAPDeviationPlugin:
         volume = df["volume"].to_numpy(dtype=float)
         price = float(close[-1])
 
-        # Gate: price must be outside ±2σ bands
-        if vwap_lower_2 <= price <= vwap_upper_2:
+        # Gate: price must be outside dynamic sigma threshold (GARCH-adaptive)
+        vol_regime = int(features.get("garch_vol_regime", 1))
+        effective_threshold = _VOL_THRESHOLDS.get(vol_regime, 2.0)
+        sigma_deviation = abs(price - vwap) / vwap_std
+        if sigma_deviation < effective_threshold:
             return self._no_signal()
 
         # Direction
-        direction = 1 if price < vwap_lower_2 else -1
+        direction = 1 if price < vwap else -1
 
         # ATR
         atr = features.get("atr_14", 0.0)
