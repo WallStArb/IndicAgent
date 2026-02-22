@@ -110,3 +110,49 @@ class TestFetchHistoricalBars:
             datetime(2026, 2, 2, tzinfo=timezone.utc),
         )
         assert bars == []
+
+
+class TestStreamTicks:
+    @pytest.mark.asyncio
+    async def test_stream_ticks_yields_normalized_ticks(self, provider, mock_ib):
+        """Ticks pushed to the queue appear in the async iterator."""
+        provider._ib = mock_ib
+        provider._qualified_contracts["ESH6"] = MagicMock()
+
+        mock_ticker = MagicMock()
+        mock_ticker.contract.localSymbol = "ESH6"
+        mock_ticker.last = 5100.25
+        mock_ticker.lastSize = 2
+        mock_ticker.bid = 5100.0
+        mock_ticker.ask = 5100.5
+        mock_ticker.bidSize = 10
+        mock_ticker.askSize = 15
+
+        collected = []
+
+        async def collect_one():
+            async for tick in provider.stream_ticks(["ESH6"]):
+                collected.append(tick)
+                break  # stop after first tick
+
+        task = asyncio.create_task(collect_one())
+        await asyncio.sleep(0)  # let stream_ticks initialize queue + loop
+
+        # Simulate ib_insync callback firing
+        provider._handle_pending_tickers([mock_ticker])
+        await asyncio.wait_for(task, timeout=2.0)
+
+        assert len(collected) == 1
+        assert collected[0].symbol == "ESH6"
+        assert collected[0].price == 5100.25
+        assert collected[0].source == "ibkr"
+
+    @pytest.mark.asyncio
+    async def test_normalize_ticker_skips_zero_price(self, provider):
+        mock_ticker = MagicMock()
+        mock_ticker.contract.localSymbol = "ESH6"
+        mock_ticker.last = 0.0
+        mock_ticker.bid = None
+        mock_ticker.ask = None
+        tick = provider._normalize_ticker(mock_ticker)
+        assert tick is None

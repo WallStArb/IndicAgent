@@ -155,22 +155,28 @@ class IBKRProvider:
         price = None
         for attr in ("last", "close", "bid", "ask"):
             val = getattr(ticker, attr, None)
-            if val and float(val) > 0:
+            if isinstance(val, (int, float)) and val > 0:
                 price = float(val)
                 break
         if not price:
             return None
+
+        def _pos_float(val) -> float | None:
+            return float(val) if isinstance(val, (int, float)) and val > 0 else None
+
+        def _pos_int(val) -> int | None:
+            return int(val) if isinstance(val, (int, float)) and val > 0 else None
 
         from datetime import timezone
         return Tick(
             symbol=symbol,
             timestamp=datetime.now(timezone.utc),
             price=price,
-            size=int(getattr(ticker, "lastSize", None) or 0) or None,
-            bid=float(ticker.bid) if getattr(ticker, "bid", None) and ticker.bid > 0 else None,
-            ask=float(ticker.ask) if getattr(ticker, "ask", None) and ticker.ask > 0 else None,
-            bid_size=int(ticker.bidSize) if getattr(ticker, "bidSize", None) and ticker.bidSize > 0 else None,
-            ask_size=int(ticker.askSize) if getattr(ticker, "askSize", None) and ticker.askSize > 0 else None,
+            size=_pos_int(getattr(ticker, "lastSize", None)),
+            bid=_pos_float(getattr(ticker, "bid", None)),
+            ask=_pos_float(getattr(ticker, "ask", None)),
+            bid_size=_pos_int(getattr(ticker, "bidSize", None)),
+            ask_size=_pos_int(getattr(ticker, "askSize", None)),
             source="ibkr",
         )
 
