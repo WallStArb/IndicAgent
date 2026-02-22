@@ -101,28 +101,28 @@ Deferred — not in this milestone's roadmap.
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| BUS-01 | Phase 1 | Pending |
-| BUS-02 | Phase 1 | Pending |
-| BUS-03 | Phase 1 | Pending |
-| BUS-04 | Phase 1 | Pending |
-| FST-01 | Phase 2 | Pending |
-| FST-02 | Phase 2 | Pending |
-| FST-03 | Phase 2 | Pending |
-| FST-04 | Phase 2 | Pending |
-| HST-01 | Phase 3 | Pending |
-| HST-02 | Phase 3 | Pending |
-| HST-03 | Phase 3 | Pending |
-| API-01 | Phase 4 | Pending |
-| API-02 | Phase 4 | Pending |
-| API-03 | Phase 4 | Pending |
-| ML-01 | Phase 5 | Pending |
-| ML-02 | Phase 5 | Pending |
-| ML-03 | Phase 5 | Pending |
-| AUTH-01 | Phase 6 | Pending |
-| AUTH-02 | Phase 6 | Pending |
-| AUTH-03 | Phase 6 | Pending |
+| Requirement | Phase | Phase Name | Status |
+|-------------|-------|------------|--------|
+| BUS-01 | Phase 1 | Typed Event Schema | Pending |
+| BUS-02 | Phase 1 | Typed Event Schema | Pending |
+| BUS-03 | Phase 1 | Typed Event Schema | Pending |
+| BUS-04 | Phase 1 | Typed Event Schema | Pending |
+| FST-01 | Phase 2 | Feature Store | Pending |
+| FST-02 | Phase 2 | Feature Store | Pending |
+| FST-03 | Phase 2 | Feature Store | Pending |
+| FST-04 | Phase 2 | Feature Store | Pending |
+| HST-01 | Phase 3 | Historical Data | Pending |
+| HST-02 | Phase 3 | Historical Data | Pending |
+| HST-03 | Phase 3 | Historical Data | Pending |
+| API-01 | Phase 4 | Query API | Pending |
+| API-02 | Phase 4 | Query API | Pending |
+| API-03 | Phase 4 | Query API | Pending |
+| ML-01 | Phase 5 | ML Scoring Model | Pending |
+| ML-02 | Phase 5 | ML Scoring Model | Pending |
+| ML-03 | Phase 5 | ML Scoring Model | Pending |
+| AUTH-01 | Phase 6 | Auth and External Access | Pending |
+| AUTH-02 | Phase 6 | Auth and External Access | Pending |
+| AUTH-03 | Phase 6 | Auth and External Access | Pending |
 
 **Coverage:**
 - v1 requirements: 20 total
@@ -131,4 +131,4 @@ Deferred — not in this milestone's roadmap.
 
 ---
 *Requirements defined: 2026-02-22*
-*Last updated: 2026-02-22 after initial definition*
+*Last updated: 2026-02-22 — Roadmap created, traceability confirmed 20/20*
