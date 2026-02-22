@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.0.0
-Last Updated: 2026-02-21
-Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 459 tests, 23 contracts
+Version: 5.1.0
+Last Updated: 2026-02-22
+Status: I1-I8 pipeline complete — 53 plugins + 4 aggregation components + service-separated pipeline + Dashboard Signal/Narrative Panel, 493 tests, 23 contracts
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -80,15 +80,16 @@ python services/signal_generator_service.py --config config/signal_generator_ser
 python services/signal_tracker_service.py --config config/signal_tracker_service.json              # Lifecycle: tracks open signals (Metrics: :9115)
 python services/ai_narrative_service.py --config config/ai_narrative_service.json                  # I8: AI narratives (Metrics: :9113)
 
-# Historical data seeding (simple_seeder.py RETIRED — use historical_backfill.py when built)
-# Plan: docs/plans/2026-02-21-historical-backfill.md
-# python production/scripts/historical_backfill.py --days 90  # (not yet built)
+# Historical data seeding (simple_seeder.py RETIRED — superseded by historical_backfill.py)
+python production/scripts/historical_backfill.py --days 90          # Stage 1+2: IBKR fetch → signal replay (686 lines)
+python production/scripts/historical_backfill.py --fetch-only       # Stage 1 only: IBKR → TimescaleDB
+python production/scripts/historical_backfill.py --replay-only      # Stage 2 only: DB → I1→I7 → signal_ledger
 ```
 
 ### Development & Testing
 ```bash
 # Run tests
-.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (459 passing) — use .venv/bin/python3, not bare python/python3
+.venv/bin/python3 -m pytest tests/unit/ -v        # Unit tests (493 passing) — use .venv/bin/python3, not bare python/python3
 .venv/bin/python -m pytest tests/integration/ -v # Integration tests (requires Redis + PostgreSQL)
 python tests/run_all_tests.py                    # Full suite with infrastructure checks
 python tests/run_all_tests.py --unit-only        # Unit tests only
@@ -133,6 +134,12 @@ OHLCV → I1 Indicators → I3 Structure → I4 Context → I5 Patterns → SMC 
 - `src/api/main.py` - FastAPI backend with health monitoring and SSE support
 - `src/api/routes/sse.py` - Server-Sent Events for real-time dashboard communication
 - `dashboard/` - Next.js React dashboard with live visualization
+
+### Data Providers
+- `src/providers/base.py` — `DataProvider` protocol (runtime_checkable), `Tick`, `OHLCVBar` normalized wire models
+- `src/providers/ibkr.py` — `IBKRProvider`: all ib_insync logic isolated here (connect, qualify, fetch_historical_bars, stream_ticks, resolve_instrument)
+- `src/providers/__init__.py` — exports `DataProvider`, `IBKRProvider`, `Tick`, `OHLCVBar`
+- **Rule:** No `ib_insync` imports anywhere outside `src/providers/ibkr.py`
 
 ### Core Runtime
 - `src/core/redis_streams_manager.py` - High-performance Redis Streams (3,200+ ops/sec)
@@ -271,7 +278,10 @@ All with real incremental `compute_next()` — 141x performance boost:
 - **Error Handling**: Circuit breakers for external deps. Exponential backoff. Correlation IDs.
 - **Performance**: <10ms indicator calc, >500 ticks/sec, <50ms dashboard updates.
 - **Data Architecture**: Hot/warm/cold. Never write to database in hot path.
-- **IBKR**: Tick list `"233"` for futures. Unique client IDs (35+ range). IBKR uses "VIX" not "VX" for VIX futures symbol.
+- **IBKR**: Tick list `"233"` for futures. Unique client IDs (35+ range). VIX futures symbol is "VX" (not "VIX"). All ib_insync logic is isolated to `src/providers/ibkr.py`.
+- **Instruments**: `Instrument` and `AssetClass` in `src/core/models.py` are the canonical types. `IBKRContract` is a deprecated alias (`IBKRContract = Instrument` in settings.py).
+- **Mock gotcha**: Use `isinstance(val, (int, float))` not `if val` when checking numeric fields — MagicMock is truthy and `float(MagicMock())` returns 1.0.
+- **TimescaleDB aggregates**: `market_data_5m` and `market_data_15m` continuous aggregate views exist (migration 008). Query them like tables for higher-TF data; Python `aggregate_1m_to_tf()` is deleted.
 - **Plugin protocol**: All plugins use `PatternPlugin` protocol. Register via `registry.register_indicator()` or `registry.register_pattern()` in `register_plugins.py`. Access via `registry.indicators` / `registry.patterns` (not private `_indicators`).
 - **Git worktrees**: Use `git -C /absolute/path/to/worktree` — never relative `.worktrees/path` (gitignored, silently resolves to parent repo).
 - **Pytest**: Use `.venv/bin/pytest` not `python -m pytest` (no module). Integration tests have pre-existing failures needing live infra — only unit tests are CI-clean.
@@ -295,7 +305,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 
 **Infrastructure:** Production-ready — IBKR collection, Redis streams, indicator calculations
 **Plugin System:** 53 registered (23 indicators + 30 patterns/structure/context/smart_money/trading) + 4 aggregation components
-**Test Status:** 459 unit tests passing, 0 ruff errors
+**Test Status:** 493 unit tests passing, 0 ruff errors
 **Pipeline:** I1 → I3 → I4 → I5 → SMC → I6 → I7 → Redis → SSE → Dashboard (fully wired)
 
 ### Intelligence Tiers
@@ -313,7 +323,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **I8 AI Intelligence** — AINarrativeService: selected signals → Ollama qwen3:8b → human-readable narratives → narratives:SYMBOL:TF stream — WORKING
 
 ### Local LLM Infrastructure (Ollama)
-5 models available at `http://localhost:11434` (Docker, GPU-accelerated):
+5 models available at `http://localhost:11434` (native process, not Docker):
 | Model | Size | Family | Quant | Notes |
 |-------|------|--------|-------|-------|
 | `qwen3:8b` | 5.2 GB | Qwen3 | Q4_K_M | **Default** — best quality, built-in thinking mode |
@@ -353,6 +363,7 @@ OPENROUTER_API_KEY="your_key"             # Cloud AI fallback (optional)
 - **ServiceSep** — Service separation: indicator_service (all 23 I1 plugins), market_analysis_service (I3→I6), signal_generator_service (I7), signal_tracker_service (lifecycle); retired 3 old services; 9 new tests
 - **Dashboard-Panel** — SSE wiring for signals:aggregated + narratives: streams, SignalPanel + NarrativePanel React components, 6 new tests
 - **I7-P2** — VWAPDeviation + MomentumBreakout setup plugins, ROC_PPO added to I1_PLUGINS, 16 new tests
+- **DataLayer** — DataProvider protocol, IBKRProvider (wraps all ib_insync), Instrument model, IBKRFetcher+aggregate_1m_to_tf deleted, TimescaleDB 5m/15m continuous aggregates, 17 new tests
 
 ## Key References
 

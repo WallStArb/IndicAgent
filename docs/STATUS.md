@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-20
-> **Version:** 4.8.0
-> **Phase:** I7 Phase 2 underway — 53 plugins, 453 tests
+> **Last Updated:** 2026-02-22
+> **Version:** 4.9.0
+> **Phase:** I7 Phase 2 underway — 53 plugins, 493 tests
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I8)
-**Test Coverage:** 453 unit tests passing, 0 lint errors
+**Test Coverage:** 493 unit tests passing, 0 lint errors
 **Data Collection:** Active (ES, NQ, RTY + 11 more contracts)
 
 ---
@@ -108,6 +108,7 @@
 | **I8** | AI Narrative Service: Ollama qwen3:8b narratives from aggregated signals (port 9113) | Complete |
 | **I4-Kalman** | ctx_KalmanTrend: 1D Kalman filter, 7 outputs, optional GARCH-adaptive R, 9 tests | Complete |
 | **I5-ChartPatt** | Chart patterns: patt_DoubleTB, patt_HeadShoulders, patt_TriangleWedge (17 tests) | Complete |
+| **DataLayer** | DataProvider protocol, IBKRProvider, Instrument model, TimescaleDB 5m/15m caggs (migration 008) | Complete |
 
 ---
 
@@ -169,6 +170,12 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 ---
 
 ## Recent Changes
+
+### 2026-02-22 (v4.9.0)
+- COMPLETE Data Layer Redesign: `DataProvider` protocol, `IBKRProvider` (all ib_insync isolated), `Instrument`+`AssetClass` models, `IBKRContract` deprecated alias
+- DELETE `IBKRFetcher`, `aggregate_1m_to_tf()`, `time_bucket()` from historical_backfill.py
+- ADD TimescaleDB continuous aggregates: `market_data_5m`, `market_data_15m` (migration 008)
+- TEST +40 tests (453 → 493 total, 17 new provider tests)
 
 ### 2026-02-20 (v4.8.0)
 - COMPLETE I7 Phase 2: trad_VWAPDeviation (VWAP mean-reversion, 2σ gate) + trad_MomentumBreakout (triple-gate: ROC+vol+structure)
