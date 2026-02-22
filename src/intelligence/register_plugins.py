@@ -43,6 +43,8 @@ from .smart_money.bos_choch import plugin as bos_choch_plugin
 from .smart_money.fair_value_gap import plugin as fvg_plugin
 from .smart_money.hmm_regime import plugin as hmm_plugin
 from .smart_money.liquidity_sweeps import plugin as liq_sweep_plugin
+from .smart_money.liquidity_pools import plugin as liquidity_pools_plugin
+from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
 from .smart_money.order_blocks import plugin as ob_plugin
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
@@ -54,6 +56,8 @@ from .trading.momentum_breakout import plugin as momentum_breakout_plugin
 from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
+from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
+from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 
 
 def register_all_plugins() -> None:
@@ -103,6 +107,8 @@ def register_all_plugins() -> None:
     registry.register_pattern(liq_sweep_plugin)
     registry.register_pattern(bocpd_plugin)
     registry.register_pattern(hmm_plugin)
+    registry.register_pattern(liquidity_pools_plugin)
+    registry.register_pattern(supply_demand_zones_plugin)
 
     registry.register_pattern(ctf_plugin)
 
@@ -119,3 +125,5 @@ def register_all_plugins() -> None:
     registry.register_pattern(squeeze_exp_plugin)
     registry.register_pattern(vwap_deviation_plugin)
     registry.register_pattern(momentum_breakout_plugin)
+    registry.register_pattern(liquidity_hunt_plugin)
+    registry.register_pattern(supply_demand_setup_plugin)
