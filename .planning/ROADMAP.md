@@ -123,7 +123,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 0. GARCH/Kalman Quality Gates | 3/3 | Complete | 2026-02-22 |
 | 1. Typed Event Schema | 2/3 | In progress | - |
-| 2. Feature Store | 1/3 | In Progress|  |
+| 2. Feature Store | 2/3 | In Progress|  |
 | 3. Historical Data | 0/2 | Not started | - |
 | 4. Query API | 0/2 | Not started | - |
 | 5. ML Scoring Model | 0/3 | Not started | - |
