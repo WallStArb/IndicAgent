@@ -32,12 +32,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. intelligence_processor_service.py is deleted from the codebase and all references point to market_analysis_service.py
   4. The intelligence: stream messages contain tiered JSONB (i1/i3/i4/i5/smc/i6) with a schema_version field and platform dimension — not a flat string blob
   5. All 551+ existing tests still pass after the migration
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: Define IntelligenceEvent schema in src/intelligence/schemas.py (Pydantic model, tiered sub-objects, version field, platform dimension)
-- [ ] 01-02: Update market_analysis_service.py publisher to emit IntelligenceEvent; migrate signal_generator_service.py and SSE route to deserialize it
-- [ ] 01-03: Deprecate and delete intelligence_processor_service.py; audit and migrate any remaining consumers
+- [ ] 01-01-PLAN.md — Define IntelligenceEvent schema (src/intelligence/schemas.py) + update market_analysis_service.py publisher (TDD)
+- [ ] 01-02-PLAN.md — Migrate signal_generator_service.py and dashboard parseIntelligence() to consume IntelligenceEvent
+- [ ] 01-03-PLAN.md — Delete intelligence_processor_service.py, 3 test files, config, and clean up all codebase references
 
 ### Phase 2: Feature Store
 **Goal**: Every IntelligenceEvent is persisted to TimescaleDB so features are queryable historically and ML training data accumulates automatically
