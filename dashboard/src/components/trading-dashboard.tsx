@@ -16,6 +16,7 @@ import { RegimeAmbiance } from "./regime-ambiance";
 import { SignalBanner } from "./signal-banner";
 import { NarrativeElevated } from "./narrative-elevated";
 import { TimeframeMatrix } from "./timeframe-matrix";
+import { DrillPanel } from "./drill-panel";
 import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 
@@ -212,21 +213,13 @@ function SymbolCard({
         </div>
       </RegimeAmbiance>
 
-      {/* Drill panel (unused until Task 8 wires it fully) */}
       {isDrilling && (
-        <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
-          onClick={() => setIsDrilling(false)}
-        >
-          <div
-            className="surface rounded p-4 max-w-sm w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-xs text-[var(--text-secondary)]">
-              Drill panel coming in Task 8
-            </p>
-          </div>
-        </div>
+        <DrillPanel
+          symbol={data.symbol}
+          timeframe={drillTf}
+          data={data}
+          onClose={() => setIsDrilling(false)}
+        />
       )}
     </div>
   );
