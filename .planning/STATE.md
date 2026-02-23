@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 2 — Feature Store
+**Current focus:** Phase 3 — Historical Data
 
 ## Current Position
 
-Phase: 2 of 6 (Feature Store)
-Plan: 4 of 4 in current phase
-Status: In progress — 02-02 and 02-03 complete; feature_writer_service live; 02-04 (API) is next
-Last activity: 2026-02-23 — Plan 02-02 GREEN complete: feature_writer_service.py implemented, all 10 TDD tests passing
+Phase: 2 of 6 COMPLETE — next: Phase 3 (Historical Data)
+Plan: 3/3 complete
+Status: Phase 2 verified (14/14 must-haves). Ready to plan Phase 3.
+Last activity: 2026-02-23 — Phase 2 complete: intelligence_features hypertable live, feature_writer_service deployed, signal_ledger wired with feature_ts/feature_tf
 
-Progress: [████░░░░░░] 40% (6/15 plans complete, excluding Phase 0)
+Progress: [████░░░░░░] 40% (9/15 plans complete across Phases 0-2, excluding unplanned phases)
 
 ## Performance Metrics
 
@@ -82,5 +82,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 02-02-PLAN.md GREEN — feature_writer_service.py implemented with CONSUMER_GROUP=feature_writer:persist, batch buffer, prometheus port 9116; all 10 TDD tests GREEN; ready for 02-04 (historical query API)
+Stopped at: Phase 2 complete — all 3 plans executed and verified (14/14). Phase 3 (Historical Data) is unplanned — run /gsd:plan-phase 3 next.
 Resume file: None
