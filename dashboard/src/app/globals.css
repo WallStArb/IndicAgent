@@ -110,6 +110,14 @@ body {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
+@keyframes ring-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px currentColor); opacity: 1; }
+  50% { filter: drop-shadow(0 0 10px currentColor); opacity: 0.85; }
+}
+.ring-pulse {
+  animation: ring-pulse 2s ease-in-out infinite;
+}
+
 /* ── Subtle glow for active patterns ── */
 
 .glow-green { box-shadow: 0 0 8px var(--green-dim); }

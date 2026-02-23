@@ -376,6 +376,7 @@ export function useDemoData(
         patterns: buildPatterns(s),
         smartMoney: null,
         confluence: null,
+        signal: null,
         lastUpdate: Date.now(),
       };
     }
@@ -429,6 +430,7 @@ export function useDemoData(
             patterns: buildPatterns(newState),
             smartMoney: null,
             confluence: null,
+            signal: null,
             lastUpdate: now,
           };
         }
