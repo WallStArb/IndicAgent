@@ -8,7 +8,6 @@ bar to indicators:SYMBOL:TF. Downstream services consume this single
 message — no coordination across multiple indicator messages needed.
 
 Replaces: indicators_processor_service.py + indicators_enhanced_service.py
-          + the inline I1 block in intelligence_processor_service.py
 """
 
 import asyncio
