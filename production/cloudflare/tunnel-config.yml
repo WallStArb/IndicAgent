@@ -1,0 +1,16 @@
+# Cloudflare Tunnel config for IndicAgent
+# Replace <YOUR_TUNNEL_UUID> and <YOUR_SUBDOMAIN> after running:
+#   cloudflared tunnel login
+#   cloudflared tunnel create indicagent
+
+tunnel: <YOUR_TUNNEL_UUID>
+credentials-file: /home/bg/.cloudflared/<YOUR_TUNNEL_UUID>.json
+
+ingress:
+  # Backend API + SSE stream
+  - hostname: indicagent.<YOUR_SUBDOMAIN>.workers.dev
+    service: http://localhost:8000
+  # Dashboard (optional — add if serving Next.js via tunnel instead of Cloudflare Pages)
+  # - hostname: dash.indicagent.<YOUR_SUBDOMAIN>.workers.dev
+  #   service: http://localhost:3000
+  - service: http_status:404

@@ -174,6 +174,15 @@ export interface NarrativeData {
   receivedAt: number;            // Date.now() when received — for staleness tracking
 }
 
+/** Per-timeframe signal direction for cross-TF matrix */
+export interface PerTfSignal {
+  direction: "long" | "short" | null;
+  confidence: number;
+  updatedAt: number;
+}
+
+export type TfSignalMap = Record<string, PerTfSignal>; // key = timeframe string "1m" etc.
+
 // ── Combined symbol state ──
 
 export interface SymbolData {
@@ -188,6 +197,7 @@ export interface SymbolData {
   smartMoney: SmartMoneyData | null;
   confluence: ConfluenceData | null;
   signal: SignalData | null;
+  tfSignals: TfSignalMap; // per-TF signal direction for matrix
   lastUpdate: number;
 }
 
