@@ -15,6 +15,7 @@ import { ConfidenceRing } from "./confidence-ring";
 import { RegimeAmbiance } from "./regime-ambiance";
 import { SignalBanner } from "./signal-banner";
 import { NarrativeElevated } from "./narrative-elevated";
+import { TimeframeMatrix } from "./timeframe-matrix";
 import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 
@@ -149,6 +150,7 @@ function SymbolCard({
   narrative: NarrativeData | null;
 }) {
   const [isDrilling, setIsDrilling] = useState(false);
+  const [drillTf, setDrillTf] = useState<string>("5m");
 
   return (
     <div
@@ -177,6 +179,14 @@ function SymbolCard({
 
       {/* L0: Elevated AI narrative (only when high confidence + fresh) */}
       <NarrativeElevated narrative={narrative} signal={data.signal} />
+
+      {/* L1: Cross-TF matrix — always visible */}
+      <TimeframeMatrix
+        tfSignals={data.tfSignals}
+        confluence={data.confluence}
+        activeTf={drillTf}
+        onSelectTf={(tf) => { setDrillTf(tf); setIsDrilling(true); }}
+      />
 
       {/* L0: Regime ambiance wraps the tier stack */}
       <RegimeAmbiance context={data.context}>
