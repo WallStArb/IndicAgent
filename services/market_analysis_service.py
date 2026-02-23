@@ -202,7 +202,12 @@ class MarketAnalysisService:
     def _run_analysis_pipeline(
         self, symbol: str, timeframe: str, frames: dict[str, Any]
     ) -> dict[str, Any]:
-        """Run I3→I4→I5→SMC→I6 synchronously. Returns merged intelligence dict."""
+        """Run I3→I4→I5→SMC→I6 synchronously.
+
+        Returns tiered dict with keys: i3, i4, i5, smc, i6, flat.
+        - i3/i4/i5/smc/i6 — per-tier result dicts for IntelligenceEvent construction
+        - flat — merged dict for backward-compat (intelligence_cache, cross-tier feature sharing)
+        """
         features: dict[str, Any] = dict(frames.get("features", {}))
         frames["features"] = features
 
@@ -243,21 +248,34 @@ class MarketAnalysisService:
 
         smc_results: dict[str, Any] = {}
         _run_tier(SMC_PLUGINS, "SMC", smc_results)
+        # Rename SMC's trend_direction to smc_trend_direction before updating features
+        # to avoid collision with I3's trend_direction in the flat features dict
+        if "trend_direction" in smc_results:
+            smc_results["smc_trend_direction"] = smc_results.pop("trend_direction")
         features.update(smc_results)
         frames["features"] = features
 
         i6_results: dict[str, Any] = {}
         _run_tier(I6_PLUGINS, "I6", i6_results)
 
-        intelligence: dict[str, Any] = {}
-        intelligence.update(i3_results)
-        intelligence.update(i4_results)
-        intelligence.update(i5_results)
-        intelligence.update(smc_results)
-        intelligence.update(i6_results)
+        flat: dict[str, Any] = {}
+        flat.update(i3_results)
+        flat.update(i4_results)
+        flat.update(i5_results)
+        flat.update(smc_results)
+        flat.update(i6_results)
 
-        self.intelligence_cache[symbol][timeframe] = intelligence
-        return intelligence
+        tiered = {
+            "i3": i3_results,
+            "i4": i4_results,
+            "i5": i5_results,
+            "smc": smc_results,
+            "i6": i6_results,
+            "flat": flat,
+        }
+
+        self.intelligence_cache[symbol][timeframe] = flat
+        return tiered
 
     async def _calculate_intelligence(
         self,
@@ -265,7 +283,8 @@ class MarketAnalysisService:
         timeframe: str,
         timestamp: datetime,
         i1_features: dict[str, Any],
-    ) -> dict[str, float]:
+    ) -> dict[str, Any]:
+        """Run the I3→I6 pipeline. Returns tiered dict (i3/i4/i5/smc/i6/flat) or {}."""
         key = f"{symbol}:{timeframe}"
         history = self.bar_history[key]
         min_bars = self.config["service"]["min_history_bars"]
@@ -291,11 +310,11 @@ class MarketAnalysisService:
         # I1 features arrive pre-computed from indicator_service
         frames["features"] = dict(i1_features)
 
-        intelligence = self._run_analysis_pipeline(symbol, timeframe, frames)
+        tiered = self._run_analysis_pipeline(symbol, timeframe, frames)
 
         self.calculations_total.inc()
         self._total_calculations += 1
-        return intelligence
+        return tiered
 
     async def _process_single_bar(
         self,
@@ -314,14 +333,16 @@ class MarketAnalysisService:
             self.bar_history[key].append(bar_data)
 
             calc_start = time.time()
-            intelligence = await self._calculate_intelligence(
+            tiered = await self._calculate_intelligence(
                 symbol, timeframe, bar_ts, i1_features
             )
             calc_ms = (time.time() - calc_start) * 1000
 
-            if intelligence:
-                await self._publish_intelligence(symbol, timeframe, intelligence, bar_ts, bar_data)
-                await self._persist_intelligence(symbol, timeframe, intelligence, bar_ts)
+            if tiered:
+                await self._publish_intelligence(
+                    symbol, timeframe, tiered, bar_ts, bar_data, i1_features
+                )
+                await self._persist_intelligence(symbol, timeframe, tiered.get("flat", {}), bar_ts)
 
             self.bars_processed_total.inc()
             self._total_bars += 1
@@ -334,7 +355,7 @@ class MarketAnalysisService:
                 "Bar processed",
                 symbol=symbol,
                 timeframe=timeframe,
-                outputs=len(intelligence) if intelligence else 0,
+                outputs=len(tiered.get("flat", {})) if tiered else 0,
                 calc_ms=round(calc_ms, 2),
             )
 
@@ -352,25 +373,69 @@ class MarketAnalysisService:
         self,
         symbol: str,
         timeframe: str,
-        intelligence: dict[str, Any],
+        tiered: dict[str, Any],
         timestamp: datetime,
         bar_data: dict[str, Any] | None = None,
+        i1_features: dict[str, Any] | None = None,
     ) -> None:
+        """Publish a validated IntelligenceEvent to the intelligence: Redis stream.
+
+        Emits a single {"event": "<json>"} field — not flat str(v) k/v pairs.
+        Drops the event on ValidationError (malformed plugin output) after logging.
+        """
+        from pydantic import ValidationError
+
+        from src.intelligence.schemas import (
+            I1Indicators,
+            I3Structure,
+            I4Context,
+            I5Patterns,
+            I6Confluence,
+            IntelligenceEvent,
+            OHLCVBar,
+            SMCContext,
+        )
+
+        bar_data = bar_data or {}
+        i1_features = i1_features or {}
+
+        try:
+            event = IntelligenceEvent(
+                ts=timestamp,
+                symbol=symbol,
+                tf=timeframe,
+                bar=OHLCVBar(
+                    o=float(bar_data.get("open", 0.0)),
+                    h=float(bar_data.get("high", 0.0)),
+                    l=float(bar_data.get("low", 0.0)),
+                    c=float(bar_data.get("close", 0.0)),
+                    v=int(bar_data.get("volume", 0)),
+                ),
+                i1=I1Indicators(**{k: v for k, v in i1_features.items() if v is not None}),
+                i3=I3Structure(**tiered.get("i3", {})),
+                i4=I4Context(**tiered.get("i4", {})),
+                i5=I5Patterns(**tiered.get("i5", {})),
+                smc=SMCContext(**tiered.get("smc", {})),
+                i6=I6Confluence(**tiered.get("i6", {})),
+                source="live",
+            )
+        except ValidationError as e:
+            self.logger.error(
+                "IntelligenceEvent validation failed — event dropped",
+                symbol=symbol,
+                tf=timeframe,
+                error=str(e),
+            )
+            self.error_count_total.inc()
+            return  # Do NOT publish malformed events
+
         stream_name = sk_intelligence(self.env_prefix, symbol, timeframe)
-        message: dict[str, str] = {
-            "timestamp": timestamp.isoformat(),
-            "symbol": symbol,
-            "timeframe": timeframe,
-        }
-        if bar_data:
-            message["open"]   = str(bar_data.get("open", ""))
-            message["high"]   = str(bar_data.get("high", ""))
-            message["low"]    = str(bar_data.get("low", ""))
-            message["close"]  = str(bar_data.get("close", ""))
-            message["volume"] = str(bar_data.get("volume", ""))
-        for k, v in intelligence.items():
-            message[k] = str(v)
-        await self.redis_client.xadd(stream_name, message, maxlen=1000, approximate=True)
+        await self.redis_client.xadd(
+            stream_name,
+            {"event": event.model_dump_json()},
+            maxlen=1000,
+            approximate=True,
+        )
 
     async def _persist_intelligence(
         self,
