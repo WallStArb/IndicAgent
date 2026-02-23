@@ -377,6 +377,7 @@ export function useDemoData(
         smartMoney: null,
         confluence: null,
         signal: null,
+        tfSignals: {},
         lastUpdate: Date.now(),
       };
     }
@@ -431,6 +432,7 @@ export function useDemoData(
             smartMoney: null,
             confluence: null,
             signal: null,
+            tfSignals: prev[sym]?.tfSignals ?? {},
             lastUpdate: now,
           };
         }
