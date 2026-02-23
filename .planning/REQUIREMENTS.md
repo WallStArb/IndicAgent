@@ -45,9 +45,9 @@ Already built, tested, and working. Locked — changing requires explicit discus
 Building this milestone.
 
 ### Bus Schema
-- [ ] **BUS-01**: System defines `IntelligenceEvent` Pydantic model with tiered JSONB structure (i1/i3/i4/i5/smc/i6), version field, and `platform` dimension
-- [ ] **BUS-02**: `market_analysis_service.py` publishes `IntelligenceEvent` to `intelligence:SYMBOL:TF` stream replacing flat k/v strings
-- [ ] **BUS-03**: All downstream consumers (signal_generator, API, ML) deserialize `IntelligenceEvent` instead of raw field dicts
+- [x] **BUS-01**: System defines `IntelligenceEvent` Pydantic model with tiered JSONB structure (i1/i3/i4/i5/smc/i6), version field, and `platform` dimension
+- [x] **BUS-02**: `market_analysis_service.py` publishes `IntelligenceEvent` to `intelligence:SYMBOL:TF` stream replacing flat k/v strings
+- [x] **BUS-03**: All downstream consumers (signal_generator, API, ML) deserialize `IntelligenceEvent` instead of raw field dicts
 - [ ] **BUS-04**: `intelligence_processor_service.py` deprecated and removed; `market_analysis_service.py` is sole canonical pipeline
 
 ### Feature Store
@@ -103,9 +103,9 @@ Deferred — not in this milestone's roadmap.
 
 | Requirement | Phase | Phase Name | Status |
 |-------------|-------|------------|--------|
-| BUS-01 | Phase 1 | Typed Event Schema | Pending |
-| BUS-02 | Phase 1 | Typed Event Schema | Pending |
-| BUS-03 | Phase 1 | Typed Event Schema | Pending |
+| BUS-01 | Phase 1 | Typed Event Schema | Complete (01-01) |
+| BUS-02 | Phase 1 | Typed Event Schema | Complete (01-01) |
+| BUS-03 | Phase 1 | Typed Event Schema | Complete (01-02) |
 | BUS-04 | Phase 1 | Typed Event Schema | Pending |
 | FST-01 | Phase 2 | Feature Store | Pending |
 | FST-02 | Phase 2 | Feature Store | Pending |
@@ -131,4 +131,4 @@ Deferred — not in this milestone's roadmap.
 
 ---
 *Requirements defined: 2026-02-22*
-*Last updated: 2026-02-22 — Roadmap created, traceability confirmed 20/20*
+*Last updated: 2026-02-23 — BUS-01, BUS-02, BUS-03 complete (Plans 01-01, 01-02)*

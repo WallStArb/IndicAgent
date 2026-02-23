@@ -35,8 +35,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Define IntelligenceEvent schema (src/intelligence/schemas.py) + update market_analysis_service.py publisher (TDD)
-- [ ] 01-02-PLAN.md — Migrate signal_generator_service.py and dashboard parseIntelligence() to consume IntelligenceEvent
+- [x] 01-01-PLAN.md — Define IntelligenceEvent schema (src/intelligence/schemas.py) + update market_analysis_service.py publisher (TDD)
+- [x] 01-02-PLAN.md — Migrate signal_generator_service.py and dashboard parseIntelligence() to consume IntelligenceEvent
 - [ ] 01-03-PLAN.md — Delete intelligence_processor_service.py, 3 test files, config, and clean up all codebase references
 
 ### Phase 2: Feature Store
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 0. GARCH/Kalman Quality Gates | 3/3 | Complete | 2026-02-22 |
-| 1. Typed Event Schema | 0/3 | Not started | - |
+| 1. Typed Event Schema | 2/3 | In progress | - |
 | 2. Feature Store | 0/3 | Not started | - |
 | 3. Historical Data | 0/2 | Not started | - |
 | 4. Query API | 0/2 | Not started | - |

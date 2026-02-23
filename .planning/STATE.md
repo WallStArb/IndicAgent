@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 ## Current Position
 
 Phase: 1 of 6 (Typed Event Schema)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-02-22 — Roadmap created; Phase 0 (GARCH/Kalman quality gates) confirmed complete
+Plan: 2 of 3 in current phase
+Status: In progress
+Last activity: 2026-02-23 — Plan 01-02 complete: consumer migration (signal_generator, signal_orchestrator, SSE, dashboard)
 
-Progress: [░░░░░░░░░░] 0% (0/15 plans complete, excluding Phase 0)
+Progress: [█░░░░░░░░░] 13% (2/15 plans complete, excluding Phase 0)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0 (this milestone)
-- Average duration: -
-- Total execution time: -
+- Total plans completed: 2 (this milestone)
+- Average duration: ~30min
+- Total execution time: ~60min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-typed-event-schema | 2 | ~60min | ~30min |
 
 **Recent Trend:**
-- Last 5 plans: -
-- Trend: -
+- Last 5 plans: 01-01 (~35min), 01-02 (~25min)
+- Trend: On track
 
 *Updated after each plan completion*
 
@@ -49,6 +49,15 @@ Recent decisions from design session (2026-02-22):
 - Auth: single Depends(verify_auth) handling JWT + API keys
 - External access: Cloudflare Tunnel for HTTPS to Vercel frontend
 
+Recent decisions from execution (2026-02-23):
+
+- 01-01: IntelligenceEvent published as single "event" JSON field in Redis stream; extra="forbid" on I3-I6 sub-models
+- 01-01: I1Indicators uses extra="allow" (23 plugins, ~50+ dynamic fields); all others strict
+- 01-02: _parse_intelligence_event() module-level pattern: pure function, returns None on failure (ack-and-skip)
+- 01-02: features dict preserves legacy MARKET_CONTEXT_KEYS names for signal_ledger JSONB stability
+- 01-02: smc_trend_direction (schema rename) mapped to SmartMoneyData.trend_direction in dashboard
+- 01-02: ai_narrative_service confirmed non-consumer (reads signals: stream only)
+
 ### Pending Todos
 
 None yet.
@@ -61,6 +70,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-22
-Stopped at: Roadmap created — ready to begin Phase 1 planning
+Last session: 2026-02-23
+Stopped at: Completed 01-02-PLAN.md — consumer migration complete; ready for 01-03 (delete intelligence_processor_service.py)
 Resume file: None
