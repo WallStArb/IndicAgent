@@ -341,7 +341,12 @@ class HighFrequencyTWSDaemon:
             # Start async publisher (decouple callback from Redis I/O)
             if self.use_async_publish:
                 self.loop = asyncio.new_event_loop()
-                self.loop_thread = threading.Thread(target=self.loop.run_forever, daemon=True)
+
+                def _run_loop(loop: asyncio.AbstractEventLoop) -> None:
+                    asyncio.set_event_loop(loop)
+                    loop.run_forever()
+
+                self.loop_thread = threading.Thread(target=_run_loop, args=(self.loop,), daemon=True)
                 self.loop_thread.start()
                 self.async_redis = aioredis.Redis(
                     host=self.settings.redis_host,

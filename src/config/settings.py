@@ -13,9 +13,12 @@ overrides.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 from src.core.models import AssetClass, Instrument
 
@@ -53,7 +56,7 @@ class Settings(BaseSettings):
     # Computed contracts list
     contracts: list[Instrument] = Field(default_factory=list)
 
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 
     @field_validator("contracts", mode="before")
     @classmethod

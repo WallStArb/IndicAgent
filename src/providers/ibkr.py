@@ -11,7 +11,10 @@ import logging
 from collections.abc import AsyncIterator
 from datetime import datetime
 
+import nest_asyncio
 from ib_insync import IB, Future, Stock
+
+nest_asyncio.apply()
 
 from src.core.models import AssetClass, Instrument
 from src.providers.base import OHLCVBar, Tick
@@ -48,7 +51,7 @@ class IBKRProvider:
         """Connect to TWS/Gateway. Returns True on success."""
         try:
             self._ib = IB()
-            self._ib.connect(
+            await self._ib.connectAsync(
                 host=self._host,
                 port=self._port,
                 clientId=self._client_id,
