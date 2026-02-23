@@ -48,12 +48,12 @@ Plans:
   2. Feature Writer Service runs as a standalone process consuming intelligence: streams via consumer group feature_writer:persist and batch-writes rows to intelligence_features without impacting pipeline latency
   3. signal_ledger has feature_ts and feature_tf columns; a JOIN between signal_ledger and intelligence_features on (symbol, feature_ts, feature_tf) returns the full feature context for any signal
   4. After 30 minutes of live pipeline operation, SELECT count(*) FROM intelligence_features returns > 0 rows with correctly structured tiered JSONB
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: Write and apply DB migration for intelligence_features hypertable (schema, indexes, compression policy, no retention); add feature_ts/feature_tf columns to signal_ledger
-- [ ] 02-02: Build services/feature_writer_service.py (consumer group reader, batch writer, metrics, graceful shutdown)
-- [ ] 02-03: Update signal_generator_service.py to populate feature_ts/feature_tf on insert; update market_analysis_service.py to pass feature timestamp through
+- [ ] 02-01-PLAN.md — DB migrations: intelligence_features hypertable (tiered JSONB, GIN indexes, 7-day compression, no retention) + signal_ledger feature_ts/feature_tf columns
+- [ ] 02-02-PLAN.md — Build services/feature_writer_service.py (consumer group feature_writer:persist, buffer, batch INSERT to intelligence_features, metrics port 9115, TDD)
+- [ ] 02-03-PLAN.md — Wire feature_ts/feature_tf: update LedgerEntry+_INSERT_SQL (24 params), signal_generator build_ledger_entries(), backfill _INSERT_SYNC_SQL (NULL passthrough)
 
 ### Phase 3: Historical Data
 **Goal**: intelligence_features and signal_ledger are populated with 365 days of history — enough training data for the ML model and enough signals for performance analysis
