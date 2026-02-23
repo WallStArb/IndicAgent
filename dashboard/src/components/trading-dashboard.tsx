@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { symbolConfig } from "@/lib/symbol-config";
 import { useMarketStream } from "@/hooks/use-market-stream";
-import { PriceHero } from "./price-hero";
 import { IndicatorGrid } from "./indicator-grid";
 import { StructurePanel } from "./structure-panel";
 import { ContextPanel } from "./context-panel";
@@ -12,7 +11,11 @@ import { SmartMoneyPanel } from "./smart-money-panel";
 import { ConfluencePanel } from "./confluence-panel";
 import { SignalPanel } from "./signal-panel";
 import { NarrativePanel } from "./narrative-panel";
-import type { Timeframe, ConnectionStatus, SymbolData } from "@/lib/types";
+import { ConfidenceRing } from "./confidence-ring";
+import { RegimeAmbiance } from "./regime-ambiance";
+import { SignalBanner } from "./signal-banner";
+import { NarrativeElevated } from "./narrative-elevated";
+import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 
 export default function TradingDashboard() {
@@ -109,7 +112,12 @@ export default function TradingDashboard() {
           {symbols.map((sym) => {
             const data = symbolData[sym];
             if (!data) return null;
-            return <SymbolCard key={sym} data={data} />;
+            // Find freshest narrative for this symbol across any timeframe
+            const narrative =
+              Object.values(narratives)
+                .filter((n) => n.symbol === sym)
+                .sort((a, b) => b.receivedAt - a.receivedAt)[0] ?? null;
+            return <SymbolCard key={sym} data={data} narrative={narrative} />;
           })}
         </div>
       </main>
@@ -133,36 +141,83 @@ export default function TradingDashboard() {
 }
 
 /** Self-contained instrument card with all intelligence tiers */
-function SymbolCard({ data }: { data: SymbolData }) {
+function SymbolCard({
+  data,
+  narrative,
+}: {
+  data: SymbolData;
+  narrative: NarrativeData | null;
+}) {
+  const [isDrilling, setIsDrilling] = useState(false);
+
   return (
-    <div className="flex flex-col surface rounded overflow-hidden">
-      {/* Price hero with symbol header */}
+    <div
+      className="flex flex-col surface rounded overflow-hidden"
+      style={{
+        boxShadow:
+          data.signal && data.signal.confidence > 0.75
+            ? data.signal.direction === "long"
+              ? "0 0 0 1px var(--green-dim)"
+              : "0 0 0 1px var(--red-dim)"
+            : undefined,
+        transition: "box-shadow 0.5s ease",
+      }}
+    >
+      {/* L0: Confidence ring + price */}
       <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
-        <PriceHero data={data} />
+        <ConfidenceRing
+          confluence={data.confluence}
+          signal={data.signal}
+          price={data.tick.price}
+        />
       </div>
 
-      {/* Indicators */}
-      <IndicatorGrid indicators={data.indicators} />
+      {/* L0: High-confidence signal banner */}
+      <SignalBanner signal={data.signal} onDrillDown={() => setIsDrilling(true)} />
 
-      {/* Intelligence tiers */}
-      <div className="border-t border-[var(--border-subtle)]">
-        <StructurePanel structure={data.structure} />
-      </div>
-      <div className="border-t border-[var(--border-subtle)]">
-        <ContextPanel context={data.context} />
-      </div>
-      <div className="border-t border-[var(--border-subtle)]">
-        <PatternPanel patterns={data.patterns} />
-      </div>
-      <div className="border-t border-[var(--border-subtle)]">
-        <SmartMoneyPanel smartMoney={data.smartMoney} />
-      </div>
-      <div className="border-t border-[var(--border-subtle)]">
-        <ConfluencePanel confluence={data.confluence} />
-      </div>
-      <div className="border-t border-[var(--border-subtle)]">
-        <SignalPanel signal={data.signal} />
-      </div>
+      {/* L0: Elevated AI narrative (only when high confidence + fresh) */}
+      <NarrativeElevated narrative={narrative} signal={data.signal} />
+
+      {/* L0: Regime ambiance wraps the tier stack */}
+      <RegimeAmbiance context={data.context}>
+        {/* Intelligence tiers — existing panels unchanged */}
+        <IndicatorGrid indicators={data.indicators} />
+        <div className="border-t border-[var(--border-subtle)]">
+          <StructurePanel structure={data.structure} />
+        </div>
+        <div className="border-t border-[var(--border-subtle)]">
+          <ContextPanel context={data.context} />
+        </div>
+        <div className="border-t border-[var(--border-subtle)]">
+          <PatternPanel patterns={data.patterns} />
+        </div>
+        <div className="border-t border-[var(--border-subtle)]">
+          <SmartMoneyPanel smartMoney={data.smartMoney} />
+        </div>
+        <div className="border-t border-[var(--border-subtle)]">
+          <ConfluencePanel confluence={data.confluence} />
+        </div>
+        <div className="border-t border-[var(--border-subtle)]">
+          <SignalPanel signal={data.signal} />
+        </div>
+      </RegimeAmbiance>
+
+      {/* Drill panel (unused until Task 8 wires it fully) */}
+      {isDrilling && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
+          onClick={() => setIsDrilling(false)}
+        >
+          <div
+            className="surface rounded p-4 max-w-sm w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs text-[var(--text-secondary)]">
+              Drill panel coming in Task 8
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
