@@ -50,7 +50,13 @@ function contractToBase(contract: string): string {
   return m ? m[1] : contract;
 }
 
-/** Parse raw intelligence payload into structured I3/I4/I5/SMC/I6 data. */
+/** Parse raw intelligence payload into structured I3/I4/I5/SMC/I6 data.
+ *
+ * Stream format after Plan 01-01 migration:
+ *   payload = { event: "<IntelligenceEvent JSON>" }
+ * Parse the nested event, then access tiered fields.
+ * See src/intelligence/schemas.py for IntelligenceEvent schema.
+ */
 function parseIntelligence(p: Record<string, string>): {
   structure: StructureData;
   context: ContextData;
@@ -58,24 +64,34 @@ function parseIntelligence(p: Record<string, string>): {
   smartMoney: SmartMoneyData;
   confluence: ConfluenceData;
 } {
-  const f = (k: string) => parseFloat(p[k] || "0");
+  // Parse the nested IntelligenceEvent JSON from the stream payload
+  const event = JSON.parse(p.event || "{}");
+
+  // Extract tiers — fall back to empty object if tier is missing
+  const i3 = event.i3 ?? {};
+  const i4 = event.i4 ?? {};
+  const i5 = event.i5 ?? {};
+  const smc = event.smc ?? {};
+  const i6 = event.i6 ?? {};
+
+  const nf = (v: unknown) => (v != null ? Number(v) : 0);
 
   const structure: StructureData = {
-    nearest_support: f("nearest_support"),
-    nearest_resistance: f("nearest_resistance"),
-    support_strength: f("support_strength"),
-    resistance_strength: f("resistance_strength"),
-    trend_integrity: f("structure_integrity"),
-    swing_score: f("trend_strength"),
+    nearest_support: i3.nearest_support ?? undefined,
+    nearest_resistance: i3.nearest_resistance ?? undefined,
+    support_strength: i3.support_strength ?? undefined,
+    resistance_strength: i3.resistance_strength ?? undefined,
+    trend_integrity: i3.structure_integrity ?? undefined,
+    swing_score: i3.trend_strength ?? undefined,
   };
 
   // Map numeric vol_regime to label
-  const vr = f("vol_regime");
+  const vr = nf(i4.vol_regime);
   const volLabel =
     vr <= -1 ? "low" : vr <= 0 ? "normal" : vr <= 1 ? "high" : "extreme";
 
   // Map numeric trend_regime to label
-  const tr = f("trend_regime");
+  const tr = nf(i4.trend_regime);
   const trendLabel =
     tr <= -0.75
       ? "strong_down"
@@ -87,14 +103,14 @@ function parseIntelligence(p: Record<string, string>): {
             ? "weak_up"
             : "strong_up";
 
-  const mb = f("momentum_bias");
+  const mb = nf(i4.momentum_bias);
   const momDir = mb > 0.2 ? "bullish" : mb < -0.2 ? "bearish" : "neutral";
 
   const context: ContextData = {
     volatility_regime: volLabel as ContextData["volatility_regime"],
-    atr_percentile: f("vol_percentile"),
-    bb_width: f("bb_width_pct"),
-    vol_expanding: f("vol_expansion") > 0,
+    atr_percentile: i4.vol_percentile ?? undefined,
+    bb_width: i4.bb_width_pct ?? undefined,
+    vol_expanding: i4.vol_expansion != null ? nf(i4.vol_expansion) > 0 : undefined,
     trend_regime: trendLabel as ContextData["trend_regime"],
     momentum_bias: mb,
     momentum_direction: momDir as ContextData["momentum_direction"],
@@ -102,60 +118,63 @@ function parseIntelligence(p: Record<string, string>): {
 
   const patterns: PatternData = {
     rsi_divergence:
-      f("rsi_div_bullish") > 0
+      i5.rsi_div_bullish
         ? "bullish"
-        : f("rsi_div_bearish") > 0
+        : i5.rsi_div_bearish
           ? "bearish"
           : null,
-    rsi_div_confidence: f("rsi_div_strength"),
-    bb_squeeze: f("squeeze_active") > 0,
-    squeeze_count: f("squeeze_duration"),
+    rsi_div_confidence: i5.rsi_div_strength ?? undefined,
+    bb_squeeze: i5.squeeze_active != null ? nf(i5.squeeze_active) > 0 : undefined,
+    squeeze_count: i5.squeeze_duration ?? undefined,
     volume_divergence:
-      f("vol_div_bullish") > 0
+      i5.vol_div_bullish
         ? "bullish"
-        : f("vol_div_bearish") > 0
+        : i5.vol_div_bearish
           ? "bearish"
           : null,
-    vol_div_confidence: f("vol_div_strength"),
-    confluence_score: f("confluence_score"),
+    vol_div_confidence: i5.vol_div_strength ?? undefined,
+    confluence_score: i5.confluence_score ?? undefined,
   };
 
+  // NOTE: schema renames trend_direction → smc_trend_direction to avoid
+  // collision with I3Structure.trend_direction. SmartMoneyData.trend_direction
+  // is populated from smc.smc_trend_direction.
   const smartMoney: SmartMoneyData = {
-    bos_detected: f("bos_detected") > 0,
-    bos_direction: f("bos_direction"),
-    bos_level: f("bos_level"),
-    choch_detected: f("choch_detected") > 0,
-    choch_direction: f("choch_direction"),
-    trend_direction: f("trend_direction"),
-    fvg_type: f("fvg_type"),
-    fvg_top: f("fvg_top"),
-    fvg_bottom: f("fvg_bottom"),
-    fvg_midpoint: f("fvg_midpoint"),
-    fvg_size_pct: f("fvg_size_pct"),
-    fvg_open_count: f("fvg_open_count"),
-    ob_type: f("ob_type"),
-    ob_top: f("ob_top"),
-    ob_bottom: f("ob_bottom"),
-    ob_strength: f("ob_strength"),
-    ob_distance_pct: f("ob_distance_pct"),
-    sweep_detected: f("sweep_detected") > 0,
-    sweep_type: f("sweep_type"),
-    sweep_level: f("sweep_level"),
-    sweep_depth_pct: f("sweep_depth_pct"),
-    sweep_reclaimed: f("sweep_reclaimed") > 0,
-    cp_detected: f("cp_detected") > 0,
-    cp_probability: f("cp_probability"),
-    cp_run_length: f("cp_run_length"),
-    cp_confirmation: f("cp_confirmation"),
+    bos_detected: smc.bos_detected ?? undefined,
+    bos_direction: smc.bos_direction ?? undefined,
+    bos_level: smc.bos_level ?? undefined,
+    choch_detected: smc.choch_detected ?? undefined,
+    choch_direction: smc.choch_direction ?? undefined,
+    trend_direction: smc.smc_trend_direction ?? undefined,   // renamed in schema
+    fvg_type: smc.fvg_type ?? undefined,
+    fvg_top: smc.fvg_top ?? undefined,
+    fvg_bottom: smc.fvg_bottom ?? undefined,
+    fvg_midpoint: smc.fvg_midpoint ?? undefined,
+    fvg_size_pct: smc.fvg_size_pct ?? undefined,
+    fvg_open_count: smc.fvg_open_count ?? undefined,
+    ob_type: smc.ob_type ?? undefined,
+    ob_top: smc.ob_top ?? undefined,
+    ob_bottom: smc.ob_bottom ?? undefined,
+    ob_strength: smc.ob_strength ?? undefined,
+    ob_distance_pct: smc.ob_distance_pct ?? undefined,
+    sweep_detected: smc.sweep_detected ?? undefined,
+    sweep_type: smc.sweep_type ?? undefined,
+    sweep_level: smc.sweep_level ?? undefined,
+    sweep_depth_pct: smc.sweep_depth_pct ?? undefined,
+    sweep_reclaimed: smc.sweep_reclaimed ?? undefined,
+    cp_detected: smc.cp_detected != null ? nf(smc.cp_detected) > 0 : undefined,
+    cp_probability: smc.cp_probability ?? undefined,
+    cp_run_length: smc.cp_run_length ?? undefined,
+    cp_confirmation: smc.cp_confirmation ?? undefined,
   };
 
   const confluence: ConfluenceData = {
-    ctf_score: f("ctf_score") || undefined,
-    ctf_trend_alignment: f("ctf_trend_alignment") || undefined,
-    ctf_structure_alignment: f("ctf_structure_alignment") || undefined,
-    ctf_regime_agreement: f("ctf_regime_agreement") || undefined,
-    ctf_timeframes_aligned: f("ctf_timeframes_aligned") || undefined,
-    ctf_highest_aligned_tf: f("ctf_highest_aligned_tf") || undefined,
+    ctf_score: i6.ctf_score ?? undefined,
+    ctf_trend_alignment: i6.ctf_trend_alignment ?? undefined,
+    ctf_structure_alignment: i6.ctf_structure_alignment ?? undefined,
+    ctf_regime_agreement: i6.ctf_regime_agreement ?? undefined,
+    ctf_timeframes_aligned: i6.ctf_timeframes_aligned ?? undefined,
+    ctf_highest_aligned_tf: i6.ctf_highest_aligned_tf ?? undefined,
   };
 
   return { structure, context, patterns, smartMoney, confluence };

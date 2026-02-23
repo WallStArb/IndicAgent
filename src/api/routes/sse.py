@@ -67,6 +67,9 @@ def _event_name_for_stream(stream_name: str) -> str:
     if candidate.startswith("indicators:"):
         return "indicator_data"
     if candidate.startswith("intelligence:"):
+        # Intelligence stream payload: {"event": "<IntelligenceEvent JSON>"}
+        # Parse the event field client-side: JSON.parse(payload.event)
+        # See src/intelligence/schemas.py for IntelligenceEvent schema
         return "intelligence_data"
     if candidate.startswith("signals:"):
         return "signal_data"
