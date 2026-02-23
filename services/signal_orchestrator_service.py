@@ -35,6 +35,8 @@ import pandas as pd  # noqa: E402
 import redis.asyncio as redis  # noqa: E402
 import structlog  # noqa: E402
 
+from pydantic import ValidationError  # noqa: E402
+
 from src.config.settings import Settings, get_point_value  # noqa: E402
 from src.core.database_manager import DatabaseManager  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
@@ -42,6 +44,7 @@ from src.core.stream_keys import (  # noqa: E402
 )
 from src.intelligence.plugins import registry  # noqa: E402
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins  # noqa: E402
+from src.intelligence.schemas import IntelligenceEvent  # noqa: E402
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate  # noqa: E402
 from src.intelligence.trading.lifecycle_tracker import evaluate_signal  # noqa: E402
 from src.intelligence.trading.signal_ledger import (  # noqa: E402
@@ -59,12 +62,6 @@ from src.observability.metrics import (  # noqa: E402
 
 # I7 plugin names — imported from register_plugins (single source of truth)
 I7_PLUGINS = TIER_I7
-
-# Fields that are metadata / OHLCV — everything else is a feature
-_META_FIELDS = frozenset({
-    "timestamp", "symbol", "timeframe",
-    "open", "high", "low", "close", "volume",
-})
 
 # Fixed set of features to snapshot as market_context JSONB.
 # Must remain stable across versions — ML training depends on consistent feature vectors.
@@ -95,40 +92,42 @@ _TTL_DEFAULT = 10
 # Pure helper functions (no I/O — easy to test)
 # ---------------------------------------------------------------------------
 
-def parse_intelligence_message(
-    fields: dict[bytes, bytes],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Split an intelligence stream message into (bar_dict, features_dict).
+_logger = structlog.get_logger(__name__)
 
-    bar_dict contains OHLCV values as floats/int.
-    features_dict contains all other numeric fields as floats; non-numeric as strings.
+
+def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent | None:
+    """Parse intelligence stream message into typed IntelligenceEvent.
+
+    Returns None and logs a warning if the message is malformed or version unknown.
     """
-    bar: dict[str, Any] = {}
-    features: dict[str, Any] = {}
+    raw = fields.get(b"event", b"")
+    if not raw:
+        return None
+    try:
+        return IntelligenceEvent.model_validate_json(raw)
+    except (ValidationError, ValueError) as e:
+        _logger.warning("Failed to parse IntelligenceEvent", error=str(e))
+        return None
 
-    for raw_key, raw_val in fields.items():
-        key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
-        val = raw_val.decode() if isinstance(raw_val, bytes) else str(raw_val)
 
-        if key in _META_FIELDS:
-            if key == "open":
-                bar["open"] = float(val)
-            elif key == "high":
-                bar["high"] = float(val)
-            elif key == "low":
-                bar["low"] = float(val)
-            elif key == "close":
-                bar["close"] = float(val)
-            elif key == "volume":
-                bar["volume"] = int(float(val))
-            # timestamp/symbol/timeframe not added to bar — caller knows them
-        else:
-            try:
-                features[key] = float(val)
-            except (ValueError, TypeError):
-                features[key] = val
+def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
+    """Build a features dict from a typed IntelligenceEvent for I7 plugins.
 
-    return bar, features
+    Keys match MARKET_CONTEXT_KEYS conventions (legacy key names preserved
+    for signal_ledger market_context JSONB stability).
+    """
+    return {
+        "trend_regime": event.i4.trend_regime,
+        "volatility_regime": event.i4.vol_regime,       # old key: volatility_regime
+        "trend_confidence": event.i4.trend_confidence,
+        "atr_14": event.i1.atr_14,
+        "rsi_14": event.i1.rsi_14,
+        "ctf_score": event.i6.ctf_score,
+        "swing_pattern": event.i3.swing_pattern,
+        "trend_strength": event.i3.trend_strength,
+        "volatility_percentile": event.i4.vol_percentile,  # old key: volatility_percentile
+        "hmm_regime_state": event.smc.hmm_regime,          # old key: hmm_regime_state
+    }
 
 
 def build_ledger_entries(
@@ -606,10 +605,21 @@ class SignalOrchestratorService:
         message_id: bytes,
     ) -> None:
         try:
-            raw_ts = fields.get(b"timestamp", b"").decode()
-            timestamp = datetime.fromisoformat(raw_ts) if raw_ts else datetime.now(tz=UTC)
+            event = _parse_intelligence_event(fields)
+            if event is None:
+                # Malformed or missing event — ack and skip (do not crash)
+                await self.redis_client.xack(stream_name, self.consumer_group, message_id)
+                return
 
-            bar, features = parse_intelligence_message(fields)
+            timestamp = event.ts
+            bar = {
+                "open": event.bar.o,
+                "high": event.bar.h,
+                "low": event.bar.l,
+                "close": event.bar.c,
+                "volume": event.bar.v,
+            }
+            features = _build_features_from_event(event)
 
             # Buffer bar in history
             key = f"{symbol}:{timeframe}"

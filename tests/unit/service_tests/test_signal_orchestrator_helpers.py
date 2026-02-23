@@ -3,76 +3,87 @@ import pytest
 from datetime import datetime, timezone
 
 
-# ── parse_intelligence_message ────────────────────────────────────────────────
+# ── _parse_intelligence_event ─────────────────────────────────────────────────
 
-def test_parse_message_extracts_bar_fields():
-    from services.signal_orchestrator_service import parse_intelligence_message
-
-    msg = {
-        b"timestamp": b"2026-02-18T10:00:00",
-        b"symbol": b"ESH6",
-        b"timeframe": b"5m",
-        b"open": b"5100.25",
-        b"high": b"5105.50",
-        b"low": b"5098.75",
-        b"close": b"5103.00",
-        b"volume": b"12345",
-        b"trend_regime": b"0.65",
-        b"atr_14": b"12.5",
-    }
-    bar, features = parse_intelligence_message(msg)
-
-    assert bar["open"] == 5100.25
-    assert bar["high"] == 5105.50
-    assert bar["low"] == 5098.75
-    assert bar["close"] == 5103.00
-    assert bar["volume"] == 12345
-    assert "trend_regime" not in bar
-
-
-def test_parse_message_extracts_feature_fields():
-    from services.signal_orchestrator_service import parse_intelligence_message
-
-    msg = {
-        b"timestamp": b"2026-02-18T10:00:00",
-        b"symbol": b"ESH6",
-        b"timeframe": b"5m",
-        b"open": b"5100.0",
-        b"high": b"5105.0",
-        b"low": b"5099.0",
-        b"close": b"5103.0",
-        b"volume": b"10000",
-        b"trend_regime": b"0.65",
-        b"atr_14": b"12.5",
-        b"rsi_14": b"58.3",
-    }
-    bar, features = parse_intelligence_message(msg)
-
-    assert features["trend_regime"] == 0.65
-    assert features["atr_14"] == 12.5
-    assert features["rsi_14"] == 58.3
-    assert "open" not in features
-    assert "symbol" not in features
+def _make_valid_event_json() -> bytes:
+    """Return bytes of a valid IntelligenceEvent JSON for test fixtures."""
+    from src.intelligence.schemas import (
+        IntelligenceEvent,
+        OHLCVBar,
+        I1Indicators,
+        I3Structure,
+        I4Context,
+        I5Patterns,
+        SMCContext,
+        I6Confluence,
+    )
+    event = IntelligenceEvent(
+        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=timezone.utc),
+        symbol="ESH6",
+        tf="5m",
+        bar=OHLCVBar(o=5100.25, h=5105.50, l=5098.75, c=5103.00, v=12345),
+        i1=I1Indicators(rsi_14=58.3, atr_14=12.5),
+        i3=I3Structure(
+            nearest_support=5080.0,
+            nearest_resistance=5120.0,
+            trend_strength=0.65,
+            swing_pattern="HH->HL",
+        ),
+        i4=I4Context(
+            trend_regime=0.65,
+            trend_confidence=0.8,
+            vol_regime=0.5,
+            vol_percentile=60.0,
+        ),
+        i5=I5Patterns(squeeze_active=0.0, rsi_div_bullish=False),
+        smc=SMCContext(bos_detected=False, hmm_regime=1.0),
+        i6=I6Confluence(ctf_score=0.75),
+    )
+    return event.model_dump_json().encode()
 
 
-def test_parse_message_handles_non_numeric_feature():
-    """Non-numeric feature values are stored as strings (don't crash)."""
-    from services.signal_orchestrator_service import parse_intelligence_message
+def test_parse_intelligence_event_returns_typed_event():
+    """Valid IntelligenceEvent JSON in b'event' field returns IntelligenceEvent."""
+    from services.signal_orchestrator_service import _parse_intelligence_event
+    from src.intelligence.schemas import IntelligenceEvent
 
-    msg = {
-        b"timestamp": b"2026-02-18T10:00:00",
-        b"symbol": b"ESH6",
-        b"timeframe": b"5m",
-        b"open": b"5100.0",
-        b"high": b"5105.0",
-        b"low": b"5099.0",
-        b"close": b"5103.0",
-        b"volume": b"10000",
-        b"trend_regime": b"0.65",
-        b"hmm_regime_state": b"trending",
-    }
-    bar, features = parse_intelligence_message(msg)
-    assert features["hmm_regime_state"] == "trending"
+    fields = {b"event": _make_valid_event_json()}
+    result = _parse_intelligence_event(fields)
+
+    assert result is not None
+    assert isinstance(result, IntelligenceEvent)
+    assert result.symbol == "ESH6"
+    assert result.tf == "5m"
+    assert result.bar.o == pytest.approx(5100.25)
+    assert result.bar.v == 12345
+    assert result.i4.trend_regime == pytest.approx(0.65)
+    assert result.i1.rsi_14 == pytest.approx(58.3)
+
+
+def test_parse_intelligence_event_returns_none_on_missing_event_field():
+    """Empty fields dict returns None without crashing."""
+    from services.signal_orchestrator_service import _parse_intelligence_event
+
+    result = _parse_intelligence_event({})
+    assert result is None
+
+
+def test_parse_intelligence_event_returns_none_on_malformed_json():
+    """Garbled JSON bytes returns None and logs warning."""
+    from services.signal_orchestrator_service import _parse_intelligence_event
+
+    result = _parse_intelligence_event({b"event": b"not-valid-json{{{"})
+    assert result is None
+
+
+def test_parse_intelligence_event_returns_none_on_validation_error():
+    """Valid JSON but fails Pydantic validation returns None."""
+    from services.signal_orchestrator_service import _parse_intelligence_event
+
+    # Omitting required fields causes ValidationError
+    bad_json = b'{"schema_version": "1.0", "symbol": "ESH6"}'
+    result = _parse_intelligence_event({b"event": bad_json})
+    assert result is None
 
 
 # ── build_ledger_entries ──────────────────────────────────────────────────────
