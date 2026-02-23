@@ -5,32 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 1 — Typed Event Schema
+**Current focus:** Phase 2 — Feature Store
 
 ## Current Position
 
-Phase: 1 of 6 (Typed Event Schema)
-Plan: 3 of 3 in current phase (PHASE COMPLETE)
-Status: Phase 1 complete — ready for Phase 2
-Last activity: 2026-02-23 — Plan 01-03 complete: deleted intelligence_processor_service.py, 0 stale refs, Phase 1 done
+Phase: 2 of 6 (Feature Store)
+Plan: 1 of 4 in current phase
+Status: In progress — DB migrations complete, feature writer service next
+Last activity: 2026-02-23 — Plan 02-01 complete: intelligence_features hypertable + signal_ledger feature_ts/feature_tf columns added
 
-Progress: [██░░░░░░░░] 20% (3/15 plans complete, excluding Phase 0)
+Progress: [███░░░░░░░] 27% (4/15 plans complete, excluding Phase 0)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3 (this milestone)
-- Average duration: ~23min
-- Total execution time: ~63min
+- Total plans completed: 4 (this milestone)
+- Average duration: ~19min
+- Total execution time: ~71min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-typed-event-schema | 3 | ~63min | ~21min |
+| 02-feature-store | 1 | ~8min | ~8min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~35min), 01-02 (~25min), 01-03 (~3min)
+- Last 5 plans: 01-01 (~35min), 01-02 (~25min), 01-03 (~3min), 02-01 (~8min)
 - Trend: On track
 
 *Updated after each plan completion*
@@ -59,6 +60,9 @@ Recent decisions from execution (2026-02-23):
 - 01-02: ai_narrative_service confirmed non-consumer (reads signals: stream only)
 - 01-03: Historical plan docs annotated with deprecation banners (not inline edits) to preserve historical accuracy
 - 01-03: Stale worktrees out of scope — stale refs in .worktrees/ are on separate branches, not main
+- 02-01: intelligence_features hypertable uses tiered JSONB NOT NULL DEFAULT '{}' — protects GIN indexes from column-level NULL
+- 02-01: compress_orderby = 'ts ASC' confirmed for intelligence_features (migration 007 lesson applied)
+- 02-01: feature_ts/feature_tf nullable on signal_ledger — historical signals before Phase 2 correctly have NULL
 
 ### Pending Todos
 
@@ -69,9 +73,10 @@ None yet.
 - IBKR TWS must be running on Windows LAN (10.0.0.33) for Phase 3 backfill to run Stage 1 fetch
 - Phase 3 backfill duration unknown — 365 days of 1m data across multiple contracts may take significant time; plan accordingly
 - Auth (Phase 6) depends only on Phase 4 (API exists), not Phase 5 (ML) — phases can run in parallel if needed
+- historical_backfill.py Stage 2 uses LedgerEntry — Phase 3 plan must update it to pass feature_ts/feature_tf (or NULL) to avoid INSERT param count mismatch after migration 010
 
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 01-03-PLAN.md — Phase 1 complete; intelligence_processor_service.py deleted; ready for Phase 2
+Stopped at: Completed 02-01-PLAN.md — intelligence_features hypertable live; signal_ledger feature columns added; ready for 02-02 (feature_writer_service.py)
 Resume file: None
