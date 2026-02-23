@@ -67,7 +67,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 22
+        assert len(params) == 24
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -75,6 +75,9 @@ class TestLedgerEntry:
         assert json.loads(params[9]) == [5110.0, 5120.0]
         assert json.loads(params[13]) == ["ema_alignment", "adx_strong"]
         assert json.loads(params[20]) == {"vol_regime": "normal"}
+        # feature_ts and feature_tf default to None ($23 and $24)
+        assert params[22] is None  # feature_ts
+        assert params[23] is None  # feature_tf
 
 
 # ---------------------------------------------------------------------------

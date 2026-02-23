@@ -46,9 +46,11 @@ class LedgerEntry:
     composite_rank: int
     market_context: dict = field(default_factory=dict)
     status: str = "pending"
+    feature_ts: datetime | None = None
+    feature_tf: str | None = None
 
     def to_insert_params(self) -> tuple:
-        """Return a 22-element tuple ready for batch INSERT.
+        """Return a 24-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context) are
         serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
@@ -76,6 +78,8 @@ class LedgerEntry:
             self.composite_rank,
             json.dumps(self.market_context),
             self.status,
+            self.feature_ts,   # $23 — TIMESTAMPTZ, nullable
+            self.feature_tf,   # $24 — TEXT, nullable
         )
 
 
@@ -89,13 +93,15 @@ INSERT INTO signal_ledger (
     direction, entry_price, stop_loss, targets,
     confidence, confluence_score, regime_context, supporting_factors,
     was_selected, num_signals_bar, num_agreeing, num_conflicting,
-    resolution_method, composite_rank, market_context, status
+    resolution_method, composite_rank, market_context, status,
+    feature_ts, feature_tf
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
     $11, $12, $13, $14::jsonb,
     $15, $16, $17, $18,
-    $19, $20, $21::jsonb, $22
+    $19, $20, $21::jsonb, $22,
+    $23, $24
 )
 """
 
