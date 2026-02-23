@@ -51,10 +51,10 @@ Building this milestone.
 - [x] **BUS-04**: `intelligence_processor_service.py` deprecated and removed; `market_analysis_service.py` is sole canonical pipeline
 
 ### Feature Store
-- [ ] **FST-01**: `intelligence_features` TimescaleDB hypertable created with tiered JSONB columns, GIN indexes, no retention policy
-- [ ] **FST-02**: Feature Writer Service (`services/feature_writer_service.py`) consumes `intelligence:` stream via consumer group and batch-writes to `intelligence_features`
-- [ ] **FST-03**: `signal_ledger` gains `feature_ts` + `feature_tf` columns enabling JOIN to full feature context
-- [ ] **FST-04**: DB compressed after 7 days, indefinite retention for seasonal ML analysis
+- [x] **FST-01**: `intelligence_features` TimescaleDB hypertable created with tiered JSONB columns, GIN indexes, no retention policy
+- [x] **FST-02**: Feature Writer Service (`services/feature_writer_service.py`) consumes `intelligence:` stream via consumer group and batch-writes to `intelligence_features`
+- [x] **FST-03**: `signal_ledger` gains `feature_ts` + `feature_tf` columns enabling JOIN to full feature context
+- [x] **FST-04**: DB compressed after 7 days, indefinite retention for seasonal ML analysis
 
 ### Historical Data
 - [ ] **HST-01**: Historical backfill runs 365 days producing 2,700+ signals in `signal_ledger`

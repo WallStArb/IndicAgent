@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 0: GARCH/Kalman Quality Gates** - Wire GARCH/Kalman outputs into I7 plugins as entry filters (COMPLETE 2026-02-22)
 - [ ] **Phase 1: Typed Event Schema** - Define IntelligenceEvent Pydantic schema, update publisher, migrate consumers, deprecate old service
-- [ ] **Phase 2: Feature Store** - intelligence_features hypertable, Feature Writer Service, signal_ledger enhancement
+- [x] **Phase 2: Feature Store** - intelligence_features hypertable, Feature Writer Service, signal_ledger enhancement (completed 2026-02-23)
 - [ ] **Phase 3: Historical Data** - Run 365-day backfill populating signal_ledger and intelligence_features
 - [ ] **Phase 4: Query API** - Historical feature and signal query endpoints on existing FastAPI
 - [ ] **Phase 5: ML Scoring Model** - Train predictive model on intelligence_features, score signals at generation time
@@ -123,7 +123,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 0. GARCH/Kalman Quality Gates | 3/3 | Complete | 2026-02-22 |
 | 1. Typed Event Schema | 2/3 | In progress | - |
-| 2. Feature Store | 2/3 | In Progress|  |
+| 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
 | 3. Historical Data | 0/2 | Not started | - |
 | 4. Query API | 0/2 | Not started | - |
 | 5. ML Scoring Model | 0/3 | Not started | - |

@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 
 Phase: 2 of 6 (Feature Store)
 Plan: 4 of 4 in current phase
-Status: In progress — feature_ts/feature_tf wired into live path and backfill; feature_writer_service TDD in progress
-Last activity: 2026-02-23 — Plan 02-03 complete: feature_ts/feature_tf wired in signal_generator and backfill patched
+Status: In progress — 02-02 and 02-03 complete; feature_writer_service live; 02-04 (API) is next
+Last activity: 2026-02-23 — Plan 02-02 GREEN complete: feature_writer_service.py implemented, all 10 TDD tests passing
 
 Progress: [████░░░░░░] 40% (6/15 plans complete, excluding Phase 0)
 
@@ -31,7 +31,7 @@ Progress: [████░░░░░░] 40% (6/15 plans complete, excluding P
 | 02-feature-store | 3 | ~18min | ~6min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02 (~25min), 01-03 (~3min), 02-01 (~8min), 02-02 (TDD red only), 02-03 (~2min)
+- Last 5 plans: 01-03 (~3min), 02-01 (~8min), 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min)
 - Trend: On track
 
 *Updated after each plan completion*
@@ -66,6 +66,8 @@ Recent decisions from execution (2026-02-23):
 - 02-03: feature_ts defaults to None on LedgerEntry — backward compatible, no existing callsite changes needed
 - 02-03: Backfill writes NULL for feature_ts/feature_tf — no IntelligenceEvent at replay time; NULL correctly indicates pre-Phase-2 signal
 - 02-03: market_analysis_service.py not touched — it publishes IntelligenceEvent but never constructs LedgerEntry
+- 02-02: hasattr guards in _maybe_flush for __new__-constructed test instances (metrics not initialized via __init__)
+- 02-02: bar + i1 use model_dump() without exclude_none; i3-i6 use exclude_none=True for storage compactness
 
 ### Pending Todos
 
@@ -80,5 +82,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 02-03-PLAN.md — feature_ts/feature_tf wired in signal_generator (live path) and backfill patched (NULL path); signal_ledger INSERT is now 24-param end-to-end; ready for 02-02 TDD green phase (feature_writer_service.py implementation)
+Stopped at: Completed 02-02-PLAN.md GREEN — feature_writer_service.py implemented with CONSUMER_GROUP=feature_writer:persist, batch buffer, prometheus port 9116; all 10 TDD tests GREEN; ready for 02-04 (historical query API)
 Resume file: None
