@@ -47,7 +47,9 @@ bash production/scripts/db_setup.sh
 
 ```bash
 python3 production/daemons/high_frequency_tws_daemon.py --client-id 35
-python3 services/intelligence_processor_service.py --config config/intelligence_processor.json
+python3 services/indicator_service.py --config config/indicator_service.json
+python3 services/market_analysis_service.py --config config/market_analysis_service.json
+python3 services/signal_generator_service.py --config config/signal_generator_service.json
 ```
 
 ### 6. Start Dashboard

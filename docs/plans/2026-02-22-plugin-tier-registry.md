@@ -1,3 +1,5 @@
+> **HISTORICAL DOCUMENT** — `intelligence_processor_service.py` was deleted in Phase 1 (2026-02-23). References to it in this doc are for historical context only. The TIER_* constants now live in `src/intelligence/register_plugins.py` and are used by `market_analysis_service.py`.
+
 # Plugin Tier Registry Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

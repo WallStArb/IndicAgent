@@ -1,3 +1,5 @@
+> **HISTORICAL DOCUMENT** — `intelligence_processor_service.py` was deleted in Phase 1 (2026-02-23). References to it in this doc are for historical context only. The canonical service is now `market_analysis_service.py`.
+
 # Signal Orchestrator Service — Design
 
 > **Date:** 2026-02-18

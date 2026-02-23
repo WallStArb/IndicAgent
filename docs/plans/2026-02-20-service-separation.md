@@ -1,3 +1,5 @@
+> **HISTORICAL DOCUMENT** — `intelligence_processor_service.py` was deleted in Phase 1 (2026-02-23). This plan describes the migration that created `market_analysis_service.py`. References to `intelligence_processor_service.py` are for historical context only.
+
 # Service Separation Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

@@ -12,13 +12,15 @@ Rigid 7-step checklist for wiring a new intelligence tier into the full pipeline
 ## Checklist
 
 ### 1. Processor Service
-Add plugin name to the correct tier list in `services/intelligence_processor_service.py`:
+Add plugin name to the correct tier constant in `src/intelligence/register_plugins.py`:
 ```python
-# Line ~68-78 — find the right list
-I3_PLUGINS = [...]
-SMC_PLUGINS = [...]
-I6_PLUGINS = [...]
+# Find the right TIER_* constant
+TIER_I3 = [...]
+TIER_SMC = [...]
+TIER_I6 = [...]
 ```
+
+The canonical service consuming these tiers is `services/market_analysis_service.py`.
 
 ### 2. Dashboard Types
 In `dashboard/src/lib/types.ts`:
@@ -66,4 +68,4 @@ python -m pytest tests/unit/ -q   # Must pass — catches registration issues
 - `use-demo-data.ts` has **3 separate** `SymbolData` construction sites — all must match the interface
 - `f("field_name")` in `parseIntelligence()` returns 0 for missing fields — use `|| undefined` for optional fields
 - `SymbolData` interface must match ALL construction sites or `next build` fails
-- SSE field names must match exactly what the processor service publishes to Redis
+- SSE field names must match exactly what market_analysis_service publishes to the intelligence: stream

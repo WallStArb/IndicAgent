@@ -1,3 +1,5 @@
+> **HISTORICAL DOCUMENT** — `intelligence_processor_service.py` was deleted in Phase 1 (2026-02-23). This doc describes the migration that created `market_analysis_service.py`. References to `intelligence_processor_service.py` are for historical context only.
+
 # Service Separation Design
 
 **Date:** 2026-02-20

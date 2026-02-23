@@ -146,7 +146,7 @@ The AI intelligence layer will provide sophisticated market intelligence synthes
 ```
 1. Market Data → IBKR TWS → high_frequency_tws_daemon
                     ↓
-2. Plugin Integration → indicators_enhanced_service / intelligence_processor_service → Plugin-Based I1-I4 Intelligence
+2. Plugin Integration → indicator_service / market_analysis_service → Plugin-Based I1-I6 Intelligence
                     ↓
 3. Configuration Engine → YAML Pipeline Orchestrator → Dynamic Plugin Composition
                     ↓

@@ -35,7 +35,7 @@ The plugin-native intelligence processing uses LangGraph workflows with DAG-base
 - `src/intelligence/patterns/` - 4 I5 pattern detection plugins
 - `src/intelligence/structure/` - 3 I3 market structure plugins
 - `src/intelligence/context/` - 3 I4 context classification plugins
-- `services/intelligence_processor_service.py` - Full I1→I3→I4→I5 pipeline orchestration
+- `services/market_analysis_service.py` - Full I3→I4→I5→SMC→I6 pipeline orchestration (consumes indicators: stream)
 - **Performance:** <10ms mathematical processing, 141x speedup via incremental calculations
 
 ---
