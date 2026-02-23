@@ -1,0 +1,23 @@
+{
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "db": 0
+  },
+  "service": {
+    "symbols": ["ESH6", "NQH6", "RTYH6", "CLK6", "GCM6", "NGK6"],
+    "timeframes": ["1m", "5m", "15m", "1h"],
+    "processing_interval": 0.01,
+    "metrics_port": 9116,
+    "health_check_interval": 30
+  },
+  "database": {
+    "dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/feature_writer_service.log",
+    "max_size": "10MB",
+    "backup_count": 5
+  }
+}
