@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 ## Current Position
 
 Phase: 1 of 6 (Typed Event Schema)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-02-23 — Plan 01-02 complete: consumer migration (signal_generator, signal_orchestrator, SSE, dashboard)
+Plan: 3 of 3 in current phase (PHASE COMPLETE)
+Status: Phase 1 complete — ready for Phase 2
+Last activity: 2026-02-23 — Plan 01-03 complete: deleted intelligence_processor_service.py, 0 stale refs, Phase 1 done
 
-Progress: [█░░░░░░░░░] 13% (2/15 plans complete, excluding Phase 0)
+Progress: [██░░░░░░░░] 20% (3/15 plans complete, excluding Phase 0)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2 (this milestone)
-- Average duration: ~30min
-- Total execution time: ~60min
+- Total plans completed: 3 (this milestone)
+- Average duration: ~23min
+- Total execution time: ~63min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-typed-event-schema | 2 | ~60min | ~30min |
+| 01-typed-event-schema | 3 | ~63min | ~21min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~35min), 01-02 (~25min)
+- Last 5 plans: 01-01 (~35min), 01-02 (~25min), 01-03 (~3min)
 - Trend: On track
 
 *Updated after each plan completion*
@@ -57,6 +57,8 @@ Recent decisions from execution (2026-02-23):
 - 01-02: features dict preserves legacy MARKET_CONTEXT_KEYS names for signal_ledger JSONB stability
 - 01-02: smc_trend_direction (schema rename) mapped to SmartMoneyData.trend_direction in dashboard
 - 01-02: ai_narrative_service confirmed non-consumer (reads signals: stream only)
+- 01-03: Historical plan docs annotated with deprecation banners (not inline edits) to preserve historical accuracy
+- 01-03: Stale worktrees out of scope — stale refs in .worktrees/ are on separate branches, not main
 
 ### Pending Todos
 
@@ -71,5 +73,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Completed 01-02-PLAN.md — consumer migration complete; ready for 01-03 (delete intelligence_processor_service.py)
+Stopped at: Completed 01-03-PLAN.md — Phase 1 complete; intelligence_processor_service.py deleted; ready for Phase 2
 Resume file: None

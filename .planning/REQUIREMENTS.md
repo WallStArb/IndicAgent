@@ -48,7 +48,7 @@ Building this milestone.
 - [x] **BUS-01**: System defines `IntelligenceEvent` Pydantic model with tiered JSONB structure (i1/i3/i4/i5/smc/i6), version field, and `platform` dimension
 - [x] **BUS-02**: `market_analysis_service.py` publishes `IntelligenceEvent` to `intelligence:SYMBOL:TF` stream replacing flat k/v strings
 - [x] **BUS-03**: All downstream consumers (signal_generator, API, ML) deserialize `IntelligenceEvent` instead of raw field dicts
-- [ ] **BUS-04**: `intelligence_processor_service.py` deprecated and removed; `market_analysis_service.py` is sole canonical pipeline
+- [x] **BUS-04**: `intelligence_processor_service.py` deprecated and removed; `market_analysis_service.py` is sole canonical pipeline
 
 ### Feature Store
 - [ ] **FST-01**: `intelligence_features` TimescaleDB hypertable created with tiered JSONB columns, GIN indexes, no retention policy
