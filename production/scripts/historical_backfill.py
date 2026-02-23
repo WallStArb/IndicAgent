@@ -514,27 +514,33 @@ def main() -> None:
             start_dt = start_dt - timedelta(days=args.days - 1)
             total_bars = 0
             for instrument in contracts:
-                asyncio.run(provider.qualify_instrument(instrument))
-                ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
-                    symbol=instrument.symbol,
-                    timeframe="1m",
-                    start=start_dt,
-                    end=end_dt,
-                ))
-                bar_dicts = [
-                    {
-                        "timestamp": b.timestamp,
-                        "open": b.open,
-                        "high": b.high,
-                        "low": b.low,
-                        "close": b.close,
-                        "volume": b.volume,
-                    }
-                    for b in ohlcv_bars
-                ]
-                n = store_bars(db_conn, bar_dicts, instrument.symbol, "1m")
-                total_bars += n
-                print(f"  {instrument.symbol}: {n} bars stored")
+                try:
+                    qualified = asyncio.run(provider.qualify_instrument(instrument))
+                    if not qualified:
+                        print(f"  {instrument.symbol}: skipped (qualify failed)")
+                        continue
+                    ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
+                        symbol=instrument.symbol,
+                        timeframe="1m",
+                        start=start_dt,
+                        end=end_dt,
+                    ))
+                    bar_dicts = [
+                        {
+                            "timestamp": b.timestamp,
+                            "open": b.open,
+                            "high": b.high,
+                            "low": b.low,
+                            "close": b.close,
+                            "volume": b.volume,
+                        }
+                        for b in ohlcv_bars
+                    ]
+                    n = store_bars(db_conn, bar_dicts, instrument.symbol, "1m")
+                    total_bars += n
+                    print(f"  {instrument.symbol}: {n} bars stored")
+                except Exception as e:
+                    print(f"  {instrument.symbol}: error — {e}")
                 time.sleep(2)  # IBKR pacing
             asyncio.run(provider.disconnect())
             print(f"\nStage 1 complete: {total_bars:,} total bars stored\n")

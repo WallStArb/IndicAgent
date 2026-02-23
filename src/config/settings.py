@@ -93,17 +93,17 @@ class Settings(BaseSettings):
                 symbol="YMH6", base="YM", exchange="CBOT", expiry="20260320",
                 name="E-mini Dow", point_value=5, tick_size=1.0, sector="equity_index",
             ),
-            # Energy Futures — March/April 2026
+            # Energy Futures — April 2026 (CL/BZ H6 expired 2026-02-20, NG H6 expires 2026-02-25)
             Instrument(
-                symbol="CLH6", base="CL", exchange="NYMEX", expiry="20260220",
+                symbol="CLJ6", base="CL", exchange="NYMEX", expiry="20260320",
                 name="Crude Oil WTI", point_value=1000, tick_size=0.01, sector="energy",
             ),
             Instrument(
-                symbol="BZH6", base="BZ", exchange="NYMEX", expiry="20260220",
+                symbol="BZJ6", base="BZ", exchange="NYMEX", expiry="20260320",
                 name="Brent Crude", point_value=1000, tick_size=0.01, sector="energy",
             ),
             Instrument(
-                symbol="NGH6", base="NG", exchange="NYMEX", expiry="20260225",
+                symbol="NGJ6", base="NG", exchange="NYMEX", expiry="20260326",
                 name="Natural Gas", point_value=10000, tick_size=0.001, sector="energy",
             ),
             # Precious & Industrial Metals — April 2026
