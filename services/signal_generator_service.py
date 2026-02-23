@@ -146,6 +146,8 @@ def build_ledger_entries(
             composite_rank=rank,
             market_context=market_ctx,
             status="pending",
+            feature_ts=timestamp,   # IntelligenceEvent.ts — the bar timestamp
+            feature_tf=timeframe,   # IntelligenceEvent.tf — the timeframe string
         ))
     return entries
 

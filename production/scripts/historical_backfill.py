@@ -162,13 +162,15 @@ INSERT INTO signal_ledger (
     direction, entry_price, stop_loss, targets,
     confidence, confluence_score, regime_context, supporting_factors,
     was_selected, num_signals_bar, num_agreeing, num_conflicting,
-    resolution_method, composite_rank, market_context, status
+    resolution_method, composite_rank, market_context, status,
+    feature_ts, feature_tf
 ) VALUES (
     %s::uuid, %s, %s, %s, %s, %s,
     %s, %s, %s, %s::jsonb,
     %s, %s, %s, %s::jsonb,
     %s, %s, %s, %s,
-    %s, %s, %s::jsonb, %s
+    %s, %s, %s::jsonb, %s,
+    %s, %s
 ) ON CONFLICT DO NOTHING
 """
 
@@ -213,6 +215,8 @@ def _build_ledger_entries(
             composite_rank=rank,
             market_context=market_ctx,
             status="pending",
+            feature_ts=None,   # No IntelligenceEvent at backfill time
+            feature_tf=None,
         ))
     return entries
 
@@ -231,6 +235,8 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
             e.was_selected, e.num_signals_bar, e.num_agreeing, e.num_conflicting,
             e.resolution_method, e.composite_rank, json.dumps(e.market_context),
             e.status,
+            e.feature_ts,   # None for backfill
+            e.feature_tf,   # None for backfill
         ))
     with conn.cursor() as cur:
         psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params)
