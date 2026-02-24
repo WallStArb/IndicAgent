@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 
 ## Current Position
 
-Phase: 2 of 6 COMPLETE — next: Phase 3 (Historical Data)
-Plan: 3/3 complete
-Status: Phase 2 verified (14/14 must-haves). Ready to plan Phase 3.
-Last activity: 2026-02-23 — Phase 2 complete: intelligence_features hypertable live, feature_writer_service deployed, signal_ledger wired with feature_ts/feature_tf
+Phase: 3 of 6 IN PROGRESS
+Plan: 1/3 complete
+Status: Phase 3 Plan 1 executed — intelligence_features dual-write in historical_backfill (TDD, 23/23 tests pass).
+Last activity: 2026-02-24 — 03-01: _build_intelligence_event + _insert_features_sync + feature_ts JOIN linkage added to historical_backfill.py
 
-Progress: [████░░░░░░] 40% (9/15 plans complete across Phases 0-2, excluding unplanned phases)
+Progress: [████░░░░░░] 43% (10/16 plans complete across Phases 0-3)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6 (this milestone)
-- Average duration: ~13min
-- Total execution time: ~81min
+- Total plans completed: 7 (this milestone)
+- Average duration: ~12min
+- Total execution time: ~84min
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [████░░░░░░] 40% (9/15 plans complete across Phase
 |-------|-------|-------|----------|
 | 01-typed-event-schema | 3 | ~63min | ~21min |
 | 02-feature-store | 3 | ~18min | ~6min |
+| 03-historical-data | 1/3 | ~3min | ~3min |
 
 **Recent Trend:**
-- Last 5 plans: 01-03 (~3min), 02-01 (~8min), 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min)
-- Trend: On track
+- Last 5 plans: 02-01 (~8min), 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min)
+- Trend: On track, accelerating
 
 *Updated after each plan completion*
 
@@ -69,6 +70,13 @@ Recent decisions from execution (2026-02-23):
 - 02-02: hasattr guards in _maybe_flush for __new__-constructed test instances (metrics not initialized via __init__)
 - 02-02: bar + i1 use model_dump() without exclude_none; i3-i6 use exclude_none=True for storage compactness
 
+Recent decisions from execution (2026-02-24):
+
+- 03-01: _pick() inner helper filters keys per sub-model before construction — required for extra='forbid' I3-I6 models receiving merged flat intelligence dict
+- 03-01: _build_intelligence_event wraps entire body in try/except: returns None on any failure (never crashes replay loop)
+- 03-01: feature_ts=ts populated on signal_ledger when intelligence_features row was written — enables JOIN from signal to feature context (reverses Phase 2 NULL decision which was provisional)
+- 03-01: replay_symbol inserts features per bar (not per signal) — every MIN_BARS-qualified bar gets a feature row for maximum ML coverage
+
 ### Pending Todos
 
 None yet.
@@ -81,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-23
-Stopped at: Phase 2 complete — all 3 plans executed and verified (14/14). Phase 3 (Historical Data) is unplanned — run /gsd:plan-phase 3 next.
+Last session: 2026-02-24
+Stopped at: 03-01-PLAN.md complete — intelligence_features write path implemented in historical_backfill.py (TDD: 23/23 tests pass). Next: 03-02 (run 365-day backfill) and 03-03 (validation).
 Resume file: None

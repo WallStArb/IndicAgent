@@ -66,7 +66,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Extend historical_backfill.py Stage 2 to write to intelligence_features alongside signal_ledger; set source='backfill' (TDD)
+- [x] 03-01-PLAN.md — Extend historical_backfill.py Stage 2 to write to intelligence_features alongside signal_ledger; set source='backfill' (TDD)
 - [ ] 03-02-PLAN.md — Run backfill for 365 days (--days 365) and validate row counts and JOIN integrity
 
 ### Phase 4: Query API
@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 0. GARCH/Kalman Quality Gates | 3/3 | Complete | 2026-02-22 |
 | 1. Typed Event Schema | 2/3 | In progress | - |
 | 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
-| 3. Historical Data | 0/2 | Not started | - |
+| 3. Historical Data | 1/2 | In progress | - |
 | 4. Query API | 0/2 | Not started | - |
 | 5. ML Scoring Model | 0/3 | Not started | - |
 | 6. Auth and External Access | 0/2 | Not started | - |

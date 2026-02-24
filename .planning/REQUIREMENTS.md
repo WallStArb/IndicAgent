@@ -58,8 +58,8 @@ Building this milestone.
 
 ### Historical Data
 - [ ] **HST-01**: Historical backfill runs 365 days producing 2,700+ signals in `signal_ledger`
-- [ ] **HST-02**: `intelligence_features` populated with corresponding feature history for ML training
-- [ ] **HST-03**: Backfill writes both `signal_ledger` and `intelligence_features` in Stage 2
+- [x] **HST-02**: `intelligence_features` populated with corresponding feature history for ML training
+- [x] **HST-03**: Backfill writes both `signal_ledger` and `intelligence_features` in Stage 2
 
 ### Query API
 - [ ] **API-01**: `GET /api/features/{symbol}/{timeframe}` returns paginated `intelligence_features` with date range filter
