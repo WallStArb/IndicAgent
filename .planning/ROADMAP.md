@@ -79,11 +79,12 @@ Plans:
   2. GET /api/signals/{symbol} returns signal history; with ?include_features=true each signal includes its full feature context via JOIN
   3. The SSE stream endpoint publishes typed IntelligenceEvent payloads — not flat string dicts — so a dashboard subscriber receives structured tier objects
   4. A GET /api/features/export?format=parquet request returns a Parquet file that pd.read_parquet() loads without error
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Add GET /api/features/{symbol}/{timeframe} and GET /api/features/export endpoints to FastAPI
-- [ ] 04-02: Update GET /api/signals/{symbol} with optional feature JOIN; update SSE route to emit IntelligenceEvent payloads
+- [ ] 04-01-PLAN.md — TDD: GET /api/features/{symbol}/{timeframe} + GET /api/features/export (Parquet) with pyarrow
+- [ ] 04-02-PLAN.md — TDD: GET /api/signals/{symbol} with optional intelligence_features LEFT JOIN
+- [ ] 04-03-PLAN.md — Wire routers into main.py + SSE intelligence_data payload tests (API-03)
 
 ### Phase 5: ML Scoring Model
 **Goal**: Every generated signal has an ml_score predicting its probability of success — derived from the feature context at signal time
