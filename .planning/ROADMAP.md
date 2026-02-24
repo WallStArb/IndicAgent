@@ -122,9 +122,19 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 0. GARCH/Kalman Quality Gates | 3/3 | Complete | 2026-02-22 |
-| 1. Typed Event Schema | 2/3 | In progress | - |
+| 1. Typed Event Schema | 3/3 | Complete | 2026-02-23 |
 | 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
-| 3. Historical Data | 1/2 | In progress | - |
+| 3. Historical Data | 2/2 | In progress | - |
 | 4. Query API | 0/2 | Not started | - |
 | 5. ML Scoring Model | 0/3 | Not started | - |
 | 6. Auth and External Access | 0/2 | Not started | - |
+
+## Backlog
+
+Items decided but not yet scheduled into a phase. Pull into a milestone when ready.
+
+| Item | Notes | Analysis |
+|------|-------|---------|
+| Gap-fill service | Detect + backfill gaps in `market_data_ohlcv` from downtime/TWS disconnects. Fetch only missing windows, replay Stage 2 for those windows only. | — |
+| Days-to-expiry feature | Compute `(expiry_date - bar_ts).days` → store in `intelligence_features`. Roll proximity affects behavior. | — |
+| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Valuable for CL and equity index. | — |
