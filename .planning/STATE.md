@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 
 ## Current Position
 
-Phase: 4 of 7 COMPLETE
-Plan: 3/3 complete
-Status: Phases 0–4 fully complete and documented. Roadmap reshaped: Phase 5 = Live Pipeline, Phase 6 = Dashboard Connected, Phase 7 = Dashboard Complete. ML and Auth moved to backlog.
-Last activity: 2026-02-24 — roadmap reshaped; ready to plan Phase 5 (Live Pipeline)
+Phase: 5 of 7 IN PROGRESS
+Plan: 1/3 complete
+Status: Phase 5 (Live Pipeline) started. Plan 05-01 complete: TWS false-connected fix + feature_writer active contracts + timeframes systemd unit. Pending: sudo install for indicagent-timeframes.service.
+Last activity: 2026-02-24 — Phase 5 Plan 01 complete
 
-Progress: [████░░░░░░░] ~57% (12/21 plans complete across Phases 0-4)
+Progress: [████░░░░░░░] ~59% (13/21 plans complete across Phases 0-5)
 
 ## Performance Metrics
 
@@ -31,6 +31,7 @@ Progress: [████░░░░░░░] ~57% (12/21 plans complete across 
 | 02-feature-store | 3 | ~18min | ~6min |
 | 03-historical-data | 1/3 | ~3min | ~3min |
 | 04-query-api | 3/3 | ~6min | ~2min |
+| 05-live-pipeline | 1/3 | ~4min | ~4min |
 
 **Recent Trend:**
 - Last 5 plans: 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min), 04-01 (~2min), 04-02 (~2min), 04-03 (~2min)
@@ -73,6 +74,9 @@ Recent decisions from execution (2026-02-23):
 
 Recent decisions from execution (2026-02-24):
 
+- 05-01: TWS false-connected check uses self.connected and self.provider guard before calling provider.is_connected() — safe even when provider is None
+- 05-01: feature_writer follows market_analysis_service pattern exactly: try/except Settings() inside _load_config, pass _settings to get_active_contracts()
+- 05-01: indicagent-timeframes.service created in repo; requires manual sudo install (interactive auth gate)
 - 03-01: _pick() inner helper filters keys per sub-model before construction — required for extra='forbid' I3-I6 models receiving merged flat intelligence dict
 - 03-01: _build_intelligence_event wraps entire body in try/except: returns None on any failure (never crashes replay loop)
 - 03-01: feature_ts=ts populated on signal_ledger when intelligence_features row was written — enables JOIN from signal to feature context (reverses Phase 2 NULL decision which was provisional)
@@ -95,13 +99,13 @@ None yet.
 
 ### Blockers/Concerns
 
+- indicagent-timeframes.service: unit file is in repo but not yet installed in /etc/systemd/system/. Run: `sudo cp services/indicagent-timeframes.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable indicagent-timeframes`
 - IBKR TWS must be running on Windows LAN (10.0.0.33) for Phase 3 backfill to run Stage 1 fetch
 - Phase 3 backfill duration unknown — 365 days of 1m data across multiple contracts may take significant time; plan accordingly
-- Auth (Phase 5) depends only on Phase 4 (API exists) — Phase 4 now complete, Phase 5 can begin
-- Pre-existing unit test failures (12 tests) in test_settings.py, test_ibkr_provider.py, test_market_analysis_service.py, test_signal_generator_service.py, test_historical_backfill.py — need investigation in a separate bug-fix session
+- Pre-existing unit test failures (5 tests) in test_settings.py, test_ibkr_provider.py, test_historical_backfill.py — need investigation in a separate bug-fix session
 
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Phase 3 + Phase 4 both fully complete and documented. All SUMMARY files written, stale .continue-here files removed. DB validated: 391,564 intelligence_features rows, 248,261 signals, 0 orphans. Ready for Phase 5 (Auth Layer).
+Stopped at: Completed 05-01-PLAN.md — TWS false-connected fix, feature_writer active contracts, timeframes systemd unit. 607 tests passing. Pending: sudo install of indicagent-timeframes.service.
 Resume file: None
