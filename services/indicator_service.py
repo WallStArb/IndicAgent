@@ -241,17 +241,17 @@ class IndicatorService:
 
             key = f"{symbol}:{timeframe}"
 
-            if bar_source == "authoritative":
-                # Silently correct history; skip pipeline re-computation
-                history = self.bar_history[key]
-                if history and history[-1]["timestamp"] == bar_ts:
-                    history[-1] = bar_data
-                else:
-                    history.append(bar_data)
+            if bar_source == "tick_derived":
+                # Tick data drives display only; real IBKR bars drive the pipeline
                 await self.redis_client.xack(stream_name, self.consumer_group, message_id)
                 return
 
-            self.bar_history[key].append(bar_data)
+            # authoritative bar: update history (dedup by timestamp)
+            history = self.bar_history[key]
+            if history and history[-1]["timestamp"] == bar_ts:
+                history[-1] = bar_data
+            else:
+                history.append(bar_data)
 
             min_bars = self.config["service"]["min_history_bars"]
             if len(self.bar_history[key]) < min_bars:

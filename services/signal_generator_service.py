@@ -36,7 +36,7 @@ import structlog
 
 from pydantic import ValidationError
 
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import signals_aggregated
 from src.intelligence.plugins import registry
@@ -227,8 +227,8 @@ class SignalGeneratorService:
                 )
             },
             "service": {
-                "symbols": ["ESH6", "NQH6", "RTYH6"],
-                "timeframes": ["5m", "15m"],
+                "symbols": get_active_contracts(_settings),
+                "timeframes": ["1m"],
                 "min_history_bars": 50,
                 "processing_interval": 0.1,
                 "health_check_interval": 30,

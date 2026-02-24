@@ -135,7 +135,11 @@ class FeatureWriterService:
         self._buffer: list[tuple] = []
         self._last_flush: float = time.monotonic()
 
-        self._env_prefix: str = ""
+        try:
+            _s = Settings()
+            self._env_prefix: str = f"{_s.env_name}:" if _s.env_name else ""
+        except Exception:
+            self._env_prefix = ""
 
         # Prometheus metrics
         self.events_consumed_total = counter(
