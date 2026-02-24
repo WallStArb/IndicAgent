@@ -33,7 +33,7 @@ import redis.asyncio as redis
 import structlog
 
 from services.indicator_service import parse_indicators_message
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
@@ -140,7 +140,7 @@ class MarketAnalysisService:
                 )
             },
             "service": {
-                "symbols": ["ESU5", "NQU5", "RTYU5", "CLU5", "GCZ5", "NGU25"],
+                "symbols": get_active_contracts(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.1,
                 "health_check_interval": 30,
