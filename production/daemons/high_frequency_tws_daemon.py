@@ -33,6 +33,7 @@ import redis.asyncio as aioredis
 import structlog
 from prometheus_client import start_http_server
 
+from src.core.stream_keys import live_tick as sk_live_tick
 from src.core.stream_keys import market as sk_market
 from src.observability.metrics import counter as prom_counter
 from src.observability.metrics import gauge as prom_gauge
@@ -140,6 +141,7 @@ class HighFrequencyTWSDaemon:
         self.async_redis: aioredis.Redis | None = None
         self.publisher: AsyncTickPublisher | None = None
         self._reconnect_delay = 1.0
+        self._tick_task: "asyncio.Future | None" = None
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -232,27 +234,33 @@ class HighFrequencyTWSDaemon:
         if not self.provider:
             return
         symbols = [c["symbol"] for c in self.contracts]
-        async for tick in self.provider.stream_ticks(symbols):
-            if not self.running:
-                break
-            try:
-                stream_name = sk_market(self.env_prefix, tick.symbol, "tick")
-                if self.async_redis:
-                    await self.async_redis.xadd(
-                        stream_name,
-                        tick.model_dump(mode="json"),
-                        maxlen=10000,
-                        approximate=True,
-                    )
-                tick_data = {"last": tick.price, "volume": tick.size or 0}
-                self._update_tick_accumulator(tick.symbol, tick_data, datetime.now())
-                self.ticks_processed += 1
-                self.m_ticks.inc()
-            except Exception as e:
-                self.dropped_ticks += 1
-                self.m_dropped.inc()
-                self.m_dropped_by_reason.labels(reason="tick_loop_error").inc()
-                logger.warning("Tick loop error", error=str(e))
+        try:
+            async for tick in self.provider.stream_ticks(symbols):
+                if not self.running:
+                    break
+                try:
+                    stream_name = sk_live_tick(self.env_prefix, tick.symbol)
+                    if self.async_redis:
+                        tick_fields = {k: str(v) for k, v in tick.model_dump(mode="json").items() if v is not None}
+                        await self.async_redis.xadd(
+                            stream_name,
+                            tick_fields,
+                            maxlen=10000,
+                            approximate=True,
+                        )
+                    tick_data = {"last": tick.price, "volume": tick.size or 0}
+                    self._update_tick_accumulator(tick.symbol, tick_data, datetime.now())
+                    self.ticks_processed += 1
+                    self.m_ticks.inc()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    self.dropped_ticks += 1
+                    self.m_dropped.inc()
+                    self.m_dropped_by_reason.labels(reason="tick_loop_error").inc()
+                    logger.warning("Tick loop error", error=str(e))
+        except asyncio.CancelledError:
+            logger.info("Tick loop cancelled (disconnect or shutdown)")
 
     def on_bar_update(self, symbol: str, bars_list):
         """Handle 1-minute bar updates."""
@@ -371,7 +379,7 @@ class HighFrequencyTWSDaemon:
 
             # Start tick stream in async loop
             if self.loop:
-                asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
+                self._tick_task = asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
 
             # Start high-frequency processing
             self.running = True
@@ -388,7 +396,7 @@ class HighFrequencyTWSDaemon:
                         logger.warning("Disconnected from TWS, attempting reconnect...")
                         if self.connect_tws():
                             if self.loop:
-                                asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
+                                self._tick_task = asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
                             self.m_reconnects.inc()
                             self.reconnects += 1
                             self._reconnect_delay = 1.0
@@ -439,6 +447,9 @@ class HighFrequencyTWSDaemon:
         logger.warning("TWS disconnected event received")
         self.connected = False
         self.g_connected.set(0)
+        if self._tick_task is not None and not self._tick_task.done():
+            self._tick_task.cancel()
+            logger.info("Tick loop task cancelled for reconnect")
 
     # --- Market hours management ---
     def _tick_list_for_mode(self, mode: str) -> str:
