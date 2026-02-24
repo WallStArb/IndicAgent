@@ -29,6 +29,7 @@ import redis.asyncio as redis
 import structlog
 from pydantic import ValidationError
 
+from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import intelligence as sk_intelligence
 from src.intelligence.schemas import IntelligenceEvent
@@ -170,13 +171,18 @@ class FeatureWriterService:
         start_metrics_server(port=metrics_port)
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
+        try:
+            _settings = Settings()
+        except Exception:
+            _settings = None
+
         default_config: dict[str, Any] = {
             "redis": {"host": "localhost", "port": 6379, "db": 0},
             "database": {
                 "dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"
             },
             "service": {
-                "symbols": ["ESH6", "NQH6", "RTYH6", "CLK6", "GCM6", "NGK6"],
+                "symbols": get_active_contracts(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.01,
                 "metrics_port": 9116,
