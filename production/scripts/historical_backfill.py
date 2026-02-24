@@ -2,17 +2,29 @@
 """
 Historical Backfill Pipeline
 
-Fetches N days of 1m OHLCV bars from IBKR for all 14 active instruments,
-stores them in TimescaleDB, then replays bars through the full
-I1→I3→I4→I5→SMC→I6→I7 intelligence pipeline to populate signal_ledger.
+Stage 1 (--fetch-only): Fetches multi-timeframe OHLCV bars from IBKR and stores
+them in market_data_ohlcv. Short timeframes use named contracts; longer timeframes
+use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span rolls.
+
+    Timeframe  History   Contract
+    1m         35 days   Named (ESH6) — no rolls
+    5m         1 year    Continuous adjusted — ~4 rolls
+    15m        1 year    Continuous adjusted — ~4 rolls
+    1h         2 years   Continuous adjusted — ~8 rolls
+    1d         5 years   Continuous adjusted — ~20 rolls
+
+Stage 2 (--replay-only): Reads each timeframe's native stored bars and replays
+them through the full I1→I3→I4→I5→SMC→I6→I7 pipeline to populate
+signal_ledger and intelligence_features.
 
 Replaces: production/scripts/simple_seeder.py (retired)
 
 Usage:
-    python production/scripts/historical_backfill.py --days 90
-    python production/scripts/historical_backfill.py --days 90 --fetch-only
+    python production/scripts/historical_backfill.py
+    python production/scripts/historical_backfill.py --fetch-only
     python production/scripts/historical_backfill.py --replay-only
-    python production/scripts/historical_backfill.py --symbols ESH6,NQH6 --days 30
+    python production/scripts/historical_backfill.py --symbols ESH6,NQH6
+    python production/scripts/historical_backfill.py --days 60   # override 1m depth only
 """
 from __future__ import annotations
 
@@ -21,7 +33,7 @@ import json
 import sys
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -70,7 +82,17 @@ I7_PLUGINS = [
 ]
 
 MIN_BARS = 50
-DEFAULT_TIMEFRAMES = ["1m"]
+DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
+
+# Per-TF fetch config: (days_of_history, use_continuous_contract)
+# Named contract for 1m (no rolls in 35 days); continuous back-adjusted for all others.
+_TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
+    "1m":  (35,   False),  # named contract — no roll crossings
+    "5m":  (365,  True),   # continuous adjusted — ~4 rolls
+    "15m": (365,  True),   # continuous adjusted — ~4 rolls
+    "1h":  (730,  True),   # continuous adjusted — ~8 rolls
+    "1d":  (1825, True),   # continuous adjusted — ~20 rolls
+}
 
 
 def run_i1_plugins(
@@ -427,11 +449,10 @@ def run_i7_and_persist(
 # DB fetch/store layer
 # ---------------------------------------------------------------------------
 
-_FETCH_SQL = """
+_FETCH_BARS_SQL = """
 SELECT timestamp, open, high, low, close, volume
 FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = '1m'
-  AND timestamp >= NOW() - INTERVAL '%s days'
+WHERE symbol = %s AND timeframe = %s
 ORDER BY timestamp ASC
 """
 
@@ -461,16 +482,16 @@ def connect_db(settings: Settings) -> Any:
     )
 
 
-def fetch_1m_bars(conn: Any, symbol: str, days: int) -> list[dict]:
-    """Fetch all 1m OHLCV bars for *symbol* covering the last *days* calendar days."""
+def fetch_bars(conn: Any, symbol: str, timeframe: str) -> list[dict]:
+    """Fetch all stored OHLCV bars for *symbol* + *timeframe*, ordered oldest-first."""
     with conn.cursor() as cur:
-        cur.execute(_FETCH_SQL, (symbol, days))
+        cur.execute(_FETCH_BARS_SQL, (symbol, timeframe))
         rows = cur.fetchall()
     return [
         {
             "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=timezone.utc),
             "symbol": symbol,
-            "timeframe": "1m",
+            "timeframe": timeframe,
             "open": float(row[1]),
             "high": float(row[2]),
             "low": float(row[3]),
@@ -488,7 +509,7 @@ def store_bars(conn: Any, bars: list[dict], symbol: str, timeframe: str) -> int:
     params = [
         (b["timestamp"], symbol, timeframe,
          b["open"], b["high"], b["low"], b["close"], b["volume"],
-         "historical_backfill")
+         b.get("source", "historical_backfill"))
         for b in bars
     ]
     with conn.cursor() as cur:
@@ -520,17 +541,21 @@ def replay_symbol(
 
     register_all_plugins()
 
-    # Fetch all 1m bars once
-    bars_1m = fetch_1m_bars(db_conn, symbol, days=9999)  # get all available
-    if not bars_1m:
-        print(f"  {symbol}: no 1m bars in DB — run fetch stage first")
+    # Load native stored bars for each requested timeframe.
+    # Each TF reads its own rows from market_data_ohlcv (1m = named contract,
+    # 5m/1h/1d = back-adjusted continuous). Higher TFs have deeper history.
+    bars_by_tf: dict[str, list[dict]] = {}
+    for tf in timeframes:
+        bars = fetch_bars(db_conn, symbol, tf)
+        if bars:
+            bars_by_tf[tf] = bars
+            print(f"  {symbol}: {len(bars):,} {tf} bars loaded")
+        else:
+            print(f"  {symbol}: no {tf} bars in DB — skipping (run fetch stage first)")
+
+    if not bars_by_tf:
+        print(f"  {symbol}: no bars found in DB — run fetch stage first")
         return {}
-
-    print(f"  {symbol}: {len(bars_1m):,} 1m bars loaded")
-
-    # Only 1m bars are stored — higher-TF bars are materialized by TimescaleDB
-    # continuous aggregates (see db/migrations/v1.2.0_continuous_aggregates.sql)
-    bars_by_tf: dict[str, list[dict]] = {"1m": bars_1m}
 
     # Shared state across timeframes for cross-TF context
     bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
@@ -612,12 +637,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Historical Backfill — fetch IBKR bars + replay intelligence pipeline"
     )
-    parser.add_argument("--days", type=int, default=90,
-                        help="Days of history to fetch (default: 90)")
+    parser.add_argument("--days", type=int, default=35,
+                        help="Days of 1m history to fetch (default: 35). Does not affect 5m/1h/1d depths.")
     parser.add_argument("--symbols", default=None,
-                        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all 14)")
-    parser.add_argument("--timeframes", default="1m,5m,15m,1h",
-                        help="Comma-separated timeframes for replay (default: 1m,5m,15m,1h)")
+                        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all active contracts)")
+    parser.add_argument("--timeframes", default="1m,5m,15m,1h,1d",
+                        help="Comma-separated timeframes for fetch+replay (default: 1m,5m,15m,1h,1d)")
     parser.add_argument("--client-id", type=int, default=56,
                         help="IBKR client ID (default: 56)")
     parser.add_argument("--fetch-only", action="store_true",
@@ -640,8 +665,10 @@ def main() -> None:
 
     print(f"Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
-    print(f"  Days      : {args.days}")
     print(f"  Timeframes: {timeframes}")
+    tf_depths = {tf: (args.days if tf == "1m" else _TF_FETCH_CONFIG[tf][0])
+                 for tf in timeframes if tf in _TF_FETCH_CONFIG}
+    print(f"  TF depths : {tf_depths}")
     print(f"  Stages    : {'fetch+replay' if not (args.fetch_only or args.replay_only) else 'fetch-only' if args.fetch_only else 'replay-only'}")
     print()
 
@@ -664,39 +691,55 @@ def main() -> None:
             print("Continuing with replay-only...")
         else:
             end_dt = datetime.now(tz=timezone.utc)
-            start_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-            from datetime import timedelta
-            start_dt = start_dt - timedelta(days=args.days - 1)
             total_bars = 0
+            # Fetch each requested TF using its configured depth and contract type.
+            # 1m uses --days override; others use _TF_FETCH_CONFIG defaults.
+            fetch_tfs = [tf for tf in timeframes if tf in _TF_FETCH_CONFIG]
+            print(f"  Fetching TFs: {fetch_tfs}")
+            print()
             for instrument in contracts:
                 try:
                     qualified = asyncio.run(provider.qualify_instrument(instrument))
                     if not qualified:
                         print(f"  {instrument.symbol}: skipped (qualify failed)")
                         continue
-                    ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
-                        symbol=instrument.symbol,
-                        timeframe="1m",
-                        start=start_dt,
-                        end=end_dt,
-                    ))
-                    bar_dicts = [
-                        {
-                            "timestamp": b.timestamp,
-                            "open": b.open,
-                            "high": b.high,
-                            "low": b.low,
-                            "close": b.close,
-                            "volume": b.volume,
-                        }
-                        for b in ohlcv_bars
-                    ]
-                    n = store_bars(db_conn, bar_dicts, instrument.symbol, "1m")
-                    total_bars += n
-                    print(f"  {instrument.symbol}: {n} bars stored")
+                    for tf in fetch_tfs:
+                        fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
+                        if tf == "1m":
+                            fetch_days = args.days  # --days overrides 1m depth
+                        start_dt = (end_dt - timedelta(days=fetch_days)).replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+                        try:
+                            ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
+                                symbol=instrument.symbol,
+                                timeframe=tf,
+                                start=start_dt,
+                                end=end_dt,
+                                continuous=use_continuous,
+                            ))
+                            bar_dicts = [
+                                {
+                                    "timestamp": b.timestamp,
+                                    "open": b.open,
+                                    "high": b.high,
+                                    "low": b.low,
+                                    "close": b.close,
+                                    "volume": b.volume,
+                                    "source": b.source,
+                                }
+                                for b in ohlcv_bars
+                            ]
+                            n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
+                            total_bars += n
+                            label = "continuous-adj" if use_continuous else "named"
+                            print(f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n} bars stored")
+                        except Exception as e:
+                            print(f"  {instrument.symbol}/{tf}: error — {e}")
+                        time.sleep(2)  # IBKR pacing between TF requests
                 except Exception as e:
                     print(f"  {instrument.symbol}: error — {e}")
-                time.sleep(2)  # IBKR pacing
+                time.sleep(2)  # IBKR pacing between instruments
             asyncio.run(provider.disconnect())
             print(f"\nStage 1 complete: {total_bars:,} total bars stored\n")
 

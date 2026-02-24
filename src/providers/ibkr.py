@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
 
 import nest_asyncio
-from ib_insync import IB, Future, Stock
+from ib_insync import IB, ContFuture, Future, Stock
 
 nest_asyncio.apply()
 
@@ -91,6 +91,7 @@ class IBKRProvider:
         timeframe: str,
         start: datetime,
         end: datetime,
+        continuous: bool = False,
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars from IBKR.
 
@@ -99,6 +100,13 @@ class IBKRProvider:
         chronologically with a 10-second pause between requests for pacing.
 
         Requires the contract to be pre-qualified via qualify_instrument().
+
+        Args:
+            continuous: If True, fetch back-adjusted continuous contract data
+                (ContFuture + ADJUSTED_LAST) instead of the named contract.
+                Use for multi-year history that spans contract rolls. The named
+                contract must still be pre-qualified so the base symbol and
+                exchange can be resolved.
         """
         if timeframe not in _TF_TO_IB:
             raise ValueError(f"Unsupported timeframe '{timeframe}'. Valid: {list(_TF_TO_IB)}")
@@ -106,9 +114,20 @@ class IBKRProvider:
         if not self._ib:
             raise RuntimeError("Not connected. Call connect() first.")
 
-        contract = self._qualified_contracts.get(symbol)
-        if not contract:
+        named_contract = self._qualified_contracts.get(symbol)
+        if not named_contract:
             raise ValueError(f"Unknown symbol '{symbol}'. Call qualify_instrument() first.")
+
+        if continuous:
+            base = getattr(named_contract, "symbol", symbol)
+            exchange = getattr(named_contract, "exchange", "CME")
+            contract = ContFuture(symbol=base, exchange=exchange)
+            what_to_show = "ADJUSTED_LAST"
+            source_tag = "ibkr_continuous_adj"
+        else:
+            contract = named_contract
+            what_to_show = "TRADES"
+            source_tag = "ibkr_named"
 
         chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
         all_bars: list[OHLCVBar] = []
@@ -128,7 +147,7 @@ class IBKRProvider:
                 endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
                 durationStr=f"{duration} D",
                 barSizeSetting=_TF_TO_IB[timeframe],
-                whatToShow="TRADES",
+                whatToShow=what_to_show,
                 useRTH=False,
                 formatDate=1,
             )
@@ -143,7 +162,7 @@ class IBKRProvider:
                     low=float(bar.low),
                     close=float(bar.close),
                     volume=int(bar.volume),
-                    source="ibkr",
+                    source=source_tag,
                 ))
 
             chunk_start = chunk_end + timedelta(days=1)
