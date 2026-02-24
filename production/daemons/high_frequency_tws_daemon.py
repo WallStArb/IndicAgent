@@ -391,6 +391,16 @@ class HighFrequencyTWSDaemon:
             # Main loop - minimal processing, ticks handled by _tick_loop
             while self.running:
                 try:
+                    # Secondary disconnect detection: catches false-connected state
+                    # (self.connected=True but provider actually disconnected)
+                    if self.connected and self.provider and not self.provider.is_connected():
+                        logger.warning(
+                            "Provider reports disconnected — correcting false-connected state",
+                            connected_flag=self.connected,
+                        )
+                        self.connected = False
+                        self._on_disconnected()
+
                     # Attempt reconnect if disconnected
                     if not self.connected:
                         logger.warning("Disconnected from TWS, attempting reconnect...")
