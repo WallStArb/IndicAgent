@@ -12,21 +12,22 @@ Real-time futures trading intelligence platform with plugin-native architecture,
 
 ## Knowledge Hierarchy
 
-Ideas and plans live in a 5-level hierarchy:
+Ideas and plans live in a 6-level hierarchy:
 
 ```
-IDEAS → ANALYSIS → BACKLOG → ROADMAP → PLANS
+IDEAS → ANALYSIS → BACKLOG → TODOS → ROADMAP → PLANS
 ```
 
 | Level | Location | Description |
 |-------|----------|-------------|
 | **Ideas** | `.planning/IDEAS.md` | Rough captures — no structure required, no commitment |
 | **Analysis** | `.planning/analysis/*.md` | Architecture decisions, trade-offs, design discussions |
-| **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Decided but unscheduled; waiting for a phase slot |
+| **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features that would become their own phase |
+| **Todos** | `.planning/todos/pending/` | Implementation tasks: fixes, refactors, small improvements — bundled into existing phases |
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases (GSD-managed) |
 | **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (GSD-managed) |
 
-**When to file where:** Capture rough ideas in IDEAS.md immediately — they don't need to be polished. If a design discussion produces a decision (like today's continuous contracts analysis), save it to `analysis/`. When something is ready to build, move it to the Backlog section of ROADMAP.md. GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
+**When to file where:** Capture rough ideas in IDEAS.md immediately. Design discussions that produce decisions go to `analysis/`. Use `/gsd:add-todo` for implementation-level tasks (bug fixes, refactors, small improvements) — bundled into phase plans when relevant. Use ROADMAP.md `## Backlog` for milestone-scale features that would become their own phase (new service, ML model, auth layer). GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
 
 ## Required Workflows
 
@@ -50,6 +51,11 @@ IDEAS → ANALYSIS → BACKLOG → ROADMAP → PLANS
 
 ### Library & Framework Documentation
 - Use `context7` MCP for any library/framework question — FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
+
+### Todo Management
+- `/gsd:add-todo` — capture implementation tasks during a session
+- `/gsd:check-todos` — select a todo and route to work
+- `/gsd:review-todos` — review all todos: close done/won't-do, update stale content
 
 ## Core Commands
 
@@ -234,6 +240,7 @@ ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals)
 - **Services**: graceful SIGINT/SIGTERM, drain queues, `await` Redis close, idempotent consumer groups.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
 - **IBKR**: tick list `"233"` for futures. VIX symbol is `"VX"` (not "VIX"). Client IDs 35+ range. All ib_insync in `src/providers/ibkr.py` only.
+- **DragonflyDB**: Does not support Redis modules — `TS.*` (TimeSeries) and RediSearch native module commands are unavailable. Use TimescaleDB for time series storage.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Plugin protocol**: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
