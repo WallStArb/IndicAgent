@@ -324,7 +324,7 @@ class HighFrequencyTWSDaemon:
             bars_processed=self.bars_processed,
             tick_rate_per_sec=round(tick_rate, 2),
             performance=performance,
-            symbols=len(self.subscribed_symbols),
+            symbols=len(self.contracts),
         )
 
     def run(self) -> None:
