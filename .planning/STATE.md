@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 3 — Historical Data
+**Current focus:** Phase 4 — Query API
 
 ## Current Position
 
-Phase: 3 of 6 IN PROGRESS
+Phase: 4 of 6 IN PROGRESS
 Plan: 1/3 complete
-Status: Phase 3 Plan 1 executed — intelligence_features dual-write in historical_backfill (TDD, 23/23 tests pass).
-Last activity: 2026-02-24 — 03-01: _build_intelligence_event + _insert_features_sync + feature_ts JOIN linkage added to historical_backfill.py
+Status: Phase 4 Plan 1 executed — intelligence_features query route with paginated JSON + Parquet export (TDD, 7/7 tests pass).
+Last activity: 2026-02-24 — 04-01: GET /api/features/{symbol}/{timeframe} + GET /api/features/export implemented in features.py
 
-Progress: [████░░░░░░] 43% (10/16 plans complete across Phases 0-3)
+Progress: [█████░░░░░] 50% (11/16 plans complete across Phases 0-4)
 
 ## Performance Metrics
 
@@ -30,9 +30,10 @@ Progress: [████░░░░░░] 43% (10/16 plans complete across Phas
 | 01-typed-event-schema | 3 | ~63min | ~21min |
 | 02-feature-store | 3 | ~18min | ~6min |
 | 03-historical-data | 1/3 | ~3min | ~3min |
+| 04-query-api | 1/3 | ~2min | ~2min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (~8min), 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min)
+- Last 5 plans: 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min), 04-01 (~2min)
 - Trend: On track, accelerating
 
 *Updated after each plan completion*
@@ -76,6 +77,10 @@ Recent decisions from execution (2026-02-24):
 - 03-01: _build_intelligence_event wraps entire body in try/except: returns None on any failure (never crashes replay loop)
 - 03-01: feature_ts=ts populated on signal_ledger when intelligence_features row was written — enables JOIN from signal to feature context (reverses Phase 2 NULL decision which was provisional)
 - 03-01: replay_symbol inserts features per bar (not per signal) — every MIN_BARS-qualified bar gets a feature row for maximum ML coverage
+- 04-01: route ordering critical: /features/export registered before /features/{symbol}/{timeframe} to prevent FastAPI matching "export" as {symbol} path param
+- 04-01: test_app pattern: minimal FastAPI instance mounts router directly — avoids main.py lifespan startup (no DB/Redis in unit tests)
+- 04-01: _parse_jsonb() handles None, JSON string, and pre-parsed dict for asyncpg future-proofing
+- 04-01: features router NOT wired into main.py in this plan — Plan 03 responsibility
 
 ### Pending Todos
 
@@ -90,5 +95,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: 03-01-PLAN.md complete — intelligence_features write path implemented in historical_backfill.py (TDD: 23/23 tests pass). Next: 03-02 (run 365-day backfill) and 03-03 (validation).
+Stopped at: 04-01-PLAN.md complete — intelligence_features query route (paginated JSON + Parquet export) implemented in features.py (TDD: 7/7 tests pass). Next: 04-02 (signal_ledger query route) or 04-03 (wire both routers into main.py).
 Resume file: None

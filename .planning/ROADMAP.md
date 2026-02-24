@@ -82,7 +82,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — TDD: GET /api/features/{symbol}/{timeframe} + GET /api/features/export (Parquet) with pyarrow
+- [x] 04-01-PLAN.md — TDD: GET /api/features/{symbol}/{timeframe} + GET /api/features/export (Parquet) with pyarrow
 - [ ] 04-02-PLAN.md — TDD: GET /api/signals/{symbol} with optional intelligence_features LEFT JOIN
 - [ ] 04-03-PLAN.md — Wire routers into main.py + SSE intelligence_data payload tests (API-03)
 
@@ -127,7 +127,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Typed Event Schema | 3/3 | Complete | 2026-02-23 |
 | 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
 | 3. Historical Data | 3/3 | In progress | - |
-| 4. Query API | 0/2 | Not started | - |
+| 4. Query API | 1/3 | In progress | - |
 | 5. ML Scoring Model | 0/3 | Not started | - |
 | 6. Auth and External Access | 0/2 | Not started | - |
 

@@ -62,7 +62,7 @@ Building this milestone.
 - [x] **HST-03**: Backfill writes both `signal_ledger` and `intelligence_features` in Stage 2
 
 ### Query API
-- [ ] **API-01**: `GET /api/features/{symbol}/{timeframe}` returns paginated `intelligence_features` with date range filter
+- [x] **API-01**: `GET /api/features/{symbol}/{timeframe}` returns paginated `intelligence_features` with date range filter
 - [ ] **API-02**: `GET /api/signals/{symbol}` returns signal history with optional JOIN to feature context
 - [ ] **API-03**: Existing SSE stream endpoint updated to publish typed `IntelligenceEvent` payloads
 
@@ -114,7 +114,7 @@ Deferred — not in this milestone's roadmap.
 | HST-01 | Phase 3 | Historical Data | Pending |
 | HST-02 | Phase 3 | Historical Data | Pending |
 | HST-03 | Phase 3 | Historical Data | Pending |
-| API-01 | Phase 4 | Query API | Pending |
+| API-01 | Phase 4 | Query API | Complete |
 | API-02 | Phase 4 | Query API | Pending |
 | API-03 | Phase 4 | Query API | Pending |
 | ML-01 | Phase 5 | ML Scoring Model | Pending |
