@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 5 — Auth Layer (Phase 4 complete)
+**Current focus:** Phase 5 — Live Pipeline (Phases 0–4 complete; roadmap reshaped 2026-02-24)
 
 ## Current Position
 
-Phase: 4 of 6 COMPLETE
+Phase: 4 of 7 COMPLETE
 Plan: 3/3 complete
-Status: Phase 4 complete — features + signals routers registered in main.py; SSE intelligence_data payload format locked by 9 tests.
-Last activity: 2026-02-24 — 04-03: main.py router registration + SSE payload test coverage (API-03 satisfied)
+Status: Phases 0–4 fully complete and documented. Roadmap reshaped: Phase 5 = Live Pipeline, Phase 6 = Dashboard Connected, Phase 7 = Dashboard Complete. ML and Auth moved to backlog.
+Last activity: 2026-02-24 — roadmap reshaped; ready to plan Phase 5 (Live Pipeline)
 
-Progress: [██████░░░░] 60% (13/16 plans complete across Phases 0-4)
+Progress: [████░░░░░░░] ~57% (12/21 plans complete across Phases 0-4)
 
 ## Performance Metrics
 
@@ -103,5 +103,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: 04-03-PLAN.md complete — Phase 4 (Query API) fully complete. All 3 plans done: features route, signals route, router registration + SSE payload tests. 26 API unit tests pass. Next: Phase 5 (Auth) or Phase 3 completion.
+Stopped at: Phase 3 + Phase 4 both fully complete and documented. All SUMMARY files written, stale .continue-here files removed. DB validated: 391,564 intelligence_features rows, 248,261 signals, 0 orphans. Ready for Phase 5 (Auth Layer).
 Resume file: None

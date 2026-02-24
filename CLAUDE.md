@@ -269,7 +269,7 @@ OLLAMA_DEFAULT_MODEL="qwen3:8b"
 
 **Architecture:**
 - `docs/architecture/intelligence-tiers.md`
-- `docs/architecture/stream-schemas.md`
+- `docs/reference/schemas/stream-schemas.md`
 - `docs/architecture/plugin-registry-and-dag-execution.md`
 
 **External APIs:**

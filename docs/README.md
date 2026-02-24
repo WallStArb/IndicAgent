@@ -16,12 +16,12 @@ Choose your path based on what you need:
 ### Working on the platform?
 **→ [STATUS.md](STATUS.md)** — Current state, versions, health
 **→ [Guides](guides/)** — How to add plugins, run services, debug
-**→ [MASTER_ROADMAP.md](roadmap/MASTER_ROADMAP.md)** — What's next
+**→ [Roadmap](../.planning/ROADMAP.md)** — What's next
 
 ### Understanding the architecture?
 **→ [Intelligence Tiers](concepts/intelligence-tiers.md)** — I1-I8 framework
 **→ [Plugin Architecture](concepts/plugin-architecture.md)** — How plugins work
-**→ [Data Pipeline](concepts/data-pipeline.md)** — Hot/warm/cold data flow
+**→ [Stream Schemas](reference/schemas/stream-schemas.md)** — Redis data formats
 
 ### Looking up specifics?
 **→ [Plugin Reference](reference/plugins/)** — All 57 plugins documented
@@ -33,7 +33,7 @@ Choose your path based on what you need:
 **→ [Code Standards](contributing/code-standards.md)** — Linting, naming, testing
 
 ### AI Assistant?
-**→ [CLAUDE.md](for-ai-assistants/CLAUDE.md)** — Project conventions and context
+**→ [CLAUDE.md](../CLAUDE.md)** — Project conventions and context
 
 ---
 
@@ -41,15 +41,13 @@ Choose your path based on what you need:
 
 ```
 docs/
-├── STATUS.md              ← Single source of truth
+├── STATUS.md              ← Current status
 ├── getting-started/       ← Tutorials and onboarding
 ├── guides/                ← Task-oriented how-tos
 ├── concepts/              ← Deep architectural understanding
 ├── reference/             ← API & technical specs
-├── roadmap/               ← MASTER_ROADMAP.md
 ├── plans/                 ← Design docs and implementation plans (historical)
-├── contributing/          ← For contributors
-└── for-ai-assistants/     ← CLAUDE.md
+└── contributing/          ← For contributors
 ```
 
 ---
