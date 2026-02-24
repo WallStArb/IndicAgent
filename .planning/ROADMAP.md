@@ -63,11 +63,12 @@ Plans:
   1. signal_ledger contains 2,700+ signals covering 365 days of trading across the configured contracts and timeframes
   2. intelligence_features contains corresponding feature rows for the same date range — every signal row has a valid JOIN to a feature row
   3. Historical backfill runs to completion without crashing; a dry-run status check after completion shows no orphaned signals (signals without matching feature rows)
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [x] 03-01-PLAN.md — Extend historical_backfill.py Stage 2 to write to intelligence_features alongside signal_ledger; set source='backfill' (TDD)
 - [ ] 03-02-PLAN.md — Run backfill for 365 days (--days 365) and validate row counts and JOIN integrity
+- [ ] 03-03-PLAN.md — Post-backfill SQL validation audit: row counts, date coverage, JOIN integrity, JSONB structure check
 
 ### Phase 4: Query API
 **Goal**: Historical intelligence data is queryable via REST endpoints — feature context, signal history, and SSE stream all speak IntelligenceEvent
@@ -124,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 0. GARCH/Kalman Quality Gates | 3/3 | Complete | 2026-02-22 |
 | 1. Typed Event Schema | 3/3 | Complete | 2026-02-23 |
 | 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
-| 3. Historical Data | 2/2 | In progress | - |
+| 3. Historical Data | 3/3 | In progress | - |
 | 4. Query API | 0/2 | Not started | - |
 | 5. ML Scoring Model | 0/3 | Not started | - |
 | 6. Auth and External Access | 0/2 | Not started | - |
