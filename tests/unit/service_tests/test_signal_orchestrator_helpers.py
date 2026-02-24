@@ -27,7 +27,7 @@ def _make_valid_event_json() -> bytes:
             nearest_support=5080.0,
             nearest_resistance=5120.0,
             trend_strength=0.65,
-            swing_pattern="HH->HL",
+            swing_pattern=1.0,
         ),
         i4=I4Context(
             trend_regime=0.65,

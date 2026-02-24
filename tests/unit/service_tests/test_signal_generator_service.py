@@ -30,7 +30,7 @@ def _make_valid_event_json() -> bytes:
             nearest_support=5080.0,
             nearest_resistance=5120.0,
             trend_strength=0.65,
-            swing_pattern="HH->HL",
+            swing_pattern=1.0,
         ),
         i4=I4Context(
             trend_regime=0.65,
@@ -121,7 +121,7 @@ def test_build_features_from_event_maps_typed_attributes():
         tf="5m",
         bar=OHLCVBar(o=5100.0, h=5105.0, l=5099.0, c=5103.0, v=10000),
         i1=I1Indicators(rsi_14=55.0, atr_14=10.0),
-        i3=I3Structure(trend_strength=0.7, swing_pattern="HH->HL"),
+        i3=I3Structure(trend_strength=0.7, swing_pattern=1.0),
         i4=I4Context(
             trend_regime=0.6,
             trend_confidence=0.75,
@@ -141,7 +141,7 @@ def test_build_features_from_event_maps_typed_attributes():
     assert features["atr_14"] == pytest.approx(10.0)
     assert features["rsi_14"] == pytest.approx(55.0)
     assert features["ctf_score"] == pytest.approx(0.8)
-    assert features["swing_pattern"] == "HH->HL"
+    assert features["swing_pattern"] == pytest.approx(1.0)
     assert features["trend_strength"] == pytest.approx(0.7)
     assert features["volatility_percentile"] == pytest.approx(55.0)
     assert features["hmm_regime_state"] == pytest.approx(1.0)

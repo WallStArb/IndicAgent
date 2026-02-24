@@ -106,9 +106,9 @@ class I3Structure(BaseModel):
     swing_low: float | None = None
     swing_high_idx: float | None = None
     swing_low_idx: float | None = None
-    swing_pattern: str | None = None          # "HH->HL" etc — string, not float
-    swing_high_type: str | None = None        # "HH" / "LH"
-    swing_low_type: str | None = None         # "HL" / "LL"
+    swing_pattern: float | None = None        # 1.0=uptrend (HH+HL), -1.0=downtrend (LH+LL), 0.0=mixed
+    swing_high_type: float | None = None      # 1.0=HH, -1.0=LH, 0.0=none
+    swing_low_type: float | None = None       # 1.0=HL, -1.0=LL, 0.0=none
     swing_high_age_bars: float | None = None
     swing_low_age_bars: float | None = None
 
@@ -199,8 +199,8 @@ class I5Patterns(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # RSIDivergencePlugin outputs
-    rsi_div_bullish: bool | None = None
-    rsi_div_bearish: bool | None = None
+    rsi_div_bullish: float | None = None      # confidence score 0.0–1.0 (not a boolean flag)
+    rsi_div_bearish: float | None = None      # confidence score 0.0–1.0
     rsi_div_strength: float | None = None
 
     # BollingerSqueezePlugin outputs
@@ -218,8 +218,8 @@ class I5Patterns(BaseModel):
     meanrev_confluence_agreement: float | None = None
 
     # VolumeDivergencePlugin outputs
-    vol_div_bullish: bool | None = None
-    vol_div_bearish: bool | None = None
+    vol_div_bullish: float | None = None      # confidence score 0.0–1.0 (not a boolean flag)
+    vol_div_bearish: float | None = None      # confidence score 0.0–1.0
     vol_div_strength: float | None = None
 
     # DoubleTBPlugin outputs (double top/bottom)
@@ -272,10 +272,10 @@ class SMCContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # BOSCHoCHPlugin outputs
-    bos_detected: bool | None = None
+    bos_detected: float | None = None         # 0.0/1.0 flag (plugin returns float, not bool)
     bos_direction: int | None = None          # -1/0/1
     bos_level: float | None = None
-    choch_detected: bool | None = None
+    choch_detected: float | None = None       # 0.0/1.0 flag
     choch_direction: int | None = None        # -1/0/1
     smc_trend_direction: int | None = None    # renamed from trend_direction to avoid I3 collision
 
@@ -292,15 +292,15 @@ class SMCContext(BaseModel):
     ob_top: float | None = None
     ob_bottom: float | None = None
     ob_strength: float | None = None
-    ob_mitigated: bool | None = None
+    ob_mitigated: float | None = None         # 0.0/1.0 flag
     ob_distance_pct: float | None = None
 
     # LiquiditySweepsPlugin outputs
-    sweep_detected: bool | None = None
+    sweep_detected: float | None = None       # 0.0/1.0 flag
     sweep_type: int | None = None             # -1/0/1
     sweep_level: float | None = None
     sweep_depth_pct: float | None = None
-    sweep_reclaimed: bool | None = None
+    sweep_reclaimed: float | None = None      # 0.0/1.0 flag
 
     # BOCPDChangePointPlugin outputs
     cp_probability: float | None = None

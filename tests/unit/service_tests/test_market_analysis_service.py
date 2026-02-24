@@ -109,19 +109,19 @@ class TestIntelligenceEventSchema:
         assert ctx.garch_vol_regime == 1
         assert isinstance(ctx.garch_vol_regime, int)
 
-    def test_i3_structure_swing_pattern_is_str(self):
-        """swing_pattern is str | None — accepts string like 'HH->HL'."""
+    def test_i3_structure_swing_pattern_is_float(self):
+        """swing_pattern is float | None — plugin returns numeric encoding (1.0=uptrend, -1.0=downtrend)."""
         from src.intelligence.schemas import I3Structure
 
-        s3 = I3Structure(swing_pattern="HH->HL")
-        assert s3.swing_pattern == "HH->HL"
+        s3 = I3Structure(swing_pattern=1.0)
+        assert s3.swing_pattern == 1.0
 
-    def test_smc_context_bos_detected_is_bool(self):
-        """bos_detected is bool | None — accepts True."""
+    def test_smc_context_bos_detected_is_float(self):
+        """bos_detected is float | None — plugin returns 0.0/1.0 flag, not a boolean."""
         from src.intelligence.schemas import SMCContext
 
-        smc = SMCContext(bos_detected=True, bos_direction=1, bos_level=4950.0)
-        assert smc.bos_detected is True
+        smc = SMCContext(bos_detected=1.0, bos_direction=1, bos_level=4950.0)
+        assert smc.bos_detected == 1.0
 
     def test_intelligence_event_model_dump_json_roundtrip(self):
         """model_dump_json() produces valid JSON that model_validate_json() can round-trip."""
@@ -142,7 +142,7 @@ class TestIntelligenceEventSchema:
             tf="5m",
             bar=OHLCVBar(o=20000.0, h=20050.0, l=19990.0, c=20025.0, v=500),
             i1=I1Indicators(rsi_14=55.0, atr_14=25.0),
-            i3=I3Structure(swing_high=20050.0, swing_pattern="HH->HL"),
+            i3=I3Structure(swing_high=20050.0, swing_pattern=1.0),
             i4=I4Context(garch_sigma=0.015, garch_vol_regime=1),
             i5=I5Patterns(squeeze_active=0.0),
             smc=SMCContext(bos_detected=False),
@@ -158,7 +158,7 @@ class TestIntelligenceEventSchema:
         assert recovered.symbol == "NQ"
         assert recovered.tf == "5m"
         assert recovered.i4.garch_vol_regime == 1
-        assert recovered.i3.swing_pattern == "HH->HL"
+        assert recovered.i3.swing_pattern == 1.0
 
     def test_i4_context_with_garch_kalman_values(self):
         """I4Context with realistic GARCH/Kalman values constructs and validates."""
@@ -342,7 +342,7 @@ class TestPublisherFormat:
         i1_features = {"rsi_14": 60.0, "atr_14": 12.5}
         tiered = self._make_tiered(
             i4={"garch_sigma": 0.015, "garch_vol_regime": 1},
-            i3={"swing_pattern": "HH->HL"},
+            i3={"swing_pattern": 1.0},
         )
 
         await svc._publish_intelligence("ES", "1m", tiered, ts, bar_data, i1_features)
