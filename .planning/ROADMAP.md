@@ -144,6 +144,7 @@ Items decided but not yet scheduled into a phase. Pull into a milestone when rea
 
 | Item | Notes | Analysis |
 |------|-------|---------|
+| Add i7/i8 columns to intelligence_features | Add `i7 JSONB` (which setups fired + scores) and `i8 JSONB` (narrative text + model metadata) to `intelligence_features`. Use enrichment stream pattern: signal_generator → `intelligence_i7:SYMBOL:TF`, ai_narrative → `intelligence_i8:SYMBOL:TF`; feature_writer UPSERTs both. Keeps `signal_ledger` as operational trading log. | `analysis/2026-02-24-feature-store-completeness.md` |
 | ML Scoring Model | Train XGBoost/LightGBM on `intelligence_features` joined to `signal_ledger` outcomes; A/B test rules vs scored aggregator; monthly retraining pipeline. Needs ~90 days of signal history. Files: `feature_engineering.py`, `calibrate_model.py`, `scored_aggregator.py`. | — |
 | Auth and External Access | JWT + API key auth via single Depends(verify_auth); Cloudflare Tunnel for HTTPS external access; authenticated SSE for Vercel frontend. Revisit when external consumer exists. | — |
 | Gap-fill service | Detect + backfill gaps in `market_data_ohlcv` from downtime/TWS disconnects. Fetch only missing windows, replay Stage 2 for those windows only. | — |
