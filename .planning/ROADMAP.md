@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Typed Event Schema** - Define IntelligenceEvent Pydantic schema, update publisher, migrate consumers, deprecate old service
 - [x] **Phase 2: Feature Store** - intelligence_features hypertable, Feature Writer Service, signal_ledger enhancement (completed 2026-02-23)
 - [ ] **Phase 3: Historical Data** - Run 365-day backfill populating signal_ledger and intelligence_features
-- [ ] **Phase 4: Query API** - Historical feature and signal query endpoints on existing FastAPI
+- [x] **Phase 4: Query API** - Historical feature and signal query endpoints on existing FastAPI (completed 2026-02-24)
 - [ ] **Phase 5: ML Scoring Model** - Train predictive model on intelligence_features, score signals at generation time
 - [ ] **Phase 6: Auth and External Access** - JWT+API key auth layer, Cloudflare Tunnel, authenticated SSE for external consumers
 
@@ -127,7 +127,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Typed Event Schema | 3/3 | Complete | 2026-02-23 |
 | 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
 | 3. Historical Data | 3/3 | In progress | - |
-| 4. Query API | 2/3 | In Progress|  |
+| 4. Query API | 3/3 | Complete   | 2026-02-24 |
 | 5. ML Scoring Model | 0/3 | Not started | - |
 | 6. Auth and External Access | 0/2 | Not started | - |
 

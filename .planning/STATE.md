@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 4 — Query API
+**Current focus:** Phase 5 — Auth Layer (Phase 4 complete)
 
 ## Current Position
 
-Phase: 4 of 6 IN PROGRESS
-Plan: 2/3 complete
-Status: Phase 4 Plan 2 executed — signal_ledger query route with optional intelligence_features LEFT JOIN (TDD, 7/7 tests pass).
-Last activity: 2026-02-24 — 04-02: GET /api/signals/{symbol} with include_features, base symbol resolution, NULL feature_ts safety
+Phase: 4 of 6 COMPLETE
+Plan: 3/3 complete
+Status: Phase 4 complete — features + signals routers registered in main.py; SSE intelligence_data payload format locked by 9 tests.
+Last activity: 2026-02-24 — 04-03: main.py router registration + SSE payload test coverage (API-03 satisfied)
 
-Progress: [█████░░░░░] 53% (12/16 plans complete across Phases 0-4)
+Progress: [██████░░░░] 60% (13/16 plans complete across Phases 0-4)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7 (this milestone)
-- Average duration: ~12min
-- Total execution time: ~84min
+- Total plans completed: 8 (this milestone)
+- Average duration: ~10min
+- Total execution time: ~86min
 
 **By Phase:**
 
@@ -30,10 +30,10 @@ Progress: [█████░░░░░] 53% (12/16 plans complete across Phas
 | 01-typed-event-schema | 3 | ~63min | ~21min |
 | 02-feature-store | 3 | ~18min | ~6min |
 | 03-historical-data | 1/3 | ~3min | ~3min |
-| 04-query-api | 2/3 | ~4min | ~2min |
+| 04-query-api | 3/3 | ~6min | ~2min |
 
 **Recent Trend:**
-- Last 5 plans: 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min), 04-01 (~2min)
+- Last 5 plans: 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min), 04-01 (~2min), 04-02 (~2min), 04-03 (~2min)
 - Trend: On track, accelerating
 
 *Updated after each plan completion*
@@ -85,6 +85,9 @@ Recent decisions from execution (2026-02-24):
 - 04-02: NULL feature_ts short-circuits to signal["features"] = None; non-null → nested dict with parsed JSONB tiers
 - 04-02: limit is $2 positional param (LIMIT $2 clause); from_ts=$3, to_ts=$4 — same ordering across both query branches
 - 04-02: signals router NOT wired into main.py in this plan — Plan 03 responsibility
+- 04-03: IntelligenceEvent constructor in tests requires full field set (bar, i1-i6 sub-models); adapted plan's simplified test code using _make_minimal_event() helper pattern
+- 04-03: SSE payload convention confirmed: {"event": "<IntelligenceEvent JSON string>"} — dashboard calls JSON.parse(payload.event)
+- 04-03: Pre-existing test failures (test_settings, test_ibkr_provider, test_market_analysis_service) are out-of-scope — not caused by Phase 4 changes
 
 ### Pending Todos
 
@@ -94,10 +97,11 @@ None yet.
 
 - IBKR TWS must be running on Windows LAN (10.0.0.33) for Phase 3 backfill to run Stage 1 fetch
 - Phase 3 backfill duration unknown — 365 days of 1m data across multiple contracts may take significant time; plan accordingly
-- Auth (Phase 6) depends only on Phase 4 (API exists), not Phase 5 (ML) — phases can run in parallel if needed
+- Auth (Phase 5) depends only on Phase 4 (API exists) — Phase 4 now complete, Phase 5 can begin
+- Pre-existing unit test failures (12 tests) in test_settings.py, test_ibkr_provider.py, test_market_analysis_service.py, test_signal_generator_service.py, test_historical_backfill.py — need investigation in a separate bug-fix session
 
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: 04-02-PLAN.md complete — signal_ledger query route with optional LEFT JOIN to intelligence_features implemented in signals.py (TDD: 7/7 tests pass). Next: 04-03 (wire features + signals routers into main.py).
+Stopped at: 04-03-PLAN.md complete — Phase 4 (Query API) fully complete. All 3 plans done: features route, signals route, router registration + SSE payload tests. 26 API unit tests pass. Next: Phase 5 (Auth) or Phase 3 completion.
 Resume file: None
