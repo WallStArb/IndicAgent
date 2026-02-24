@@ -147,6 +147,116 @@ def run_analysis_pipeline(
 
 
 # ---------------------------------------------------------------------------
+# Intelligence features — sync DB insert (mirrors feature_writer_service with %s placeholders)
+# ---------------------------------------------------------------------------
+
+_INSERT_FEATURE_SYNC_SQL = """
+INSERT INTO intelligence_features (
+    ts, symbol, tf, platform, source, schema_version,
+    bar, i1, i3, i4, i5, smc, i6
+) VALUES (%s, %s, %s, %s, %s, %s,
+    %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)
+ON CONFLICT (ts, symbol, tf) DO NOTHING
+"""
+
+
+def _build_intelligence_event(
+    bar: dict,
+    i1_features: dict,
+    intelligence: dict,
+    symbol: str,
+    tf: str,
+    ts: "datetime",
+) -> Any:
+    """Build IntelligenceEvent from per-bar pipeline outputs.
+
+    Returns None on any exception (never crashes the replay loop).
+    source is always 'backfill'.
+
+    Args:
+        bar: dict with keys 'open', 'high', 'low', 'close', 'volume'
+        i1_features: flat dict of I1 indicator outputs (extra='allow' model)
+        intelligence: merged flat dict from run_analysis_pipeline (all tiers)
+        symbol: contract symbol (e.g. 'ESH6')
+        tf: timeframe string (e.g. '1m')
+        ts: bar timestamp (timezone-aware datetime)
+    """
+    try:
+        from src.intelligence.schemas import (
+            IntelligenceEvent, OHLCVBar, I1Indicators,
+            I3Structure, I4Context, I5Patterns, SMCContext, I6Confluence,
+        )
+
+        def _pick(model_cls: Any, src: dict) -> dict:
+            """Filter src to only keys declared in model_cls.model_fields."""
+            fields = model_cls.model_fields.keys()
+            return {k: v for k, v in src.items() if k in fields}
+
+        return IntelligenceEvent(
+            ts=ts,
+            symbol=symbol,
+            tf=tf,
+            source="backfill",
+            bar=OHLCVBar(
+                o=float(bar["open"]),
+                h=float(bar["high"]),
+                l=float(bar["low"]),
+                c=float(bar["close"]),
+                v=int(bar["volume"]),
+            ),
+            i1=I1Indicators(**_pick(I1Indicators, i1_features)),
+            i3=I3Structure(**_pick(I3Structure, intelligence)),
+            i4=I4Context(**_pick(I4Context, intelligence)),
+            i5=I5Patterns(**_pick(I5Patterns, intelligence)),
+            smc=SMCContext(**_pick(SMCContext, intelligence)),
+            i6=I6Confluence(**_pick(I6Confluence, intelligence)),
+        )
+    except Exception:
+        return None
+
+
+def _event_to_sync_params(event: Any) -> tuple:
+    """Serialize IntelligenceEvent to a 13-element tuple for psycopg2 batch insert.
+
+    Column order matches _INSERT_FEATURE_SYNC_SQL:
+      ts, symbol, tf, platform, source, schema_version,
+      bar, i1, i3, i4, i5, smc, i6
+
+    bar and i1 are serialized with model_dump() (include None values for completeness).
+    i3, i4, i5, smc, i6 are serialized with model_dump(exclude_none=True) for compactness.
+    """
+    return (
+        event.ts,                                                # datetime — psycopg2 native
+        event.symbol,
+        event.tf,
+        event.platform,
+        event.source,
+        event.schema_version,
+        json.dumps(event.bar.model_dump()),                      # bar: include all fields
+        json.dumps(event.i1.model_dump()),                       # i1: include all fields
+        json.dumps(event.i3.model_dump(exclude_none=True)),      # i3: sparse (extra='forbid')
+        json.dumps(event.i4.model_dump(exclude_none=True)),      # i4: sparse
+        json.dumps(event.i5.model_dump(exclude_none=True)),      # i5: sparse
+        json.dumps(event.smc.model_dump(exclude_none=True)),     # smc: sparse
+        json.dumps(event.i6.model_dump(exclude_none=True)),      # i6: sparse
+    )
+
+
+def _insert_features_sync(conn: Any, rows: list) -> None:
+    """Synchronous psycopg2 batch insert into intelligence_features.
+
+    Args:
+        conn: psycopg2 connection
+        rows: list of 13-element tuples from _event_to_sync_params()
+    """
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_batch(cur, _INSERT_FEATURE_SYNC_SQL, rows)
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
 # Signal generation + sync DB insert
 # ---------------------------------------------------------------------------
 
@@ -181,8 +291,20 @@ def _build_ledger_entries(
     timeframe: str,
     timestamp: datetime,
     features: dict[str, Any],
+    feature_ts: "datetime | None" = None,
+    feature_tf: "str | None" = None,
 ) -> list[LedgerEntry]:
-    """Convert an AggregatedResult into LedgerEntry objects for DB insertion."""
+    """Convert an AggregatedResult into LedgerEntry objects for DB insertion.
+
+    Args:
+        result: aggregated I7 signals
+        symbol: contract symbol
+        timeframe: bar timeframe
+        timestamp: bar timestamp
+        features: merged feature dict for market_context extraction
+        feature_ts: timestamp of the corresponding intelligence_features row (None if not written)
+        feature_tf: timeframe of the corresponding intelligence_features row (None if not written)
+    """
     if not result.all_ranked:
         return []
 
@@ -215,8 +337,8 @@ def _build_ledger_entries(
             composite_rank=rank,
             market_context=market_ctx,
             status="pending",
-            feature_ts=None,   # No IntelligenceEvent at backfill time
-            feature_tf=None,
+            feature_ts=feature_ts,
+            feature_tf=feature_tf,
         ))
     return entries
 
@@ -250,10 +372,23 @@ def run_i7_and_persist(
     timeframe: str,
     timestamp: datetime,
     db_conn: Any,
+    feature_ts: "datetime | None" = None,
+    feature_tf: "str | None" = None,
 ) -> int:
     """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_ledger.
 
-    Returns number of ledger entries inserted (0 if no signals fired).
+    Args:
+        bar_history: rolling window of bar dicts
+        features: merged I1-I6 feature dict
+        symbol: contract symbol
+        timeframe: bar timeframe
+        timestamp: bar timestamp
+        db_conn: psycopg2 connection (None for dry-run)
+        feature_ts: timestamp of the intelligence_features row for this bar (None if not written)
+        feature_tf: timeframe of the intelligence_features row (None if not written)
+
+    Returns:
+        Number of ledger entries inserted (0 if no signals fired).
     """
     if len(bar_history) < MIN_BARS:
         return 0
@@ -277,7 +412,10 @@ def run_i7_and_persist(
 
     trend_regime = float(features.get("trend_regime", 0.0))
     agg_result = aggregate(raw_signals, trend_regime=trend_regime)
-    entries = _build_ledger_entries(agg_result, symbol, timeframe, timestamp, features)
+    entries = _build_ledger_entries(
+        agg_result, symbol, timeframe, timestamp, features,
+        feature_ts=feature_ts, feature_tf=feature_tf,
+    )
 
     if entries and db_conn is not None:
         _insert_signals_sync(db_conn, entries)
@@ -440,8 +578,19 @@ def replay_symbol(
             # Merge all features for I7
             all_features = {**i1_features, **intelligence}
 
-            # I7 → signal_ledger
-            n = run_i7_and_persist(history, all_features, symbol, tf, ts, db_conn)
+            # Build IntelligenceEvent and write to intelligence_features
+            event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
+            written_feature_ts: "datetime | None" = None
+            if event is not None:
+                _insert_features_sync(db_conn, [_event_to_sync_params(event)])
+                written_feature_ts = ts
+
+            # I7 → signal_ledger (with feature_ts populated when features row was written)
+            n = run_i7_and_persist(
+                history, all_features, symbol, tf, ts, db_conn,
+                feature_ts=written_feature_ts,
+                feature_tf=(tf if written_feature_ts is not None else None),
+            )
             total_signals += n
 
             if (i + 1) % 1000 == 0:
