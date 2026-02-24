@@ -63,11 +63,11 @@ Plans:
   1. signal_ledger contains 2,700+ signals covering 365 days of trading across the configured contracts and timeframes
   2. intelligence_features contains corresponding feature rows for the same date range — every signal row has a valid JOIN to a feature row
   3. Historical backfill runs to completion without crashing; a dry-run status check after completion shows no orphaned signals (signals without matching feature rows)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: Extend historical_backfill.py Stage 2 to write to intelligence_features alongside signal_ledger; set source='backfill'
-- [ ] 03-02: Run backfill for 365 days (--days 365) and validate row counts and JOIN integrity
+- [ ] 03-01-PLAN.md — Extend historical_backfill.py Stage 2 to write to intelligence_features alongside signal_ledger; set source='backfill' (TDD)
+- [ ] 03-02-PLAN.md — Run backfill for 365 days (--days 365) and validate row counts and JOIN integrity
 
 ### Phase 4: Query API
 **Goal**: Historical intelligence data is queryable via REST endpoints — feature context, signal history, and SSE stream all speak IntelligenceEvent
