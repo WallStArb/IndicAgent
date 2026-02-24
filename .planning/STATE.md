@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 ## Current Position
 
 Phase: 4 of 6 IN PROGRESS
-Plan: 1/3 complete
-Status: Phase 4 Plan 1 executed — intelligence_features query route with paginated JSON + Parquet export (TDD, 7/7 tests pass).
-Last activity: 2026-02-24 — 04-01: GET /api/features/{symbol}/{timeframe} + GET /api/features/export implemented in features.py
+Plan: 2/3 complete
+Status: Phase 4 Plan 2 executed — signal_ledger query route with optional intelligence_features LEFT JOIN (TDD, 7/7 tests pass).
+Last activity: 2026-02-24 — 04-02: GET /api/signals/{symbol} with include_features, base symbol resolution, NULL feature_ts safety
 
-Progress: [█████░░░░░] 50% (11/16 plans complete across Phases 0-4)
+Progress: [█████░░░░░] 53% (12/16 plans complete across Phases 0-4)
 
 ## Performance Metrics
 
@@ -30,7 +30,7 @@ Progress: [█████░░░░░] 50% (11/16 plans complete across Phas
 | 01-typed-event-schema | 3 | ~63min | ~21min |
 | 02-feature-store | 3 | ~18min | ~6min |
 | 03-historical-data | 1/3 | ~3min | ~3min |
-| 04-query-api | 1/3 | ~2min | ~2min |
+| 04-query-api | 2/3 | ~4min | ~2min |
 
 **Recent Trend:**
 - Last 5 plans: 02-02 RED (~1min), 02-03 (~2min), 02-02 GREEN (~4min), 03-01 (~3min), 04-01 (~2min)
@@ -81,6 +81,10 @@ Recent decisions from execution (2026-02-24):
 - 04-01: test_app pattern: minimal FastAPI instance mounts router directly — avoids main.py lifespan startup (no DB/Redis in unit tests)
 - 04-01: _parse_jsonb() handles None, JSON string, and pre-parsed dict for asyncpg future-proofing
 - 04-01: features router NOT wired into main.py in this plan — Plan 03 responsibility
+- 04-02: features key omitted entirely when include_features=False (not set to null) — matches test expectation
+- 04-02: NULL feature_ts short-circuits to signal["features"] = None; non-null → nested dict with parsed JSONB tiers
+- 04-02: limit is $2 positional param (LIMIT $2 clause); from_ts=$3, to_ts=$4 — same ordering across both query branches
+- 04-02: signals router NOT wired into main.py in this plan — Plan 03 responsibility
 
 ### Pending Todos
 
@@ -95,5 +99,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: 04-01-PLAN.md complete — intelligence_features query route (paginated JSON + Parquet export) implemented in features.py (TDD: 7/7 tests pass). Next: 04-02 (signal_ledger query route) or 04-03 (wire both routers into main.py).
+Stopped at: 04-02-PLAN.md complete — signal_ledger query route with optional LEFT JOIN to intelligence_features implemented in signals.py (TDD: 7/7 tests pass). Next: 04-03 (wire features + signals routers into main.py).
 Resume file: None

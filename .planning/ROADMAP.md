@@ -127,7 +127,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Typed Event Schema | 3/3 | Complete | 2026-02-23 |
 | 2. Feature Store | 3/3 | Complete   | 2026-02-23 |
 | 3. Historical Data | 3/3 | In progress | - |
-| 4. Query API | 1/3 | In progress | - |
+| 4. Query API | 2/3 | In Progress|  |
 | 5. ML Scoring Model | 0/3 | Not started | - |
 | 6. Auth and External Access | 0/2 | Not started | - |
 

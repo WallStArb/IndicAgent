@@ -63,7 +63,7 @@ Building this milestone.
 
 ### Query API
 - [x] **API-01**: `GET /api/features/{symbol}/{timeframe}` returns paginated `intelligence_features` with date range filter
-- [ ] **API-02**: `GET /api/signals/{symbol}` returns signal history with optional JOIN to feature context
+- [x] **API-02**: `GET /api/signals/{symbol}` returns signal history with optional JOIN to feature context
 - [ ] **API-03**: Existing SSE stream endpoint updated to publish typed `IntelligenceEvent` payloads
 
 ### ML Scoring Model
