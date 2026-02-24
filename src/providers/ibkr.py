@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import nest_asyncio
 from ib_insync import IB, Future, Stock
@@ -29,6 +29,16 @@ _TF_TO_IB: dict[str, str] = {
     "1h":  "1 hour",
     "4h":  "4 hours",
     "1d":  "1 day",
+}
+
+# Max days per IBKR historical data request by bar size (conservative, under hard limits)
+_MAX_CHUNK_DAYS: dict[str, int] = {
+    "1m":  6,    # IBKR hard limit: 7 days
+    "5m":  29,   # IBKR hard limit: 30 days
+    "15m": 59,   # IBKR hard limit: 60 days
+    "1h":  364,  # IBKR hard limit: 1 year
+    "4h":  364,
+    "1d":  364,
 }
 
 
@@ -84,6 +94,10 @@ class IBKRProvider:
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars from IBKR.
 
+        Automatically chunks long requests to stay within IBKR per-request
+        duration limits (e.g. 6-day chunks for 1m bars). Chunks are fetched
+        chronologically with a 10-second pause between requests for pacing.
+
         Requires the contract to be pre-qualified via qualify_instrument().
         """
         if timeframe not in _TF_TO_IB:
@@ -96,31 +110,46 @@ class IBKRProvider:
         if not contract:
             raise ValueError(f"Unknown symbol '{symbol}'. Call qualify_instrument() first.")
 
-        duration_days = max(1, (end - start).days + 1)
-        ib_bars = self._ib.reqHistoricalData(
-            contract,
-            endDateTime=end.strftime("%Y%m%d %H:%M:%S"),
-            durationStr=f"{duration_days} D",
-            barSizeSetting=_TF_TO_IB[timeframe],
-            whatToShow="TRADES",
-            useRTH=False,
-            formatDate=1,
-        )
+        chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
+        all_bars: list[OHLCVBar] = []
+        chunk_start = start
+        first_chunk = True
 
-        return [
-            OHLCVBar(
-                symbol=symbol,
-                timeframe=timeframe,
-                timestamp=bar.date if isinstance(bar.date, datetime) else datetime.fromisoformat(str(bar.date)),
-                open=float(bar.open),
-                high=float(bar.high),
-                low=float(bar.low),
-                close=float(bar.close),
-                volume=int(bar.volume),
-                source="ibkr",
+        while chunk_start < end:
+            if not first_chunk:
+                await asyncio.sleep(10)  # IBKR pacing between chunk requests
+            first_chunk = False
+
+            chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
+            duration = max(1, (chunk_end - chunk_start).days + 1)
+
+            ib_bars = self._ib.reqHistoricalData(
+                contract,
+                endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                durationStr=f"{duration} D",
+                barSizeSetting=_TF_TO_IB[timeframe],
+                whatToShow="TRADES",
+                useRTH=False,
+                formatDate=1,
             )
-            for bar in (ib_bars or [])
-        ]
+
+            for bar in (ib_bars or []):
+                all_bars.append(OHLCVBar(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    timestamp=bar.date if isinstance(bar.date, datetime) else datetime.fromisoformat(str(bar.date)),
+                    open=float(bar.open),
+                    high=float(bar.high),
+                    low=float(bar.low),
+                    close=float(bar.close),
+                    volume=int(bar.volume),
+                    source="ibkr",
+                ))
+
+            chunk_start = chunk_end + timedelta(days=1)
+
+        all_bars.sort(key=lambda b: b.timestamp)
+        return all_bars
 
     async def qualify_instrument(self, instrument: Instrument) -> bool:
         """Qualify an instrument with IBKR and cache the contract.
