@@ -100,12 +100,13 @@ Plans:
   6. Signal panel (I7) shows real signals with direction, confidence, entry/stop
   7. Narrative panel (I8) shows real AI narrative text from the live narrative stream
   8. Connection status indicator accurately reflects SSE state (connecting/connected/disconnected)
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 06-01: Fix SSE multi-TF subscription bug + verify browser receives all event types end-to-end
-- [ ] 06-02: Audit each dashboard panel — identify which are fully wired vs. stubbed; fix data mapping issues
-- [ ] 06-03: Verify all panels show real data; fix any remaining field mapping mismatches between SSE payload and panel props
+- [ ] 06-01-PLAN.md — Backend fixes: implement TimeframeBuilder, fix qualify_instrument currency, add 1m to AI narrative
+- [ ] 06-02-PLAN.md — Frontend data layer + Price Hero: fix event.tf bug, session tracking, tickFlash, rebuild price-hero.tsx
+- [ ] 06-03-PLAN.md — SMC panel: extend SmartMoneyData with HMM regime + liquidity zones, render in SmartMoneyPanel
+- [ ] 06-04-PLAN.md — Human verification checkpoint: confirm all panels show real live data
 
 ### Phase 7: Dashboard Complete
 **Goal**: Dashboard is fully functional — all panels wired, signal history browsable, timeframe matrix live, no stubs or placeholder data
