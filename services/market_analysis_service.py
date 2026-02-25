@@ -496,7 +496,8 @@ class MarketAnalysisService:
                         stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
-                    pass
+                    # Group already exists — reset to current tail so stale backlog is skipped
+                    await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
 
     async def _process_market_data(self) -> None:
         while self.running and not self.shutdown_requested:

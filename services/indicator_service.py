@@ -330,13 +330,14 @@ class IndicatorService:
                     )
                 except Exception as e:
                     self.logger.warning("Warmup failed", stream=stream_name, error=str(e))
-                # Create/preserve consumer group at current end — no replay
+                # Create/reset consumer group to current tail — never replay old bars
                 try:
                     await self.redis_client.xgroup_create(
                         stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
-                    pass  # Group already exists — position preserved from last run
+                    # Group already exists — reset to current tail so stale backlog is skipped
+                    await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
 
     async def _process_market_data(self) -> None:
         while self.running and not self.shutdown_requested:
