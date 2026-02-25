@@ -42,7 +42,7 @@ from src.config.settings import get_active_contracts
 
 # Import our components
 from src.core.redis_streams_manager import RedisStreamsManager
-from src.data.timeframe_builder import TimeframeBuilder
+from src.core.timeframe_builder import TimeframeBuilder
 
 
 @dataclass
