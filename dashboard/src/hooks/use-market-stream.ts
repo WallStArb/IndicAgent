@@ -256,6 +256,17 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           },
         };
       });
+      // Clear tickFlash after 350ms — done OUTSIDE setSymbolData callback
+      if (flashDir) {
+        setTimeout(() => {
+          setSymbolData((prev) => ({
+            ...prev,
+            [sym]: prev[sym]
+              ? { ...prev[sym], tickFlash: null, tick: { ...prev[sym].tick, tickFlash: null } }
+              : prev[sym],
+          }));
+        }, 350);
+      }
       touch();
     });
 
@@ -268,20 +279,38 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         const old = prev[sym];
         if (!old) return prev;
         const close = parseFloat(String(payload.close || 0));
+        const barHigh = parseFloat(String(payload.high || 0));
+        const barLow = parseFloat(String(payload.low || 0));
+        const barOpen = parseFloat(String(payload.open || 0));
+        // Extract date from bar timestamp for session reset detection (YYYY-MM-DD)
+        const barDate = String(payload.timestamp || "").slice(0, 10);
+        const sess = old.session;
+        const isNewSession = barDate !== "" && barDate !== sess.date;
+        const newSession: SessionState = isNewSession
+          ? { open: barOpen, high: barHigh, low: barLow, date: barDate }
+          : sess.date === ""
+            ? { open: barOpen, high: barHigh, low: barLow, date: barDate }
+            : {
+                open: sess.open,
+                high: Math.max(sess.high, barHigh),
+                low: Math.min(sess.low > 0 ? sess.low : barLow, barLow),
+                date: barDate,
+              };
         return {
           ...prev,
           [sym]: {
             ...old,
             bar: {
-              open: parseFloat(String(payload.open || 0)),
-              high: parseFloat(String(payload.high || 0)),
-              low: parseFloat(String(payload.low || 0)),
+              open: barOpen,
+              high: barHigh,
+              low: barLow,
               close,
               volume: parseFloat(String(payload.volume || 0)),
               timestamp: String(payload.timestamp || ""),
               lastUpdate: Date.now(),
             },
-            prevClose: old.bar.close || close,
+            prevClose: isNewSession ? old.bar.close || close : (old.bar.close || close),
+            session: newSession,
             lastUpdate: Date.now(),
           },
         };
