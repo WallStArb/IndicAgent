@@ -372,7 +372,7 @@ export function useDemoData(
           lastUpdate: Date.now(),
         },
         prevClose: s.open,
-        session: { open: s.open, high: s.high, low: s.low, date: today },
+        session: { open: s.open, high: s.high, low: s.low, date: today, sessionVolume: 0 },
         tickFlash: null,
         indicators: buildIndicators(sym, s, timeframe),
         structure: buildStructure(s),
@@ -419,14 +419,15 @@ export function useDemoData(
           const nowDate = new Date().toISOString().slice(0, 10);
           const isNewSession = nowDate !== prevSess.date && prevSess.date !== "";
           const newSession = isNewSession
-            ? { open: newState.open, high: newState.high, low: newState.low, date: nowDate }
+            ? { open: newState.open, high: newState.high, low: newState.low, date: nowDate, sessionVolume: 0 }
             : prevSess.date === ""
-              ? { open: newState.open, high: newState.high, low: newState.low, date: nowDate }
+              ? { open: newState.open, high: newState.high, low: newState.low, date: nowDate, sessionVolume: 0 }
               : {
                   open: prevSess.open,
                   high: Math.max(prevSess.high, newState.high),
                   low: Math.min(prevSess.low > 0 ? prevSess.low : newState.low, newState.low),
                   date: nowDate,
+                  sessionVolume: prevSess.sessionVolume,
                 };
           next[sym] = {
             symbol: sym,

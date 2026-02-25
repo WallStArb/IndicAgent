@@ -33,7 +33,7 @@ function emptySymbolData(symbol: string): SymbolData {
       lastUpdate: 0,
     },
     prevClose: 0,
-    session: { open: 0, high: 0, low: 0, date: "" },
+    session: { open: 0, high: 0, low: 0, date: "", sessionVolume: 0 },
     tickFlash: null,
     indicators: null,
     structure: null,

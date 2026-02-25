@@ -14,6 +14,7 @@ export interface SessionState {
   high: number;
   low: number;
   date: string; // "YYYY-MM-DD" for reset detection
+  sessionVolume: number; // accumulated bar volumes for current session
 }
 
 export interface BarData {
