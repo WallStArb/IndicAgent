@@ -246,6 +246,47 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     es.onopen = () => setConnectionStatus("connected");
     es.onerror = () => setConnectionStatus("disconnected");
 
+    // Seed session state from REST API (session data since 6pm ET boundary).
+    // This runs in parallel with the SSE snapshot; the setState call will overwrite
+    // any incomplete session values the SSE snapshot may have set first.
+    const fetchSession = async () => {
+      try {
+        const sessionUrl = `${base}/api/market-data/session?symbols=${encodeURIComponent(symbolsCsv)}`;
+        const res = await fetch(sessionUrl);
+        if (!res.ok) return;
+        const body = await res.json() as {
+          session: Record<string, {
+            session_open: number | null;
+            session_high: number | null;
+            session_low: number | null;
+            session_volume: number;
+            prev_close: number | null;
+          }>
+        };
+        setSymbolData((prev) => {
+          const next = { ...prev };
+          for (const [sym, s] of Object.entries(body.session)) {
+            if (!next[sym]) continue;
+            next[sym] = {
+              ...next[sym],
+              prevClose: s.prev_close ?? next[sym].prevClose,
+              session: {
+                open: s.session_open ?? next[sym].session.open,
+                high: s.session_high ?? next[sym].session.high,
+                low: s.session_low ?? next[sym].session.low,
+                date: next[sym].session.date,
+                sessionVolume: s.session_volume,
+              },
+            };
+          }
+          return next;
+        });
+      } catch {
+        // non-fatal — SSE bars will still accumulate session data
+      }
+    };
+    void fetchSession();
+
     // --- Tick data ---
     es.addEventListener("tick_data", (evt) => {
       const { payload } = JSON.parse(evt.data);
@@ -301,22 +342,22 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         const barHigh = parseFloat(String(payload.high || 0));
         const barLow = parseFloat(String(payload.low || 0));
         const barOpen = parseFloat(String(payload.open || 0));
-        // Extract date from bar timestamp for session reset detection (YYYY-MM-DD)
         const barDate = String(payload.timestamp || "").slice(0, 10);
         const barVol = parseFloat(String(payload.volume || 0));
         const sess = old.session;
-        const isNewSession = barDate !== "" && barDate !== sess.date;
-        const newSession: SessionState = isNewSession
+        // Only initialize session from a bar when not yet seeded.
+        // Once session.open > 0 (either from the REST seed or a prior bar), accumulate only.
+        // This avoids false resets at calendar midnight (futures sessions span midnight).
+        const notSeeded = sess.open === 0;
+        const newSession: SessionState = notSeeded
           ? { open: barOpen, high: barHigh, low: barLow, date: barDate, sessionVolume: barVol }
-          : sess.date === ""
-            ? { open: barOpen, high: barHigh, low: barLow, date: barDate, sessionVolume: barVol }
-            : {
-                open: sess.open,
-                high: Math.max(sess.high, barHigh),
-                low: Math.min(sess.low > 0 ? sess.low : barLow, barLow),
-                date: barDate,
-                sessionVolume: sess.sessionVolume + barVol,
-              };
+          : {
+              open: sess.open,
+              high: Math.max(sess.high, barHigh),
+              low: sess.low > 0 ? Math.min(sess.low, barLow) : barLow,
+              date: barDate,
+              sessionVolume: sess.sessionVolume + barVol,
+            };
         return {
           ...prev,
           [sym]: {
@@ -330,7 +371,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               timestamp: String(payload.timestamp || ""),
               lastUpdate: Date.now(),
             },
-            prevClose: isNewSession ? old.bar.close || close : (old.bar.close || close),
+            // Only update prevClose when initializing session; REST seed takes priority.
+            prevClose: notSeeded ? (old.bar.close || close) : old.prevClose,
             session: newSession,
             lastUpdate: Date.now(),
           },

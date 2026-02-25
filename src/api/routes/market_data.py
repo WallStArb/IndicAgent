@@ -21,6 +21,119 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+@router.get("/market-data/session")
+async def get_session_data(
+    symbols: str = Query(..., description="Comma-separated base or contract symbols, e.g., ES,NQ"),
+    redis_manager: RedisStreamsManager = Depends(get_redis_manager),
+) -> dict:
+    """
+    Current trading session aggregated data for each symbol.
+
+    Session boundary: 18:00 ET each day (futures ETH session start).
+    Reads from live Redis 1m streams (up to 2000 bars ≈ 33 hours — more than a full session).
+    Returns session_open, session_high, session_low, session_volume, prev_close keyed by base symbol.
+    """
+    from datetime import timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    from ...config.settings import Settings
+    from ...core.stream_keys import market as sk_market_key
+
+    settings = Settings()
+    env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+
+    # Resolve base symbols (ES) → active contract codes (ESH6)
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    resolved: list[tuple[str, str]] = []  # (contract, base)
+    for sym in symbol_list:
+        if any(ch.isdigit() for ch in sym):
+            resolved.append((sym, sym))
+        else:
+            for c in settings.contracts:
+                if c.base == sym:
+                    resolved.append((c.symbol, sym))
+                    break
+            else:
+                resolved.append((sym, sym))
+
+    if not resolved:
+        return {"session": {}}
+
+    # Compute session boundary: most recent 18:00 ET (futures ETH session start)
+    et_tz = ZoneInfo("America/New_York")
+    now_et = datetime.now(et_tz)
+    today_18 = now_et.replace(hour=18, minute=0, second=0, microsecond=0)
+    session_start_et = today_18 if now_et >= today_18 else today_18 - timedelta(days=1)
+    session_boundary_utc = session_start_et.astimezone(timezone.utc)
+
+    result: dict[str, dict] = {}
+
+    redis = redis_manager.redis_client
+    for contract, base in resolved:
+        stream_name = sk_market_key(env_prefix, contract, "1m")
+        try:
+            # Read up to 2000 recent entries (newest first)
+            entries = await redis.xrevrange(stream_name, count=2000)
+        except Exception:
+            continue
+
+        if not entries:
+            continue
+
+        session_bars: list[dict] = []
+        prev_close_val: float | None = None
+
+        # entries are newest-first; iterate to find session bars and the bar just before boundary
+        for _msg_id, fields in entries:
+            ts_str = fields.get("timestamp", "")
+            if not ts_str:
+                continue
+            try:
+                # Parse ISO timestamp; assume UTC if no tz info
+                ts = datetime.fromisoformat(ts_str)
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+
+            if ts >= session_boundary_utc:
+                session_bars.append(fields)
+            else:
+                # First bar before the session boundary = previous close
+                if prev_close_val is None:
+                    try:
+                        prev_close_val = float(fields.get("close", 0) or 0) or None
+                    except (ValueError, TypeError):
+                        pass
+                break  # No need to go further back
+
+        if not session_bars:
+            continue
+
+        # session_bars is newest-first; last entry = oldest = session open bar
+        oldest = session_bars[-1]
+        try:
+            session_open = float(oldest.get("open", 0) or 0) or None
+            session_high = max(float(b.get("high", 0) or 0) for b in session_bars) or None
+            session_low_candidates = [float(b.get("low", 0) or 0) for b in session_bars]
+            session_low = min(v for v in session_low_candidates if v > 0) if any(v > 0 for v in session_low_candidates) else None
+            session_volume = sum(float(b.get("volume", 0) or 0) for b in session_bars)
+        except (ValueError, TypeError):
+            continue
+
+        result[base] = {
+            "symbol": base,
+            "contract": contract,
+            "session_open": session_open,
+            "session_high": session_high,
+            "session_low": session_low,
+            "session_volume": int(session_volume),
+            "prev_close": prev_close_val,
+        }
+
+    return {"session": result}
+
+
 @router.get("/market-data/{symbol}/{timeframe}")
 async def get_market_data(
     symbol: str,

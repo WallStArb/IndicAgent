@@ -58,9 +58,9 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
       ? null
       : clampRatio(price, session.low, session.high);
 
-  const indicatorBarTime = fmtTime(indicators?.timestamp);
-  const barTime = fmtTime(bar.timestamp);
-  const displayTime = indicatorBarTime || barTime;
+  // "as of" — show when data was last received in the browser (Date.now()), not the server bar
+  // timestamp, which can lag by minutes during low-liquidity periods.
+  const displayTime = data.lastUpdate > 0 ? fmtTime(data.lastUpdate) : (fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp));
 
   const sessionVol = session.sessionVolume > 0 ? fmtCompact(session.sessionVolume) : null;
 
