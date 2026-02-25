@@ -260,8 +260,22 @@ OLLAMA_DEFAULT_MODEL="qwen3:8b"
 ## Current Status
 
 **Tests:** 584 unit passing, 0 ruff errors
-**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store (Phases 0–2 complete)
-**Roadmap:** See `.planning/ROADMAP.md` — current milestone is Unified Data Bus (Phases 3–6 remaining)
+**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store (Phases 0–5 complete)
+**Roadmap:** See `.planning/ROADMAP.md` — current milestone is Unified Data Bus (Phase 6 in progress)
+
+### Phase 6 In Progress (dashboard-connected)
+- ✅ Dashboard 500 fixed (Turbopack dev server recovers after clearing `.next`)
+- ✅ Price Hero redesigned — bid/ask/last, flash animation, dual % change, range bars
+- ✅ AI narratives flowing — `development:narratives:ESH6:1m` active (~53s latency, qwen3:8b)
+- ✅ Stream audit complete — all field mappings confirmed correct; empty panels are UI issue not data
+- ⏳ 06-01 PLAN.md being researched in parallel session
+- ❌ `indicagent-timeframes.service` — import bug (`src.data`), non-blocking
+- ❌ 6/23 contracts not qualifying from IBKR (SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6) — need `currency="USD"` fix
+
+### ai_narrative_service key facts
+- Consumer group: stable `"ai_narrative"` (no timestamp bug)
+- Timeframes: `["1m"]` only — signal generator only outputs 1m streams
+- Ollama timeout: 120s (qwen3:8b needs ~90s on CPU at num_predict=500)
 
 ### Local LLM (Ollama — native process, not Docker)
 `qwen3:8b` (default), `gemma3n:e4b`, `qwen3:4b`, `phi4-mini:3.8b`, `deepscaler:1.5b`
