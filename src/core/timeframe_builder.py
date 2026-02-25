@@ -11,6 +11,7 @@ Last Updated: 2026-02-25
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
@@ -232,7 +233,15 @@ class TimeframeBuilder:
             fields: Decoded bar fields with string values.
         """
         try:
-            ts_seconds = int(float(fields.get("timestamp", 0)))
+            ts_raw = fields.get("timestamp", "0")
+            # Support both Unix seconds (float) and ISO 8601 strings
+            try:
+                ts_seconds = int(float(ts_raw))
+            except ValueError:
+                dt = datetime.fromisoformat(str(ts_raw))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                ts_seconds = int(dt.timestamp())
             open_ = float(fields.get("open", 0))
             high = float(fields.get("high", 0))
             low = float(fields.get("low", 0))
