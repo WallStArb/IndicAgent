@@ -183,6 +183,15 @@ export interface PerTfSignal {
 
 export type TfSignalMap = Record<string, PerTfSignal>; // key = timeframe string "1m" etc.
 
+/** Per-TF intelligence snapshot (I3/I4/I5/SMC/I6) */
+export interface IntelligenceTfData {
+  structure: StructureData;
+  context: ContextData;
+  patterns: PatternData;
+  smartMoney: SmartMoneyData;
+  confluence: ConfluenceData;
+}
+
 // ── Combined symbol state ──
 
 export interface SymbolData {
@@ -190,14 +199,24 @@ export interface SymbolData {
   tick: TickData;
   bar: BarData;
   prevClose: number;
+  /** @deprecated Use indicatorsByTf[activeTf] in SymbolCard instead */
   indicators: IndicatorData | null;
+  /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */
   structure: StructureData | null;
+  /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */
   context: ContextData | null;
+  /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */
   patterns: PatternData | null;
+  /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */
   smartMoney: SmartMoneyData | null;
+  /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */
   confluence: ConfluenceData | null;
   signal: SignalData | null;
   tfSignals: TfSignalMap; // per-TF signal direction for matrix
+  /** Per-TF I1 indicator snapshots — keyed by timeframe string ("1m", "5m", …) */
+  indicatorsByTf: Record<string, IndicatorData>;
+  /** Per-TF I3–I6 intelligence snapshots — keyed by timeframe string */
+  intelligenceByTf: Record<string, IntelligenceTfData>;
   lastUpdate: number;
 }
 

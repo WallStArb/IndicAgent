@@ -119,7 +119,7 @@ export default function TradingDashboard() {
               Object.values(narratives)
                 .filter((n) => n.symbol === sym)
                 .sort((a, b) => b.receivedAt - a.receivedAt)[0] ?? null;
-            return <SymbolCard key={sym} data={data} narrative={narrative} />;
+            return <SymbolCard key={sym} data={data} narrative={narrative} globalTf={timeframe} />;
           })}
         </div>
       </main>
@@ -146,16 +146,29 @@ export default function TradingDashboard() {
 function SymbolCard({
   data,
   narrative,
+  globalTf,
 }: {
   data: SymbolData;
   narrative: NarrativeData | null;
+  globalTf: Timeframe;
 }) {
   const [isDrilling, setIsDrilling] = useState(false);
-  const [drillTf, setDrillTf] = useState<string>("5m");
+  // activeTf: per-card TF override; resets to global when globalTf changes
+  const [activeTf, setActiveTf] = useState<string>(globalTf);
+  useEffect(() => { setActiveTf(globalTf); }, [globalTf]);
 
   const info = symbolConfig.getSymbolInfo(data.symbol);
   const displayName = info?.display_name ?? data.symbol;
   const contract = info?.contract ?? data.symbol;
+
+  // Derive display data from per-TF maps for the active timeframe
+  const indicators = data.indicatorsByTf[activeTf] ?? null;
+  const intel = data.intelligenceByTf[activeTf] ?? null;
+  const structure = intel?.structure ?? null;
+  const context = intel?.context ?? null;
+  const patterns = intel?.patterns ?? null;
+  const smartMoney = intel?.smartMoney ?? null;
+  const confluence = intel?.confluence ?? null;
 
   return (
     <div
@@ -188,7 +201,7 @@ function SymbolCard({
       {/* L0: Confidence ring + price */}
       <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
         <ConfidenceRing
-          confluence={data.confluence}
+          confluence={confluence}
           signal={data.signal}
           price={data.tick.price}
         />
@@ -200,32 +213,32 @@ function SymbolCard({
       {/* L0: Elevated AI narrative (only when high confidence + fresh) */}
       <NarrativeElevated narrative={narrative} signal={data.signal} />
 
-      {/* L1: Cross-TF matrix — always visible */}
+      {/* L1: Cross-TF matrix — clicking a TF switches card view, not sidebar */}
       <TimeframeMatrix
         tfSignals={data.tfSignals}
-        confluence={data.confluence}
-        activeTf={drillTf}
-        onSelectTf={(tf) => { setDrillTf(tf); setIsDrilling(true); }}
+        confluence={confluence}
+        activeTf={activeTf}
+        onSelectTf={(tf) => setActiveTf(tf)}
       />
 
       {/* L0: Regime ambiance wraps the tier stack */}
-      <RegimeAmbiance context={data.context}>
-        {/* Intelligence tiers — existing panels unchanged */}
-        <IndicatorGrid indicators={data.indicators} />
+      <RegimeAmbiance context={context}>
+        {/* Intelligence tiers — fed from active-TF data */}
+        <IndicatorGrid indicators={indicators} />
         <div className="border-t border-[var(--border-subtle)]">
-          <StructurePanel structure={data.structure} />
+          <StructurePanel structure={structure} />
         </div>
         <div className="border-t border-[var(--border-subtle)]">
-          <ContextPanel context={data.context} />
+          <ContextPanel context={context} />
         </div>
         <div className="border-t border-[var(--border-subtle)]">
-          <PatternPanel patterns={data.patterns} />
+          <PatternPanel patterns={patterns} />
         </div>
         <div className="border-t border-[var(--border-subtle)]">
-          <SmartMoneyPanel smartMoney={data.smartMoney} />
+          <SmartMoneyPanel smartMoney={smartMoney} />
         </div>
         <div className="border-t border-[var(--border-subtle)]">
-          <ConfluencePanel confluence={data.confluence} />
+          <ConfluencePanel confluence={confluence} />
         </div>
         <div className="border-t border-[var(--border-subtle)]">
           <SignalPanel signal={data.signal} />
@@ -235,7 +248,7 @@ function SymbolCard({
       {isDrilling && (
         <DrillPanel
           symbol={data.symbol}
-          timeframe={drillTf}
+          timeframe={activeTf}
           data={data}
           onClose={() => setIsDrilling(false)}
         />

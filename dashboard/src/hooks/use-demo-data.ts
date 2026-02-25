@@ -378,6 +378,8 @@ export function useDemoData(
         confluence: null,
         signal: null,
         tfSignals: {},
+        indicatorsByTf: {},
+        intelligenceByTf: {},
         lastUpdate: Date.now(),
       };
     }
@@ -433,6 +435,8 @@ export function useDemoData(
             confluence: null,
             signal: null,
             tfSignals: prev[sym]?.tfSignals ?? {},
+            indicatorsByTf: prev[sym]?.indicatorsByTf ?? {},
+            intelligenceByTf: prev[sym]?.intelligenceByTf ?? {},
             lastUpdate: now,
           };
         }

@@ -15,6 +15,7 @@ import type {
   ConnectionStatus,
   Timeframe,
   PerTfSignal,
+  IntelligenceTfData,
 } from "@/lib/types";
 
 function emptySymbolData(symbol: string): SymbolData {
@@ -39,6 +40,8 @@ function emptySymbolData(symbol: string): SymbolData {
     confluence: null,
     signal: null,
     tfSignals: {},
+    indicatorsByTf: {},
+    intelligenceByTf: {},
     lastUpdate: 0,
   };
 }
@@ -282,6 +285,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       const { payload } = JSON.parse(evt.data);
       const sym = contractToBase(payload.symbol || "");
       if (!sym) return;
+      const tf = String(payload.timeframe || timeframe);
 
       const n = (k: string): number | undefined => {
         const v = payload[k];
@@ -316,16 +320,21 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
+        const existing = old.indicatorsByTf[tf] ?? { symbol: sym, timeframe: tf, timestamp: "" };
         const merged: IndicatorData = {
-          ...(old.indicators || { symbol: sym, timeframe, timestamp: "" }),
+          ...existing,
           ...mapped,
           symbol: sym,
-          timeframe: String(payload.timeframe || timeframe),
+          timeframe: tf,
           timestamp: String(payload.timestamp || ""),
         };
         return {
           ...prev,
-          [sym]: { ...old, indicators: merged, lastUpdate: Date.now() },
+          [sym]: {
+            ...old,
+            indicatorsByTf: { ...old.indicatorsByTf, [tf]: merged },
+            lastUpdate: Date.now(),
+          },
         };
       });
       touch();
@@ -334,11 +343,14 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     // --- Intelligence data (I3/I4/I5 combined) ---
     es.addEventListener("intelligence_data", (evt) => {
       const { payload } = JSON.parse(evt.data);
-      // Symbol is nested inside payload.event (IntelligenceEvent JSON), not at top level
+      // Symbol and timeframe are nested inside payload.event (IntelligenceEvent JSON)
       const event = JSON.parse(payload.event || "{}");
       const sym = contractToBase(event.symbol || "");
       if (!sym) return;
+      const tf = String(event.timeframe || timeframe);
       const { structure, context, patterns, smartMoney, confluence } = parseIntelligence(payload);
+
+      const intelligenceSnapshot: IntelligenceTfData = { structure, context, patterns, smartMoney, confluence };
 
       setSymbolData((prev) => {
         const old = prev[sym];
@@ -347,11 +359,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           ...prev,
           [sym]: {
             ...old,
-            structure,
-            context,
-            patterns,
-            smartMoney,
-            confluence,
+            intelligenceByTf: { ...old.intelligenceByTf, [tf]: intelligenceSnapshot },
             lastUpdate: Date.now(),
           },
         };
