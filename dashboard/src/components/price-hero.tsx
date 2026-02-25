@@ -1,34 +1,36 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
-import type { TickData, BarData } from "@/lib/types";
-import { fmtPrice, fmtChange, fmtPct } from "@/lib/format";
+// Connection status: StatusDot in trading-dashboard.tsx correctly reflects SSE readyState semantics:
+// - connected (es.onopen) → green "Live"
+// - connecting (initial state) → amber "Connecting"
+// - disconnected (es.onerror) → red "Disconnected"
+// Label was "Offline" — fixed to "Disconnected" per DASH-08 spec.
+
+import type { SymbolData } from "@/lib/types";
+import { fmtPrice, fmtChange, fmtPct, fmtCompact } from "@/lib/format";
 
 interface PriceHeroProps {
-  tick: TickData;
-  bar: BarData;
-  prevClose: number;
+  data: SymbolData;
+  activeTf: string;
 }
 
-/** Clamp a value between 0 and 100 for range bar positioning */
-function rangePercent(price: number, lo: number, hi: number): number {
-  if (hi <= lo) return 50;
-  return Math.min(100, Math.max(0, ((price - lo) / (hi - lo)) * 100));
+/** Clamp a ratio between 0 and 1 for range bar positioning */
+function clampRatio(value: number, lo: number, hi: number): number | null {
+  if (hi <= lo) return null;
+  return Math.min(1, Math.max(0, (value - lo) / (hi - lo)));
 }
 
-/** Thin horizontal range bar showing where price sits within a range */
+/** Thin horizontal range bar — dot shows where price sits within the range */
 function RangeBar({
-  percent,
+  ratio,
   label,
   lo,
   hi,
-  empty,
 }: {
-  percent: number;
+  ratio: number | null;
   label: string;
   lo: string;
   hi: string;
-  empty: boolean;
 }) {
   return (
     <div className="space-y-0.5">
@@ -43,12 +45,12 @@ function RangeBar({
         </div>
       </div>
       <div className="relative h-1 rounded-full bg-[var(--border-subtle)] overflow-visible">
-        {empty ? (
+        {ratio === null ? (
           <div className="absolute inset-0 rounded-full bg-[var(--border-default)] opacity-40" />
         ) : (
           <div
             className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[var(--text-accent)] shadow-sm"
-            style={{ left: `calc(${percent}% - 3px)` }}
+            style={{ left: `calc(${ratio * 100}% - 3px)` }}
           />
         )}
       </div>
@@ -56,40 +58,18 @@ function RangeBar({
   );
 }
 
-/** Compact bid/ask/last price display with flash + dual range bars */
-export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
+/** Full price hero — bid/ask/last, flash, dual % change, H/L/Vol/VWAP, dual range bars */
+export function PriceHero({ data, activeTf }: PriceHeroProps) {
+  const { tick, bar, prevClose, session, tickFlash } = data;
+  const indicators = data.indicatorsByTf[activeTf] ?? null;
+
   const isEmpty = tick.price === 0 || tick.lastUpdate === 0;
-
-  // Flash state: "up" | "down" | null — drives CSS class on last price span
-  const [flash, setFlash] = useState<"up" | "down" | null>(null);
-  const prevPriceRef = useRef<number>(0);
-  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (isEmpty) return;
-    const prev = prevPriceRef.current;
-    const curr = tick.price;
-
-    if (prev !== 0 && curr !== prev) {
-      // Clear any running flash so the animation restarts cleanly
-      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-      setFlash(curr > prev ? "up" : "down");
-      flashTimerRef.current = setTimeout(() => setFlash(null), 650);
-    }
-    prevPriceRef.current = curr;
-
-    return () => {
-      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-    };
-  }, [tick.price, tick.lastUpdate, isEmpty]);
-
-  // Derived values — all collapse to "—" when empty
   const price = isEmpty ? 0 : tick.price;
   const bid = isEmpty ? 0 : tick.bid;
   const ask = isEmpty ? 0 : tick.ask;
   const spread = bid > 0 && ask > 0 ? ask - bid : 0;
 
-  // Last price color vs prev close
+  // Last price colour vs prev close
   function lastPriceColor(): string {
     if (isEmpty || prevClose === 0) return "text-[var(--text-primary)]";
     if (price > prevClose) return "text-[var(--green)]";
@@ -103,19 +83,16 @@ export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
     prevClose > 0 && !isEmpty ? ((price - prevClose) / prevClose) * 100 : null;
 
   // Change vs session open
-  const sessionOpen = bar.open;
-  const chgOpen =
-    sessionOpen > 0 && !isEmpty ? price - sessionOpen : null;
+  const sessionOpen = session.open;
+  const chgOpen = sessionOpen > 0 && !isEmpty ? price - sessionOpen : null;
   const chgOpenPct =
-    sessionOpen > 0 && !isEmpty
-      ? ((price - sessionOpen) / sessionOpen) * 100
-      : null;
+    sessionOpen > 0 && !isEmpty ? ((price - sessionOpen) / sessionOpen) * 100 : null;
 
-  // Range bars
-  const barRangePct = rangePercent(price, bar.low, bar.high);
-  const sessionRangePct = rangePercent(price, bar.low, bar.high); // same data (bar = current bar)
+  // Range bar ratios
+  const barRatio = isEmpty ? null : clampRatio(price, bar.low, bar.high);
+  const sessionRatio = isEmpty ? null : clampRatio(price, session.low, session.high);
 
-  // Direction helper for change values
+  // Direction colour helper for change values
   function chgColor(val: number | null): string {
     if (val === null) return "text-[var(--text-muted)]";
     if (val > 0) return "text-[var(--green)]";
@@ -123,12 +100,11 @@ export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
     return "text-[var(--text-muted)]";
   }
 
-  // Flash class — key trick: we toggle the element out/in using the flash state
-  // so the CSS animation always restarts from frame 0
+  // Flash CSS class — keyed on tickFlash so React re-mounts the element and restarts animation
   const flashClass =
-    flash === "up"
+    tickFlash === "up"
       ? "price-flash-up"
-      : flash === "down"
+      : tickFlash === "down"
         ? "price-flash-down"
         : "";
 
@@ -152,8 +128,8 @@ export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
             Last
           </span>
           <span
-            key={flash ?? "base"}
-            className={`font-data text-xl font-semibold leading-none tracking-tight rounded px-1 transition-colors ${lastPriceColor()} ${flashClass}`}
+            key={tickFlash ?? "base"}
+            className={`font-data text-xl font-semibold leading-none tracking-tight rounded px-1 transition-colors duration-150 ${lastPriceColor()} ${flashClass}`}
           >
             {isEmpty ? "—" : fmtPrice(price)}
           </span>
@@ -185,12 +161,12 @@ export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
         </div>
       )}
 
-      {/* Row 2: Change lines */}
+      {/* Row 2: Dual % change lines */}
       <div className="space-y-0.5">
         {/* vs prev close */}
         <div className="flex items-center justify-between">
-          <span className="text-[0.55rem] text-[var(--text-muted)]">
-            vs prev close
+          <span className="text-[0.55rem] uppercase tracking-wider text-[var(--text-muted)]">
+            Prev Close
           </span>
           <div className="flex items-baseline gap-1 font-data">
             <span className={`text-xs font-medium ${chgColor(chgClose)}`}>
@@ -204,8 +180,8 @@ export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
 
         {/* vs session open */}
         <div className="flex items-center justify-between">
-          <span className="text-[0.55rem] text-[var(--text-muted)]">
-            vs session open
+          <span className="text-[0.55rem] uppercase tracking-wider text-[var(--text-muted)]">
+            Session
           </span>
           <div className="flex items-baseline gap-1 font-data">
             <span className={`text-xs font-medium ${chgColor(chgOpen)}`}>
@@ -218,21 +194,35 @@ export function PriceHero({ tick, bar, prevClose }: PriceHeroProps) {
         </div>
       </div>
 
-      {/* Row 3: Dual range bars */}
+      {/* Row 3: H/L/Vol/VWAP row */}
+      {!isEmpty && (
+        <div className="flex items-center justify-between font-data text-[0.55rem] text-[var(--text-muted)]">
+          <span>
+            <span className="text-[var(--green)]">H</span>&nbsp;{fmtPrice(bar.high)}
+          </span>
+          <span>
+            <span className="text-[var(--red)]">L</span>&nbsp;{fmtPrice(bar.low)}
+          </span>
+          <span>Vol&nbsp;{fmtCompact(bar.volume)}</span>
+          {indicators?.vwap != null && (
+            <span>VWAP&nbsp;{fmtPrice(indicators.vwap)}</span>
+          )}
+        </div>
+      )}
+
+      {/* Row 4: Dual range bars */}
       <div className="space-y-1.5 pt-0.5">
         <RangeBar
-          label="Bar range"
-          percent={barRangePct}
+          label="Bar"
+          ratio={barRatio}
           lo={isEmpty ? "—" : fmtPrice(bar.low)}
           hi={isEmpty ? "—" : fmtPrice(bar.high)}
-          empty={isEmpty}
         />
         <RangeBar
-          label="Session range"
-          percent={sessionRangePct}
-          lo={isEmpty ? "—" : fmtPrice(bar.low)}
-          hi={isEmpty ? "—" : fmtPrice(bar.high)}
-          empty={isEmpty}
+          label="Session"
+          ratio={sessionRatio}
+          lo={isEmpty || session.low === 0 ? "—" : fmtPrice(session.low)}
+          hi={isEmpty || session.high === 0 ? "—" : fmtPrice(session.high)}
         />
       </div>
     </div>

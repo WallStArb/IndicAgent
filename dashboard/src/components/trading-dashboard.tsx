@@ -210,7 +210,7 @@ function SymbolCard({
 
       {/* L0: Price hero — bid/ask/last, flash, change lines, range bars */}
       <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
-        <PriceHero tick={data.tick} bar={data.bar} prevClose={data.prevClose} />
+        <PriceHero data={data} activeTf={activeTf} />
       </div>
 
       {/* L0: High-confidence signal banner */}
@@ -302,7 +302,7 @@ function StatusDot({ status }: { status: ConnectionStatus }) {
   const config = {
     connected: { color: "bg-[var(--green)]", label: "Live" },
     connecting: { color: "bg-[var(--amber)]", label: "Connecting" },
-    disconnected: { color: "bg-[var(--red)]", label: "Offline" },
+    disconnected: { color: "bg-[var(--red)]", label: "Disconnected" },
   };
   const { color, label } = config[status];
 
