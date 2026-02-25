@@ -17,6 +17,7 @@ import signal
 import sys
 import threading
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
@@ -114,7 +115,9 @@ class HighFrequencyTWSDaemon:
         self.tick_accum: dict[str, dict] = {}
 
         # 1-minute bar polling (reqRealTimeBars doesn't work reliably)
-        self.last_bar_timestamps: dict[str, str] = {}  # Track last bar per symbol
+        # Rolling set of seen bar timestamps per symbol (last 30 bars ~= 30 min)
+        self.seen_bar_timestamps: dict[str, set[str]] = defaultdict(set)
+        self.seen_bar_timestamps_order: dict[str, list[str]] = defaultdict(list)
 
         # Metrics
         self.metrics_port = int(self.settings.metrics_port)
@@ -561,9 +564,14 @@ class HighFrequencyTWSDaemon:
 
                 for bar in ohlcv_bars:
                     bar_timestamp = bar.timestamp.isoformat()
-                    if self.last_bar_timestamps.get(symbol) == bar_timestamp:
+                    if bar_timestamp in self.seen_bar_timestamps[symbol]:
                         continue
-                    self.last_bar_timestamps[symbol] = bar_timestamp
+                    self.seen_bar_timestamps[symbol].add(bar_timestamp)
+                    self.seen_bar_timestamps_order[symbol].append(bar_timestamp)
+                    # Trim to last 30 to bound memory
+                    if len(self.seen_bar_timestamps_order[symbol]) > 30:
+                        evicted = self.seen_bar_timestamps_order[symbol].pop(0)
+                        self.seen_bar_timestamps[symbol].discard(evicted)
                     self.bars_processed += 1
 
                     bar_data = {

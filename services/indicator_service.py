@@ -17,7 +17,7 @@ import os
 import signal
 import sys
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, defaultdict
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -128,7 +128,8 @@ class IndicatorService:
         settings = Settings()
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
 
-        self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+        self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
+        self._bar_history_max = 200
 
         self.bars_processed_total = counter(
             "indicator_bars_processed_total",
@@ -246,19 +247,18 @@ class IndicatorService:
                 await self.redis_client.xack(stream_name, self.consumer_group, message_id)
                 return
 
-            # authoritative bar: update history (dedup by timestamp)
+            # authoritative bar: update history (dedup by timestamp, O(1))
             history = self.bar_history[key]
-            if history and history[-1]["timestamp"] == bar_ts:
-                history[-1] = bar_data
-            else:
-                history.append(bar_data)
+            history[bar_ts.isoformat()] = bar_data
+            while len(history) > self._bar_history_max:
+                history.popitem(last=False)
 
             min_bars = self.config["service"]["min_history_bars"]
             if len(self.bar_history[key]) < min_bars:
                 await self.redis_client.xack(stream_name, self.consumer_group, message_id)
                 return
 
-            df = pd.DataFrame(list(self.bar_history[key]))
+            df = pd.DataFrame(list(self.bar_history[key].values()))
             frames = {"main": df}
 
             features = self._run_i1_plugins(frames)
@@ -317,8 +317,9 @@ class IndicatorService:
                                 "volume": int(float(fields[b"volume"].decode())),
                             }
                             history = self.bar_history[key]
-                            if not history or history[-1]["timestamp"] != bar_ts:
-                                history.append(bar_data)
+                            history[bar_ts.isoformat()] = bar_data
+                            while len(history) > self._bar_history_max:
+                                history.popitem(last=False)
                         except Exception:
                             pass
                     self.logger.info(
