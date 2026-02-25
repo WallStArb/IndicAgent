@@ -34,7 +34,7 @@ from logging.handlers import RotatingFileHandler  # noqa: E402
 import redis.asyncio as redis  # noqa: E402
 import structlog  # noqa: E402
 
-from src.config.settings import Settings  # noqa: E402
+from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
 from src.core.stream_keys import signals_aggregated  # noqa: E402
 from src.observability.metrics import counter, gauge, start_metrics_server  # noqa: E402
@@ -210,15 +210,15 @@ class AINarrativeService:
         default_config: dict[str, Any] = {
             "redis": {"host": "localhost", "port": 6379, "db": 0},
             "service": {
-                "symbols": ["ESH6", "NQH6", "RTYH6"],
-                "timeframes": ["5m", "15m"],
+                "symbols": get_active_contracts(_settings),
+                "timeframes": ["1m"],
                 "processing_interval": 0.1,
                 "health_check_interval": 30,
             },
             "ollama": {
                 "base_url": "http://localhost:11434",
                 "model": "qwen3:8b",
-                "timeout_sec": 15.0,
+                "timeout_sec": 120.0,
                 "num_predict": 500,
             },
             "logging": {
