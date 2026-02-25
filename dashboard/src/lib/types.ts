@@ -6,6 +6,14 @@ export interface TickData {
   ask: number;
   timestamp: string;
   lastUpdate: number;
+  tickFlash: "up" | "down" | null;
+}
+
+export interface SessionState {
+  open: number;
+  high: number;
+  low: number;
+  date: string; // "YYYY-MM-DD" for reset detection
 }
 
 export interface BarData {
@@ -199,6 +207,8 @@ export interface SymbolData {
   tick: TickData;
   bar: BarData;
   prevClose: number;
+  session: SessionState;
+  tickFlash: "up" | "down" | null;
   /** @deprecated Use indicatorsByTf[activeTf] in SymbolCard instead */
   indicators: IndicatorData | null;
   /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */

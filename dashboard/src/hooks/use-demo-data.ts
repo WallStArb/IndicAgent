@@ -351,6 +351,7 @@ export function useDemoData(
     for (const sym of activeSymbols) {
       states[sym] = initSimState(sym);
       const s = states[sym];
+      const today = new Date().toISOString().slice(0, 10);
       initial[sym] = {
         symbol: sym,
         tick: {
@@ -359,6 +360,7 @@ export function useDemoData(
           ask: s.price + (INSTRUMENT_PROFILES[sym]?.tickSize || 0.25),
           timestamp: new Date().toISOString(),
           lastUpdate: Date.now(),
+          tickFlash: null,
         },
         bar: {
           open: s.open,
@@ -370,6 +372,8 @@ export function useDemoData(
           lastUpdate: Date.now(),
         },
         prevClose: s.open,
+        session: { open: s.open, high: s.high, low: s.low, date: today },
+        tickFlash: null,
         indicators: buildIndicators(sym, s, timeframe),
         structure: buildStructure(s),
         context: buildContext(s),
@@ -408,6 +412,22 @@ export function useDemoData(
           const tickSize =
             INSTRUMENT_PROFILES[sym]?.tickSize || 0.25;
 
+          const prevPrice = prev[sym]?.tick.price ?? 0;
+          const tickDir: "up" | "down" | null =
+            newState.price > prevPrice ? "up" : newState.price < prevPrice ? "down" : null;
+          const prevSess = prev[sym]?.session ?? { open: newState.open, high: newState.high, low: newState.low, date: "" };
+          const nowDate = new Date().toISOString().slice(0, 10);
+          const isNewSession = nowDate !== prevSess.date && prevSess.date !== "";
+          const newSession = isNewSession
+            ? { open: newState.open, high: newState.high, low: newState.low, date: nowDate }
+            : prevSess.date === ""
+              ? { open: newState.open, high: newState.high, low: newState.low, date: nowDate }
+              : {
+                  open: prevSess.open,
+                  high: Math.max(prevSess.high, newState.high),
+                  low: Math.min(prevSess.low > 0 ? prevSess.low : newState.low, newState.low),
+                  date: nowDate,
+                };
           next[sym] = {
             symbol: sym,
             tick: {
@@ -416,6 +436,7 @@ export function useDemoData(
               ask: newState.price + tickSize,
               timestamp: new Date().toISOString(),
               lastUpdate: now,
+              tickFlash: tickDir,
             },
             bar: {
               open: newState.open,
@@ -427,6 +448,8 @@ export function useDemoData(
               lastUpdate: now,
             },
             prevClose: prev[sym]?.prevClose || newState.open,
+            session: newSession,
+            tickFlash: tickDir,
             indicators: buildIndicators(sym, newState, timeframe),
             structure: buildStructure(newState),
             context: buildContext(newState),

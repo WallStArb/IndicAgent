@@ -16,12 +16,13 @@ import type {
   Timeframe,
   PerTfSignal,
   IntelligenceTfData,
+  SessionState,
 } from "@/lib/types";
 
 function emptySymbolData(symbol: string): SymbolData {
   return {
     symbol,
-    tick: { price: 0, bid: 0, ask: 0, timestamp: "", lastUpdate: 0 },
+    tick: { price: 0, bid: 0, ask: 0, timestamp: "", lastUpdate: 0, tickFlash: null },
     bar: {
       open: 0,
       high: 0,
@@ -32,6 +33,8 @@ function emptySymbolData(symbol: string): SymbolData {
       lastUpdate: 0,
     },
     prevClose: 0,
+    session: { open: 0, high: 0, low: 0, date: "" },
+    tickFlash: null,
     indicators: null,
     structure: null,
     context: null,
@@ -229,20 +232,26 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       const { payload } = JSON.parse(evt.data);
       const sym = contractToBase(payload.symbol || "");
       if (!sym) return;
+      let flashDir: "up" | "down" | null = null;
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
+        const price = parseFloat(String(payload.price || payload.last || old.tick.price));
+        const prevPrice = old.tick.price;
+        flashDir = price > prevPrice ? "up" : price < prevPrice ? "down" : null;
         return {
           ...prev,
           [sym]: {
             ...old,
             tick: {
-              price: parseFloat(String(payload.price || payload.last || old.tick.price)),
+              price,
               bid: parseFloat(String(payload.bid || old.tick.bid)),
               ask: parseFloat(String(payload.ask || old.tick.ask)),
               timestamp: String(payload.timestamp || ""),
               lastUpdate: Date.now(),
+              tickFlash: flashDir,
             },
+            tickFlash: flashDir,
             lastUpdate: Date.now(),
           },
         };
@@ -347,7 +356,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       const event = JSON.parse(payload.event || "{}");
       const sym = contractToBase(event.symbol || "");
       if (!sym) return;
-      const tf = String(event.timeframe || timeframe);
+      // FIX: IntelligenceEvent uses 'tf' not 'timeframe' (see src/intelligence/schemas.py)
+      const tf = String(event.tf || timeframe);
       const { structure, context, patterns, smartMoney, confluence } = parseIntelligence(payload);
 
       const intelligenceSnapshot: IntelligenceTfData = { structure, context, patterns, smartMoney, confluence };
