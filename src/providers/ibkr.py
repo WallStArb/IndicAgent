@@ -184,6 +184,7 @@ class IBKRProvider:
                     symbol=instrument.base or instrument.symbol,
                     lastTradeDateOrContractMonth=instrument.expiry,
                     exchange=instrument.exchange,
+                    currency="USD",
                 )
             else:
                 contract = Stock(symbol=instrument.symbol, exchange=instrument.exchange)
