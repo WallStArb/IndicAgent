@@ -71,6 +71,16 @@ Building this milestone.
 - [ ] **ML-02**: ML scoring runs as I7 plugin or post-I7 layer, adding `ml_score` field to signals
 - [ ] **ML-03**: ML model versioned and retrainable from `intelligence_features` historical data
 
+### Dashboard Connected (Phase 6)
+- [ ] **DASH-01**: SSE connection to `/api/sse/events` works from the dashboard — browser DevTools shows `intelligence_data`, `indicator_data`, `signal_data`, `narrative_data` events arriving
+- [ ] **DASH-02**: All 23 contracts qualify successfully — SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6 no longer fail `qualify_instrument`
+- [ ] **DASH-03**: Price hero shows live bid/ask/last price with colour-coded direction, flash animation, dual % change (vs prevClose + vs sessionOpen), dual range bars (bar + session), VWAP
+- [ ] **DASH-04**: Indicator panel (I1) shows real non-zero RSI, MACD, ATR values from live indicator stream, per timeframe tab
+- [ ] **DASH-05**: Structure/Context/Pattern panels (I3–I5) show real values from `intelligence_data` SSE events including I3 swing/S&R, I4 vol/trend/momentum regime, I5 divergence/squeeze/confluence
+- [ ] **DASH-06**: SMC panel (I6) shows BOS/CHoCH/FVG signals, HMM regime (label + probability), and liquidity zones (BSL/SSL levels + premium/discount badge)
+- [ ] **DASH-07**: Signal panel (I7) shows direction, confidence %, entry price, and stop loss; narrative panel (I8) shows AI narrative text
+- [ ] **DASH-08**: Connection status indicator accurately reflects SSE state (connecting/connected/disconnected) — green dot with "Live" label when connected
+
 ### Auth & External Access
 - [ ] **AUTH-01**: Single `Depends(verify_auth)` FastAPI dependency accepts JWT (human/Vercel) and API key (machine)
 - [ ] **AUTH-02**: Cloudflare Tunnel configured for HTTPS external access to FastAPI
@@ -120,13 +130,21 @@ Deferred — not in this milestone's roadmap.
 | ML-01 | Phase 5 | ML Scoring Model | Pending |
 | ML-02 | Phase 5 | ML Scoring Model | Pending |
 | ML-03 | Phase 5 | ML Scoring Model | Pending |
-| AUTH-01 | Phase 6 | Auth and External Access | Pending |
-| AUTH-02 | Phase 6 | Auth and External Access | Pending |
-| AUTH-03 | Phase 6 | Auth and External Access | Pending |
+| DASH-01 | Phase 6 | Dashboard Connected | Pending |
+| DASH-02 | Phase 6 | Dashboard Connected | Pending |
+| DASH-03 | Phase 6 | Dashboard Connected | Pending |
+| DASH-04 | Phase 6 | Dashboard Connected | Pending |
+| DASH-05 | Phase 6 | Dashboard Connected | Pending |
+| DASH-06 | Phase 6 | Dashboard Connected | Pending |
+| DASH-07 | Phase 6 | Dashboard Connected | Pending |
+| DASH-08 | Phase 6 | Dashboard Connected | Pending |
+| AUTH-01 | Phase 7 | Auth and External Access | Pending |
+| AUTH-02 | Phase 7 | Auth and External Access | Pending |
+| AUTH-03 | Phase 7 | Auth and External Access | Pending |
 
 **Coverage:**
-- v1 requirements: 20 total
-- Mapped to phases: 20
+- v1 requirements: 28 total
+- Mapped to phases: 28
 - Unmapped: 0 ✓
 
 ---
