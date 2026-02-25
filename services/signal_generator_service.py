@@ -168,7 +168,7 @@ class SignalGeneratorService:
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
-        self.consumer_group = f"signal_generator_{int(time.time())}"
+        self.consumer_group = "signal_generator"
         self.consumer_name = f"generator_{os.getpid()}"
 
         settings = Settings()
@@ -307,15 +307,30 @@ class SignalGeneratorService:
 
     async def _setup_consumer_groups(self) -> None:
         from src.core.stream_keys import intelligence as sk_intel
+        warmup_bars = 60
         for tf in self.config["service"]["timeframes"]:
             for sym in self.config["service"]["symbols"]:
                 stream_name = sk_intel(self.env_prefix, sym, tf)
                 try:
+                    # Create at $ (current end) for new groups only
                     await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "0", mkstream=True
+                        stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
-                    pass
+                    pass  # Group already exists — position preserved from last run
+                # Always rewind warmup_bars from current end for plugin state warm-up
+                try:
+                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
+                    if len(msgs) > warmup_bars:
+                        await self.redis_client.xgroup_setid(
+                            stream_name, self.consumer_group, msgs[warmup_bars][0]
+                        )
+                    elif msgs:
+                        await self.redis_client.xgroup_setid(
+                            stream_name, self.consumer_group, "0-0"
+                        )
+                except Exception as e:
+                    self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
 
     async def stop(self) -> None:
         self.logger.info("Stopping Signal Generator Service")

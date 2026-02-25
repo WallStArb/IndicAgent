@@ -277,24 +277,51 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       touch();
     });
 
-    // --- Indicator data (one indicator per event, merge into map) ---
+    // --- Indicator data (flat dict with all indicators per event) ---
     es.addEventListener("indicator_data", (evt) => {
       const { payload } = JSON.parse(evt.data);
       const sym = contractToBase(payload.symbol || "");
       if (!sym) return;
-      const name = (payload.indicator_name || "").toLowerCase();
-      const value = parseFloat(String(payload.value || "0"));
-      if (!name) return;
+
+      const n = (k: string): number | undefined => {
+        const v = payload[k];
+        if (v == null) return undefined;
+        const f = parseFloat(String(v));
+        return isNaN(f) ? undefined : f;
+      };
+
+      // Map stream field names (e.g. rsi_14) → IndicatorData field names (e.g. rsi)
+      const mapped: Partial<IndicatorData> = {
+        rsi: n("rsi_14"),
+        macd: n("macd_12_26_9"),
+        macd_signal: n("macd_signal_12_26_9"),
+        macd_histogram: n("macd_histogram_12_26_9"),
+        stoch_k: n("stoch_k_14_3"),
+        stoch_d: n("stoch_d_14_3"),
+        williams_r: n("williams_r_14"),
+        cci: n("cci_14"),
+        atr: n("atr_14"),
+        bb_upper: n("bb_20_2_upper"),
+        bb_middle: n("bb_20_2_mid"),
+        bb_lower: n("bb_20_2_lower"),
+        sma_20: n("sma_20"),
+        sma_50: n("sma_50"),
+        ema_12: n("ema_13"),
+        ema_26: n("ema_21"),
+        obv: n("obv"),
+        mfi: n("mfi_14"),
+        vwap: n("vwap"),
+      };
 
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
         const merged: IndicatorData = {
           ...(old.indicators || { symbol: sym, timeframe, timestamp: "" }),
+          ...mapped,
           symbol: sym,
-          timeframe,
+          timeframe: String(payload.timeframe || timeframe),
           timestamp: String(payload.timestamp || ""),
-          [name]: value,
         };
         return {
           ...prev,
@@ -307,7 +334,9 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     // --- Intelligence data (I3/I4/I5 combined) ---
     es.addEventListener("intelligence_data", (evt) => {
       const { payload } = JSON.parse(evt.data);
-      const sym = contractToBase(payload.symbol || "");
+      // Symbol is nested inside payload.event (IntelligenceEvent JSON), not at top level
+      const event = JSON.parse(payload.event || "{}");
+      const sym = contractToBase(event.symbol || "");
       if (!sym) return;
       const { structure, context, patterns, smartMoney, confluence } = parseIntelligence(payload);
 

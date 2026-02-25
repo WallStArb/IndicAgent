@@ -122,7 +122,7 @@ class IndicatorService:
         registry.validate_tier(I1_PLUGINS, "I1")
 
         self.redis_client: redis.Redis | None = None
-        self.consumer_group = f"indicator_service_{int(time.time())}"
+        self.consumer_group = "indicator_service"
         self.consumer_name = f"indicator_consumer_{os.getpid()}"
 
         settings = Settings()
@@ -294,15 +294,32 @@ class IndicatorService:
         self.logger.info("Connected to Redis")
 
     async def _setup_consumer_groups(self) -> None:
+        warmup_bars = 150
         for timeframe in self.config["service"]["timeframes"]:
             for symbol in self.config["service"]["symbols"]:
                 stream_name = sk_market(self.env_prefix, symbol, timeframe)
                 try:
+                    # Create at $ (current end) for new groups only
                     await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "0", mkstream=True
+                        stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
-                    pass
+                    pass  # Group already exists — position preserved from last run
+                # Always rewind warmup_bars from current end for plugin state warm-up
+                try:
+                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
+                    if len(msgs) > warmup_bars:
+                        # Set to the (warmup_bars+1)th from end; xreadgroup delivers last warmup_bars
+                        await self.redis_client.xgroup_setid(
+                            stream_name, self.consumer_group, msgs[warmup_bars][0]
+                        )
+                    elif msgs:
+                        # Stream has fewer messages than warmup_bars — start from beginning
+                        await self.redis_client.xgroup_setid(
+                            stream_name, self.consumer_group, "0-0"
+                        )
+                except Exception as e:
+                    self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
 
     async def _process_market_data(self) -> None:
         while self.running and not self.shutdown_requested:
