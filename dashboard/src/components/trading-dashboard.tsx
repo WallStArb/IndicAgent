@@ -11,7 +11,6 @@ import { SmartMoneyPanel } from "./smart-money-panel";
 import { ConfluencePanel } from "./confluence-panel";
 import { SignalPanel } from "./signal-panel";
 import { NarrativePanel } from "./narrative-panel";
-import { ConfidenceRing } from "./confidence-ring";
 import { PriceHero } from "./price-hero";
 import { RegimeAmbiance } from "./regime-ambiance";
 import { SignalBanner } from "./signal-banner";
@@ -23,7 +22,7 @@ import { TIMEFRAMES } from "@/lib/types";
 
 export default function TradingDashboard() {
   const [mounted, setMounted] = useState(false);
-  const [timeframe, setTimeframe] = useState<Timeframe>("1m");
+  const [timeframe, setTimeframe] = useState<Timeframe>("5m");
   const [activeProfile, setActiveProfile] = useState(
     symbolConfig.getActiveProfile()
   );
@@ -171,6 +170,27 @@ function SymbolCard({
   const smartMoney = intel?.smartMoney ?? null;
   const confluence = intel?.confluence ?? null;
 
+  const prevClose = data.prevClose;
+  const price = data.tick.price;
+  const chgClose = prevClose > 0 && price > 0 ? price - prevClose : null;
+  const chgClosePct = prevClose > 0 && price > 0 ? ((price - prevClose) / prevClose) * 100 : null;
+  const isLong = data.signal?.direction === "long";
+  const hasSignal = data.signal !== null;
+  const confidence = data.signal?.confidence ?? null;
+
+  function priceColor(): string {
+    if (!price || !prevClose) return "text-[var(--text-primary)]";
+    if (price > prevClose) return "text-[var(--green)]";
+    if (price < prevClose) return "text-[var(--red)]";
+    return "text-[var(--text-primary)]";
+  }
+  function chgColor(v: number | null): string {
+    if (v === null) return "text-[var(--text-muted)]";
+    if (v > 0) return "text-[var(--green)]";
+    if (v < 0) return "text-[var(--red)]";
+    return "text-[var(--text-muted)]";
+  }
+
   return (
     <div
       className="flex flex-col surface rounded overflow-hidden"
@@ -184,8 +204,8 @@ function SymbolCard({
         transition: "box-shadow 0.5s ease",
       }}
     >
-      {/* Header: instrument identity */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
+      {/* Header: name + symbol + contract */}
+      <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5 bg-[var(--bg-elevated)]">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
             {displayName}
@@ -199,16 +219,47 @@ function SymbolCard({
         </span>
       </div>
 
-      {/* L0: Confidence ring + price */}
-      <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
-        <ConfidenceRing
-          confluence={confluence}
-          signal={data.signal}
-          price={data.tick.price}
-        />
+      {/* Price + signal summary row */}
+      <div className="flex items-center justify-between px-3 pb-1.5 bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
+        {/* Last price + change */}
+        <div className="flex items-baseline gap-1.5">
+          <span
+            key={data.tickFlash ?? "base"}
+            className={`font-data text-xl font-semibold leading-none tracking-tight ${priceColor()} ${
+              data.tickFlash === "up" ? "price-flash-up" : data.tickFlash === "down" ? "price-flash-down" : ""
+            }`}
+          >
+            {price > 0 ? price.toFixed(2) : "—"}
+          </span>
+          {chgClose !== null && (
+            <span className={`font-data text-[0.65rem] ${chgColor(chgClose)}`}>
+              {chgClose >= 0 ? "+" : ""}{chgClose.toFixed(2)}
+              {chgClosePct !== null && (
+                <span className="ml-0.5 opacity-80">({chgClosePct >= 0 ? "+" : ""}{chgClosePct.toFixed(2)}%)</span>
+              )}
+            </span>
+          )}
+        </div>
+        {/* Signal direction + confidence */}
+        {hasSignal ? (
+          <span
+            className="text-[0.6rem] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded"
+            style={{
+              backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
+              color: isLong ? "var(--green)" : "var(--red)",
+            }}
+          >
+            {isLong ? "LONG" : "SHORT"}
+            {confidence !== null && (
+              <span className="ml-1 opacity-75">{Math.round(confidence * 100)}%</span>
+            )}
+          </span>
+        ) : (
+          <span className="text-[0.55rem] text-[var(--text-muted)]">—</span>
+        )}
       </div>
 
-      {/* L0: Price hero — bid/ask/last, flash, change lines, range bars */}
+      {/* L0: Price hero — bid/ask, bar details, range bars */}
       <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
         <PriceHero data={data} activeTf={activeTf} />
       </div>
