@@ -170,18 +170,18 @@ function SymbolCard({
   const smartMoney = intel?.smartMoney ?? null;
   const confluence = intel?.confluence ?? null;
 
-  const prevClose = data.prevClose;
   const price = data.tick.price;
-  const chgClose = prevClose > 0 && price > 0 ? price - prevClose : null;
-  const chgClosePct = prevClose > 0 && price > 0 ? ((price - prevClose) / prevClose) * 100 : null;
+  const sessionOpen = data.session.open;
+  const chgSession = sessionOpen > 0 && price > 0 ? price - sessionOpen : null;
+  const chgSessionPct = sessionOpen > 0 && price > 0 ? ((price - sessionOpen) / sessionOpen) * 100 : null;
   const isLong = data.signal?.direction === "long";
   const hasSignal = data.signal !== null;
   const confidence = data.signal?.confidence ?? null;
 
   function priceColor(): string {
-    if (!price || !prevClose) return "text-[var(--text-primary)]";
-    if (price > prevClose) return "text-[var(--green)]";
-    if (price < prevClose) return "text-[var(--red)]";
+    if (!price || !sessionOpen) return "text-[var(--text-primary)]";
+    if (price > sessionOpen) return "text-[var(--green)]";
+    if (price < sessionOpen) return "text-[var(--red)]";
     return "text-[var(--text-primary)]";
   }
   function chgColor(v: number | null): string {
@@ -221,29 +221,39 @@ function SymbolCard({
 
       {/* Price + signal summary row */}
       <div className="flex items-center justify-between px-3 pb-1.5 bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
-        {/* Last price + change */}
-        <div className="flex items-baseline gap-1.5">
-          <span
-            key={data.tickFlash ?? "base"}
-            className={`font-data text-xl font-semibold leading-none tracking-tight ${priceColor()} ${
-              data.tickFlash === "up" ? "price-flash-up" : data.tickFlash === "down" ? "price-flash-down" : ""
-            }`}
-          >
-            {price > 0 ? price.toFixed(2) : "—"}
-          </span>
-          {chgClose !== null && (
-            <span className={`font-data text-[0.65rem] ${chgColor(chgClose)}`}>
-              {chgClose >= 0 ? "+" : ""}{chgClose.toFixed(2)}
-              {chgClosePct !== null && (
-                <span className="ml-0.5 opacity-80">({chgClosePct >= 0 ? "+" : ""}{chgClosePct.toFixed(2)}%)</span>
-              )}
+        {/* Last price + session change + session H/L */}
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-baseline gap-1.5">
+            <span
+              key={data.tickFlash ?? "base"}
+              className={`font-data text-xl font-semibold leading-none tracking-tight ${priceColor()} ${
+                data.tickFlash === "up" ? "price-flash-up" : data.tickFlash === "down" ? "price-flash-down" : ""
+              }`}
+            >
+              {price > 0 ? price.toFixed(2) : "—"}
             </span>
+            {chgSession !== null && (
+              <span className={`font-data text-[0.65rem] ${chgColor(chgSession)}`}>
+                {chgSession >= 0 ? "+" : ""}{chgSession.toFixed(2)}
+                {chgSessionPct !== null && (
+                  <span className="ml-0.5 opacity-80">({chgSessionPct >= 0 ? "+" : ""}{chgSessionPct.toFixed(2)}%)</span>
+                )}
+              </span>
+            )}
+          </div>
+          {/* Session O/H/L inline */}
+          {data.session.high > 0 && (
+            <div className="flex items-center gap-1.5 font-data text-[0.5rem] text-[var(--text-muted)]">
+              <span>O&nbsp;{data.session.open.toFixed(2)}</span>
+              <span className="text-[var(--green)]">H&nbsp;{data.session.high.toFixed(2)}</span>
+              <span className="text-[var(--red)]">L&nbsp;{data.session.low.toFixed(2)}</span>
+            </div>
           )}
         </div>
         {/* Signal direction + confidence */}
         {hasSignal ? (
           <span
-            className="text-[0.6rem] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded"
+            className="text-[0.6rem] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded self-start"
             style={{
               backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
               color: isLong ? "var(--green)" : "var(--red)",
@@ -255,7 +265,7 @@ function SymbolCard({
             )}
           </span>
         ) : (
-          <span className="text-[0.55rem] text-[var(--text-muted)]">—</span>
+          <span className="text-[0.55rem] text-[var(--text-muted)] self-start">—</span>
         )}
       </div>
 

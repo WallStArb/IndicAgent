@@ -20,39 +20,41 @@ function RangeBar({
   label,
   lo,
   hi,
+  accent,
 }: {
   ratio: number | null;
   label: string;
   lo: string;
   hi: string;
+  accent?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[0.5rem] uppercase tracking-wider text-[var(--text-muted)] w-8 shrink-0">
+    <div className="flex items-center gap-1.5">
+      <span className={`text-[0.5rem] uppercase tracking-wider w-7 shrink-0 ${accent ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]"}`}>
         {label}
       </span>
-      <span className="font-data text-[0.5rem] text-[var(--text-muted)] tabular-nums w-12 text-right shrink-0">
+      <span className="font-data text-[0.5rem] text-[var(--text-muted)] tabular-nums w-11 text-right shrink-0">
         {lo}
       </span>
-      <div className="relative flex-1 h-1 rounded-full bg-[var(--border-subtle)] overflow-visible">
+      <div className={`relative flex-1 rounded-full overflow-visible ${accent ? "h-1.5" : "h-1"} bg-[var(--border-subtle)]`}>
         {ratio === null ? (
           <div className="absolute inset-0 rounded-full bg-[var(--border-default)] opacity-40" />
         ) : (
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[var(--text-accent)] shadow-sm"
-            style={{ left: `calc(${ratio * 100}% - 3px)` }}
+            className={`absolute top-1/2 -translate-y-1/2 rounded-full bg-[var(--text-accent)] shadow-sm ${accent ? "w-2 h-2" : "w-1.5 h-1.5"}`}
+            style={{ left: `calc(${ratio * 100}% - ${accent ? 4 : 3}px)` }}
           />
         )}
       </div>
-      <span className="font-data text-[0.5rem] text-[var(--text-muted)] tabular-nums w-12 shrink-0">
+      <span className="font-data text-[0.5rem] text-[var(--text-muted)] tabular-nums w-11 shrink-0">
         {hi}
       </span>
     </div>
   );
 }
 
-/** Format a bar timestamp string (ISO or ms epoch) to HH:MM */
-function fmtBarTime(ts: string | number | undefined): string {
+/** Format a timestamp string/ms to HH:MM */
+function fmtTime(ts: string | number | undefined): string {
   if (!ts) return "";
   try {
     const d = typeof ts === "number" ? new Date(ts) : new Date(ts);
@@ -63,7 +65,7 @@ function fmtBarTime(ts: string | number | undefined): string {
   }
 }
 
-/** Compact price details: bid/ask, bar H/L/Vol/VWAP/time, dual range bars */
+/** Price detail section: session range, bid/ask, bar H/L/Vol at bottom */
 export function PriceHero({ data, activeTf }: PriceHeroProps) {
   const { tick, bar, session } = data;
   const indicators = data.indicatorsByTf[activeTf] ?? null;
@@ -73,74 +75,63 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
   const bid = isEmpty ? 0 : tick.bid;
   const ask = isEmpty ? 0 : tick.ask;
 
+  const sessionRatio = isEmpty || session.high <= session.low ? null : clampRatio(price, session.low, session.high);
   const barRatio = isEmpty ? null : clampRatio(price, bar.low, bar.high);
-  const sessionRatio = isEmpty ? null : clampRatio(price, session.low, session.high);
-  const barTime = fmtBarTime(bar.timestamp);
+
+  // Timestamp of the bar that indicators were computed from
+  const indicatorBarTime = fmtTime(indicators?.timestamp);
+  const barTime = fmtTime(bar.timestamp);
+  const displayTime = indicatorBarTime || barTime;
 
   return (
-    <div className="px-3 py-1.5 space-y-1.5">
-      {/* Bid / Ask / Spread row */}
+    <div className="px-3 pt-1.5 pb-2 space-y-2">
+      {/* Session range bar — prominent */}
+      <RangeBar
+        label="Sess"
+        ratio={sessionRatio}
+        lo={session.low > 0 ? fmtPrice(session.low) : "—"}
+        hi={session.high > 0 ? fmtPrice(session.high) : "—"}
+        accent
+      />
+
+      {/* Bid / Ask / Spread */}
       <div className="flex items-center gap-3 font-data text-[0.6rem]">
         <span>
           <span className="text-[var(--text-muted)]">Bid </span>
-          <span className="text-[var(--red)] tabular-nums">{isEmpty ? "—" : fmtPrice(bid)}</span>
+          <span className="text-[var(--red)] tabular-nums">{isEmpty || bid === 0 ? "—" : fmtPrice(bid)}</span>
         </span>
         <span>
           <span className="text-[var(--text-muted)]">Ask </span>
-          <span className="text-[var(--green)] tabular-nums">{isEmpty ? "—" : fmtPrice(ask)}</span>
+          <span className="text-[var(--green)] tabular-nums">{isEmpty || ask === 0 ? "—" : fmtPrice(ask)}</span>
         </span>
         {!isEmpty && bid > 0 && ask > 0 && (
           <span className="text-[var(--text-muted)] tabular-nums">
             spd {fmtPrice(ask - bid)}
           </span>
         )}
-      </div>
-
-      {/* Bar H / L / Vol / VWAP / timestamp */}
-      <div className="flex items-center gap-2.5 font-data text-[0.55rem] text-[var(--text-muted)] flex-wrap">
-        <span>
-          <span className="text-[var(--green)]">H</span>&nbsp;{isEmpty ? "—" : fmtPrice(bar.high)}
-        </span>
-        <span>
-          <span className="text-[var(--red)]">L</span>&nbsp;{isEmpty ? "—" : fmtPrice(bar.low)}
-        </span>
-        <span>Vol&nbsp;{isEmpty ? "—" : fmtCompact(bar.volume)}</span>
-        {indicators?.vwap != null && (
-          <span>VWAP&nbsp;{fmtPrice(indicators.vwap)}</span>
-        )}
-        {barTime && (
-          <span className="ml-auto opacity-60">{barTime}</span>
+        {/* Indicator timestamp — right-aligned, tells user when bars/signals were computed */}
+        {displayTime && (
+          <span className="ml-auto font-data text-[0.5rem] text-[var(--text-muted)] opacity-70">
+            as of {displayTime}
+          </span>
         )}
       </div>
 
-      {/* Session change row */}
-      {!isEmpty && data.session.open > 0 && (() => {
-        const chgOpen = price - data.session.open;
-        const chgOpenPct = (chgOpen / data.session.open) * 100;
-        const col = chgOpen > 0 ? "text-[var(--green)]" : chgOpen < 0 ? "text-[var(--red)]" : "text-[var(--text-muted)]";
-        return (
-          <div className="flex items-center gap-1 font-data text-[0.55rem]">
-            <span className="text-[var(--text-muted)]">Session</span>
-            <span className={`${col} tabular-nums`}>
-              {chgOpen >= 0 ? "+" : ""}{chgOpen.toFixed(2)} ({chgOpenPct >= 0 ? "+" : ""}{chgOpenPct.toFixed(2)}%)
-            </span>
-          </div>
-        );
-      })()}
-
-      {/* Dual range bars */}
-      <div className="space-y-1 pt-0.5">
+      {/* Bar H / L / Vol / VWAP — small, at bottom */}
+      <div className="space-y-1">
+        <div className="flex items-center gap-2.5 font-data text-[0.5rem] text-[var(--text-muted)]">
+          <span><span className="text-[var(--green)]">H</span>&nbsp;{isEmpty ? "—" : fmtPrice(bar.high)}</span>
+          <span><span className="text-[var(--red)]">L</span>&nbsp;{isEmpty ? "—" : fmtPrice(bar.low)}</span>
+          <span>Vol&nbsp;{isEmpty ? "—" : fmtCompact(bar.volume)}</span>
+          {indicators?.vwap != null && (
+            <span>VWAP&nbsp;{fmtPrice(indicators.vwap)}</span>
+          )}
+        </div>
         <RangeBar
           label="Bar"
           ratio={barRatio}
           lo={isEmpty ? "—" : fmtPrice(bar.low)}
           hi={isEmpty ? "—" : fmtPrice(bar.high)}
-        />
-        <RangeBar
-          label="Sess"
-          ratio={sessionRatio}
-          lo={isEmpty || session.low === 0 ? "—" : fmtPrice(session.low)}
-          hi={isEmpty || session.high === 0 ? "—" : fmtPrice(session.high)}
         />
       </div>
     </div>
