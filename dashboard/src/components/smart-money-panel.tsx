@@ -95,6 +95,60 @@ export function SmartMoneyPanel({ smartMoney }: SmartMoneyPanelProps) {
           )}
         </div>
       </div>
+
+      {/* HMM Regime */}
+      {s?.hmm_regime !== undefined && (
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="zone-label shrink-0 w-10">HMM</span>
+          <span className={`font-data text-[0.65rem] font-semibold ${
+            s.hmm_regime === 1 ? "text-up"
+            : s.hmm_regime === 2 ? "text-down"
+            : "text-[var(--amber)]"
+          }`}>
+            {s.hmm_regime === 1 ? "TREND\u2191" : s.hmm_regime === 2 ? "TREND\u2193" : "RANGING"}
+          </span>
+          {s.hmm_regime_prob !== undefined && (
+            <span className="font-data text-[0.6rem] text-[var(--text-muted)]">
+              {(s.hmm_regime_prob * 100).toFixed(0)}%
+            </span>
+          )}
+          {s.hmm_regime_duration !== undefined && (
+            <span className="font-data text-[0.6rem] text-[var(--text-muted)]">
+              {s.hmm_regime_duration.toFixed(0)}b
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Liquidity Zones (BSL/SSL) */}
+      {(s?.bsl_level || s?.ssl_level) && (
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="zone-label shrink-0 w-10">LIQ</span>
+          {s.ssl_level && (
+            <span className="font-data text-[0.6rem]">
+              <span className="text-[var(--text-muted)]">SSL </span>
+              <span className="text-[var(--text-accent)]">{fmtPrice(s.ssl_level)}</span>
+            </span>
+          )}
+          {s.bsl_level && (
+            <span className="font-data text-[0.6rem]">
+              <span className="text-[var(--text-muted)]">BSL </span>
+              <span className="text-[var(--text-accent)]">{fmtPrice(s.bsl_level)}</span>
+            </span>
+          )}
+          {s.premium_position !== undefined && (
+            <span className={`text-[0.55rem] font-semibold uppercase tracking-wider px-1 py-0 rounded ${
+              s.premium_position >= 0.6
+                ? "bg-[var(--red-dim)] text-[var(--red)]"
+                : s.premium_position <= 0.4
+                  ? "bg-[var(--green-dim)] text-[var(--green)]"
+                  : "text-[var(--text-muted)]"
+            }`}>
+              {s.premium_position >= 0.6 ? "PREM" : s.premium_position <= 0.4 ? "DISC" : "EQ"}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
