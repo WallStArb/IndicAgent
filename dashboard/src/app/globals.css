@@ -123,3 +123,23 @@ body {
 .glow-green { box-shadow: 0 0 8px var(--green-dim); }
 .glow-red { box-shadow: 0 0 8px var(--red-dim); }
 .glow-amber { box-shadow: 0 0 8px var(--amber-dim); }
+
+/* ── Price flash animations (PriceHero tick flash) ── */
+
+@keyframes flash-up {
+  0%   { background-color: var(--green-dim); color: var(--green); }
+  100% { background-color: transparent; color: inherit; }
+}
+
+@keyframes flash-down {
+  0%   { background-color: var(--red-dim); color: var(--red); }
+  100% { background-color: transparent; color: inherit; }
+}
+
+.price-flash-up {
+  animation: flash-up 600ms ease-out forwards;
+}
+
+.price-flash-down {
+  animation: flash-down 600ms ease-out forwards;
+}

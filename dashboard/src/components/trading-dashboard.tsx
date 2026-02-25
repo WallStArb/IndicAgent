@@ -12,6 +12,7 @@ import { ConfluencePanel } from "./confluence-panel";
 import { SignalPanel } from "./signal-panel";
 import { NarrativePanel } from "./narrative-panel";
 import { ConfidenceRing } from "./confidence-ring";
+import { PriceHero } from "./price-hero";
 import { RegimeAmbiance } from "./regime-ambiance";
 import { SignalBanner } from "./signal-banner";
 import { NarrativeElevated } from "./narrative-elevated";
@@ -205,6 +206,11 @@ function SymbolCard({
           signal={data.signal}
           price={data.tick.price}
         />
+      </div>
+
+      {/* L0: Price hero — bid/ask/last, flash, change lines, range bars */}
+      <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
+        <PriceHero tick={data.tick} bar={data.bar} prevClose={data.prevClose} />
       </div>
 
       {/* L0: High-confidence signal banner */}
