@@ -145,6 +145,27 @@ export interface SmartMoneyData {
   cp_probability?: number;
   cp_run_length?: number;
   cp_confirmation?: number;
+
+  // HMM Regime (I6 SMC) — from live Redis: hmm_regime: 0.0, hmm_regime_prob: 0.962
+  hmm_regime?: number;              // 0=ranging, 1=trending_up, 2=trending_down
+  hmm_regime_prob?: number;         // probability of current regime (0-1)
+  hmm_prob_ranging?: number;        // probability of ranging regime
+  hmm_prob_trending_up?: number;    // probability of trending up
+  hmm_prob_trending_down?: number;  // probability of trending down
+  hmm_regime_duration?: number;     // bars spent in current regime
+
+  // Liquidity Zones — from live Redis: bsl_level: 6909.19, ssl_level: 6905.75
+  bsl_level?: number;               // buy-side liquidity level (resistance above current price)
+  bsl_significance?: number;        // 0-1 score (higher = more significant)
+  bsl_dist_atr?: number;            // distance to BSL in ATR units
+  bsl_touches?: number;             // times tested (higher = stronger level)
+  ssl_level?: number;               // sell-side liquidity level (support below current price)
+  ssl_significance?: number;
+  ssl_dist_atr?: number;
+  ssl_touches?: number;
+  price_in_premium?: boolean;       // true = price above equilibrium (midpoint of BSL/SSL range)
+  premium_position?: number;        // 0.0=full discount, 0.5=equilibrium, 1.0=full premium
+  pool_count?: number;              // total liquidity pools detected in range
 }
 
 // ── I6 Cross-Timeframe Confluence ──

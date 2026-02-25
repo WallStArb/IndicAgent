@@ -174,6 +174,25 @@ function parseIntelligence(p: Record<string, string>): {
     cp_probability: smc.cp_probability ?? undefined,
     cp_run_length: smc.cp_run_length ?? undefined,
     cp_confirmation: smc.cp_confirmation ?? undefined,
+    // HMM Regime
+    hmm_regime: smc.hmm_regime ?? undefined,
+    hmm_regime_prob: smc.hmm_regime_prob ?? undefined,
+    hmm_prob_ranging: smc.hmm_prob_ranging ?? undefined,
+    hmm_prob_trending_up: smc.hmm_prob_trending_up ?? undefined,
+    hmm_prob_trending_down: smc.hmm_prob_trending_down ?? undefined,
+    hmm_regime_duration: smc.hmm_regime_duration ?? undefined,
+    // Liquidity Zones
+    bsl_level: smc.bsl_level ?? undefined,
+    bsl_significance: smc.bsl_significance ?? undefined,
+    bsl_dist_atr: smc.bsl_dist_atr ?? undefined,
+    bsl_touches: smc.bsl_touches ?? undefined,
+    ssl_level: smc.ssl_level ?? undefined,
+    ssl_significance: smc.ssl_significance ?? undefined,
+    ssl_dist_atr: smc.ssl_dist_atr ?? undefined,
+    ssl_touches: smc.ssl_touches ?? undefined,
+    price_in_premium: smc.price_in_premium != null ? nf(smc.price_in_premium) > 0 : undefined,
+    premium_position: smc.premium_position ?? undefined,
+    pool_count: smc.pool_count ?? undefined,
   };
 
   const confluence: ConfluenceData = {
