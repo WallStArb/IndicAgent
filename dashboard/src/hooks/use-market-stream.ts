@@ -303,17 +303,19 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         const barOpen = parseFloat(String(payload.open || 0));
         // Extract date from bar timestamp for session reset detection (YYYY-MM-DD)
         const barDate = String(payload.timestamp || "").slice(0, 10);
+        const barVol = parseFloat(String(payload.volume || 0));
         const sess = old.session;
         const isNewSession = barDate !== "" && barDate !== sess.date;
         const newSession: SessionState = isNewSession
-          ? { open: barOpen, high: barHigh, low: barLow, date: barDate }
+          ? { open: barOpen, high: barHigh, low: barLow, date: barDate, sessionVolume: barVol }
           : sess.date === ""
-            ? { open: barOpen, high: barHigh, low: barLow, date: barDate }
+            ? { open: barOpen, high: barHigh, low: barLow, date: barDate, sessionVolume: barVol }
             : {
                 open: sess.open,
                 high: Math.max(sess.high, barHigh),
                 low: Math.min(sess.low > 0 ? sess.low : barLow, barLow),
                 date: barDate,
+                sessionVolume: sess.sessionVolume + barVol,
               };
         return {
           ...prev,
@@ -324,7 +326,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               high: barHigh,
               low: barLow,
               close,
-              volume: parseFloat(String(payload.volume || 0)),
+              volume: barVol,
               timestamp: String(payload.timestamp || ""),
               lastUpdate: Date.now(),
             },
