@@ -72,14 +72,14 @@ Building this milestone.
 - [ ] **ML-03**: ML model versioned and retrainable from `intelligence_features` historical data
 
 ### Dashboard Connected (Phase 6)
-- [ ] **DASH-01**: SSE connection to `/api/sse/events` works from the dashboard — browser DevTools shows `intelligence_data`, `indicator_data`, `signal_data`, `narrative_data` events arriving
-- [ ] **DASH-02**: All 23 contracts qualify successfully — SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6 no longer fail `qualify_instrument`
-- [ ] **DASH-03**: Price hero shows live bid/ask/last price with colour-coded direction, flash animation, dual % change (vs prevClose + vs sessionOpen), dual range bars (bar + session), VWAP
-- [ ] **DASH-04**: Indicator panel (I1) shows real non-zero RSI, MACD, ATR values from live indicator stream, per timeframe tab
-- [ ] **DASH-05**: Structure/Context/Pattern panels (I3–I5) show real values from `intelligence_data` SSE events including I3 swing/S&R, I4 vol/trend/momentum regime, I5 divergence/squeeze/confluence
+- [x] **DASH-01**: SSE connection to `/api/sse/events` works from the dashboard — browser DevTools shows `intelligence_data`, `indicator_data`, `signal_data`, `narrative_data` events arriving
+- [x] **DASH-02**: All 23 contracts qualify successfully — SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6 no longer fail `qualify_instrument`
+- [x] **DASH-03**: Price hero shows live bid/ask/last price with colour-coded direction, flash animation, dual % change (vs prevClose + vs sessionOpen), dual range bars (bar + session), VWAP
+- [x] **DASH-04**: Indicator panel (I1) shows real non-zero RSI, MACD, ATR values from live indicator stream, per timeframe tab
+- [x] **DASH-05**: Structure/Context/Pattern panels (I3–I5) show real values from `intelligence_data` SSE events including I3 swing/S&R, I4 vol/trend/momentum regime, I5 divergence/squeeze/confluence
 - [ ] **DASH-06**: SMC panel (I6) shows BOS/CHoCH/FVG signals, HMM regime (label + probability), and liquidity zones (BSL/SSL levels + premium/discount badge)
 - [ ] **DASH-07**: Signal panel (I7) shows direction, confidence %, entry price, and stop loss; narrative panel (I8) shows AI narrative text
-- [ ] **DASH-08**: Connection status indicator accurately reflects SSE state (connecting/connected/disconnected) — green dot with "Live" label when connected
+- [x] **DASH-08**: Connection status indicator accurately reflects SSE state (connecting/connected/disconnected) — green dot with "Live" label when connected
 
 ### Auth & External Access
 - [ ] **AUTH-01**: Single `Depends(verify_auth)` FastAPI dependency accepts JWT (human/Vercel) and API key (machine)

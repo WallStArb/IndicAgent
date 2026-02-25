@@ -136,7 +136,7 @@ Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Historical Data | 3/3 | Complete | 2026-02-24 |
 | 4. Query API | 3/3 | Complete | 2026-02-24 |
 | 5. Live Pipeline | 1/3 | In Progress|  |
-| 6. Dashboard Connected | 1/4 | In Progress|  |
+| 6. Dashboard Connected | 2/4 | In Progress|  |
 | 7. Dashboard Complete | 0/3 | Not started | - |
 
 ## Backlog
