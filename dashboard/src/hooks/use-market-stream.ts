@@ -43,6 +43,7 @@ function emptySymbolData(symbol: string): SymbolData {
     confluence: null,
     signal: null,
     tfSignals: {},
+    signalsByTf: {},
     indicatorsByTf: {},
     intelligenceByTf: {},
     lastUpdate: 0,
@@ -452,7 +453,11 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       const tf = String(event.tf || timeframe);
       const { structure, context, patterns, smartMoney, confluence } = parseIntelligence(payload);
 
-      const intelligenceSnapshot: IntelligenceTfData = { structure, context, patterns, smartMoney, confluence };
+      const intelligenceSnapshot: IntelligenceTfData = {
+        structure, context, patterns, smartMoney, confluence,
+        barTime: String(event.ts || ""),
+        receivedAt: Date.now(),
+      };
 
       setSymbolData((prev) => {
         const old = prev[sym];
@@ -481,35 +486,38 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         const old = prev[sym];
         if (!old) return prev;
 
-        // Update tfSignals for this specific timeframe
+        // Full signal data for this TF (stored regardless of selected TF)
+        const fullSignal: SignalData | null = dir !== 0
+          ? {
+              direction: dir > 0 ? "long" : "short",
+              signal_type: String(payload.signal_type || ""),
+              setup_plugin: String(payload.setup_plugin || ""),
+              confidence: parseFloat(String(payload.confidence || "0")),
+              entry_price: parseFloat(String(payload.entry_price || "0")),
+              stop_loss: parseFloat(String(payload.stop_loss || "0")),
+              regime_context: String(payload.regime_context || ""),
+              timestamp: String(payload.timestamp || ""),
+            }
+          : null;
+
+        // Lightweight matrix entry
         const tfSignal: PerTfSignal = {
           direction: dir > 0 ? "long" : dir < 0 ? "short" : null,
           confidence: parseFloat(String(payload.confidence || "0")),
           updatedAt: Date.now(),
         };
 
-        // Only update the card-level signal for the user's selected timeframe
+        // Card-level signal: only update for the global selected timeframe
         const isSelectedTf = tf === timeframe;
-        const signal: SignalData | null =
-          isSelectedTf && dir !== 0
-            ? {
-                direction: dir > 0 ? "long" : "short",
-                signal_type: String(payload.signal_type || ""),
-                setup_plugin: String(payload.setup_plugin || ""),
-                confidence: parseFloat(String(payload.confidence || "0")),
-                entry_price: parseFloat(String(payload.entry_price || "0")),
-                stop_loss: parseFloat(String(payload.stop_loss || "0")),
-                regime_context: String(payload.regime_context || ""),
-                timestamp: String(payload.timestamp || ""),
-              }
-            : old.signal;
+        const signal = isSelectedTf ? (fullSignal ?? old.signal) : old.signal;
 
         return {
           ...prev,
           [sym]: {
             ...old,
-            signal: signal ?? old.signal,
+            signal,
             tfSignals: { ...old.tfSignals, [tf]: tfSignal },
+            signalsByTf: { ...old.signalsByTf, [tf]: fullSignal },
             lastUpdate: Date.now(),
           },
         };

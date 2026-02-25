@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from collections.abc import AsyncGenerator
 
 import structlog
@@ -31,6 +32,11 @@ def _resolve_contract(symbol: str) -> str:
     settings = Settings()
     for c in settings.contracts:
         if c.base == symbol:
+            return c.symbol
+    # Fallback: match by stripping expiry suffix (e.g., "VX" matches "VXH6" when base is "VIX")
+    for c in settings.contracts:
+        m = re.match(r"^([A-Z0-9]{1,4}?)[A-Z]\d+$", c.symbol)
+        if m and m.group(1) == symbol:
             return c.symbol
     return symbol  # Fallback: use as-is
 

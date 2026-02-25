@@ -4,7 +4,7 @@ export interface SymbolInfo {
   display_name: string
   contract?: string
   description: string
-  sector: "equity_index" | "energy" | "metals" | "volatility" | "interest_rates" | "etf"
+  sector: "equity_index" | "energy" | "metals" | "volatility" | "interest_rates" | "agriculture" | "fx" | "crypto" | "etf"
 }
 
 export interface SymbolProfile {
@@ -52,14 +52,14 @@ const defaultConfig: DashboardConfig = {
       {
         symbol: "CL",
         display_name: "Crude Oil",
-        contract: "CLH6",
+        contract: "CLJ6",
         description: "Crude Oil WTI Futures",
         sector: "energy",
       },
       {
         symbol: "NG",
         display_name: "Natural Gas",
-        contract: "NGH6",
+        contract: "NGJ6",
         description: "Natural Gas Futures",
         sector: "energy",
       },
@@ -241,12 +241,41 @@ class SymbolConfigManager {
     }
   }
 
-  // In production, this would load from API
+  /** Strip expiry suffix from a contract code to get the dashboard base symbol.
+   *  "NGJ6" → "NG", "VXH6" → "VX", "6EH6" → "6E", "ESH6" → "ES"
+   */
+  private contractToBase(contract: string): string {
+    const m = contract.match(/^([A-Z0-9]{1,4}?)[A-Z]\d+$/)
+    return m ? m[1] : contract
+  }
+
   async loadConfig(): Promise<void> {
-    console.log(
-      "Using default symbol configuration:",
-      this.config.active_profile
-    )
+    try {
+      const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+      const res = await fetch(`${base}/api/instruments`)
+      if (!res.ok) return
+      const instruments: Array<{
+        symbol: string  // full contract code, e.g. "NGJ6"
+        name: string
+        sector: string
+        is_active: boolean
+        asset_class: string
+      }> = await res.json()
+
+      const futures: SymbolInfo[] = instruments
+        .filter((i) => i.is_active && i.asset_class === "futures")
+        .map((i) => ({
+          symbol: this.contractToBase(i.symbol),
+          display_name: i.name,
+          contract: i.symbol,
+          description: `${i.name} Futures`,
+          sector: i.sector as SymbolInfo["sector"],
+        }))
+
+      this.config = { ...this.config, dashboard_symbols: { ...this.config.dashboard_symbols, futures } }
+    } catch {
+      // Keep static fallback on error
+    }
   }
 }
 

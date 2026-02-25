@@ -25,6 +25,7 @@ router = APIRouter()
 async def get_session_data(
     symbols: str = Query(..., description="Comma-separated base or contract symbols, e.g., ES,NQ"),
     redis_manager: RedisStreamsManager = Depends(get_redis_manager),
+    db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict:
     """
     Current trading session aggregated data for each symbol.
@@ -32,6 +33,9 @@ async def get_session_data(
     Session boundary: 18:00 ET each day (futures ETH session start).
     Reads from live Redis 1m streams (up to 2000 bars ≈ 33 hours — more than a full session).
     Returns session_open, session_high, session_low, session_volume, prev_close keyed by base symbol.
+
+    prev_close = last 1m bar close before the prior session's maintenance window (17:00 ET),
+    i.e. the previous RTH settlement. Queried from TimescaleDB, not Redis.
     """
     from datetime import timedelta, timezone
     from zoneinfo import ZoneInfo
@@ -66,6 +70,34 @@ async def get_session_data(
     session_start_et = today_18 if now_et >= today_18 else today_18 - timedelta(days=1)
     session_boundary_utc = session_start_et.astimezone(timezone.utc)
 
+    # prev_close boundary: last bar before 17:00 ET on the session start day
+    # (the maintenance window starts at 17:00 ET, so the last RTH bar is ~16:59 ET)
+    prev_close_cutoff_utc = session_start_et.replace(hour=17, minute=0, second=0).astimezone(timezone.utc)
+
+    # Batch-fetch prev_close from DB for all contracts
+    contract_symbols = [c for c, _ in resolved]
+    prev_close_map: dict[str, float | None] = {c: None for c in contract_symbols}
+    try:
+        rows = await db_manager.fetch(
+            """
+            SELECT DISTINCT ON (symbol)
+                symbol, close
+            FROM market_data_ohlcv
+            WHERE symbol = ANY($1)
+              AND timeframe = '1m'
+              AND timestamp < $2
+            ORDER BY symbol, timestamp DESC
+            """,
+            contract_symbols,
+            prev_close_cutoff_utc,
+        )
+        for row in rows:
+            sym, close_val = row[0], row[1]
+            if close_val is not None:
+                prev_close_map[sym] = float(close_val)
+    except Exception as e:
+        logger.warning("prev_close DB query failed", error=str(e))
+
     result: dict[str, dict] = {}
 
     redis = redis_manager.redis_client
@@ -81,9 +113,8 @@ async def get_session_data(
             continue
 
         session_bars: list[dict] = []
-        prev_close_val: float | None = None
 
-        # entries are newest-first; iterate to find session bars and the bar just before boundary
+        # entries are newest-first; collect bars since session boundary
         for _msg_id, fields in entries:
             ts_str = fields.get("timestamp", "")
             if not ts_str:
@@ -99,12 +130,6 @@ async def get_session_data(
             if ts >= session_boundary_utc:
                 session_bars.append(fields)
             else:
-                # First bar before the session boundary = previous close
-                if prev_close_val is None:
-                    try:
-                        prev_close_val = float(fields.get("close", 0) or 0) or None
-                    except (ValueError, TypeError):
-                        pass
                 break  # No need to go further back
 
         if not session_bars:
@@ -128,7 +153,7 @@ async def get_session_data(
             "session_high": session_high,
             "session_low": session_low,
             "session_volume": int(session_volume),
-            "prev_close": prev_close_val,
+            "prev_close": prev_close_map.get(contract),
         }
 
     return {"session": result}

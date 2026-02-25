@@ -291,7 +291,7 @@ class TimeframeBuilder:
         payload = {
             "symbol": symbol,
             "timeframe": timeframe,
-            "timestamp": str(acc["period_ts"]),
+            "timestamp": datetime.fromtimestamp(acc["period_ts"], tz=timezone.utc).isoformat(),
             "open": str(acc["open"]),
             "high": str(acc["high"]),
             "low": str(acc["low"]),

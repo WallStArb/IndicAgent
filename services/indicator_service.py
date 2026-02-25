@@ -298,28 +298,44 @@ class IndicatorService:
         for timeframe in self.config["service"]["timeframes"]:
             for symbol in self.config["service"]["symbols"]:
                 stream_name = sk_market(self.env_prefix, symbol, timeframe)
+                # Warm up plugin state from history without emitting to indicators stream
                 try:
-                    # Create at $ (current end) for new groups only
+                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars)
+                    for _msg_id, fields in reversed(msgs):
+                        key = f"{symbol}:{timeframe}"
+                        try:
+                            bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
+                            bar_source = fields.get(b"source", b"").decode()
+                            if bar_source == "tick_derived":
+                                continue
+                            bar_data = {
+                                "timestamp": bar_ts,
+                                "open": float(fields[b"open"].decode()),
+                                "high": float(fields[b"high"].decode()),
+                                "low": float(fields[b"low"].decode()),
+                                "close": float(fields[b"close"].decode()),
+                                "volume": int(float(fields[b"volume"].decode())),
+                            }
+                            history = self.bar_history[key]
+                            if not history or history[-1]["timestamp"] != bar_ts:
+                                history.append(bar_data)
+                        except Exception:
+                            pass
+                    self.logger.info(
+                        "Warmup complete",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        bars=len(self.bar_history.get(f"{symbol}:{timeframe}", [])),
+                    )
+                except Exception as e:
+                    self.logger.warning("Warmup failed", stream=stream_name, error=str(e))
+                # Create/preserve consumer group at current end — no replay
+                try:
                     await self.redis_client.xgroup_create(
                         stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
                     pass  # Group already exists — position preserved from last run
-                # Always rewind warmup_bars from current end for plugin state warm-up
-                try:
-                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
-                    if len(msgs) > warmup_bars:
-                        # Set to the (warmup_bars+1)th from end; xreadgroup delivers last warmup_bars
-                        await self.redis_client.xgroup_setid(
-                            stream_name, self.consumer_group, msgs[warmup_bars][0]
-                        )
-                    elif msgs:
-                        # Stream has fewer messages than warmup_bars — start from beginning
-                        await self.redis_client.xgroup_setid(
-                            stream_name, self.consumer_group, "0-0"
-                        )
-                except Exception as e:
-                    self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
 
     async def _process_market_data(self) -> None:
         while self.running and not self.shutdown_requested:

@@ -220,6 +220,8 @@ export interface IntelligenceTfData {
   patterns: PatternData;
   smartMoney: SmartMoneyData;
   confluence: ConfluenceData;
+  barTime?: string;  // ISO bar timestamp from IntelligenceEvent.ts
+  receivedAt?: number; // Date.now() when received
 }
 
 // ── Combined symbol state ──
@@ -245,6 +247,8 @@ export interface SymbolData {
   confluence: ConfluenceData | null;
   signal: SignalData | null;
   tfSignals: TfSignalMap; // per-TF signal direction for matrix
+  /** Full signal data per TF — keyed by timeframe string */
+  signalsByTf: Record<string, SignalData | null>;
   /** Per-TF I1 indicator snapshots — keyed by timeframe string ("1m", "5m", …) */
   indicatorsByTf: Record<string, IndicatorData>;
   /** Per-TF I3–I6 intelligence snapshots — keyed by timeframe string */

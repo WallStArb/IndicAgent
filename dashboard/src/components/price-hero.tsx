@@ -50,8 +50,9 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
   const ask = isEmpty ? 0 : tick.ask;
 
   const sessionOpen = session.open;
-  const chg = sessionOpen > 0 && price > 0 ? price - sessionOpen : null;
-  const chgPct = sessionOpen > 0 && price > 0 ? ((price - sessionOpen) / sessionOpen) * 100 : null;
+  const ref = data.prevClose > 0 ? data.prevClose : sessionOpen;
+  const chg = ref > 0 && price > 0 ? price - ref : null;
+  const chgPct = ref > 0 && price > 0 ? ((price - ref) / ref) * 100 : null;
 
   const sessionRatio =
     isEmpty || session.high <= session.low
@@ -72,9 +73,9 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
   }
 
   function priceColor(): string {
-    if (!price || !sessionOpen) return "text-[var(--text-primary)]";
-    if (price > sessionOpen) return "text-[var(--green)]";
-    if (price < sessionOpen) return "text-[var(--red)]";
+    if (!price || !ref) return "text-[var(--text-primary)]";
+    if (price > ref) return "text-[var(--green)]";
+    if (price < ref) return "text-[var(--red)]";
     return "text-[var(--text-primary)]";
   }
 

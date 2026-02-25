@@ -81,7 +81,7 @@ class MarketAnalysisService:
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
-        self.consumer_group = f"market_analysis_{int(time.time())}"
+        self.consumer_group = "market_analysis"
         self.consumer_name = f"market_analysis_consumer_{os.getpid()}"
 
         settings = Settings()
@@ -493,7 +493,7 @@ class MarketAnalysisService:
                 stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
                 try:
                     await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "0", mkstream=True
+                        stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
                     pass

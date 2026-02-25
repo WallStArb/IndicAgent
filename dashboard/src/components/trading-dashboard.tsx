@@ -39,7 +39,7 @@ export default function TradingDashboard() {
   );
 
   useEffect(() => {
-    setMounted(true);
+    symbolConfig.loadConfig().then(() => setMounted(true));
   }, []);
 
   function handleProfileChange(profile: string) {
@@ -170,9 +170,17 @@ function SymbolCard({
   const smartMoney = intel?.smartMoney ?? null;
   const confluence = intel?.confluence ?? null;
 
-  const isLong = data.signal?.direction === "long";
-  const hasSignal = data.signal !== null;
-  const confidence = data.signal?.confidence ?? null;
+  // Active signal follows activeTf — falls back to card-level signal for global TF
+  const activeSignal = data.signalsByTf[activeTf] ?? (activeTf === globalTf ? data.signal : null);
+
+  const isLong = activeSignal?.direction === "long";
+  const hasSignal = activeSignal !== null;
+  const confidence = activeSignal?.confidence ?? null;
+
+  // Bar time from intelligence snapshot (most stable "last computed" indicator)
+  const barTime = intel?.barTime ?? indicators?.timestamp ?? null;
+  const barAgeMs = barTime ? Date.now() - new Date(barTime).getTime() : null;
+  const barIsStale = barAgeMs !== null && barAgeMs > 5 * 60 * 1000; // >5 min
 
   return (
     <div
@@ -224,10 +232,10 @@ function SymbolCard({
       </div>
 
       {/* L0: High-confidence signal banner */}
-      <SignalBanner signal={data.signal} onDrillDown={() => setIsDrilling(true)} />
+      <SignalBanner signal={activeSignal} onDrillDown={() => setIsDrilling(true)} />
 
       {/* L0: Elevated AI narrative (only when high confidence + fresh) */}
-      <NarrativeElevated narrative={narrative} signal={data.signal} />
+      <NarrativeElevated narrative={narrative} signal={activeSignal} />
 
       {/* L1: Cross-TF matrix — clicking a TF switches card view, not sidebar */}
       <TimeframeMatrix
@@ -236,6 +244,26 @@ function SymbolCard({
         activeTf={activeTf}
         onSelectTf={(tf) => setActiveTf(tf)}
       />
+
+      {/* Bar time / lag indicator */}
+      {barTime && (
+        <div className="flex items-center gap-1.5 px-2 py-0.5 border-b border-[var(--border-subtle)]">
+          <span className="text-[0.55rem] text-[var(--text-muted)] uppercase tracking-wider">
+            {activeTf} bar
+          </span>
+          <span
+            className="text-[0.55rem] font-data"
+            style={{ color: barIsStale ? "var(--red)" : "var(--text-muted)" }}
+          >
+            {new Date(barTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+          </span>
+          {barIsStale && (
+            <span className="text-[0.5rem] text-[var(--red)] opacity-75">
+              {barAgeMs !== null ? `${Math.round(barAgeMs / 60000)}m ago` : "stale"}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* L0: Regime ambiance wraps the tier stack */}
       <RegimeAmbiance context={context}>
@@ -257,7 +285,7 @@ function SymbolCard({
           <ConfluencePanel confluence={confluence} />
         </div>
         <div className="border-t border-[var(--border-subtle)]">
-          <SignalPanel signal={data.signal} />
+          <SignalPanel signal={activeSignal} />
         </div>
       </RegimeAmbiance>
 
