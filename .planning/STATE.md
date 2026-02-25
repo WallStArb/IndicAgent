@@ -122,5 +122,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Phase 6 Plan 03 complete — SMC panel HMM regime + BSL/SSL liquidity zones done.
+Stopped at: Phase 6 Plan 04 — paused at Task 3 checkpoint:human-verify (Tasks 1+2 complete, awaiting human sign-off).
 Resume file: None
