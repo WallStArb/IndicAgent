@@ -77,7 +77,7 @@ Building this milestone.
 - [x] **DASH-03**: Price hero shows live bid/ask/last price with colour-coded direction, flash animation, dual % change (vs prevClose + vs sessionOpen), dual range bars (bar + session), VWAP
 - [x] **DASH-04**: Indicator panel (I1) shows real non-zero RSI, MACD, ATR values from live indicator stream, per timeframe tab
 - [x] **DASH-05**: Structure/Context/Pattern panels (I3–I5) show real values from `intelligence_data` SSE events including I3 swing/S&R, I4 vol/trend/momentum regime, I5 divergence/squeeze/confluence
-- [ ] **DASH-06**: SMC panel (I6) shows BOS/CHoCH/FVG signals, HMM regime (label + probability), and liquidity zones (BSL/SSL levels + premium/discount badge)
+- [x] **DASH-06**: SMC panel (I6) shows BOS/CHoCH/FVG signals, HMM regime (label + probability), and liquidity zones (BSL/SSL levels + premium/discount badge)
 - [ ] **DASH-07**: Signal panel (I7) shows direction, confidence %, entry price, and stop loss; narrative panel (I8) shows AI narrative text
 - [x] **DASH-08**: Connection status indicator accurately reflects SSE state (connecting/connected/disconnected) — green dot with "Live" label when connected
 

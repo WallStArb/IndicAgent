@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 6 — Dashboard Connected (Phase 5 complete; 06-01 and 06-02 done 2026-02-25)
+**Current focus:** Phase 6 — Dashboard Connected (Phase 5 complete; 06-01, 06-02, and 06-03 done 2026-02-25)
 
 ## Current Position
 
 Phase: 6 of 7 IN PROGRESS
-Plan: 2/4 complete
-Status: Phase 6 (Dashboard Connected) in progress. 06-01: TimeframeBuilder + ibkr currency fix. 06-02: event.tf bug fixed, session tracking, price-hero rebuilt with activeTf/VWAP/session range.
-Last activity: 2026-02-25 — Phase 6 Plan 02 complete (stream audit + price hero rebuild)
+Plan: 3/4 complete
+Status: Phase 6 (Dashboard Connected) in progress. 06-01: TimeframeBuilder + ibkr currency fix. 06-02: event.tf bug fixed, session tracking, price-hero rebuilt with activeTf/VWAP/session range. 06-03: SmartMoneyData extended with HMM regime + BSL/SSL liquidity zones; SmartMoneyPanel renders new rows.
+Last activity: 2026-02-25 — Phase 6 Plan 03 complete (SMC panel HMM regime + liquidity zones)
 
-Progress: [██████░░░░░] ~71% (18/25 plans complete across Phases 0-6)
+Progress: [███████░░░░] ~73% (19/25 plans complete across Phases 0-6)
 
 ## Performance Metrics
 
@@ -32,7 +32,7 @@ Progress: [██████░░░░░] ~71% (18/25 plans complete across 
 | 03-historical-data | 1/3 | ~3min | ~3min |
 | 04-query-api | 3/3 | ~6min | ~2min |
 | 05-live-pipeline | 1/3 | ~4min | ~4min |
-| 06-dashboard-connected | 2/4 | ~22min | ~11min |
+| 06-dashboard-connected | 3/4 | ~25min | ~8min |
 
 **Recent Trend:**
 - Last 5 plans: 04-02 (~2min), 04-03 (~2min), 06-01 (~4min), 06-02 (~18min)
@@ -44,6 +44,7 @@ Progress: [██████░░░░░] ~71% (18/25 plans complete across 
 |-------|------|----------|-------|-------|
 | 06-dashboard-connected | P01 | 4min | 2 | 4 |
 | 06-dashboard-connected | P02 | 18min | 3 | 5 |
+| 06-dashboard-connected | P03 | 3min | 2 | 3 |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Recent decisions from execution (2026-02-25):
 - 06-02: session reset detection uses YYYY-MM-DD date string from payload.timestamp.slice(0,10)
 - 06-02: IntelligenceEvent uses tf field not timeframe — event.tf fix corrects TF bucketing for all intelligence data
 - 06-02: StatusDot label changed from Offline to Disconnected per DASH-08 spec
+- 06-03: HMM regime integer encoding 0/1/2 maps to RANGING/TREND↑/TREND↓ — directly from Python HMM plugin output
+- 06-03: premium_position thresholds 0.6/0.4 create equilibrium band rather than binary 0.5 split
+- 06-03: price_in_premium follows nf(v) > 0 pattern — Redis stores Python bool as float "1.0"/"0.0"
 
 ### Pending Todos
 
@@ -118,5 +122,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Phase 6 Plan 02 complete — stream audit + price hero rebuild done.
+Stopped at: Phase 6 Plan 03 complete — SMC panel HMM regime + BSL/SSL liquidity zones done.
 Resume file: None
