@@ -38,17 +38,20 @@ def _resolve_contract(symbol: str) -> str:
 def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
     settings = Settings()
     env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+    # Accept comma-separated timeframes (e.g. "1m,5m,15m,1h,4h,1d")
+    timeframes = [tf.strip() for tf in timeframe.split(",") if tf.strip()]
     streams: list[str] = []
     for sym in symbols:
         contract = _resolve_contract(sym)
         # ticks (no timeframe)
         streams.append(sk_live_tick(env_prefix, contract))
         # market bars and indicators per timeframe
-        streams.append(sk_market(env_prefix, contract, timeframe))
-        streams.append(sk_indicators(env_prefix, contract, timeframe))
-        streams.append(sk_intelligence(env_prefix, contract, timeframe))
-        streams.append(sk_signals_aggregated(env_prefix, contract, timeframe))
-        streams.append(sk_narratives(env_prefix, contract, timeframe))
+        for tf in timeframes:
+            streams.append(sk_market(env_prefix, contract, tf))
+            streams.append(sk_indicators(env_prefix, contract, tf))
+            streams.append(sk_intelligence(env_prefix, contract, tf))
+            streams.append(sk_signals_aggregated(env_prefix, contract, tf))
+            streams.append(sk_narratives(env_prefix, contract, tf))
     return streams
 
 

@@ -153,6 +153,10 @@ function SymbolCard({
   const [isDrilling, setIsDrilling] = useState(false);
   const [drillTf, setDrillTf] = useState<string>("5m");
 
+  const info = symbolConfig.getSymbolInfo(data.symbol);
+  const displayName = info?.display_name ?? data.symbol;
+  const contract = info?.contract ?? data.symbol;
+
   return (
     <div
       className="flex flex-col surface rounded overflow-hidden"
@@ -166,6 +170,21 @@ function SymbolCard({
         transition: "box-shadow 0.5s ease",
       }}
     >
+      {/* Header: instrument identity */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
+            {displayName}
+          </span>
+          <span className="text-[0.6rem] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+            {data.symbol}
+          </span>
+        </div>
+        <span className="text-[0.55rem] font-medium text-[var(--text-muted)] bg-[var(--bg-base)] px-1.5 py-0.5 rounded">
+          {contract}
+        </span>
+      </div>
+
       {/* L0: Confidence ring + price */}
       <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
         <ConfidenceRing

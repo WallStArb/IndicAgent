@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 
 ## Current Position
 
-Phase: 5 of 7 IN PROGRESS
-Plan: 1/3 complete
-Status: Phase 5 (Live Pipeline) started. Plan 05-01 complete: TWS false-connected fix + feature_writer active contracts + timeframes systemd unit. Pending: sudo install for indicagent-timeframes.service.
-Last activity: 2026-02-24 — Phase 5 Plan 01 complete
+Phase: 5 of 7 COMPLETE
+Plan: 3/3 complete
+Status: Phase 5 (Live Pipeline) complete. All 3 plans done. 17/23 contracts active (6 qualify failures documented). Dashboard live with indicators + intelligence. Two bugs fixed: SSE multi-TF, card header.
+Last activity: 2026-02-24 — Phase 5 Plan 03 complete (stability audit)
 
-Progress: [████░░░░░░░] ~59% (13/21 plans complete across Phases 0-5)
+Progress: [█████░░░░░░] ~67% (16/24 plans complete across Phases 0-5)
 
 ## Performance Metrics
 
@@ -99,13 +99,15 @@ None yet.
 
 ### Blockers/Concerns
 
-- indicagent-timeframes.service: unit file is in repo but not yet installed in /etc/systemd/system/. Run: `sudo cp services/indicagent-timeframes.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable indicagent-timeframes`
-- IBKR TWS must be running on Windows LAN (10.0.0.33) for Phase 3 backfill to run Stage 1 fetch
-- Phase 3 backfill duration unknown — 365 days of 1m data across multiple contracts may take significant time; plan accordingly
-- Pre-existing unit test failures (5 tests) in test_settings.py, test_ibkr_provider.py, test_historical_backfill.py — need investigation in a separate bug-fix session
+- **indicagent-timeframes.service FAILED** — `ModuleNotFoundError: No module named 'src.data'` in `timeframes_builder_service.py`. Import path wrong. Fix in Phase 6.
+- **6 qualify_instrument failures** — SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6 can't be qualified. FX/crypto/SOFR likely need `currency="USD"` in `Future()`. Fix in Phase 6.
+- **AI narratives (I8) silent** — ai-narrative service running but no output. Likely timestamped consumer group bug (same as 05-02 fix). Investigate Phase 6.
+- **SSE multi-TF bug fixed** — `_build_stream_list` now splits comma-separated timeframes. API restarted.
+- **Dashboard card header added** — SymbolCard now shows display name, base symbol, contract badge.
+- Pre-existing unit test failures (5 tests) in test_settings.py, test_ibkr_provider.py, test_historical_backfill.py — separate bug-fix session.
 
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 05-01-PLAN.md — TWS false-connected fix, feature_writer active contracts, timeframes systemd unit. 607 tests passing. Pending: sudo install of indicagent-timeframes.service.
+Stopped at: Phase 5 complete — 05-03 stability audit done. Dashboard live with indicators + intelligence. Phase 6 is next.
 Resume file: None
