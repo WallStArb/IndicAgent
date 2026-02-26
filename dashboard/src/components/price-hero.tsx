@@ -1,7 +1,7 @@
 "use client";
 
 import type { SymbolData } from "@/lib/types";
-import { fmtPrice, fmtCompact } from "@/lib/format";
+import { fmtPrice } from "@/lib/format";
 
 interface PriceHeroProps {
   data: SymbolData;
@@ -49,11 +49,6 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
   const bid = isEmpty ? 0 : tick.bid;
   const ask = isEmpty ? 0 : tick.ask;
 
-  const sessionOpen = session.open;
-  const ref = data.prevClose > 0 ? data.prevClose : sessionOpen;
-  const chg = ref > 0 && price > 0 ? price - ref : null;
-  const chgPct = ref > 0 && price > 0 ? ((price - ref) / ref) * 100 : null;
-
   const sessionRatio =
     isEmpty || session.high <= session.low
       ? null
@@ -63,29 +58,13 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
   // timestamp, which can lag by minutes during low-liquidity periods.
   const displayTime = data.lastUpdate > 0 ? fmtTime(data.lastUpdate) : (fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp));
 
-  const sessionVol = session.sessionVolume > 0 ? fmtCompact(session.sessionVolume) : null;
-
-  function chgColor(v: number | null): string {
-    if (v === null) return "text-[var(--text-muted)]";
-    if (v > 0) return "text-[var(--green)]";
-    if (v < 0) return "text-[var(--red)]";
-    return "text-[var(--text-muted)]";
-  }
-
-  function priceColor(): string {
-    if (!price || !ref) return "text-[var(--text-primary)]";
-    if (price > ref) return "text-[var(--green)]";
-    if (price < ref) return "text-[var(--red)]";
-    return "text-[var(--text-primary)]";
-  }
-
   return (
     <div className="px-3 pt-1.5 pb-2 space-y-1.5">
-      {/* Line 1: Big price + session change + session volume */}
-      <div className="flex items-baseline gap-1.5">
+      {/* Line 1: Price + Bid / Ask / spread + timestamp */}
+      <div className="flex items-baseline gap-3 font-data text-[0.6rem]">
         <span
           key={data.tickFlash ?? "base"}
-          className={`font-data text-xl font-semibold leading-none tracking-tight ${priceColor()} ${
+          className={`text-xl font-semibold leading-none tracking-tight text-[var(--text-primary)] ${
             data.tickFlash === "up"
               ? "price-flash-up"
               : data.tickFlash === "down"
@@ -95,27 +74,6 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
         >
           {price > 0 ? fmtPrice(price) : "—"}
         </span>
-        {chg !== null && (
-          <span className={`font-data text-[0.65rem] ${chgColor(chg)}`}>
-            {chg >= 0 ? "+" : ""}
-            {chg.toFixed(2)}
-            {chgPct !== null && (
-              <span className="ml-0.5 opacity-80">
-                ({chgPct >= 0 ? "+" : ""}
-                {chgPct.toFixed(2)}%)
-              </span>
-            )}
-          </span>
-        )}
-        {sessionVol && (
-          <span className="font-data text-[0.5rem] text-[var(--text-muted)] ml-1">
-            vol {sessionVol}
-          </span>
-        )}
-      </div>
-
-      {/* Line 2: Bid / Ask / spread + timestamp */}
-      <div className="flex items-center gap-3 font-data text-[0.6rem]">
         <span>
           <span className="text-[var(--text-muted)]">Bid </span>
           <span className="text-[var(--red)] tabular-nums">
@@ -134,13 +92,13 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
           </span>
         )}
         {displayTime && (
-          <span className="ml-auto font-data text-[0.5rem] text-[var(--text-muted)] opacity-70">
+          <span className="ml-auto text-[0.5rem] text-[var(--text-muted)] opacity-70">
             as of {displayTime}
           </span>
         )}
       </div>
 
-      {/* Line 3: Session O/H/L + compact inline range bar */}
+      {/* Line 2: Session O/H/L + compact inline range bar */}
       {session.high > 0 && (
         <div className="flex items-center gap-2 font-data text-[0.5rem] text-[var(--text-muted)]">
           <span>O&nbsp;{fmtPrice(session.open)}</span>
