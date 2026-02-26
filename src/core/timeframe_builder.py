@@ -4,8 +4,8 @@ TimeframeBuilder — 1m OHLCV bar aggregator for higher timeframes.
 Consumes 1m bars from the market:SYMBOL:1m Redis stream and emits
 5m, 15m, 1h, 4h, and 1d bars to market:SYMBOL:{TF} streams.
 
-Version: 1.0.0
-Last Updated: 2026-02-25
+Version: 1.1.0
+Last Updated: 2026-02-26
 """
 
 from __future__ import annotations
@@ -84,6 +84,17 @@ def _update_accumulator(
     }
 
 
+def _parse_ts(ts_raw: str) -> int:
+    """Parse a timestamp string (Unix seconds or ISO 8601) to Unix seconds int."""
+    try:
+        return int(float(ts_raw))
+    except ValueError:
+        dt = datetime.fromisoformat(str(ts_raw))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+
+
 # ---------------------------------------------------------------------------
 # TimeframeBuilder class
 # ---------------------------------------------------------------------------
@@ -107,6 +118,14 @@ class TimeframeBuilder:
 
         # Accumulators: {symbol: {timeframe: accumulator_dict | None}}
         self._accumulators: dict[str, dict[str, dict[str, Any] | None]] = {}
+
+        # Per-stream cursor for xread — avoids resetting to "$" every iteration
+        # which would skip bars published between two loop iterations.
+        self._last_ids: dict[str, str] = {}
+
+        # Tracks the last period_ts emitted per (symbol, tf) — prevents
+        # re-emitting the same period after a service restart.
+        self._last_emitted: dict[str, dict[str, int]] = {}
 
         # Metrics counters
         self._bars_1m_processed: int = 0
@@ -175,6 +194,98 @@ class TimeframeBuilder:
         }
 
     # ------------------------------------------------------------------
+    # Startup initialization
+    # ------------------------------------------------------------------
+
+    async def _initialize(self, redis: Any) -> None:
+        """One-time startup: restore last_emitted + warm up accumulators + set cursors.
+
+        Called from _processing_loop after symbols are subscribed.
+        """
+        self._logger.info("Initializing TimeframeBuilder state", symbols=list(self._symbols))
+
+        # Step 1: Restore _last_emitted from the last bar in each output stream.
+        # This prevents re-emitting periods that were already written before restart.
+        for sym in list(self._symbols):
+            for tf, tf_minutes in _TARGET_TIMEFRAMES.items():
+                stream_key = market(self._env_prefix, sym, tf)
+                try:
+                    entries = await redis.xrevrange(stream_key, count=1)
+                    if not entries:
+                        continue
+                    _msg_id, fields = entries[0]
+                    decoded = _decode_fields(fields)
+                    ts_raw = decoded.get("timestamp", "0")
+                    period_ts = _floor_to_period(_parse_ts(ts_raw), tf_minutes)
+                    self._last_emitted.setdefault(sym, {})[tf] = period_ts
+                except Exception as e:
+                    self._logger.warning(
+                        "Could not restore last_emitted",
+                        symbol=sym, timeframe=tf, error=str(e),
+                    )
+
+        # Step 2: Warm up in-progress accumulators from recent 1m history.
+        # We read enough bars to cover the longest period (1d = 1440 bars).
+        # Bars are processed WITHOUT emitting — they just rebuild accumulator state
+        # so the first live bar can correctly complete a partial period.
+        for sym in list(self._symbols):
+            stream_key_1m = market(self._env_prefix, sym, "1m")
+            try:
+                recent_bars = await redis.xrevrange(stream_key_1m, count=1440)
+                if not recent_bars:
+                    continue
+                recent_bars.reverse()  # oldest first (chronological)
+
+                for _msg_id, fields in recent_bars:
+                    decoded = _decode_fields(fields)
+                    ts_raw = decoded.get("timestamp", "0")
+                    try:
+                        ts_seconds = _parse_ts(ts_raw)
+                    except Exception:
+                        continue
+                    try:
+                        bar_data = {
+                            "open": float(decoded.get("open", 0)),
+                            "high": float(decoded.get("high", 0)),
+                            "low": float(decoded.get("low", 0)),
+                            "close": float(decoded.get("close", 0)),
+                            "volume": int(float(decoded.get("volume", 0))),
+                        }
+                    except (ValueError, TypeError):
+                        continue
+
+                    for tf, tf_minutes in _TARGET_TIMEFRAMES.items():
+                        period_ts = _floor_to_period(ts_seconds, tf_minutes)
+                        acc = self._accumulators[sym][tf]
+                        if acc is not None and acc["period_ts"] != period_ts:
+                            # Period boundary during warmup — reset without emitting
+                            acc = None
+                        self._accumulators[sym][tf] = _update_accumulator(
+                            acc, bar_data, period_ts
+                        )
+            except Exception as e:
+                self._logger.warning("Warmup failed", symbol=sym, error=str(e))
+
+        # Step 3: Set _last_ids cursors to the current stream tail.
+        # We start from the last existing message ID so we don't re-process
+        # bars that arrived before the service started.
+        for sym in list(self._symbols):
+            stream_key = market(self._env_prefix, sym, "1m")
+            try:
+                entries = await redis.xrevrange(stream_key, count=1)
+                if entries:
+                    msg_id, _ = entries[0]
+                    if isinstance(msg_id, bytes):
+                        msg_id = msg_id.decode()
+                    self._last_ids[stream_key] = msg_id
+                else:
+                    self._last_ids[stream_key] = "0"
+            except Exception:
+                self._last_ids[stream_key] = "0"
+
+        self._logger.info("TimeframeBuilder initialization complete", symbols=list(self._symbols))
+
+    # ------------------------------------------------------------------
     # Processing loop
     # ------------------------------------------------------------------
 
@@ -182,27 +293,34 @@ class TimeframeBuilder:
         """Main loop: xread from market:SYMBOL:1m streams, process each bar."""
         redis = self._streams_manager.redis_client
 
+        # Wait for symbols to be subscribed before initializing
+        while self._running and not self._symbols:
+            await asyncio.sleep(0.1)
+
+        if not self._running:
+            return
+
+        await self._initialize(redis)
+
         while self._running:
             try:
                 if not self._symbols:
                     await asyncio.sleep(1.0)
                     continue
 
-                # Build stream list: one entry per subscribed symbol
-                streams: dict[str, str] = {}
+                # Ensure any symbols added after init have a cursor
                 for sym in list(self._symbols):
                     stream_key = market(self._env_prefix, sym, "1m")
-                    streams[stream_key] = "$"  # Read new messages only
+                    if stream_key not in self._last_ids:
+                        self._last_ids[stream_key] = "$"
 
-                # XREAD with 1s block timeout so we can check _running
-                messages = await redis.xread(streams, block=1000, count=100)
+                # XREAD with tracked cursors — never resets to "$" per iteration
+                messages = await redis.xread(self._last_ids, block=1000, count=100)
 
                 for stream_key, msgs in (messages or []):
                     # Resolve symbol from stream key: env:market:SYMBOL:1m
                     key_str = stream_key.decode() if isinstance(stream_key, bytes) else stream_key
                     parts = key_str.split(":")
-                    # Expected format: [env_prefix?, "market", SYMBOL, "1m"]
-                    # Find "market" and take next part as symbol
                     try:
                         market_idx = parts.index("market")
                         symbol = parts[market_idx + 1]
@@ -213,7 +331,11 @@ class TimeframeBuilder:
                     if symbol not in self._symbols:
                         continue
 
-                    for _msg_id, fields in msgs:
+                    for msg_id, fields in msgs:
+                        # Advance cursor so we never re-read this message
+                        decoded_id = msg_id.decode() if isinstance(msg_id, bytes) else msg_id
+                        self._last_ids[key_str] = decoded_id
+
                         bar = _decode_fields(fields)
                         await self._process_bar(symbol, bar)
 
@@ -234,14 +356,7 @@ class TimeframeBuilder:
         """
         try:
             ts_raw = fields.get("timestamp", "0")
-            # Support both Unix seconds (float) and ISO 8601 strings
-            try:
-                ts_seconds = int(float(ts_raw))
-            except ValueError:
-                dt = datetime.fromisoformat(str(ts_raw))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                ts_seconds = int(dt.timestamp())
+            ts_seconds = _parse_ts(ts_raw)
             open_ = float(fields.get("open", 0))
             high = float(fields.get("high", 0))
             low = float(fields.get("low", 0))
@@ -279,11 +394,25 @@ class TimeframeBuilder:
     async def _emit_bar(self, symbol: str, timeframe: str, acc: dict[str, Any]) -> None:
         """Publish a completed aggregated bar to the market:SYMBOL:TF Redis stream.
 
+        Skips emission if this period was already emitted (prevents duplicates
+        across service restarts).
+
         Args:
             symbol: Contract symbol.
             timeframe: Target timeframe string (e.g. "5m").
             acc: Completed accumulator dict.
         """
+        period_ts = acc["period_ts"]
+
+        # Dedup: skip if we already emitted a bar for this period
+        last = self._last_emitted.get(symbol, {}).get(timeframe)
+        if last is not None and period_ts <= last:
+            self._logger.debug(
+                "Skipping duplicate bar",
+                symbol=symbol, timeframe=timeframe, period_ts=period_ts,
+            )
+            return
+
         redis = self._streams_manager.redis_client
         stream_key = market(self._env_prefix, symbol, timeframe)
         maxlen = get_stream_maxlen(timeframe, "market")
@@ -291,7 +420,7 @@ class TimeframeBuilder:
         payload = {
             "symbol": symbol,
             "timeframe": timeframe,
-            "timestamp": datetime.fromtimestamp(acc["period_ts"], tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(period_ts, tz=timezone.utc).isoformat(),
             "open": str(acc["open"]),
             "high": str(acc["high"]),
             "low": str(acc["low"]),
@@ -303,11 +432,12 @@ class TimeframeBuilder:
         try:
             await redis.xadd(stream_key, payload, maxlen=maxlen, approximate=True)
             self._bars_built[timeframe] = self._bars_built.get(timeframe, 0) + 1
+            self._last_emitted.setdefault(symbol, {})[timeframe] = period_ts
             self._logger.debug(
                 "Emitted aggregated bar",
                 symbol=symbol,
                 timeframe=timeframe,
-                period_ts=acc["period_ts"],
+                period_ts=period_ts,
             )
         except Exception as e:
             self._logger.error(
