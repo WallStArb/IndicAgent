@@ -33,3 +33,18 @@ When an idea is ready to flesh out, move it to `analysis/`. When ready to build,
 - **Continuous contract support in live pipeline** — live services use named contracts (correct for trading). At roll, there's a one-time price gap in stored bars. Could store a parallel continuous-adjusted series for indicator computation, while keeping named contract for signal price levels.
 
 - **MomentumAcceleration plugin (second-derivative analysis)** — new I1 plugin that computes the second derivative of RSI, MACD line, and ROC. Outputs `rsi_accel`, `macd_accel`, `roc_accel`, plus an `inflection_flag` when any crosses zero. Detects momentum exhaustion and trend changes *before* they show in price. RSI decelerating toward 50 is earlier signal than RSI crossing 50. Inflection points map directly onto I5 pattern exhaustion detection. See `docs/plans/2026-02-25-momentum-acceleration-analysis.md`.
+
+## Indicator Service Per-TF Worker Refactor (Option C)
+Captured: 2026-02-25
+
+Split indicator service into per-TF workers (1m, 5m, 15m, 1h, 4h, 1d), each with its own:
+- Appropriate min_history_bars for that TF
+- Consumer group and processing loop
+- No cross-TF interference if one TF's stream has issues
+
+Benefits: independent scaling, cleaner failure isolation, TF-appropriate warm-up
+Trade-off: 6× service instances vs current monolith
+
+Context: discovered while fixing the 5m/15m+ indicator silent-discard bug (2026-02-25).
+Triggered when indicator service's sequential multi-TF loop + min_history_bars=120 caused all
+non-1m indicators to silently stall after each restart.

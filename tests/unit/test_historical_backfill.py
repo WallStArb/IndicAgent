@@ -1,6 +1,6 @@
 import sys
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -18,20 +18,20 @@ def _bar(ts: datetime, o=100.0, h=101.0, l=99.0, c=100.5, v=1000):
 
 
 def _ts(hour: int, minute: int) -> datetime:
-    return datetime(2026, 2, 1, hour, minute, 0, tzinfo=timezone.utc)
+    return datetime(2026, 2, 1, hour, minute, 0, tzinfo=UTC)
 
 
 class TestRunI1Plugins:
     @pytest.mark.unit
     def test_returns_empty_when_insufficient_bars(self):
-        from historical_backfill import run_i1_plugins, MIN_BARS
+        from historical_backfill import MIN_BARS, run_i1_plugins
         history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS - 1)], maxlen=200)
         result = run_i1_plugins(history, "ESH6", "5m")
         assert result == {}
 
     @pytest.mark.unit
     def test_returns_features_dict_when_enough_bars(self):
-        from historical_backfill import run_i1_plugins, MIN_BARS
+        from historical_backfill import MIN_BARS, run_i1_plugins
         history = deque(
             [_bar(_ts(9, 0) if i == 0 else _ts(9 + i // 60, i % 60))
              for i in range(MIN_BARS)],
@@ -45,7 +45,7 @@ class TestRunI1Plugins:
 
     @pytest.mark.unit
     def test_plugin_exception_does_not_propagate(self):
-        from historical_backfill import run_i1_plugins, MIN_BARS
+        from historical_backfill import MIN_BARS, run_i1_plugins
         history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS)], maxlen=200)
         register_all_plugins()
         # Should not raise even if some plugins fail internally
@@ -128,6 +128,7 @@ class TestBuildLedgerEntries:
     @pytest.mark.unit
     def test_empty_result_returns_empty_list(self):
         from historical_backfill import _build_ledger_entries
+
         from src.intelligence.trading.aggregator import AggregatedResult
         result = AggregatedResult(
             selected_signal=None, all_ranked=[], num_signals_fired=0,
@@ -141,12 +142,13 @@ class TestFetchAndStoreBars:
     @pytest.mark.unit
     def test_fetch_1m_bars_queries_correct_table(self):
         from unittest.mock import MagicMock
+
         from historical_backfill import fetch_1m_bars
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         mock_cursor.fetchall.return_value = [
-            (datetime(2026, 2, 1, 9, 30, tzinfo=timezone.utc), 100.0, 101.0, 99.0, 100.5, 1000)
+            (datetime(2026, 2, 1, 9, 30, tzinfo=UTC), 100.0, 101.0, 99.0, 100.5, 1000)
         ]
         rows = fetch_1m_bars(mock_conn, "ESH6", days=1)
         assert len(rows) == 1
@@ -157,6 +159,7 @@ class TestFetchAndStoreBars:
     @pytest.mark.unit
     def test_store_bars_calls_execute_batch(self):
         from unittest.mock import MagicMock, patch
+
         from historical_backfill import store_bars
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -196,6 +199,7 @@ class TestBuildIntelligenceEvent:
     def test_returns_intelligence_event_with_source_backfill(self):
         """Valid inputs produce an IntelligenceEvent with source='backfill'."""
         from historical_backfill import _build_intelligence_event
+
         from src.intelligence.schemas import IntelligenceEvent
         register_all_plugins()
         result = _build_intelligence_event(
@@ -248,8 +252,14 @@ class TestEventToSyncParams:
 
     def _make_event(self):
         from src.intelligence.schemas import (
-            IntelligenceEvent, OHLCVBar, I1Indicators,
-            I3Structure, I4Context, I5Patterns, SMCContext, I6Confluence,
+            I1Indicators,
+            I3Structure,
+            I4Context,
+            I5Patterns,
+            I6Confluence,
+            IntelligenceEvent,
+            OHLCVBar,
+            SMCContext,
         )
         return IntelligenceEvent(
             ts=_ts(9, 30),
@@ -305,7 +315,8 @@ class TestInsertFeaturesSync:
     def test_calls_execute_batch_with_correct_sql(self):
         """execute_batch must be called with the module-level _INSERT_FEATURE_SYNC_SQL."""
         from unittest.mock import patch
-        from historical_backfill import _insert_features_sync, _INSERT_FEATURE_SYNC_SQL
+
+        from historical_backfill import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
         mock_conn, mock_cursor = self._mock_conn()
         rows = [("fake_row",)]
         with patch("psycopg2.extras.execute_batch") as mock_eb:
@@ -316,6 +327,7 @@ class TestInsertFeaturesSync:
     def test_commits_connection(self):
         """conn.commit() must be called after execute_batch."""
         from unittest.mock import patch
+
         from historical_backfill import _insert_features_sync
         mock_conn, _ = self._mock_conn()
         with patch("psycopg2.extras.execute_batch"):
@@ -362,7 +374,7 @@ class TestBuildLedgerEntriesFeatureTs:
     def test_feature_ts_passes_through(self):
         """When feature_ts is provided, entries[0].feature_ts equals that datetime."""
         from historical_backfill import _build_ledger_entries
-        feature_ts = datetime(2026, 2, 1, 9, 30, 0, tzinfo=timezone.utc)
+        feature_ts = datetime(2026, 2, 1, 9, 30, 0, tzinfo=UTC)
         result = self._make_result()
         entries = _build_ledger_entries(
             result, "ESH6", "1m", _ts(9, 30), {},

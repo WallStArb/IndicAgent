@@ -1,10 +1,8 @@
 """Tests for pattern detection plugins (I5 tier)."""
 
 import numpy as np
-import pandas as pd
 
 from tests.unit.intelligence.helpers import make_ohlcv
-
 
 # ─── RSI Divergence ──────────────────────────────────────────────
 

@@ -2,8 +2,6 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 def _make_daemon():
     """Instantiate HighFrequencyTWSDaemon with all external deps mocked."""

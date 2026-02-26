@@ -1,4 +1,5 @@
 import pytest
+
 from src.intelligence.plugins import PluginRegistry
 
 
@@ -46,7 +47,13 @@ def test_validate_tier_empty_list_always_passes():
 
 def test_tier_constants_are_lists_of_strings():
     from src.intelligence.register_plugins import (
-        TIER_I1, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6, TIER_I7,
+        TIER_I1,
+        TIER_I3,
+        TIER_I4,
+        TIER_I5,
+        TIER_I6,
+        TIER_I7,
+        TIER_SMC,
     )
     for tier_name, lst in [
         ("TIER_I1", TIER_I1), ("TIER_I3", TIER_I3), ("TIER_I4", TIER_I4),
@@ -64,7 +71,13 @@ def test_tier_constants_match_registry():
     import src.intelligence.register_plugins as rp_module
     from src.intelligence.plugins import PluginRegistry
     from src.intelligence.register_plugins import (
-        TIER_I1, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6, TIER_I7,
+        TIER_I1,
+        TIER_I3,
+        TIER_I4,
+        TIER_I5,
+        TIER_I6,
+        TIER_I7,
+        TIER_SMC,
         register_all_plugins,
     )
     reg = PluginRegistry()

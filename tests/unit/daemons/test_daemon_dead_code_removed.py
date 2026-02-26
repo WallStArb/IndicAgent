@@ -15,6 +15,7 @@ def _make_daemon():
     ):
         # Direct import after patching at module level
         import importlib
+
         import production.daemons.high_frequency_tws_daemon as mod
         importlib.reload(mod)
 

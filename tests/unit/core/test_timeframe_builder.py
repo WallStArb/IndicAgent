@@ -7,11 +7,9 @@ Uses MagicMock for streams_manager.
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -126,7 +124,7 @@ def test_accumulator_subsequent_bars():
 
 def test_accumulates_1m_into_5m():
     """5 consecutive 1m bars within the same 5m period produce correct OHLCV accumulation."""
-    from src.core.timeframe_builder import _update_accumulator, _floor_to_period
+    from src.core.timeframe_builder import _update_accumulator
 
     # Bars at minutes 0,1,2,3,4 (all in period starting at 0)
     bars = [

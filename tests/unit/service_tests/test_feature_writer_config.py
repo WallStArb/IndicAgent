@@ -3,7 +3,7 @@
 Ensures the default symbol list covers all 23 active H6/J6 contracts rather than
 the stale 6-symbol hardcoded list (ESH6, NQH6, RTYH6, CLK6, GCM6, NGK6).
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 def _make_service():

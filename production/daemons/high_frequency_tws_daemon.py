@@ -21,7 +21,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
-from typing import Any
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -144,7 +143,7 @@ class HighFrequencyTWSDaemon:
         self.async_redis: aioredis.Redis | None = None
         self.publisher: AsyncTickPublisher | None = None
         self._reconnect_delay = 1.0
-        self._tick_task: "asyncio.Future | None" = None
+        self._tick_task: asyncio.Future | None = None
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)

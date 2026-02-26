@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 
 from src.config.settings import (
-    IBKRContract,
     Settings,
     get_active_contracts,
     get_base_symbols,
@@ -175,12 +174,12 @@ class TestHelperFunctions:
     def test_get_point_value(self):
         settings = Settings(_env_file=None)
         assert get_point_value("ES", settings) == 50
-        assert get_point_value("CLH6", settings) == 1000
+        assert get_point_value("CLJ6", settings) == 1000
         assert get_point_value("FAKE", settings) is None
 
     @pytest.mark.unit
     def test_get_tick_size(self):
         settings = Settings(_env_file=None)
         assert get_tick_size("NQ", settings) == 0.25
-        assert get_tick_size("NGH6", settings) == 0.001
+        assert get_tick_size("NGJ6", settings) == 0.001
         assert get_tick_size("FAKE", settings) is None

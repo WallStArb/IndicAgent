@@ -277,6 +277,12 @@ class MarketAnalysisService:
         self.intelligence_cache[symbol][timeframe] = flat
         return tiered
 
+    def _min_bars_for_tf(self, timeframe: str) -> int:
+        """Return minimum bars before publishing intelligence, per-TF."""
+        if timeframe == "1m":
+            return self.config["service"]["min_history_bars"]
+        return 26  # 5m/15m/1h — fewer unique bars available after dedup
+
     async def _calculate_intelligence(
         self,
         symbol: str,
@@ -287,7 +293,7 @@ class MarketAnalysisService:
         """Run the I3→I6 pipeline. Returns tiered dict (i3/i4/i5/smc/i6/flat) or {}."""
         key = f"{symbol}:{timeframe}"
         history = self.bar_history[key]
-        min_bars = self.config["service"]["min_history_bars"]
+        min_bars = self._min_bars_for_tf(timeframe)
 
         if len(history) < min_bars:
             return {}

@@ -4,7 +4,7 @@ Market Data API Routes
 Provides access to real-time and historical market data from Redis streams and database.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -37,7 +37,7 @@ async def get_session_data(
     prev_close = last 1m bar close before the prior session's maintenance window (17:00 ET),
     i.e. the previous RTH settlement. Queried from TimescaleDB, not Redis.
     """
-    from datetime import timedelta, timezone
+    from datetime import timedelta
     from zoneinfo import ZoneInfo
 
     from ...config.settings import Settings
@@ -68,11 +68,11 @@ async def get_session_data(
     now_et = datetime.now(et_tz)
     today_18 = now_et.replace(hour=18, minute=0, second=0, microsecond=0)
     session_start_et = today_18 if now_et >= today_18 else today_18 - timedelta(days=1)
-    session_boundary_utc = session_start_et.astimezone(timezone.utc)
+    session_boundary_utc = session_start_et.astimezone(UTC)
 
     # prev_close boundary: last bar before 17:00 ET on the session start day
     # (the maintenance window starts at 17:00 ET, so the last RTH bar is ~16:59 ET)
-    prev_close_cutoff_utc = session_start_et.replace(hour=17, minute=0, second=0).astimezone(timezone.utc)
+    prev_close_cutoff_utc = session_start_et.replace(hour=17, minute=0, second=0).astimezone(UTC)
 
     # Batch-fetch prev_close from DB for all contracts
     contract_symbols = [c for c, _ in resolved]
@@ -123,7 +123,7 @@ async def get_session_data(
                 # Parse ISO timestamp; assume UTC if no tz info
                 ts = datetime.fromisoformat(ts_str)
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
             except ValueError:
                 continue
 

@@ -33,7 +33,6 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 import redis.asyncio as redis
 import structlog
-
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts

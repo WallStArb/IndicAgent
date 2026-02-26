@@ -20,7 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
-from src.core.models import AssetClass, Instrument
+from src.core.models import Instrument
 
 # Deprecated alias — use Instrument directly
 IBKRContract = Instrument

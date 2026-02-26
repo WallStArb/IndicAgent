@@ -4,6 +4,7 @@ Simplified Database Manager for Clean Architecture
 A focused database manager that provides core functionality without complexity.
 """
 
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -45,6 +46,12 @@ class DatabaseManager:
             raise RuntimeError("Database pool not initialized")
 
         async with self.pool.acquire() as conn:
+            await conn.set_type_codec(
+                "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+            )
+            await conn.set_type_codec(
+                "json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+            )
             yield conn
 
     async def execute_query(self, query: str, *args) -> list[dict[str, Any]]:

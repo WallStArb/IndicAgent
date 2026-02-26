@@ -1,8 +1,6 @@
 """Tests for provisional bar flushing and minute-boundary poll logic."""
 from datetime import datetime
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 def _make_daemon():

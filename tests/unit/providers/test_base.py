@@ -1,14 +1,13 @@
-import pytest
-from datetime import datetime, timezone
-from src.providers.base import Tick, OHLCVBar, DataProvider
-from src.core.models import Instrument
+from datetime import UTC, datetime
+
+from src.providers.base import DataProvider, OHLCVBar, Tick
 
 
 class TestTick:
     def test_minimal_tick(self):
         tick = Tick(
             symbol="ESH6",
-            timestamp=datetime(2026, 2, 21, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 2, 21, 10, 0, tzinfo=UTC),
             price=5100.25,
             source="ibkr",
         )
@@ -19,7 +18,7 @@ class TestTick:
     def test_full_tick(self):
         tick = Tick(
             symbol="ESH6",
-            timestamp=datetime(2026, 2, 21, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 2, 21, 10, 0, tzinfo=UTC),
             price=5100.25,
             bid=5100.00,
             ask=5100.50,
@@ -37,7 +36,7 @@ class TestOHLCVBar:
         bar = OHLCVBar(
             symbol="ESH6",
             timeframe="1m",
-            timestamp=datetime(2026, 2, 21, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 2, 21, 10, 0, tzinfo=UTC),
             open=5100.0,
             high=5105.0,
             low=5098.0,
@@ -57,7 +56,6 @@ class TestDataProviderProtocol:
         assert not isinstance(NotAProvider(), DataProvider)
 
     def test_minimal_implementation_satisfies_protocol(self):
-        from collections.abc import AsyncIterator
 
         class MinimalProvider:
             name = "test"

@@ -33,7 +33,7 @@ import json
 import sys
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -188,7 +188,7 @@ def _build_intelligence_event(
     intelligence: dict,
     symbol: str,
     tf: str,
-    ts: "datetime",
+    ts: datetime,
 ) -> Any:
     """Build IntelligenceEvent from per-bar pipeline outputs.
 
@@ -205,8 +205,14 @@ def _build_intelligence_event(
     """
     try:
         from src.intelligence.schemas import (
-            IntelligenceEvent, OHLCVBar, I1Indicators,
-            I3Structure, I4Context, I5Patterns, SMCContext, I6Confluence,
+            I1Indicators,
+            I3Structure,
+            I4Context,
+            I5Patterns,
+            I6Confluence,
+            IntelligenceEvent,
+            OHLCVBar,
+            SMCContext,
         )
 
         def _pick(model_cls: Any, src: dict) -> dict:
@@ -313,8 +319,8 @@ def _build_ledger_entries(
     timeframe: str,
     timestamp: datetime,
     features: dict[str, Any],
-    feature_ts: "datetime | None" = None,
-    feature_tf: "str | None" = None,
+    feature_ts: datetime | None = None,
+    feature_tf: str | None = None,
 ) -> list[LedgerEntry]:
     """Convert an AggregatedResult into LedgerEntry objects for DB insertion.
 
@@ -394,8 +400,8 @@ def run_i7_and_persist(
     timeframe: str,
     timestamp: datetime,
     db_conn: Any,
-    feature_ts: "datetime | None" = None,
-    feature_tf: "str | None" = None,
+    feature_ts: datetime | None = None,
+    feature_tf: str | None = None,
 ) -> int:
     """Run I7 setup plugins on bar_history+features, aggregate, persist to signal_ledger.
 
@@ -489,7 +495,7 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str) -> list[dict]:
         rows = cur.fetchall()
     return [
         {
-            "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=timezone.utc),
+            "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC),
             "symbol": symbol,
             "timeframe": timeframe,
             "open": float(row[1]),
@@ -605,7 +611,7 @@ def replay_symbol(
 
             # Build IntelligenceEvent and write to intelligence_features
             event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
-            written_feature_ts: "datetime | None" = None
+            written_feature_ts: datetime | None = None
             if event is not None:
                 _insert_features_sync(db_conn, [_event_to_sync_params(event)])
                 written_feature_ts = ts
@@ -663,7 +669,7 @@ def main() -> None:
             print(f"No matching contracts for: {args.symbols}")
             return
 
-    print(f"Historical Backfill Pipeline")
+    print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
     print(f"  Timeframes: {timeframes}")
     tf_depths = {tf: (args.days if tf == "1m" else _TF_FETCH_CONFIG[tf][0])
@@ -690,7 +696,7 @@ def main() -> None:
                 return
             print("Continuing with replay-only...")
         else:
-            end_dt = datetime.now(tz=timezone.utc)
+            end_dt = datetime.now(tz=UTC)
             total_bars = 0
             # Fetch each requested TF using its configured depth and contract type.
             # 1m uses --days override; others use _TF_FETCH_CONFIG defaults.

@@ -1,10 +1,8 @@
 """Tests for I7 trading setup plugins."""
 
 import numpy as np
-import pandas as pd
 
 from tests.unit.intelligence.helpers import make_ohlcv
-
 
 # ─── TrendFollowing ──────────────────────────────────────────────
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import nest_asyncio
 from ib_insync import IB, ContFuture, Future, Stock
@@ -140,12 +140,17 @@ class IBKRProvider:
             first_chunk = False
 
             chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
-            duration = max(1, (chunk_end - chunk_start).days + 1)
+            window_seconds = int((chunk_end - chunk_start).total_seconds())
+            if window_seconds < 86400:
+                # Sub-day window: use seconds-based duration to avoid fetching a full day
+                duration_str = f"{max(120, window_seconds + 60)} S"
+            else:
+                duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
             ib_bars = self._ib.reqHistoricalData(
                 contract,
                 endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
-                durationStr=f"{duration} D",
+                durationStr=duration_str,
                 barSizeSetting=_TF_TO_IB[timeframe],
                 whatToShow=what_to_show,
                 useRTH=False,
@@ -193,6 +198,10 @@ class IBKRProvider:
             if details:
                 self._qualified_contracts[instrument.symbol] = details[0].contract
                 return True
+            logger.warning(
+                "qualify_instrument: no contract details returned",
+                extra={"symbol": instrument.symbol, "base": instrument.base, "exchange": instrument.exchange, "expiry": instrument.expiry},
+            )
             return False
         except Exception as e:
             logger.warning("qualify_instrument failed", extra={"symbol": instrument.symbol, "error": str(e)})
@@ -219,10 +228,9 @@ class IBKRProvider:
         def _pos_int(val) -> int | None:
             return int(val) if isinstance(val, (int, float)) and val > 0 else None
 
-        from datetime import timezone
         return Tick(
             symbol=symbol,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             price=price,
             size=_pos_int(getattr(ticker, "lastSize", None)),
             bid=_pos_float(getattr(ticker, "bid", None)),

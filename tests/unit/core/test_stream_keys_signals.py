@@ -1,5 +1,5 @@
 """Tests for signal stream key helpers."""
-from src.core.stream_keys import signals, signals_pattern, get_stream_maxlen
+from src.core.stream_keys import get_stream_maxlen, signals, signals_pattern
 
 
 def test_signals_key_with_prefix():

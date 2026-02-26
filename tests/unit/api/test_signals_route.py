@@ -5,16 +5,16 @@ Uses a test-local FastAPI app (not main.py) to avoid lifespan complications.
 All tests mock the db_manager dependency via FastAPI dependency overrides.
 """
 
+import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
-import uuid
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.api.routes.signals import router as signals_router
 from src.api import dependencies
+from src.api.routes.signals import router as signals_router
 
 # ---------------------------------------------------------------------------
 # Test app setup (avoids main.py lifespan)

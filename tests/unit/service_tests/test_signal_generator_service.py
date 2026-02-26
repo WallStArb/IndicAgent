@@ -1,27 +1,25 @@
 """Tests for signal_generator_service typed IntelligenceEvent deserialization."""
-import json
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_valid_event_json() -> bytes:
     """Return bytes of a valid IntelligenceEvent JSON for test fixtures."""
     from src.intelligence.schemas import (
-        IntelligenceEvent,
-        OHLCVBar,
         I1Indicators,
         I3Structure,
         I4Context,
         I5Patterns,
-        SMCContext,
         I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
     )
     event = IntelligenceEvent(
-        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=timezone.utc),
+        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
         tf="5m",
         bar=OHLCVBar(o=5100.25, h=5105.50, l=5098.75, c=5103.00, v=12345),
@@ -103,20 +101,20 @@ def test_parse_intelligence_event_returns_none_on_validation_error():
 
 def test_build_features_from_event_maps_typed_attributes():
     """_build_features_from_event extracts all MARKET_CONTEXT_KEYS from typed event."""
-    from services.signal_generator_service import _build_features_from_event, MARKET_CONTEXT_KEYS
+    from services.signal_generator_service import _build_features_from_event
     from src.intelligence.schemas import (
-        IntelligenceEvent,
-        OHLCVBar,
         I1Indicators,
         I3Structure,
         I4Context,
         I5Patterns,
-        SMCContext,
         I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
     )
 
     event = IntelligenceEvent(
-        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=timezone.utc),
+        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
         tf="5m",
         bar=OHLCVBar(o=5100.0, h=5105.0, l=5099.0, c=5103.0, v=10000),
@@ -151,18 +149,18 @@ def test_build_features_from_event_none_values_for_missing_fields():
     """None values from optional typed fields are preserved in features dict."""
     from services.signal_generator_service import _build_features_from_event
     from src.intelligence.schemas import (
-        IntelligenceEvent,
-        OHLCVBar,
         I1Indicators,
         I3Structure,
         I4Context,
         I5Patterns,
-        SMCContext,
         I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
     )
 
     event = IntelligenceEvent(
-        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=timezone.utc),
+        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
         tf="5m",
         bar=OHLCVBar(o=5100.0, h=5105.0, l=5099.0, c=5103.0, v=10000),
@@ -194,7 +192,7 @@ async def test_process_message_accesses_typed_attributes():
     and that the features dict includes typed tier values.
     """
     import collections
-    from unittest.mock import AsyncMock, MagicMock
+
     from services.signal_generator_service import SignalGeneratorService
 
     # Build fields dict with valid IntelligenceEvent

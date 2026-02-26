@@ -1,27 +1,26 @@
 """Tests for feature_writer_service — consumer group batch writer to intelligence_features."""
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_valid_event() -> "IntelligenceEvent":
     """Build a valid IntelligenceEvent for test fixtures."""
     from src.intelligence.schemas import (
-        IntelligenceEvent,
-        OHLCVBar,
         I1Indicators,
         I3Structure,
         I4Context,
         I5Patterns,
-        SMCContext,
         I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
     )
     return IntelligenceEvent(
-        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=timezone.utc),
+        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
         tf="5m",
         bar=OHLCVBar(o=5100.25, h=5105.50, l=5098.75, c=5103.00, v=12345),
@@ -161,7 +160,8 @@ async def test_maybe_flush_force_calls_execute_batch():
 async def test_maybe_flush_time_based_calls_execute_batch():
     """_maybe_flush(force=False) with events older than FLUSH_INTERVAL_SECS calls execute_batch."""
     import time
-    from services.feature_writer_service import FeatureWriterService, FLUSH_INTERVAL_SECS
+
+    from services.feature_writer_service import FLUSH_INTERVAL_SECS, FeatureWriterService
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
@@ -187,7 +187,8 @@ async def test_maybe_flush_time_based_calls_execute_batch():
 async def test_maybe_flush_recent_events_no_call():
     """_maybe_flush(force=False) with events younger than FLUSH_INTERVAL_SECS does NOT call execute_batch."""
     import time
-    from services.feature_writer_service import FeatureWriterService, FLUSH_INTERVAL_SECS
+
+    from services.feature_writer_service import FeatureWriterService
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()

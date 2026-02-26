@@ -1,4 +1,3 @@
-import pytest
 from src.core.models import AssetClass, Instrument
 
 

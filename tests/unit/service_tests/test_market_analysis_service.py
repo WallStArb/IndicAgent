@@ -1,7 +1,7 @@
 """Tests for market_analysis_service — I3→I6 analysis consuming indicators stream."""
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pandas as pd
 import pytest
@@ -332,7 +332,6 @@ class TestPublisherFormat:
     @pytest.mark.asyncio
     async def test_publish_intelligence_uses_model_dump_json(self):
         """The published event JSON can be round-tripped as IntelligenceEvent."""
-        import json
 
         from src.intelligence.schemas import IntelligenceEvent
 

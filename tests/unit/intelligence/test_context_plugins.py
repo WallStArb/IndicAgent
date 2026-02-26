@@ -5,7 +5,6 @@ import pandas as pd
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
-
 # ─── Volatility Regime ─────────────────────────────────────────
 
 

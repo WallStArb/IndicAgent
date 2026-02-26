@@ -10,7 +10,7 @@ The features router is mounted directly on a test FastAPI instance.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -42,7 +42,7 @@ def make_mock_row(
 ) -> dict:
     """Return a dict that mimics an asyncpg Record (subscriptable by key)."""
     return {
-        "ts": ts or datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+        "ts": ts or datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC),
         "symbol": symbol,
         "tf": tf,
         "platform": platform,
@@ -80,7 +80,7 @@ class TestGetFeaturesPaginated:
         """Endpoint returns 200 with rows list; JSONB fields are dicts, not strings."""
         row1 = make_mock_row(symbol="ESH6", tf="1m")
         row2 = make_mock_row(
-            ts=datetime(2026, 1, 15, 10, 1, 0, tzinfo=timezone.utc),
+            ts=datetime(2026, 1, 15, 10, 1, 0, tzinfo=UTC),
             symbol="ESH6",
             tf="1m",
         )

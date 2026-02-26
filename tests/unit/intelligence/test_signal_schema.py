@@ -1,6 +1,6 @@
 """Tests for signal schema validation."""
 
-from src.intelligence.trading.signal_schema import validate_signal, make_signal
+from src.intelligence.trading.signal_schema import make_signal, validate_signal
 
 
 def _make_valid_signal() -> dict:

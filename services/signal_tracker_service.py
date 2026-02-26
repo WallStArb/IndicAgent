@@ -16,7 +16,6 @@ import logging
 import os
 import signal
 import sys
-import time
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -48,7 +47,7 @@ class SignalTrackerService:
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
-        self.consumer_group = f"signal_tracker_{int(time.time())}"
+        self.consumer_group = "signal_tracker"
         self.consumer_name = f"tracker_{os.getpid()}"
 
         settings = Settings()
@@ -264,10 +263,11 @@ class SignalTrackerService:
             stream_name = sk_market(self.env_prefix, symbol, "1m")
             try:
                 await self.redis_client.xgroup_create(
-                    stream_name, self.consumer_group, "0", mkstream=True
+                    stream_name, self.consumer_group, "$", mkstream=True
                 )
             except Exception:
-                pass
+                # Group already exists — reset to current tail to avoid replaying history
+                await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
 
     async def _process_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -290,8 +290,13 @@ class SignalTrackerService:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.error("Error in tracker loop", error=str(e))
                 self.error_count_total.inc()
+                error_str = str(e)
+                if "NOGROUP" in error_str:
+                    self.logger.warning("Consumer group missing, recreating", error=error_str)
+                    await self._setup_consumer_groups()
+                else:
+                    self.logger.error("Error in tracker loop", error=error_str)
                 await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:

@@ -1,7 +1,6 @@
 """Tests for I3 market structure plugins."""
 
 import numpy as np
-import pandas as pd
 
 from tests.unit.intelligence.helpers import make_ohlcv
 

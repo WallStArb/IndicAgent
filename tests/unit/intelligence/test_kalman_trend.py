@@ -1,10 +1,8 @@
 """Tests for Kalman filter trend plugin."""
 
-import math
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from src.intelligence.context.kalman_trend import KalmanTrendPlugin
 

@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.4.0
-Last Updated: 2026-02-24
-Status: I1-I8 pipeline complete — 57 plugins + 4 aggregation components + feature store + typed intelligence bus, 584 tests, 23 contracts
+Version: 5.5.0
+Last Updated: 2026-02-26
+Status: I1-I8 pipeline complete — 57 plugins + 4 aggregation components + feature store + typed intelligence bus, 602 tests, 23 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -130,7 +130,7 @@ curl http://localhost:9115/metrics   # Signal Tracker
 
 ### Development & Testing
 ```bash
-.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (584 passing)
+.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (602 passing)
 .venv/bin/python -m pytest tests/integration/ -v # Integration (requires live Redis + PostgreSQL)
 .venv/bin/ruff check . --fix                     # Linting (0 errors on new code)
 .venv/bin/black .                                # Formatting
@@ -173,7 +173,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger` | :9112 |
 | Signal Tracker | `indicagent-signal-tracker` | Signal lifecycle (pending→active→exit) | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: Ollama → `narratives:SYMBOL:TF` | :9113 |
-| Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9115 |
+| Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
 
 ### Data Providers
@@ -259,18 +259,16 @@ OLLAMA_DEFAULT_MODEL="qwen3:8b"
 
 ## Current Status
 
-**Tests:** 584 unit passing, 0 ruff errors
+**Tests:** 602 passing, 0 ruff errors
 **Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store (Phases 0–5 complete)
-**Roadmap:** See `.planning/ROADMAP.md` — current milestone is Unified Data Bus (Phase 6 in progress)
+**Roadmap:** See `.planning/ROADMAP.md` — Phase 6 (Dashboard Connected) in progress
 
-### Phase 6 In Progress (dashboard-connected)
-- ✅ Dashboard 500 fixed (Turbopack dev server recovers after clearing `.next`)
-- ✅ Price Hero redesigned — bid/ask/last, flash animation, dual % change, range bars
-- ✅ AI narratives flowing — `development:narratives:ESH6:1m` active (~53s latency, qwen3:8b)
-- ✅ Stream audit complete — all field mappings confirmed correct; empty panels are UI issue not data
-- ⏳ 06-01 PLAN.md being researched in parallel session
-- ❌ `indicagent-timeframes.service` — import bug (`src.data`), non-blocking
-- ❌ 6/23 contracts not qualifying from IBKR (SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6) — need `currency="USD"` fix
+### Phase 6 Status (dashboard-connected)
+- ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard
+- ✅ 06-02: SSE `event.tf` bug fixed, session tracking, Price Hero bid/ask/last + dual % change + flash animation
+- ✅ 06-03: SmartMoneyPanel extended with HMM regime + BSL/SSL liquidity zones
+- ⏳ 06-04: Human verification checkpoint — confirm all panels show real live data
+- ❌ `indicagent-timeframes.service` — legacy service; import fails (`src.data` not `src.core`); non-blocking
 
 ### ai_narrative_service key facts
 - Consumer group: stable `"ai_narrative"` (no timestamp bug)

@@ -11,13 +11,13 @@ Last Updated: 2026-02-26
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
 from src.config.settings import Settings
-from src.core.stream_keys import get_stream_maxlen, indicators, market
+from src.core.stream_keys import get_stream_maxlen, market
 
 logger = structlog.get_logger(__name__)
 
@@ -91,7 +91,7 @@ def _parse_ts(ts_raw: str) -> int:
     except ValueError:
         dt = datetime.fromisoformat(str(ts_raw))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return int(dt.timestamp())
 
 
@@ -420,7 +420,7 @@ class TimeframeBuilder:
         payload = {
             "symbol": symbol,
             "timeframe": timeframe,
-            "timestamp": datetime.fromtimestamp(period_ts, tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(period_ts, tz=UTC).isoformat(),
             "open": str(acc["open"]),
             "high": str(acc["high"]),
             "low": str(acc["low"]),

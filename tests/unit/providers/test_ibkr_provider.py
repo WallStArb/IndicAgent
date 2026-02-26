@@ -1,9 +1,11 @@
 import asyncio
-from datetime import datetime
-from unittest.mock import MagicMock, patch, AsyncMock
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
+
 import pytest
-from src.providers.ibkr import IBKRProvider
+
 from src.providers.base import DataProvider
+from src.providers.ibkr import IBKRProvider
 
 
 @pytest.fixture
@@ -59,10 +61,9 @@ class TestFetchHistoricalBars:
     @pytest.mark.asyncio
     async def test_returns_ohlcv_bars(self, provider, mock_ib):
         """fetch_historical_bars maps ib_insync BarData to OHLCVBar list."""
-        from datetime import timezone
 
         mock_bar = MagicMock()
-        mock_bar.date = datetime(2026, 2, 1, 9, 30, tzinfo=timezone.utc)
+        mock_bar.date = datetime(2026, 2, 1, 9, 30, tzinfo=UTC)
         mock_bar.open = 5100.0
         mock_bar.high = 5105.0
         mock_bar.low = 5098.0
@@ -78,8 +79,8 @@ class TestFetchHistoricalBars:
         bars = await provider.fetch_historical_bars(
             symbol="ESH6",
             timeframe="1m",
-            start=datetime(2026, 2, 1, tzinfo=timezone.utc),
-            end=datetime(2026, 2, 2, tzinfo=timezone.utc),
+            start=datetime(2026, 2, 1, tzinfo=UTC),
+            end=datetime(2026, 2, 2, tzinfo=UTC),
         )
 
         assert len(bars) == 1
@@ -100,14 +101,13 @@ class TestFetchHistoricalBars:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_no_data(self, provider, mock_ib):
-        from datetime import timezone
         mock_ib.reqHistoricalData.return_value = []
         provider._ib = mock_ib
         provider._qualified_contracts["ESH6"] = MagicMock()
         bars = await provider.fetch_historical_bars(
             "ESH6", "1m",
-            datetime(2026, 2, 1, tzinfo=timezone.utc),
-            datetime(2026, 2, 2, tzinfo=timezone.utc),
+            datetime(2026, 2, 1, tzinfo=UTC),
+            datetime(2026, 2, 2, tzinfo=UTC),
         )
         assert bars == []
 
