@@ -462,6 +462,13 @@ WHERE symbol = %s AND timeframe = %s
 ORDER BY timestamp ASC
 """
 
+_FETCH_BARS_SINCE_SQL = """
+SELECT timestamp, open, high, low, close, volume
+FROM market_data_ohlcv
+WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
+ORDER BY timestamp ASC
+"""
+
 _STORE_SQL = """
 INSERT INTO market_data_ohlcv
     (timestamp, symbol, timeframe, open, high, low, close, volume, source)
@@ -488,10 +495,17 @@ def connect_db(settings: Settings) -> Any:
     )
 
 
-def fetch_bars(conn: Any, symbol: str, timeframe: str) -> list[dict]:
-    """Fetch all stored OHLCV bars for *symbol* + *timeframe*, ordered oldest-first."""
+def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = None) -> list[dict]:
+    """Fetch stored OHLCV bars for *symbol* + *timeframe*, ordered oldest-first.
+
+    Args:
+        since: If provided, only fetch bars on or after this timestamp.
+    """
     with conn.cursor() as cur:
-        cur.execute(_FETCH_BARS_SQL, (symbol, timeframe))
+        if since is not None:
+            cur.execute(_FETCH_BARS_SINCE_SQL, (symbol, timeframe, since))
+        else:
+            cur.execute(_FETCH_BARS_SQL, (symbol, timeframe))
         rows = cur.fetchall()
     return [
         {
@@ -532,12 +546,16 @@ def replay_symbol(
     symbol: str,
     db_conn: Any,
     timeframes: list[str] | None = None,
+    since: datetime | None = None,
 ) -> dict[str, int]:
-    """Replay all bars for *symbol* through the I1→I7 pipeline.
+    """Replay bars for *symbol* through the I1→I7 pipeline.
 
     Processes timeframes in order: 1m first, then 5m, 15m, 1h.
     Lower-TF bar history is available as cross-TF context when processing
     higher timeframes (same as live services).
+
+    Args:
+        since: If provided, only replay bars on or after this timestamp.
 
     Returns:
         dict mapping timeframe → number of ledger entries inserted.
@@ -552,7 +570,7 @@ def replay_symbol(
     # 5m/1h/1d = back-adjusted continuous). Higher TFs have deeper history.
     bars_by_tf: dict[str, list[dict]] = {}
     for tf in timeframes:
-        bars = fetch_bars(db_conn, symbol, tf)
+        bars = fetch_bars(db_conn, symbol, tf, since=since)
         if bars:
             bars_by_tf[tf] = bars
             print(f"  {symbol}: {len(bars):,} {tf} bars loaded")
@@ -752,10 +770,15 @@ def main() -> None:
     # --------------- Stage 2: Intelligence Replay ---------------
     if not args.fetch_only:
         print("=== Stage 2: Intelligence Replay ===")
+        since_dt = (datetime.now(tz=UTC) - timedelta(days=args.days)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ) if args.replay_only else None
+        if since_dt:
+            print(f"  Replaying bars since: {since_dt.date()} ({args.days}d)")
         grand_total = 0
         for contract in contracts:
             print(f"\n{contract.symbol}:")
-            counts = replay_symbol(contract.symbol, db_conn, timeframes)
+            counts = replay_symbol(contract.symbol, db_conn, timeframes, since=since_dt)
             symbol_total = sum(counts.values())
             grand_total += symbol_total
             print(f"  {contract.symbol} total: {symbol_total} signals")
