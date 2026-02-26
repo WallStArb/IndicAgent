@@ -114,12 +114,11 @@ export default function TradingDashboard() {
           {symbols.map((sym) => {
             const data = symbolData[sym];
             if (!data) return null;
-            // Find freshest narrative for this symbol across any timeframe
-            const narrative =
-              Object.values(narratives)
-                .filter((n) => n.symbol === sym)
-                .sort((a, b) => b.receivedAt - a.receivedAt)[0] ?? null;
-            return <SymbolCard key={sym} data={data} narrative={narrative} globalTf={timeframe} />;
+            // Pass all narratives for this symbol — card picks the right TF
+            const symNarratives = Object.fromEntries(
+              Object.entries(narratives).filter(([, n]) => n.symbol === sym)
+            );
+            return <SymbolCard key={sym} data={data} narratives={symNarratives} globalTf={timeframe} />;
           })}
         </div>
       </main>
@@ -145,11 +144,11 @@ export default function TradingDashboard() {
 /** Self-contained instrument card with all intelligence tiers */
 function SymbolCard({
   data,
-  narrative,
+  narratives,
   globalTf,
 }: {
   data: SymbolData;
-  narrative: NarrativeData | null;
+  narratives: Record<string, NarrativeData>;
   globalTf: Timeframe;
 }) {
   const [isDrilling, setIsDrilling] = useState(false);
@@ -170,8 +169,12 @@ function SymbolCard({
   const smartMoney = intel?.smartMoney ?? null;
   const confluence = intel?.confluence ?? null;
 
-  // Active signal follows activeTf — falls back to card-level signal for global TF
-  const activeSignal = data.signalsByTf[activeTf] ?? (activeTf === globalTf ? data.signal : null);
+  // Active signal is strictly per-TF — signals only show on the TF that generated them.
+  // signal_generator currently only emits 1m, so signals appear on the 1m tab only.
+  const activeSignal = data.signalsByTf[activeTf] ?? null;
+
+  // Narrative is TF-matched — only show narrative for the active timeframe
+  const narrative = narratives[`${data.symbol}:${activeTf}`] ?? null;
 
   const isLong = activeSignal?.direction === "long";
   const hasSignal = activeSignal !== null;
@@ -294,6 +297,7 @@ function SymbolCard({
           symbol={data.symbol}
           timeframe={activeTf}
           data={data}
+          signal={activeSignal}
           onClose={() => setIsDrilling(false)}
         />
       )}

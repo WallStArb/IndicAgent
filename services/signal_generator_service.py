@@ -227,7 +227,7 @@ class SignalGeneratorService:
             },
             "service": {
                 "symbols": get_active_contracts(_settings),
-                "timeframes": ["1m"],
+                "timeframes": ["1m", "5m", "15m", "1h"],
                 "min_history_bars": 50,
                 "processing_interval": 0.1,
                 "health_check_interval": 30,
@@ -392,10 +392,22 @@ class SignalGeneratorService:
 
         if result.selected_signal and self.redis_client:
             stream_name = signals_aggregated(self.env_prefix, symbol, timeframe)
+            sig = result.selected_signal
             message = {
-                k: str(v) for k, v in result.selected_signal.items()
+                k: str(v) for k, v in sig.items()
                 if isinstance(v, (str, int, float, bool))
             }
+            # Promote targets[0] (primary profit target) as a scalar field
+            targets = sig.get("targets") or []
+            if targets:
+                profit_target = float(targets[0])
+                message["profit_target"] = str(profit_target)
+                entry = float(sig.get("entry_price", 0))
+                stop = float(sig.get("stop_loss", 0))
+                risk = abs(entry - stop)
+                if risk > 0:
+                    rr = round(abs(profit_target - entry) / risk, 2)
+                    message["risk_reward_ratio"] = str(rr)
             message["timestamp"] = timestamp.isoformat()
             message["symbol"] = symbol
             message["timeframe"] = timeframe

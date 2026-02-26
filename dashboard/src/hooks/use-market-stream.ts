@@ -495,7 +495,10 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               confidence: parseFloat(String(payload.confidence || "0")),
               entry_price: parseFloat(String(payload.entry_price || "0")),
               stop_loss: parseFloat(String(payload.stop_loss || "0")),
+              profit_target: parseFloat(String(payload.profit_target || "0")) || null,
+              risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
               regime_context: String(payload.regime_context || ""),
+              timeframe: tf,
               timestamp: String(payload.timestamp || ""),
             }
           : null;
@@ -507,7 +510,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           updatedAt: Date.now(),
         };
 
-        // Card-level signal: only update for the global selected timeframe
+        // Card-level signal: only update for the selected global timeframe.
+        // Per-TF signals (signalsByTf) are always stored for all TFs.
         const isSelectedTf = tf === timeframe;
         const signal = isSelectedTf ? (fullSignal ?? old.signal) : old.signal;
 

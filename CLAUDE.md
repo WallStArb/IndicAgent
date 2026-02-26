@@ -267,12 +267,13 @@ OLLAMA_DEFAULT_MODEL="qwen3:8b"
 - ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard
 - ✅ 06-02: SSE `event.tf` bug fixed, session tracking, Price Hero bid/ask/last + dual % change + flash animation
 - ✅ 06-03: SmartMoneyPanel extended with HMM regime + BSL/SSL liquidity zones
-- ⏳ 06-04: Human verification checkpoint — confirm all panels show real live data
+- ✅ 06-04 (partial): Dashboard UX — drill panel reads `intelligenceByTf[tf]`, signal panel shows entry/SL/TP/RR, TF-matched narrative cards, per-TF signals (1m/5m/15m/1h), AI narrative consumer group backlog fix (`"$"` + `xgroup_setid`)
+- ⏳ 06-04: Human verification checkpoint — confirm all panels show real live data; **requires service restarts**: `sudo systemctl restart indicagent-signal-generator indicagent-ai-narrative`
 - ❌ `indicagent-timeframes.service` — legacy service; import fails (`src.data` not `src.core`); non-blocking
 
 ### ai_narrative_service key facts
-- Consumer group: stable `"ai_narrative"` (no timestamp bug)
-- Timeframes: `["1m"]` only — signal generator only outputs 1m streams
+- Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
+- Timeframes: `["1m", "5m", "15m", "1h"]` — matches signal_generator_service
 - Ollama timeout: 120s (qwen3:8b needs ~90s on CPU at num_predict=500)
 
 ### Local LLM (Ollama — native process, not Docker)

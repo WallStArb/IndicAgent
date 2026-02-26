@@ -189,8 +189,11 @@ export interface SignalData {
   confidence: number;            // 0.0–1.0
   entry_price: number;
   stop_loss: number;
+  profit_target: number | null;  // targets[0] from signal, null if not available
+  risk_reward_ratio: number;     // computed from entry/stop/target
   regime_context: string;        // "bullish" | "bearish"
-  timestamp: string;
+  timeframe: string;             // which TF generated this signal, e.g. "1m"
+  timestamp: string;             // ISO timestamp when signal was generated
 }
 
 // ── I8 AI Narratives ──

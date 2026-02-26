@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 4.9.2 | **Status:** I1–I8 Pipeline Complete | 57 plugins · 584 tests · 23 contracts
+**Version:** 5.5.0 | **Status:** I1–I8 Pipeline Complete | 57 plugins · 602 tests · 23 contracts
 
 ---
 
@@ -27,7 +27,7 @@ The architecture is designed to be **externally consumable**: a FastAPI layer wi
 | **Data in** | IBKR TWS futures: **ES**, **NQ**, **RTY** (equity indices); **CL**, **NG** (energy); **GC**, **SI**, **HG**, **PL** (metals); **VX** (volatility); **ZN**, **ZF**, **ZB**, **ZT** (rates). 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); optional TimescaleDB for history |
 | **Intelligence** | 57 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (9); I7 signal aggregation + I8 AI narratives + Dashboard panel operational |
-| **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 15 / React 19, Ollama |
+| **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16 / React 19.2, Ollama |
 | **Deployment** | Small independent services over streams; SSE for dashboard; Signal Orchestrator (:9112), AI Narrative (:9113) |
 
 ---
@@ -215,10 +215,10 @@ docs/                     # Architecture and planning
 
 ### Tech Stack
 
-- Python 3.13, pandas 3.0, redis 7.1, FastAPI 0.129  
-- LangGraph 1.0, LangChain 1.2  
-- DragonflyDB or Redis; TimescaleDB (PostgreSQL 15)  
-- Next.js 15.4, React 19, Tailwind v4  
+- Python 3.13, pandas 3.0, redis 7.1, FastAPI 0.129
+- LangGraph 1.0, LangChain 1.2
+- DragonflyDB or Redis; TimescaleDB (PostgreSQL 15)
+- Next.js 16.1, React 19.2, Tailwind v4.2
 
 ### Environment (main)
 
@@ -245,8 +245,8 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status and Next Steps
 
-- **Done:** I1–I8 (57 plugins), incremental indicators (141x), hot/warm/cold split, circuit breakers, Prometheus, Signal Orchestrator, AI Narrative Service, Dashboard Signal/Narrative Panel, GARCH/Kalman quality gates on 3 I7 plugins (Phase 0), feature store + historical backfill + query API, 584 unit tests.
-- **Next:** Live Pipeline (Phase 5) — all 8 services running together, full I1→I8 data flowing live.
+- **Done:** I1–I8 (57 plugins), incremental indicators, hot/warm/cold split, Prometheus metrics on all services, AI Narrative Service (Ollama qwen3:8b), feature store + historical backfill, typed intelligence bus, 602 unit tests. Phases 0–5 complete.
+- **In Progress:** Phase 6 (Dashboard Connected) — live I1→I8 data flowing to dashboard. Signal generator and AI narrative service now emit per-TF signals (1m/5m/15m/1h). Dashboard drill panel, signal panel, and TF-matched narrative cards operational.
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
 
@@ -263,4 +263,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 4.9.2 | **Status:** I1–I8 complete, 57 plugins, 584 tests | **Focus:** Live Pipeline (Phase 5)
+**Version:** 5.5.0 | **Status:** I1–I8 complete, 57 plugins, 602 tests | **Focus:** Dashboard Connected (Phase 6)

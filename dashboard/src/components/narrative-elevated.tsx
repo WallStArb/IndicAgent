@@ -44,6 +44,15 @@ export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps)
         <span className="text-[0.45rem] text-[var(--text-muted)]">
           {narrative.timeframe.toUpperCase()}
         </span>
+        {narrative.timestamp && (
+          <span className="text-[0.45rem] font-data text-[var(--text-muted)] ml-auto">
+            {new Date(narrative.timestamp).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })}
+          </span>
+        )}
       </div>
 
       {/* Narrative prose */}

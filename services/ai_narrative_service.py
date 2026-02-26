@@ -79,7 +79,8 @@ def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None
         "signal_type": _get("signal_type"),
         "entry_price": _get("entry_price"),
         "stop_loss": _get("stop_loss"),
-        "targets": _get("targets"),
+        "profit_target": _get("profit_target"),        # promoted scalar from targets[0]
+        "risk_reward_ratio": _get("risk_reward_ratio"),
         "regime_context": _get("regime_context"),
         "supporting_factors": _get("supporting_factors"),
     }
@@ -88,13 +89,18 @@ def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None
 def build_narrative_prompt(signal: dict[str, Any]) -> str:
     """Build the Ollama user message from a parsed signal dict."""
     confidence_pct = f"{signal['confidence']:.0%}"
+    target_str = (
+        f"{signal['profit_target']} (R:R {signal['risk_reward_ratio']})"
+        if signal.get("profit_target") and signal.get("risk_reward_ratio")
+        else signal.get("profit_target") or "not specified"
+    )
     return (
         f"/no_think\n\n"
         f"Symbol: {signal['symbol']}, Timeframe: {signal['timeframe']}\n"
         f"Setup: {signal['setup_plugin']} — {signal['direction_label']}"
         f" (confidence {confidence_pct})\n"
         f"Entry: {signal['entry_price']} | Stop: {signal['stop_loss']}"
-        f" | Targets: {signal['targets']}\n"
+        f" | Target: {target_str}\n"
         f"Regime: {signal['regime_context']}\n"
         f"Factors: {signal['supporting_factors']}"
     )
@@ -211,7 +217,7 @@ class AINarrativeService:
             "redis": {"host": "localhost", "port": 6379, "db": 0},
             "service": {
                 "symbols": get_active_contracts(_settings),
-                "timeframes": ["1m"],
+                "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.1,
                 "health_check_interval": 30,
             },
@@ -297,10 +303,16 @@ class AINarrativeService:
                 stream_name = signals_aggregated(self.env_prefix, sym, tf)
                 try:
                     await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "0", mkstream=True
+                        stream_name, self.consumer_group, "$", mkstream=True
                     )
                 except Exception:
-                    pass  # Group already exists
+                    # Group exists — force-reset to current tail to skip stale backlog
+                    try:
+                        await self.redis_client.xgroup_setid(
+                            stream_name, self.consumer_group, "$"
+                        )
+                    except Exception:
+                        pass
 
     async def stop(self) -> None:
         self.logger.info("Stopping AI Narrative Service")
