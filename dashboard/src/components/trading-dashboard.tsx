@@ -187,8 +187,8 @@ function SymbolCard({
       className="flex flex-col surface rounded overflow-hidden"
       style={{
         boxShadow:
-          data.signal && data.signal.confidence > 0.75
-            ? data.signal.direction === "long"
+          activeSignal && activeSignal.confidence > 0.75
+            ? activeSignal.direction === "long"
               ? "0 0 0 1px var(--green-dim)"
               : "0 0 0 1px var(--red-dim)"
             : undefined,

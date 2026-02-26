@@ -35,8 +35,8 @@ export interface IndicatorData {
   sma_10?: number;
   sma_20?: number;
   sma_50?: number;
-  ema_12?: number;
-  ema_26?: number;
+  ema_13?: number;
+  ema_21?: number;
   // Momentum
   rsi?: number;
   macd?: number;

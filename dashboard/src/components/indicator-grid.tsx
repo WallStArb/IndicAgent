@@ -46,14 +46,28 @@ export function IndicatorGrid({ indicators }: IndicatorGridProps) {
           value={`${fmtNum(ind?.bb_lower, 0)}–${fmtNum(ind?.bb_upper, 0)}`}
         />
         <M
-          label="SMA"
-          value={`${fmtNum(ind?.sma_20, 0)}/${fmtNum(ind?.sma_50, 0)}`}
+          label="SMA20"
+          value={fmtNum(ind?.sma_20, 0)}
           cls="text-[var(--text-accent)]"
+          title="SMA 20 — Short-term trend (20 bars). Price above = near-term bullish."
         />
         <M
-          label="EMA"
-          value={`${fmtNum(ind?.ema_12, 0)}/${fmtNum(ind?.ema_26, 0)}`}
+          label="SMA50"
+          value={fmtNum(ind?.sma_50, 0)}
           cls="text-[var(--text-accent)]"
+          title="SMA 50 — Medium-term trend (50 bars). Key institutional reference level."
+        />
+        <M
+          label="EMA13"
+          value={fmtNum(ind?.ema_13, 0)}
+          cls="text-[var(--text-accent)]"
+          title="EMA 13 — Fast signal line. Reacts quickly to momentum shifts."
+        />
+        <M
+          label="EMA21"
+          value={fmtNum(ind?.ema_21, 0)}
+          cls="text-[var(--text-accent)]"
+          title="EMA 21 — Fibonacci EMA. Trend confirmation; crossover with EMA13 signals entries."
         />
       </Zone>
 
@@ -98,13 +112,15 @@ function M({
   label,
   value,
   cls = "text-[var(--text-accent)]",
+  title,
 }: {
   label: string;
   value: string;
   cls?: string;
+  title?: string;
 }) {
   return (
-    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap" title={title}>
       <span className="text-[0.55rem] font-medium uppercase tracking-wider text-[var(--text-muted)]">
         {label}
       </span>
