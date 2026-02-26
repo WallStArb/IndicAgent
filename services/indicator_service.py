@@ -111,6 +111,11 @@ def parse_indicators_message(
 class IndicatorService:
     """Compute I1 technical indicators and publish one combined message per bar."""
 
+    _WARMUP_READ_MULTIPLIER: int = 5  # read 5× target to survive duplicate timestamps
+    _TF_MIN_BARS: dict[str, int] = {
+        "1m": 120, "5m": 26, "15m": 26, "1h": 26, "4h": 26, "1d": 26,
+    }
+
     def __init__(self, config_file: str | None = None):
         self.running = False
         self.shutdown_requested = False
@@ -205,6 +210,14 @@ class IndicatorService:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
 
+    def _min_bars_for_tf(self, timeframe: str) -> int:
+        """Return minimum bar count before emitting indicators for a given TF.
+
+        1m uses 120 (2 hours) for plugin warm-up quality.
+        All higher TFs use 26 — enough for EMA-26 and Stochastic-14 computation.
+        """
+        return self._TF_MIN_BARS.get(timeframe, 26)
+
     def _run_i1_plugins(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
         features: dict[str, Any] = {}
@@ -253,7 +266,7 @@ class IndicatorService:
             while len(history) > self._bar_history_max:
                 history.popitem(last=False)
 
-            min_bars = self.config["service"]["min_history_bars"]
+            min_bars = self._min_bars_for_tf(timeframe)
             if len(self.bar_history[key]) < min_bars:
                 await self.redis_client.xack(stream_name, self.consumer_group, message_id)
                 return
@@ -294,13 +307,14 @@ class IndicatorService:
         self.logger.info("Connected to Redis")
 
     async def _setup_consumer_groups(self) -> None:
-        warmup_bars = 150
+        warmup_bars = 150  # unique bars target
+        warmup_read_count = warmup_bars * self._WARMUP_READ_MULTIPLIER
         for timeframe in self.config["service"]["timeframes"]:
             for symbol in self.config["service"]["symbols"]:
                 stream_name = sk_market(self.env_prefix, symbol, timeframe)
                 # Warm up plugin state from history without emitting to indicators stream
                 try:
-                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars)
+                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_read_count)
                     for _msg_id, fields in reversed(msgs):
                         key = f"{symbol}:{timeframe}"
                         try:

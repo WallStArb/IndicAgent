@@ -16,7 +16,7 @@ class StochasticPlugin:
     min_lookback: int = 20
     supports_incremental: bool = True
     capability_tags: set[str] = frozenset({"momentum"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     configs: list[tuple[int, int]] = None
     _state: dict = field(default_factory=dict)
 
