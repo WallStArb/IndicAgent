@@ -53,6 +53,81 @@ SYSTEM_PROMPT = (
 _NARRATIVE_ELIGIBLE_TFS = {"5m", "15m", "1h"}
 _NARRATIVE_MIN_CONFIDENCE = 0.70
 
+GROUP_SYSTEM_PROMPT = (
+    "You are a professional multi-asset futures analyst. "
+    "Given signals across related instruments, write a concise 2-3 sentence "
+    "group synthesis covering cross-asset themes and directional bias. "
+    "Be specific. No disclaimers."
+)
+
+# Asset group definitions — contract codes for active front-month (Feb 2026)
+ASSET_GROUPS: dict[str, list[str]] = {
+    "equity":    ["ESH6", "NQH6", "RTYH6", "YMH6", "VXH6"],
+    "energy":    ["CLJ6", "BZJ6", "NGJ6"],
+    "metals":    ["GCJ6", "SIH6", "HGH6", "PLJ6"],
+    "rates":     ["ZNH6", "ZFH6", "ZBH6", "ZTH6", "SR1H6"],
+    "fx_crypto": ["6EH6", "6JH6", "BTCH6"],
+    "ag":        ["ZSH6", "ZCH6", "ZWH6"],
+}
+
+# Reverse lookup: contract_code → group_name
+SYMBOL_TO_GROUP: dict[str, str] = {
+    sym: group
+    for group, symbols in ASSET_GROUPS.items()
+    for sym in symbols
+}
+
+# TFs considered for group synthesis signal state
+_GROUP_SYNTHESIS_TFS = ("5m", "15m", "1h")
+
+
+def build_group_synthesis_prompt(
+    group_name: str,
+    signals: dict[str, dict],
+) -> str:
+    """Build a phi4-mini prompt for group-level cross-asset synthesis.
+
+    Args:
+        group_name: e.g. "equity"
+        signals: dict keyed by "SYMBOL:TF" → parsed signal dict.
+                 Only non-zero direction signals should be passed.
+    """
+    if not signals:
+        lines = [f"Group {group_name}: no active signals at this time."]
+    else:
+        lines = []
+        for key, sig in sorted(signals.items()):
+            sym, tf = key.split(":", 1)
+            confidence_pct = f"{sig.get('confidence', 0):.0%}"
+            lines.append(
+                f"- {sym} {tf}: {sig.get('direction_label', 'Neutral')} "
+                f"(confidence {confidence_pct}) | {sig.get('setup_plugin', 'unknown')} "
+                f"| {sig.get('regime_context', 'unknown')}"
+            )
+
+    signal_block = "\n".join(lines)
+    return (
+        f"/no_think\n\n"
+        f"Group: {group_name}\n"
+        f"Current signals:\n{signal_block}\n\n"
+        f"Write a 2-3 sentence cross-asset synthesis for this group."
+    )
+
+
+def extract_group_fingerprint(
+    signals: dict[str, dict],
+) -> dict[str, tuple[int, str]]:
+    """Extract a comparable fingerprint from a signals dict.
+
+    Only includes entries where direction != 0 (actionable signals).
+    Returns dict of "SYMBOL:TF" → (direction, regime_context).
+    """
+    return {
+        key: (int(sig.get("direction", 0)), str(sig.get("regime_context", "")))
+        for key, sig in signals.items()
+        if int(sig.get("direction", 0)) != 0
+    }
+
 
 # ---------------------------------------------------------------------------
 # Pure helper functions (no I/O — easy to test)
