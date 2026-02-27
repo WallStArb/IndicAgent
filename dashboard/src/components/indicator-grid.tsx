@@ -2,12 +2,17 @@
 
 import type { IndicatorData } from "@/lib/types";
 import { fmtNum, oscClass, dirClass } from "@/lib/format";
+import { Tooltip, type TooltipContent } from "@/components/tooltip";
+import {
+  rsiTooltip, macdTooltip, stochTooltip, cciTooltip, williamsRTooltip,
+  atrTooltip, bbTooltip, mfiTooltip, obvTooltip, vwapTooltip,
+  sma20Tooltip, sma50Tooltip, ema13Tooltip, ema21Tooltip,
+} from "@/lib/indicator-tooltips";
 
 interface IndicatorGridProps {
   indicators: IndicatorData | null;
 }
 
-/** Compact indicator display for column layout: wrapping metric pairs */
 export function IndicatorGrid({ indicators }: IndicatorGridProps) {
   const ind = indicators;
 
@@ -15,18 +20,30 @@ export function IndicatorGrid({ indicators }: IndicatorGridProps) {
     <div className="divide-y divide-[var(--border-subtle)]">
       {/* Momentum */}
       <Zone label="MTM">
-        <M label="RSI" value={fmtNum(ind?.rsi, 1)} cls={oscClass(ind?.rsi)} />
+        <M
+          label="RSI"
+          value={fmtNum(ind?.rsi, 1)}
+          cls={oscClass(ind?.rsi)}
+          tooltip={rsiTooltip(ind?.rsi)}
+        />
         <M
           label="MACD"
           value={fmtNum(ind?.macd, 2)}
           cls={dirClass(ind?.macd_histogram)}
+          tooltip={macdTooltip(ind?.macd_histogram)}
         />
         <M
           label="Stoch"
           value={`${fmtNum(ind?.stoch_k, 0)}/${fmtNum(ind?.stoch_d, 0)}`}
           cls={oscClass(ind?.stoch_k, 80, 20)}
+          tooltip={stochTooltip(ind?.stoch_k)}
         />
-        <M label="CCI" value={fmtNum(ind?.cci, 0)} cls={dirClass(ind?.cci)} />
+        <M
+          label="CCI"
+          value={fmtNum(ind?.cci, 0)}
+          cls={dirClass(ind?.cci)}
+          tooltip={cciTooltip(ind?.cci)}
+        />
         <M
           label="W%R"
           value={fmtNum(ind?.williams_r, 0)}
@@ -35,39 +52,41 @@ export function IndicatorGrid({ indicators }: IndicatorGridProps) {
             70,
             30
           )}
+          tooltip={williamsRTooltip(ind?.williams_r)}
         />
       </Zone>
 
       {/* Volatility & Trend */}
       <Zone label="VOL">
-        <M label="ATR" value={fmtNum(ind?.atr, 2)} />
+        <M label="ATR" value={fmtNum(ind?.atr, 2)} tooltip={atrTooltip()} />
         <M
           label="BB"
           value={`${fmtNum(ind?.bb_lower, 0)}–${fmtNum(ind?.bb_upper, 0)}`}
+          tooltip={bbTooltip()}
         />
         <M
           label="SMA20"
           value={fmtNum(ind?.sma_20, 0)}
           cls="text-[var(--text-accent)]"
-          title="SMA 20 — Short-term trend (20 bars). Price above = near-term bullish."
+          tooltip={sma20Tooltip()}
         />
         <M
           label="SMA50"
           value={fmtNum(ind?.sma_50, 0)}
           cls="text-[var(--text-accent)]"
-          title="SMA 50 — Medium-term trend (50 bars). Key institutional reference level."
+          tooltip={sma50Tooltip()}
         />
         <M
           label="EMA13"
           value={fmtNum(ind?.ema_13, 0)}
           cls="text-[var(--text-accent)]"
-          title="EMA 13 — Fast signal line. Reacts quickly to momentum shifts."
+          tooltip={ema13Tooltip()}
         />
         <M
           label="EMA21"
           value={fmtNum(ind?.ema_21, 0)}
           cls="text-[var(--text-accent)]"
-          title="EMA 21 — Fibonacci EMA. Trend confirmation; crossover with EMA13 signals entries."
+          tooltip={ema21Tooltip()}
         />
       </Zone>
 
@@ -77,25 +96,21 @@ export function IndicatorGrid({ indicators }: IndicatorGridProps) {
           label="MFI"
           value={fmtNum(ind?.mfi, 1)}
           cls={oscClass(ind?.mfi, 80, 20)}
+          tooltip={mfiTooltip(ind?.mfi)}
         />
-        <M label="OBV" value={fmtNum(ind?.obv, 0)} />
+        <M label="OBV" value={fmtNum(ind?.obv, 0)} tooltip={obvTooltip()} />
         <M
           label="VWAP"
           value={fmtNum(ind?.vwap, 2)}
           cls="text-[var(--blue)]"
+          tooltip={vwapTooltip()}
         />
       </Zone>
     </div>
   );
 }
 
-function Zone({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Zone({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="px-2 py-1">
       <div className="flex items-start gap-2">
@@ -112,15 +127,15 @@ function M({
   label,
   value,
   cls = "text-[var(--text-accent)]",
-  title,
+  tooltip,
 }: {
   label: string;
   value: string;
   cls?: string;
-  title?: string;
+  tooltip?: TooltipContent;
 }) {
-  return (
-    <span className="inline-flex items-baseline gap-1 whitespace-nowrap" title={title}>
+  const inner = (
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
       <span className="text-[0.55rem] font-medium uppercase tracking-wider text-[var(--text-muted)]">
         {label}
       </span>
@@ -129,4 +144,7 @@ function M({
       </span>
     </span>
   );
+
+  if (!tooltip) return inner;
+  return <Tooltip tooltip={tooltip}>{inner}</Tooltip>;
 }
