@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     contracts_json: str | None = Field(default=None, validation_alias="HF_CONTRACTS_JSON")
     ibkr_contracts_json: str | None = Field(default=None, validation_alias="IBKR_CONTRACTS_JSON")
 
+    # LLM providers
+    openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+
     # Computed contracts list
     contracts: list[Instrument] = Field(default_factory=list)
 

@@ -20,8 +20,6 @@ import os
 import signal
 import sys
 import time
-import urllib.request
-from asyncio import to_thread
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -185,47 +183,6 @@ def build_narrative_prompt(signal: dict[str, Any]) -> str:
     )
 
 
-async def call_ollama_async(
-    base_url: str,
-    model: str,
-    prompt: str,
-    timeout: float = 15.0,
-    num_predict: int = 500,
-) -> str | None:
-    """Call Ollama /api/chat in a thread. Returns narrative text or None on failure.
-
-    Uses asyncio.to_thread so the event loop stays free during the blocking HTTP call.
-    No new dependencies — uses stdlib urllib.request.
-    """
-    def _call() -> str | None:
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "options": {"num_predict": num_predict},
-        }
-        data = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            f"{base_url}/api/chat",
-            data=data,
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read())
-            return result.get("message", {}).get("content", "").strip() or None
-
-    try:
-        return await to_thread(_call)
-    except Exception as exc:
-        structlog.get_logger(__name__).warning(
-            "Ollama call failed", model=model, error=str(exc)
-        )
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Service class
 # ---------------------------------------------------------------------------
@@ -247,10 +204,6 @@ class AINarrativeService:
 
         settings = Settings()
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
-
-        self.ollama_base_url: str = self.config["ollama"]["base_url"]
-        self.ollama_model: str = self.config["ollama"]["model"]
-        self.ollama_timeout: float = float(self.config["ollama"]["timeout_sec"])
 
         self.narratives_generated_total = counter(
             "narrative_generated_total",
@@ -276,7 +229,7 @@ class AINarrativeService:
         self._total_narratives = 0
         self._error_count = 0
 
-        self.group_model: str = self.config["ollama"].get("group_model", "phi4-mini:3.8b")
+        self._build_chains()
 
         # In-memory cache: "SYMBOL:TF" → latest parsed signal dict (any direction)
         self._latest_signals: dict[str, dict] = {}
@@ -291,6 +244,31 @@ class AINarrativeService:
 
         self.logger = structlog.get_logger(__name__)
         start_metrics_server(port=9113)
+
+    # ------------------------------------------------------------------
+    # Chain construction
+    # ------------------------------------------------------------------
+
+    def _build_chains(self) -> None:
+        from src.intelligence.llm_providers import LLMChain, OllamaProvider, OpenRouterProvider
+
+        settings = Settings()
+        api_key = getattr(settings, "openrouter_api_key", None) or ""
+
+        pcfg = self.config["providers"]
+        or_url = pcfg["openrouter_base_url"]
+        ol_url = pcfg["ollama_base_url"]
+
+        def _make_provider(spec: dict):
+            if spec["type"] == "openrouter":
+                return OpenRouterProvider(spec["model"], api_key=api_key, base_url=or_url)
+            return OllamaProvider(spec["model"], base_url=ol_url)
+
+        self.per_signal_chain = LLMChain([_make_provider(s) for s in pcfg["per_signal"]])
+        self.group_chain = LLMChain([_make_provider(s) for s in pcfg["group"]])
+
+        self._per_signal_timeout = float(pcfg["openrouter_timeout_sec"])
+        self._group_timeout = float(pcfg["openrouter_timeout_sec"])
 
     # ------------------------------------------------------------------
     # Configuration
@@ -316,6 +294,22 @@ class AINarrativeService:
                 "group_model": "phi4-mini:3.8b",
                 "timeout_sec": 60.0,  # was 120.0; qwen3:8b needs ~60s max on CPU
                 "num_predict": 500,
+            },
+            "providers": {
+                "openrouter_base_url": "https://openrouter.ai/api/v1",
+                "openrouter_timeout_sec": 30.0,
+                "ollama_base_url": "http://localhost:11434",
+                "ollama_timeout_sec": 60.0,
+                "per_signal": [
+                    {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
+                    {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
+                    {"type": "ollama",     "model": "qwen3:8b"},
+                ],
+                "group": [
+                    {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
+                    {"type": "ollama",     "model": "phi4-mini:3.8b"},
+                ],
             },
             "logging": {
                 "level": "INFO",
@@ -465,12 +459,11 @@ class AINarrativeService:
 
             prompt = build_narrative_prompt(signal_data)
             t0 = time.time()
-            narrative_text = await call_ollama_async(
-                self.ollama_base_url,
-                self.ollama_model,
+            narrative_text = await self.per_signal_chain.generate(
                 prompt,
-                self.ollama_timeout,
-                int(self.config["ollama"].get("num_predict", 500)),
+                SYSTEM_PROMPT,
+                max_tokens=500,
+                timeout=self._per_signal_timeout,
             )
             latency_ms = (time.time() - t0) * 1000
             self.ollama_latency_ms.set(latency_ms)
@@ -484,7 +477,7 @@ class AINarrativeService:
                     "narrative": narrative_text,
                     "action_bias": signal_data["direction_label"].lower(),
                     "confidence": str(signal_data["confidence"]),
-                    "model": self.ollama_model,
+                    "model": self.per_signal_chain.last_provider_id or "unknown",
                     "latency_ms": str(int(latency_ms)),
                 }
                 await self.redis_client.xadd(
@@ -620,15 +613,14 @@ class AINarrativeService:
         )
         await self.redis_client.expire(state_redis_key, 86400)  # 24h TTL
 
-        # Build prompt and call phi4-mini
+        # Build prompt and call group chain
         prompt = build_group_synthesis_prompt(group_name, current_signals)
         t0 = time.time()
-        narrative_text = await call_ollama_async(
-            self.ollama_base_url,
-            self.group_model,
+        narrative_text = await self.group_chain.generate(
             prompt,
-            self.ollama_timeout,
-            300,  # phi4-mini is smaller; 300 tokens is plenty
+            GROUP_SYSTEM_PROMPT,
+            max_tokens=300,
+            timeout=self._group_timeout,
         )
         latency_ms = (time.time() - t0) * 1000
 
@@ -640,7 +632,7 @@ class AINarrativeService:
                 "group": group_name,
                 "narrative": narrative_text,
                 "timestamp": ts,
-                "model": self.group_model,
+                "model": self.group_chain.last_provider_id or "unknown",
                 "latency_ms": str(int(latency_ms)),
             }
             await self.redis_client.xadd(stream_out, msg, maxlen=50, approximate=True)

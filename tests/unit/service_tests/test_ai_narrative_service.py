@@ -17,6 +17,7 @@ def _make_service():
         ),
     ):
         mock_settings.return_value.env_name = ""
+        mock_settings.return_value.openrouter_api_key = ""
         from services.ai_narrative_service import AINarrativeService
         return AINarrativeService()
 
@@ -24,17 +25,19 @@ def _make_service():
 def test_service_initializes_with_default_config():
     """Service creates expected attributes from default config."""
     svc = _make_service()
-    assert svc.ollama_model == "qwen3:8b"
-    assert svc.ollama_timeout == 60.0          # changed from 120 → 60
+    assert hasattr(svc, "per_signal_chain")
+    assert hasattr(svc, "group_chain")
+    assert svc._per_signal_timeout == 30.0   # OpenRouter timeout
     assert "ESH6" in svc.config["service"]["symbols"]
     assert svc.env_prefix == ""
 
 
 @pytest.mark.asyncio
 async def test_process_message_skips_zero_direction():
-    """direction=0 → no Ollama call, message acked anyway."""
+    """direction=0 → no LLM call, message acked anyway."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.per_signal_chain.generate = AsyncMock()
 
     fields = {
         b"direction": b"0",
@@ -42,19 +45,21 @@ async def test_process_message_skips_zero_direction():
         b"timeframe": b"5m",
         b"timestamp": b"2026-02-19T14:05:00",
     }
-    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
-        await svc._process_single_message(
-            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-        )
-        mock_ollama.assert_not_called()
+    await svc._process_single_message(
+        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+    )
+    svc.per_signal_chain.generate.assert_not_called()
     svc.redis_client.xack.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_message_publishes_narrative():
-    """Valid bullish signal → Ollama called → narrative published to stream + hash."""
+    """Valid bullish signal → chain called → narrative published to stream + hash."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    fake_narrative = "ES is establishing a trend-following setup at 5102.50."
+    svc.per_signal_chain.generate = AsyncMock(return_value=fake_narrative)
+    svc.per_signal_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
 
     fields = {
         b"direction": b"1",
@@ -71,15 +76,9 @@ async def test_process_message_publishes_narrative():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS confirmed",
     }
-    fake_narrative = "ES is establishing a trend-following setup at 5102.50."
-
-    with patch(
-        "services.ai_narrative_service.call_ollama_async",
-        return_value=fake_narrative,
-    ):
-        await svc._process_single_message(
-            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-        )
+    await svc._process_single_message(
+        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+    )
 
     # Stream publish
     svc.redis_client.xadd.assert_called_once()
@@ -89,6 +88,7 @@ async def test_process_message_publishes_narrative():
     assert "narratives:ESH6:5m" in stream_name
     assert msg["narrative"] == fake_narrative
     assert msg["action_bias"] == "bullish"
+    assert "openrouter" in msg["model"]
     # Hash cache
     svc.redis_client.hset.assert_called_once()
     svc.redis_client.expire.assert_called_once()
@@ -98,9 +98,10 @@ async def test_process_message_publishes_narrative():
 
 @pytest.mark.asyncio
 async def test_process_message_handles_ollama_failure():
-    """Ollama returns None → no stream publish, message still acked."""
+    """Chain returns None → no stream publish, message still acked."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.per_signal_chain.generate = AsyncMock(return_value=None)
 
     fields = {
         b"direction": b"1",
@@ -117,10 +118,9 @@ async def test_process_message_handles_ollama_failure():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"RSI bullish",
     }
-    with patch("services.ai_narrative_service.call_ollama_async", return_value=None):
-        await svc._process_single_message(
-            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-        )
+    await svc._process_single_message(
+        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+    )
 
     svc.redis_client.xadd.assert_not_called()
     svc.redis_client.xack.assert_called_once()
@@ -131,6 +131,8 @@ async def test_process_message_skips_1m_timeframe():
     """1m signals are always skipped — never worth per-signal LLM cost."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.per_signal_chain.generate = AsyncMock()
+
     fields = {
         b"direction": b"1",
         b"symbol": b"ESH6",
@@ -146,11 +148,10 @@ async def test_process_message_skips_1m_timeframe():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
-        await svc._process_single_message(
-            "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
-        )
-        mock_ollama.assert_not_called()
+    await svc._process_single_message(
+        "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
+    )
+    svc.per_signal_chain.generate.assert_not_called()
     svc.redis_client.xack.assert_called_once()
 
 
@@ -159,6 +160,8 @@ async def test_process_message_skips_low_confidence():
     """Confidence ≤ 0.70 is skipped even on an eligible timeframe."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.per_signal_chain.generate = AsyncMock()
+
     fields = {
         b"direction": b"1",
         b"symbol": b"ESH6",
@@ -174,19 +177,21 @@ async def test_process_message_skips_low_confidence():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
-        await svc._process_single_message(
-            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-        )
-        mock_ollama.assert_not_called()
+    await svc._process_single_message(
+        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+    )
+    svc.per_signal_chain.generate.assert_not_called()
     svc.redis_client.xack.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_process_message_allows_5m_high_confidence():
-    """5m signal with confidence > 0.70 proceeds to Ollama."""
+    """5m signal with confidence > 0.70 proceeds to LLM chain."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.per_signal_chain.generate = AsyncMock(return_value="ES bullish setup forming.")
+    svc.per_signal_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+
     fields = {
         b"direction": b"1",
         b"symbol": b"ESH6",
@@ -202,14 +207,10 @@ async def test_process_message_allows_5m_high_confidence():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    with patch(
-        "services.ai_narrative_service.call_ollama_async",
-        return_value="ES bullish setup forming.",
-    ) as mock_ollama:
-        await svc._process_single_message(
-            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-        )
-        mock_ollama.assert_called_once()
+    await svc._process_single_message(
+        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+    )
+    svc.per_signal_chain.generate.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -218,6 +219,8 @@ async def test_process_message_acks_on_redis_publish_failure():
     svc = _make_service()
     svc.redis_client = AsyncMock()
     svc.redis_client.xadd.side_effect = Exception("Redis write failed")
+    svc.per_signal_chain.generate = AsyncMock(return_value="Some narrative.")
+    svc.per_signal_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
 
     fields = {
         b"direction": b"1",
@@ -234,10 +237,9 @@ async def test_process_message_acks_on_redis_publish_failure():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS confirmed",
     }
-    with patch("services.ai_narrative_service.call_ollama_async", return_value="Some narrative."):
-        await svc._process_single_message(
-            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-        )
+    await svc._process_single_message(
+        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+    )
 
     # Must ack even though xadd raised
     svc.redis_client.xack.assert_called_once()
@@ -248,6 +250,7 @@ async def test_latest_signals_cache_updated_for_any_signal():
     """_latest_signals is updated even for 1m/low-confidence signals (group loop needs them)."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.per_signal_chain.generate = AsyncMock()
 
     fields = {
         b"direction": b"1",
@@ -264,10 +267,9 @@ async def test_latest_signals_cache_updated_for_any_signal():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    with patch("services.ai_narrative_service.call_ollama_async"):
-        await svc._process_single_message(
-            "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
-        )
+    await svc._process_single_message(
+        "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
+    )
     # Cache updated even though 1m is filtered from per-signal narration
     assert "ESH6:1m" in svc._latest_signals
     assert svc._latest_signals["ESH6:1m"]["direction"] == 1
@@ -286,12 +288,10 @@ async def test_group_synthesis_fires_on_fingerprint_change():
     }
     # Redis: no prior state (returns None → fingerprint mismatch → synthesize)
     svc.redis_client.hget.return_value = None
+    svc.group_chain.generate = AsyncMock(return_value="Equity group showing bullish momentum.")
+    svc.group_chain.last_provider_id = "openrouter:stepfun/step-3.5-flash:free"
 
-    with patch(
-        "services.ai_narrative_service.call_ollama_async",
-        return_value="Equity group showing bullish momentum.",
-    ):
-        await svc._synthesize_group("equity")
+    await svc._synthesize_group("equity")
 
     # Should publish stream + update state
     svc.redis_client.xadd.assert_called_once()
@@ -300,7 +300,7 @@ async def test_group_synthesis_fires_on_fingerprint_change():
 
 @pytest.mark.asyncio
 async def test_group_synthesis_skips_when_fingerprint_unchanged():
-    """Group synthesis loop does NOT call Ollama if nothing changed."""
+    """Group synthesis loop does NOT call LLM if nothing changed."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
     svc._latest_signals["ESH6:5m"] = {
@@ -313,10 +313,10 @@ async def test_group_synthesis_skips_when_fingerprint_unchanged():
     # Pre-populate Redis state with the same fingerprint
     prior_fp = {"ESH6:5m": [1, "trending_up"]}
     svc.redis_client.hget.return_value = json.dumps(prior_fp).encode()
+    svc.group_chain.generate = AsyncMock()
 
-    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
-        await svc._synthesize_group("equity")
-        mock_ollama.assert_not_called()
+    await svc._synthesize_group("equity")
+    svc.group_chain.generate.assert_not_called()
 
     svc.redis_client.xadd.assert_not_called()
 
