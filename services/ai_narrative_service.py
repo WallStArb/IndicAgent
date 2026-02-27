@@ -610,6 +610,16 @@ class AINarrativeService:
         if current_fp == prior_fp:
             return  # Nothing changed
 
+        # Persist fingerprint BEFORE calling Ollama so a timeout/error doesn't
+        # cause a retry loop on the next 30-second cycle.  If signals change
+        # *during* the call the next iteration will detect the new fingerprint.
+        await self.redis_client.hset(
+            state_redis_key,
+            "fingerprint_json",
+            json.dumps({k: list(v) for k, v in current_fp.items()}),
+        )
+        await self.redis_client.expire(state_redis_key, 86400)  # 24h TTL
+
         # Build prompt and call phi4-mini
         prompt = build_group_synthesis_prompt(group_name, current_signals)
         t0 = time.time()
@@ -637,14 +647,6 @@ class AINarrativeService:
             cache_key_hash = f"{self.env_prefix}narrative:group:{group_name}:latest"
             await self.redis_client.hset(cache_key_hash, mapping=msg)
             await self.redis_client.expire(cache_key_hash, 3600)  # 1 hour TTL
-
-            # Persist new fingerprint so we don't re-fire on next loop iteration
-            await self.redis_client.hset(
-                state_redis_key,
-                "fingerprint_json",
-                json.dumps({k: list(v) for k, v in current_fp.items()}),
-            )
-            await self.redis_client.expire(state_redis_key, 86400)  # 24h TTL
 
             self.group_narratives_generated.inc()
             self.logger.info(
