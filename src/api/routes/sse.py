@@ -13,12 +13,15 @@ from ...core.stream_keys import intelligence as sk_intelligence
 from ...core.stream_keys import live_tick as sk_live_tick
 from ...core.stream_keys import market as sk_market
 from ...core.stream_keys import narratives as sk_narratives
+from ...core.stream_keys import narratives_group as sk_narratives_group
 from ...core.stream_keys import signals_aggregated as sk_signals_aggregated
 from .. import dependencies
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+_NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
 
 
 def _resolve_contract(symbol: str) -> str:
@@ -58,6 +61,9 @@ def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
             streams.append(sk_intelligence(env_prefix, contract, tf))
             streams.append(sk_signals_aggregated(env_prefix, contract, tf))
             streams.append(sk_narratives(env_prefix, contract, tf))
+    # Group narrative streams — global, not per-symbol
+    for group in _NARRATIVE_GROUPS:
+        streams.append(sk_narratives_group(env_prefix, group))
     return streams
 
 

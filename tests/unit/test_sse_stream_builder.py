@@ -47,3 +47,20 @@ def test_build_stream_list_uses_aggregated_not_raw():
     # Should NOT have raw (non-aggregated) signals stream
     raw_signals = [s for s in streams if "signals:" in s and not s.endswith(":aggregated")]
     assert len(raw_signals) == 0, f"Found raw (non-aggregated) signals stream: {raw_signals}"
+
+
+def test_build_stream_list_includes_group_narrative_streams():
+    """SSE stream list always includes 6 group narrative streams."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES"], "1m")
+    group_streams = [s for s in streams if ":group:" in s]
+    assert len(group_streams) == 6
+    groups = {s.split(":")[-1] for s in group_streams}
+    assert groups == {"equity", "energy", "metals", "rates", "fx_crypto", "ag"}
+
+
+def test_event_name_for_group_narrative_stream():
+    """narratives:group:* maps to narrative_data event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("narratives:group:equity") == "narrative_data"
+    assert _event_name_for_stream("development:narratives:group:metals") == "narrative_data"
