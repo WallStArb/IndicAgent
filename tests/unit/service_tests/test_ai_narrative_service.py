@@ -241,3 +241,81 @@ async def test_process_message_acks_on_redis_publish_failure():
 
     # Must ack even though xadd raised
     svc.redis_client.xack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_latest_signals_cache_updated_for_any_signal():
+    """_latest_signals is updated even for 1m/low-confidence signals (group loop needs them)."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+
+    fields = {
+        b"direction": b"1",
+        b"symbol": b"ESH6",
+        b"timeframe": b"1m",
+        b"timestamp": b"2026-02-26T10:01:00",
+        b"confidence": b"0.85",
+        b"confluence_score": b"0.80",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following",
+        b"entry_price": b"5100.00",
+        b"stop_loss": b"5092.00",
+        b"targets": b"5110.00",
+        b"regime_context": b"trending_up",
+        b"supporting_factors": b"BOS",
+    }
+    with patch("services.ai_narrative_service.call_ollama_async"):
+        await svc._process_single_message(
+            "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
+        )
+    # Cache updated even though 1m is filtered from per-signal narration
+    assert "ESH6:1m" in svc._latest_signals
+    assert svc._latest_signals["ESH6:1m"]["direction"] == 1
+
+
+@pytest.mark.asyncio
+async def test_group_synthesis_fires_on_fingerprint_change():
+    """Group synthesis loop publishes a narrative when fingerprint changes."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+    # Simulate a cached signal for an equity member
+    svc._latest_signals["ESH6:5m"] = {
+        "direction": 1, "direction_label": "Bullish", "confidence": 0.82,
+        "setup_plugin": "trad_TrendFollowing", "regime_context": "trending_up",
+        "symbol": "ESH6", "timeframe": "5m",
+    }
+    # Redis: no prior state (returns None → fingerprint mismatch → synthesize)
+    svc.redis_client.hget.return_value = None
+
+    with patch(
+        "services.ai_narrative_service.call_ollama_async",
+        return_value="Equity group showing bullish momentum.",
+    ):
+        await svc._synthesize_group("equity")
+
+    # Should publish stream + update state
+    svc.redis_client.xadd.assert_called_once()
+    svc.redis_client.hset.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_group_synthesis_skips_when_fingerprint_unchanged():
+    """Group synthesis loop does NOT call Ollama if nothing changed."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+    svc._latest_signals["ESH6:5m"] = {
+        "direction": 1, "regime_context": "trending_up",
+        "direction_label": "Bullish", "confidence": 0.82,
+        "setup_plugin": "trad_TrendFollowing",
+        "symbol": "ESH6", "timeframe": "5m",
+    }
+    import json
+    # Pre-populate Redis state with the same fingerprint
+    prior_fp = {"ESH6:5m": [1, "trending_up"]}
+    svc.redis_client.hget.return_value = json.dumps(prior_fp).encode()
+
+    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
+        await svc._synthesize_group("equity")
+        mock_ollama.assert_not_called()
+
+    svc.redis_client.xadd.assert_not_called()

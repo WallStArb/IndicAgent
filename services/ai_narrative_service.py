@@ -276,6 +276,17 @@ class AINarrativeService:
         self._total_narratives = 0
         self._error_count = 0
 
+        self.group_model: str = self.config["ollama"].get("group_model", "phi4-mini:3.8b")
+
+        # In-memory cache: "SYMBOL:TF" → latest parsed signal dict (any direction)
+        self._latest_signals: dict[str, dict] = {}
+
+        # Metrics for group synthesis
+        self.group_narratives_generated = counter(
+            "narrative_group_generated_total",
+            "Total group narratives generated",
+        )
+
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
@@ -420,6 +431,10 @@ class AINarrativeService:
                 self.narratives_skipped_total.inc()
                 return  # finally will xack
 
+            # Always cache latest signal for group synthesis (regardless of per-signal filter)
+            cache_key_mem = f"{symbol}:{timeframe}"
+            self._latest_signals[cache_key_mem] = signal_data
+
             # Gate: per-signal narrative only for eligible TFs and high-confidence signals
             if timeframe not in _NARRATIVE_ELIGIBLE_TFS:
                 self.narratives_skipped_total.inc()
@@ -552,6 +567,101 @@ class AINarrativeService:
                 self.logger.error("Error in health monitor", error=str(e))
                 await asyncio.sleep(5)
 
+    async def _synthesize_group(self, group_name: str) -> None:
+        """Check if group state changed and publish synthesis if so."""
+        group_symbols = ASSET_GROUPS.get(group_name, [])
+
+        # Gather current signals for this group across synthesis TFs
+        current_signals: dict[str, dict] = {}
+        for sym in group_symbols:
+            for tf in _GROUP_SYNTHESIS_TFS:
+                key = f"{sym}:{tf}"
+                sig = self._latest_signals.get(key)
+                if sig and sig.get("direction", 0) != 0:
+                    current_signals[key] = sig
+
+        # Compute fingerprint
+        current_fp = extract_group_fingerprint(current_signals)
+
+        # Compare with persisted state
+        state_redis_key = f"{self.env_prefix}narrative:group:{group_name}:state"
+        raw_state = await self.redis_client.hget(state_redis_key, "fingerprint_json")
+        prior_fp_raw = json.loads(raw_state) if raw_state else {}
+        # Redis JSON round-trip: tuples become lists; normalize for comparison
+        prior_fp = {k: tuple(v) for k, v in prior_fp_raw.items()}
+
+        if current_fp == prior_fp:
+            return  # Nothing changed
+
+        # Build prompt and call phi4-mini
+        prompt = build_group_synthesis_prompt(group_name, current_signals)
+        t0 = time.time()
+        narrative_text = await call_ollama_async(
+            self.ollama_base_url,
+            self.group_model,
+            prompt,
+            self.ollama_timeout,
+            300,  # phi4-mini is smaller; 300 tokens is plenty
+        )
+        latency_ms = (time.time() - t0) * 1000
+
+        if narrative_text:
+            from src.core.stream_keys import narratives_group as sk_narratives_group
+            stream_out = sk_narratives_group(self.env_prefix, group_name)
+            ts = datetime.now(tz=UTC).isoformat()
+            msg = {
+                "group": group_name,
+                "narrative": narrative_text,
+                "timestamp": ts,
+                "model": self.group_model,
+                "latency_ms": str(int(latency_ms)),
+            }
+            await self.redis_client.xadd(stream_out, msg, maxlen=50, approximate=True)
+            cache_key_hash = f"{self.env_prefix}narrative:group:{group_name}:latest"
+            await self.redis_client.hset(cache_key_hash, mapping=msg)
+            await self.redis_client.expire(cache_key_hash, 3600)  # 1 hour TTL
+
+            # Persist new fingerprint so we don't re-fire on next loop iteration
+            await self.redis_client.hset(
+                state_redis_key,
+                "fingerprint_json",
+                json.dumps({k: list(v) for k, v in current_fp.items()}),
+            )
+            await self.redis_client.expire(state_redis_key, 86400)  # 24h TTL
+
+            self.group_narratives_generated.inc()
+            self.logger.info(
+                "Group narrative published",
+                group=group_name,
+                signals=len(current_signals),
+                latency_ms=round(latency_ms, 1),
+            )
+        else:
+            self.logger.warning("Group Ollama returned no narrative", group=group_name)
+
+    async def _group_synthesis_loop(self) -> None:
+        """Run group synthesis every 30s — fires Ollama only on material changes."""
+        self.logger.info("Starting group synthesis loop")
+        while self.running and not self.shutdown_requested:
+            try:
+                await asyncio.sleep(30)
+                if self.shutdown_requested:
+                    break
+                for group_name in ASSET_GROUPS:
+                    if self.shutdown_requested:
+                        break
+                    try:
+                        await self._synthesize_group(group_name)
+                    except Exception as exc:
+                        self.logger.error(
+                            "Group synthesis failed", group=group_name, error=str(exc)
+                        )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.logger.error("Error in group synthesis loop", error=str(exc))
+                await asyncio.sleep(5)
+
     async def start(self) -> None:
         self.logger.info("Starting AI Narrative Service", config=self.config["service"])
         try:
@@ -562,6 +672,7 @@ class AINarrativeService:
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
+                asyncio.create_task(self._group_synthesis_loop()),
             ]
             self.logger.info("AI Narrative Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
