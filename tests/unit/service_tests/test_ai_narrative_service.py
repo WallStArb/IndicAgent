@@ -11,6 +11,10 @@ def _make_service():
         patch("services.ai_narrative_service.counter", return_value=MagicMock()),
         patch("services.ai_narrative_service.gauge", return_value=MagicMock()),
         patch("services.ai_narrative_service.Settings") as mock_settings,
+        patch(
+            "services.ai_narrative_service.get_active_contracts",
+            return_value=["ESH6", "NQH6", "RTYH6"],
+        ),
     ):
         mock_settings.return_value.env_name = ""
         from services.ai_narrative_service import AINarrativeService
@@ -21,7 +25,7 @@ def test_service_initializes_with_default_config():
     """Service creates expected attributes from default config."""
     svc = _make_service()
     assert svc.ollama_model == "qwen3:8b"
-    assert svc.ollama_timeout == 15.0
+    assert svc.ollama_timeout == 60.0          # changed from 120 → 60
     assert "ESH6" in svc.config["service"]["symbols"]
     assert svc.env_prefix == ""
 
@@ -120,6 +124,92 @@ async def test_process_message_handles_ollama_failure():
 
     svc.redis_client.xadd.assert_not_called()
     svc.redis_client.xack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_message_skips_1m_timeframe():
+    """1m signals are always skipped — never worth per-signal LLM cost."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+    fields = {
+        b"direction": b"1",
+        b"symbol": b"ESH6",
+        b"timeframe": b"1m",
+        b"timestamp": b"2026-02-26T10:01:00",
+        b"confidence": b"0.85",  # high confidence but 1m — still skip
+        b"confluence_score": b"0.80",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following",
+        b"entry_price": b"5100.00",
+        b"stop_loss": b"5092.00",
+        b"targets": b"5110.00",
+        b"regime_context": b"trending_up",
+        b"supporting_factors": b"BOS",
+    }
+    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
+        await svc._process_single_message(
+            "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
+        )
+        mock_ollama.assert_not_called()
+    svc.redis_client.xack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_message_skips_low_confidence():
+    """Confidence ≤ 0.70 is skipped even on an eligible timeframe."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+    fields = {
+        b"direction": b"1",
+        b"symbol": b"ESH6",
+        b"timeframe": b"5m",
+        b"timestamp": b"2026-02-26T10:05:00",
+        b"confidence": b"0.65",  # below threshold
+        b"confluence_score": b"0.70",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following",
+        b"entry_price": b"5100.00",
+        b"stop_loss": b"5092.00",
+        b"targets": b"5110.00",
+        b"regime_context": b"trending_up",
+        b"supporting_factors": b"BOS",
+    }
+    with patch("services.ai_narrative_service.call_ollama_async") as mock_ollama:
+        await svc._process_single_message(
+            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+        )
+        mock_ollama.assert_not_called()
+    svc.redis_client.xack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_message_allows_5m_high_confidence():
+    """5m signal with confidence > 0.70 proceeds to Ollama."""
+    svc = _make_service()
+    svc.redis_client = AsyncMock()
+    fields = {
+        b"direction": b"1",
+        b"symbol": b"ESH6",
+        b"timeframe": b"5m",
+        b"timestamp": b"2026-02-26T10:05:00",
+        b"confidence": b"0.75",  # above threshold
+        b"confluence_score": b"0.80",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following",
+        b"entry_price": b"5100.00",
+        b"stop_loss": b"5092.00",
+        b"targets": b"5110.00",
+        b"regime_context": b"trending_up",
+        b"supporting_factors": b"BOS",
+    }
+    with patch(
+        "services.ai_narrative_service.call_ollama_async",
+        return_value="ES bullish setup forming.",
+    ) as mock_ollama:
+        await svc._process_single_message(
+            "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
+        )
+        mock_ollama.assert_called_once()
 
 
 @pytest.mark.asyncio

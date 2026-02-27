@@ -49,6 +49,10 @@ SYSTEM_PROMPT = (
     "Be specific about price levels and directional bias. No disclaimers."
 )
 
+# Per-signal narrative gating
+_NARRATIVE_ELIGIBLE_TFS = {"5m", "15m", "1h"}
+_NARRATIVE_MIN_CONFIDENCE = 0.70
+
 
 # ---------------------------------------------------------------------------
 # Pure helper functions (no I/O — easy to test)
@@ -224,7 +228,8 @@ class AINarrativeService:
             "ollama": {
                 "base_url": "http://localhost:11434",
                 "model": "qwen3:8b",
-                "timeout_sec": 120.0,
+                "group_model": "phi4-mini:3.8b",
+                "timeout_sec": 60.0,  # was 120.0; qwen3:8b needs ~60s max on CPU
                 "num_predict": 500,
             },
             "logging": {
@@ -338,6 +343,24 @@ class AINarrativeService:
             signal_data = parse_aggregated_signal(fields)
             if signal_data is None:
                 self.narratives_skipped_total.inc()
+                return  # finally will xack
+
+            # Gate: per-signal narrative only for eligible TFs and high-confidence signals
+            if timeframe not in _NARRATIVE_ELIGIBLE_TFS:
+                self.narratives_skipped_total.inc()
+                self.logger.debug(
+                    "Per-signal narrative skipped: ineligible TF",
+                    symbol=symbol, timeframe=timeframe,
+                )
+                return  # finally will xack
+
+            if signal_data["confidence"] <= _NARRATIVE_MIN_CONFIDENCE:
+                self.narratives_skipped_total.inc()
+                self.logger.debug(
+                    "Per-signal narrative skipped: low confidence",
+                    symbol=symbol, timeframe=timeframe,
+                    confidence=signal_data["confidence"],
+                )
                 return  # finally will xack
 
             prompt = build_narrative_prompt(signal_data)
