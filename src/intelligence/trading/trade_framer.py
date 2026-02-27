@@ -1,0 +1,469 @@
+"""TradeFramer — structural stop/target resolver for I7 signals.
+
+Resolves stop placement and profit targets from structural levels in the
+features dict, rather than using raw ATR multiples. Enforces a minimum
+RR gate before publishing a signal.
+
+Entry offset logic by setup_type:
+  - sweep_reclaim_*, liquidity_hunt_*  → at_reclaim (current close)
+  - supply_demand_*                    → zone_proximal (proximal edge)
+  - all others                         → at_close (current close)
+
+Stop placement hierarchy (longs):
+  1. in_demand_zone  → nearest_demand_low - ATR×0.25
+  2. sweep_detected  → sweep_level - ATR×0.30
+  3. ob_type==1 and ob_bottom < entry  → ob_bottom - ATR×0.20
+  4. swing_low > 0 and < entry         → swing_low - ATR×0.25
+  5. sr_nearest_support < entry        → sr_nearest_support - ATR×0.50
+  Fallback: entry - ATR×2.0
+
+Target level collection (longs, candidates above entry):
+  nearest_resistance, bsl_level (if bsl_significance>=0.5), vwap_upper_1,
+  vwap_upper_2, fvg_top (if fvg_type==1), ob_top (if ob_type==1 and above entry),
+  kalman_upper, nearest_demand_high (if above entry)
+  Filtered to entry+ATR×0.5 < level < entry+ATR×8.
+  T1 = first with rr >= 1.5, T2 = first after T1 with rr >= 2.5.
+  Fallback: ATR-based T1=+2.0×risk, T2=+3.5×risk.
+
+RR gate: if T1 rr < 1.5 → viable=False.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class TradeTarget:
+    price: float
+    label: str        # e.g. "BSL 4521.25", "VWAP+1σ 4530"
+    level_type: str   # "bsl" | "ssl" | "vwap_1sigma" | "vwap_2sigma" | "sr" | "fvg" | "ob" | "kalman" | "atr" | "demand_zone"
+    rr: float         # reward-to-risk ratio for this target
+
+
+@dataclass
+class TradeFrame:
+    entry: float
+    entry_type: str          # "at_close" | "at_reclaim" | "zone_proximal"
+    stop: float
+    stop_type: str           # "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low" | "sr_support" | "atr"
+    targets: list[TradeTarget] = field(default_factory=list)
+    rr_t1: float = 0.0
+    rr_t2: float = 0.0
+    rr_t3: float = 0.0
+    method: str = "atr_fallback"       # "structural" | "atr_fallback"
+    viable: bool = True
+    rejection_reason: str | None = None
+
+
+def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
+    """Safe float extraction from features dict."""
+    v = features.get(key)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_entry(
+    setup_type: str,
+    direction: int,
+    entry_price: float,
+    features: dict[str, Any],
+) -> tuple[float, str]:
+    """Return (entry_price, entry_type) based on setup type."""
+    st = setup_type.lower()
+    if st.startswith("sweep_reclaim") or st.startswith("liquidity_hunt"):
+        return entry_price, "at_reclaim"
+    if st.startswith("supply_demand"):
+        if direction == 1:
+            # Long: enter at demand zone proximal (zone high)
+            zone_high = _fval(features, "nearest_demand_high")
+            if zone_high > 0:
+                return zone_high, "zone_proximal"
+        else:
+            # Short: enter at supply zone proximal (zone low)
+            zone_low = _fval(features, "nearest_supply_low")
+            if zone_low > 0:
+                return zone_low, "zone_proximal"
+    return entry_price, "at_close"
+
+
+def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
+    """Stop placement hierarchy for long trades."""
+    # Priority 1: in demand zone
+    in_demand = _fval(features, "in_demand_zone")
+    nearest_demand_low = _fval(features, "nearest_demand_low")
+    if in_demand == 1.0 and nearest_demand_low > 0:
+        stop = nearest_demand_low - atr * 0.25
+        if stop < entry:
+            return stop, "demand_zone"
+
+    # Priority 2: sweep detected
+    sweep_detected = _fval(features, "sweep_detected")
+    sweep_level = _fval(features, "sweep_level")
+    if sweep_detected == 1.0 and sweep_level > 0:
+        stop = sweep_level - atr * 0.30
+        if stop < entry:
+            return stop, "sweep_level"
+
+    # Priority 3: order block bottom
+    ob_type = _fval(features, "ob_type")
+    ob_bottom = _fval(features, "ob_bottom")
+    if ob_type == 1.0 and ob_bottom > 0 and ob_bottom < entry:
+        stop = ob_bottom - atr * 0.20
+        return stop, "ob_bottom"
+
+    # Priority 4: swing low
+    swing_low = _fval(features, "swing_low")
+    if swing_low > 0 and swing_low < entry:
+        stop = swing_low - atr * 0.25
+        return stop, "swing_low"
+
+    # Priority 5: S/R nearest support
+    sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
+    if sr_support > 0 and sr_support < entry:
+        stop = sr_support - atr * 0.50
+        return stop, "sr_support"
+
+    # Fallback: ATR×2.0
+    return entry - atr * 2.0, "atr"
+
+
+def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
+    """Stop placement hierarchy for short trades (mirror of long)."""
+    # Priority 1: in supply zone
+    in_supply = _fval(features, "in_supply_zone")
+    nearest_supply_high = _fval(features, "nearest_supply_high")
+    if in_supply == 1.0 and nearest_supply_high > 0:
+        stop = nearest_supply_high + atr * 0.25
+        if stop > entry:
+            return stop, "supply_zone"
+
+    # Priority 2: sweep detected
+    sweep_detected = _fval(features, "sweep_detected")
+    sweep_level = _fval(features, "sweep_level")
+    if sweep_detected == 1.0 and sweep_level > 0:
+        stop = sweep_level + atr * 0.30
+        if stop > entry:
+            return stop, "sweep_level"
+
+    # Priority 3: order block top
+    ob_type = _fval(features, "ob_type")
+    ob_top = _fval(features, "ob_top")
+    if ob_type == -1.0 and ob_top > 0 and ob_top > entry:
+        stop = ob_top + atr * 0.20
+        return stop, "ob_top"
+
+    # Priority 4: swing high
+    swing_high = _fval(features, "swing_high")
+    if swing_high > 0 and swing_high > entry:
+        stop = swing_high + atr * 0.25
+        return stop, "swing_high"
+
+    # Priority 5: S/R nearest resistance
+    sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(features, "nearest_resistance")
+    if sr_resistance > 0 and sr_resistance > entry:
+        stop = sr_resistance + atr * 0.50
+        return stop, "sr_support"
+
+    # Fallback: ATR×2.0
+    return entry + atr * 2.0, "atr"
+
+
+def _collect_targets_long(
+    entry: float, stop: float, atr: float, features: dict[str, Any]
+) -> list[TradeTarget]:
+    """Collect and rank candidate target levels above entry for longs."""
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return []
+
+    min_level = entry + atr * 0.5
+    max_level = entry + atr * 8.0
+
+    candidates: list[tuple[float, str, str]] = []  # (price, label, level_type)
+
+    # S/R resistance
+    nearest_resistance = _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
+    if nearest_resistance > 0:
+        candidates.append((nearest_resistance, f"S/R {nearest_resistance:.2f}", "sr"))
+
+    # BSL level (if significant)
+    bsl_level = _fval(features, "bsl_level")
+    bsl_significance = _fval(features, "bsl_significance")
+    if bsl_level > 0 and bsl_significance >= 0.5:
+        candidates.append((bsl_level, f"BSL (sig={bsl_significance:.2f}) {bsl_level:.2f}", "bsl"))
+
+    # VWAP bands (stored as extras in i1)
+    vwap_upper_1 = _fval(features, "vwap_upper_1")
+    if vwap_upper_1 > 0:
+        candidates.append((vwap_upper_1, f"VWAP+1σ {vwap_upper_1:.2f}", "vwap_1sigma"))
+
+    vwap_upper_2 = _fval(features, "vwap_upper_2")
+    if vwap_upper_2 > 0:
+        candidates.append((vwap_upper_2, f"VWAP+2σ {vwap_upper_2:.2f}", "vwap_2sigma"))
+
+    # FVG top (bullish FVG: type==1)
+    fvg_type = _fval(features, "fvg_type")
+    fvg_top = _fval(features, "fvg_top")
+    if fvg_type == 1.0 and fvg_top > 0:
+        candidates.append((fvg_top, f"FVG top {fvg_top:.2f}", "fvg"))
+
+    # OB top (bullish OB: type==1)
+    ob_type = _fval(features, "ob_type")
+    ob_top = _fval(features, "ob_top")
+    if ob_type == 1.0 and ob_top > entry:
+        candidates.append((ob_top, f"OB top {ob_top:.2f}", "ob"))
+
+    # Kalman upper
+    kalman_upper = _fval(features, "kalman_upper")
+    if kalman_upper > 0:
+        candidates.append((kalman_upper, f"Kalman upper {kalman_upper:.2f}", "kalman"))
+
+    # Demand zone high (if above entry — targeting into supply)
+    nearest_demand_high = _fval(features, "nearest_demand_high")
+    if nearest_demand_high > entry:
+        candidates.append((nearest_demand_high, f"Demand zone {nearest_demand_high:.2f}", "demand_zone"))
+
+    # Filter to valid range
+    valid = [
+        (price, label, ltype)
+        for price, label, ltype in candidates
+        if min_level < price < max_level
+    ]
+    # Sort by distance ascending
+    valid.sort(key=lambda x: x[0])
+
+    # Convert to TradeTarget with RR
+    return [
+        TradeTarget(price=price, label=label, level_type=ltype, rr=round((price - entry) / risk, 2))
+        for price, label, ltype in valid
+    ]
+
+
+def _collect_targets_short(
+    entry: float, stop: float, atr: float, features: dict[str, Any]
+) -> list[TradeTarget]:
+    """Collect and rank candidate target levels below entry for shorts."""
+    risk = abs(stop - entry)
+    if risk <= 0:
+        return []
+
+    min_level = entry - atr * 8.0
+    max_level = entry - atr * 0.5
+
+    candidates: list[tuple[float, str, str]] = []
+
+    # S/R support
+    nearest_support = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
+    if nearest_support > 0:
+        candidates.append((nearest_support, f"S/R {nearest_support:.2f}", "sr"))
+
+    # SSL level (if significant)
+    ssl_level = _fval(features, "ssl_level")
+    ssl_significance = _fval(features, "ssl_significance")
+    if ssl_level > 0 and ssl_significance >= 0.5:
+        candidates.append((ssl_level, f"SSL (sig={ssl_significance:.2f}) {ssl_level:.2f}", "ssl"))
+
+    # VWAP bands
+    vwap_lower_1 = _fval(features, "vwap_lower_1")
+    if vwap_lower_1 > 0:
+        candidates.append((vwap_lower_1, f"VWAP-1σ {vwap_lower_1:.2f}", "vwap_1sigma"))
+
+    vwap_lower_2 = _fval(features, "vwap_lower_2")
+    if vwap_lower_2 > 0:
+        candidates.append((vwap_lower_2, f"VWAP-2σ {vwap_lower_2:.2f}", "vwap_2sigma"))
+
+    # FVG bottom (bearish FVG: type==-1)
+    fvg_type = _fval(features, "fvg_type")
+    fvg_bottom = _fval(features, "fvg_bottom")
+    if fvg_type == -1.0 and fvg_bottom > 0:
+        candidates.append((fvg_bottom, f"FVG bottom {fvg_bottom:.2f}", "fvg"))
+
+    # OB bottom (bearish OB: type==-1)
+    ob_type = _fval(features, "ob_type")
+    ob_bottom = _fval(features, "ob_bottom")
+    if ob_type == -1.0 and ob_bottom > 0 and ob_bottom < entry:
+        candidates.append((ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob"))
+
+    # Kalman lower
+    kalman_lower = _fval(features, "kalman_lower")
+    if kalman_lower > 0:
+        candidates.append((kalman_lower, f"Kalman lower {kalman_lower:.2f}", "kalman"))
+
+    # Supply zone low (if below entry)
+    nearest_supply_low = _fval(features, "nearest_supply_low")
+    if 0 < nearest_supply_low < entry:
+        candidates.append((nearest_supply_low, f"Supply zone {nearest_supply_low:.2f}", "supply_zone"))
+
+    # Filter to valid range
+    valid = [
+        (price, label, ltype)
+        for price, label, ltype in candidates
+        if min_level < price < max_level
+    ]
+    # Sort by distance ascending (closest first = largest price value for shorts)
+    valid.sort(key=lambda x: x[0], reverse=True)
+
+    return [
+        TradeTarget(price=price, label=label, level_type=ltype, rr=round((entry - price) / risk, 2))
+        for price, label, ltype in valid
+    ]
+
+
+def _pick_targets(
+    candidates: list[TradeTarget],
+    entry: float,
+    stop: float,
+    atr: float,
+    direction: int,
+    min_rr_t1: float = 1.5,
+    min_rr_t2: float = 2.5,
+    min_rr_t3: float = 4.0,
+) -> tuple[list[TradeTarget], bool]:
+    """Pick T1/T2/T3 from candidates. Returns (targets, is_structural)."""
+    risk = abs(entry - stop)
+
+    t1: TradeTarget | None = None
+    t2: TradeTarget | None = None
+    t3: TradeTarget | None = None
+
+    for cand in candidates:
+        if t1 is None and cand.rr >= min_rr_t1:
+            t1 = cand
+        elif t1 is not None and t2 is None and cand.rr >= min_rr_t2:
+            t2 = cand
+        elif t2 is not None and cand.rr >= min_rr_t3:
+            t3 = cand
+            break
+
+    if t1 is not None:
+        targets = [t1]
+        if t2 is not None:
+            targets.append(t2)
+        if t3 is not None:
+            targets.append(t3)
+        return targets, True
+
+    # ATR fallback — always 3 levels
+    sign = 1 if direction == 1 else -1
+    return [
+        TradeTarget(price=round(entry + sign * risk * 2.0, 2), label="ATR T1", level_type="atr", rr=2.0),
+        TradeTarget(price=round(entry + sign * risk * 3.5, 2), label="ATR T2", level_type="atr", rr=3.5),
+        TradeTarget(price=round(entry + sign * risk * 5.5, 2), label="ATR T3", level_type="atr", rr=5.5),
+    ], False
+
+
+MIN_RR_T1 = 1.5
+
+
+def frame_trade(
+    setup_type: str,
+    direction: int,
+    entry: float,
+    features: dict[str, Any],
+    atr: float,
+) -> TradeFrame:
+    """Resolve structural stop/targets for a signal.
+
+    Parameters
+    ----------
+    setup_type:
+        Signal type string (e.g. "trend_long", "sweep_reclaim_long")
+    direction:
+        1 for long, -1 for short
+    entry:
+        Raw entry price from plugin (current close)
+    features:
+        Full features dict from _build_features_from_event()
+    atr:
+        ATR value (ATR×14 from I1)
+
+    Returns
+    -------
+    TradeFrame with stop, targets, RR values, and viability flag.
+    """
+    if atr <= 0:
+        atr = abs(entry) * 0.001  # 0.1% of price as emergency fallback
+
+    # Resolve entry with setup-specific offset
+    resolved_entry, entry_type = _resolve_entry(setup_type, direction, entry, features)
+
+    # Resolve stop
+    if direction == 1:
+        stop, stop_type = _resolve_stop_long(resolved_entry, atr, features)
+        candidates = _collect_targets_long(resolved_entry, stop, atr, features)
+    else:
+        stop, stop_type = _resolve_stop_short(resolved_entry, atr, features)
+        candidates = _collect_targets_short(resolved_entry, stop, atr, features)
+
+    risk = abs(resolved_entry - stop)
+    if risk <= 0:
+        return TradeFrame(
+            entry=resolved_entry,
+            entry_type=entry_type,
+            stop=stop,
+            stop_type=stop_type,
+            targets=[],
+            rr_t1=0.0,
+            rr_t2=0.0,
+            rr_t3=0.0,
+            method="atr_fallback",
+            viable=False,
+            rejection_reason="zero_risk: stop == entry",
+        )
+
+    targets, is_structural = _pick_targets(candidates, resolved_entry, stop, atr, direction)
+
+    if not targets:
+        return TradeFrame(
+            entry=resolved_entry,
+            entry_type=entry_type,
+            stop=stop,
+            stop_type=stop_type,
+            targets=[],
+            rr_t1=0.0,
+            rr_t2=0.0,
+            rr_t3=0.0,
+            method="atr_fallback",
+            viable=False,
+            rejection_reason="no_targets_found",
+        )
+
+    rr_t1 = targets[0].rr
+    rr_t2 = targets[1].rr if len(targets) > 1 else 0.0
+    rr_t3 = targets[2].rr if len(targets) > 2 else 0.0
+    method = "structural" if is_structural else "atr_fallback"
+
+    if rr_t1 < MIN_RR_T1:
+        return TradeFrame(
+            entry=resolved_entry,
+            entry_type=entry_type,
+            stop=stop,
+            stop_type=stop_type,
+            targets=targets,
+            rr_t1=rr_t1,
+            rr_t2=rr_t2,
+            rr_t3=rr_t3,
+            method=method,
+            viable=False,
+            rejection_reason=f"rr_below_{MIN_RR_T1}: {rr_t1:.2f}",
+        )
+
+    return TradeFrame(
+        entry=resolved_entry,
+        entry_type=entry_type,
+        stop=round(stop, 2),
+        stop_type=stop_type,
+        targets=targets,
+        rr_t1=rr_t1,
+        rr_t2=rr_t2,
+        rr_t3=rr_t3,
+        method=method,
+        viable=True,
+        rejection_reason=None,
+    )

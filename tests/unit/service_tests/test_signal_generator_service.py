@@ -146,7 +146,12 @@ def test_build_features_from_event_maps_typed_attributes():
 
 
 def test_build_features_from_event_none_values_for_missing_fields():
-    """None values from optional typed fields are preserved in features dict."""
+    """None-valued fields are absent from the features dict (not present as None).
+
+    Plugins use features.get("key", default) — absent is equivalent to None.
+    The new full-flatten implementation skips None values to avoid polluting
+    the dict with ~150 None entries on sparse events.
+    """
     from services.signal_generator_service import _build_features_from_event
     from src.intelligence.schemas import (
         I1Indicators,
@@ -174,12 +179,16 @@ def test_build_features_from_event_none_values_for_missing_fields():
 
     features = _build_features_from_event(event)
 
-    assert features["trend_regime"] is None
-    assert features["atr_14"] is None
-    assert features["rsi_14"] is None
-    assert features["ctf_score"] is None
-    assert features["swing_pattern"] is None
-    assert features["hmm_regime_state"] is None
+    # None fields are absent — plugins use .get("key", default) which returns default
+    assert features.get("trend_regime") is None
+    assert features.get("atr_14") is None
+    assert features.get("rsi_14") is None
+    assert features.get("ctf_score") is None
+    assert features.get("swing_pattern") is None
+    assert features.get("hmm_regime_state") is None
+    # Alias keys are always present (set explicitly, may be None)
+    assert "hmm_regime_state" in features  # set explicitly from smc.hmm_regime
+    assert "volatility_regime" in features  # set explicitly from i4.vol_regime
 
 
 # ── process_single_message integration ───────────────────────────────────────

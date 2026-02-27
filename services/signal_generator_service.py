@@ -43,6 +43,7 @@ from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import IntelligenceEvent
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_ledger import LedgerEntry, insert_signals
+from src.intelligence.trading.trade_framer import frame_trade
 from src.observability.metrics import (
     counter,
     gauge,
@@ -87,21 +88,54 @@ def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent |
 def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
     """Build a features dict from a typed IntelligenceEvent for I7 plugins.
 
-    Keys match MARKET_CONTEXT_KEYS conventions (legacy key names preserved
-    for signal_ledger market_context JSONB stability).
+    Flattens all sub-models so every I7 plugin gets the features it needs.
+    Legacy key aliases are preserved for signal_ledger market_context stability.
     """
-    return {
-        "trend_regime": event.i4.trend_regime,
-        "volatility_regime": event.i4.vol_regime,       # old key: volatility_regime
-        "trend_confidence": event.i4.trend_confidence,
-        "atr_14": event.i1.atr_14,
-        "rsi_14": event.i1.rsi_14,
-        "ctf_score": event.i6.ctf_score,
-        "swing_pattern": event.i3.swing_pattern,
-        "trend_strength": event.i3.trend_strength,
-        "volatility_percentile": event.i4.vol_percentile,  # old key: volatility_percentile
-        "hmm_regime_state": event.smc.hmm_regime,          # old key: hmm_regime_state
-    }
+    f: dict[str, Any] = {}
+
+    # I1 — all fields including extras (VWAP, etc.)
+    for k, v in event.i1.model_dump().items():
+        if v is not None:
+            f[k] = v
+    # BB aliases: plugins may expect bb_middle / bb_upper / bb_lower
+    f["bb_middle"] = event.i1.bb_20_2_middle
+    f["bb_upper"] = event.i1.bb_20_2_upper
+    f["bb_lower"] = event.i1.bb_20_2_lower
+
+    # I3 — swing, S/R, trend structure
+    for k, v in event.i3.model_dump().items():
+        if v is not None:
+            f[k] = v
+    # SR aliases: plugins use sr_nearest_support / sr_nearest_resistance
+    f["sr_nearest_support"] = event.i3.nearest_support
+    f["sr_nearest_resistance"] = event.i3.nearest_resistance
+
+    # I4 — regimes, GARCH, Kalman
+    for k, v in event.i4.model_dump().items():
+        if v is not None:
+            f[k] = v
+    # Legacy key aliases
+    f["vol_regime"] = event.i4.vol_regime
+    f["volatility_regime"] = event.i4.vol_regime
+    f["volatility_percentile"] = event.i4.vol_percentile
+    f["hmm_regime_state"] = event.smc.hmm_regime
+
+    # I5 — squeeze_fired, rsi divergence, momentum, patterns
+    for k, v in event.i5.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    # SMC — all 61 fields (sweep_*, fvg_*, ob_*, bsl_*, ssl_*, S/D zones, etc.)
+    for k, v in event.smc.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    # I6 — cross-timeframe confluence
+    for k, v in event.i6.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    return f
 
 
 def build_ledger_entries(
@@ -382,6 +416,48 @@ class SignalGeneratorService:
         trend_regime = float(features.get("trend_regime", 0.0))
         result = aggregate(raw_signals, trend_regime=trend_regime)
 
+        # Apply structural trade framing to the winning signal
+        if result.selected_signal:
+            atr = float(features.get("atr_14") or 0.0)
+            sig = result.selected_signal
+            frame = frame_trade(
+                setup_type=sig.get("signal_type", ""),
+                direction=int(sig.get("direction", 1)),
+                entry=float(sig.get("entry_price", 0.0)),
+                features=features,
+                atr=atr,
+            )
+            if not frame.viable:
+                self.logger.info(
+                    "Signal filtered: RR gate",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    signal_type=sig.get("signal_type"),
+                    reason=frame.rejection_reason,
+                )
+                result = AggregatedResult(
+                    selected_signal=None,
+                    all_ranked=result.all_ranked,
+                    resolution_method="rr_filtered",
+                    num_signals_fired=result.num_signals_fired,
+                    num_agreeing=result.num_agreeing,
+                    num_conflicting=result.num_conflicting,
+                )
+            else:
+                result.selected_signal.update({
+                    "entry_price":    frame.entry,
+                    "entry_type":     frame.entry_type,
+                    "stop_loss":      frame.stop,
+                    "stop_type":      frame.stop_type,
+                    "targets":        [t.price for t in frame.targets],
+                    "target_labels":  [t.label for t in frame.targets],
+                    "target_types":   [t.level_type for t in frame.targets],
+                    "rr_t1":          frame.rr_t1,
+                    "rr_t2":          frame.rr_t2,
+                    "rr_t3":          frame.rr_t3,
+                    "framing_method": frame.method,
+                })
+
         entries = build_ledger_entries(result, symbol, timeframe, timestamp, features)
         if entries and self.db_manager:
             await insert_signals(self.db_manager, entries)
@@ -397,17 +473,24 @@ class SignalGeneratorService:
                 k: str(v) for k, v in sig.items()
                 if isinstance(v, (str, int, float, bool))
             }
-            # Promote targets[0] (primary profit target) as a scalar field
+            # Promote individual targets as scalar fields
             targets = sig.get("targets") or []
+            target_labels = sig.get("target_labels") or []
             if targets:
-                profit_target = float(targets[0])
-                message["profit_target"] = str(profit_target)
-                entry = float(sig.get("entry_price", 0))
-                stop = float(sig.get("stop_loss", 0))
-                risk = abs(entry - stop)
-                if risk > 0:
-                    rr = round(abs(profit_target - entry) / risk, 2)
-                    message["risk_reward_ratio"] = str(rr)
+                message["profit_target"] = str(float(targets[0]))
+                if len(targets) > 1:
+                    message["profit_target_2"] = str(float(targets[1]))
+                if len(targets) > 2:
+                    message["profit_target_3"] = str(float(targets[2]))
+            # Serialise list fields as JSON strings
+            message["target_labels"] = json.dumps(target_labels)
+            message["target_types"] = json.dumps(sig.get("target_types") or [])
+            # RR fields
+            entry_p = float(sig.get("entry_price", 0))
+            stop_p = float(sig.get("stop_loss", 0))
+            risk = abs(entry_p - stop_p)
+            if risk > 0 and targets:
+                message["risk_reward_ratio"] = str(round(abs(float(targets[0]) - entry_p) / risk, 2))
             message["timestamp"] = timestamp.isoformat()
             message["symbol"] = symbol
             message["timeframe"] = timeframe

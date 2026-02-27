@@ -30,7 +30,7 @@ class TrendFollowingPlugin:
     regime_threshold: float = 0.5
     confidence_threshold: float = 0.4
     atr_stop_multiplier: float = 1.5
-    atr_target_multipliers: tuple = (1.0, 2.0, 3.0)
+    atr_target_multipliers: tuple = (2.0, 3.5, 5.0)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

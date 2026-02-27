@@ -47,11 +47,20 @@ def make_signal(
     supporting_factors: list[str],
     invalidation_conditions: list[str],
     ttl_bars: int = 10,
+    # Optional framing fields — populated by TradeFramer post-aggregation
+    entry_type: str = "at_close",
+    stop_type: str = "atr",
+    target_labels: list[str] | None = None,
+    target_types: list[str] | None = None,
+    rr_t1: float | None = None,
+    rr_t2: float | None = None,
+    rr_t3: float | None = None,
+    framing_method: str = "atr_fallback",
 ) -> dict:
     """Construct a validated signal.v1 dict."""
     risk = abs(entry_price - stop_loss)
     rr = abs(targets[0] - entry_price) / risk if risk > 0 else 0.0
-    return {
+    sig = {
         "type": "signal.v1",
         "symbol": symbol,
         "timeframe": timeframe,
@@ -69,4 +78,16 @@ def make_signal(
         "supporting_factors": supporting_factors,
         "invalidation_conditions": invalidation_conditions,
         "ttl_bars": ttl_bars,
+        "entry_type": entry_type,
+        "stop_type": stop_type,
+        "target_labels": target_labels or [],
+        "target_types": target_types or [],
+        "framing_method": framing_method,
     }
+    if rr_t1 is not None:
+        sig["rr_t1"] = round(rr_t1, 2)
+    if rr_t2 is not None:
+        sig["rr_t2"] = round(rr_t2, 2)
+    if rr_t3 is not None:
+        sig["rr_t3"] = round(rr_t3, 2)
+    return sig

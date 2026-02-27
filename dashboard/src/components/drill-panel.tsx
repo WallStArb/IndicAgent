@@ -367,8 +367,6 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 function SignalDetail({ signal }: { signal: SignalData }) {
   const isLong = signal.direction === "long";
-  const target = signal.profit_target ?? null;
-  const rr = signal.risk_reward_ratio ?? 0;
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const timeStr = signal.timestamp
     ? new Date(signal.timestamp).toLocaleTimeString([], {
@@ -376,8 +374,35 @@ function SignalDetail({ signal }: { signal: SignalData }) {
       })
     : "—";
 
+  const labels = signal.target_labels ?? [];
+  const t1 = signal.profit_target ?? null;
+  const t2 = signal.profit_target_2 ?? null;
+  const t3 = signal.profit_target_3 ?? null;
+  const rr1 = signal.rr_t1 ?? signal.risk_reward_ratio ?? 0;
+  const rr2 = signal.rr_t2 ?? 0;
+  const rr3 = signal.rr_t3 ?? 0;
+  const isStructural = signal.framing_method === "structural";
+
+  const entryTypeLabel: Record<string, string> = {
+    at_close: "at close",
+    at_reclaim: "at reclaim",
+    zone_proximal: "zone proximal",
+  };
+  const stopTypeLabel: Record<string, string> = {
+    demand_zone: "demand zone",
+    supply_zone: "supply zone",
+    sweep_level: "sweep level",
+    ob_bottom: "OB bottom",
+    ob_top: "OB top",
+    swing_low: "swing low",
+    swing_high: "swing high",
+    sr_support: "S/R",
+    atr: "ATR×2",
+  };
+
   return (
     <div className="flex flex-col gap-2">
+      {/* Header row */}
       <div className="flex items-center gap-2 flex-wrap">
         <span
           className="inline-flex px-2 py-0.5 rounded text-[0.6rem] font-bold uppercase tracking-widest"
@@ -389,11 +414,48 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>{(signal.confidence * 100).toFixed(0)}%</span>
         <span className="text-[0.55rem] text-[var(--text-muted)]">{signal.timeframe} · {timeStr}</span>
       </div>
+
+      {/* Entry / Stop */}
       <Grid>
-        <KV label="Entry" value={fmtPrice(signal.entry_price)} />
-        <KV label="Stop loss" value={fmtPrice(signal.stop_loss)} />
-        {target !== null && <KV label="Profit target" value={fmtPrice(target)} />}
-        {rr > 0 && <KV label="Risk/Reward" value={`${fmtNum(rr, 1)}R`} />}
+        <KV
+          label="Entry"
+          value={`${fmtPrice(signal.entry_price)}${signal.entry_type ? ` (${entryTypeLabel[signal.entry_type] ?? signal.entry_type})` : ""}`}
+        />
+        <KV
+          label="Stop"
+          value={`${fmtPrice(signal.stop_loss)}${signal.stop_type ? ` (${stopTypeLabel[signal.stop_type] ?? signal.stop_type})` : ""}`}
+        />
+      </Grid>
+
+      {/* Targets */}
+      {t1 !== null && (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[0.5rem] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">
+            Targets {isStructural ? <span className="text-[var(--green)] opacity-70">structural</span> : <span className="opacity-50">ATR fallback</span>}
+          </span>
+          <Grid>
+            <KV
+              label={`T1${labels[0] ? ` · ${labels[0].split(" ")[0]}` : ""}`}
+              value={`${fmtPrice(t1)}${rr1 > 0 ? `  ${fmtNum(rr1, 1)}R` : ""}`}
+            />
+            {t2 !== null && (
+              <KV
+                label={`T2${labels[1] ? ` · ${labels[1].split(" ")[0]}` : ""}`}
+                value={`${fmtPrice(t2)}${rr2 > 0 ? `  ${fmtNum(rr2, 1)}R` : ""}`}
+              />
+            )}
+            {t3 !== null && isStructural && (
+              <KV
+                label={`T3${labels[2] ? ` · ${labels[2].split(" ")[0]}` : ""}`}
+                value={`${fmtPrice(t3)}${rr3 > 0 ? `  ${fmtNum(rr3, 1)}R` : ""}`}
+              />
+            )}
+          </Grid>
+        </div>
+      )}
+
+      {/* Meta */}
+      <Grid>
         <KV label="Regime" value={signal.regime_context} />
         <KV label="Plugin" value={signal.setup_plugin.replace(/^trad_/, "")} />
       </Grid>

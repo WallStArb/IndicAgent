@@ -489,6 +489,15 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         if (!old) return prev;
 
         // Full signal data for this TF (stored regardless of selected TF)
+        const _parseOptFloat = (v: unknown): number | null => {
+          const n = parseFloat(String(v || "0"));
+          return isNaN(n) || n === 0 ? null : n;
+        };
+        const _parseLabels = (v: unknown): string[] => {
+          if (!v) return [];
+          try { return JSON.parse(String(v)) as string[]; } catch { return []; }
+        };
+
         const fullSignal: SignalData | null = dir !== 0
           ? {
               direction: dir > 0 ? "long" : "short",
@@ -496,8 +505,17 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               setup_plugin: String(payload.setup_plugin || ""),
               confidence: parseFloat(String(payload.confidence || "0")),
               entry_price: parseFloat(String(payload.entry_price || "0")),
+              entry_type: String(payload.entry_type || "at_close"),
               stop_loss: parseFloat(String(payload.stop_loss || "0")),
-              profit_target: parseFloat(String(payload.profit_target || "0")) || null,
+              stop_type: String(payload.stop_type || "atr"),
+              profit_target: _parseOptFloat(payload.profit_target),
+              profit_target_2: _parseOptFloat(payload.profit_target_2),
+              profit_target_3: _parseOptFloat(payload.profit_target_3),
+              target_labels: _parseLabels(payload.target_labels),
+              rr_t1: _parseOptFloat(payload.rr_t1) ?? undefined,
+              rr_t2: _parseOptFloat(payload.rr_t2) ?? undefined,
+              rr_t3: _parseOptFloat(payload.rr_t3) ?? undefined,
+              framing_method: String(payload.framing_method || "atr_fallback"),
               risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
               regime_context: String(payload.regime_context || ""),
               timeframe: tf,

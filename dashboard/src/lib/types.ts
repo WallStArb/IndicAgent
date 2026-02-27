@@ -188,9 +188,18 @@ export interface SignalData {
   setup_plugin: string;          // e.g., "ind_TrendFollowing"
   confidence: number;            // 0.0–1.0
   entry_price: number;
+  entry_type?: string;           // "at_close" | "at_reclaim" | "zone_proximal"
   stop_loss: number;
-  profit_target: number | null;  // targets[0] from signal, null if not available
-  risk_reward_ratio: number;     // computed from entry/stop/target
+  stop_type?: string;            // "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low" | "sr_support" | "atr"
+  profit_target: number | null;  // targets[0] — T1
+  profit_target_2?: number | null; // targets[1] — T2
+  profit_target_3?: number | null; // targets[2] — T3
+  target_labels?: string[];      // ["S/R 4521.25", "BSL 4530.00", "VWAP+2σ 4545.00"]
+  rr_t1?: number;                // RR to T1
+  rr_t2?: number;                // RR to T2
+  rr_t3?: number;                // RR to T3 (only if structural and >= 4.0R)
+  framing_method?: string;       // "structural" | "atr_fallback"
+  risk_reward_ratio: number;     // computed from entry/stop/T1
   regime_context: string;        // "bullish" | "bearish"
   timeframe: string;             // which TF generated this signal, e.g. "1m"
   timestamp: string;             // ISO timestamp when signal was generated
