@@ -12,6 +12,7 @@ import type {
   ConfluenceData,
   SignalData,
   NarrativeData,
+  GroupNarrativeData,
   ConnectionStatus,
   Timeframe,
   PerTfSignal,
@@ -214,6 +215,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     useState<ConnectionStatus>("connecting");
   const [lastUpdate, setLastUpdate] = useState(0);
   const [narratives, setNarratives] = useState<Record<string, NarrativeData>>({});
+  const [groupNarratives, setGroupNarratives] = useState<Record<string, GroupNarrativeData>>({});
   const esRef = useRef<EventSource | null>(null);
 
   // Stable identity for the symbols list
@@ -529,28 +531,45 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       touch();
     });
 
-    // --- AI narrative data (I8) ---
+    // --- AI narrative data (I8) — per-symbol and group ---
     es.addEventListener("narrative_data", (evt) => {
       const { stream, payload } = JSON.parse(evt.data);
-      const sym = contractToBase(payload.symbol || "");
-      if (!sym || !payload.narrative) return;
+      const streamStr = stream as string;
 
-      // Key by "SYMBOL:TF" — extract TF from stream name "narratives:ESH6:5m"
-      const parts = (stream as string).split(":");
-      const tf = parts[parts.length - 1] || timeframe;
-      const key = `${sym}:${tf}`;
-
-      setNarratives((prev) => ({
-        ...prev,
-        [key]: {
-          symbol: sym,
-          timeframe: tf,
-          narrative: String(payload.narrative),
-          action_bias: String(payload.action_bias || ""),
-          timestamp: String(payload.timestamp || ""),
-          receivedAt: Date.now(),
-        },
-      }));
+      if (streamStr.includes(":group:")) {
+        // Group synthesis narrative: stream = "narratives:group:equity"
+        const parts = streamStr.split(":");
+        const groupName = parts[parts.length - 1];
+        if (!groupName || !payload.narrative) return;
+        setGroupNarratives((prev) => ({
+          ...prev,
+          [groupName]: {
+            group: groupName,
+            narrative: String(payload.narrative),
+            timestamp: String(payload.timestamp || ""),
+            receivedAt: Date.now(),
+            model: String(payload.model || ""),
+          },
+        }));
+      } else {
+        // Per-symbol narrative: stream = "narratives:ESH6:5m"
+        const sym = contractToBase(payload.symbol || "");
+        if (!sym || !payload.narrative) return;
+        const parts = streamStr.split(":");
+        const tf = parts[parts.length - 1] || timeframe;
+        const key = `${sym}:${tf}`;
+        setNarratives((prev) => ({
+          ...prev,
+          [key]: {
+            symbol: sym,
+            timeframe: tf,
+            narrative: String(payload.narrative),
+            action_bias: String(payload.action_bias || ""),
+            timestamp: String(payload.timestamp || ""),
+            receivedAt: Date.now(),
+          },
+        }));
+      }
       touch();
     });
 
@@ -560,5 +579,5 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     };
   }, [timeframe, symbolsCsv, touch]);
 
-  return { symbolData, connectionStatus, lastUpdate, narratives };
+  return { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives };
 }

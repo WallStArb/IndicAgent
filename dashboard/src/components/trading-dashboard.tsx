@@ -17,7 +17,7 @@ import { SignalBanner } from "./signal-banner";
 import { NarrativeElevated } from "./narrative-elevated";
 import { TimeframeMatrix } from "./timeframe-matrix";
 import { DrillPanel } from "./drill-panel";
-import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData } from "@/lib/types";
+import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 
 export default function TradingDashboard() {
@@ -33,7 +33,7 @@ export default function TradingDashboard() {
     [activeProfile, profiles]
   );
 
-  const { symbolData, connectionStatus, lastUpdate, narratives } = useMarketStream(
+  const { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives } = useMarketStream(
     timeframe,
     symbols
   );
@@ -124,7 +124,12 @@ export default function TradingDashboard() {
       </main>
 
       {/* ── AI Narrative Feed ── */}
-      <NarrativePanel narratives={narratives} />
+      <NarrativePanel
+        narratives={narratives}
+        groupNarratives={groupNarratives}
+        activeSymbol={symbols[0] ?? "ES"}
+        activeTimeframe={timeframe}
+      />
 
       {/* ── Footer ── */}
       <footer className="flex items-center justify-between px-3 py-1 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">

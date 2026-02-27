@@ -207,6 +207,14 @@ export interface NarrativeData {
   receivedAt: number;            // Date.now() when received — for staleness tracking
 }
 
+export interface GroupNarrativeData {
+  group: string;                 // e.g. "equity"
+  narrative: string;
+  timestamp: string;
+  receivedAt: number;
+  model: string;
+}
+
 /** Per-timeframe signal direction for cross-TF matrix */
 export interface PerTfSignal {
   direction: "long" | "short" | null;
