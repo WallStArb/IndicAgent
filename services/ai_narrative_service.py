@@ -553,7 +553,7 @@ class AINarrativeService:
                         self.shutdown_event.wait(),
                         timeout=self.config["service"]["processing_interval"],
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
             except asyncio.CancelledError:
@@ -664,7 +664,7 @@ class AINarrativeService:
                 try:
                     await asyncio.wait_for(self.shutdown_event.wait(), timeout=30)
                     break  # shutdown requested
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass  # normal — run synthesis
                 if self.shutdown_requested:
                     break
