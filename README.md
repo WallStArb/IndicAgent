@@ -24,11 +24,11 @@ The architecture is designed to be **externally consumable**: a FastAPI layer wi
 
 | Aspect | Detail |
 |--------|--------|
-| **Data in** | IBKR TWS futures: **ES**, **NQ**, **RTY** (equity indices); **CL**, **NG** (energy); **GC**, **SI**, **HG**, **PL** (metals); **VX** (volatility); **ZN**, **ZF**, **ZB**, **ZT** (rates). 100–500+ ticks/sec |
-| **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); optional TimescaleDB for history |
-| **Intelligence** | 57 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (9); I7 signal aggregation + I8 AI narratives + Dashboard panel operational |
-| **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16 / React 19.2, Ollama |
-| **Deployment** | Small independent services over streams; SSE for dashboard; Signal Orchestrator (:9112), AI Narrative (:9113) |
+| **Data in** | IBKR TWS futures: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL**, **BZ**, **NG** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT**, **SR1** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **6E**, **6J** (FX); **BTC** (crypto). 23 contracts, 100–500+ ticks/sec |
+| **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives, group narratives); TimescaleDB feature store |
+| **Intelligence** | 57 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (9); I7 signal aggregation + I8 AI narratives (per-signal + group synthesis) + Dashboard operational |
+| **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16.1 / React 19.2, Ollama |
+| **Deployment** | 8 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
 
 ---
 
@@ -58,24 +58,23 @@ IBKR TWS
 market_data_daemon ──────────────────────────────► ticks:SYMBOL:live
     │                                              price:SYMBOL:latest
     ▼
-market:SYMBOL:1m
+market:SYMBOL:1m + 5m/15m/1h/4h/1d (multi-TF)
     │
-    ├──────────────────────────────────────────┐
-    ▼                                          ▼
-indicator_service                   bar_aggregator_service
-(23 I1 plugins, incremental)        (1m → 5m/15m/1h/4h/1d)
-one combined message per bar                  │
-    │         ◄────────────────────────────────┘
+    ▼
+indicator_service
+(23 I1 plugins, incremental; multi-TF bar aggregation)
+one combined indicators message per bar + TF
+    │
     ▼
 indicators:SYMBOL:TF
     │
     ▼
 market_analysis_service
-(structure → context → patterns → SMC → confluence)
+(structure → context → patterns → SMC → confluence → IntelligenceEvent)
     │
     ▼
-intelligence:SYMBOL:TF
-    │
+intelligence:SYMBOL:TF  ─────────────────────────► feature_writer_service
+    │                                               → intelligence_features (TimescaleDB)
     ▼
 signal_generator_service ──────────► signal_tracker_service
 (I7 setup plugins + aggregation)     (open signal lifecycle,
@@ -84,19 +83,20 @@ signal_generator_service ──────────► signal_tracker_servic
 signals:SYMBOL:TF:aggregated
     │
     ▼
-narrative_service ──────────────────► narratives:SYMBOL:TF ──► SSE ──► Dashboard
-(Ollama qwen3:8b)
+ai_narrative_service ──────────────► narratives:SYMBOL:TF
+(Ollama qwen3:8b per-signal +        narratives:group:GROUP_NAME ──► SSE ──► Dashboard
+ phi4-mini:3.8b group synthesis)
 ```
 
 | Service | Single Responsibility | Port |
 |---------|----------------------|------|
 | `market_data_daemon` | IBKR connection, tick ingest, 1m bar formation | — |
-| `indicator_service` | 23 I1 technical indicators (incremental) | 9109 |
-| `bar_aggregator_service` | 1m → 5m/15m/1h/4h/1d resampling | 9110 |
-| `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | — |
+| `indicator_service` | 23 I1 technical indicators (incremental) + multi-TF aggregation | 9109 |
+| `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | 9114 |
 | `signal_generator_service` | I7 setup plugins, signal aggregation, ledger inserts | 9112 |
-| `signal_tracker_service` | Open signal lifecycle tracking (stop/target/TTL) | — |
-| `narrative_service` | I8 LLM narrative synthesis via Ollama | 9113 |
+| `signal_tracker_service` | Open signal lifecycle tracking (stop/target/TTL) | 9115 |
+| `ai_narrative_service` | I8 LLM narrative synthesis (per-signal + group) via Ollama | 9113 |
+| `feature_writer_service` | Redis consumer → batch write to `intelligence_features` (TimescaleDB) | 9116 |
 | `api_service` | FastAPI REST + SSE fan-out to dashboard | 8000 |
 
 Full separation-of-duties reference: [`docs/architecture/service-separation.md`](docs/architecture/service-separation.md)
@@ -157,16 +157,16 @@ docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dr
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
 ```
 
-Run services (each in its own terminal or under systemd):
+Run services (each in its own terminal, or use systemd in production):
 
 ```bash
-python production/daemons/high_frequency_tws_daemon.py --client-id 35
-python services/indicator_service.py --config config/indicator_service.json
-python services/market_analysis_service.py --config config/market_analysis_service.json
-python services/timeframes_builder_service.py --config config/timeframe_builder_service.json
-python services/signal_generator_service.py --config config/signal_generator_service.json
-python services/signal_tracker_service.py --config config/signal_tracker_service.json
-python services/ai_narrative_service.py --config config/ai_narrative_service.json
+.venv/bin/python production/daemons/high_frequency_tws_daemon.py --client-id 35
+.venv/bin/python services/indicator_service.py
+.venv/bin/python services/market_analysis_service.py
+.venv/bin/python services/signal_generator_service.py
+.venv/bin/python services/signal_tracker_service.py
+.venv/bin/python services/ai_narrative_service.py
+.venv/bin/python services/feature_writer_service.py
 ```
 
 API and dashboard:
@@ -179,7 +179,7 @@ uvicorn src.api.main:app --reload
 cd dashboard && npm install && npm run dev
 ```
 
-Health: `:9109` (indicator processor), `:9110` (timeframe builder), `:9112` (signal orchestrator), `:9113` (AI narrative), `:8000` (API). See `CLAUDE.md` for full commands and systemd usage.
+Health: `:9109` (indicator), `:9112` (signal generator), `:9113` (AI narrative), `:9114` (market analysis), `:9115` (signal tracker), `:9116` (feature writer), `:8000` (API). See `docs/cheatsheet.md` for full commands and systemd usage.
 
 ---
 
@@ -207,17 +207,22 @@ docs/                     # Architecture and planning
 
 ## Reference
 
-### Supported Instruments (examples)
+### Supported Instruments (23 contracts)
 
-- **Equity index futures:** ES, NQ, RTY  
-- **Commodities:** CL, NG, GC, SI, HG, PL  
-- **Volatility:** VX  
+- **Equity index futures:** ES, NQ, RTY, YM
+- **Energy:** CL, BZ, NG
+- **Metals:** GC, SI, HG, PL
+- **Rates:** ZN, ZF, ZB, ZT, SR1
+- **Volatility:** VX
+- **Agriculture:** ZS, ZC, ZW
+- **FX:** 6E, 6J
+- **Crypto:** BTC
 
 ### Tech Stack
 
 - Python 3.13, pandas 3.0, redis 7.1, FastAPI 0.129
-- LangGraph 1.0, LangChain 1.2
-- DragonflyDB or Redis; TimescaleDB (PostgreSQL 15)
+- LangGraph 1.0, LangChain 1.2; LLM providers: Ollama (local) + OpenRouter (cloud)
+- DragonflyDB (Redis protocol, Docker); TimescaleDB (PostgreSQL 15, native)
 - Next.js 16.1, React 19.2, Tailwind v4.2
 
 ### Environment (main)

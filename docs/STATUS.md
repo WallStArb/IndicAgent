@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-22
-> **Version:** 4.9.2
-> **Phase:** I7 Phase 0 complete — 57 plugins, 551 tests
+> **Last Updated:** 2026-02-27
+> **Version:** 5.5.0
+> **Phase:** Phases 0–5 complete — 57 plugins, 602 tests; Phase 6 (Dashboard Connected) in progress
 
 ---
 
@@ -10,24 +10,24 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I8)
-**Test Coverage:** 551 unit tests passing, 0 lint errors
-**Data Collection:** Active (ES, NQ, RTY + 11 more contracts)
+**Test Coverage:** 602 unit tests passing, 0 lint errors
+**Data Collection:** Active (23 contracts across equity index, energy, metals, rates, FX, agriculture, crypto)
 
 ---
 
 ## System Health
 
-| Component | Status | Health Endpoint |
-|-----------|--------|-----------------|
-| HF TWS Daemon | RUNNING | N/A |
-| Indicator Processor | RUNNING | :9109/health |
-| Enhanced Processor | RUNNING | :9109/health |
-| Timeframe Builder | RUNNING | :9110/health |
-| Intelligence Processor | RUNNING | N/A |
-| Signal Orchestrator | RUNNING | :9112/health |
-| AI Narrative Service | RUNNING | :9113/health |
-| Backend API | RUNNING | :8000/health |
-| Dashboard | RUNNING | http://localhost:3000 |
+| Service (systemd unit) | Port | Health |
+|------------------------|------|--------|
+| `indicagent-tws` — IBKR TWS daemon | — | — |
+| `indicagent-indicator` — I1 indicators + multi-TF | 9109 | `/metrics` |
+| `indicagent-market-analysis` — I3→I6 pipeline | 9114 | `/metrics` |
+| `indicagent-signal-generator` — I7 setups + aggregation | 9112 | `/metrics` |
+| `indicagent-signal-tracker` — signal lifecycle | 9115 | `/metrics` |
+| `indicagent-ai-narrative` — Ollama I8 narratives | 9113 | `/metrics` |
+| `indicagent-feature-writer` — Redis → intelligence_features | 9116 | `/metrics` |
+| `indicagent-api` — FastAPI REST + SSE | 8000 | `/health` |
+| Dashboard (dev) | 3000 | http://localhost:3000 |
 
 ---
 
@@ -42,11 +42,11 @@
 | I5 | Pattern Detection | 8 | COMPLETE |
 | I6 | Smart Money Concepts | 8 | COMPLETE (2 new in v4.9.1: LiqPools, S/D Zones) |
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE |
-| I7 | Trading Setups | 9 | PHASE_2_IN_PROGRESS (4 added since v4.8.0) |
+| I7 | Trading Setups | 9 | COMPLETE |
 | I7 | Signal Aggregation | 4 components | RUNNING |
-| I8 | AI Intelligence | 1 service | WORKING |
+| I8 | AI Intelligence | 1 service | RUNNING (per-signal + group synthesis) |
 
-**Total Plugins:** 57 registered (23 indicators + 34 patterns)
+**Total Plugins:** 57 registered (23 I1 indicators + 3 I3 structure + 5 I4 context + 8 I5 patterns + 6 I6 SMC + 1 I6 confluence + 9 I7 setups)
 
 ### Known Issues
 
@@ -56,20 +56,15 @@ None.
 
 ## Development Priorities
 
-### Priority 1: I7 Phase 2 — More Setup Plugins
-**Continue expanding signal coverage (7 of 14 target plugins remaining)**
+### Priority 1: Phase 6 — Dashboard Connected (in progress)
+- ✅ 06-01 through 06-03 complete
+- ⏳ 06-04: Human verification — confirm all dashboard panels show live data
+- Requires: `sudo systemctl restart indicagent-signal-generator indicagent-ai-narrative`
 
-- Supply/Demand Zone Setup (fully designed — `docs/plans/2026-02-22-liquidity-pools-supply-demand-design.md`)
-- Gap Analysis Setup (session open trades)
-- See `docs/roadmap/MASTER_ROADMAP.md` Phase 4 for full list
-
-### Priority 2: ML Scoring Model Calibration
-**Replace rules-based aggregator with a calibrated scoring model**
-
-- Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days of collection)
-- XGBoost/LightGBM on 15 extracted features → pnl_r continuous target
-- A/B test rules vs scored aggregator in parallel
-- See `docs/roadmap/MASTER_ROADMAP.md` Phase 3 for full spec
+### Priority 2: ML Scoring Model (future)
+- Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days collection)
+- XGBoost/LightGBM on extracted features → pnl_r continuous target
+- See `.planning/ROADMAP.md` for full roadmap
 
 ---
 
@@ -109,12 +104,13 @@ None.
 **Warm Tier:** Redis Streams — Real-time processing
 **Cold Tier:** TimescaleDB — Historical analysis
 
-**Stream Keys:**
-- Market data: `market:SYMBOL:TIMEFRAME`
-- Indicators: `indicators:SYMBOL:TIMEFRAME`
-- Intelligence: `intelligence:SYMBOL:TIMEFRAME`
-- Signals: `signals:SYMBOL:TIMEFRAME:aggregated`
-- Narratives: `narratives:SYMBOL:TIMEFRAME`
+**Stream Keys** (env-prefixed, e.g. `development:` in dev):
+- Ticks: `ticks:SYMBOL:live`
+- Indicators: `indicators:SYMBOL:TF`
+- Intelligence (typed IntelligenceEvent): `intelligence:SYMBOL:TF`
+- Signals: `signals:SYMBOL:TF:aggregated`
+- Narratives (per-symbol): `narratives:SYMBOL:TF`
+- Narratives (group synthesis): `narratives:group:GROUP_NAME`
 
 See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
@@ -122,12 +118,15 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Instrumentation
 
-**Active Contracts:** 14 futures
-- **Equity Indices:** ES, NQ, RTY
-- **Energy:** CL, NG
+**Active Contracts:** 23 futures (all H6/J6 front-month as of Feb 2026)
+- **Equity Indices:** ES, NQ, RTY, YM
+- **Energy:** CL, BZ, NG
 - **Metals:** GC, SI, HG, PL
-- **Rates:** ZN, ZF, ZB, ZT
+- **Rates:** ZN, ZF, ZB, ZT, SR1
 - **Volatility:** VX
+- **Agriculture:** ZS, ZC, ZW
+- **FX:** 6E, 6J
+- **Crypto:** BTC
 
 **Timeframes:** 1m, 5m, 15m, 1h, 4h, 1d
 
@@ -136,9 +135,10 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 ## Development Environment
 
 **Python:** 3.13
-**Key Dependencies:** pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0
-**Infrastructure:** Docker (TimescaleDB, DragonflyDB, Ollama)
-**Frontend:** Next.js 15.5, React 19
+**Key Dependencies:** pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0, LangChain 1.2
+**Infrastructure:** DragonflyDB (Docker); PostgreSQL/TimescaleDB + Ollama (native)
+**LLM Providers:** Ollama (local: qwen3:8b, phi4-mini:3.8b, etc.) + OpenRouter (cloud)
+**Frontend:** Next.js 16.1, React 19.2, Tailwind v4.2
 
 **Local LLMs (Ollama):** Available at http://localhost:11434
 - **Default:** `qwen3:8b` (5.2 GB, thinking mode)
@@ -148,10 +148,10 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 57 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 + 9 I7) | 551 unit tests
-**Services:** hf-tws-daemon, indicator-processor, enhanced-processor, timeframe-builder, intelligence-processor, signal-orchestrator (:9112), ai-narrative (:9113)
-**Stack:** Python 3.13, FastAPI 0.129, Redis 7.1/DragonflyDB, TimescaleDB, LangGraph 1.0, Ollama
-**Dashboard:** Next.js 15.5 / React 19 / Tailwind v4
+**Plugin Totals:** 57 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 9 I7) | 602 unit tests
+**Services (systemd):** indicagent-tws, indicagent-indicator (:9109), indicagent-market-analysis (:9114), indicagent-signal-generator (:9112), indicagent-signal-tracker (:9115), indicagent-ai-narrative (:9113), indicagent-feature-writer (:9116), indicagent-api (:8000)
+**Stack:** Python 3.13, FastAPI 0.129, DragonflyDB/Redis, TimescaleDB, LangGraph 1.0, Ollama + OpenRouter
+**Dashboard:** Next.js 16.1 / React 19.2 / Tailwind v4.2
 
 **Detailed Architecture:** [CLAUDE.md](for-ai-assistants/CLAUDE.md)
 **Intelligence Tiers:** [docs/architecture/intelligence-tiers.md](architecture/intelligence-tiers.md)

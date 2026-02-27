@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-02-17
+**Last Updated:** 2026-02-27
 
 ## Overview
 
@@ -234,32 +234,32 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 - **Distribution:** Redis Streams distribute intelligence across all tiers
 - **Consumption:** External intelligence consumers access processed intelligence
 
-### **AI Intelligence Framework (Planned)**
-- **Multi-Agent System:** I8 tier will implement AI agent coordination
-- **OpenRouter Integration:** Cost-optimized LLM access for intelligence synthesis (planned)
-- **Human-Readable Output:** AI-powered market narratives and intelligence explanations (planned)
+### **AI Intelligence Framework**
+- **I8 Operational:** `ai_narrative_service` running with Ollama (qwen3:8b per-signal, phi4-mini:3.8b group synthesis)
+- **OpenRouter:** `OpenRouterProvider` available for cloud-hosted LLM access (v5.5.0+)
+- **LLMChain:** `src/intelligence/llm/` — provider-agnostic chain supporting both Ollama and OpenRouter
 
 ---
 
 ## **Intelligence Development Status**
 
 ### **Completed Tiers (Production Ready)**
-- **I1 Technical Indicators:** 12 plugins with real incremental compute_next() -- RSI, MACD, SMA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP (141x performance boost)
+- **I1 Technical Indicators:** 23 plugins — RSI, MACD, SMA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian (all incremental `compute_next()`)
 - **I2 Composite Indicators:** Crossovers, slopes, distances via `src/intelligence/composites/`
-- **I3 Market Structure:** 3 plugins in `src/intelligence/structure/` -- swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure (regime + integrity)
-- **I4 Context/Regime:** 3 plugins in `src/intelligence/context/` -- volatility regime (ATR percentile, BB width), trend regime (SMA alignment + I3 blending), momentum context (multi-oscillator scoring)
-- **I5 Pattern Recognition:** 4 plugins in `src/intelligence/patterns/` -- RSI divergence (peak/trough N-neighbor), Bollinger squeeze (TTM-style), volume divergence (OBV vs price), multi-indicator confluence
+- **I3 Market Structure:** 3 plugins — swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure
+- **I4 Context/Regime:** 5 plugins — volatility regime, trend regime, momentum context, GARCH(1,1) volatility forecast, Kalman trend (7 outputs, GARCH-adaptive R)
+- **I5 Pattern Recognition:** 8 plugins — RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, TrendConfluence, DoubleTB, HeadShoulders, TriangleWedge
+- **I6 SMC:** 6 plugins — BOS/CHoCH, FVG, order blocks, liquidity sweeps (+ pools + supply/demand zones), BOCPD changepoint, HMM regime
+- **I6 Cross-Timeframe Confluence:** 1 plugin — trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
+- **I7 Trading Setups:** 9 plugins — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup; plus 4 aggregation components (aggregator, ledger, lifecycle, sizer). GARCH/Kalman quality gates on MeanReversion, VWAPDeviation, SqueezeExpansion.
+- **I8 AI Intelligence:** `ai_narrative_service` — per-signal narratives (qwen3:8b, conf>0.7, 5m/15m/1h) + 6-asset-group synthesis (phi4-mini:3.8b, change-driven). Streams: `narratives:SYMBOL:TF` + `narratives:group:GROUP_NAME`
 
-- **SMC Smart Money:** 6 plugins in `src/intelligence/smart_money/` -- BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD change point, HMM regime
-- **I6 Cross-Timeframe Confluence:** 1 plugin in `src/intelligence/confluence/` -- trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
-
-### **Not Yet Implemented**
-- **I7 Intelligence Outputs:** Validated setups and actionable intelligence signals
-- **I8 AI Synthesis:** OpenRouter LLM integration for market narratives and insights
+### **Also Available: OpenRouter (Cloud LLM)**
+LLMChain with `OpenRouterProvider` and `OllamaProvider` added in v5.5.0. Use OpenRouter for cloud-hosted models when local inference is too slow.
 
 ### **Totals**
-- **32 registered plugins:** 16 indicators + 4 I5 patterns + 3 I3 structure + 3 I4 context + 5 SMC smart money + 1 I6 confluence
-- **172 unit tests passing**, 0 ruff errors
+- **57 registered plugins:** 23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 9 I7
+- **602 unit tests passing**, 0 ruff errors
 
 ---
 
