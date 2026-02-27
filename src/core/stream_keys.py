@@ -46,11 +46,15 @@ def narratives(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}narratives:{symbol}:{timeframe}"
 
 
+def narratives_group(env_prefix: str, group_name: str) -> str:
+    return f"{env_prefix}narratives:group:{group_name}"
+
+
 def get_stream_maxlen(
     timeframe: str,
     kind: Literal[
         "ticks", "market", "indicators", "intelligence",
-        "signals", "signals_aggregated", "narratives",
+        "signals", "signals_aggregated", "narratives", "narratives_group",
     ],
 ) -> int:
     if kind == "ticks":
@@ -71,6 +75,8 @@ def get_stream_maxlen(
         return 200
     if kind == "narratives":
         return 100
+    if kind == "narratives_group":
+        return 50
     return 1000
 
 
