@@ -319,3 +319,12 @@ async def test_group_synthesis_skips_when_fingerprint_unchanged():
         mock_ollama.assert_not_called()
 
     svc.redis_client.xadd.assert_not_called()
+
+
+def test_service_has_shutdown_event():
+    """Service exposes an asyncio.Event for clean shutdown coordination."""
+    svc = _make_service()
+    assert hasattr(svc, "shutdown_event")
+    import asyncio
+    assert isinstance(svc.shutdown_event, asyncio.Event)
+    assert not svc.shutdown_event.is_set()

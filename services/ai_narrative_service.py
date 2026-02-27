@@ -287,8 +287,7 @@ class AINarrativeService:
             "Total group narratives generated",
         )
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        self.shutdown_event = asyncio.Event()
 
         self.logger = structlog.get_logger(__name__)
         start_metrics_server(port=9113)
@@ -370,9 +369,20 @@ class AINarrativeService:
             format="%(message)s",
         )
 
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Received shutdown signal", signal=signum)
-        self.shutdown_requested = True
+    def _register_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Register SIGINT/SIGTERM handlers that wake the asyncio event loop."""
+        def _handle_signal() -> None:
+            self.logger.info("Received shutdown signal")
+            self.shutdown_requested = True
+            self.running = False
+            self.shutdown_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _handle_signal)
+            except (NotImplementedError, RuntimeError):
+                # Fallback for environments where add_signal_handler is not supported
+                signal.signal(sig, lambda s, f: _handle_signal())
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -537,7 +547,14 @@ class AINarrativeService:
                                     sym, tf, fields, stream_name, message_id
                                 )
 
-                await asyncio.sleep(self.config["service"]["processing_interval"])
+                # Wake up early if shutdown requested
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(),
+                        timeout=self.config["service"]["processing_interval"],
+                    )
+                except asyncio.TimeoutError:
+                    pass
 
             except asyncio.CancelledError:
                 break
@@ -644,7 +661,11 @@ class AINarrativeService:
         self.logger.info("Starting group synthesis loop")
         while self.running and not self.shutdown_requested:
             try:
-                await asyncio.sleep(30)
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=30)
+                    break  # shutdown requested
+                except asyncio.TimeoutError:
+                    pass  # normal — run synthesis
                 if self.shutdown_requested:
                     break
                 for group_name in ASSET_GROUPS:
@@ -665,6 +686,8 @@ class AINarrativeService:
     async def start(self) -> None:
         self.logger.info("Starting AI Narrative Service", config=self.config["service"])
         try:
+            loop = asyncio.get_running_loop()
+            self._register_signal_handlers(loop)
             await self._connect_redis()
             await self._setup_consumer_groups()
 
