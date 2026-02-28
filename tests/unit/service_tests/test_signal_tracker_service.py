@@ -60,3 +60,24 @@ def test_evaluate_signals_against_bar_calls_evaluate_signal():
                 )
             )
             mock_eval.assert_called_once()
+
+
+def test_stream_map_populated_after_setup():
+    """_stream_map must have one entry per symbol (1m only)."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from services.signal_tracker_service import SignalTrackerService
+
+    svc = SignalTrackerService()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xgroup_setid = AsyncMock()
+    svc.db_manager = None
+
+    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
+
+    symbols = svc.config["service"]["symbols"]
+    assert len(svc._stream_map) == len(symbols)
+    for stream_name, (sym, tf) in svc._stream_map.items():
+        assert tf == "1m"
+        assert sym in symbols

@@ -75,6 +75,8 @@ class SignalTrackerService:
             "Total errors in signal tracker",
         )
 
+        self._stream_map: dict[str, tuple[str, str]] = {}
+
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         self.logger = structlog.get_logger(__name__)
@@ -229,7 +231,7 @@ class SignalTrackerService:
         fields: dict[bytes, bytes],
         stream_name: str,
         message_id: bytes,
-    ) -> None:
+    ) -> bool:
         try:
             bar = {
                 "high": float(fields[b"high"].decode()),
@@ -239,11 +241,12 @@ class SignalTrackerService:
             for tf in self.config["service"]["timeframes"]:
                 await self._evaluate_signals_against_bar(symbol, tf, bar)
 
-            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
+            return True
 
         except Exception as e:
             self.logger.error("Error processing bar", symbol=symbol, error=str(e))
             self.error_count_total.inc()
+            return False
 
     async def _connect_redis(self) -> None:
         self.redis_client = redis.Redis(
@@ -276,25 +279,34 @@ class SignalTrackerService:
             except Exception:
                 # Group already exists — reset to current tail to avoid replaying history
                 await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+            self._stream_map[stream_name] = (symbol, "1m")
 
     async def _process_loop(self) -> None:
+        all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
-                for symbol in self.config["service"]["symbols"]:
-                    stream_name = sk_market(self.env_prefix, symbol, "1m")
-                    messages = await self.redis_client.xreadgroup(
-                        self.consumer_group,
-                        self.consumer_name,
-                        {stream_name: ">"},
-                        count=10,
-                        block=100,
+                messages = await self.redis_client.xreadgroup(
+                    self.consumer_group, self.consumer_name,
+                    all_streams, count=10, block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
                     )
-                    for _stream, msgs in messages:
-                        for message_id, fields in msgs:
-                            await self._process_single_bar(
-                                symbol, "1m", fields, stream_name, message_id
-                            )
-                await asyncio.sleep(self.config["service"]["processing_interval"])
+                    symbol, timeframe = self._stream_map[stream_name]
+                    to_ack: list[bytes] = []
+                    for message_id, fields in msgs:
+                        ok = await self._process_single_bar(
+                            symbol, timeframe, fields, stream_name, message_id
+                        )
+                        if ok:
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(
+                            stream_name, self.consumer_group, *to_ack
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:
