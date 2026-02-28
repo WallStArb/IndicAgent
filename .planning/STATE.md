@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 7 — Composite Intelligence Score (06-04 partial; 07-01 complete 2026-02-28)
+**Current focus:** Phase 7 — Composite Intelligence Score (06-04 partial; 07-01 complete 2026-02-28; 07-04 complete 2026-02-28)
 
 ## Current Position
 
 Phase: 7 of 7 IN PROGRESS
-Plan: 1/4 complete
-Status: Phase 7 (Composite Intelligence Score) in progress. 07-01: 5 new I7 evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) added via TDD. TIER_I7 expanded 9→14, total plugins 57→62, 708 tests green.
-Last activity: 2026-02-28 — Phase 7 Plan 01 complete (5 CIS evidence-contributor plugins)
+Plan: 2/4 complete
+Status: Phase 7 in progress. 07-01: 5 CIS evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition), TIER_I7 9→14, 708 tests. 07-04: _resolve_entry() extended with at_limit (momentum_breakout, squeeze_expansion) and at_pullback (trend, mtf_alignment) entry types, 725 tests passing.
+Last activity: 2026-02-28 — Phase 7 Plan 04 complete (at_limit/at_pullback entry types in trade_framer.py)
 
-Progress: [████████░░░] ~77% (20/26 plans complete across Phases 0-7)
+Progress: [████████░░░] ~79% (21/26 plans complete across Phases 0-7)
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [████████░░░] ~77% (20/26 plans complete across 
 | 06-dashboard-connected | P02 | 18min | 3 | 5 |
 | 06-dashboard-connected | P03 | 3min | 2 | 3 |
 | 07-composite-intelligence-score | P01 | 6min | 2 | 9 |
+| 07-composite-intelligence-score | P04 | 3min | 1 | 2 |
 
 ## Accumulated Context
 
@@ -118,6 +119,9 @@ Recent decisions from execution (2026-02-28):
 - 07-01: CHoCHReversal and RegimeTransition both gate on choch_detected — deliberate overlap for independent vs. paired usage
 - 07-01: FVGFill confidence = 0.5 + 0.3 * min(1.0, fvg_open_count/3.0) — open count magnetism model
 - 07-01: RegimeTransition requires BOCPD cp_probability > 0.5 AND choch_detected == 1.0 (both gates, not OR)
+- 07-04: mtf_alignment entry uses nearest_support/resistance as CTF level proxy — no ctf_level price field in IntelligenceEvent schema
+- 07-04: at_limit for long uses level <= entry_price (not strictly less than) — equal-price level is still a valid limit order
+- 07-04: Pre-existing E501 violations in trade_framer.py left unchanged per scope boundary; only new-code violations fixed
 
 ### Pending Todos
 
@@ -131,5 +135,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 07-01-PLAN.md — 5 CIS evidence-contributor plugins, TIER_I7 expanded to 14, 708 tests passing.
+Stopped at: Completed 07-04-PLAN.md — at_limit/at_pullback entry types in trade_framer.py, 725 tests passing.
 Resume file: None
