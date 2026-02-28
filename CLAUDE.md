@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.5.0
-Last Updated: 2026-02-26
-Status: I1-I8 pipeline complete — 57 plugins + 4 aggregation components + feature store + typed intelligence bus, 602 tests, 23 contracts
+Version: 5.6.0
+Last Updated: 2026-02-28
+Status: I1-I8 pipeline complete — 62 plugins + 4 aggregation components + feature store + typed intelligence bus, 784 tests, 23 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -184,9 +184,9 @@ ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals)
 
 ## Current Status
 
-**Tests:** 602 passing, 0 ruff errors
-**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store (Phases 0–6 in progress)
-**Roadmap:** See `.planning/ROADMAP.md` — Phase 7 (CIS) planned, ready to execute
+**Tests:** 784 passing, 0 ruff errors
+**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (Phases 0–7 complete)
+**Roadmap:** See `.planning/ROADMAP.md` — Phase 8 next
 
 ### Phase 6 Status (dashboard-connected)
 - ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard
@@ -196,12 +196,12 @@ ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals)
 - ⏸ 06-04: Human verification skipped — proceeding to Phase 7 CIS
 - ❌ `indicagent-timeframes.service` — legacy service; import fails (`src.data` not `src.core`); non-blocking
 
-### Phase 7 Status (composite-intelligence-score)
-- ⏳ 07-01: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) — Wave 1
-- ⏳ 07-02: CIS bucket scorer + aggregator replacement + signal_ledger schema additions — Wave 2
-- ⏳ 07-03: weight_updater.py + cis_weights table + bootstrap→learned transition — Wave 3
-- ⏳ 07-04: at_limit / at_pullback entry types in trade_framer.py — Wave 2 (parallel with 07-02)
-- Design doc: `docs/plans/2026-02-27-composite-intelligence-score-design.md`
+### Phase 7 Status (composite-intelligence-score) — COMPLETE
+- ✅ 07-01: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition)
+- ✅ 07-02: CISScorer 6-bucket weighted scorer, aggregator rewrite, REGIME_ELIGIBILITY filter, signal_ledger +4 cols, migration 011
+- ✅ 07-03: WeightUpdater (sklearn LogisticRegression), cis_weights table (migration 012), signal_quality on exit
+- ✅ 07-04: at_limit / at_pullback entry types in trade_framer.py
+- **HMM fix (2026-02-28):** `macd_hist_12_26_9` → `macd_histogram_12_26_9` — enables 5D mode; HMM now correctly detects TREND↑/TREND↓ across assets
 
 ### ai_narrative_service key facts
 - Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
