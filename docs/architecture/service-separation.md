@@ -1,6 +1,6 @@
 # Service Separation of Duties
 
-**Last Updated:** 2026-02-20
+**Last Updated:** 2026-02-28
 **Status:** Target architecture — implementation in progress (see `docs/plans/2026-02-20-service-separation-design.md`)
 
 ---
@@ -205,7 +205,7 @@ market_data_daemon
 | `market_data_daemon` | Any indicator computation, pattern detection, or DB writes |
 | `indicator_service` | Market structure, patterns, or regime analysis |
 | `bar_aggregator_service` | Indicator computation (delegates to indicator_service) |
-| `market_analysis_service` | I1 computation (consume from indicators stream instead); signal generation |
+| `market_analysis_service` | I1 computation (consume from indicators stream instead); signal generation; direct DB writes (feature persistence is `feature_writer_service`'s job) |
 | `signal_generator_service` | Lifecycle tracking of open signals |
 | `signal_tracker_service` | Running I7 plugins or aggregation logic |
 | `narrative_service` | Signal generation or lifecycle decisions |
