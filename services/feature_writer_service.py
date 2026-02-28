@@ -165,6 +165,7 @@ class FeatureWriterService:
         self._total_events = 0
         self._total_batches = 0
         self._error_count = 0
+        self._stream_map: dict[str, tuple[str, str]] = {}
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -281,6 +282,7 @@ class FeatureWriterService:
                 except Exception:
                     # Group already exists — normal on restart
                     pass
+                self._stream_map[stream_name] = (sym, tf)
 
     async def _process_single_message(
         self,
@@ -289,14 +291,13 @@ class FeatureWriterService:
         fields: dict[bytes, bytes],
         stream_name: str,
         message_id: bytes,
-    ) -> None:
-        """Parse one stream message, buffer insert params, and ack."""
+    ) -> bool:
+        """Parse one stream message, buffer insert params, and signal ack."""
         try:
             event = _parse_intelligence_event(fields)
             if event is None:
                 # Malformed or missing event — ack-and-skip (do not crash)
-                await self.redis_client.xack(stream_name, CONSUMER_GROUP, message_id)
-                return
+                return True
 
             params = _event_to_insert_params(event)
             self._buffer.append(params)
@@ -308,7 +309,7 @@ class FeatureWriterService:
             if len(self._buffer) >= BATCH_SIZE:
                 await self._maybe_flush(force=True)
 
-            await self.redis_client.xack(stream_name, CONSUMER_GROUP, message_id)
+            return True
 
         except Exception as e:
             self.logger.error(
@@ -319,6 +320,7 @@ class FeatureWriterService:
             )
             self.error_count_total.inc()
             self._error_count += 1
+            return False
 
     async def _maybe_flush(self, force: bool = False) -> None:
         """Write buffered events to intelligence_features if conditions are met.
@@ -368,27 +370,31 @@ class FeatureWriterService:
 
     async def _process_loop(self) -> None:
         """Main consumer group loop — reads all streams and processes messages."""
+        all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
-                for tf in self.config["service"]["timeframes"]:
-                    for sym in self.config["service"]["symbols"]:
-                        stream_name = sk_intelligence(self._env_prefix, sym, tf)
-                        messages = await self.redis_client.xreadgroup(
-                            CONSUMER_GROUP,
-                            CONSUMER_NAME,
-                            {stream_name: ">"},
-                            count=10,
-                            block=100,
+                messages = await self.redis_client.xreadgroup(
+                    CONSUMER_GROUP, CONSUMER_NAME,
+                    all_streams, count=10, block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
+                    )
+                    sym, tf = self._stream_map[stream_name]
+                    to_ack: list[bytes] = []
+                    for message_id, fields in msgs:
+                        ok = await self._process_single_message(
+                            sym, tf, fields, stream_name, message_id
                         )
-                        for _stream, msgs in messages:
-                            for message_id, fields in msgs:
-                                await self._process_single_message(
-                                    sym, tf, fields, stream_name, message_id
-                                )
+                        if ok:
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(stream_name, CONSUMER_GROUP, *to_ack)
 
-                # Time-based flush on each loop tick
                 await self._maybe_flush(force=False)
-                await asyncio.sleep(self.config["service"]["processing_interval"])
 
             except asyncio.CancelledError:
                 break

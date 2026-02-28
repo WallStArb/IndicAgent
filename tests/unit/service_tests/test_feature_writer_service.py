@@ -244,3 +244,21 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
     # Buffer must be flushed on shutdown
     mock_db.execute_batch.assert_called_once()
     assert svc._buffer == []
+
+
+def test_stream_map_populated_after_setup():
+    """_stream_map must contain all 92 stream → (symbol, tf) entries after setup."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from services.feature_writer_service import FeatureWriterService
+
+    svc = FeatureWriterService()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xgroup_setid = AsyncMock()
+
+    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
+
+    symbols = svc.config["service"]["symbols"]
+    tfs = svc.config["service"]["timeframes"]
+    assert len(svc._stream_map) == len(symbols) * len(tfs)
