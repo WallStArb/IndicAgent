@@ -125,7 +125,8 @@ SET status = $2,
     exit_reason = $6,
     pnl_ticks = $7,
     pnl_r = $8,
-    pnl_dollars = $9
+    pnl_dollars = $9,
+    signal_quality = $10
 WHERE signal_id = $1::uuid
 """
 
@@ -166,6 +167,7 @@ async def update_signal_status(
     pnl_ticks: float | None = None,
     pnl_r: float | None = None,
     pnl_dollars: float | None = None,
+    signal_quality: float | None = None,
 ) -> None:
     """Update a signal's lifecycle status and optional exit fields."""
     await db_manager.execute_command(
@@ -179,6 +181,7 @@ async def update_signal_status(
         pnl_ticks,
         pnl_r,
         pnl_dollars,
+        signal_quality,
     )
     logger.info("Updated signal status", signal_id=signal_id, status=status)
 

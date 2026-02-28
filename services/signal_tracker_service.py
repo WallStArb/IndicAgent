@@ -190,6 +190,13 @@ class SignalTrackerService:
             activated_at = timestamp if transition.new_status == "active" else None
             exit_at = timestamp if transition.exit_reason else None
 
+            # Compute signal_quality on exit: pnl_r * confidence_at_fire (clamped ≥ 0)
+            # Vol regime is not stored at fire time; simplified formula omits it.
+            signal_quality: float | None = None
+            if transition.exit_reason and transition.pnl_r is not None:
+                confidence = float(sig.get("confidence") or 1.0)
+                signal_quality = max(0.0, round(transition.pnl_r * confidence, 4))
+
             await update_signal_status(
                 self.db_manager,
                 transition.signal_id,
@@ -201,6 +208,7 @@ class SignalTrackerService:
                 pnl_ticks=transition.pnl_ticks,
                 pnl_r=transition.pnl_r,
                 pnl_dollars=transition.pnl_dollars,
+                signal_quality=signal_quality,
             )
             self.lifecycle_transitions_total.inc()
             self.logger.info(
