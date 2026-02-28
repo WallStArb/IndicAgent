@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.6.0
+Version: 5.7.0
 Last Updated: 2026-02-28
-Status: I1-I8 pipeline complete — 62 plugins + 4 aggregation components + feature store + typed intelligence bus, 784 tests, 23 contracts
+Status: I1-I8 pipeline complete — 62 plugins + 4 aggregation components + feature store + typed intelligence bus, 796 tests, 22 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -164,8 +164,10 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 
 ## Development Standards
 
-### Current Contracts (23 — all H6/J6 front-month as of Feb 2026)
-ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals) · ZN, ZF, ZB, ZT, SR1 (rates) · VX (volatility) · ZS, ZC, ZW (agriculture) · 6E, 6J (FX) · BTC (crypto)
+### Current Contracts (22 — front-month as of Feb 2026)
+ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, ZF, ZB, ZT (rates) · VX (volatility) · ZS, ZC, ZW (agriculture) · EURUSD, GBPUSD, USDJPY, USDCHF (spot FX/IDEALPRO) · BTCUSD, ETHUSD, SOLUSD (spot crypto/PAXOS)
+
+**Paper trading unavailable (not in defaults):** BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200, no workaround. NG/BZ valid in live account.
 
 **Always use `get_active_contracts()` from `src/config/settings.py` — never hardcode symbol lists.**
 
@@ -176,7 +178,12 @@ ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals)
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Use `.venv/bin/pytest`. Integration tests require live infra — unit tests are CI-clean.
 - **Services**: graceful SIGINT/SIGTERM, drain queues, `await` Redis close, idempotent consumer groups.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
-- **IBKR**: tick list `"233"` for futures. VIX symbol is `"VX"` (not "VIX"). Client IDs 35+ range. All ib_insync in `src/providers/ibkr.py` only.
+- **IBKR**: VIX symbol is `"VX"` (not "VIX"). Client IDs 35+ range. All ib_insync in `src/providers/ibkr.py` only.
+  - `genericTickList="233"` (RTVolume) for futures only — use `""` for FX (CASH) and crypto (CRYPTO)
+  - `whatToShow`: `TRADES` for futures, `MIDPOINT` for FX/CASH, `AGGTRADES` for CRYPTO
+  - Some futures need `tradingClass` to qualify — pass via `provider_meta={"trading_class": "XYZ"}`
+  - `qualify_instrument` handles `AssetClass.FUTURES` (Future), `.FX` (Forex), `.CRYPTO` (Contract secType='CRYPTO')
+  - IBKR localSymbol differs for FX/crypto (EUR.USD vs EURUSD) — `_local_to_canonical` in IBKRProvider handles this
 - **DragonflyDB**: Does not support Redis modules — `TS.*` (TimeSeries) and RediSearch native module commands are unavailable. Use TimescaleDB for time series storage.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Plugin protocol**: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant.
@@ -188,7 +195,7 @@ ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals)
 
 ## Current Status
 
-**Tests:** 784 passing, 0 ruff errors
+**Tests:** 796 passing, 0 ruff errors
 **Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (Phases 0–7 complete)
 **Roadmap:** See `.planning/ROADMAP.md` — Phase 8 next
 
