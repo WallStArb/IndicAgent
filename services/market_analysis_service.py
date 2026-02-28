@@ -31,10 +31,10 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 import redis.asyncio as redis
 import structlog
+from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts
-from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
 from src.intelligence.plugins import registry
@@ -46,19 +46,22 @@ from src.intelligence.register_plugins import (
     TIER_SMC,
     register_all_plugins,
 )
+from src.intelligence.schemas import (
+    I1Indicators,
+    I3Structure,
+    I4Context,
+    I5Patterns,
+    I6Confluence,
+    IntelligenceEvent,
+    OHLCVBar,
+    SMCContext,
+)
 from src.observability.metrics import (
     counter,
     gauge,
     record_plugin_execution,
     start_metrics_server,
 )
-
-# Plugin tier lists — imported from register_plugins (single source of truth)
-I3_PLUGINS = TIER_I3
-I4_PLUGINS = TIER_I4
-I5_PLUGINS = TIER_I5
-SMC_PLUGINS = TIER_SMC
-I6_PLUGINS = TIER_I6
 
 
 class MarketAnalysisService:
@@ -69,26 +72,26 @@ class MarketAnalysisService:
         self.shutdown_requested = False
         self.start_time = datetime.now()
 
-        self.config = self._load_config(config_file)
+        settings = Settings()
+        self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+        self.config = self._load_config(config_file, settings)
         self._setup_logging()
 
         register_all_plugins()
         for tier_list, tier_name in [
-            (I3_PLUGINS, "I3"), (I4_PLUGINS, "I4"), (I5_PLUGINS, "I5"),
-            (SMC_PLUGINS, "SMC"), (I6_PLUGINS, "I6"),
+            (TIER_I3, "I3"), (TIER_I4, "I4"), (TIER_I5, "I5"),
+            (TIER_SMC, "SMC"), (TIER_I6, "I6"),
         ]:
             registry.validate_tier(tier_list, tier_name)
 
         self.redis_client: redis.Redis | None = None
-        self.db_manager: DatabaseManager | None = None
         self.consumer_group = "market_analysis"
         self.consumer_name = f"market_analysis_consumer_{os.getpid()}"
 
-        settings = Settings()
-        self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
-
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self.intelligence_cache: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
+        self._active_symbols: set[str] = set()
+        self._stream_map: dict[str, tuple[str, str]] = {}  # stream_name → (symbol, timeframe)
 
         self.bars_processed_total = counter(
             "market_analysis_bars_processed_total",
@@ -115,32 +118,15 @@ class MarketAnalysisService:
             "Total errors encountered by market analysis service",
         )
 
-        self._total_bars = 0
-        self._total_calculations = 0
-        self._error_count = 0
-        self._active_symbols: set[str] = set()
-
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         self.logger = structlog.get_logger(__name__)
 
-    def _load_config(self, config_file: str | None) -> dict[str, Any]:
-        try:
-            _settings = Settings()
-        except Exception:
-            _settings = None
-
+    def _load_config(self, config_file: str | None, settings: Settings) -> dict[str, Any]:
         default_config: dict[str, Any] = {
             "redis": {"host": "localhost", "port": 6379, "db": 0},
-            "database": {
-                "url": (
-                    _settings.database_url
-                    if _settings and getattr(_settings, "database_url", None)
-                    else "postgresql://postgres:postgres@localhost:5432/indicagent"
-                )
-            },
             "service": {
-                "symbols": get_active_contracts(_settings),
+                "symbols": get_active_contracts(settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.1,
                 "health_check_interval": 30,
@@ -211,9 +197,7 @@ class MarketAnalysisService:
         features: dict[str, Any] = dict(frames.get("features", {}))
         frames["features"] = features
 
-        def _run_tier(
-            plugins: list[str], tier: str, results: dict[str, Any]
-        ) -> None:
+        def _run_tier(plugins: list[str], tier: str, results: dict[str, Any]) -> None:
             for pname in plugins:
                 t0 = time.time()
                 try:
@@ -232,40 +216,30 @@ class MarketAnalysisService:
                     )
 
         i3_results: dict[str, Any] = {}
-        _run_tier(I3_PLUGINS, "I3", i3_results)
+        _run_tier(TIER_I3, "I3", i3_results)
         features.update(i3_results)
-        frames["features"] = features
 
         i4_results: dict[str, Any] = {}
-        _run_tier(I4_PLUGINS, "I4", i4_results)
+        _run_tier(TIER_I4, "I4", i4_results)
         features.update(i4_results)
-        frames["features"] = features
 
         i5_results: dict[str, Any] = {}
-        _run_tier(I5_PLUGINS, "I5", i5_results)
+        _run_tier(TIER_I5, "I5", i5_results)
         features.update(i5_results)
-        frames["features"] = features
 
         smc_results: dict[str, Any] = {}
-        _run_tier(SMC_PLUGINS, "SMC", smc_results)
-        # Rename SMC's trend_direction to smc_trend_direction before updating features
-        # to avoid collision with I3's trend_direction in the flat features dict
+        _run_tier(TIER_SMC, "SMC", smc_results)
+        # Rename SMC's trend_direction to avoid collision with I3's trend_direction in flat dict
         if "trend_direction" in smc_results:
             smc_results["smc_trend_direction"] = smc_results.pop("trend_direction")
         features.update(smc_results)
-        frames["features"] = features
 
         i6_results: dict[str, Any] = {}
-        _run_tier(I6_PLUGINS, "I6", i6_results)
+        _run_tier(TIER_I6, "I6", i6_results)
 
-        flat: dict[str, Any] = {}
-        flat.update(i3_results)
-        flat.update(i4_results)
-        flat.update(i5_results)
-        flat.update(smc_results)
-        flat.update(i6_results)
-
-        tiered = {
+        flat = {**i3_results, **i4_results, **i5_results, **smc_results, **i6_results}
+        self.intelligence_cache[symbol][timeframe] = flat
+        return {
             "i3": i3_results,
             "i4": i4_results,
             "i5": i5_results,
@@ -273,9 +247,6 @@ class MarketAnalysisService:
             "i6": i6_results,
             "flat": flat,
         }
-
-        self.intelligence_cache[symbol][timeframe] = flat
-        return tiered
 
     def _min_bars_for_tf(self, timeframe: str) -> int:
         """Return minimum bars before publishing intelligence, per-TF."""
@@ -317,9 +288,7 @@ class MarketAnalysisService:
         frames["features"] = dict(i1_features)
 
         tiered = self._run_analysis_pipeline(symbol, timeframe, frames)
-
         self.calculations_total.inc()
-        self._total_calculations += 1
         return tiered
 
     async def _process_single_bar(
@@ -348,10 +317,8 @@ class MarketAnalysisService:
                 await self._publish_intelligence(
                     symbol, timeframe, tiered, bar_ts, bar_data, i1_features
                 )
-                await self._persist_intelligence(symbol, timeframe, tiered.get("flat", {}), bar_ts)
 
             self.bars_processed_total.inc()
-            self._total_bars += 1
             self._active_symbols.add(symbol)
             self.calculation_duration_ms.set(calc_ms)
 
@@ -373,7 +340,6 @@ class MarketAnalysisService:
                 error=str(e),
             )
             self.error_count_total.inc()
-            self._error_count += 1
 
     async def _publish_intelligence(
         self,
@@ -389,19 +355,6 @@ class MarketAnalysisService:
         Emits a single {"event": "<json>"} field — not flat str(v) k/v pairs.
         Drops the event on ValidationError (malformed plugin output) after logging.
         """
-        from pydantic import ValidationError
-
-        from src.intelligence.schemas import (
-            I1Indicators,
-            I3Structure,
-            I4Context,
-            I5Patterns,
-            I6Confluence,
-            IntelligenceEvent,
-            OHLCVBar,
-            SMCContext,
-        )
-
         bar_data = bar_data or {}
         i1_features = i1_features or {}
 
@@ -443,37 +396,6 @@ class MarketAnalysisService:
             approximate=True,
         )
 
-    async def _persist_intelligence(
-        self,
-        symbol: str,
-        timeframe: str,
-        intelligence: dict[str, Any],
-        timestamp: datetime,
-    ) -> None:
-        if not self.db_manager:
-            return
-        try:
-            async with self.db_manager.get_connection() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO intelligence (timestamp, symbol, timeframe, kind, payload, source)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                    ON CONFLICT (timestamp, symbol, timeframe, kind)
-                    DO UPDATE SET payload = EXCLUDED.payload, source = EXCLUDED.source
-                    """,
-                    timestamp,
-                    symbol,
-                    timeframe,
-                    "combined",
-                    json.dumps({
-                        k: v for k, v in intelligence.items()
-                        if isinstance(v, (int, float, str, bool))
-                    }),
-                    "market_analysis_service",
-                )
-        except Exception as e:
-            self.logger.warning("Failed to persist intelligence", symbol=symbol, error=str(e))
-
     async def _connect_redis(self) -> None:
         self.redis_client = redis.Redis(
             host=self.config["redis"]["host"],
@@ -483,15 +405,6 @@ class MarketAnalysisService:
         )
         await self.redis_client.ping()
         self.logger.info("Connected to Redis")
-
-    async def _connect_database(self) -> None:
-        try:
-            self.db_manager = DatabaseManager(self.config["database"]["url"])
-            await self.db_manager.initialize()
-            self.logger.info("Connected to database")
-        except Exception as e:
-            self.logger.warning("Database connection failed, persistence disabled", error=str(e))
-            self.db_manager = None
 
     async def _warmup_bar_history(self) -> None:
         """Pre-fill bar_history via xrevrange so min_bars threshold is met on first live bar."""
@@ -526,6 +439,7 @@ class MarketAnalysisService:
         for timeframe in self.config["service"]["timeframes"]:
             for symbol in self.config["service"]["symbols"]:
                 stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
+                self._stream_map[stream_name] = (symbol, timeframe)
                 try:
                     await self.redis_client.xgroup_create(
                         stream_name, self.consumer_group, "$", mkstream=True
@@ -535,30 +449,34 @@ class MarketAnalysisService:
                     await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
 
     async def _process_market_data(self) -> None:
+        # Single multi-stream read covers all 92 streams (23 symbols × 4 TFs) in one call,
+        # blocking up to 1s for any message — eliminates sequential per-stream polling latency.
+        all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
-                for timeframe in self.config["service"]["timeframes"]:
-                    for symbol in self.config["service"]["symbols"]:
-                        stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
-                        messages = await self.redis_client.xreadgroup(
-                            self.consumer_group,
-                            self.consumer_name,
-                            {stream_name: ">"},
-                            count=10,
-                            block=100,
+                messages = await self.redis_client.xreadgroup(
+                    self.consumer_group,
+                    self.consumer_name,
+                    all_streams,
+                    count=10,
+                    block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
+                    )
+                    symbol, timeframe = self._stream_map[stream_name]
+                    for message_id, fields in msgs:
+                        await self._process_single_bar(
+                            symbol, timeframe, fields, stream_name, message_id
                         )
-                        for _stream, msgs in messages:
-                            for message_id, fields in msgs:
-                                await self._process_single_bar(
-                                    symbol, timeframe, fields, stream_name, message_id
-                                )
-                await asyncio.sleep(self.config["service"]["processing_interval"])
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in processing loop", error=str(e))
                 self.error_count_total.inc()
-                self._error_count += 1
                 await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:
@@ -567,17 +485,11 @@ class MarketAnalysisService:
                 uptime = int((datetime.now() - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 self.active_symbols_count.set(len(self._active_symbols))
-
-                if uptime % self.config["service"]["health_check_interval"] == 0:
-                    self.logger.info(
-                        "Health check",
-                        uptime=uptime,
-                        bars_processed=self._total_bars,
-                        calculations=self._total_calculations,
-                        active_symbols=len(self._active_symbols),
-                        errors=self._error_count,
-                    )
-
+                self.logger.info(
+                    "Health check",
+                    uptime=uptime,
+                    active_symbols=len(self._active_symbols),
+                )
                 await asyncio.sleep(self.config["service"]["health_check_interval"])
             except asyncio.CancelledError:
                 break
@@ -589,7 +501,6 @@ class MarketAnalysisService:
         self.logger.info("Starting Market Analysis Service", config=self.config["service"])
         try:
             await self._connect_redis()
-            await self._connect_database()
             start_metrics_server(port=self.config.get("metrics_port", 9114))
             await self._warmup_bar_history()
             await self._setup_consumer_groups()
@@ -612,8 +523,6 @@ class MarketAnalysisService:
         self.shutdown_requested = True
         if self.redis_client:
             await self.redis_client.aclose()
-        if self.db_manager:
-            await self.db_manager.close()
         self.logger.info("Market Analysis Service stopped")
 
 
