@@ -20,14 +20,15 @@ IDEAS → ANALYSIS → BACKLOG → TODOS → ROADMAP → PLANS
 
 | Level | Location | Description |
 |-------|----------|-------------|
-| **Ideas** | `.planning/IDEAS.md` | Rough captures — no structure required, no commitment |
+| **Ideas** | `.planning/IDEAS.md` | Rough bullet captures — no structure required, no commitment |
+| **Ideas (detailed)** | `docs/ideas/*.md` | Fleshed-out idea documents with context, trade-offs, open questions |
 | **Analysis** | `.planning/analysis/*.md` | Architecture decisions, trade-offs, design discussions |
 | **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features that would become their own phase |
 | **Todos** | `.planning/todos/pending/` | Implementation tasks: fixes, refactors, small improvements — bundled into existing phases |
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases (GSD-managed) |
 | **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (GSD-managed) |
 
-**When to file where:** Capture rough ideas in IDEAS.md immediately. Design discussions that produce decisions go to `analysis/`. Use `/gsd:add-todo` for implementation-level tasks (bug fixes, refactors, small improvements) — bundled into phase plans when relevant. Use ROADMAP.md `## Backlog` for milestone-scale features that would become their own phase (new service, ML model, auth layer). GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
+**When to file where:** Capture rough ideas in IDEAS.md immediately. When an idea warrants more context, trade-off discussion, or open questions, write a full doc in `docs/ideas/`. Design discussions that produce decisions go to `analysis/`. Use `/gsd:add-todo` for implementation-level tasks (bug fixes, refactors, small improvements) — bundled into phase plans when relevant. Use ROADMAP.md `## Backlog` for milestone-scale features that would become their own phase (new service, ML model, auth layer). GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
 
 ## Required Workflows
 
