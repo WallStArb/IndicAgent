@@ -73,7 +73,7 @@ Building this milestone.
 - [x] **DASH-04**: Indicator panel (I1) shows real non-zero RSI, MACD, ATR values from live indicator stream, per timeframe tab
 - [x] **DASH-05**: Structure/Context/Pattern panels (I3–I5) show real values from `intelligence_data` SSE events including I3 swing/S&R, I4 vol/trend/momentum regime, I5 divergence/squeeze/confluence
 - [x] **DASH-06**: SMC panel (I6) shows BOS/CHoCH/FVG signals, HMM regime (label + probability), and liquidity zones (BSL/SSL levels + premium/discount badge)
-- [ ] **DASH-07**: Signal panel (I7) shows direction, confidence %, entry price, and stop loss; narrative panel (I8) shows AI narrative text
+- [x] **DASH-07**: Signal panel (I7) shows direction, confidence %, entry price, and stop loss; narrative panel (I8) shows AI narrative text
 - [x] **DASH-08**: Connection status indicator accurately reflects SSE state (connecting/connected/disconnected) — green dot with "Live" label when connected
 
 
@@ -134,7 +134,7 @@ Deferred — not in this milestone's roadmap.
 | DASH-04 | Phase 6 | Dashboard Connected | Complete (06-01) |
 | DASH-05 | Phase 6 | Dashboard Connected | Complete (06-01) |
 | DASH-06 | Phase 6 | Dashboard Connected | Complete (06-03) |
-| DASH-07 | Phase 9 | Milestone Verification | Pending |
+| DASH-07 | Phase 9 | Milestone Verification | Complete (09-03) |
 | DASH-08 | Phase 6 | Dashboard Connected | Complete (06-02) |
 
 **Note:** ML-01/02/03 and AUTH-01/02/03 moved to v2 Requirements (intentional deferrals — never assigned to a real phase; explicitly in ROADMAP.md backlog).
