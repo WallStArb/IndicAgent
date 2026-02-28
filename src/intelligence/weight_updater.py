@@ -217,7 +217,7 @@ if __name__ == "__main__":
     async def _main() -> None:
         settings = Settings()
         db = DatabaseManager(settings.database_url)
-        await db.connect()
+        await db.initialize()
         run_result = await run_weight_update(db)
         if run_result:
             print(
@@ -227,6 +227,6 @@ if __name__ == "__main__":
             )
         else:
             print("No update needed (insufficient resolved signals)")
-        await db.disconnect()
+        await db.close()
 
     asyncio.run(_main())
