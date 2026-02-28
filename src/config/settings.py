@@ -20,7 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
-from src.core.models import Instrument
+from src.core.models import AssetClass, Instrument
 
 # Deprecated alias — use Instrument directly
 IBKRContract = Instrument
@@ -96,18 +96,10 @@ class Settings(BaseSettings):
                 symbol="YMH6", base="YM", exchange="CBOT", expiry="20260320",
                 name="E-mini Dow", point_value=5, tick_size=1.0, sector="equity_index",
             ),
-            # Energy Futures — April 2026 (CL/BZ H6 expired 2026-02-20, NG H6 expires 2026-02-25)
+            # Energy Futures — April 2026 (CL J6; BZ/NG not available in paper trading)
             Instrument(
                 symbol="CLJ6", base="CL", exchange="NYMEX", expiry="20260320",
                 name="Crude Oil WTI", point_value=1000, tick_size=0.01, sector="energy",
-            ),
-            Instrument(
-                symbol="BZJ6", base="BZ", exchange="NYMEX", expiry="20260320",
-                name="Brent Crude", point_value=1000, tick_size=0.01, sector="energy",
-            ),
-            Instrument(
-                symbol="NGJ6", base="NG", exchange="NYMEX", expiry="20260326",
-                name="Natural Gas", point_value=10000, tick_size=0.001, sector="energy",
             ),
             # Precious & Industrial Metals — April 2026
             Instrument(
@@ -151,11 +143,6 @@ class Settings(BaseSettings):
                 name="2-Year T-Note", point_value=2000,
                 tick_size=0.0078125, sector="interest_rates",
             ),
-            # SOFR — March 2026
-            Instrument(
-                symbol="SR1H6", base="SR1", exchange="CME", expiry="20260317",
-                name="SOFR 1-Month", point_value=2500, tick_size=0.0025, sector="interest_rates",
-            ),
             # Agriculture — March 2026 (CBOT)
             Instrument(
                 symbol="ZSH6", base="ZS", exchange="CBOT", expiry="20260313",
@@ -169,19 +156,42 @@ class Settings(BaseSettings):
                 symbol="ZWH6", base="ZW", exchange="CBOT", expiry="20260313",
                 name="Wheat", point_value=50, tick_size=0.25, sector="agriculture",
             ),
-            # FX — March 2026 (CME; point_value = USD per 0.0001 move)
+            # FX — Spot (IDEALPRO); point_value = USD per pip (0.0001) on 100k lot
             Instrument(
-                symbol="6EH6", base="6E", exchange="CME", expiry="20260316",
-                name="Euro FX", point_value=12.50, tick_size=0.00005, sector="fx",
+                symbol="EURUSD", base="EUR", exchange="IDEALPRO", sector="fx",
+                asset_class=AssetClass.FX,
+                name="Euro/US Dollar", point_value=10.0, tick_size=0.00001,
             ),
             Instrument(
-                symbol="6JH6", base="6J", exchange="CME", expiry="20260316",
-                name="Japanese Yen", point_value=6.25, tick_size=0.0000005, sector="fx",
+                symbol="GBPUSD", base="GBP", exchange="IDEALPRO", sector="fx",
+                asset_class=AssetClass.FX,
+                name="British Pound/US Dollar", point_value=10.0, tick_size=0.00001,
             ),
-            # Crypto — March 2026 (CME)
             Instrument(
-                symbol="BTCH6", base="BTC", exchange="CME", expiry="20260327",
-                name="Bitcoin", point_value=5, tick_size=5.0, sector="crypto",
+                symbol="USDJPY", base="USD", exchange="IDEALPRO", sector="fx",
+                asset_class=AssetClass.FX,
+                name="US Dollar/Japanese Yen", point_value=9.0, tick_size=0.001,
+            ),
+            Instrument(
+                symbol="USDCHF", base="USD", exchange="IDEALPRO", sector="fx",
+                asset_class=AssetClass.FX,
+                name="US Dollar/Swiss Franc", point_value=10.0, tick_size=0.00001,
+            ),
+            # Spot Crypto (PAXOS) — no expiry, 24/7
+            Instrument(
+                symbol="BTCUSD", base="BTC", exchange="PAXOS", sector="crypto",
+                asset_class=AssetClass.CRYPTO,
+                name="Bitcoin/US Dollar", point_value=1.0, tick_size=0.01,
+            ),
+            Instrument(
+                symbol="ETHUSD", base="ETH", exchange="PAXOS", sector="crypto",
+                asset_class=AssetClass.CRYPTO,
+                name="Ether/US Dollar", point_value=1.0, tick_size=0.01,
+            ),
+            Instrument(
+                symbol="SOLUSD", base="SOL", exchange="PAXOS", sector="crypto",
+                asset_class=AssetClass.CRYPTO,
+                name="Solana/US Dollar", point_value=1.0, tick_size=0.001,
             ),
         ]
 

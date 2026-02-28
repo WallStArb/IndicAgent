@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import nest_asyncio
-from ib_insync import IB, ContFuture, Future, Stock
+from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
 
 nest_asyncio.apply()
 
@@ -56,6 +56,7 @@ class IBKRProvider:
         self._tick_queue: asyncio.Queue[Tick] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._qualified_contracts: dict[str, object] = {}
+        self._local_to_canonical: dict[str, str] = {}  # IBKR localSymbol -> instrument.symbol
 
     async def connect(self) -> bool:
         """Connect to TWS/Gateway. Returns True on success."""
@@ -126,7 +127,13 @@ class IBKRProvider:
             source_tag = "ibkr_continuous_adj"
         else:
             contract = named_contract
-            what_to_show = "TRADES"
+            sec_type = getattr(named_contract, "secType", "")
+            if sec_type == "CASH":
+                what_to_show = "MIDPOINT"
+            elif sec_type == "CRYPTO":
+                what_to_show = "AGGTRADES"
+            else:
+                what_to_show = "TRADES"
             source_tag = "ibkr_named"
 
         chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
@@ -185,18 +192,30 @@ class IBKRProvider:
             return False
         try:
             if instrument.asset_class == AssetClass.FUTURES:
+                trading_class = instrument.provider_meta.get("trading_class", "")
                 contract = Future(
                     symbol=instrument.base or instrument.symbol,
                     lastTradeDateOrContractMonth=instrument.expiry,
                     exchange=instrument.exchange,
                     currency="USD",
+                    **({"tradingClass": trading_class} if trading_class else {}),
                 )
+            elif instrument.asset_class == AssetClass.FX:
+                contract = Forex(pair=instrument.symbol)
+            elif instrument.asset_class == AssetClass.CRYPTO:
+                contract = Contract(secType="CRYPTO", symbol=instrument.base, currency="USD")
             else:
                 contract = Stock(symbol=instrument.symbol, exchange=instrument.exchange)
 
             details = self._ib.reqContractDetails(contract)
             if details:
-                self._qualified_contracts[instrument.symbol] = details[0].contract
+                qualified = details[0].contract
+                self._qualified_contracts[instrument.symbol] = qualified
+                # Store reverse mapping for localSymbol → canonical (e.g. "EUR.USD" → "EURUSD")
+                local_sym = getattr(qualified, "localSymbol", None)
+                if local_sym and local_sym != instrument.symbol:
+                    self._local_to_canonical[local_sym] = instrument.symbol
+                    self._qualified_contracts[local_sym] = qualified
                 return True
             logger.warning(
                 "qualify_instrument: no contract details returned",
@@ -212,6 +231,7 @@ class IBKRProvider:
         symbol = getattr(ticker.contract, "localSymbol", None)
         if not symbol:
             return None
+        symbol = self._local_to_canonical.get(symbol, symbol)
 
         price = None
         for attr in ("last", "close", "bid", "ask"):
@@ -270,7 +290,10 @@ class IBKRProvider:
         for symbol in symbols:
             contract = self._qualified_contracts.get(symbol)
             if contract and self._ib:
-                self._ib.reqMktData(contract, genericTickList="233", snapshot=False)
+                # RTVolume (233) is futures-only; FX (CASH) uses basic bid/ask/last
+                sec_type = getattr(contract, "secType", "")
+                tick_list = "233" if sec_type == "FUT" else ""
+                self._ib.reqMktData(contract, genericTickList=tick_list, snapshot=False)
 
         try:
             while True:

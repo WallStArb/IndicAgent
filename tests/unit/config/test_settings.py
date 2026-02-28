@@ -181,5 +181,6 @@ class TestHelperFunctions:
     def test_get_tick_size(self):
         settings = Settings(_env_file=None)
         assert get_tick_size("NQ", settings) == 0.25
-        assert get_tick_size("NGJ6", settings) == 0.001
+        assert get_tick_size("CLJ6", settings) == 0.01
+        assert get_tick_size("EURUSD", settings) == 0.00001
         assert get_tick_size("FAKE", settings) is None
