@@ -90,6 +90,7 @@ class MarketAnalysisService:
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self.intelligence_cache: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
+        self._df_cache: dict[str, "pd.DataFrame | None"] = {}
         self._active_symbols: set[str] = set()
         self._stream_map: dict[str, tuple[str, str]] = {}  # stream_name → (symbol, timeframe)
 
@@ -254,6 +255,11 @@ class MarketAnalysisService:
             return self.config["service"]["min_history_bars"]
         return 26  # 5m/15m/1h — fewer unique bars available after dedup
 
+    def _get_df(self, key: str) -> "pd.DataFrame":
+        if self._df_cache.get(key) is None:
+            self._df_cache[key] = pd.DataFrame(list(self.bar_history[key]))
+        return self._df_cache[key]
+
     async def _calculate_intelligence(
         self,
         symbol: str,
@@ -269,8 +275,7 @@ class MarketAnalysisService:
         if len(history) < min_bars:
             return {}
 
-        df = pd.DataFrame(list(history))
-        frames: dict[str, Any] = {"main": df}
+        frames: dict[str, Any] = {"main": self._get_df(key)}
 
         # Inject cross-timeframe bar history and cached intelligence
         tf_hierarchy = ["1m", "5m", "15m", "1h"]
@@ -279,7 +284,7 @@ class MarketAnalysisService:
                 continue
             other_key = f"{symbol}:{other_tf}"
             if other_key in self.bar_history and len(self.bar_history[other_key]) >= 50:
-                frames[f"tf_{other_tf}"] = pd.DataFrame(list(self.bar_history[other_key]))
+                frames[f"tf_{other_tf}"] = self._get_df(other_key)
             cached = self.intelligence_cache.get(symbol, {}).get(other_tf)
             if cached:
                 frames[f"intel_{other_tf}"] = cached
@@ -298,7 +303,7 @@ class MarketAnalysisService:
         fields: dict[bytes, bytes],
         stream_name: str,
         message_id: bytes,
-    ) -> None:
+    ) -> bool:
         try:
             bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
             bar_data, i1_features = parse_indicators_message(fields)
@@ -306,6 +311,7 @@ class MarketAnalysisService:
 
             key = f"{symbol}:{timeframe}"
             self.bar_history[key].append(bar_data)
+            self._df_cache[key] = None
 
             calc_start = time.time()
             tiered = await self._calculate_intelligence(
@@ -322,8 +328,6 @@ class MarketAnalysisService:
             self._active_symbols.add(symbol)
             self.calculation_duration_ms.set(calc_ms)
 
-            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
-
             self.logger.debug(
                 "Bar processed",
                 symbol=symbol,
@@ -331,6 +335,7 @@ class MarketAnalysisService:
                 outputs=len(tiered.get("flat", {})) if tiered else 0,
                 calc_ms=round(calc_ms, 2),
             )
+            return True
 
         except Exception as e:
             self.logger.error(
@@ -340,6 +345,7 @@ class MarketAnalysisService:
                 error=str(e),
             )
             self.error_count_total.inc()
+            return False
 
     async def _publish_intelligence(
         self,
@@ -468,10 +474,15 @@ class MarketAnalysisService:
                         else stream_bytes
                     )
                     symbol, timeframe = self._stream_map[stream_name]
+                    to_ack: list[bytes] = []
                     for message_id, fields in msgs:
-                        await self._process_single_bar(
+                        ok = await self._process_single_bar(
                             symbol, timeframe, fields, stream_name, message_id
                         )
+                        if ok:
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(stream_name, self.consumer_group, *to_ack)
             except asyncio.CancelledError:
                 break
             except Exception as e:

@@ -358,3 +358,39 @@ class TestPublisherFormat:
         recovered = IntelligenceEvent.model_validate_json(event_json)
         assert recovered.symbol == "ES"
         assert recovered.i4.garch_vol_regime == 1
+
+
+def test_df_cache_miss_builds_dataframe():
+    from collections import deque
+    from datetime import datetime
+    import pandas as pd
+    from services.market_analysis_service import MarketAnalysisService
+    svc = MarketAnalysisService()
+    key = "ES:1m"
+    svc.bar_history[key] = deque(maxlen=200)
+    svc._df_cache[key] = None
+    svc.bar_history[key].append({"timestamp": datetime(2026,2,28,10,0), "close": 5303.0})
+    df = svc._get_df(key)
+    assert isinstance(df, pd.DataFrame) and len(df) == 1
+
+def test_df_cache_hit_returns_same_object():
+    import pandas as pd
+    from services.market_analysis_service import MarketAnalysisService
+    svc = MarketAnalysisService()
+    key = "ES:5m"
+    cached = pd.DataFrame([{"close": 5300.0}])
+    svc._df_cache[key] = cached
+    assert svc._get_df(key) is cached
+
+def test_bar_append_invalidates_cache():
+    import pandas as pd
+    from collections import deque
+    from datetime import datetime
+    from services.market_analysis_service import MarketAnalysisService
+    svc = MarketAnalysisService()
+    key = "NQ:1m"
+    svc.bar_history[key] = deque(maxlen=200)
+    svc._df_cache[key] = pd.DataFrame([{"close": 5300.0}])
+    svc.bar_history[key].append({"timestamp": datetime(2026,2,28,10,1), "close": 5310.0})
+    svc._df_cache[key] = None
+    assert svc._df_cache[key] is None
