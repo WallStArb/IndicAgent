@@ -138,8 +138,8 @@ Plans:
 **Requirements**: (integration only — no new requirement IDs)
 
 Plans:
-- [ ] 08-01-PLAN.md — Add `indicagent-weight-updater.timer` systemd timer calling `run_weight_update(db_manager)` on a daily schedule; verify CIS learning loop can activate after 50+ resolved signals
-- [ ] 08-02-PLAN.md — Update `production/scripts/historical_backfill.py:_INSERT_SYNC_SQL` to include `cis_score`, `bucket_scores`, `weights_version`, `signal_quality` with NULL defaults (nullable columns)
+- [x] 08-01-PLAN.md — Add `indicagent-weight-updater.timer` systemd timer calling `run_weight_update(db_manager)` on a daily schedule; verify CIS learning loop can activate after 50+ resolved signals
+- [x] 08-02-PLAN.md — Update `production/scripts/historical_backfill.py:_INSERT_SYNC_SQL` to include `cis_score`, `bucket_scores`, `weights_version`, `signal_quality` with NULL defaults (nullable columns)
 - [ ] 08-03-PLAN.md — Remove `_persist_intelligence()` call from `market_analysis_service._run_analysis_loop()` and delete the dead method body
 
 ### Phase 9: Milestone Verification
@@ -168,7 +168,7 @@ Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 5. Live Pipeline | 3/3 | Complete | 2026-02-25 |
 | 6. Dashboard Connected | 4/4 | Complete | 2026-02-28 |
 | 7. Composite Intelligence Score (CIS) | 4/4 | Complete | 2026-02-28 |
-| 8. Integration Fix & Cleanup | 0/3 | Pending | |
+| 8. Integration Fix & Cleanup | 2/3 | In Progress | 2026-02-28 (partial) |
 | 9. Milestone Verification | 0/3 | Pending | |
 
 ## Backlog

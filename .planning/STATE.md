@@ -8,7 +8,7 @@ progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 26
-  completed_plans: 22
+  completed_plans: 24
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 7 — Composite Intelligence Score (07-01 complete; 07-02 complete 2026-02-28; 07-03 complete 2026-02-28; 07-04 complete 2026-02-28)
+**Current focus:** Phase 8 — Integration Fix & Cleanup (08-01 complete; 08-02 complete 2026-02-28)
 
 ## Current Position
 
 Phase: 8 of 9 (in progress)
-Plan: 2/3 complete
-Status: Phase 8 (integration-fix) in progress. 08-01: market_analysis_service multi-stream xreadgroup fix. 08-02: _INSERT_SYNC_SQL updated to 28 columns with Phase 7 CIS fields (cis_score, bucket_scores, weights_version, signal_quality), NULL passthrough for backfill, 787 tests.
-Last activity: 2026-02-28 — Phase 8 Plan 02 complete (backfill SQL CIS column update)
+Plan: 3/3 — next: 08-03
+Status: Phase 8 (integration-fix) in progress. 08-01: systemd timer for CIS weight updater (daily 02:00, Persistent=true), bug fix connect→initialize in weight_updater __main__. 08-02: _INSERT_SYNC_SQL updated to 28 columns with Phase 7 CIS fields (cis_score, bucket_scores, weights_version, signal_quality), NULL passthrough for backfill.
+Last activity: 2026-02-28 — Phase 8 Plan 01 SUMMARY created (systemd weight updater timer)
 
-Progress: [████████░░░] ~84% (23/27 plans complete across Phases 0-8)
+Progress: [████████░░░] ~85% (24/27 plans complete across Phases 0-8)
 
 ## Performance Metrics
 
@@ -147,6 +147,8 @@ Recent decisions from execution (2026-02-28):
 - [Phase 07-composite-intelligence-score]: 07-03: cis_weights CHECK includes 'blended' — required for 50-99 sample transition window rows
 - [Phase 08-integration-fix]: 08-02: backfill SQL updated to 28 columns to match Phase 7 signal_ledger schema; NULL passed for all 4 CIS fields at backfill time
 - [Phase 08-integration-fix]: 08-02: _insert_signals_sync builds params inline — both SQL and params updated together to maintain alignment
+- [Phase 08-integration-fix]: 08-01: systemd timer uses Persistent=true — missed 02:00 runs fire on next boot (correct for daily weight learning)
+- [Phase 08-integration-fix]: 08-01: weight_updater __main__ used connect()/disconnect() but DatabaseManager API is initialize()/close() — fixed in 56346ba
 
 ### Pending Todos
 
@@ -160,5 +162,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 08-02-PLAN.md — _INSERT_SYNC_SQL updated to 28 columns with CIS fields, NULL passthrough for backfill, 787 tests passing. Phase 8 Plan 2 of 3 complete.
+Stopped at: Completed 08-01-SUMMARY.md — systemd weight updater timer wired, bug fixed (connect→initialize). Phase 8 Plans 1 and 2 of 3 complete. Next: 08-03-PLAN.md (remove dead _persist_intelligence() from market_analysis_service).
 Resume file: None
