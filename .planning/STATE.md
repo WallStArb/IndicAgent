@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-28T01:24:49.684Z"
+last_updated: "2026-02-28T01:33:02.486Z"
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 23
   completed_plans: 21
 ---
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 7 — Composite Intelligence Score (07-01 complete; 07-02 complete 2026-02-28; 07-04 complete 2026-02-28)
+**Current focus:** Phase 7 — Composite Intelligence Score (07-01 complete; 07-02 complete 2026-02-28; 07-03 complete 2026-02-28; 07-04 complete 2026-02-28)
 
 ## Current Position
 
-Phase: 7 of 7 IN PROGRESS
-Plan: 3/4 complete
-Status: Phase 7 in progress. 07-01: 5 CIS evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition), TIER_I7 9→14, 708 tests. 07-02: CISScorer 6-bucket weighted scorer + CIS-augmented aggregator + LedgerEntry 28-tuple + migration 011 + features kwarg wired, 749 tests. 07-04: _resolve_entry() extended with at_limit/at_pullback entry types, 725 tests passing.
-Last activity: 2026-02-28 — Phase 7 Plan 02 complete (CIS bucket scorer + aggregator + signal_ledger extension)
+Phase: 7 of 7 COMPLETE
+Plan: 4/4 complete
+Status: Phase 7 complete. 07-01: 5 CIS evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition), TIER_I7 9→14, 708 tests. 07-02: CISScorer 6-bucket weighted scorer + CIS-augmented aggregator + LedgerEntry 28-tuple + migration 011 + features kwarg wired, 749 tests. 07-03: weight_updater.py + migration 012 cis_weights + signal_quality on exit, 771 tests. 07-04: _resolve_entry() extended with at_limit/at_pullback entry types.
+Last activity: 2026-02-28 — Phase 7 Plan 03 complete (weight updater + adaptive weight learning)
 
 Progress: [████████░░░] ~81% (22/27 plans complete across Phases 0-7)
 
@@ -61,6 +61,7 @@ Progress: [████████░░░] ~81% (22/27 plans complete across 
 | 07-composite-intelligence-score | P01 | 6min | 2 | 9 |
 | 07-composite-intelligence-score | P04 | 3min | 1 | 2 |
 | 07-composite-intelligence-score | P02 | 7min | 2 | 7 |
+| 07-composite-intelligence-score | P03 | 4min | 2 | 6 |
 
 ## Accumulated Context
 
@@ -140,6 +141,9 @@ Recent decisions from execution (2026-02-28):
 - 07-04: mtf_alignment entry uses nearest_support/resistance as CTF level proxy — no ctf_level price field in IntelligenceEvent schema
 - 07-04: at_limit for long uses level <= entry_price (not strictly less than) — equal-price level is still a valid limit order
 - 07-04: Pre-existing E501 violations in trade_framer.py left unchanged per scope boundary; only new-code violations fixed
+- [Phase 07-composite-intelligence-score]: 07-03: weight_updater accepts pre-fetched data (pure function) — no DB coupling; run_weight_update() handles DB separately
+- [Phase 07-composite-intelligence-score]: 07-03: signal_quality = max(0, pnl_r * confidence) on signal exit — vol_regime omitted (not stored at fire time)
+- [Phase 07-composite-intelligence-score]: 07-03: cis_weights CHECK includes 'blended' — required for 50-99 sample transition window rows
 
 ### Pending Todos
 
@@ -153,5 +157,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 07-02-PLAN.md — CISScorer 6-bucket weighted scorer + CIS-augmented aggregator + LedgerEntry 28-column + migration 011, 749 tests passing.
+Stopped at: Completed 07-03-PLAN.md — weight_updater.py + migration 012 cis_weights + signal_quality on exit, 771 tests passing. Phase 7 all 4 plans complete.
 Resume file: None
