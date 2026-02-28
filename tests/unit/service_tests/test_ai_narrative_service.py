@@ -49,7 +49,7 @@ async def test_process_message_skips_zero_direction():
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
     svc.per_signal_chain.generate.assert_not_called()
-    svc.redis_client.xack.assert_called_once()
+    svc.redis_client.xack.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_process_message_publishes_narrative():
     svc.redis_client.hset.assert_called_once()
     svc.redis_client.expire.assert_called_once()
     # Ack
-    svc.redis_client.xack.assert_called_once()
+    svc.redis_client.xack.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_process_message_handles_ollama_failure():
     )
 
     svc.redis_client.xadd.assert_not_called()
-    svc.redis_client.xack.assert_called_once()
+    svc.redis_client.xack.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -152,7 +152,7 @@ async def test_process_message_skips_1m_timeframe():
         "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
     )
     svc.per_signal_chain.generate.assert_not_called()
-    svc.redis_client.xack.assert_called_once()
+    svc.redis_client.xack.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -181,7 +181,7 @@ async def test_process_message_skips_low_confidence():
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
     svc.per_signal_chain.generate.assert_not_called()
-    svc.redis_client.xack.assert_called_once()
+    svc.redis_client.xack.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ async def test_process_message_acks_on_redis_publish_failure():
     )
 
     # Must ack even though xadd raised
-    svc.redis_client.xack.assert_called_once()
+    svc.redis_client.xack.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -328,3 +328,21 @@ def test_service_has_shutdown_event():
     import asyncio
     assert isinstance(svc.shutdown_event, asyncio.Event)
     assert not svc.shutdown_event.is_set()
+
+
+def test_stream_map_populated_after_setup():
+    """_stream_map must contain all signal streams after setup."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from services.ai_narrative_service import AINarrativeService
+
+    svc = AINarrativeService()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xgroup_setid = AsyncMock()
+
+    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
+
+    symbols = svc.config["service"]["symbols"]
+    tfs = svc.config["service"]["timeframes"]
+    assert len(svc._stream_map) == len(symbols) * len(tfs)

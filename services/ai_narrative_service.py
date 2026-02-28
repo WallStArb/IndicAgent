@@ -228,6 +228,7 @@ class AINarrativeService:
 
         self._total_narratives = 0
         self._error_count = 0
+        self._stream_map: dict[str, tuple[str, str]] = {}
 
         self._build_chains()
 
@@ -408,6 +409,7 @@ class AINarrativeService:
                         )
                     except Exception:
                         pass
+                self._stream_map[stream_name] = (sym, tf)
 
     async def stop(self) -> None:
         self.logger.info("Stopping AI Narrative Service")
@@ -428,12 +430,12 @@ class AINarrativeService:
         fields: dict[bytes, bytes],
         stream_name: str,
         message_id: bytes,
-    ) -> None:
+    ) -> bool:
         try:
             signal_data = parse_aggregated_signal(fields)
             if signal_data is None:
                 self.narratives_skipped_total.inc()
-                return  # finally will xack
+                return True
 
             # Always cache latest signal for group synthesis (regardless of per-signal filter)
             cache_key_mem = f"{symbol}:{timeframe}"
@@ -446,7 +448,7 @@ class AINarrativeService:
                     "Per-signal narrative skipped: ineligible TF",
                     symbol=symbol, timeframe=timeframe,
                 )
-                return  # finally will xack
+                return True
 
             if signal_data["confidence"] <= _NARRATIVE_MIN_CONFIDENCE:
                 self.narratives_skipped_total.inc()
@@ -455,7 +457,7 @@ class AINarrativeService:
                     symbol=symbol, timeframe=timeframe,
                     confidence=signal_data["confidence"],
                 )
-                return  # finally will xack
+                return True
 
             prompt = build_narrative_prompt(signal_data)
             t0 = time.time()
@@ -502,6 +504,7 @@ class AINarrativeService:
                     symbol=symbol,
                     timeframe=timeframe,
                 )
+            return True
 
         except Exception as e:
             self.logger.error(
@@ -512,8 +515,7 @@ class AINarrativeService:
             )
             self.error_count_total.inc()
             self._error_count += 1
-        finally:
-            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
+            return False
 
     # ------------------------------------------------------------------
     # Main service loops
@@ -521,38 +523,35 @@ class AINarrativeService:
 
     async def _process_loop(self) -> None:
         self.logger.info("Starting signal stream processing loop")
-
+        all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
-                for tf in self.config["service"]["timeframes"]:
-                    for sym in self.config["service"]["symbols"]:
-                        stream_name = signals_aggregated(self.env_prefix, sym, tf)
-                        messages = await self.redis_client.xreadgroup(
-                            self.consumer_group,
-                            self.consumer_name,
-                            {stream_name: ">"},
-                            count=10,
-                            block=100,
-                        )
-                        for _stream, msgs in messages:
-                            for message_id, fields in msgs:
-                                await self._process_single_message(
-                                    sym, tf, fields, stream_name, message_id
-                                )
-
-                # Wake up early if shutdown requested
-                try:
-                    await asyncio.wait_for(
-                        self.shutdown_event.wait(),
-                        timeout=self.config["service"]["processing_interval"],
+                messages = await self.redis_client.xreadgroup(
+                    self.consumer_group, self.consumer_name,
+                    all_streams, count=10, block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
                     )
-                except TimeoutError:
-                    pass
-
+                    symbol, timeframe = self._stream_map[stream_name]
+                    to_ack: list[bytes] = []
+                    for message_id, fields in msgs:
+                        ok = await self._process_single_message(
+                            symbol, timeframe, fields, stream_name, message_id
+                        )
+                        if ok:
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(
+                            stream_name, self.consumer_group, *to_ack
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.error("Error in processing loop", error=str(e))
+                self.logger.error("Error in narrative processing loop", error=str(e))
                 self.error_count_total.inc()
                 self._error_count += 1
                 await asyncio.sleep(1)
