@@ -57,7 +57,7 @@ Building this milestone.
 - [x] **FST-04**: DB compressed after 7 days, indefinite retention for seasonal ML analysis
 
 ### Historical Data
-- [ ] **HST-01**: Historical backfill runs 365 days producing 2,700+ signals in `signal_ledger`
+- [x] **HST-01**: Historical backfill runs 365 days producing 2,700+ signals in `signal_ledger`
 - [x] **HST-02**: `intelligence_features` populated with corresponding feature history for ML training
 - [x] **HST-03**: Backfill writes both `signal_ledger` and `intelligence_features` in Stage 2
 

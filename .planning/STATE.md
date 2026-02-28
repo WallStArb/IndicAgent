@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-28T13:23:30Z"
+last_updated: "2026-02-28T13:24:21.062Z"
 progress:
   total_phases: 9
   completed_phases: 6
-  total_plans: 27
-  completed_plans: 25
+  total_plans: 29
+  completed_plans: 26
 ---
 
 # Project State
@@ -64,6 +64,7 @@ Progress: [█████████░░] ~90% (25/27 plans complete across 
 | 07-composite-intelligence-score | P03 | 4min | 2 | 6 |
 | 08-integration-fix | P02 | 5min | 2 | 2 |
 | 08-integration-fix | P03 | 2min | 1 | 0 |
+| Phase 09-milestone-verification P01 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,8 @@ Recent decisions from execution (2026-02-28):
 - [Phase 08-integration-fix]: 08-03: Service separation confirmed — market_analysis_service publishes IntelligenceEvent to Redis only; feature_writer_service is sole DB writer for intelligence data.
 - [Phase 09-milestone-verification]: 09-02: Phase 05 VERIFICATION.md status set to passed — all 8 services currently active, all 6 Prometheus endpoints HTTP 200; 05-02/05-03 SUMMARYs confirm I1→I7 was live during execution.
 - [Phase 09-milestone-verification]: 09-02: indicagent-timeframes.service correctly excluded from 8-service verification scope — known failed legacy service, non-blocking.
+- [Phase 09-01]: intelligence_features column is tf (not timeframe) — plan query corrected inline during verification
+- [Phase 09-01]: 7,425 NULL feature_ts signals are correct by design — pre-Phase-2 backfill; HST-03 orphan check correctly excludes them
 
 ### Pending Todos
 
