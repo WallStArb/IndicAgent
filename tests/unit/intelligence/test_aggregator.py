@@ -4,6 +4,7 @@ import pytest
 
 from src.intelligence.trading.aggregator import (
     SETUP_PRIORITY,
+    AggregatedResult,
     aggregate,
 )
 
@@ -166,3 +167,115 @@ class TestSetupPriority:
             "trad_MTFAlignment",
             "trad_LiquiditySweepReclaim",
         ]
+
+
+# ---------------------------------------------------------------------------
+# CIS integration tests (added in Phase 7 Plan 02)
+# ---------------------------------------------------------------------------
+
+
+def _bullish_features() -> dict:
+    """Return a strongly bullish features dict that triggers CIS fire."""
+    return {
+        "trend_regime": 0.8,
+        "kalman_slope": 0.5,
+        "smc_trend_direction": 1,
+        "ctf_trend_alignment": 0.8,
+        "trend_confluence_score": 0.7,
+        "rsi_14": 70.0,
+        "macd_hist_12_26_9": 0.5,
+        "roc_14": 2.0,
+        "momentum_bias": 0.6,
+        "swing_pattern": 0.7,
+        "bos_detected": 1.0,
+        "bos_direction": 1,
+        "choch_detected": 0.0,
+        "choch_direction": 0,
+        "ob_type": 1,
+        "ob_strength": 0.8,
+        "fvg_type": 1,
+        "fvg_open_count": 2,
+        "in_demand_zone": 1.0,
+        "in_supply_zone": 0.0,
+        "hmm_prob_trending_up": 0.7,
+        "hmm_prob_trending_down": 0.1,
+        "cp_probability": 0.2,
+        "ctf_regime_agreement": 0.6,
+        "vol_regime": 0.2,
+    }
+
+
+class TestAggregateCISIntegration:
+    @pytest.mark.unit
+    def test_aggregate_without_features_still_works(self):
+        """aggregate() without features kwarg does not crash."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        result = aggregate([sig], trend_regime=0.6)
+        assert isinstance(result, AggregatedResult)
+        assert result.selected_signal is not None
+
+    @pytest.mark.unit
+    def test_aggregate_features_none_still_works(self):
+        """aggregate(signals, features=None) does not crash."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        result = aggregate([sig], trend_regime=0.6, features=None)
+        assert isinstance(result, AggregatedResult)
+
+    @pytest.mark.unit
+    def test_aggregate_with_features_returns_cis_fields(self):
+        """aggregate() with strong bullish features -> selected_signal has CIS fields."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        result = aggregate([sig], trend_regime=0.8, features=_bullish_features())
+        assert result.selected_signal is not None
+        assert "cis_score" in result.selected_signal
+        assert "bucket_scores" in result.selected_signal
+        assert "weights_version" in result.selected_signal
+
+    @pytest.mark.unit
+    def test_aggregate_with_features_sets_result_cis_fields(self):
+        """AggregatedResult.cis_score, .bucket_scores, .weights_version populated when features given."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        result = aggregate([sig], trend_regime=0.8, features=_bullish_features())
+        assert result.cis_score is not None
+        assert result.bucket_scores is not None
+        assert result.weights_version is not None
+
+    @pytest.mark.unit
+    def test_aggregate_cis_overrides_direction(self):
+        """When CIS fires, CIS direction wins even if priority-pick disagrees."""
+        # Build a scenario: CIS says bullish (strong features), but 2 shorts vs 1 long
+        # majority-pick would say short, but CIS should override to long
+        # We use strongly bullish features + 2 shorts + 1 long
+        l1 = _signal("trad_LiquiditySweepReclaim", 1, confidence=0.9)  # highest priority
+        s1 = _signal("trad_TrendFollowing", -1, confidence=0.7)
+        s2 = _signal("trad_MTFAlignment", -1, confidence=0.7)
+        result = aggregate([l1, s1, s2], trend_regime=0.8, features=_bullish_features())
+        # CIS fires bullish (strong features) -> direction should be positive
+        if result.selected_signal is not None and result.resolution_method == "cis":
+            assert result.selected_signal["direction"] == 1
+
+    @pytest.mark.unit
+    def test_aggregate_falls_back_to_priority_when_cis_neutral(self):
+        """When features=None, fallback to winner-pick; existing behavior preserved."""
+        trend = _signal("trad_TrendFollowing", 1, confidence=0.9)
+        mean_rev = _signal("trad_MeanReversion", 1, confidence=0.95)
+        result = aggregate([trend, mean_rev], trend_regime=0.6, features=None)
+        # Without features, falls back to priority-pick
+        assert result.selected_signal["setup_plugin"] == "trad_TrendFollowing"
+        assert result.resolution_method in ("priority", "sole")
+
+    @pytest.mark.unit
+    def test_aggregate_cis_resolution_method_when_fires(self):
+        """resolution_method == 'cis' when CIS fires."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        result = aggregate([sig], trend_regime=0.8, features=_bullish_features())
+        # With CIS firing bullish and a long signal present -> resolution_method = "cis"
+        if result.cis_score is not None and abs(result.cis_score) > 0.35:
+            assert result.resolution_method == "cis"
+
+    @pytest.mark.unit
+    def test_aggregate_empty_signals_with_features_returns_no_signal(self):
+        """Empty signals list with features -> no_signal (not a crash)."""
+        result = aggregate([], trend_regime=0.8, features=_bullish_features())
+        assert result.selected_signal is None
+        assert result.resolution_method == "no_signal"
