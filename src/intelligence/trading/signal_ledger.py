@@ -48,12 +48,17 @@ class LedgerEntry:
     status: str = "pending"
     feature_ts: datetime | None = None
     feature_tf: str | None = None
+    # CIS fields — populated by CIS aggregator at signal fire time (Phase 7)
+    cis_score: float | None = None       # CIS composite score in [-1.0, +1.0]
+    bucket_scores: dict | None = None    # {"trend": 0.4, ...} — serialised to JSONB
+    weights_version: int | None = None   # FK to cis_weights.version; 0 = bootstrap
+    signal_quality: float | None = None  # populated by signal_tracker on exit
 
     def to_insert_params(self) -> tuple:
-        """Return a 24-element tuple ready for batch INSERT.
+        """Return a 28-element tuple ready for batch INSERT.
 
-        JSONB columns (targets, supporting_factors, market_context) are
-        serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
+        JSONB columns (targets, supporting_factors, market_context, bucket_scores)
+        are serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
         """
         return (
             self.signal_id,
@@ -80,6 +85,10 @@ class LedgerEntry:
             self.status,
             self.feature_ts,   # $23 — TIMESTAMPTZ, nullable
             self.feature_tf,   # $24 — TEXT, nullable
+            self.cis_score,    # $25 — FLOAT, nullable
+            json.dumps(self.bucket_scores) if self.bucket_scores is not None else None,  # $26
+            self.weights_version,   # $27 — INTEGER, nullable
+            self.signal_quality,    # $28 — FLOAT, nullable
         )
 
 
@@ -94,14 +103,16 @@ INSERT INTO signal_ledger (
     confidence, confluence_score, regime_context, supporting_factors,
     was_selected, num_signals_bar, num_agreeing, num_conflicting,
     resolution_method, composite_rank, market_context, status,
-    feature_ts, feature_tf
+    feature_ts, feature_tf,
+    cis_score, bucket_scores, weights_version, signal_quality
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
     $11, $12, $13, $14::jsonb,
     $15, $16, $17, $18,
     $19, $20, $21::jsonb, $22,
-    $23, $24
+    $23, $24,
+    $25, $26::jsonb, $27, $28
 )
 """
 

@@ -121,8 +121,11 @@ class CISScorer:
         if abs(cis_score) > self.CIS_THRESHOLD:
             direction = 1 if cis_score > 0 else -1
 
-        # Count agreeing buckets (bucket must push in the CIS direction, > noise)
-        cis_sign = cis_score if cis_score != 0 else 1.0
+        # Count agreeing buckets: bucket agrees if it pushes in the same direction
+        # as the CIS sign and the contribution exceeds the noise floor.
+        # Use the sign of cis_score (not the magnitude) so a bucket score of 0.28
+        # with cis_score=0.3 correctly reads as 0.28 * 1.0 = 0.28 > 0.1 = agreeing.
+        cis_sign = 1.0 if cis_score >= 0 else -1.0
         agreeing = sum(
             1
             for b in BUCKET_NAMES

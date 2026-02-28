@@ -181,6 +181,11 @@ def build_ledger_entries(
             status="pending",
             feature_ts=timestamp,   # IntelligenceEvent.ts — the bar timestamp
             feature_tf=timeframe,   # IntelligenceEvent.tf — the timeframe string
+            # CIS fields — populated by aggregator, None for non-CIS signals
+            cis_score=result.cis_score,
+            bucket_scores=result.bucket_scores,
+            weights_version=result.weights_version,
+            signal_quality=None,    # populated by signal_tracker on exit
         ))
     return entries
 
@@ -414,7 +419,7 @@ class SignalGeneratorService:
 
         raw_signals = self._run_setup_plugins(frames)
         trend_regime = float(features.get("trend_regime", 0.0))
-        result = aggregate(raw_signals, trend_regime=trend_regime)
+        result = aggregate(raw_signals, trend_regime=trend_regime, features=features)
 
         # Apply structural trade framing to the winning signal
         if result.selected_signal:
