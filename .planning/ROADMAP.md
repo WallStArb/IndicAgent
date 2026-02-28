@@ -17,9 +17,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Feature Store** - intelligence_features hypertable, Feature Writer Service, signal_ledger enhancement (COMPLETE 2026-02-23)
 - [x] **Phase 3: Historical Data** - 35-day backfill: 391K feature rows, 248K signals, 0 orphans (COMPLETE 2026-02-24)
 - [x] **Phase 4: Query API** - Historical feature and signal query endpoints on existing FastAPI (COMPLETE 2026-02-24)
-- [ ] **Phase 5: Live Pipeline** - All 8 services running together, full I1→I8 data flowing live through Redis streams
-- [ ] **Phase 6: Dashboard Connected** - Fix SSE multi-TF bug, verify every panel (indicators/structure/context/patterns/SMC/confluence/signals/narrative) shows real data
-- [x] **Phase 7: Composite Intelligence Score (CIS)** - Replace winner-pick aggregator with 6-bucket factor scorer, adaptive weight learning via logistic regression, 5 new I7 plugins, entry type improvements (completed 2026-02-28)
+- [x] **Phase 5: Live Pipeline** - All 8 services running together, full I1→I8 data flowing live through Redis streams (COMPLETE 2026-02-25)
+- [x] **Phase 6: Dashboard Connected** - Fix SSE multi-TF bug, verify every panel (indicators/structure/context/patterns/SMC/confluence/signals/narrative) shows real data (COMPLETE 2026-02-28)
+- [x] **Phase 7: Composite Intelligence Score (CIS)** - Replace winner-pick aggregator with 6-bucket factor scorer, adaptive weight learning via logistic regression, 5 new I7 plugins, entry type improvements (COMPLETE 2026-02-28)
+- [ ] **Phase 8: Integration Fix & Cleanup** - Wire CIS weight learning loop via systemd timer; fix backfill SQL for CIS columns; remove legacy dead table write
+- [ ] **Phase 9: Milestone Verification** - Formal VERIFICATION.md for Phases 03/05/06; DASH-07 live sign-off
 
 ## Phase Details
 
@@ -81,12 +83,13 @@ Plans:
   4. `development:narratives:ESH6:1m` has live messages — ai-narrative service is producing narratives
   5. feature_writer_service is consuming the intelligence stream and writing rows to intelligence_features (live row count grows over time)
   6. No service crash-loops — all services stable for 30+ minutes under systemd supervision
-**Plans**: 3 plans
+**Status**: COMPLETE 2026-02-25
+**Plans**: 3/3 complete
 
 Plans:
-- [ ] 05-01-PLAN.md — Fix TWS daemon false-connected bug + feature_writer symbol config + add indicagent-timeframes.service (TDD)
-- [ ] 05-02-PLAN.md — End-to-end RTH smoke test: start all 9 services, verify live data flows through every tier (checkpoint)
-- [ ] 05-03-PLAN.md — Stability audit: no crash-loops in 30+ min, metrics endpoints healthy, consumer group health, qualify_instrument investigation
+- [x] 05-01-PLAN.md — Fix TWS daemon false-connected bug + feature_writer symbol config + add indicagent-timeframes.service (TDD)
+- [x] 05-02-PLAN.md — End-to-end RTH smoke test: start all 9 services, verify live data flows through every tier (checkpoint)
+- [x] 05-03-PLAN.md — Stability audit: no crash-loops in 30+ min, metrics endpoints healthy, consumer group health, qualify_instrument investigation
 
 ### Phase 6: Dashboard Connected
 **Goal**: The dashboard shows real live data in every panel — not simulated data, not empty panels — for all intelligence tiers I1–I8
@@ -100,13 +103,14 @@ Plans:
   6. Signal panel (I7) shows real signals with direction, confidence, entry/stop
   7. Narrative panel (I8) shows real AI narrative text from the live narrative stream
   8. Connection status indicator accurately reflects SSE state (connecting/connected/disconnected)
-**Plans**: 4 plans
+**Status**: COMPLETE 2026-02-28 (06-04 human verification skipped; DASH-07 formal sign-off deferred to Phase 9)
+**Plans**: 4/4 complete
 
 Plans:
-- [ ] 06-01-PLAN.md — Backend fixes: implement TimeframeBuilder, fix qualify_instrument currency, add 1m to AI narrative
-- [ ] 06-02-PLAN.md — Frontend data layer + Price Hero: fix event.tf bug, session tracking, tickFlash, rebuild price-hero.tsx
-- [ ] 06-03-PLAN.md — SMC panel: extend SmartMoneyData with HMM regime + liquidity zones, render in SmartMoneyPanel
-- [ ] 06-04-PLAN.md — Human verification checkpoint: confirm all panels show real live data
+- [x] 06-01-PLAN.md — Backend fixes: implement TimeframeBuilder, fix qualify_instrument currency, add 1m to AI narrative
+- [x] 06-02-PLAN.md — Frontend data layer + Price Hero: fix event.tf bug, session tracking, tickFlash, rebuild price-hero.tsx
+- [x] 06-03-PLAN.md — SMC panel: extend SmartMoneyData with HMM regime + liquidity zones, render in SmartMoneyPanel
+- [x] 06-04-PLAN.md — Human verification checkpoint: confirm all panels show real live data
 
 ### Phase 7: Composite Intelligence Score (CIS)
 **Goal**: Replace the current winner-pick I7 aggregator with a principled 6-bucket factor scorer that consumes all unused intelligence tiers (CHoCH, FVG, I5 patterns, divergence stacking, HMM regime probabilities, BOCPD) and self-improves via logistic regression trained on live signal outcomes
@@ -123,9 +127,31 @@ Plans:
 
 Plans:
 - [x] 07-01-PLAN.md — Phase A: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) — standard PatternPlugin protocol, full TDD
-- [ ] 07-02-PLAN.md — Phase B: CIS bucket scorer + aggregator replacement + signal_ledger schema additions (cis_score, bucket_scores, weights_version, signal_quality)
-- [ ] 07-03-PLAN.md — Phase C: weight_updater.py + cis_weights table migration + bootstrap→learned transition logic
-- [ ] 07-04-PLAN.md — Phase D: entry type improvements (at_limit, at_pullback) in trade_framer.py for 4 setup types
+- [x] 07-02-PLAN.md — Phase B: CIS bucket scorer + aggregator replacement + signal_ledger schema additions (cis_score, bucket_scores, weights_version, signal_quality)
+- [x] 07-03-PLAN.md — Phase C: weight_updater.py + cis_weights table migration + bootstrap→learned transition logic
+- [x] 07-04-PLAN.md — Phase D: entry type improvements (at_limit, at_pullback) in trade_framer.py for 4 setup types
+
+### Phase 8: Integration Fix & Cleanup
+**Goal**: Wire the CIS weight learning loop into production via systemd timer; update backfill SQL for Phase 7 CIS columns; remove the dead legacy `intelligence` table write from `market_analysis_service`
+**Depends on**: Phase 7
+**Gap Closure**: Closes integration gaps from v1.0 audit — `run_weight_update()` trigger, backfill SQL stale, legacy table write
+**Requirements**: (integration only — no new requirement IDs)
+
+Plans:
+- [ ] 08-01-PLAN.md — Add `indicagent-weight-updater.timer` systemd timer calling `run_weight_update(db_manager)` on a daily schedule; verify CIS learning loop can activate after 50+ resolved signals
+- [ ] 08-02-PLAN.md — Update `production/scripts/historical_backfill.py:_INSERT_SYNC_SQL` to include `cis_score`, `bucket_scores`, `weights_version`, `signal_quality` with NULL defaults (nullable columns)
+- [ ] 08-03-PLAN.md — Remove `_persist_intelligence()` call from `market_analysis_service._run_analysis_loop()` and delete the dead method body
+
+### Phase 9: Milestone Verification
+**Goal**: Formally verify Phases 03/05/06 via VERIFICATION.md artifacts; confirm DASH-07 live rendering with formal sign-off; satisfy HST-01 and DASH-07 requirements
+**Depends on**: Phase 8
+**Gap Closure**: Closes verification gaps from v1.0 audit — Phases 03/05/06 unverified, DASH-07 unsigned
+**Requirements**: HST-01, DASH-07
+
+Plans:
+- [ ] 09-01-PLAN.md — Write Phase 03 VERIFICATION.md: query live DB row counts to confirm HST-01 (2,700+ signals), HST-02 (391K+ features), HST-03 (0 orphans); mark HST-01/02/03 satisfied
+- [ ] 09-02-PLAN.md — Write Phase 05 VERIFICATION.md: confirm all 8 services running, live data flowing I1→I8; rerun smoke test assertions
+- [ ] 09-03-PLAN.md — Write Phase 06 VERIFICATION.md: confirm all panels (DASH-01 through DASH-08) showing real live data; formal DASH-07 sign-off (signal panel direction/confidence/entry/stop visible, narrative panel shows AI text)
 
 ## Progress
 
@@ -139,9 +165,11 @@ Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Feature Store | 3/3 | Complete | 2026-02-23 |
 | 3. Historical Data | 3/3 | Complete | 2026-02-24 |
 | 4. Query API | 3/3 | Complete | 2026-02-24 |
-| 5. Live Pipeline | 1/3 | In Progress|  |
-| 6. Dashboard Connected | 3/4 | In Progress|  |
-| 7. Composite Intelligence Score (CIS) | 4/4 | Complete   | 2026-02-28 |
+| 5. Live Pipeline | 3/3 | Complete | 2026-02-25 |
+| 6. Dashboard Connected | 4/4 | Complete | 2026-02-28 |
+| 7. Composite Intelligence Score (CIS) | 4/4 | Complete | 2026-02-28 |
+| 8. Integration Fix & Cleanup | 0/3 | Pending | |
+| 9. Milestone Verification | 0/3 | Pending | |
 
 ## Backlog
 

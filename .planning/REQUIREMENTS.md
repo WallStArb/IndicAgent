@@ -66,11 +66,6 @@ Building this milestone.
 - [x] **API-02**: `GET /api/signals/{symbol}` returns signal history with optional JOIN to feature context
 - [x] **API-03**: Existing SSE stream endpoint updated to publish typed `IntelligenceEvent` payloads
 
-### ML Scoring Model
-- [ ] **ML-01**: ML model trained on `intelligence_features` to predict signal success probability
-- [ ] **ML-02**: ML scoring runs as I7 plugin or post-I7 layer, adding `ml_score` field to signals
-- [ ] **ML-03**: ML model versioned and retrainable from `intelligence_features` historical data
-
 ### Dashboard Connected (Phase 6)
 - [x] **DASH-01**: SSE connection to `/api/sse/events` works from the dashboard — browser DevTools shows `intelligence_data`, `indicator_data`, `signal_data`, `narrative_data` events arriving
 - [x] **DASH-02**: All 23 contracts qualify successfully — SR1H6, 6EH6, 6JH6, BTCH6, BZJ6, NGJ6 no longer fail `qualify_instrument`
@@ -81,14 +76,20 @@ Building this milestone.
 - [ ] **DASH-07**: Signal panel (I7) shows direction, confidence %, entry price, and stop loss; narrative panel (I8) shows AI narrative text
 - [x] **DASH-08**: Connection status indicator accurately reflects SSE state (connecting/connected/disconnected) — green dot with "Live" label when connected
 
-### Auth & External Access
-- [ ] **AUTH-01**: Single `Depends(verify_auth)` FastAPI dependency accepts JWT (human/Vercel) and API key (machine)
-- [ ] **AUTH-02**: Cloudflare Tunnel configured for HTTPS external access to FastAPI
-- [ ] **AUTH-03**: External consumers (Vercel frontend, external apps) can subscribe to `IntelligenceEvent` stream via authenticated SSE
 
 ## v2 Requirements
 
 Deferred — not in this milestone's roadmap.
+
+### ML Scoring Model
+- **ML-01**: ML model trained on `intelligence_features` to predict signal success probability (needs ~90 days of signal history)
+- **ML-02**: ML scoring runs as I7 plugin or post-I7 layer, adding `ml_score` field to signals
+- **ML-03**: ML model versioned and retrainable from `intelligence_features` historical data
+
+### Auth & External Access
+- **AUTH-01**: Single `Depends(verify_auth)` FastAPI dependency accepts JWT (human/Vercel) and API key (machine)
+- **AUTH-02**: Cloudflare Tunnel configured for HTTPS external access to FastAPI
+- **AUTH-03**: External consumers (Vercel frontend, external apps) can subscribe to `IntelligenceEvent` stream via authenticated SSE
 
 ### Multi-Platform Bus
 - **PLAT-01**: Fundamentals intelligence platform (earnings, balance sheets, cash flows)
@@ -116,37 +117,34 @@ Deferred — not in this milestone's roadmap.
 | BUS-01 | Phase 1 | Typed Event Schema | Complete (01-01) |
 | BUS-02 | Phase 1 | Typed Event Schema | Complete (01-01) |
 | BUS-03 | Phase 1 | Typed Event Schema | Complete (01-02) |
-| BUS-04 | Phase 1 | Typed Event Schema | Pending |
-| FST-01 | Phase 2 | Feature Store | Pending |
-| FST-02 | Phase 2 | Feature Store | Pending |
-| FST-03 | Phase 2 | Feature Store | Pending |
-| FST-04 | Phase 2 | Feature Store | Pending |
-| HST-01 | Phase 3 | Historical Data | Pending |
-| HST-02 | Phase 3 | Historical Data | Pending |
-| HST-03 | Phase 3 | Historical Data | Pending |
-| API-01 | Phase 4 | Query API | Complete |
-| API-02 | Phase 4 | Query API | Pending |
-| API-03 | Phase 4 | Query API | Pending |
-| ML-01 | Phase 5 | ML Scoring Model | Pending |
-| ML-02 | Phase 5 | ML Scoring Model | Pending |
-| ML-03 | Phase 5 | ML Scoring Model | Pending |
-| DASH-01 | Phase 6 | Dashboard Connected | Pending |
-| DASH-02 | Phase 6 | Dashboard Connected | Pending |
-| DASH-03 | Phase 6 | Dashboard Connected | Pending |
-| DASH-04 | Phase 6 | Dashboard Connected | Pending |
-| DASH-05 | Phase 6 | Dashboard Connected | Pending |
-| DASH-06 | Phase 6 | Dashboard Connected | Pending |
-| DASH-07 | Phase 6 | Dashboard Connected | Pending |
-| DASH-08 | Phase 6 | Dashboard Connected | Pending |
-| AUTH-01 | Phase 7 | Auth and External Access | Pending |
-| AUTH-02 | Phase 7 | Auth and External Access | Pending |
-| AUTH-03 | Phase 7 | Auth and External Access | Pending |
+| BUS-04 | Phase 1 | Typed Event Schema | Complete (01-03) |
+| FST-01 | Phase 2 | Feature Store | Complete (02-01) |
+| FST-02 | Phase 2 | Feature Store | Complete (02-02) |
+| FST-03 | Phase 2 | Feature Store | Complete (02-03) |
+| FST-04 | Phase 2 | Feature Store | Complete (02-01) |
+| HST-01 | Phase 9 | Milestone Verification | Pending |
+| HST-02 | Phase 3 | Historical Data | Complete (03-03) |
+| HST-03 | Phase 3 | Historical Data | Complete (03-03) |
+| API-01 | Phase 4 | Query API | Complete (04-01) |
+| API-02 | Phase 4 | Query API | Complete (04-02) |
+| API-03 | Phase 4 | Query API | Complete (04-03) |
+| DASH-01 | Phase 6 | Dashboard Connected | Complete (06-02) |
+| DASH-02 | Phase 6 | Dashboard Connected | Complete (06-01) |
+| DASH-03 | Phase 6 | Dashboard Connected | Complete (06-02) |
+| DASH-04 | Phase 6 | Dashboard Connected | Complete (06-01) |
+| DASH-05 | Phase 6 | Dashboard Connected | Complete (06-01) |
+| DASH-06 | Phase 6 | Dashboard Connected | Complete (06-03) |
+| DASH-07 | Phase 9 | Milestone Verification | Pending |
+| DASH-08 | Phase 6 | Dashboard Connected | Complete (06-02) |
+
+**Note:** ML-01/02/03 and AUTH-01/02/03 moved to v2 Requirements (intentional deferrals — never assigned to a real phase; explicitly in ROADMAP.md backlog).
 
 **Coverage:**
-- v1 requirements: 28 total
-- Mapped to phases: 28
+- v1 requirements: 22 total
+- Mapped to phases: 22
 - Unmapped: 0 ✓
+- v2 requirements: ML-01/02/03, AUTH-01/02/03, PLAT-01/02/03/04, SINT-01/02
 
 ---
 *Requirements defined: 2026-02-22*
-*Last updated: 2026-02-23 — BUS-01, BUS-02, BUS-03 complete (Plans 01-01, 01-02)*
+*Last updated: 2026-02-28 — ML-01/02/03 and AUTH-01/02/03 moved to v2 (intentional deferrals); traceability table rebuilt from audit; Phases 8-9 gap closure assigned*
