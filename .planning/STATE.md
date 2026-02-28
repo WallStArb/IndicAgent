@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-02-28T01:24:49.684Z"
+progress:
+  total_phases: 7
+  completed_phases: 4
+  total_plans: 23
+  completed_plans: 21
+---
+
 # Project State
 
 ## Project Reference
@@ -5,16 +18,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 7 — Composite Intelligence Score (06-04 partial; 07-01 complete 2026-02-28; 07-04 complete 2026-02-28)
+**Current focus:** Phase 7 — Composite Intelligence Score (07-01 complete; 07-02 complete 2026-02-28; 07-04 complete 2026-02-28)
 
 ## Current Position
 
 Phase: 7 of 7 IN PROGRESS
-Plan: 2/4 complete
-Status: Phase 7 in progress. 07-01: 5 CIS evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition), TIER_I7 9→14, 708 tests. 07-04: _resolve_entry() extended with at_limit (momentum_breakout, squeeze_expansion) and at_pullback (trend, mtf_alignment) entry types, 725 tests passing.
-Last activity: 2026-02-28 — Phase 7 Plan 04 complete (at_limit/at_pullback entry types in trade_framer.py)
+Plan: 3/4 complete
+Status: Phase 7 in progress. 07-01: 5 CIS evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition), TIER_I7 9→14, 708 tests. 07-02: CISScorer 6-bucket weighted scorer + CIS-augmented aggregator + LedgerEntry 28-tuple + migration 011 + features kwarg wired, 749 tests. 07-04: _resolve_entry() extended with at_limit/at_pullback entry types, 725 tests passing.
+Last activity: 2026-02-28 — Phase 7 Plan 02 complete (CIS bucket scorer + aggregator + signal_ledger extension)
 
-Progress: [████████░░░] ~79% (21/26 plans complete across Phases 0-7)
+Progress: [████████░░░] ~81% (22/27 plans complete across Phases 0-7)
 
 ## Performance Metrics
 
@@ -47,6 +60,7 @@ Progress: [████████░░░] ~79% (21/26 plans complete across 
 | 06-dashboard-connected | P03 | 3min | 2 | 3 |
 | 07-composite-intelligence-score | P01 | 6min | 2 | 9 |
 | 07-composite-intelligence-score | P04 | 3min | 1 | 2 |
+| 07-composite-intelligence-score | P02 | 7min | 2 | 7 |
 
 ## Accumulated Context
 
@@ -119,6 +133,10 @@ Recent decisions from execution (2026-02-28):
 - 07-01: CHoCHReversal and RegimeTransition both gate on choch_detected — deliberate overlap for independent vs. paired usage
 - 07-01: FVGFill confidence = 0.5 + 0.3 * min(1.0, fvg_open_count/3.0) — open count magnetism model
 - 07-01: RegimeTransition requires BOCPD cp_probability > 0.5 AND choch_detected == 1.0 (both gates, not OR)
+- 07-02: agreeing logic uses sign(cis_score) not cis_score magnitude — bucket_score * sign > 0.1 correctly counts directional agreement
+- 07-02: CIS synthesis when no matching plugin — aggregator takes highest-priority signal, overrides its direction to match CIS
+- 07-02: bucket_scores serialized via json.dumps() at to_insert_params() index 25 (0-based), cast via ::jsonb at $26 in asyncpg
+- 07-02: signal_quality always None at LedgerEntry creation; signal_tracker_service.py populates on exit (no change to signal_tracker)
 - 07-04: mtf_alignment entry uses nearest_support/resistance as CTF level proxy — no ctf_level price field in IntelligenceEvent schema
 - 07-04: at_limit for long uses level <= entry_price (not strictly less than) — equal-price level is still a valid limit order
 - 07-04: Pre-existing E501 violations in trade_framer.py left unchanged per scope boundary; only new-code violations fixed
@@ -135,5 +153,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 07-04-PLAN.md — at_limit/at_pullback entry types in trade_framer.py, 725 tests passing.
+Stopped at: Completed 07-02-PLAN.md — CISScorer 6-bucket weighted scorer + CIS-augmented aggregator + LedgerEntry 28-column + migration 011, 749 tests passing.
 Resume file: None
