@@ -9,6 +9,7 @@ from src.intelligence.trading.trade_framer import (
     TradeFrame,
     TradeTarget,
     frame_trade,
+    _resolve_entry,
     _resolve_stop_long,
     _resolve_stop_short,
     _collect_targets_long,
@@ -442,3 +443,117 @@ class TestStructuralIntegration:
         if frame.rr_t3 > 0:
             assert frame.targets[2].label != ""
             assert frame.rr_t3 >= 4.0
+
+
+# ---------------------------------------------------------------------------
+# New entry types: at_limit and at_pullback
+# ---------------------------------------------------------------------------
+
+class TestResolveEntryNewCases:
+    def test_momentum_breakout_long_uses_at_limit(self):
+        """momentum_breakout_long with valid swing_high below entry → at_limit."""
+        entry = 5000.0
+        features = {"swing_high": 4990.0}  # below entry → valid limit level
+        price, etype = _resolve_entry("momentum_breakout_long", 1, entry, features)
+        assert etype == "at_limit"
+        assert price == 4990.0
+
+    def test_momentum_breakout_long_fallback_when_swing_above_entry(self):
+        """swing_high > entry_price for long → directionally wrong → at_close fallback."""
+        entry = 5000.0
+        features = {"swing_high": 5010.0}  # above entry → invalid for limit long
+        price, etype = _resolve_entry("momentum_breakout_long", 1, entry, features)
+        assert etype == "at_close"
+        assert price == entry
+
+    def test_momentum_breakout_short_uses_at_limit(self):
+        """momentum_breakout_short with swing_low above entry → at_limit."""
+        entry = 5000.0
+        features = {"swing_low": 5010.0}  # above entry → valid limit for short
+        price, etype = _resolve_entry("momentum_breakout_short", -1, entry, features)
+        assert etype == "at_limit"
+        assert price == 5010.0
+
+    def test_momentum_breakout_fallback_when_no_swing(self):
+        """No swing_high → fallback at_close."""
+        price, etype = _resolve_entry("momentum_breakout_long", 1, 5000.0, {})
+        assert etype == "at_close"
+
+    def test_squeeze_expansion_uses_at_limit_bb_middle(self):
+        """squeeze_expansion with bb_middle > 0 → at_limit at bb_middle."""
+        entry = 5000.0
+        features = {"bb_middle": 4985.0}
+        price, etype = _resolve_entry("squeeze_expansion_long", 1, entry, features)
+        assert etype == "at_limit"
+        assert price == 4985.0
+
+    def test_squeeze_expansion_fallback_no_bb_middle(self):
+        """No bb_middle → fallback at_close."""
+        price, etype = _resolve_entry("squeeze_expansion_long", 1, 5000.0, {})
+        assert etype == "at_close"
+
+    def test_trend_long_uses_at_pullback_nearest_support(self):
+        """trend_long with nearest_support < entry → at_pullback."""
+        entry = 5000.0
+        features = {"nearest_support": 4970.0}  # below entry → valid pullback
+        price, etype = _resolve_entry("trend_long", 1, entry, features)
+        assert etype == "at_pullback"
+        assert price == 4970.0
+
+    def test_trend_long_also_accepts_sr_nearest_support(self):
+        """sr_nearest_support alias accepted when nearest_support is 0."""
+        entry = 5000.0
+        features = {"nearest_support": 0.0, "sr_nearest_support": 4975.0}
+        price, etype = _resolve_entry("trend_long", 1, entry, features)
+        assert etype == "at_pullback"
+        assert price == 4975.0
+
+    def test_trend_long_fallback_when_support_above_entry(self):
+        """nearest_support > entry → directionally wrong → at_close."""
+        entry = 5000.0
+        features = {"nearest_support": 5010.0}
+        price, etype = _resolve_entry("trend_long", 1, entry, features)
+        assert etype == "at_close"
+
+    def test_trend_short_uses_at_pullback_nearest_resistance(self):
+        """trend_short with nearest_resistance > entry → at_pullback."""
+        entry = 5000.0
+        features = {"nearest_resistance": 5020.0}
+        price, etype = _resolve_entry("trend_short", -1, entry, features)
+        assert etype == "at_pullback"
+        assert price == 5020.0
+
+    def test_mtf_alignment_long_uses_at_pullback(self):
+        """mtf_alignment uses nearest_support as CTF level proxy."""
+        entry = 5000.0
+        features = {"nearest_support": 4980.0}
+        price, etype = _resolve_entry("mtf_alignment_long", 1, entry, features)
+        assert etype == "at_pullback"
+        assert price == 4980.0
+
+    def test_mtf_alignment_short_uses_at_pullback(self):
+        """mtf_alignment short uses nearest_resistance as CTF level proxy."""
+        entry = 5000.0
+        features = {"nearest_resistance": 5025.0}
+        price, etype = _resolve_entry("mtf_alignment_short", -1, entry, features)
+        assert etype == "at_pullback"
+        assert price == 5025.0
+
+    def test_mtf_alignment_fallback_no_level(self):
+        """No structural level for MTF alignment → at_close fallback."""
+        price, etype = _resolve_entry("mtf_alignment_long", 1, 5000.0, {})
+        assert etype == "at_close"
+
+    # Regression: existing cases must still work
+    def test_sweep_reclaim_unchanged(self):
+        price, etype = _resolve_entry("sweep_reclaim_long", 1, 5000.0, {})
+        assert etype == "at_reclaim"
+
+    def test_supply_demand_unchanged(self):
+        features = {"nearest_demand_high": 4990.0}
+        price, etype = _resolve_entry("supply_demand_long", 1, 5000.0, features)
+        assert etype == "zone_proximal"
+
+    def test_unknown_setup_type_still_falls_back(self):
+        price, etype = _resolve_entry("unknown_setup_long", 1, 5000.0, {})
+        assert etype == "at_close"
