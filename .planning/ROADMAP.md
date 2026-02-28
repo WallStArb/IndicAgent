@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Query API** - Historical feature and signal query endpoints on existing FastAPI (COMPLETE 2026-02-24)
 - [ ] **Phase 5: Live Pipeline** - All 8 services running together, full I1→I8 data flowing live through Redis streams
 - [ ] **Phase 6: Dashboard Connected** - Fix SSE multi-TF bug, verify every panel (indicators/structure/context/patterns/SMC/confluence/signals/narrative) shows real data
-- [ ] **Phase 7: Dashboard Complete** - Any remaining stubbed panels, signal history view, timeframe matrix wired to live data
+- [ ] **Phase 7: Composite Intelligence Score (CIS)** - Replace winner-pick aggregator with 6-bucket factor scorer, adaptive weight learning via logistic regression, 5 new I7 plugins, entry type improvements
 
 ## Phase Details
 
@@ -108,20 +108,24 @@ Plans:
 - [ ] 06-03-PLAN.md — SMC panel: extend SmartMoneyData with HMM regime + liquidity zones, render in SmartMoneyPanel
 - [ ] 06-04-PLAN.md — Human verification checkpoint: confirm all panels show real live data
 
-### Phase 7: Dashboard Complete
-**Goal**: Dashboard is fully functional — all panels wired, signal history browsable, timeframe matrix live, no stubs or placeholder data
+### Phase 7: Composite Intelligence Score (CIS)
+**Goal**: Replace the current winner-pick I7 aggregator with a principled 6-bucket factor scorer that consumes all unused intelligence tiers (CHoCH, FVG, I5 patterns, divergence stacking, HMM regime probabilities, BOCPD) and self-improves via logistic regression trained on live signal outcomes
 **Depends on**: Phase 6
+**Design doc**: `docs/plans/2026-02-27-composite-intelligence-score-design.md`
 **Success Criteria** (what must be TRUE):
-  1. Timeframe matrix shows live signal direction across all configured timeframes (1m/5m/15m/1h) for the selected symbol
-  2. Signal history is browsable — either via a panel or drill-down view showing recent signals with entry/stop/outcome
-  3. No panels show zeroed or placeholder values when the pipeline is live — every panel either shows real data or a clear "no data yet" state
-  4. Dashboard works correctly for all configured symbol profiles (equity index, energy, metals, rates groups)
-**Plans**: TBD
+  1. All 602 existing tests pass — no regressions
+  2. 14 I7 plugins registered and validated by `registry.validate_tier()` (9 existing + 5 new)
+  3. CIS fires signals in production with `cis_score`, `bucket_scores`, `weights_version` logged to `signal_ledger`
+  4. `weight_updater.py` runs without error on ≥50 resolved signals
+  5. Bootstrap designed weights active at launch; transitions to learned weights automatically after 100 resolved signals
+  6. 4 setup types use limit/pullback entries instead of at_close (momentum_breakout, squeeze_expansion, trend, mtf_alignment)
+**Plans**: 4 plans (A→D per design doc)
 
 Plans:
-- [ ] 07-01: Timeframe matrix — wire to live per-TF signal data from SSE tfSignals state
-- [ ] 07-02: Signal history view — connect to GET /api/signals/{symbol} for browsable recent signals
-- [ ] 07-03: Final audit — all panels, all symbol profiles, all timeframes
+- [x] 07-01-PLAN.md — Phase A: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) — standard PatternPlugin protocol, full TDD
+- [ ] 07-02-PLAN.md — Phase B: CIS bucket scorer + aggregator replacement + signal_ledger schema additions (cis_score, bucket_scores, weights_version, signal_quality)
+- [ ] 07-03-PLAN.md — Phase C: weight_updater.py + cis_weights table migration + bootstrap→learned transition logic
+- [ ] 07-04-PLAN.md — Phase D: entry type improvements (at_limit, at_pullback) in trade_framer.py for 4 setup types
 
 ## Progress
 
@@ -137,7 +141,7 @@ Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Query API | 3/3 | Complete | 2026-02-24 |
 | 5. Live Pipeline | 1/3 | In Progress|  |
 | 6. Dashboard Connected | 3/4 | In Progress|  |
-| 7. Dashboard Complete | 0/3 | Not started | - |
+| 7. Composite Intelligence Score (CIS) | 1/4 | In Progress|  |
 
 ## Backlog
 
@@ -145,6 +149,7 @@ Items decided but not yet scheduled into a phase. Pull into a milestone when rea
 
 | Item | Notes | Analysis |
 |------|-------|---------|
+| Dashboard Complete | Timeframe matrix wired to live per-TF signal data; signal history view via GET /api/signals/{symbol}; final audit across all symbol profiles and timeframes. See todos: wire-timeframe-matrix, add-signal-history-view, dashboard-final-audit. | — |
 | Add i7/i8 columns to intelligence_features | Add `i7 JSONB` (which setups fired + scores) and `i8 JSONB` (narrative text + model metadata) to `intelligence_features`. Use enrichment stream pattern: signal_generator → `intelligence_i7:SYMBOL:TF`, ai_narrative → `intelligence_i8:SYMBOL:TF`; feature_writer UPSERTs both. Keeps `signal_ledger` as operational trading log. | `analysis/2026-02-24-feature-store-completeness.md` |
 | ML Scoring Model | Train XGBoost/LightGBM on `intelligence_features` joined to `signal_ledger` outcomes; A/B test rules vs scored aggregator; monthly retraining pipeline. Needs ~90 days of signal history. Files: `feature_engineering.py`, `calibrate_model.py`, `scored_aggregator.py`. | — |
 | Auth and External Access | JWT + API key auth via single Depends(verify_auth); Cloudflare Tunnel for HTTPS external access; authenticated SSE for Vercel frontend. Revisit when external consumer exists. | — |

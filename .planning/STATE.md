@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 6 — Dashboard Connected (Phase 5 complete; 06-01, 06-02, and 06-03 done 2026-02-25)
+**Current focus:** Phase 7 — Composite Intelligence Score (06-04 partial; 07-01 complete 2026-02-28)
 
 ## Current Position
 
-Phase: 6 of 7 IN PROGRESS
-Plan: 3/4 complete
-Status: Phase 6 (Dashboard Connected) in progress. 06-01: TimeframeBuilder + ibkr currency fix. 06-02: event.tf bug fixed, session tracking, price-hero rebuilt with activeTf/VWAP/session range. 06-03: SmartMoneyData extended with HMM regime + BSL/SSL liquidity zones; SmartMoneyPanel renders new rows.
-Last activity: 2026-02-25 — Phase 6 Plan 03 complete (SMC panel HMM regime + liquidity zones)
+Phase: 7 of 7 IN PROGRESS
+Plan: 1/4 complete
+Status: Phase 7 (Composite Intelligence Score) in progress. 07-01: 5 new I7 evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) added via TDD. TIER_I7 expanded 9→14, total plugins 57→62, 708 tests green.
+Last activity: 2026-02-28 — Phase 7 Plan 01 complete (5 CIS evidence-contributor plugins)
 
-Progress: [███████░░░░] ~73% (19/25 plans complete across Phases 0-6)
+Progress: [████████░░░] ~77% (20/26 plans complete across Phases 0-7)
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Progress: [███████░░░░] ~73% (19/25 plans complete across 
 | 06-dashboard-connected | P01 | 4min | 2 | 4 |
 | 06-dashboard-connected | P02 | 18min | 3 | 5 |
 | 06-dashboard-connected | P03 | 3min | 2 | 3 |
+| 07-composite-intelligence-score | P01 | 6min | 2 | 9 |
 
 ## Accumulated Context
 
@@ -110,6 +111,14 @@ Recent decisions from execution (2026-02-25):
 - 06-03: premium_position thresholds 0.6/0.4 create equilibrium band rather than binary 0.5 split
 - 06-03: price_in_premium follows nf(v) > 0 pattern — Redis stores Python bool as float "1.0"/"0.0"
 
+Recent decisions from execution (2026-02-28):
+
+- 07-01: DivergenceStack dual-gate LOCKED — rsi_div AND vol_div must BOTH exceed 0.3; single divergence always returns _no_signal()
+- 07-01: PatternCompletion confidence scaled by 0.9 to fit signal-quality range; highest-confidence pattern wins when multiple fire
+- 07-01: CHoCHReversal and RegimeTransition both gate on choch_detected — deliberate overlap for independent vs. paired usage
+- 07-01: FVGFill confidence = 0.5 + 0.3 * min(1.0, fvg_open_count/3.0) — open count magnetism model
+- 07-01: RegimeTransition requires BOCPD cp_probability > 0.5 AND choch_detected == 1.0 (both gates, not OR)
+
 ### Pending Todos
 
 None yet.
@@ -121,6 +130,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-25
-Stopped at: Phase 6 Plan 04 — paused at Task 3 checkpoint:human-verify (Tasks 1+2 complete, awaiting human sign-off).
+Last session: 2026-02-28
+Stopped at: Completed 07-01-PLAN.md — 5 CIS evidence-contributor plugins, TIER_I7 expanded to 14, 708 tests passing.
 Resume file: None
