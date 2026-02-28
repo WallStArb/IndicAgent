@@ -31,6 +31,9 @@ IDEAS → ANALYSIS → BACKLOG → TODOS → ROADMAP → PLANS
 
 ## Required Workflows
 
+### Post-Milestone Housekeeping
+After completing a milestone: `git push origin main`, push tag (`git push origin vX.Y`), run `/gsd:cleanup` to archive phases, update README stats (version, plugin count, test count).
+
 ### Feature Development (any new plugin, service, or significant change)
 **Mandatory skill chain — do not skip steps:**
 1. `brainstorming` — Explore context, clarify requirements, propose approaches, get design approval. Save design to `.planning/analysis/YYYY-MM-DD-<topic>.md`
