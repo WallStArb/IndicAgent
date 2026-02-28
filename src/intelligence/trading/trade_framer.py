@@ -7,6 +7,10 @@ RR gate before publishing a signal.
 Entry offset logic by setup_type:
   - sweep_reclaim_*, liquidity_hunt_*  → at_reclaim (current close)
   - supply_demand_*                    → zone_proximal (proximal edge)
+  - momentum_breakout_*                → at_limit (swing_high/low broken structure)
+  - squeeze_expansion_*                → at_limit (bb_middle squeeze centre)
+  - trend_long/short                   → at_pullback (nearest_support/resistance)
+  - mtf_alignment_*                    → at_pullback (nearest S/R as CTF proxy)
   - all others                         → at_close (current close)
 
 Stop placement hierarchy (longs):
@@ -45,7 +49,7 @@ class TradeTarget:
 @dataclass
 class TradeFrame:
     entry: float
-    entry_type: str          # "at_close" | "at_reclaim" | "zone_proximal"
+    entry_type: str          # "at_close"|"at_reclaim"|"zone_proximal"|"at_limit"|"at_pullback"
     stop: float
     stop_type: str           # "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low" | "sr_support" | "atr"
     targets: list[TradeTarget] = field(default_factory=list)
@@ -89,18 +93,68 @@ def _resolve_entry(
             zone_low = _fval(features, "nearest_supply_low")
             if zone_low > 0:
                 return zone_low, "zone_proximal"
+
+    # momentum_breakout → at_limit at broken structure level (swing_high/low)
+    if st.startswith("momentum_breakout"):
+        if direction == 1:
+            level = _fval(features, "swing_high")
+            if level > 0 and level <= entry_price:  # limit below current price for long
+                return level, "at_limit"
+        else:
+            level = _fval(features, "swing_low")
+            if level > 0 and level >= entry_price:  # limit above current price for short
+                return level, "at_limit"
+
+    # squeeze_expansion → at_limit at bb_middle (squeeze centre)
+    if st.startswith("squeeze_expansion") or st.startswith("squeeze"):
+        bb_middle = _fval(features, "bb_middle")
+        if bb_middle > 0:
+            return bb_middle, "at_limit"
+
+    # trend → at_pullback at nearest_support/resistance
+    if st.startswith("trend_"):
+        if direction == 1:
+            level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
+            if level > 0 and level < entry_price:  # pullback below current for long
+                return level, "at_pullback"
+        else:
+            level = (
+                _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
+            )
+            if level > 0 and level > entry_price:  # pullback above current for short
+                return level, "at_pullback"
+
+    # mtf_alignment → at_pullback using nearest_support/resistance as CTF level proxy
+    # Decision: no ctf_level price field exists in schema; using nearest S/R as structural proxy
+    if st.startswith("mtf_alignment"):
+        if direction == 1:
+            level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
+            if level > 0 and level < entry_price:
+                return level, "at_pullback"
+        else:
+            level = (
+                _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
+            )
+            if level > 0 and level > entry_price:
+                return level, "at_pullback"
+
     return entry_price, "at_close"
+
+
+MIN_STOP_ATR_MULTIPLIER = 1.0  # stop must be at least this many ATRs from entry
 
 
 def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
     """Stop placement hierarchy for long trades."""
+    min_stop = entry - atr * MIN_STOP_ATR_MULTIPLIER
+
     # Priority 1: in demand zone
     in_demand = _fval(features, "in_demand_zone")
     nearest_demand_low = _fval(features, "nearest_demand_low")
     if in_demand == 1.0 and nearest_demand_low > 0:
         stop = nearest_demand_low - atr * 0.25
         if stop < entry:
-            return stop, "demand_zone"
+            return min(stop, min_stop), "demand_zone"
 
     # Priority 2: sweep detected
     sweep_detected = _fval(features, "sweep_detected")
@@ -108,26 +162,26 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     if sweep_detected == 1.0 and sweep_level > 0:
         stop = sweep_level - atr * 0.30
         if stop < entry:
-            return stop, "sweep_level"
+            return min(stop, min_stop), "sweep_level"
 
     # Priority 3: order block bottom
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
     if ob_type == 1.0 and ob_bottom > 0 and ob_bottom < entry:
         stop = ob_bottom - atr * 0.20
-        return stop, "ob_bottom"
+        return min(stop, min_stop), "ob_bottom"
 
     # Priority 4: swing low
     swing_low = _fval(features, "swing_low")
     if swing_low > 0 and swing_low < entry:
         stop = swing_low - atr * 0.25
-        return stop, "swing_low"
+        return min(stop, min_stop), "swing_low"
 
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
     if sr_support > 0 and sr_support < entry:
         stop = sr_support - atr * 0.50
-        return stop, "sr_support"
+        return min(stop, min_stop), "sr_support"
 
     # Fallback: ATR×2.0
     return entry - atr * 2.0, "atr"
@@ -135,13 +189,15 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
 
 def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
     """Stop placement hierarchy for short trades (mirror of long)."""
+    max_stop = entry + atr * MIN_STOP_ATR_MULTIPLIER
+
     # Priority 1: in supply zone
     in_supply = _fval(features, "in_supply_zone")
     nearest_supply_high = _fval(features, "nearest_supply_high")
     if in_supply == 1.0 and nearest_supply_high > 0:
         stop = nearest_supply_high + atr * 0.25
         if stop > entry:
-            return stop, "supply_zone"
+            return max(stop, max_stop), "supply_zone"
 
     # Priority 2: sweep detected
     sweep_detected = _fval(features, "sweep_detected")
@@ -149,26 +205,26 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     if sweep_detected == 1.0 and sweep_level > 0:
         stop = sweep_level + atr * 0.30
         if stop > entry:
-            return stop, "sweep_level"
+            return max(stop, max_stop), "sweep_level"
 
     # Priority 3: order block top
     ob_type = _fval(features, "ob_type")
     ob_top = _fval(features, "ob_top")
     if ob_type == -1.0 and ob_top > 0 and ob_top > entry:
         stop = ob_top + atr * 0.20
-        return stop, "ob_top"
+        return max(stop, max_stop), "ob_top"
 
     # Priority 4: swing high
     swing_high = _fval(features, "swing_high")
     if swing_high > 0 and swing_high > entry:
         stop = swing_high + atr * 0.25
-        return stop, "swing_high"
+        return max(stop, max_stop), "swing_high"
 
     # Priority 5: S/R nearest resistance
     sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(features, "nearest_resistance")
     if sr_resistance > 0 and sr_resistance > entry:
         stop = sr_resistance + atr * 0.50
-        return stop, "sr_support"
+        return max(stop, max_stop), "sr_support"
 
     # Fallback: ATR×2.0
     return entry + atr * 2.0, "atr"
