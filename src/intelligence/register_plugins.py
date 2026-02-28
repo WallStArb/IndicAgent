@@ -49,11 +49,16 @@ from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugi
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
 from .structure.trend_structure import plugin as trend_plugin
+from .trading.choch_reversal import plugin as choch_reversal_plugin
+from .trading.divergence_stack import plugin as divergence_stack_plugin
+from .trading.fvg_fill import plugin as fvg_fill_plugin
 from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
 from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
 from .trading.mean_reversion import plugin as mean_revert_plugin
 from .trading.momentum_breakout import plugin as momentum_breakout_plugin
 from .trading.mtf_alignment import plugin as mtf_align_plugin
+from .trading.pattern_completion import plugin as pattern_completion_plugin
+from .trading.regime_transition import plugin as regime_transition_plugin
 from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
 from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
@@ -127,6 +132,11 @@ def register_all_plugins() -> None:
     registry.register_pattern(momentum_breakout_plugin)
     registry.register_pattern(liquidity_hunt_plugin)
     registry.register_pattern(supply_demand_setup_plugin)
+    registry.register_pattern(choch_reversal_plugin)
+    registry.register_pattern(fvg_fill_plugin)
+    registry.register_pattern(pattern_completion_plugin)
+    registry.register_pattern(divergence_stack_plugin)
+    registry.register_pattern(regime_transition_plugin)
 
 # ---------------------------------------------------------------------------
 # Canonical tier plugin lists — single source of truth.
@@ -210,4 +220,9 @@ TIER_I7: list[str] = [
     momentum_breakout_plugin.name,
     liquidity_hunt_plugin.name,
     supply_demand_setup_plugin.name,
+    choch_reversal_plugin.name,
+    fvg_fill_plugin.name,
+    pattern_completion_plugin.name,
+    divergence_stack_plugin.name,
+    regime_transition_plugin.name,
 ]
