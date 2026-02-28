@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-28T06:46:57.187Z"
+last_updated: "2026-02-28T13:04:19.543Z"
 progress:
-  total_phases: 7
+  total_phases: 9
   completed_phases: 5
-  total_plans: 23
-  completed_plans: 21
+  total_plans: 26
+  completed_plans: 22
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-02-22)
 
 ## Current Position
 
-Phase: 7 of 7 COMPLETE
-Plan: 4/4 complete
-Status: Phase 7 complete. 07-01: 5 CIS evidence-contributor plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition), TIER_I7 9→14, 708 tests. 07-02: CISScorer 6-bucket weighted scorer + CIS-augmented aggregator + LedgerEntry 28-tuple + migration 011 + features kwarg wired, 749 tests. 07-03: weight_updater.py + migration 012 cis_weights + signal_quality on exit, 771 tests. 07-04: _resolve_entry() extended with at_limit/at_pullback entry types.
-Last activity: 2026-02-28 — Phase 7 Plan 03 complete (weight updater + adaptive weight learning)
+Phase: 8 of 9 (in progress)
+Plan: 2/3 complete
+Status: Phase 8 (integration-fix) in progress. 08-01: market_analysis_service multi-stream xreadgroup fix. 08-02: _INSERT_SYNC_SQL updated to 28 columns with Phase 7 CIS fields (cis_score, bucket_scores, weights_version, signal_quality), NULL passthrough for backfill, 787 tests.
+Last activity: 2026-02-28 — Phase 8 Plan 02 complete (backfill SQL CIS column update)
 
-Progress: [████████░░░] ~81% (22/27 plans complete across Phases 0-7)
+Progress: [████████░░░] ~84% (23/27 plans complete across Phases 0-8)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████░░░] ~81% (22/27 plans complete across 
 | 07-composite-intelligence-score | P04 | 3min | 1 | 2 |
 | 07-composite-intelligence-score | P02 | 7min | 2 | 7 |
 | 07-composite-intelligence-score | P03 | 4min | 2 | 6 |
+| 08-integration-fix | P02 | 5min | 2 | 2 |
 
 ## Accumulated Context
 
@@ -144,6 +145,8 @@ Recent decisions from execution (2026-02-28):
 - [Phase 07-composite-intelligence-score]: 07-03: weight_updater accepts pre-fetched data (pure function) — no DB coupling; run_weight_update() handles DB separately
 - [Phase 07-composite-intelligence-score]: 07-03: signal_quality = max(0, pnl_r * confidence) on signal exit — vol_regime omitted (not stored at fire time)
 - [Phase 07-composite-intelligence-score]: 07-03: cis_weights CHECK includes 'blended' — required for 50-99 sample transition window rows
+- [Phase 08-integration-fix]: 08-02: backfill SQL updated to 28 columns to match Phase 7 signal_ledger schema; NULL passed for all 4 CIS fields at backfill time
+- [Phase 08-integration-fix]: 08-02: _insert_signals_sync builds params inline — both SQL and params updated together to maintain alignment
 
 ### Pending Todos
 
@@ -157,5 +160,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 07-03-PLAN.md — weight_updater.py + migration 012 cis_weights + signal_quality on exit, 771 tests passing. Phase 7 all 4 plans complete.
+Stopped at: Completed 08-02-PLAN.md — _INSERT_SYNC_SQL updated to 28 columns with CIS fields, NULL passthrough for backfill, 787 tests passing. Phase 8 Plan 2 of 3 complete.
 Resume file: None
