@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-28T13:04:19.543Z"
+last_updated: "2026-02-28T13:16:21.088Z"
 progress:
   total_phases: 9
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 26
   completed_plans: 24
 ---
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 8 — Integration Fix & Cleanup (08-01 complete; 08-02 complete 2026-02-28)
+**Current focus:** Phase 9 — next phase (Phase 8 complete 2026-02-28)
 
 ## Current Position
 
-Phase: 8 of 9 (in progress)
-Plan: 3/3 — next: 08-03
-Status: Phase 8 (integration-fix) in progress. 08-01: systemd timer for CIS weight updater (daily 02:00, Persistent=true), bug fix connect→initialize in weight_updater __main__. 08-02: _INSERT_SYNC_SQL updated to 28 columns with Phase 7 CIS fields (cis_score, bucket_scores, weights_version, signal_quality), NULL passthrough for backfill.
-Last activity: 2026-02-28 — Phase 8 Plan 01 SUMMARY created (systemd weight updater timer)
+Phase: 8 of 9 (COMPLETE)
+Plan: 3/3 — all plans done
+Status: Phase 8 (integration-fix) COMPLETE. 08-01: systemd timer for CIS weight updater (daily 02:00, Persistent=true). 08-02: _INSERT_SYNC_SQL updated to 28 columns with Phase 7 CIS fields. 08-03: service separation verified — market_analysis_service has no DB writes.
+Last activity: 2026-02-28 — Phase 8 complete (all 3 plans done; 08-03 service separation verified)
 
 Progress: [████████░░░] ~85% (24/27 plans complete across Phases 0-8)
 
@@ -63,6 +63,7 @@ Progress: [████████░░░] ~85% (24/27 plans complete across 
 | 07-composite-intelligence-score | P02 | 7min | 2 | 7 |
 | 07-composite-intelligence-score | P03 | 4min | 2 | 6 |
 | 08-integration-fix | P02 | 5min | 2 | 2 |
+| 08-integration-fix | P03 | 2min | 1 | 0 |
 
 ## Accumulated Context
 
@@ -149,6 +150,8 @@ Recent decisions from execution (2026-02-28):
 - [Phase 08-integration-fix]: 08-02: _insert_signals_sync builds params inline — both SQL and params updated together to maintain alignment
 - [Phase 08-integration-fix]: 08-01: systemd timer uses Persistent=true — missed 02:00 runs fire on next boot (correct for daily weight learning)
 - [Phase 08-integration-fix]: 08-01: weight_updater __main__ used connect()/disconnect() but DatabaseManager API is initialize()/close() — fixed in 56346ba
+- [Phase 08-integration-fix]: 08-03: market_analysis_service.py confirmed clean — no _persist_intelligence(), no DatabaseManager import, no INSERT/UPDATE. Commit 0de0e7d removed all dead DB code.
+- [Phase 08-integration-fix]: 08-03: Service separation confirmed — market_analysis_service publishes IntelligenceEvent to Redis only; feature_writer_service is sole DB writer for intelligence data.
 
 ### Pending Todos
 
@@ -162,5 +165,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 08-01-SUMMARY.md — systemd weight updater timer wired, bug fixed (connect→initialize). Phase 8 Plans 1 and 2 of 3 complete. Next: 08-03-PLAN.md (remove dead _persist_intelligence() from market_analysis_service).
+Stopped at: Completed 08-03-SUMMARY.md — service separation verified (market_analysis_service writes Redis only). Phase 8 complete (all 3 plans done). Next: Phase 9.
 Resume file: None

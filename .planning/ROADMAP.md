@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Live Pipeline** - All 8 services running together, full I1→I8 data flowing live through Redis streams (COMPLETE 2026-02-25)
 - [x] **Phase 6: Dashboard Connected** - Fix SSE multi-TF bug, verify every panel (indicators/structure/context/patterns/SMC/confluence/signals/narrative) shows real data (COMPLETE 2026-02-28)
 - [x] **Phase 7: Composite Intelligence Score (CIS)** - Replace winner-pick aggregator with 6-bucket factor scorer, adaptive weight learning via logistic regression, 5 new I7 plugins, entry type improvements (COMPLETE 2026-02-28)
-- [ ] **Phase 8: Integration Fix & Cleanup** - Wire CIS weight learning loop via systemd timer; fix backfill SQL for CIS columns; remove legacy dead table write
+- [x] **Phase 8: Integration Fix & Cleanup** - Wire CIS weight learning loop via systemd timer; fix backfill SQL for CIS columns; remove legacy dead table write (completed 2026-02-28)
 - [ ] **Phase 9: Milestone Verification** - Formal VERIFICATION.md for Phases 03/05/06; DASH-07 live sign-off
 
 ## Phase Details
@@ -168,7 +168,7 @@ Phases execute in numeric order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 5. Live Pipeline | 3/3 | Complete | 2026-02-25 |
 | 6. Dashboard Connected | 4/4 | Complete | 2026-02-28 |
 | 7. Composite Intelligence Score (CIS) | 4/4 | Complete | 2026-02-28 |
-| 8. Integration Fix & Cleanup | 2/3 | In Progress | 2026-02-28 (partial) |
+| 8. Integration Fix & Cleanup | 3/3 | Complete   | 2026-02-28 |
 | 9. Milestone Verification | 0/3 | Pending | |
 
 ## Backlog
