@@ -367,6 +367,6 @@ The distinction is that plugins aren't bolted onto an existing system — they A
 
 ## Related Documentation
 - [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Technical implementation details
-- [Intelligence Tiers (I1-I8)](intelligence-tiers.md) - Complete tier definitions
+- [Intelligence Tiers (I1-I8)](../concepts/intelligence-tiers.md) - Complete tier definitions
 - [Layered Architecture](layered-architecture.md) - Infrastructure overview
 - [Stream Schemas](stream-schemas.md) - Data format specifications

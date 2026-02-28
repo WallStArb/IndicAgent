@@ -59,84 +59,17 @@ IDEAS → ANALYSIS → BACKLOG → TODOS → ROADMAP → PLANS
 
 ## Core Commands
 
-### Development Setup
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
+> Full command reference: `docs/cheatsheet.md`
 
-# Infrastructure
-# PostgreSQL/TimescaleDB — native process: sudo systemctl start postgresql
-# Ollama — native process: ollama serve
-# DragonflyDB — Docker only:
-cd production && docker compose up -d dragonfly
+**Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
+**Dashboard dev:** `cd dashboard && npm run dev`
+**Services** (all systemd-managed, `Restart=always`):
+- `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-tracker,ai-narrative,feature-writer,api}`
+- `journalctl -u indicagent-<name> -f` — live logs
+- Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-tracker :9115, feature-writer :9116
 
-# Database schema
-psql -U postgres -d indicagent -f production/schemas/create_schema.sql
-for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"; done
-```
-
-### System Operations
-```bash
-# All 8 services are systemd-managed (Restart=always, start on boot)
-sudo systemctl status 'indicagent-*'
-sudo systemctl restart indicagent-tws          # TWS data daemon
-sudo systemctl restart indicagent-indicator    # I1 indicators
-sudo systemctl restart indicagent-market-analysis  # I3→I6 pipeline
-sudo systemctl restart indicagent-signal-generator # I7 signals
-sudo systemctl restart indicagent-signal-tracker   # signal lifecycle
-sudo systemctl restart indicagent-ai-narrative     # I8 AI narratives
-sudo systemctl restart indicagent-feature-writer   # Redis → intelligence_features writer
-sudo systemctl restart indicagent-api              # FastAPI
-
-journalctl -u indicagent-tws -f              # live logs for any service
-journalctl -u indicagent-market-analysis -f
-
-# Start all services (e.g. after reboot)
-sudo systemctl start indicagent-tws indicagent-indicator indicagent-market-analysis \
-  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative \
-  indicagent-feature-writer indicagent-api
-
-# Health / metrics
-curl http://localhost:9109/metrics   # Indicator Service (Prometheus)
-curl http://localhost:9112/metrics   # Signal Generator
-curl http://localhost:9113/metrics   # AI Narrative
-curl http://localhost:9114/metrics   # Market Analysis
-curl http://localhost:9115/metrics   # Signal Tracker
-
-# Direct invocation (debugging only — normally use systemd)
-.venv/bin/python production/daemons/high_frequency_tws_daemon.py --client-id 35
-.venv/bin/python services/indicator_service.py
-.venv/bin/python services/market_analysis_service.py
-.venv/bin/python services/signal_generator_service.py
-.venv/bin/python services/feature_writer_service.py
-.venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
-```
-
-### Historical Data Backfill
-```bash
-# Full backfill — fetches multi-TF from IBKR then replays intelligence pipeline
-.venv/bin/python production/scripts/historical_backfill.py
-
-# Stage 1 only: IBKR → market_data_ohlcv (requires TWS running at 10.0.0.33:7497)
-# Fetches: 1m(35d named), 5m(1yr continuous-adj), 15m(1yr), 1h(2yr), 1d(5yr)
-.venv/bin/python production/scripts/historical_backfill.py --fetch-only
-
-# Stage 2 only: DB → I1→I7 pipeline → signal_ledger + intelligence_features
-.venv/bin/python production/scripts/historical_backfill.py --replay-only
-
-# Override 1m depth or limit symbols
-.venv/bin/python production/scripts/historical_backfill.py --days 60 --symbols ESH6,NQH6
-```
-
-### Development & Testing
-```bash
-.venv/bin/python -m pytest tests/unit/ -v        # Unit tests (602 passing)
-.venv/bin/python -m pytest tests/integration/ -v # Integration (requires live Redis + PostgreSQL)
-.venv/bin/ruff check . --fix                     # Linting (0 errors on new code)
-.venv/bin/black .                                # Formatting
-.venv/bin/mypy src/ --ignore-missing-imports     # Type checking
-cd dashboard && npm run dev                      # Frontend dev server
-```
+**Backfill:** `.venv/bin/python production/scripts/historical_backfill.py [--fetch-only|--replay-only] [--days N] [--symbols SYM,SYM]`
+**Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Architecture Overview
 
@@ -247,29 +180,28 @@ ES, NQ, RTY, YM (equity index) · CL, BZ, NG (energy) · GC, SI, HG, PL (metals)
 
 ## Environment Variables
 
-```bash
-INDICAGENT_ENV="development"
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/indicagent"
-REDIS_URL="redis://localhost:6379/0"
-IBKR_HOST="10.0.0.33"          # Windows LAN host
-IBKR_PORT=7497                 # TWS paper trading port
-OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_DEFAULT_MODEL="qwen3:8b"
-```
+`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `REDIS_URL`, `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3:8b`
 
 ## Current Status
 
 **Tests:** 602 passing, 0 ruff errors
-**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store (Phases 0–5 complete)
-**Roadmap:** See `.planning/ROADMAP.md` — Phase 6 (Dashboard Connected) in progress
+**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store (Phases 0–6 in progress)
+**Roadmap:** See `.planning/ROADMAP.md` — Phase 7 (CIS) planned, ready to execute
 
 ### Phase 6 Status (dashboard-connected)
 - ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard
 - ✅ 06-02: SSE `event.tf` bug fixed, session tracking, Price Hero bid/ask/last + dual % change + flash animation
 - ✅ 06-03: SmartMoneyPanel extended with HMM regime + BSL/SSL liquidity zones
 - ✅ 06-04 (partial): Dashboard UX — drill panel reads `intelligenceByTf[tf]`, signal panel shows entry/SL/TP/RR, TF-matched narrative cards, per-TF signals (1m/5m/15m/1h), AI narrative consumer group backlog fix (`"$"` + `xgroup_setid`)
-- ⏳ 06-04: Human verification checkpoint — confirm all panels show real live data; **requires service restarts**: `sudo systemctl restart indicagent-signal-generator indicagent-ai-narrative`
+- ⏸ 06-04: Human verification skipped — proceeding to Phase 7 CIS
 - ❌ `indicagent-timeframes.service` — legacy service; import fails (`src.data` not `src.core`); non-blocking
+
+### Phase 7 Status (composite-intelligence-score)
+- ⏳ 07-01: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) — Wave 1
+- ⏳ 07-02: CIS bucket scorer + aggregator replacement + signal_ledger schema additions — Wave 2
+- ⏳ 07-03: weight_updater.py + cis_weights table + bootstrap→learned transition — Wave 3
+- ⏳ 07-04: at_limit / at_pullback entry types in trade_framer.py — Wave 2 (parallel with 07-02)
+- Design doc: `docs/plans/2026-02-27-composite-intelligence-score-design.md`
 
 ### ai_narrative_service key facts
 - Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
@@ -288,7 +220,7 @@ OLLAMA_DEFAULT_MODEL="qwen3:8b"
 - `.planning/analysis/` — architecture decisions and design discussions
 
 **Architecture:**
-- `docs/architecture/intelligence-tiers.md`
+- `docs/concepts/intelligence-tiers.md`
 - `docs/reference/schemas/stream-schemas.md`
 - `docs/architecture/plugin-registry-and-dag-execution.md`
 

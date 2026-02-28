@@ -232,5 +232,5 @@ market_data_daemon
 
 - Decision record: `docs/plans/2026-02-20-service-separation-design.md`
 - Stream schemas: `docs/architecture/stream-schemas.md`
-- Intelligence tier details: `docs/architecture/intelligence-tiers.md`
+- Intelligence tier details: `docs/concepts/intelligence-tiers.md`
 - Plugin registry and DAG execution: `docs/architecture/plugin-registry-and-dag-execution.md`

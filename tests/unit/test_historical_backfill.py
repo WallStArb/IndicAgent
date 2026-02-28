@@ -143,14 +143,14 @@ class TestFetchAndStoreBars:
     def test_fetch_1m_bars_queries_correct_table(self):
         from unittest.mock import MagicMock
 
-        from historical_backfill import fetch_1m_bars
+        from historical_backfill import fetch_bars
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         mock_cursor.fetchall.return_value = [
             (datetime(2026, 2, 1, 9, 30, tzinfo=UTC), 100.0, 101.0, 99.0, 100.5, 1000)
         ]
-        rows = fetch_1m_bars(mock_conn, "ESH6", days=1)
+        rows = fetch_bars(mock_conn, "ESH6", "1m")
         assert len(rows) == 1
         assert rows[0]["symbol"] == "ESH6"
         assert rows[0]["timeframe"] == "1m"

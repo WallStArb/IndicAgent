@@ -1,6 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,7 +34,7 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_connect_success(self, provider, mock_ib):
         with patch("src.providers.ibkr.IB", return_value=mock_ib):
-            mock_ib.connect.return_value = None
+            mock_ib.connectAsync = AsyncMock(return_value=None)
             mock_ib.isConnected.return_value = True
             result = await provider.connect()
         assert result is True
@@ -88,7 +88,7 @@ class TestFetchHistoricalBars:
         assert bars[0].timeframe == "1m"
         assert bars[0].open == 5100.0
         assert bars[0].high == 5105.0
-        assert bars[0].source == "ibkr"
+        assert bars[0].source == "ibkr_named"
 
     @pytest.mark.asyncio
     async def test_unknown_timeframe_raises(self, provider, mock_ib):

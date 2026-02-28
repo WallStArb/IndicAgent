@@ -466,10 +466,10 @@ VOLUME_TYPE = int                                  # Volume as integer
 
 ## **Related Documentation**
 
-- [Intelligence Tiers (I1-I8)](intelligence-tiers.md) - Intelligence processing framework
-- [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Processing architecture
-- [Intelligence Processing Architecture](event-driven-indicator-system.md) - Service integration
-- [Layered Architecture](layered-architecture.md) - Complete system overview
+- [Intelligence Tiers (I1-I8)](../../concepts/intelligence-tiers.md) - Intelligence processing framework
+- [Plugin Registry & DAG Execution](../../architecture/plugin-registry-and-dag-execution.md) - Processing architecture
+- [Intelligence Processing Architecture](../../architecture/event-driven-indicator-system.md) - Service integration
+- [Layered Architecture](../../architecture/layered-architecture.md) - Complete system overview
 
 ---
 

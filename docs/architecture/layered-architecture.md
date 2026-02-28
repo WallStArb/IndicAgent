@@ -304,7 +304,7 @@ The 4-layer plugin-native architecture with I1-I8 intelligence tiers provides:
 ---
 
 **Related Documentation:**
-- [Intelligence Tiers (I1-I8)](intelligence-tiers.md) - Detailed intelligence processing framework
+- [Intelligence Tiers (I1-I8)](../concepts/intelligence-tiers.md) - Detailed intelligence processing framework
 - [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Plugin-native intelligence framework
 - [Comprehensive Intelligence Architecture](comprehensive-intelligence-architecture.md) - Complete system blueprint
 - [Stream Schemas](stream-schemas.md) - Redis stream data format specifications

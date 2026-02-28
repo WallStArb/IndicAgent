@@ -13,6 +13,22 @@ from typing import Any
 
 from .cis_scorer import CISScorer
 
+# Regime eligibility: maps plugin name → allowed hmm_regime values.
+# Plugins not listed here are allowed in any regime.
+# Gate is skipped entirely when hmm_regime_prob < 0.55 or hmm_regime_duration < 3
+# (uncertain or newly-started regime — don't suppress on weak evidence).
+REGIME_ELIGIBILITY: dict[str, list[int]] = {
+    "trad_TrendFollowing":    [1, 2],  # trending only
+    "trad_MomentumBreakout":  [1, 2],
+    "trad_LiquidityHunt":     [1, 2],
+    "trad_MTFAlignment":      [1, 2],
+    "trad_MeanReversion":     [0],     # ranging only
+    "trad_VWAPDeviation":     [0],
+}
+
+_REGIME_PROB_MIN = 0.55   # minimum confidence to trust regime label
+_REGIME_DUR_MIN = 3       # minimum bars before regime is considered stable
+
 # Plugin priority: higher value = higher priority
 SETUP_PRIORITY: dict[str, int] = {
     "trad_MeanReversion": 1,
@@ -74,6 +90,25 @@ def aggregate(
     -------
     AggregatedResult with selected signal and metadata.
     """
+    # Apply regime eligibility filter before scoring.
+    # Only filters when regime is confident (prob >= 0.55) and stable (duration >= 3).
+    if features is not None:
+        hmm_regime = features.get("hmm_regime")
+        hmm_regime_prob = features.get("hmm_regime_prob", 0.0)
+        hmm_regime_duration = features.get("hmm_regime_duration", 0)
+        regime_gate_active = (
+            hmm_regime is not None
+            and float(hmm_regime_prob) >= _REGIME_PROB_MIN
+            and int(hmm_regime_duration) >= _REGIME_DUR_MIN
+        )
+        if regime_gate_active:
+            current_regime = int(hmm_regime)
+            signals = [
+                s for s in signals
+                if s.get("setup_plugin") not in REGIME_ELIGIBILITY
+                or current_regime in REGIME_ELIGIBILITY[s["setup_plugin"]]
+            ]
+
     # Build plugin_outputs for CIS scorer from all signals (regardless of active/inactive)
     plugin_outputs: dict[str, dict] = {s["setup_plugin"]: s for s in signals if "setup_plugin" in s}
 

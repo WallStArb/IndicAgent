@@ -277,7 +277,7 @@ class IntelligenceValidator:
 
 - [Comprehensive Intelligence Architecture](../architecture/comprehensive-intelligence-architecture.md)
 - [Layered Architecture](../architecture/layered-architecture.md)
-- [Intelligence Tiers](../architecture/intelligence-tiers.md)
+- [Intelligence Tiers](../concepts/intelligence-tiers.md)
 - [Plugin Registry & DAG Execution](../architecture/plugin-registry-and-dag-execution.md)
 - [Stream Schemas](../architecture/stream-schemas.md)
 - [Market Intelligence Strategy](market-intelligence-strategy.md)

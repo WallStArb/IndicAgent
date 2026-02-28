@@ -3,6 +3,7 @@
 import pytest
 
 from src.intelligence.trading.aggregator import (
+    REGIME_ELIGIBILITY,
     SETUP_PRIORITY,
     AggregatedResult,
     aggregate,
@@ -279,3 +280,93 @@ class TestAggregateCISIntegration:
         result = aggregate([], trend_regime=0.8, features=_bullish_features())
         assert result.selected_signal is None
         assert result.resolution_method == "no_signal"
+
+
+def _regime_features(hmm_regime: int, prob: float = 0.80, duration: int = 10) -> dict:
+    """Minimal feature dict for regime eligibility tests."""
+    return {
+        "hmm_regime": hmm_regime,
+        "hmm_regime_prob": prob,
+        "hmm_regime_duration": duration,
+    }
+
+
+class TestRegimeEligibilityFilter:
+    """Regime eligibility gate in aggregate()."""
+
+    @pytest.mark.unit
+    def test_trend_plugin_excluded_in_ranging(self):
+        """TrendFollowing signal is dropped when regime=0 (ranging), prob>=0.55, dur>=3."""
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0))
+        assert result.selected_signal is None
+        assert result.num_signals_fired == 0
+
+    @pytest.mark.unit
+    def test_mean_reversion_excluded_in_trending(self):
+        """MeanReversion signal is dropped when regime=1 (trend-up), prob>=0.55, dur>=3."""
+        sig = _signal("trad_MeanReversion", -1)
+        result = aggregate([sig], features=_regime_features(1))
+        assert result.selected_signal is None
+
+    @pytest.mark.unit
+    def test_mean_reversion_excluded_in_trend_down(self):
+        """MeanReversion signal is dropped when regime=2 (trend-down)."""
+        sig = _signal("trad_MeanReversion", 1)
+        result = aggregate([sig], features=_regime_features(2))
+        assert result.selected_signal is None
+
+    @pytest.mark.unit
+    def test_trend_plugin_passes_in_trending_regime(self):
+        """TrendFollowing is NOT excluded when regime=1."""
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(1))
+        assert result.num_signals_fired == 1
+
+    @pytest.mark.unit
+    def test_mean_reversion_passes_in_ranging_regime(self):
+        """MeanReversion is NOT excluded when regime=0."""
+        sig = _signal("trad_MeanReversion", -1)
+        result = aggregate([sig], features=_regime_features(0))
+        assert result.num_signals_fired == 1
+
+    @pytest.mark.unit
+    def test_gate_bypassed_when_regime_prob_low(self):
+        """Gate is skipped when hmm_regime_prob < 0.55 — uncertain regime."""
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0, prob=0.50))
+        # Gate skipped — TrendFollowing survives even in regime=0
+        assert result.num_signals_fired == 1
+
+    @pytest.mark.unit
+    def test_gate_bypassed_when_regime_duration_short(self):
+        """Gate is skipped when hmm_regime_duration < 3 — newly-started regime."""
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0, duration=2))
+        assert result.num_signals_fired == 1
+
+    @pytest.mark.unit
+    def test_unrestricted_plugin_passes_any_regime(self):
+        """LiquiditySweepReclaim (not in REGIME_ELIGIBILITY) passes in any regime."""
+        assert "trad_LiquiditySweepReclaim" not in REGIME_ELIGIBILITY
+        for regime in [0, 1, 2]:
+            sig = _signal("trad_LiquiditySweepReclaim", 1)
+            result = aggregate([sig], features=_regime_features(regime))
+            assert result.num_signals_fired == 1, f"Failed for regime={regime}"
+
+    @pytest.mark.unit
+    def test_gate_bypassed_without_features(self):
+        """No features kwarg — regime gate never applies."""
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig])
+        assert result.num_signals_fired == 1
+
+    @pytest.mark.unit
+    def test_mixed_signals_only_eligible_survive(self):
+        """In regime=0 (ranging): TrendFollowing dropped, MeanReversion survives."""
+        trend = _signal("trad_TrendFollowing", 1)
+        mean_rev = _signal("trad_MeanReversion", -1)
+        result = aggregate([trend, mean_rev], features=_regime_features(0))
+        assert result.selected_signal is not None
+        assert result.selected_signal["setup_plugin"] == "trad_MeanReversion"
+        assert result.num_signals_fired == 1

@@ -114,7 +114,7 @@ The plugin-native intelligence processing uses LangGraph workflows with DAG-base
 - **I7 Trading Outputs** — Validated setups and actionable intelligence
 - **I8 AI Synthesis** — LLM-powered market narratives and insights
 
-**Reference:** [Intelligence Tiers](intelligence-tiers.md) - Complete I1-I8 specifications
+**Reference:** [Intelligence Tiers](../concepts/intelligence-tiers.md) - Complete I1-I8 specifications
 
 ---
 
@@ -184,5 +184,5 @@ insights: "insights:{symbol}:{timeframe}"        # I8 AI synthesis (future)
 
 **Related Documentation:**
 - [Layered Architecture](layered-architecture.md) - Complete system architecture overview
-- [Intelligence Tiers](intelligence-tiers.md) - I1-I8 intelligence processing framework
+- [Intelligence Tiers](../concepts/intelligence-tiers.md) - I1-I8 intelligence processing framework
 - [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Advanced intelligence processing

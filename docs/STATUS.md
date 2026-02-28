@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-27
-> **Version:** 5.5.0
-> **Phase:** Phases 0–5 complete — 57 plugins, 602 tests; Phase 6 (Dashboard Connected) in progress
+> **Last Updated:** 2026-02-28
+> **Version:** 5.6.0
+> **Phase:** Phases 0–7 complete — 62 plugins, 781 tests; Phase 7 (CIS) complete
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I8)
-**Test Coverage:** 602 unit tests passing, 0 lint errors
+**Test Coverage:** 781 unit tests passing, 0 lint errors
 **Data Collection:** Active (23 contracts across equity index, energy, metals, rates, FX, agriculture, crypto)
 
 ---
@@ -42,11 +42,11 @@
 | I5 | Pattern Detection | 8 | COMPLETE |
 | I6 | Smart Money Concepts | 8 | COMPLETE (2 new in v4.9.1: LiqPools, S/D Zones) |
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE |
-| I7 | Trading Setups | 9 | COMPLETE |
+| I7 | Trading Setups | 14 (9 original + 5 CIS) | COMPLETE (Phase 7: +5 CIS plugins, CIS aggregator, WeightUpdater) |
 | I7 | Signal Aggregation | 4 components | RUNNING |
 | I8 | AI Intelligence | 1 service | RUNNING (per-signal + group synthesis) |
 
-**Total Plugins:** 57 registered (23 I1 indicators + 3 I3 structure + 5 I4 context + 8 I5 patterns + 6 I6 SMC + 1 I6 confluence + 9 I7 setups)
+**Total Plugins:** 62 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 I6 SMC + 1 I6 confluence + 14 I7)
 
 ### Known Issues
 
@@ -56,10 +56,23 @@ None.
 
 ## Development Priorities
 
-### Priority 1: Phase 6 — Dashboard Connected (in progress)
+### Priority 1: Phase 8 — ML Scoring Model / Dashboard Completion
+- Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days collection)
+- XGBoost/LightGBM on extracted features → pnl_r continuous target
+- Dashboard: complete Phase 06-04 human verification (confirm all panels show live data)
+- See `.planning/ROADMAP.md` for full roadmap
+
+### Phase 7 status — COMPLETE
+- ✅ 5 new I7 plugins: trad_CHoCHReversal, trad_FVGFill, trad_PatternCompletion, trad_DivergenceStack, trad_RegimeTransition
+- ✅ CISScorer (6-bucket weighted scorer, replaces winner-pick)
+- ✅ REGIME_ELIGIBILITY filter in aggregator
+- ✅ WeightUpdater (sklearn LogisticRegression, migration 012)
+- ✅ signal_ledger +4 CIS columns (migration 011)
+- ✅ trade_framer: at_limit + at_pullback entry types
+
+### Phase 6 status
 - ✅ 06-01 through 06-03 complete
-- ⏳ 06-04: Human verification — confirm all dashboard panels show live data
-- Requires: `sudo systemctl restart indicagent-signal-generator indicagent-ai-narrative`
+- ⏸ 06-04 skipped (human verification) — deferred to Phase 8
 
 ### Priority 2: ML Scoring Model (future)
 - Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days collection)
@@ -95,6 +108,7 @@ None.
 | **I5-ChartPatt** | Chart patterns: patt_DoubleTB, patt_HeadShoulders, patt_TriangleWedge (17 tests) | Complete |
 | **DataLayer** | DataProvider protocol, IBKRProvider, Instrument model, TimescaleDB 5m/15m caggs (migration 008) | Complete |
 | **PluginRegistry** | TIER_* constants in register_plugins.py (single source of truth); validate_tier() hard-crashes on bad names | Complete |
+| **Phase 7 (CIS)** | Composite Intelligence Score: 5 new I7 plugins, CISScorer (6-bucket weighted), REGIME_ELIGIBILITY filter, WeightUpdater (sklearn LogisticRegression), signal_ledger +4 cols, trade_framer at_limit/at_pullback; 781 tests | Complete |
 
 ---
 
@@ -148,19 +162,29 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 57 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 9 I7) | 602 unit tests
+**Plugin Totals:** 62 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 confluence + 14 I7) | 781 unit tests
 **Services (systemd):** indicagent-tws, indicagent-indicator (:9109), indicagent-market-analysis (:9114), indicagent-signal-generator (:9112), indicagent-signal-tracker (:9115), indicagent-ai-narrative (:9113), indicagent-feature-writer (:9116), indicagent-api (:8000)
 **Stack:** Python 3.13, FastAPI 0.129, DragonflyDB/Redis, TimescaleDB, LangGraph 1.0, Ollama + OpenRouter
 **Dashboard:** Next.js 16.1 / React 19.2 / Tailwind v4.2
 
 **Detailed Architecture:** [CLAUDE.md](for-ai-assistants/CLAUDE.md)
-**Intelligence Tiers:** [docs/architecture/intelligence-tiers.md](architecture/intelligence-tiers.md)
+**Intelligence Tiers:** [docs/concepts/intelligence-tiers.md](concepts/intelligence-tiers.md)
 **Plugin Framework:** [docs/architecture/plugin-registry-and-dag-execution.md](architecture/plugin-registry-and-dag-execution.md)
 **Roadmap:** [docs/roadmap/MASTER_ROADMAP.md](roadmap/MASTER_ROADMAP.md)
 
 ---
 
 ## Recent Changes
+
+### 2026-02-28 (v5.6.0)
+- COMPLETE Phase 7 — Composite Intelligence Score (CIS):
+  - ADD 5 new I7 plugins: trad_CHoCHReversal, trad_FVGFill, trad_PatternCompletion, trad_DivergenceStack, trad_RegimeTransition
+  - ADD CISScorer (6-bucket weighted scorer): trend 20% / momentum 20% / structure 15% / pattern 5% / institutional 25% / regime 15%
+  - ADD REGIME_ELIGIBILITY filter in aggregator: trend plugins gate to regime 1/2, mean-reversion to regime 0; bypassed when hmm_regime_prob < 0.55 or duration < 3
+  - ADD WeightUpdater (sklearn LogisticRegression) — adaptive weight learning from signal_ledger outcomes
+  - ADD cis_weights table (migration 012), signal_ledger +4 CIS cols (migration 011)
+  - ADD at_limit + at_pullback entry types to trade_framer
+  - TEST +179 tests (602 → 781 total)
 
 ### 2026-02-22 (v4.9.2)
 - FEAT I7 Phase 0 — GARCH/Kalman quality gates wired into 3 plugins:

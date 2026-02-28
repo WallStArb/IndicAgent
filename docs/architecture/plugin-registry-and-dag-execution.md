@@ -410,7 +410,7 @@ ticks:ES:live         # Raw tick data
 ## Related Documentation
 
 ### Core Architecture
-- [Intelligence Tiers (I1-I8)](intelligence-tiers.md) - Complete intelligence tier definitions
+- [Intelligence Tiers (I1-I8)](../concepts/intelligence-tiers.md) - Complete intelligence tier definitions
 - [Layered Architecture](layered-architecture.md) - Foundation infrastructure overview
 - [Stream Schemas](stream-schemas.md) - Data format and event specifications
 - [Plugin-Native Architecture Explained](plugin-native-architecture-explained.md) - Architectural principles

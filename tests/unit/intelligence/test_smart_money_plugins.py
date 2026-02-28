@@ -394,7 +394,7 @@ class TestHMMRegime:
         # Strong uptrend: consistent positive drift
         close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
         df = make_ohlcv(close)
-        features = {"rsi_14": 65.0, "adx_14": 30.0, "macd_hist_12_26_9": 2.0, "atr_14": 10.0}
+        features = {"rsi_14": 65.0, "adx_14": 30.0, "macd_histogram_12_26_9": 2.0, "atr_14": 10.0}
 
         plugin = HMMRegimePlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -414,7 +414,7 @@ class TestHMMRegime:
         # Strong downtrend: consistent negative drift
         close = 5000.0 - np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
         df = make_ohlcv(close)
-        features = {"rsi_14": 35.0, "adx_14": 30.0, "macd_hist_12_26_9": -2.0, "atr_14": 10.0}
+        features = {"rsi_14": 35.0, "adx_14": 30.0, "macd_histogram_12_26_9": -2.0, "atr_14": 10.0}
 
         plugin = HMMRegimePlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -432,7 +432,7 @@ class TestHMMRegime:
         # Ranging: oscillate around 5000 with small noise, no drift
         close = 5000.0 + rng.normal(0, 0.5, 200)
         df = make_ohlcv(close)
-        features = {"rsi_14": 50.0, "adx_14": 12.0, "macd_hist_12_26_9": 0.0, "atr_14": 10.0}
+        features = {"rsi_14": 50.0, "adx_14": 12.0, "macd_histogram_12_26_9": 0.0, "atr_14": 10.0}
 
         plugin = HMMRegimePlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -448,7 +448,7 @@ class TestHMMRegime:
 
         rng = np.random.default_rng(99)
         close = 5000.0 + np.cumsum(rng.normal(0.3, 0.5, 100))
-        features = {"rsi_14": 60.0, "adx_14": 25.0, "macd_hist_12_26_9": 1.0, "atr_14": 10.0}
+        features = {"rsi_14": 60.0, "adx_14": 25.0, "macd_histogram_12_26_9": 1.0, "atr_14": 10.0}
 
         # Full computation
         plugin_full = HMMRegimePlugin()

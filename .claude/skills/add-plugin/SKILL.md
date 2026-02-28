@@ -71,7 +71,7 @@ python -m pytest tests/unit/ -q --tb=no 2>&1 | tail -1
 
 Update these files with verified numbers:
 - `CLAUDE.md` — version, status line, plugin counts, tier status, completed phases, pipeline
-- `docs/architecture/intelligence-tiers.md` — status, totals, tier descriptions
+- `docs/concepts/intelligence-tiers.md` — status, totals, tier descriptions
 - `docs/development-roadmap.md` — completed list, next priority
 - Auto-memory `MEMORY.md` — registry totals, test count
 

@@ -1,12 +1,5 @@
 {
   "mcpServers": {
-    "ref": {
-      "command": "npx",
-      "args": ["-y", "ref-tools-mcp@latest"],
-      "env": {
-        "REF_API_KEY": "${REF_API_KEY}"
-      }
-    },
     "playwright": {
       "command": "npx",
       "args": ["-y", "@playwright/mcp"]

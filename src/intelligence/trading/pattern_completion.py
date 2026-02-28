@@ -102,7 +102,8 @@ class PatternCompletionPlugin:
         if len(candidates) > 1:
             supporting.append("multiple_patterns")
 
-        signal_type = f"pattern_{pattern_name}_long" if direction == 1 else f"pattern_{pattern_name}_short"
+        suffix = "long" if direction == 1 else "short"
+        signal_type = f"pattern_{pattern_name}_{suffix}"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
         return {

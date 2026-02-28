@@ -180,7 +180,7 @@ class HMMRegimePlugin:
         rsi = features.get("rsi_14")
         adx = features.get("adx_14")
         atr = features.get("atr_14")
-        macd_hist = features.get("macd_hist_12_26_9")
+        macd_hist = features.get("macd_histogram_12_26_9")
         if rsi is not None and adx is not None and atr is not None and macd_hist is not None:
             return 5
         return 2
@@ -200,7 +200,7 @@ class HMMRegimePlugin:
             rsi_norm = (float(features["rsi_14"]) - 50.0) / 50.0
             adx_norm = float(features["adx_14"]) / 50.0
             atr = float(features["atr_14"])
-            macd_hist = float(features["macd_hist_12_26_9"])
+            macd_hist = float(features["macd_histogram_12_26_9"])
             macd_norm = macd_hist / atr if atr > 0 else 0.0
             obs = np.array([log_return, realized_vol, rsi_norm, adx_norm, macd_norm])
 

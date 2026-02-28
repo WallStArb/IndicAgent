@@ -1,6 +1,6 @@
 # Plugin Reference Overview
 
-All 57 registered plugins.
+All 62 registered plugins.
 
 ---
 
@@ -22,10 +22,12 @@ Plugins implement the `PatternPlugin` protocol from `src/intelligence/plugins.py
 - [I5: Pattern Detection](i5-patterns.md) — 8 plugins
 - [I6: Smart Money Concepts](i6-smart-money.md) — 6 plugins
 - [I6: Cross-TF Confluence](i6-confluence.md) — 1 plugin
-- [I7: Trading Setups](i7-trading.md) — 9 plugins
+- [I7: Trading Setups](i7-trading.md) — 14 plugins (9 original + 5 CIS contributors)
 - [I7: Signal Aggregation](i7-aggregation.md) — 4 components (aggregator, ledger, lifecycle, sizer)
 
-**Total:** 57 plugins + 4 aggregation components
+**Total:** 62 plugins + 4 aggregation components (CIS-based aggregator, ledger, lifecycle, sizer)
+
+The signal aggregator (`aggregator.py`) uses CISScorer (6-bucket weighted scorer) replacing winner-pick logic. See `src/intelligence/trading/cis_scorer.py`.
 
 See [STATUS.md](../../STATUS.md) for current counts.
 

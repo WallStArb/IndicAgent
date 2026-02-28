@@ -254,7 +254,7 @@ plugin_metrics: "metrics:plugins"                   # Plugin performance monitor
 - [Enhanced Intelligence Architecture](enhanced-intelligence-architecture.md) - Complete plugin-native specifications
 - [Layered Architecture](layered-architecture.md) - Foundation infrastructure details
 - [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Plugin framework implementation
-- [Intelligence Tiers](intelligence-tiers.md) - I1-I8 intelligence specifications
+- [Intelligence Tiers](../concepts/intelligence-tiers.md) - I1-I8 intelligence specifications
 
 ### Implementation Guides
 - [Development Roadmap](../development-roadmap.md) - Plugin integration phases and timeline

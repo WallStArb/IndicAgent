@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-02-27
+**Last Updated:** 2026-02-28
 
 ## Overview
 
@@ -88,6 +88,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Code Location:** `src/intelligence/trading/`
 - **Streams:** `env:patterns:SYMBOL:TF`, `env:signals:SYMBOL:TF`
 - **Examples:** Validated setups, intelligence alerts, actionable market opportunities
+- **CIS Aggregator (Phase 7):** CISScorer (6-bucket weighted scorer: trend/momentum/structure/pattern/institutional/regime) replaces winner-pick. Regime eligibility filter gates trend plugins to trending regimes (1/2) and mean-reversion plugins to ranging regime (0); gate skipped when hmm_regime_prob < 0.55 or hmm_regime_duration < 3. WeightUpdater (sklearn LogisticRegression) learns bucket weights from signal_ledger outcomes.
 
 ---
 
@@ -251,15 +252,15 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 - **I5 Pattern Recognition:** 8 plugins — RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, TrendConfluence, DoubleTB, HeadShoulders, TriangleWedge
 - **I6 SMC:** 6 plugins — BOS/CHoCH, FVG, order blocks, liquidity sweeps (+ pools + supply/demand zones), BOCPD changepoint, HMM regime
 - **I6 Cross-Timeframe Confluence:** 1 plugin — trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
-- **I7 Trading Setups:** 9 plugins — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup; plus 4 aggregation components (aggregator, ledger, lifecycle, sizer). GARCH/Kalman quality gates on MeanReversion, VWAPDeviation, SqueezeExpansion.
+- **I7 Trading Setups:** 14 plugins — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup (9 original); plus CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition (5 CIS contributors added in Phase 7). Signal aggregator replaced by CISScorer (6-bucket weighted scorer: trend/momentum/structure/pattern/institutional/regime). Regime eligibility filter: trend plugins only fire in trending regime (1/2); MeanReversion/VWAPDeviation only in ranging (0); gate skipped when hmm_regime_prob < 0.55 or duration < 3. WeightUpdater (sklearn LogisticRegression) learns weights from signal_ledger outcomes. Plus 4 aggregation components (aggregator, ledger, lifecycle, sizer). GARCH/Kalman quality gates on MeanReversion, VWAPDeviation, SqueezeExpansion.
 - **I8 AI Intelligence:** `ai_narrative_service` — per-signal narratives (qwen3:8b, conf>0.7, 5m/15m/1h) + 6-asset-group synthesis (phi4-mini:3.8b, change-driven). Streams: `narratives:SYMBOL:TF` + `narratives:group:GROUP_NAME`
 
 ### **Also Available: OpenRouter (Cloud LLM)**
 LLMChain with `OpenRouterProvider` and `OllamaProvider` added in v5.5.0. Use OpenRouter for cloud-hosted models when local inference is too slow.
 
 ### **Totals**
-- **57 registered plugins:** 23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 9 I7
-- **602 unit tests passing**, 0 ruff errors
+- **62 registered plugins:** 23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 14 I7
+- **781 unit tests passing**, 0 ruff errors
 
 ---
 
