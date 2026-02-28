@@ -1,0 +1,14 @@
+[Unit]
+Description=IndicAgent CIS Weight Updater
+After=network-online.target
+Documentation=https://github.com/bg/indicagent
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m src.intelligence.weight_updater
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-weight-updater

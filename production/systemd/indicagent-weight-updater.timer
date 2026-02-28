@@ -1,0 +1,11 @@
+[Unit]
+Description=IndicAgent CIS Weight Updater — daily at 02:00
+Requires=indicagent-weight-updater.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=indicagent-weight-updater.service
+
+[Install]
+WantedBy=timers.target
