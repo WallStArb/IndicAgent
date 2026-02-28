@@ -392,3 +392,89 @@ class TestBuildLedgerEntriesFeatureTs:
         entries = _build_ledger_entries(result, "ESH6", "1m", _ts(9, 30), {})
         assert len(entries) == 1
         assert entries[0].feature_ts is None
+
+
+class TestCISColumnsInSQL:
+    """Tests verifying Phase 7 CIS columns are included in _INSERT_SYNC_SQL."""
+
+    @pytest.mark.unit
+    def test_insert_sync_sql_has_cis_columns(self):
+        """_INSERT_SYNC_SQL must include all Phase 7 CIS columns."""
+        from historical_backfill import _INSERT_SYNC_SQL
+        assert "cis_score" in _INSERT_SYNC_SQL
+        assert "bucket_scores" in _INSERT_SYNC_SQL
+        assert "weights_version" in _INSERT_SYNC_SQL
+        assert "signal_quality" in _INSERT_SYNC_SQL
+
+    @pytest.mark.unit
+    def test_insert_sync_sql_column_placeholder_balance(self):
+        """Column count must equal VALUES placeholder count."""
+        import re
+
+        from historical_backfill import _INSERT_SYNC_SQL
+        col_match = re.search(r'INSERT INTO signal_ledger \(([^)]+)\)', _INSERT_SYNC_SQL, re.DOTALL)
+        val_match = re.search(r'VALUES \(([^)]+)\)', _INSERT_SYNC_SQL, re.DOTALL)
+        assert col_match and val_match
+        cols = [c.strip() for c in col_match.group(1).split(',') if c.strip()]
+        vals = [v.strip() for v in val_match.group(1).split(',') if v.strip()]
+        assert len(cols) == len(vals), f"Column count {len(cols)} != placeholder count {len(vals)}"
+
+    @pytest.mark.unit
+    def test_insert_signals_sync_params_include_cis_nulls(self):
+        """_insert_signals_sync must pass NULL for all 4 CIS columns in backfill rows."""
+        from datetime import UTC, datetime
+        from unittest.mock import MagicMock, patch
+
+        from historical_backfill import _insert_signals_sync
+
+        from src.intelligence.trading.signal_ledger import LedgerEntry
+
+        entry = LedgerEntry(
+            signal_id="00000000-0000-0000-0000-000000000001",
+            timestamp=datetime(2026, 2, 1, 9, 30, tzinfo=UTC),
+            symbol="ESH6",
+            timeframe="5m",
+            setup_plugin="trad_TrendFollowing",
+            signal_type="trend_follow",
+            direction=1,
+            entry_price=5100.0,
+            stop_loss=5085.0,
+            targets=[5115.0],
+            confidence=0.75,
+            confluence_score=0.6,
+            regime_context="bullish",
+            supporting_factors=["ema_cross"],
+            was_selected=True,
+            num_signals_bar=1,
+            num_agreeing=1,
+            num_conflicting=0,
+            resolution_method="sole",
+            composite_rank=1,
+            market_context={},
+            status="pending",
+            feature_ts=None,
+            feature_tf=None,
+            # CIS fields not set — should default to None
+        )
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        captured_params = []
+
+        def capture_batch(cursor, sql, params):
+            captured_params.extend(params)
+
+        with patch("psycopg2.extras.execute_batch", side_effect=capture_batch):
+            _insert_signals_sync(mock_conn, [entry])
+
+        assert len(captured_params) == 1
+        row = captured_params[0]
+        # Row must have 28 elements (24 original + 4 CIS)
+        assert len(row) == 28, f"Expected 28 params, got {len(row)}"
+        # CIS columns are positions 24-27 (0-indexed) — all NULL for backfill
+        assert row[24] is None, f"cis_score should be None, got {row[24]}"
+        assert row[25] is None, f"bucket_scores should be None, got {row[25]}"
+        assert row[26] is None, f"weights_version should be None, got {row[26]}"
+        assert row[27] is None, f"signal_quality should be None, got {row[27]}"
