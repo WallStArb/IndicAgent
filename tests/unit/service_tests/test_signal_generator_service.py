@@ -232,6 +232,7 @@ async def test_process_message_accesses_typed_attributes():
         captured_bar.update(bar)
         captured_features.update({k: v for k, v in features.items() if v is not None})
 
+    svc._df_cache = {}
     svc._process_bar = mock_process_bar
 
     await svc._process_single_message("ESH6", "5m", fields, "intel:ESH6:5m", b"1-0")
@@ -246,3 +247,50 @@ async def test_process_message_accesses_typed_attributes():
     # Verify features contain typed tier values
     assert captured_features["trend_regime"] == pytest.approx(0.65)
     assert captured_features["ctf_score"] == pytest.approx(0.75)
+
+
+def test_stream_map_populated_after_setup():
+    """_stream_map must map stream_name → (symbol, timeframe) for all 92 streams."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
+
+    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
+
+    assert len(svc._stream_map) == 4 * len(svc.config["service"]["symbols"])
+
+
+def test_df_cache_invalidated_on_bar_append():
+    """After appending a bar, _df_cache[key] must be None."""
+    import pandas as pd
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService()
+    key = "ES:1m"
+    svc._df_cache[key] = pd.DataFrame([{"close": 5300.0}])
+
+    # Simulate bar append + invalidation
+    svc.bar_history[key].append({"close": 5303.0, "timestamp": "t"})
+    svc._df_cache[key] = None
+
+    assert svc._df_cache[key] is None
+
+
+def test_df_cache_hit_avoids_rebuild():
+    """_get_df must return the cached DataFrame when cache is warm."""
+    import pandas as pd
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService()
+    key = "ES:5m"
+    cached_df = pd.DataFrame([{"close": 5300.0}])
+    svc._df_cache[key] = cached_df
+
+    result = svc._get_df(key)
+
+    assert result is cached_df

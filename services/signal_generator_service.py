@@ -213,6 +213,8 @@ class SignalGeneratorService:
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+        self._stream_map: dict[str, tuple[str, str]] = {}
+        self._df_cache: dict[str, "pd.DataFrame | None"] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -369,6 +371,7 @@ class SignalGeneratorService:
                         )
                 except Exception as e:
                     self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
+                self._stream_map[stream_name] = (sym, tf)
 
     async def stop(self) -> None:
         self.logger.info("Stopping Signal Generator Service")
@@ -379,6 +382,11 @@ class SignalGeneratorService:
         if self.db_manager:
             await self.db_manager.close()
         self.logger.info("Signal Generator Service stopped")
+
+    def _get_df(self, key: str) -> "pd.DataFrame":
+        if self._df_cache.get(key) is None:
+            self._df_cache[key] = pd.DataFrame(list(self.bar_history[key]))
+        return self._df_cache[key]
 
     def _run_setup_plugins(self, frames: dict[str, Any]) -> list[dict]:
         """Run all I7 setup plugins and return only directional signals."""
@@ -523,13 +531,12 @@ class SignalGeneratorService:
         fields: dict[bytes, bytes],
         stream_name: str,
         message_id: bytes,
-    ) -> None:
+    ) -> bool:
         try:
             event = _parse_intelligence_event(fields)
             if event is None:
                 # Malformed or missing event — ack and skip (do not crash)
-                await self.redis_client.xack(stream_name, self.consumer_group, message_id)
-                return
+                return True
 
             timestamp = event.ts
             bar = {
@@ -544,15 +551,15 @@ class SignalGeneratorService:
             key = f"{symbol}:{timeframe}"
             bar_with_ts = {**bar, "timestamp": timestamp}
             self.bar_history[key].append(bar_with_ts)
+            self._df_cache[key] = None
 
-            df_history = list(self.bar_history[key])
             frames = {
-                "main": pd.DataFrame(df_history),
+                "main": self._get_df(key),
                 "features": features,
             }
 
             await self._process_bar(symbol, timeframe, bar, features, frames, timestamp)
-            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
+            return True
 
         except Exception as e:
             self.logger.error(
@@ -563,28 +570,34 @@ class SignalGeneratorService:
             )
             self.error_count_total.inc()
             self._error_count += 1
+            return False
 
     async def _process_loop(self) -> None:
-        from src.core.stream_keys import intelligence as sk_intel
-
+        all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
-                for tf in self.config["service"]["timeframes"]:
-                    for sym in self.config["service"]["symbols"]:
-                        stream_name = sk_intel(self.env_prefix, sym, tf)
-                        messages = await self.redis_client.xreadgroup(
-                            self.consumer_group,
-                            self.consumer_name,
-                            {stream_name: ">"},
-                            count=10,
-                            block=100,
+                messages = await self.redis_client.xreadgroup(
+                    self.consumer_group, self.consumer_name,
+                    all_streams, count=10, block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
+                    )
+                    symbol, timeframe = self._stream_map[stream_name]
+                    to_ack: list[bytes] = []
+                    for message_id, fields in msgs:
+                        ok = await self._process_single_message(
+                            symbol, timeframe, fields, stream_name, message_id
                         )
-                        for _stream, msgs in messages:
-                            for message_id, fields in msgs:
-                                await self._process_single_message(
-                                    sym, tf, fields, stream_name, message_id
-                                )
-                await asyncio.sleep(self.config["service"]["processing_interval"])
+                        if ok:
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(
+                            stream_name, self.consumer_group, *to_ack
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:
