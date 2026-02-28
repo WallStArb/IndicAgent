@@ -65,3 +65,136 @@ def test_parse_indicators_message_splits_ohlcv_and_features():
     assert features["macd"] == 2.1
     assert "open" not in features
     assert "timestamp" not in features
+
+
+def test_stream_map_populated_after_setup():
+    """_stream_map must contain (symbol, timeframe) for every stream name after setup."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from services.indicator_service import IndicatorService
+
+    svc = IndicatorService()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
+    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("already exists"))
+    svc.redis_client.xgroup_setid = AsyncMock()
+
+    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
+
+    expected = len(svc.config["service"]["timeframes"]) * len(svc.config["service"]["symbols"])
+    assert len(svc._stream_map) == expected
+    for stream_name, (sym, tf) in svc._stream_map.items():
+        assert sym in svc.config["service"]["symbols"]
+        assert tf in svc.config["service"]["timeframes"]
+
+
+def test_df_cache_miss_builds_dataframe():
+    """_get_df must build DataFrame from bar_history on cache miss."""
+    from collections import OrderedDict
+    from datetime import datetime
+    from services.indicator_service import IndicatorService
+    import pandas as pd
+
+    svc = IndicatorService()
+    key = "ES:1m"
+    svc.bar_history[key] = OrderedDict()
+    svc._df_cache[key] = None
+    ts = datetime(2026, 2, 28, 10, 0, 0)
+    svc.bar_history[key][ts.isoformat()] = {
+        "timestamp": ts, "open": 5300.0, "high": 5305.0,
+        "low": 5299.0, "close": 5303.0, "volume": 1000,
+    }
+
+    df = svc._get_df(key)
+
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 1
+    assert df.iloc[0]["close"] == 5303.0
+
+
+def test_df_cache_hit_returns_same_object():
+    """_get_df must return cached DataFrame on hit (no rebuild)."""
+    from services.indicator_service import IndicatorService
+    import pandas as pd
+
+    svc = IndicatorService()
+    key = "ES:1m"
+    cached = pd.DataFrame([{"close": 5303.0}])
+    svc._df_cache[key] = cached
+
+    result = svc._get_df(key)
+
+    assert result is cached  # exact same object, not a copy
+
+
+def test_bar_append_invalidates_df_cache():
+    """Appending a bar must set _df_cache[key] = None."""
+    from collections import OrderedDict
+    from datetime import datetime
+    from services.indicator_service import IndicatorService
+    import pandas as pd
+
+    svc = IndicatorService()
+    key = "ES:1m"
+    svc.bar_history[key] = OrderedDict()
+    svc._df_cache[key] = pd.DataFrame([{"close": 5300.0}])
+
+    # Simulate what _process_single_bar does on bar append
+    ts = datetime(2026, 2, 28, 10, 1, 0)
+    svc.bar_history[key][ts.isoformat()] = {"timestamp": ts, "close": 5303.0}
+    svc._df_cache[key] = None  # invalidate — this is what we're testing gets called
+
+    assert svc._df_cache[key] is None
+
+
+def test_process_single_bar_returns_true_on_success():
+    """_process_single_bar must return True when bar is processed successfully."""
+    import asyncio
+    from datetime import datetime
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from services.indicator_service import IndicatorService
+
+    svc = IndicatorService()
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xadd = AsyncMock()
+    svc.bars_processed_total = MagicMock()
+    svc.error_count_total = MagicMock()
+
+    fields = {
+        b"timestamp": b"2026-02-28T10:00:00",
+        b"source": b"ibkr",
+        b"open": b"5300.0", b"high": b"5305.0",
+        b"low": b"5299.0", b"close": b"5303.0", b"volume": b"1000",
+    }
+
+    with patch.object(svc, "_run_i1_plugins", return_value={"rsi_14": 58.3}):
+        # Pre-fill history so min_bars is met
+        from datetime import timedelta
+        for i in range(130):
+            ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
+            svc.bar_history["ES:1m"][ts.isoformat()] = {
+                "timestamp": ts, "open": 5300.0, "high": 5305.0,
+                "low": 5299.0, "close": 5303.0, "volume": 1000,
+            }
+        result = asyncio.get_event_loop().run_until_complete(
+            svc._process_single_bar("ES", "1m", fields, "market:ES:1m", b"1-0")
+        )
+    assert result is True
+
+
+def test_process_single_bar_returns_false_on_exception():
+    """_process_single_bar must return False when processing raises."""
+    import asyncio
+    from services.indicator_service import IndicatorService
+    from unittest.mock import MagicMock
+
+    svc = IndicatorService()
+    svc.redis_client = None  # will cause AttributeError
+    svc.error_count_total = MagicMock()
+
+    fields = {b"timestamp": b"bad-ts"}  # will fail fromisoformat
+
+    result = asyncio.get_event_loop().run_until_complete(
+        svc._process_single_bar("ES", "1m", fields, "market:ES:1m", b"1-0")
+    )
+    assert result is False

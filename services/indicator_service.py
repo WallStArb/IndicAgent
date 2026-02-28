@@ -135,6 +135,8 @@ class IndicatorService:
 
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
+        self._stream_map: dict[str, tuple[str, str]] = {}
+        self._df_cache: dict[str, "pd.DataFrame | None"] = {}
 
         self.bars_processed_total = counter(
             "indicator_bars_processed_total",
@@ -218,6 +220,11 @@ class IndicatorService:
         """
         return self._TF_MIN_BARS.get(timeframe, 26)
 
+    def _get_df(self, key: str) -> "pd.DataFrame":
+        if self._df_cache.get(key) is None:
+            self._df_cache[key] = pd.DataFrame(list(self.bar_history[key].values()))
+        return self._df_cache[key]
+
     def _run_i1_plugins(self, frames: dict[str, Any]) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
         features: dict[str, Any] = {}
@@ -240,7 +247,7 @@ class IndicatorService:
         fields: dict[bytes, bytes],
         stream_name: str,
         message_id: bytes,
-    ) -> None:
+    ) -> bool:
         try:
             bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
             bar_source = fields.get(b"source", b"").decode()
@@ -257,22 +264,20 @@ class IndicatorService:
 
             if bar_source == "tick_derived":
                 # Tick data drives display only; real IBKR bars drive the pipeline
-                await self.redis_client.xack(stream_name, self.consumer_group, message_id)
-                return
+                return True
 
             # authoritative bar: update history (dedup by timestamp, O(1))
             history = self.bar_history[key]
             history[bar_ts.isoformat()] = bar_data
             while len(history) > self._bar_history_max:
                 history.popitem(last=False)
+            self._df_cache[key] = None
 
             min_bars = self._min_bars_for_tf(timeframe)
             if len(self.bar_history[key]) < min_bars:
-                await self.redis_client.xack(stream_name, self.consumer_group, message_id)
-                return
+                return True
 
-            df = pd.DataFrame(list(self.bar_history[key].values()))
-            frames = {"main": df}
+            frames = {"main": self._get_df(key)}
 
             features = self._run_i1_plugins(frames)
 
@@ -281,7 +286,6 @@ class IndicatorService:
             await self.redis_client.xadd(out_stream, msg, maxlen=1000, approximate=True)
 
             self.bars_processed_total.inc()
-            await self.redis_client.xack(stream_name, self.consumer_group, message_id)
 
             self.logger.debug(
                 "I1 published",
@@ -289,12 +293,14 @@ class IndicatorService:
                 timeframe=timeframe,
                 features=len(features),
             )
+            return True
 
         except Exception as e:
             self.logger.error(
                 "Error processing bar", symbol=symbol, timeframe=timeframe, error=str(e)
             )
             self.error_count_total.inc()
+            return False
 
     async def _connect_redis(self) -> None:
         self.redis_client = redis.Redis(
@@ -352,26 +358,34 @@ class IndicatorService:
                 except Exception:
                     # Group already exists — reset to current tail so stale backlog is skipped
                     await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+                self._stream_map[stream_name] = (symbol, timeframe)
 
     async def _process_market_data(self) -> None:
+        all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
-                for timeframe in self.config["service"]["timeframes"]:
-                    for symbol in self.config["service"]["symbols"]:
-                        stream_name = sk_market(self.env_prefix, symbol, timeframe)
-                        messages = await self.redis_client.xreadgroup(
-                            self.consumer_group,
-                            self.consumer_name,
-                            {stream_name: ">"},
-                            count=10,
-                            block=100,
+                messages = await self.redis_client.xreadgroup(
+                    self.consumer_group, self.consumer_name,
+                    all_streams, count=10, block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
+                    )
+                    symbol, timeframe = self._stream_map[stream_name]
+                    to_ack: list[bytes] = []
+                    for message_id, fields in msgs:
+                        ok = await self._process_single_bar(
+                            symbol, timeframe, fields, stream_name, message_id
                         )
-                        for _stream, msgs in messages:
-                            for message_id, fields in msgs:
-                                await self._process_single_bar(
-                                    symbol, timeframe, fields, stream_name, message_id
-                                )
-                await asyncio.sleep(self.config["service"]["processing_interval"])
+                        if ok:
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(
+                            stream_name, self.consumer_group, *to_ack
+                        )
             except asyncio.CancelledError:
                 break
             except Exception as e:
