@@ -5,40 +5,7 @@ When an idea is ready to flesh out, move it to `analysis/`. When ready to build,
 
 ---
 
-## Commercialization — Retail SaaS + Tiered API
-Captured: 2026-02-28
-
-**Vision:** Retail SaaS platform with three subscription tiers, monetizing the intelligence pipeline we've built.
-
-### Product Tiers
-- **Free** — dashboard access, 15-min delayed data, 5 symbols. Acquisition funnel.
-- **Pro (~$49-99/mo)** — real-time dashboard, all 23 contracts, full I1-I7 intelligence panel.
-- **API (~$149-299/mo)** — SSE stream or webhooks delivering signals + intelligence JSON. For algo traders building on top of our layer.
-- **Premium CIS (~$299-499/mo)** — API access gated to CIS > 0.70 signals only (regime-eligible, GARCH/Kalman quality-gated). Fewer signals, much higher quality. **This is the moat.**
-
-### Why CIS as Premium Gate Works
-- Self-improving: WeightUpdater runs on real outcome data from signal_ledger
-- Verifiable: can show win rate by CIS bucket from signal_ledger outcomes — a marketing asset competitors can't claim
-- Triple-filtered: GARCH/Kalman quality gates + HMM regime + CIS threshold
-- Difficult to replicate: represents 9 phases of pipeline work
-
-### What's Already Built (surprisingly little to add commercially)
-Dashboard UI, SSE stream, REST API, CIS scoring, signal ledger + outcomes, intelligence feature store. Missing: auth, Stripe, tier middleware, webhook delivery.
-
-### Critical Path (sequenced)
-1. **Data licensing blocker** — IBKR prohibits redistribution. Switch to commercial vendor (Databento for futures-native CME/CBOT coverage, or Rithmic). TWS daemon → Databento feed adapter. Rest of pipeline is data-source agnostic.
-2. **Auth + subscription gating** — Clerk (Next.js native) + Stripe. FastAPI middleware reads tier from JWT, gates endpoints.
-3. **Webhook delivery** — async worker POSTs CIS-filtered signals to registered endpoints on fire. Retry logic.
-4. **Performance transparency page** — public stats from signal_ledger: "CIS > 0.70: 68% accuracy, 90-day window." Sells premium tier better than any copy.
-5. **LLM scaling** — qwen3:8b at 90s/narrative won't scale. Options: GPU (RTX 4090 → ~5s), or cloud API (Claude/OpenAI pay-per-token). Pre-generate on schedule rather than per-request.
-
-### Unit Economics Advantage
-Shared-brain model: pay for 23 symbols once regardless of subscriber count. Excellent margin expansion as user base grows.
-
-### Related Todo
-See `.planning/todos/pending/2026-02-27-productionize-dashboard-and-api-for-multi-user-access.md` for the technical infrastructure side (SSE fan-out, uvicorn workers, nginx, auth scaffolding).
-
----
+- **Commercialization — Retail SaaS + Tiered API** — see `docs/ideas/commercialization-retail-saas.md` for full writeup. Free/Pro/API/Premium CIS tiers. Data vendor swap (Databento) is the hard blocker. CIS > 0.70 as premium gate is the moat.
 
 - **Gap-fill service** — detect + backfill gaps in `market_data_ohlcv` caused by service downtime or TWS disconnects. Query for gaps in the 1m series, fetch only the missing windows from IBKR, run Stage 2 replay for those windows. Distinct from the full historical backfill.
 
