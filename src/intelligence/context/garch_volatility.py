@@ -48,15 +48,18 @@ class GARCHVolatilityPlugin:
         init_window = min(20, len(log_returns))
         sigma2 = float(np.var(log_returns[:init_window]))
         if sigma2 == 0:
-            sigma2 = self.omega / (1 - self.alpha - self.beta)
+            denom = 1 - self.alpha - self.beta
+            sigma2 = self.omega / denom if denom > 1e-10 else self.omega
 
         # Rolling realized vol (std of last 20 log returns)
         realized_returns: deque[float] = deque(maxlen=20)
 
-        # GARCH recursion
+        # GARCH recursion — track sigma2 before last update for unbiased shock
         sigma_history: list[float] = []
+        sigma2_prior_last = sigma2
         for i in range(len(log_returns)):
             epsilon = log_returns[i]
+            sigma2_prior_last = sigma2
             sigma2 = self.omega + self.alpha * epsilon**2 + self.beta * sigma2
             sigma_history.append(math.sqrt(sigma2))
             realized_returns.append(epsilon)
@@ -88,9 +91,9 @@ class GARCHVolatilityPlugin:
         else:
             vol_regime = 3  # extreme
 
-        # Standardized shock
+        # Standardized shock: use sigma2 BEFORE incorporating last_epsilon (prior, not posterior)
         last_epsilon = log_returns[-1]
-        shock = last_epsilon**2 / sigma2 if sigma2 > 1e-15 else 0.0
+        shock = last_epsilon**2 / sigma2_prior_last if sigma2_prior_last > 1e-15 else 0.0
 
         # Save state for incremental
         self._state = {
@@ -142,7 +145,8 @@ class GARCHVolatilityPlugin:
         else:
             vol_regime = 3
 
-        shock = epsilon**2 / sigma2 if sigma2 > 1e-15 else 0.0
+        # Use prev_sigma2 (prior) not sigma2 (posterior) for unbiased shock
+        shock = epsilon**2 / s["prev_sigma2"] if s["prev_sigma2"] > 1e-15 else 0.0
 
         self._state = {
             "prev_sigma2": sigma2,

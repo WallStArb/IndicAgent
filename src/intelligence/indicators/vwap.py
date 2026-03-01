@@ -34,9 +34,11 @@ class VWAPPlugin:
 
         # Session reset: find the last date boundary
         session_start = 0
+        session_date = None
         if "timestamp" in df.columns:
             ts = pd.to_datetime(df["timestamp"])
             last_date = ts.iloc[-1].date()
+            session_date = last_date
             mask = ts.dt.date == last_date
             session_start = mask.values.argmax()  # first True index
 
@@ -60,6 +62,7 @@ class VWAPPlugin:
         self._state["cum_pv"] = float(cum_pv[-1])
         self._state["cum_vol"] = float(cum_vol[-1])
         self._state["cum_tp_sq_vol"] = float(cum_tp_sq_vol[-1])
+        self._state["session_date"] = session_date
 
         return {
             "vwap": float(vwap_val),
@@ -77,6 +80,13 @@ class VWAPPlugin:
         if df is None or len(df) < 1:
             return {}
         row = df.iloc[-1]
+
+        # Reset on session boundary (new trading day)
+        if "timestamp" in df.columns:
+            bar_date = pd.to_datetime(row["timestamp"]).date()
+            if bar_date != self._state.get("session_date"):
+                return self.compute_full(windows)
+
         tp = (float(row["high"]) + float(row["low"]) + float(row["close"])) / 3.0
         vol = float(row["volume"])
         self._state["cum_pv"] += tp * vol

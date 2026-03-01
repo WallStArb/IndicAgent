@@ -71,7 +71,7 @@ class I1Indicators(BaseModel):
     roc_14: float | None = None
     # StochasticPlugin
     stoch_k_14_3: float | None = None
-    stoch_d: float | None = None
+    stoch_d_14_3: float | None = None
     # ADXPlugin
     adx_14: float | None = None
     plus_di_14: float | None = None
@@ -79,7 +79,7 @@ class I1Indicators(BaseModel):
     # CCIPlugin
     cci_14: float | None = None
     # WilliamsRPlugin
-    williams_r: float | None = None
+    williams_r_14: float | None = None
     # MFIPlugin
     mfi_14: float | None = None
     # OBVPlugin

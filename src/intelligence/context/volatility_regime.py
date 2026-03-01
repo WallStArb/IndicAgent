@@ -68,17 +68,11 @@ class VolatilityRegimePlugin:
         sma = np.convolve(close, np.ones(self.bb_period) / self.bb_period, mode="valid")
         if len(sma) < self.lookback:
             return {}
-        tail = close[self.bb_period - 1 :]
-        squared_diff = (tail - sma) ** 2
-        # Rolling std
-        bb_std = np.sqrt(
-            np.convolve(squared_diff, np.ones(self.bb_period) / self.bb_period, mode="valid")
-        )
-        if len(bb_std) == 0:
-            return {}
-        bb_upper = sma[self.bb_period - 1 :][: len(bb_std)] + 2 * bb_std
-        bb_lower = sma[self.bb_period - 1 :][: len(bb_std)] - 2 * bb_std
-        bb_mid = sma[self.bb_period - 1 :][: len(bb_std)]
+        # Per-window std: each element uses the exact same bb_period bars as its SMA
+        bb_std = np.array([np.std(close[i : i + self.bb_period]) for i in range(len(sma))])
+        bb_upper = sma + 2 * bb_std
+        bb_lower = sma - 2 * bb_std
+        bb_mid = sma
         bb_width = (bb_upper - bb_lower) / np.where(bb_mid != 0, bb_mid, 1.0)
 
         bb_width_pct = float(bb_width[-1])
