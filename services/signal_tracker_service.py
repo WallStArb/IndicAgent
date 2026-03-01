@@ -154,6 +154,7 @@ class SignalTrackerService:
         symbol: str,
         timeframe: str,
         bar: dict[str, Any],
+        all_active: list[dict[str, Any]] | None = None,
     ) -> list[Any]:
         """Evaluate all active signals for this symbol/timeframe against bar OHLCV.
 
@@ -162,8 +163,8 @@ class SignalTrackerService:
         if not self.db_manager:
             return []
 
-        active = await get_active_signals(self.db_manager, symbol=symbol)
-        relevant = [s for s in active if s.get("timeframe") == timeframe]
+        # Filter active signals by timeframe for this evaluation (N+1 fix)
+        relevant = [s for s in all_active if s.get("timeframe") == timeframe]
         self.active_signals_count.set(len(relevant))
 
         transitions = []
@@ -238,8 +239,13 @@ class SignalTrackerService:
                 "low": float(fields[b"low"].decode()),
                 "close": float(fields[b"close"].decode()),
             }
+
+            # Fetch all active signals once per bar (N+1 fix: 92 queries → 1)
+            active = await get_active_signals(self.db_manager, symbol=symbol)
+            self.active_signals_count.set(len(active))
+
             for tf in self.config["service"]["timeframes"]:
-                await self._evaluate_signals_against_bar(symbol, tf, bar)
+                await self._evaluate_signals_against_bar(symbol, tf, bar, active)
 
             return True
 
