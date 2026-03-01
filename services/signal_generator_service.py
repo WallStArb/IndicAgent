@@ -38,6 +38,7 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import signals_aggregated
+from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import IntelligenceEvent
@@ -351,18 +352,9 @@ class SignalGeneratorService:
         for tf in self.config["service"]["timeframes"]:
             for sym in self.config["service"]["symbols"]:
                 stream_name = sk_intel(self.env_prefix, sym, tf)
-                group_freshly_created = False
-                try:
-                    # Create at $ (current end) for new groups only
-                    await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "$", mkstream=True
-                    )
-                    group_freshly_created = True
-                except redis.ResponseError as e:
-                    if "BUSYGROUP" not in str(e):
-                        raise
-                    # Group already exists - reset to current tail to skip stale backlog
-                    await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+                group_freshly_created = await ensure_consumer_group_with_reset(
+                    self.redis_client, stream_name, self.consumer_group
+                )
                 # Only rewind warmup_bars if group was freshly created
                 if group_freshly_created:
                     try:
