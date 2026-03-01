@@ -12,10 +12,9 @@ overrides.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
@@ -42,8 +41,14 @@ class Settings(BaseSettings):
     redis_max_connections: int = Field(default=100)
 
     # IBKR
-    ib_host: str = Field(default="172.18.176.1", validation_alias="IB_HOST")
-    ib_port: int = Field(default=7497, validation_alias="IB_PORT")
+    ib_host: str = Field(
+        default="172.18.176.1",
+        validation_alias=AliasChoices("ib_host", "IBKR_HOST", "IB_HOST"),
+    )
+    ib_port: int = Field(
+        default=7497,
+        validation_alias=AliasChoices("ib_port", "IBKR_PORT", "IB_PORT"),
+    )
     ib_client_id: int = Field(default=35, validation_alias="IB_CLIENT_ID")
 
     # High-frequency daemon
@@ -195,20 +200,6 @@ class Settings(BaseSettings):
             ),
         ]
 
-    @field_validator("ib_host", mode="before")
-    @classmethod
-    def ib_host_aliases(cls, v):  # type: ignore[override]
-        # Accept both IB_HOST and IBKR_HOST for compatibility
-        return v or os.getenv("IBKR_HOST") or os.getenv("IB_HOST")
-
-    @field_validator("ib_port", mode="before")
-    @classmethod
-    def ib_port_aliases(cls, v):  # type: ignore[override]
-        # Accept both IB_PORT and IBKR_PORT for compatibility
-        if v is not None:
-            return v
-        port = os.getenv("IBKR_PORT") or os.getenv("IB_PORT")
-        return int(port) if port else None
 
 
 # ---------------------------------------------------------------------------
