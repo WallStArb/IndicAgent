@@ -47,6 +47,7 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 
 from src.config.settings import Settings
+from src.core.models import AssetClass
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
@@ -649,7 +650,7 @@ def replay_symbol(
             total_signals += n
 
             if (i + 1) % 1000 == 0:
-                print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals so far")
+                print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals")
 
         signal_counts[tf] = total_signals
         print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
@@ -668,11 +669,11 @@ def main() -> None:
         description="Historical Backfill — fetch IBKR bars + replay intelligence pipeline"
     )
     parser.add_argument("--days", type=int, default=35,
-                        help="Days of 1m history to fetch (default: 35). Does not affect 5m/1h/1d depths.")
+                        help="Days of 1m history to fetch (default: 35).")
     parser.add_argument("--symbols", default=None,
-                        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all active contracts)")
+                        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all active)")
     parser.add_argument("--timeframes", default="1m,5m,15m,1h,1d",
-                        help="Comma-separated timeframes for fetch+replay (default: 1m,5m,15m,1h,1d)")
+                        help="Comma-separated timeframes (default: 1m,5m,15m,1h,1d)")
     parser.add_argument("--client-id", type=int, default=56,
                         help="IBKR client ID (default: 56)")
     parser.add_argument("--fetch-only", action="store_true",
@@ -699,7 +700,13 @@ def main() -> None:
     tf_depths = {tf: (args.days if tf == "1m" else _TF_FETCH_CONFIG[tf][0])
                  for tf in timeframes if tf in _TF_FETCH_CONFIG}
     print(f"  TF depths : {tf_depths}")
-    print(f"  Stages    : {'fetch+replay' if not (args.fetch_only or args.replay_only) else 'fetch-only' if args.fetch_only else 'replay-only'}")
+    if args.fetch_only:
+        stage = "fetch-only"
+    elif args.replay_only:
+        stage = "replay-only"
+    else:
+        stage = "fetch+replay"
+    print(f"  Stages    : {stage}")
     print()
 
     db_conn = connect_db(settings)
@@ -765,7 +772,9 @@ def main() -> None:
                             n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
                             total_bars += n
                             label = "continuous-adj" if use_continuous else "named"
-                            print(f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n} bars stored")
+                            print(
+                                f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n} bars"
+                            )
                         except Exception as e:
                             print(f"  {instrument.symbol}/{tf}: error — {e}")
                         time.sleep(2)  # IBKR pacing between TF requests

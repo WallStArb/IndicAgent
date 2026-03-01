@@ -79,14 +79,16 @@ def test_stream_map_populated_after_setup():
     svc = IndicatorService()
     svc.redis_client = AsyncMock()
     svc.redis_client.xrevrange = AsyncMock(return_value=[])
-    svc.redis_client.xgroup_create = AsyncMock(side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists"))
+    svc.redis_client.xgroup_create = AsyncMock(
+        side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists")
+    )
     svc.redis_client.xgroup_setid = AsyncMock()
 
     asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
 
     expected = len(svc.config["service"]["timeframes"]) * len(svc.config["service"]["symbols"])
     assert len(svc._stream_map) == expected
-    for stream_name, (sym, tf) in svc._stream_map.items():
+    for _, (sym, tf) in svc._stream_map.items():
         assert sym in svc.config["service"]["symbols"]
         assert tf in svc.config["service"]["timeframes"]
 

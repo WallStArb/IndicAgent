@@ -7,12 +7,14 @@ Covers the secondary disconnect check inserted in the main loop:
 """
 from unittest.mock import MagicMock, patch
 
+_DAEMON_MOD = "production.daemons.high_frequency_tws_daemon"
+
 
 def _make_daemon():
     """Construct HighFrequencyTWSDaemon with all heavy dependencies mocked."""
     with (
-        patch("production.daemons.high_frequency_tws_daemon.prom_counter", return_value=MagicMock()),
-        patch("production.daemons.high_frequency_tws_daemon.prom_gauge", return_value=MagicMock()),
+        patch(f"{_DAEMON_MOD}.prom_counter", return_value=MagicMock()),
+        patch(f"{_DAEMON_MOD}.prom_gauge", return_value=MagicMock()),
         patch("prometheus_client.Counter", return_value=MagicMock()),
         patch("production.daemons.high_frequency_tws_daemon.Settings") as mock_settings,
         patch("production.daemons.high_frequency_tws_daemon.MarketHoursManager"),
@@ -76,7 +78,7 @@ def test_true_connected_no_trigger():
         daemon.connected = False
         daemon._on_disconnected()
 
-    assert daemon.connected is True, "connected flag must remain True when provider reports connected"
+    assert daemon.connected is True, "connected flag must remain True when provider is connected"
     daemon._on_disconnected.assert_not_called()
 
 

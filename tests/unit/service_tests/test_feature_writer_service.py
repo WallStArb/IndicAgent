@@ -7,7 +7,7 @@ import pytest
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_valid_event() -> "IntelligenceEvent":
+def _make_valid_event():
     """Build a valid IntelligenceEvent for test fixtures."""
     from src.intelligence.schemas import (
         I1Indicators,
@@ -185,7 +185,7 @@ async def test_maybe_flush_time_based_calls_execute_batch():
 
 @pytest.mark.asyncio
 async def test_maybe_flush_recent_events_no_call():
-    """_maybe_flush(force=False) with events younger than FLUSH_INTERVAL_SECS does NOT call execute_batch."""
+    """_maybe_flush(force=False) with recent events does NOT call execute_batch."""
     import time
 
     from services.feature_writer_service import FeatureWriterService

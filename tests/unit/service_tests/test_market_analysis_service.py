@@ -110,7 +110,7 @@ class TestIntelligenceEventSchema:
         assert isinstance(ctx.garch_vol_regime, int)
 
     def test_i3_structure_swing_pattern_is_float(self):
-        """swing_pattern is float | None — plugin returns numeric encoding (1.0=uptrend, -1.0=downtrend)."""
+        """swing_pattern: float|None — numeric encoding (1.0=uptrend, -1.0=downtrend)."""
         from src.intelligence.schemas import I3Structure
 
         s3 = I3Structure(swing_pattern=1.0)
@@ -295,7 +295,9 @@ class TestPublisherFormat:
 
         assert svc.redis_client.xadd.called
         call_args = svc.redis_client.xadd.call_args
-        fields_dict = call_args[0][1] if call_args[0] else call_args[1].get("fields", call_args[0][1])
+        fields_dict = (
+            call_args[0][1] if call_args[0] else call_args[1].get("fields", call_args[0][1])
+        )
 
         # There should be exactly one field key: "event"
         assert "event" in fields_dict or b"event" in fields_dict
@@ -313,7 +315,7 @@ class TestPublisherFormat:
 
     @pytest.mark.asyncio
     async def test_publish_intelligence_drops_event_on_validation_error(self):
-        """If tiered dict has an unrecognized field, ValidationError is caught and xadd is NOT called."""
+        """Unrecognized field in tiered dict → ValidationError caught, xadd is NOT called."""
         svc = self._make_service()
         ts = datetime(2026, 1, 1, 12, 0, 0)
         bar_data = {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 100}

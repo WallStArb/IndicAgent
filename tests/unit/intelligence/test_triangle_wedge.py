@@ -52,7 +52,7 @@ def _build_ascending_triangle(n=80):
 
     trough_prices = [4980.0, 4984.0, 4988.0, 4992.0]
     trough_bars = [19, 34, 49, 64]
-    for b, lp in zip(trough_bars, trough_prices):
+    for b, lp in zip(trough_bars, trough_prices, strict=False):
         _inject_trough(low, b, trough_price=lp, shoulder_price=lp + 4.0)
 
     return close, high, low
@@ -68,7 +68,7 @@ def _build_descending_triangle(n=80):
 
     peak_prices = [5040.0, 5034.0, 5028.0, 5022.0]
     peak_bars = [12, 27, 42, 57]
-    for b, hp in zip(peak_bars, peak_prices):
+    for b, hp in zip(peak_bars, peak_prices, strict=False):
         _inject_peak(high, b, peak_price=hp, shoulder_price=hp - 5.0)
 
     trough_bars = [19, 34, 49, 64]
@@ -88,12 +88,12 @@ def _build_rising_wedge(n=80):
 
     peak_prices = [5020.0, 5025.0, 5030.0, 5035.0]
     peak_bars = [12, 27, 42, 57]
-    for b, hp in zip(peak_bars, peak_prices):
+    for b, hp in zip(peak_bars, peak_prices, strict=False):
         _inject_peak(high, b, peak_price=hp, shoulder_price=hp - 4.0)
 
     trough_prices = [5000.0, 5008.0, 5016.0, 5024.0]
     trough_bars = [19, 34, 49, 64]
-    for b, lp in zip(trough_bars, trough_prices):
+    for b, lp in zip(trough_bars, trough_prices, strict=False):
         _inject_trough(low, b, trough_price=lp, shoulder_price=lp + 4.0)
 
     return close, high, low

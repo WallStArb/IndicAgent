@@ -234,7 +234,7 @@ class TestAggregateCISIntegration:
 
     @pytest.mark.unit
     def test_aggregate_with_features_sets_result_cis_fields(self):
-        """AggregatedResult.cis_score, .bucket_scores, .weights_version populated when features given."""
+        """cis_score, bucket_scores, weights_version populated when features given."""
         sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
         result = aggregate([sig], trend_regime=0.8, features=_bullish_features())
         assert result.cis_score is not None

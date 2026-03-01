@@ -173,7 +173,7 @@ class TestExportFeatures:
         assert response.status_code == 422
 
     def test_export_route_does_not_conflict_with_symbol_path(self, client, mock_db):
-        """GET /api/features/export?symbol=ES&timeframe=1m hits export handler, not /{symbol}/{tf}."""
+        """GET /api/features/export hits export handler, not /{symbol}/{tf} path."""
         mock_db.fetch = AsyncMock(return_value=[])
 
         # If "export" were treated as a {symbol} path param, this would try to query

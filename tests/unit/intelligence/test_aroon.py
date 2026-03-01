@@ -43,7 +43,8 @@ class TestAroon:
 
     def test_oscillator_equals_up_minus_down(self):
         result = AroonPlugin().compute_full({"main": _make_ohlcv()})
-        assert abs(result["aroon_osc_25"] - (result["aroon_up_25"] - result["aroon_down_25"])) < 1e-6
+        osc = result["aroon_osc_25"]
+        assert abs(osc - (result["aroon_up_25"] - result["aroon_down_25"])) < 1e-6
 
     def test_high_at_current_bar_gives_100(self):
         """aroon_up should be 100 when highest high is the current bar."""

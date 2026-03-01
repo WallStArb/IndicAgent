@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from redis.exceptions import ResponseError
-import redis.asyncio as redis
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

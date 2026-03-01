@@ -493,10 +493,10 @@ class MarketAnalysisService:
                     symbol, timeframe = self._stream_map[stream_name]
                     to_ack: list[bytes] = []
                     for message_id, fields in msgs:
-                        ok = await self._process_single_bar(
+                        await self._process_single_bar(
                             symbol, timeframe, fields, stream_name, message_id
                         )
-                        # Always acknowledge (at-most-once delivery) — failed messages logged by _process_single_bar
+                        # Always acknowledge (at-most-once delivery)
                         to_ack.append(message_id)
                     if to_ack:
                         await self.redis_client.xack(stream_name, self.consumer_group, *to_ack)

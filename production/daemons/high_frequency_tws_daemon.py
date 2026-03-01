@@ -243,7 +243,11 @@ class HighFrequencyTWSDaemon:
                 try:
                     stream_name = sk_live_tick(self.env_prefix, tick.symbol)
                     if self.async_redis:
-                        tick_fields = {k: str(v) for k, v in tick.model_dump(mode="json").items() if v is not None}
+                        tick_fields = {
+                            k: str(v)
+                            for k, v in tick.model_dump(mode="json").items()
+                            if v is not None
+                        }
                         await self.async_redis.xadd(
                             stream_name,
                             tick_fields,
@@ -356,7 +360,9 @@ class HighFrequencyTWSDaemon:
                     asyncio.set_event_loop(loop)
                     loop.run_forever()
 
-                self.loop_thread = threading.Thread(target=_run_loop, args=(self.loop,), daemon=True)
+                self.loop_thread = threading.Thread(
+                    target=_run_loop, args=(self.loop,), daemon=True
+                )
                 self.loop_thread.start()
                 self.async_redis = aioredis.Redis(
                     host=self.settings.redis_host,
@@ -408,7 +414,9 @@ class HighFrequencyTWSDaemon:
                         logger.warning("Disconnected from TWS, attempting reconnect...")
                         if self.connect_tws():
                             if self.loop:
-                                self._tick_task = asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
+                                self._tick_task = asyncio.run_coroutine_threadsafe(
+                                    self._tick_loop(), self.loop
+                                )
                             self.m_reconnects.inc()
                             self.reconnects += 1
                             self._reconnect_delay = 1.0

@@ -149,8 +149,12 @@ class TestMomentumBreakout:
         volume[-1] = 2000.0
         df = make_ohlcv(close, volume)
 
-        r_small = plugin.compute_full({"main": df, "features": _base_features(roc=0.35, swing_high=5010.0)})
-        r_large = plugin.compute_full({"main": df, "features": _base_features(roc=1.0, swing_high=5010.0)})
+        r_small = plugin.compute_full(
+            {"main": df, "features": _base_features(roc=0.35, swing_high=5010.0)}
+        )
+        r_large = plugin.compute_full(
+            {"main": df, "features": _base_features(roc=1.0, swing_high=5010.0)}
+        )
 
         assert r_small.get("signal_type") == "momentum_breakout_long"
         assert r_large.get("signal_type") == "momentum_breakout_long"

@@ -32,7 +32,6 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 import redis.asyncio as redis
-from src.core.stream_utils import ensure_consumer_group_with_reset
 import structlog
 from pydantic import ValidationError
 
@@ -377,7 +376,9 @@ class SignalGeneratorService:
                                 stream_name, self.consumer_group, "0-0"
                             )
                     except Exception as e:
-                        self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
+                        self.logger.warning(
+                            "Consumer group rewind failed", stream=stream_name, error=str(e)
+                        )
                 self._stream_map[stream_name] = (sym, tf)
 
     async def stop(self) -> None:
@@ -510,7 +511,9 @@ class SignalGeneratorService:
             stop_p = float(sig.get("stop_loss", 0))
             risk = abs(entry_p - stop_p)
             if risk > 0 and targets:
-                message["risk_reward_ratio"] = str(round(abs(float(targets[0]) - entry_p) / risk, 2))
+                message["risk_reward_ratio"] = str(
+                    round(abs(float(targets[0]) - entry_p) / risk, 2)
+                )
             message["timestamp"] = timestamp.isoformat()
             message["symbol"] = symbol
             message["timeframe"] = timeframe
@@ -596,10 +599,10 @@ class SignalGeneratorService:
                     symbol, timeframe = self._stream_map[stream_name]
                     to_ack: list[bytes] = []
                     for message_id, fields in msgs:
-                        ok = await self._process_single_message(
+                        await self._process_single_message(
                             symbol, timeframe, fields, stream_name, message_id
                         )
-                        # Always acknowledge (at-most-once delivery) — failed messages logged by _process_single_message
+                        # Always acknowledge (at-most-once delivery)
                         to_ack.append(message_id)
                     if to_ack:
                         await self.redis_client.xack(

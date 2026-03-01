@@ -146,14 +146,16 @@ class TestTargetCollectionLong:
         f_sig = _features(bsl_level=5040.0, bsl_significance=0.6)
         f_insig = _features(bsl_level=5040.0, bsl_significance=0.3)
         assert any(t.level_type == "bsl" for t in _collect_targets_long(ENTRY, stop, ATR, f_sig))
-        assert not any(t.level_type == "bsl" for t in _collect_targets_long(ENTRY, stop, ATR, f_insig))
+        assert not any(t.level_type == "bsl"
+                       for t in _collect_targets_long(ENTRY, stop, ATR, f_insig))
 
     def test_fvg_collected_only_if_bullish(self):
         stop = ENTRY - ATR * 2.0
         f_bull = _features(fvg_type=1.0, fvg_top=5030.0)
         f_bear = _features(fvg_type=-1.0, fvg_top=5030.0)
         assert any(t.level_type == "fvg" for t in _collect_targets_long(ENTRY, stop, ATR, f_bull))
-        assert not any(t.level_type == "fvg" for t in _collect_targets_long(ENTRY, stop, ATR, f_bear))
+        assert not any(t.level_type == "fvg"
+                       for t in _collect_targets_long(ENTRY, stop, ATR, f_bear))
 
     def test_too_close_filtered_out(self):
         # Level only ATR×0.3 above entry — below min_level threshold of ATR×0.5
@@ -203,7 +205,8 @@ class TestTargetCollectionShort:
         f_sig = _features(ssl_level=4960.0, ssl_significance=0.6)
         f_insig = _features(ssl_level=4960.0, ssl_significance=0.3)
         assert any(t.level_type == "ssl" for t in _collect_targets_short(ENTRY, stop, ATR, f_sig))
-        assert not any(t.level_type == "ssl" for t in _collect_targets_short(ENTRY, stop, ATR, f_insig))
+        assert not any(t.level_type == "ssl"
+                       for t in _collect_targets_short(ENTRY, stop, ATR, f_insig))
 
     def test_sorted_nearest_first(self):
         stop = ENTRY + ATR * 2.0

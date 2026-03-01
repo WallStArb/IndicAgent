@@ -15,7 +15,9 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_bar(ts_seconds: int, open_: float, high: float, low: float, close: float, volume: int) -> dict:
+def _make_bar(
+    ts_seconds: int, open_: float, high: float, low: float, close: float, volume: int
+) -> dict:
     """Build a minimal OHLCV bar dict as the TimeframeBuilder expects."""
     return {
         "timestamp": str(ts_seconds),
@@ -29,7 +31,9 @@ def _make_bar(ts_seconds: int, open_: float, high: float, low: float, close: flo
     }
 
 
-def _make_stream_message(ts_seconds: int, open_: float, high: float, low: float, close: float, volume: int):
+def _make_stream_message(
+    ts_seconds: int, open_: float, high: float, low: float, close: float, volume: int
+):
     """Build a (msg_id, fields_bytes) Redis stream message tuple."""
     bar = _make_bar(ts_seconds, open_, high, low, close, volume)
     # Redis returns bytes; fields are byte-encoded
@@ -91,7 +95,8 @@ def test_accumulator_first_bar():
     from src.core.timeframe_builder import _update_accumulator
 
     acc = None
-    bar = {"open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 100, "period_ts": 300}
+    bar = {"open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 100,
+           "period_ts": 300}
     result = _update_accumulator(acc, bar, period_ts=300)
 
     assert result["open"] == 100.0
@@ -107,11 +112,13 @@ def test_accumulator_subsequent_bars():
     from src.core.timeframe_builder import _update_accumulator
 
     # First bar
-    bar1 = {"open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 100, "period_ts": 300}
+    bar1 = {"open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 100,
+            "period_ts": 300}
     acc = _update_accumulator(None, bar1, period_ts=300)
 
     # Second bar — higher high, lower low
-    bar2 = {"open": 101.0, "high": 103.0, "low": 98.0, "close": 102.0, "volume": 150, "period_ts": 300}
+    bar2 = {"open": 101.0, "high": 103.0, "low": 98.0, "close": 102.0, "volume": 150,
+            "period_ts": 300}
     acc = _update_accumulator(acc, bar2, period_ts=300)
 
     assert acc["open"] == 100.0   # unchanged from first bar
@@ -136,7 +143,7 @@ def test_accumulates_1m_into_5m():
     ]
 
     acc = None
-    for i, bar in enumerate(bars):
+    for bar in bars:
         bar["period_ts"] = 0
         acc = _update_accumulator(acc, bar, period_ts=0)
 
@@ -155,7 +162,8 @@ def test_period_boundary_emits_bar():
     acc_5m = None
     for ts in [0, 60, 120, 180, 240]:  # minutes 0-4
         period_ts = _floor_to_period(ts, 5)
-        bar = {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 100, "period_ts": period_ts}
+        bar = {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 100,
+               "period_ts": period_ts}
         acc_5m = _update_accumulator(acc_5m, bar, period_ts=period_ts)
 
     # Bar at ts=300 (minute 5) — new 5m period
@@ -167,7 +175,8 @@ def test_period_boundary_emits_bar():
     assert acc_5m["period_ts"] == 0  # previously accumulated period
 
     # New accumulator starts fresh
-    new_bar = {"open": 101.0, "high": 102.0, "low": 100.5, "close": 101.5, "volume": 150, "period_ts": 300}
+    new_bar = {"open": 101.0, "high": 102.0, "low": 100.5, "close": 101.5, "volume": 150,
+               "period_ts": 300}
     new_acc = _update_accumulator(None, new_bar, period_ts=300)
     assert new_acc["open"] == 101.0
     assert new_acc["period_ts"] == 300

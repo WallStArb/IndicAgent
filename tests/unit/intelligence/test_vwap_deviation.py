@@ -113,8 +113,12 @@ class TestVWAPDeviation:
         close_low = np.full(50, 4970.0)
         close_high = np.full(50, 5030.0)
 
-        r_low = plugin.compute_full({"main": make_ohlcv(close_low), "features": _features(price=4970.0)})
-        r_high = plugin.compute_full({"main": make_ohlcv(close_high), "features": _features(price=5030.0)})
+        r_low = plugin.compute_full(
+            {"main": make_ohlcv(close_low), "features": _features(price=4970.0)}
+        )
+        r_high = plugin.compute_full(
+            {"main": make_ohlcv(close_high), "features": _features(price=5030.0)}
+        )
 
         assert r_low.get("regime_context") == "vwap_extended_low"
         assert r_high.get("regime_context") == "vwap_extended_high"

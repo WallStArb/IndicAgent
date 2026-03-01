@@ -13,8 +13,8 @@ import pandas as pd
 from src.intelligence.register_plugins import register_all_plugins
 
 
-def _bar(ts: datetime, o=100.0, h=101.0, l=99.0, c=100.5, v=1000):
-    return {"timestamp": ts, "open": o, "high": h, "low": l, "close": c, "volume": v}
+def _bar(ts: datetime, o=100.0, h=101.0, low=99.0, c=100.5, v=1000):
+    return {"timestamp": ts, "open": o, "high": h, "low": low, "close": c, "volume": v}
 
 
 def _ts(hour: int, minute: int) -> datetime:

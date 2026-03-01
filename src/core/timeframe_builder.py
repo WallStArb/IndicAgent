@@ -362,12 +362,6 @@ class TimeframeBuilder:
             low = float(fields.get("low", 0))
             close = float(fields.get("close", 0))
             volume = int(float(fields.get("volume", 0)))
-
-            # Skip 5m/15m/1h/4h/1d bars if input 1m bar has no volume
-            # This prevents empty/aggregated bars from non-trading hours
-            if volume == 0 and tf_minutes > 1:
-                self._bars_1m_processed += 1
-                return
         except (ValueError, TypeError) as e:
             self._logger.warning("Bad bar fields", symbol=symbol, error=str(e))
             return
@@ -378,6 +372,10 @@ class TimeframeBuilder:
             self._accumulators[symbol] = {tf: None for tf in _TARGET_TIMEFRAMES}
 
         for tf, tf_minutes in _TARGET_TIMEFRAMES.items():
+            # Skip 5m/15m/1h/4h/1d aggregation when input 1m bar has no volume
+            # This prevents empty bars from non-trading hours propagating upward
+            if volume == 0:
+                continue
             new_period_ts = _floor_to_period(ts_seconds, tf_minutes)
             acc = self._accumulators[symbol][tf]
 

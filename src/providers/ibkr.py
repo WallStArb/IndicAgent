@@ -16,8 +16,8 @@ from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
 
 nest_asyncio.apply()
 
-from src.core.models import AssetClass, Instrument
-from src.providers.base import OHLCVBar, Tick
+from src.core.models import AssetClass, Instrument  # noqa: E402
+from src.providers.base import OHLCVBar, Tick  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,9 @@ class IBKRProvider:
             )
             connected = self._ib.isConnected()
             if connected:
-                logger.info("IBKRProvider connected", extra={"host": self._host, "port": self._port})
+                logger.info(
+                    "IBKRProvider connected", extra={"host": self._host, "port": self._port}
+                )
             return connected
         except Exception as e:
             logger.error("IBKRProvider connect failed", extra={"error": str(e)})
@@ -183,7 +185,10 @@ class IBKRProvider:
                 all_bars.append(OHLCVBar(
                     symbol=symbol,
                     timeframe=timeframe,
-                    timestamp=bar.date if isinstance(bar.date, datetime) else datetime.fromisoformat(str(bar.date)),
+                    timestamp=(
+                        bar.date if isinstance(bar.date, datetime)
+                        else datetime.fromisoformat(str(bar.date))
+                    ),
                     open=float(bar.open),
                     high=float(bar.high),
                     low=float(bar.low),
@@ -236,11 +241,16 @@ class IBKRProvider:
                 return True
             logger.warning(
                 "qualify_instrument: no contract details returned",
-                extra={"symbol": instrument.symbol, "base": instrument.base, "exchange": instrument.exchange, "expiry": instrument.expiry},
+                extra={
+                    "symbol": instrument.symbol, "base": instrument.base,
+                    "exchange": instrument.exchange, "expiry": instrument.expiry,
+                },
             )
             return False
         except Exception as e:
-            logger.warning("qualify_instrument failed", extra={"symbol": instrument.symbol, "error": str(e)})
+            logger.warning(
+                "qualify_instrument failed", extra={"symbol": instrument.symbol, "error": str(e)}
+            )
             return False
 
     def _normalize_ticker(self, ticker) -> Tick | None:
@@ -342,5 +352,7 @@ class IBKRProvider:
                     provider_meta={"con_id": c.conId},
                 )
         except Exception as e:
-            logger.debug("resolve_instrument futures lookup failed", extra={"query": query, "error": str(e)})
+            logger.debug(
+                "resolve_instrument futures lookup failed", extra={"query": query, "error": str(e)}
+            )
         return None

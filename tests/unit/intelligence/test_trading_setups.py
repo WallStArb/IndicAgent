@@ -632,8 +632,12 @@ class TestLiquidityHunt:
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
-        r_pwh = plugin.compute_full({"main": df, "features": self._features_bsl_swept(significance=1.00)})
-        r_pdh = plugin.compute_full({"main": df, "features": self._features_bsl_swept(significance=0.85)})
+        r_pwh = plugin.compute_full(
+            {"main": df, "features": self._features_bsl_swept(significance=1.00)}
+        )
+        r_pdh = plugin.compute_full(
+            {"main": df, "features": self._features_bsl_swept(significance=0.85)}
+        )
         if r_pwh.get("direction", 0) == -1 and r_pdh.get("direction", 0) == -1:
             assert r_pwh["confidence"] >= r_pdh["confidence"]
 
@@ -799,8 +803,12 @@ class TestSupplyDemandSetup:
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
-        r_fresh  = plugin.compute_full({"main": df, "features": self._demand_features(freshness=1.0)})
-        r_tested = plugin.compute_full({"main": df, "features": self._demand_features(freshness=0.5)})
+        r_fresh = plugin.compute_full(
+            {"main": df, "features": self._demand_features(freshness=1.0)}
+        )
+        r_tested = plugin.compute_full(
+            {"main": df, "features": self._demand_features(freshness=0.5)}
+        )
         if r_fresh.get("direction") == 1 and r_tested.get("direction") == 1:
             assert r_fresh["confidence"] > r_tested["confidence"]
 

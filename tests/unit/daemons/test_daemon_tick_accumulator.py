@@ -2,12 +2,14 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
+_DAEMON_MOD = "production.daemons.high_frequency_tws_daemon"
+
 
 def _make_daemon():
     """Instantiate HighFrequencyTWSDaemon with all external deps mocked."""
     with (
-        patch("production.daemons.high_frequency_tws_daemon.prom_counter", return_value=MagicMock()),
-        patch("production.daemons.high_frequency_tws_daemon.prom_gauge", return_value=MagicMock()),
+        patch(f"{_DAEMON_MOD}.prom_counter", return_value=MagicMock()),
+        patch(f"{_DAEMON_MOD}.prom_gauge", return_value=MagicMock()),
         patch("prometheus_client.Counter", return_value=MagicMock()),
         patch("production.daemons.high_frequency_tws_daemon.Settings") as mock_settings,
         patch("production.daemons.high_frequency_tws_daemon.MarketHoursManager"),

@@ -28,12 +28,12 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 import redis.asyncio as redis
-from src.core.stream_utils import ensure_consumer_group_with_reset
 import structlog
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import market as sk_market
+from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import counter, gauge, record_plugin_execution, start_metrics_server
@@ -401,10 +401,10 @@ class IndicatorService:
                     symbol, timeframe = self._stream_map[stream_name]
                     to_ack: list[bytes] = []
                     for message_id, fields in msgs:
-                        ok = await self._process_single_bar(
+                        await self._process_single_bar(
                             symbol, timeframe, fields, stream_name, message_id
                         )
-                        # Always acknowledge (at-most-once delivery) — failed messages logged by _process_single_bar
+                        # Always acknowledge (at-most-once delivery)
                         to_ack.append(message_id)
                     if to_ack:
                         await self.redis_client.xack(

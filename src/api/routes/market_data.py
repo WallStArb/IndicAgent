@@ -32,7 +32,7 @@ async def get_session_data(
 
     Session boundary: 18:00 ET each day (futures ETH session start).
     Reads from live Redis 1m streams (up to 2000 bars ≈ 33 hours — more than a full session).
-    Returns session_open, session_high, session_low, session_volume, prev_close keyed by base symbol.
+    Returns session_open, session_high, session_low, session_volume, prev_close keyed by symbol.
 
     prev_close = last 1m bar close before the prior session's maintenance window (17:00 ET),
     i.e. the previous RTH settlement. Queried from TimescaleDB, not Redis.
@@ -141,7 +141,8 @@ async def get_session_data(
             session_open = float(oldest.get("open", 0) or 0) or None
             session_high = max(float(b.get("high", 0) or 0) for b in session_bars) or None
             session_low_candidates = [float(b.get("low", 0) or 0) for b in session_bars]
-            session_low = min(v for v in session_low_candidates if v > 0) if any(v > 0 for v in session_low_candidates) else None
+            positive = [v for v in session_low_candidates if v > 0]
+            session_low = min(positive) if positive else None
             session_volume = sum(float(b.get("volume", 0) or 0) for b in session_bars)
         except (ValueError, TypeError):
             continue
