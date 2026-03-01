@@ -19,7 +19,7 @@ IBKR TWS → Redis Streams (hot path) → Dashboard (SSE, real-time)
           Vercel frontend (via Cloudflare Tunnel → HTTPS)
 ```
 
-**Stack choice rationale:** Redis + TimescaleDB was chosen over NATS/Kafka — no new infrastructure, hot path unchanged, external consumers use REST not Redis. Right-sized for current scale (23 contracts × 4 TFs).
+**Stack choice rationale:** Redis + TimescaleDB was chosen over NATS/Kafka — no new infrastructure, hot path unchanged, external consumers use REST not Redis. Right-sized for current scale (24 contracts × 4 TFs).
 
 ---
 
@@ -127,7 +127,7 @@ Both compute on every bar, output to `intelligence:` stream. Use cases:
 - **trad_MeanReversion**: gate on `kalman_price_position` (> 1.0 std dev)
 - **trad_VWAPDeviation**: `garch_sigma` as dynamic spread threshold
 - **trad_SqueezeExpansion**: `garch_vol_regime` check (avoid explosive vol)
-- **LLM narrative agent**: full I4 context block
+- **LLM narrative agent**: full I4 context block (ZAI GLM-5 primary, OpenRouter/Ollama fallback)
 
 ### 12. Historical backfill — replay fidelity tradeoff
 Stage 2 replay writes `source='backfill'`. First ~50 bars have degraded quality (Kalman/GARCH warm-up). Accepted — complexity of saving warm-up state not worth it. Document the warm-up requirement clearly.
