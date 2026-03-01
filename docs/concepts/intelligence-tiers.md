@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-02-28
+**Last Updated:** 2026-03-01
 
 ## Overview
 
@@ -236,9 +236,8 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 - **Consumption:** External intelligence consumers access processed intelligence
 
 ### **AI Intelligence Framework**
-- **I8 Operational:** `ai_narrative_service` running with Ollama (qwen3:8b per-signal, phi4-mini:3.8b group synthesis)
-- **OpenRouter:** `OpenRouterProvider` available for cloud-hosted LLM access (v5.5.0+)
-- **LLMChain:** `src/intelligence/llm/` — provider-agnostic chain supporting both Ollama and OpenRouter
+- **I8 Operational:** `ai_narrative_service` running with ZAI GLM-5 (primary), OpenRouter (fallback), Ollama (fallback: qwen3:8b per-signal, group synthesis)
+- **LLMChain:** `src/intelligence/llm_providers.py` — ZAIProvider → OpenRouterProvider → OllamaProvider (tries in sequence, exits on first success)
 
 ---
 
@@ -253,14 +252,14 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 - **I6 SMC:** 6 plugins — BOS/CHoCH, FVG, order blocks, liquidity sweeps (+ pools + supply/demand zones), BOCPD changepoint, HMM regime
 - **I6 Cross-Timeframe Confluence:** 1 plugin — trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
 - **I7 Trading Setups:** 14 plugins — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup (9 original); plus CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition (5 CIS contributors added in Phase 7). Signal aggregator replaced by CISScorer (6-bucket weighted scorer: trend/momentum/structure/pattern/institutional/regime). Regime eligibility filter: trend plugins only fire in trending regime (1/2); MeanReversion/VWAPDeviation only in ranging (0); gate skipped when hmm_regime_prob < 0.55 or duration < 3. WeightUpdater (sklearn LogisticRegression) learns weights from signal_ledger outcomes. Plus 4 aggregation components (aggregator, ledger, lifecycle, sizer). GARCH/Kalman quality gates on MeanReversion, VWAPDeviation, SqueezeExpansion.
-- **I8 AI Intelligence:** `ai_narrative_service` — per-signal narratives (qwen3:8b, conf>0.7, 5m/15m/1h) + 6-asset-group synthesis (phi4-mini:3.8b, change-driven). Streams: `narratives:SYMBOL:TF` + `narratives:group:GROUP_NAME`
+- **I8 AI Intelligence:** `ai_narrative_service` — per-signal narratives via ZAI GLM-5/OpenRouter/Ollama (conf>0.7, 5m/15m/1h) + 6-asset-group synthesis. Streams: `narratives:SYMBOL:TF` + `narratives:group:GROUP_NAME`
 
-### **Also Available: OpenRouter (Cloud LLM)**
-LLMChain with `OpenRouterProvider` and `OllamaProvider` added in v5.5.0. Use OpenRouter for cloud-hosted models when local inference is too slow.
+### **LLM Provider Chain**
+`ZAIProvider` (GLM-5, primary) → `OpenRouterProvider` (cloud fallback) → `OllamaProvider` (local fallback). Defined in `src/intelligence/llm_providers.py`. Add new providers by implementing the `LLMProvider` protocol.
 
 ### **Totals**
-- **62 registered plugins:** 23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 14 I7
-- **781 unit tests passing**, 0 ruff errors
+- **63 registered plugins:** 23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 14 I7 + 2 aggregation
+- **803 unit tests passing**, 0 ruff errors
 
 ---
 
