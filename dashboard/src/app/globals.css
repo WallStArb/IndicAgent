@@ -36,6 +36,16 @@
   --cyan: #22d3ee;
   --cyan-dim: #22d3ee22;
 
+  /* Landing page specific */
+  --landing-bg: #0A0E14;
+  --landing-bg-gradient: linear-gradient(180deg, #0A0E14 0%, #141B24 100%);
+  --surface-card: #1A2130;
+  --surface-card-hover: #242D40;
+  --accent-cyan: #4ED6C8;
+  --accent-cyan-dim: rgba(78, 214, 200, 0.15);
+  --accent-amber: #D4A84B;
+  --accent-amber-dim: rgba(212, 168, 75, 0.15);
+
   /* Semantic */
   --background: var(--bg-base);
   --foreground: var(--text-primary);

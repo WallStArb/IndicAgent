@@ -1,5 +1,5 @@
-import TradingDashboard from "@/components/trading-dashboard";
+import LandingPage from "./landing/page";
 
 export default function Home() {
-  return <TradingDashboard />;
+  return <LandingPage />;
 }

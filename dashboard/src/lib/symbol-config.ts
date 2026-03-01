@@ -4,7 +4,7 @@ export interface SymbolInfo {
   display_name: string
   contract?: string
   description: string
-  sector: "equity_index" | "energy" | "metals" | "volatility" | "interest_rates" | "agriculture" | "fx" | "crypto" | "etf"
+  sector: "equity_index" | "energy" | "metals" | "volatility" | "interest_rates" | "agriculture" | "fx" | "crypto"
 }
 
 export interface SymbolProfile {
@@ -16,7 +16,6 @@ export interface SymbolProfile {
 export interface DashboardConfig {
   dashboard_symbols: {
     futures: SymbolInfo[]
-    etfs: SymbolInfo[]
   }
   active_profile: string
   profiles: Record<string, SymbolProfile>
@@ -252,26 +251,6 @@ const defaultConfig: DashboardConfig = {
         sector: "crypto",
       },
     ],
-    etfs: [
-      {
-        symbol: "SPY",
-        display_name: "SPDR S&P 500",
-        description: "S&P 500 ETF",
-        sector: "etf",
-      },
-      {
-        symbol: "QQQ",
-        display_name: "Invesco QQQ",
-        description: "Nasdaq 100 ETF",
-        sector: "etf",
-      },
-      {
-        symbol: "IWM",
-        display_name: "iShares Russell 2000",
-        description: "Russell 2000 ETF",
-        sector: "etf",
-      },
-    ],
   },
   active_profile: "all_futures",
   profiles: {
@@ -312,11 +291,6 @@ const defaultConfig: DashboardConfig = {
       symbols: ["ZN", "ZF", "ZB", "ZT"],
       description: "Treasury futures",
     },
-    etfs: {
-      name: "ETF Trading",
-      symbols: ["SPY", "QQQ", "IWM"],
-      description: "Exchange Traded Funds",
-    },
   },
 }
 
@@ -333,11 +307,6 @@ class SymbolConfigManager {
     for (const future of this.config.dashboard_symbols.futures) {
       if (future.symbol === symbol) {
         return future
-      }
-    }
-    for (const etf of this.config.dashboard_symbols.etfs) {
-      if (etf.symbol === symbol) {
-        return etf
       }
     }
     return null
