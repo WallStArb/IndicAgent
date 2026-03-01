@@ -52,7 +52,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 3. All 8 pattern files with O(N²) complexity have been refactored to pre-filter candidates before nested iteration
 4. Test suite still passes after all refactorings (796 tests)
 
-**Plans:** `.planning/milestones/v1.1-phases/10-lint-code-quality/PLAN.md`
+**Plans:** 1/1 plans complete
 
 ---
 
@@ -134,7 +134,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | Phase | Milestone | Plans | Status | Completed |
 |-------|-----------|-------|--------|-----------|
 | 0. GARCH/Kalman Quality Gates | v1.0 | 3/3 | Complete | 2026-02-22 |
-| 1. Typed Event Schema | v1.0 | 3/3 | Complete | 2026-02-23 |
+| 1. Typed Event Schema | 1/1 | Complete   | 2026-03-01 | 2026-02-23 |
 | 2. Feature Store | v1.0 | 3/3 | Complete | 2026-02-23 |
 | 3. Historical Data | v1.0 | 3/3 | Complete | 2026-02-24 |
 | 4. Query API | v1.0 | 3/3 | Complete | 2026-02-24 |
