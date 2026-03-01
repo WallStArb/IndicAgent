@@ -43,7 +43,7 @@ def test_update_tick_accumulator_new_minute():
     daemon._update_tick_accumulator("ESH6", tick, now)
 
     acc = daemon.tick_accum["ESH6"]
-    assert acc["minute"] == 5
+    assert acc["minute"] == (14, 5)
     assert acc["open"] == 5100.25
     assert acc["high"] == 5100.25
     assert acc["low"] == 5100.25
@@ -84,6 +84,6 @@ def test_update_tick_accumulator_minute_rollover():
     daemon._update_tick_accumulator("ESH6", {"last": 5105.00, "volume": 15200}, new_now)
 
     acc = daemon.tick_accum["ESH6"]
-    assert acc["minute"] == 6
+    assert acc["minute"] == (14, 6)
     assert acc["open"] == 5105.00    # reset to new first tick
     assert acc["vol_start"] == 15200  # reset to current cumulative volume

@@ -33,9 +33,9 @@ def _make_daemon():
 def test_flush_provisional_bar_publishes_tick_derived():
     """_flush_provisional_bars publishes a bar with source='tick_derived'."""
     daemon = _make_daemon()
-    # Accumulator has data for minute 5 (the just-closed minute)
+    # Accumulator has data for minute 5 (the just-closed minute): now=(14,6) → closed=(14,5)
     daemon.tick_accum["ESH6"] = {
-        "minute": 5,
+        "minute": (14, 5),
         "open": 5100.0, "high": 5108.0, "low": 5097.0, "close": 5104.0,
         "vol_start": 1000, "vol_current": 1250,
     }
@@ -62,7 +62,7 @@ def test_flush_provisional_bar_skips_wrong_minute():
     daemon = _make_daemon()
     # Accumulator for minute 3, but we're flushing for minute 5 (closed)
     daemon.tick_accum["ESH6"] = {
-        "minute": 3,  # stale
+        "minute": (14, 3),  # stale — closed minute is (14, 5)
         "open": 5100.0, "high": 5100.0, "low": 5100.0, "close": 5100.0,
         "vol_start": 1000, "vol_current": 1050,
     }

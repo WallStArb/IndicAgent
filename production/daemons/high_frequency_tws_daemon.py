@@ -479,7 +479,7 @@ class HighFrequencyTWSDaemon:
         volume = tick_data.get("volume")
         if not last:
             return
-        current_minute = now.minute
+        current_minute = (now.hour, now.minute)
         if symbol not in self.tick_accum or self.tick_accum[symbol].get("minute") != current_minute:
             self.tick_accum[symbol] = {
                 "minute": current_minute,
@@ -510,7 +510,7 @@ class HighFrequencyTWSDaemon:
         if not self.redis_client:
             return
         closed_minute_ts = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
-        closed_minute = closed_minute_ts.minute
+        closed_minute = (closed_minute_ts.hour, closed_minute_ts.minute)
 
         for symbol, acc in list(self.tick_accum.items()):
             if acc.get("minute") != closed_minute:
