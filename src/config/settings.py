@@ -60,7 +60,9 @@ class Settings(BaseSettings):
 
     # LLM providers
     zai_api_key: str = Field(default="", validation_alias="ZAI_API_KEY")
-    zai_base_url: str = Field(default="https://api.z.ai/api/paas/v4", validation_alias="ZAI_BASE_URL")
+    zai_base_url: str = Field(
+        default="https://api.z.ai/api/paas/v4", validation_alias="ZAI_BASE_URL"
+    )
     zai_model: str = Field(default="glm-5", validation_alias="ZAI_MODEL")
     zai_timeout_sec: float = Field(default=30.0, validation_alias="ZAI_TIMEOUT_SEC")
 

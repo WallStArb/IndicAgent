@@ -5,11 +5,12 @@ proper deduplication, zero-bar visibility, and authoritative source marking.
 
 All tests should FAIL before implementation and PASS after refactoring.
 """
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, call
-import pytest
 import asyncio
 import threading
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 _DAEMON_MOD = "production.daemons.high_frequency_tws_daemon"
 
@@ -52,7 +53,7 @@ async def test_poll_1m_bars_logs_warning_on_zero_bars():
     with patch("production.daemons.high_frequency_tws_daemon.logger") as mock_logger:
         # Call the async fetch helper (will exist after refactoring)
         # This test will FAIL with AttributeError before implementation
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         start = now - timedelta(minutes=2)
         await daemon._fetch_bars_for_symbol("BTCUSD", start, now)
 
@@ -90,7 +91,7 @@ async def test_poll_1m_bars_uses_get_stream_maxlen():
 
     # Mock provider returning one bar
     mock_bar = MagicMock()
-    mock_bar.timestamp = datetime(2026, 2, 18, 14, 5, 0, tzinfo=timezone.utc)
+    mock_bar.timestamp = datetime(2026, 2, 18, 14, 5, 0, tzinfo=UTC)
     mock_bar.open = 100.0
     mock_bar.high = 102.0
     mock_bar.low = 99.0
@@ -108,7 +109,7 @@ async def test_poll_1m_bars_uses_get_stream_maxlen():
     # Patch get_stream_maxlen to return a test-specific value
     with patch("production.daemons.high_frequency_tws_daemon.get_stream_maxlen", return_value=9999) as mock_maxlen:
         # This test will FAIL with AttributeError before implementation (get_stream_maxlen not imported)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         start = now - timedelta(minutes=2)
         await daemon._fetch_bars_for_symbol("ES", start, now)
 
@@ -193,7 +194,7 @@ async def test_poll_1m_bars_fetches_all_symbols_concurrently():
 async def test_poll_1m_bars_skips_already_seen_timestamps():
     """Duplicate bar timestamps are not re-published to Redis."""
     mock_bar = MagicMock()
-    mock_bar.timestamp = datetime(2026, 2, 18, 14, 5, 0, tzinfo=timezone.utc)
+    mock_bar.timestamp = datetime(2026, 2, 18, 14, 5, 0, tzinfo=UTC)
     mock_bar.open = 100.0
     mock_bar.high = 102.0
     mock_bar.low = 99.0
@@ -230,7 +231,7 @@ async def test_poll_1m_bars_skips_already_seen_timestamps():
     mock_redis = MagicMock()
     daemon.redis_client = mock_redis
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(minutes=2)
 
     # First fetch — should publish
@@ -247,7 +248,7 @@ async def test_poll_1m_bars_skips_already_seen_timestamps():
 async def test_poll_1m_bars_publishes_authoritative_source():
     """Published bar dict contains source='authoritative'."""
     mock_bar = MagicMock()
-    mock_bar.timestamp = datetime(2026, 2, 18, 14, 5, 0, tzinfo=timezone.utc)
+    mock_bar.timestamp = datetime(2026, 2, 18, 14, 5, 0, tzinfo=UTC)
     mock_bar.open = 100.0
     mock_bar.high = 102.0
     mock_bar.low = 99.0
@@ -284,7 +285,7 @@ async def test_poll_1m_bars_publishes_authoritative_source():
     mock_redis = MagicMock()
     daemon.redis_client = mock_redis
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(minutes=2)
     await daemon._fetch_bars_for_symbol("ES", start, now)
 

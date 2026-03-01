@@ -33,9 +33,9 @@ import redis.asyncio as aioredis
 import structlog
 from prometheus_client import start_http_server
 
+from src.core.stream_keys import get_stream_maxlen
 from src.core.stream_keys import live_tick as sk_live_tick
 from src.core.stream_keys import market as sk_market
-from src.core.stream_keys import get_stream_maxlen
 from src.observability.metrics import counter as prom_counter
 from src.observability.metrics import gauge as prom_gauge
 

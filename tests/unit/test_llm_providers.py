@@ -173,7 +173,9 @@ class TestZAIProvider(unittest.TestCase):
         """ZAI returns valid content from API."""
         from src.intelligence.llm_providers import ZAIProvider
 
-        with mock.patch(_ZAI_PATCH, new_callable=AsyncMock, return_value="Generated narrative text") as mock_tt:
+        with mock.patch(
+            _ZAI_PATCH, new_callable=AsyncMock, return_value="Generated narrative text"
+        ) as mock_tt:
             provider = ZAIProvider(model="glm-5", api_key="test-key")
             result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
 
@@ -185,7 +187,11 @@ class TestZAIProvider(unittest.TestCase):
         """ZAI timeout returns None and logs warning."""
         from src.intelligence.llm_providers import ZAIProvider
 
-        with mock.patch(_ZAI_PATCH, new_callable=AsyncMock, side_effect=TimeoutError("Request timed out after 30s")):
+        with mock.patch(
+            _ZAI_PATCH,
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("Request timed out after 30s"),
+        ):
             provider = ZAIProvider(model="glm-5", api_key="test-key")
             result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
 
