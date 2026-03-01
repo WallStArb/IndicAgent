@@ -18,6 +18,79 @@ logger = structlog.get_logger(__name__)
 class ConsumingMixin:
     """Mixin providing message consuming capabilities."""
 
+    async def setup_consumer_group(
+        self,
+        stream_name: str,
+        group_name: str,
+        start_id: str = "$",
+        mkstream: bool = True,
+    ) -> bool:
+        """Setup a consumer group for a stream with proper error handling.
+
+        This is a utility method to reduce code duplication across services.
+        It handles the common pattern of creating a consumer group and
+        resetting its position if it already exists.
+
+        Args:
+            stream_name: Name of the Redis stream
+            group_name: Name of the consumer group
+            start_id: Starting message ID for the group (default: "$" for current tail)
+            mkstream: Whether to create the stream if it doesn't exist (default: True)
+
+        Returns:
+            bool: True if group was freshly created, False if it already existed
+
+        Raises:
+            redis.ResponseError: If error is not BUSYGROUP
+        """
+        try:
+            await self.redis_client.xgroup_create(
+                stream_name, group_name, start_id, mkstream=mkstream
+            )
+            return True  # Group was freshly created
+        except redis.ResponseError as e:
+            if "BUSYGROUP" in str(e):
+                # Group already exists — reset position to skip stale backlog
+                await self.redis_client.xgroup_setid(stream_name, group_name, start_id)
+                return False  # Group already existed
+            else:
+                raise
+
+    async def read_multi_stream(
+        self,
+        group_name: str,
+        consumer_name: str,
+        stream_map: dict[str, tuple],
+        count: int = 10,
+        block: int = 1000,
+    ) -> list[tuple]:
+        """Read messages from multiple streams using XREADGROUP.
+
+        This is a utility method to reduce code duplication across services.
+        It handles the common pattern of reading from multiple streams in a single call.
+
+        Args:
+            group_name: Name of the consumer group
+            consumer_name: Name of the consumer within the group
+            stream_map: Dictionary mapping stream names to read positions (e.g., {"stream1": ">"})
+            count: Maximum number of messages to read per stream (default: 10)
+            block: Block timeout in milliseconds (default: 1000)
+
+        Returns:
+            List of tuples: [(stream_name, [(message_id, fields), ...]), ...]
+
+        Note:
+            The stream_map is typically built as {name: ">" for name in stream_list}
+            where ">" means read new messages only.
+        """
+        return await self.redis_client.xreadgroup(
+            group_name,
+            consumer_name,
+            stream_map,
+            count=count,
+            block=block,
+        )
+
     async def create_consumer_group(
         self,
         group_name: str,
