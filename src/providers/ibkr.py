@@ -117,6 +117,11 @@ class IBKRProvider:
 
         named_contract = self._qualified_contracts.get(symbol)
         if not named_contract:
+            logger.warning(
+                "fetch_historical_bars: symbol not qualified",
+                symbol=symbol,
+                qualified_symbols=list(self._qualified_contracts.keys())[:5],
+            )
             raise ValueError(f"Unknown symbol '{symbol}'. Call qualify_instrument() first.")
 
         if continuous:
@@ -164,6 +169,16 @@ class IBKRProvider:
                 formatDate=1,
             )
 
+            # Debug: log what was returned
+            if first_chunk:
+                logger.info(
+                    "reqHistoricalDataAsync result",
+                    symbol=symbol,
+                    bars_returned=len(ib_bars) if ib_bars else 0,
+                    sec_type=getattr(contract, "secType", ""),
+                    what_to_show=what_to_show,
+                )
+
             for bar in (ib_bars or []):
                 all_bars.append(OHLCVBar(
                     symbol=symbol,
@@ -177,6 +192,8 @@ class IBKRProvider:
                     source=source_tag,
                 ))
 
+            # Advance by 1 day. For sub-day windows this overshoots past `end`,
+            # which exits the loop on the next iteration check — correct by design.
             chunk_start = chunk_end + timedelta(days=1)
 
         all_bars.sort(key=lambda b: b.timestamp)
