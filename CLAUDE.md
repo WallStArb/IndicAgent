@@ -2,7 +2,7 @@
 
 Version: 5.8.0
 Last Updated: 2026-03-01
-Status: I1-I8 pipeline complete — 63 plugins + 2 aggregation components + feature store + typed intelligence bus, 802 tests, 73 ruff errors pending, 24 contracts
+Status: I1-I8 pipeline complete — 63 plugins + 2 aggregation components + feature store + typed intelligence bus, 803 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -173,6 +173,8 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ### Key Rules
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
+- **Ruff**: always run `.venv/bin/ruff check .` from project root — absolute paths bypass `pyproject.toml` and give wrong counts.
+- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils` — all 6 services use it; returns `bool` (True=freshly created).
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Use `.venv/bin/pytest`. Integration tests require live infra — unit tests are CI-clean.
@@ -199,10 +201,10 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ## Current Status
 
-**Tests:** 802 passing
-**Ruff:** 73 errors (Phase 10 target)
+**Tests:** 803 passing
+**Ruff:** 0 errors ✅
 **Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (v1.0 Phases 0–9 complete)
-**Roadmap:** See `.planning/ROADMAP.md` — v1.1 Phase 10 (Lint & Code Quality) next
+**Roadmap:** See `.planning/ROADMAP.md` — v1.1 Phase 01 (Code Quality Sprint) in progress
 
 ### Phase 6 Status (dashboard-connected)
 - ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard
