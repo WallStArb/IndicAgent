@@ -280,8 +280,10 @@ class FeatureWriterService:
                         stream=stream_name,
                     )
                 except Exception:
-                    # Group already exists — normal on restart
-                    pass
+                    # Group already exists — reset position to skip stale backlog
+                    await self.redis_client.xgroup_setid(
+                        stream_name, CONSUMER_GROUP, "$"
+                    )
                 self._stream_map[stream_name] = (sym, tf)
 
     async def _process_single_message(
@@ -349,11 +351,11 @@ class FeatureWriterService:
             return
 
         params = list(self._buffer)
-        self._buffer.clear()
         self._last_flush = time.monotonic()
 
         try:
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
+            self._buffer.clear()
             if hasattr(self, "batch_writes_total"):
                 self.batch_writes_total.inc()
             if hasattr(self, "_total_batches"):
@@ -363,6 +365,7 @@ class FeatureWriterService:
             self.logger.debug("Flushed intelligence_features batch", rows=len(params))
         except Exception as e:
             self.logger.error("Batch write failed", error=str(e), rows=len(params))
+            # params remain in self._buffer for retry on next flush cycle
             if hasattr(self, "error_count_total"):
                 self.error_count_total.inc()
             if hasattr(self, "_error_count"):
