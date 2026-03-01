@@ -124,6 +124,31 @@
 
 ---
 
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| QUAL-01 | Phase 10 | Pending |
+| QUAL-02 | Phase 10 | Pending |
+| QUAL-03 | Phase 10 | Pending |
+| QUAL-04 | Phase 11 | Pending |
+| QUAL-05 | Phase 11 | Pending |
+| QUAL-06 | Phase 11 | Pending |
+| QUAL-07 | Phase 14 | Pending |
+| MAINT-01 | Phase 12 | Pending |
+| MAINT-02 | Phase 12 | Pending |
+| MAINT-03 | Phase 12 | Pending |
+| MAINT-04 | Phase 12 | Pending |
+| MAINT-05 | Phase 12 | Pending |
+| MAINT-06 | Phase 13 | Pending |
+| CONF-01 | Phase 13 | Pending |
+| CONF-02 | Phase 13 | Pending |
+| CONF-03 | Phase 13 | Pending |
+| PERF-01 | Phase 14 | Pending |
+| PERF-02 | Phase 14 | Pending |
+
+---
+
 ## Coverage
 
 - v1.0 requirements: 22 total
@@ -135,6 +160,8 @@
 | Configuration | 0 | 3 |
 | Maintainability | 0 | 6 |
 | Performance | 0 | 2 |
+
+**v1.1 Coverage: 20/20 requirements mapped ✓**
 
 ---
 
