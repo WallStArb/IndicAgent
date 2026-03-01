@@ -37,6 +37,7 @@ from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
+from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
     TIER_I3,
@@ -460,16 +461,9 @@ class MarketAnalysisService:
             for symbol in self.config["service"]["symbols"]:
                 stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
                 self._stream_map[stream_name] = (symbol, timeframe)
-                try:
-                    await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "$", mkstream=True
-                    )
-                except redis.ResponseError as e:
-                    if "BUSYGROUP" in str(e):
-                        # Group already exists — reset to current tail so stale backlog is skipped
-                        await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
-                    else:
-                        raise
+                await ensure_consumer_group_with_reset(
+                    self.redis_client, stream_name, self.consumer_group
+                )
 
     async def _process_market_data(self) -> None:
         # Single multi-stream read covers all 92 streams (23 symbols × 4 TFs) in one call,
