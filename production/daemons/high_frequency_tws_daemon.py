@@ -548,9 +548,6 @@ class HighFrequencyTWSDaemon:
         now = datetime.now()
         start = now - timedelta(minutes=2)
 
-        # Debug: log when starting to poll
-        logger.info("Starting 1m bar poll", start=start.isoformat(), end=now.isoformat())
-
         for contract_config in self.contracts:
             symbol = contract_config["symbol"]
             try:

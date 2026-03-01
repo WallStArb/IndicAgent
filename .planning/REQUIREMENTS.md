@@ -128,24 +128,24 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QUAL-01 | Phase 10 | Pending |
-| QUAL-02 | Phase 10 | Pending |
-| QUAL-03 | Phase 10 | Pending |
-| QUAL-04 | Phase 11 | Pending |
-| QUAL-05 | Phase 11 | Pending |
-| QUAL-06 | Phase 11 | Pending |
-| QUAL-07 | Phase 14 | Pending |
-| MAINT-01 | Phase 12 | Pending |
-| MAINT-02 | Phase 12 | Pending |
-| MAINT-03 | Phase 12 | Pending |
-| MAINT-04 | Phase 12 | Pending |
-| MAINT-05 | Phase 12 | Pending |
-| MAINT-06 | Phase 13 | Pending |
-| CONF-01 | Phase 13 | Pending |
-| CONF-02 | Phase 13 | Pending |
-| CONF-03 | Phase 13 | Pending |
-| PERF-01 | Phase 14 | Pending |
-| PERF-02 | Phase 14 | Pending |
+| QUAL-01 | Phase 01 | Complete |
+| QUAL-02 | Phase 01 | Complete |
+| QUAL-03 | Phase 01 | Partial (3 of 8 files) |
+| QUAL-04 | Phase 01 | Deferred (theoretical) |
+| QUAL-05 | Phase 01 | Complete (already fixed) |
+| QUAL-06 | Phase 01 | Complete (already fixed) |
+| QUAL-07 | Phase 01 | Complete |
+| MAINT-01 | Phase 01 | Deferred (pattern not found) |
+| MAINT-02 | Phase 01 | Complete |
+| MAINT-03 | Phase 01 | Partial (utility added but not used by services) |
+| MAINT-04 | Phase 01 | Partial (utility added but not used by services) |
+| MAINT-05 | Phase 01 | Not started |
+| MAINT-06 | Phase 01 | Complete |
+| CONF-01 | Phase 01 | Complete |
+| CONF-02 | Phase 01 | Complete |
+| CONF-03 | Phase 01 | Not started |
+| PERF-01 | Phase 01 | Not started |
+| PERF-02 | Phase 01 | Not started |
 
 ---
 
