@@ -1,8 +1,11 @@
 """Tests for signal_generator_service typed IntelligenceEvent deserialization."""
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from redis.exceptions import ResponseError
+import redis.asyncio as redis
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -258,7 +261,9 @@ def test_stream_map_populated_after_setup():
 
     svc = SignalGeneratorService()
     svc.redis_client = AsyncMock()
-    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xgroup_create = AsyncMock(
+        side_effect=ResponseError("BUSYGROUP Consumer Group name already exists")
+    )
     svc.redis_client.xrevrange = AsyncMock(return_value=[])
 
     asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())

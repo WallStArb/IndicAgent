@@ -1,6 +1,7 @@
 """Tests for signal_tracker_service — standalone lifecycle tracking service."""
 
 import asyncio
+import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -28,35 +29,39 @@ def test_evaluate_signals_against_bar_no_db_returns_empty():
 
 def test_evaluate_signals_against_bar_calls_evaluate_signal():
     """Each active signal must be passed through evaluate_signal."""
-    from services.signal_tracker_service import SignalTrackerService
-
-    svc = SignalTrackerService()
-    svc.db_manager = MagicMock()
-    svc.point_values = {"ES": 50.0}
-
-    fake_signal = {
-        "signal_id": "abc",
-        "symbol": "ES",
-        "timeframe": "1m",
-        "direction": 1,
-        "entry_price": 5300.0,
-        "stop_loss": 5295.0,
-        "targets": [5310.0],
-        "status": "active",
-        "bars_open": 2,
-        "timeframe_ttl": 30,
-    }
-
     with patch(
-        "services.signal_tracker_service.get_active_signals",
-        new=AsyncMock(return_value=[fake_signal]),
-    ):
+        "src.intelligence.trading.lifecycle_tracker.evaluate_signal", return_value=None
+    ) as mock_eval:
         with patch(
-            "services.signal_tracker_service.evaluate_signal", return_value=None
-        ) as mock_eval:
+            "services.signal_tracker_service.get_active_signals",
+            new=AsyncMock(return_value=[{"signal_id": "abc", "symbol": "ES", "timeframe": "1m"}]),
+        ):
+            # Reload required because evaluate_signal is imported at module level
+            # in signal_tracker_service; reload ensures patched version is used.
+            import services.signal_tracker_service
+            importlib.reload(services.signal_tracker_service)
+            from services.signal_tracker_service import SignalTrackerService
+            svc = SignalTrackerService()
+            svc.db_manager = MagicMock()
+            svc.point_values = {"ES": 50.0}
+
+            fake_signal = {
+                "signal_id": "abc",
+                "symbol": "ES",
+                "timeframe": "1m",
+                "direction": 1,
+                "entry_price": 5300.0,
+                "stop_loss": 5295.0,
+                "targets": [5310.0],
+                "status": "active",
+                "bars_open": 2,
+                "timeframe_ttl": 30,
+            }
+
             asyncio.get_event_loop().run_until_complete(
                 svc._evaluate_signals_against_bar(
-                    "ES", "1m", {"high": 5305.0, "low": 5299.0, "close": 5303.0}
+                    "ES", "1m", {"high": 5305.0, "low": 5299.0, "close": 5303.0},
+                    all_active=[fake_signal]
                 )
             )
             mock_eval.assert_called_once()
@@ -79,6 +84,6 @@ def test_stream_map_populated_after_setup():
 
     symbols = svc.config["service"]["symbols"]
     assert len(svc._stream_map) == len(symbols)
-    for stream_name, (sym, tf) in svc._stream_map.items():
+    for _stream_name, (sym, tf) in svc._stream_map.items():
         assert tf == "1m"
         assert sym in symbols
