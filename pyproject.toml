@@ -24,6 +24,7 @@ ignore = [
 "examples/*.py" = ["E402"]
 "tests/integration/*.py" = ["E402"]
 "tests/unit/indicators/test_incremental_manager.py" = ["E402"]
+"src/intelligence/schemas.py" = ["E741"]  # 'l' is intentional for OHLCVBar low field
 
 [tool.ruff.lint.isort]
 known-first-party = ["src", "production", "services"]
