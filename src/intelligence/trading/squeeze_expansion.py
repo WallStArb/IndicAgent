@@ -69,9 +69,9 @@ class SqueezeExpansionPlugin:
 
         # Direction from momentum_bias, fallback to close vs bb_middle
         momentum_bias = features.get("momentum_bias", 0.0)
-        bb_middle = features.get("bb_middle", 0.0)
-        bb_upper = features.get("bb_upper", 0.0)
-        bb_lower = features.get("bb_lower", 0.0)
+        bb_middle = features.get("bb_20_2_mid", 0.0)
+        bb_upper = features.get("bb_20_2_upper", 0.0)
+        bb_lower = features.get("bb_20_2_lower", 0.0)
         atr = features.get("atr_14", 0.0)
         squeeze_bars = features.get("squeeze_bars", 0.0)
         trend_regime = features.get("trend_regime", 0.0)

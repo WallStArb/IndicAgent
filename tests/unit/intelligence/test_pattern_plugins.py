@@ -189,8 +189,8 @@ class TestConfluence:
 
         features = {
             "rsi_14": 80.0,  # Overbought
-            "macd_12_26_9_hist": 5.0,  # Bullish actually, but RSI dominates
-            "stoch_14_k": 90.0,  # Overbought
+            "macd_histogram_12_26_9": 5.0,  # Bullish actually, but RSI dominates
+            "stoch_k_14_3": 90.0,  # Overbought
             "cci_14": 150.0,  # Overbought
         }
         plugin = ConfluencePlugin()
@@ -209,7 +209,7 @@ class TestConfluence:
 
         features = {
             "rsi_14": 20.0,  # Oversold → bullish
-            "stoch_14_k": 10.0,  # Oversold → bullish
+            "stoch_k_14_3": 10.0,  # Oversold → bullish
             "cci_14": -150.0,  # Oversold → bullish
         }
         plugin = ConfluencePlugin()

@@ -261,7 +261,7 @@ class CISScorer:
           - PatternCompletion plugin dir * conf      0.10
 
         Note: dt_db_pattern==1 → double top (bearish), ==2 → double bottom (bullish)
-              hs_pattern==1 → head & shoulders (bearish), ==2 → inverse H&S (bullish)
+              hs_pattern==1,2 → H&S (bearish); hs_pattern==3,4 → IH&S (bullish)
         """
         dt_pattern = self._fval(f, "dt_db_pattern")
         dt_dir = -1.0 if dt_pattern == 1.0 else (1.0 if dt_pattern == 2.0 else 0.0)
@@ -319,9 +319,10 @@ class CISScorer:
             - self._fval(f, "hmm_prob_trending_down")
         )
 
-        # Changepoint probability > 0.5 signals uncertainty -> cp contribution is 0
+        # Changepoint probability > 0.5 signals imminent regime change → uncertain direction (0).
+        # When cp <= 0.5 (stable regime), reinforce HMM direction scaled by stability.
         cp = self._fval(f, "cp_probability")
-        cp_contribution = 0.0 if cp > 0.5 else 0.0  # always 0 at Phase B (directional uncertainty)
+        cp_contribution = 0.0 if cp > 0.5 else max(-1.0, min(1.0, hmm_dir)) * (1.0 - cp * 2.0)
 
         d, c = self._plug(po, "trad_RegimeTransition")
 

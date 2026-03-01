@@ -47,12 +47,12 @@ class ConfluencePlugin:
                 scores.append(1.0 - (rsi - 30) / 20.0)
 
         # MACD histogram scoring: positive → bullish, negative → bearish
-        macd_hist = features.get("macd_12_26_9_hist") or features.get("macd_histogram")
+        macd_hist = features.get("macd_histogram_12_26_9")
         if is_num(macd_hist):
             scores.append(max(-1.0, min(1.0, macd_hist / max(abs(macd_hist), 1e-10))))
 
         # Stochastic %K scoring: <20 bullish, >80 bearish, linear between
-        stoch_k = features.get("stoch_14_k") or features.get("stoch_k")
+        stoch_k = features.get("stoch_k_14_3")
         if is_num(stoch_k):
             if stoch_k < 20:
                 scores.append(1.0)

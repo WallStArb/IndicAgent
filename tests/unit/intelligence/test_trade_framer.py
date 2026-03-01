@@ -121,7 +121,7 @@ class TestStopHierarchyShort:
     def test_priority5_sr_resistance(self):
         f = _features(sr_nearest_resistance=5018.0)
         stop, stop_type = _resolve_stop_short(ENTRY, ATR, f)
-        assert stop_type == "sr_support"
+        assert stop_type == "sr_resistance"
         assert stop == pytest.approx(5018.0 + ATR * 0.50)
 
     def test_fallback_atr(self):

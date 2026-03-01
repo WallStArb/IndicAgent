@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from ..plugins import InputSpec
 
 
@@ -79,7 +81,6 @@ class DivergenceStackPlugin:
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
 
-        import numpy as np
         atr = float(features.get("atr_14", 0.0))
         if atr <= 0:
             atr = float(np.mean(high[-14:] - low[-14:]))

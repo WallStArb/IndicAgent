@@ -125,15 +125,13 @@ class LiquidityHuntPlugin:
             confidence += 0.06
             supporting.append("discount_aligned")
 
-        fvg_det  = float(features.get("fvg_detected", 0.0))
         fvg_type = float(features.get("fvg_type", 0.0))
-        if fvg_det == 1.0 and fvg_type == float(direction):
+        if fvg_type == float(direction):
             confidence += 0.08
             supporting.append("fvg_aligned")
 
-        ob_det  = float(features.get("ob_detected", 0.0))
         ob_type = float(features.get("ob_type", 0.0))
-        if ob_det == 1.0 and ob_type == float(direction):
+        if ob_type == float(direction):
             confidence += 0.06
             supporting.append("order_block_aligned")
 

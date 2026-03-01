@@ -53,7 +53,7 @@ class MeanReversionPlugin:
         rsi_div_bull = features.get("rsi_div_bullish", 0.0)
         rsi_div_bear = features.get("rsi_div_bearish", 0.0)
         vol_regime = features.get("vol_regime", 0.5)
-        bb_middle = features.get("bb_middle", None)
+        bb_middle = features.get("bb_20_2_mid", None)
         sr_support = features.get("sr_nearest_support", None)
         sr_resistance = features.get("sr_nearest_resistance", None)
         atr = features.get("atr_14", 0.0)

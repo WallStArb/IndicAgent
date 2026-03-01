@@ -45,7 +45,7 @@ class LiquiditySweepReclaimPlugin:
         sweep_level = features.get("sweep_level", 0.0)
         atr = features.get("atr_14", 0.0)
 
-        if sweep_type == 0.0 or atr <= 0:
+        if sweep_type == 0.0:
             return self._no_signal()
 
         direction = 1 if sweep_type > 0 else -1
@@ -55,7 +55,7 @@ class LiquiditySweepReclaimPlugin:
         low = df["low"].to_numpy(dtype=float)
         entry = float(close[-1])
 
-        # Fallback ATR if not provided
+        # ATR fallback if not in features
         if atr <= 0:
             atr = float(np.mean(high[-14:] - low[-14:]))
         if atr <= 0:
@@ -80,15 +80,13 @@ class LiquiditySweepReclaimPlugin:
         confidence = 0.55
         supporting = ["sweep_reclaimed"]
 
-        fvg_detected = features.get("fvg_detected", 0.0)
         fvg_type = features.get("fvg_type", 0.0)
-        if fvg_detected == 1.0 and fvg_type == float(direction):
+        if fvg_type == float(direction):
             confidence += 0.15
             supporting.append("fvg_confirmed")
 
-        ob_detected = features.get("ob_detected", 0.0)
         ob_type = features.get("ob_type", 0.0)
-        if ob_detected == 1.0 and ob_type == float(direction):
+        if ob_type == float(direction):
             confidence += 0.10
             supporting.append("order_block_confirmed")
 

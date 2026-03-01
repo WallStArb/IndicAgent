@@ -115,7 +115,6 @@ class SupplyDemandSetupPlugin:
         sweep_det    = float(features.get("sweep_detected", 0.0))
         sweep_recl   = float(features.get("sweep_reclaimed", 0.0))
         sweep_type   = float(features.get("sweep_type", 0.0))
-        fvg_det      = float(features.get("fvg_detected", 0.0))
         fvg_type     = float(features.get("fvg_type", 0.0))
 
         act1 = sweep_det == 1.0 and sweep_recl == 1.0
@@ -123,7 +122,7 @@ class SupplyDemandSetupPlugin:
             (direction == 1 and sweep_type == 1.0)
             or (direction == -1 and sweep_type == -1.0)
         )
-        act2 = fvg_det == 1.0 and fvg_type == float(direction)
+        act2 = fvg_type == float(direction)
 
         if act1 and act1_dir:
             if act2:
@@ -138,12 +137,11 @@ class SupplyDemandSetupPlugin:
             supporting.append("fvg_displacement")
 
         # Order block overlapping zone
-        ob_det  = float(features.get("ob_detected", 0.0))
-        ob_type = float(features.get("ob_type", 0.0))
-        ob_high = float(features.get("ob_high", 0.0))
-        ob_low  = float(features.get("ob_low", 0.0))
-        if (ob_det == 1.0 and ob_type == float(direction) and
-                ob_high > 0 and ob_low >= zone_low and ob_high <= zone_high):
+        ob_type   = float(features.get("ob_type", 0.0))
+        ob_top    = float(features.get("ob_top", 0.0))
+        ob_bottom = float(features.get("ob_bottom", 0.0))
+        if (ob_type == float(direction) and
+                ob_top > 0 and ob_bottom >= zone_low and ob_top <= zone_high):
             confidence += 0.08
             supporting.append("ob_zone_overlap")
 

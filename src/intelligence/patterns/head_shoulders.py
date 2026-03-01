@@ -95,25 +95,26 @@ class HeadShouldersPlugin:
                         hs_best = (ls_idx, h_idx, rs_idx, lt_idx, rt_idx,
                                    ls_p, h_p, rs_p,
                                    float(low[lt_idx]), float(low[rt_idx]))
-            if hs_best is not None:
-                ls_idx, h_idx, rs_idx, lt_idx, rt_idx, ls_p, h_p, rs_p, lt_p, rt_p = hs_best
-                neckline_slope = (rt_p - lt_p) / (rt_idx - lt_idx) if rt_idx != lt_idx else 0.0
-                neckline_at_bar = lt_p + neckline_slope * (current_bar - lt_idx)
-                neckline_at_head = lt_p + neckline_slope * (h_idx - lt_idx)
-                pattern = 2.0 if current_close < neckline_at_bar else 1.0
-                sym_score = 1.0 - abs(ls_p - rs_p) / max(ls_p, rs_p) / self.shoulder_sym_pct
-                confidence = round(max(0.0, min(1.0, sym_score)), 4)
-                target = round(neckline_at_head - (h_p - neckline_at_head), 4)
-                neckline_distance = round(
-                    (neckline_at_bar - current_close) / atr if atr > 0 else 0.0, 4
-                )
-                return {
-                    "hs_pattern": pattern,
-                    "hs_neckline": round(neckline_at_bar, 4),
-                    "hs_target": target,
-                    "hs_confidence": confidence,
-                    "hs_neckline_distance": neckline_distance,
-                }
+
+        if hs_best is not None:
+            ls_idx, h_idx, rs_idx, lt_idx, rt_idx, ls_p, h_p, rs_p, lt_p, rt_p = hs_best
+            neckline_slope = (rt_p - lt_p) / (rt_idx - lt_idx) if rt_idx != lt_idx else 0.0
+            neckline_at_bar = lt_p + neckline_slope * (current_bar - lt_idx)
+            neckline_at_head = lt_p + neckline_slope * (h_idx - lt_idx)
+            pattern = 2.0 if current_close < neckline_at_bar else 1.0
+            sym_score = 1.0 - abs(ls_p - rs_p) / max(ls_p, rs_p) / self.shoulder_sym_pct
+            confidence = round(max(0.0, min(1.0, sym_score)), 4)
+            target = round(neckline_at_head - (h_p - neckline_at_head), 4)
+            neckline_distance = round(
+                (neckline_at_bar - current_close) / atr if atr > 0 else 0.0, 4
+            )
+            return {
+                "hs_pattern": pattern,
+                "hs_neckline": round(neckline_at_bar, 4),
+                "hs_target": target,
+                "hs_confidence": confidence,
+                "hs_neckline_distance": neckline_distance,
+            }
 
         # --- Inverse H&S (bullish reversal): reduced O(N³) → O(N²) ---
         ihs_best: tuple | None = None
@@ -150,25 +151,26 @@ class HeadShouldersPlugin:
                         ihs_best = (ls_idx, h_idx, rs_idx, lt_idx, rt_idx,
                                      ls_p, h_p, rs_p,
                                      float(high[lt_idx]), float(high[rt_idx]))
-            if ihs_best is not None:
-                ls_idx, h_idx, rs_idx, lt_idx, rt_idx, ls_p, h_p, rs_p, lt_p, rt_p = ihs_best
-                neckline_slope = (rt_p - lt_p) / (rt_idx - lt_idx) if rt_idx != lt_idx else 0.0
-                neckline_at_bar = lt_p + neckline_slope * (current_bar - lt_idx)
-                neckline_at_head = lt_p + neckline_slope * (h_idx - lt_idx)
-                pattern = 4.0 if current_close > neckline_at_bar else 3.0
-                sym_score = 1.0 - abs(ls_p - rs_p) / max(ls_p, rs_p) / self.shoulder_sym_pct
-                confidence = round(max(0.0, min(1.0, sym_score)), 4)
-                target = round(neckline_at_head + (h_p - neckline_at_head), 4)
-                neckline_distance = round(
-                    (current_close - neckline_at_bar) / atr if atr > 0 else 0.0, 4
-                )
-                return {
-                    "hs_pattern": pattern,
-                    "hs_neckline": round(neckline_at_bar, 4),
-                    "hs_target": target,
-                    "hs_confidence": confidence,
-                    "hs_neckline_distance": neckline_distance,
-                }
+
+        if ihs_best is not None:
+            ls_idx, h_idx, rs_idx, lt_idx, rt_idx, ls_p, h_p, rs_p, lt_p, rt_p = ihs_best
+            neckline_slope = (rt_p - lt_p) / (rt_idx - lt_idx) if rt_idx != lt_idx else 0.0
+            neckline_at_bar = lt_p + neckline_slope * (current_bar - lt_idx)
+            neckline_at_head = lt_p + neckline_slope * (h_idx - lt_idx)
+            pattern = 4.0 if current_close > neckline_at_bar else 3.0
+            sym_score = 1.0 - abs(ls_p - rs_p) / max(ls_p, rs_p) / self.shoulder_sym_pct
+            confidence = round(max(0.0, min(1.0, sym_score)), 4)
+            target = round(neckline_at_head + (neckline_at_head - h_p), 4)
+            neckline_distance = round(
+                (current_close - neckline_at_bar) / atr if atr > 0 else 0.0, 4
+            )
+            return {
+                "hs_pattern": pattern,
+                "hs_neckline": round(neckline_at_bar, 4),
+                "hs_target": target,
+                "hs_confidence": confidence,
+                "hs_neckline_distance": neckline_distance,
+            }
 
         return default
 
