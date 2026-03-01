@@ -1,8 +1,8 @@
 # IndicAgent Platform Status
 
-> **Last Updated:** 2026-02-28
-> **Version:** 5.6.0
-> **Phase:** Phases 0–7 complete — 62 plugins, 781 tests; Phase 7 (CIS) complete
+> **Last Updated:** 2026-03-01
+> **Version:** 5.8.0
+> **Phase:** Phases 0–9 complete — 63 plugins, 803 tests; v1.0 shipped
 
 ---
 
@@ -10,8 +10,8 @@
 
 **Infrastructure:** Production-ready
 **Intelligence Pipeline:** Fully operational (I1 → I8)
-**Test Coverage:** 781 unit tests passing, 0 lint errors
-**Data Collection:** Active (23 contracts across equity index, energy, metals, rates, FX, agriculture, crypto)
+**Test Coverage:** 803 unit tests passing, 0 lint errors
+**Data Collection:** Active (24 contracts across equity index, energy, metals, rates, FX, agriculture, crypto)
 
 ---
 
@@ -24,7 +24,7 @@
 | `indicagent-market-analysis` — I3→I6 pipeline | 9114 | `/metrics` |
 | `indicagent-signal-generator` — I7 setups + aggregation | 9112 | `/metrics` |
 | `indicagent-signal-tracker` — signal lifecycle | 9115 | `/metrics` |
-| `indicagent-ai-narrative` — Ollama I8 narratives | 9113 | `/metrics` |
+| `indicagent-ai-narrative` — ZAI/OpenRouter/Ollama I8 narratives | 9113 | `/metrics` |
 | `indicagent-feature-writer` — Redis → intelligence_features | 9116 | `/metrics` |
 | `indicagent-api` — FastAPI REST + SSE | 8000 | `/health` |
 | Dashboard (dev) | 3000 | http://localhost:3000 |
@@ -44,9 +44,9 @@
 | I6 | Cross-Timeframe Confluence | 1 | COMPLETE |
 | I7 | Trading Setups | 14 (9 original + 5 CIS) | COMPLETE (Phase 7: +5 CIS plugins, CIS aggregator, WeightUpdater) |
 | I7 | Signal Aggregation | 4 components | RUNNING |
-| I8 | AI Intelligence | 1 service | RUNNING (per-signal + group synthesis) |
+| I8 | AI Intelligence | 1 service | RUNNING (ZAI GLM-5 per-signal + OpenRouter/Ollama fallback + group synthesis) |
 
-**Total Plugins:** 62 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 I6 SMC + 1 I6 confluence + 14 I7)
+**Total Plugins:** 63 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 I6 SMC + 1 I6 confluence + 14 I7 + 2 aggregation)
 
 ### Known Issues
 
@@ -54,13 +54,13 @@ None.
 
 ---
 
-## Development Priorities
+## v1.0 Complete — v1.1 Planning
 
-### Priority 1: Phase 8 — ML Scoring Model / Dashboard Completion
-- Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days collection)
-- XGBoost/LightGBM on extracted features → pnl_r continuous target
-- Dashboard: complete Phase 06-04 human verification (confirm all panels show live data)
-- See `.planning/ROADMAP.md` for full roadmap
+All 10 phases (0–9) shipped. See `.planning/ROADMAP.md` for v1.1 roadmap.
+
+### Phase 8–9 status — COMPLETE
+- ✅ Dashboard completion (Phase 8): price hero, SMC panel, signal drill panel, AI narrative cards
+- ✅ Phase 9: typed intelligence bus, feature store, feature_writer_service
 
 ### Phase 7 status — COMPLETE
 - ✅ 5 new I7 plugins: trad_CHoCHReversal, trad_FVGFill, trad_PatternCompletion, trad_DivergenceStack, trad_RegimeTransition
@@ -70,11 +70,7 @@ None.
 - ✅ signal_ledger +4 CIS columns (migration 011)
 - ✅ trade_framer: at_limit + at_pullback entry types
 
-### Phase 6 status
-- ✅ 06-01 through 06-03 complete
-- ⏸ 06-04 skipped (human verification) — deferred to Phase 8
-
-### Priority 2: ML Scoring Model (future)
+### ML Scoring Model (future — v1.1+)
 - Requires 500+ signals in `signal_ledger` with P&L outcomes (~17 days collection)
 - XGBoost/LightGBM on extracted features → pnl_r continuous target
 - See `.planning/ROADMAP.md` for full roadmap
@@ -151,7 +147,7 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 **Python:** 3.13
 **Key Dependencies:** pandas 3.0, redis 7.1, FastAPI 0.129, LangGraph 1.0, LangChain 1.2
 **Infrastructure:** DragonflyDB (Docker); PostgreSQL/TimescaleDB + Ollama (native)
-**LLM Providers:** Ollama (local: qwen3:8b, phi4-mini:3.8b, etc.) + OpenRouter (cloud)
+**LLM Providers:** ZAI (GLM-5, primary), OpenRouter (fallback), Ollama (fallback: qwen3:8b, phi4-mini:3.8b, etc.)
 **Frontend:** Next.js 16.1, React 19.2, Tailwind v4.2
 
 **Local LLMs (Ollama):** Available at http://localhost:11434
@@ -162,9 +158,9 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Architecture Quick Reference
 
-**Plugin Totals:** 62 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 confluence + 14 I7) | 781 unit tests
+**Plugin Totals:** 63 registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 confluence + 14 I7 + 2 aggregation) | 803 unit tests
 **Services (systemd):** indicagent-tws, indicagent-indicator (:9109), indicagent-market-analysis (:9114), indicagent-signal-generator (:9112), indicagent-signal-tracker (:9115), indicagent-ai-narrative (:9113), indicagent-feature-writer (:9116), indicagent-api (:8000)
-**Stack:** Python 3.13, FastAPI 0.129, DragonflyDB/Redis, TimescaleDB, LangGraph 1.0, Ollama + OpenRouter
+**Stack:** Python 3.13, FastAPI 0.129, DragonflyDB/Redis, TimescaleDB, LangGraph 1.0, ZAI + OpenRouter + Ollama
 **Dashboard:** Next.js 16.1 / React 19.2 / Tailwind v4.2
 
 **Detailed Architecture:** [CLAUDE.md](for-ai-assistants/CLAUDE.md)
@@ -175,6 +171,13 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 ---
 
 ## Recent Changes
+
+### 2026-03-01 (v5.8.0)
+- COMPLETE Phases 8–9: dashboard completion, typed intelligence bus, feature store, feature_writer_service
+- ADD ZAI (GLM-5) as primary LLM provider with OpenRouter/Ollama fallback chain
+- ADD spot FX (EURUSD, GBPUSD, USDJPY, USDCHF) and spot crypto (BTCUSD, ETHUSD, SOLUSD)
+- REMOVE BZ, NG (NYMEX energy), SR1 (SOFR) — paper trading unavailable
+- TEST 803 unit tests (up from 781)
 
 ### 2026-02-28 (v5.6.0)
 - COMPLETE Phase 7 — Composite Intelligence Score (CIS):
