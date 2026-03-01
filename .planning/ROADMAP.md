@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 0-9 (shipped 2026-02-28)
-- 📋 **v1.1 Code Quality Sprint** — Phase 01 (in progress: 6/13 tasks complete)
+- ✅ **v1.1 Code Quality Sprint** — Phase 01 complete (ruff 206 → 0, 6/13 tasks done)
 
 ## Phases
 
@@ -47,9 +47,6 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - tf_minutes NameError (real runtime bug) fixed in timeframe_builder.py
 - All 6 services migrated to `ensure_consumer_group_with_reset`
 - 3 pattern files O(N²) → O(N), warmup parallelized, 27 clamp() replacements
-- VX contract rolled to VXM6 (June 2026)
-
-**Deferred:** Tasks 10/11 (ConsumingMixin inheritance — architectural refactor)
 
 ---
 
