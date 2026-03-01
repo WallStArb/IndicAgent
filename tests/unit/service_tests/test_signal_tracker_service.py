@@ -72,11 +72,15 @@ def test_stream_map_populated_after_setup():
     import asyncio
     from unittest.mock import AsyncMock
 
+    import redis.asyncio as redis
+
     from services.signal_tracker_service import SignalTrackerService
 
     svc = SignalTrackerService()
     svc.redis_client = AsyncMock()
-    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xgroup_create = AsyncMock(
+        side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists")
+    )
     svc.redis_client.xgroup_setid = AsyncMock()
     svc.db_manager = None
 

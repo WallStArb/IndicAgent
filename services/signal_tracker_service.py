@@ -30,6 +30,7 @@ import structlog
 from src.config.settings import Settings, get_active_contracts, get_point_value
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import market as sk_market
+from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.trading.lifecycle_tracker import evaluate_signal
 from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
 from src.observability.metrics import counter, gauge, start_metrics_server
@@ -278,13 +279,9 @@ class SignalTrackerService:
     async def _setup_consumer_groups(self) -> None:
         for symbol in self.config["service"]["symbols"]:
             stream_name = sk_market(self.env_prefix, symbol, "1m")
-            try:
-                await self.redis_client.xgroup_create(
-                    stream_name, self.consumer_group, "$", mkstream=True
-                )
-            except Exception:
-                # Group already exists — reset to current tail to avoid replaying history
-                await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+            await ensure_consumer_group_with_reset(
+                self.redis_client, stream_name, self.consumer_group
+            )
             self._stream_map[stream_name] = (symbol, "1m")
 
     async def _process_loop(self) -> None:
