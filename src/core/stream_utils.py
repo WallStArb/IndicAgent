@@ -14,7 +14,7 @@ async def ensure_consumer_group_with_reset(
     group_name: str,
     start_id: str = "$",
     mkstream: bool = True,
-) -> None:
+) -> bool:
     """Ensure a consumer group exists, resetting to current tail if it already exists.
 
     This is a shared utility for the BUSYGROUP pattern across services:
@@ -29,6 +29,10 @@ async def ensure_consumer_group_with_reset(
         start_id: Starting message ID (default: "$" for current tail)
         mkstream: Whether to create stream if it doesn't exist
 
+    Returns:
+        True if the group was freshly created; False if it already existed
+        (BUSYGROUP branch — position reset to current tail).
+
     Raises:
         redis.ResponseError: Re-raises non-BUSYGROUP errors
     """
@@ -36,9 +40,11 @@ async def ensure_consumer_group_with_reset(
         await redis_client.xgroup_create(
             stream_name, group_name, start_id, mkstream=mkstream
         )
+        return True
     except redis.ResponseError as e:
         if "BUSYGROUP" in str(e):
             # Group already exists - reset to current tail to skip stale backlog
             await redis_client.xgroup_setid(stream_name, group_name, start_id)
+            return False
         else:
             raise
