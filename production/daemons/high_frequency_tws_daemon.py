@@ -487,8 +487,7 @@ class HighFrequencyTWSDaemon:
                 "high": last,
                 "low": last,
                 "close": last,
-                "vol_start": volume or 0,
-                "vol_current": volume or 0,
+                "vol_total": volume or 0,
             }
         else:
             acc = self.tick_accum[symbol]
@@ -498,7 +497,7 @@ class HighFrequencyTWSDaemon:
                 acc["low"] = last
             acc["close"] = last
             if volume is not None:
-                acc["vol_current"] = volume
+                acc["vol_total"] = acc.get("vol_total", 0) + volume
 
     def _flush_provisional_bars(self, now: datetime) -> None:
         """Publish tick-derived provisional bars for the just-closed minute.
@@ -517,7 +516,7 @@ class HighFrequencyTWSDaemon:
                 continue
             if not acc.get("close"):
                 continue
-            volume = max(0, acc["vol_current"] - acc["vol_start"])
+            volume = acc.get("vol_total", 0)
             bar_data = {
                 "timestamp": closed_minute_ts.isoformat(),
                 "symbol": symbol,

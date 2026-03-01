@@ -37,7 +37,7 @@ def test_flush_provisional_bar_publishes_tick_derived():
     daemon.tick_accum["ESH6"] = {
         "minute": (14, 5),
         "open": 5100.0, "high": 5108.0, "low": 5097.0, "close": 5104.0,
-        "vol_start": 1000, "vol_current": 1250,
+        "vol_total": 250,
     }
     # now = 14:06:02 → closed minute = 14:05:00
     now = datetime(2026, 2, 18, 14, 6, 2)
@@ -51,7 +51,7 @@ def test_flush_provisional_bar_publishes_tick_derived():
     assert bar_data["high"] == "5108.0"
     assert bar_data["low"] == "5097.0"
     assert bar_data["close"] == "5104.0"
-    assert bar_data["volume"] == "250"           # 1250 - 1000
+    assert bar_data["volume"] == "250"           # vol_total summed from ticks
     assert bar_data["timeframe"] == "1m"
     assert bar_data["symbol"] == "ESH6"
     assert "14:05:00" in bar_data["timestamp"]   # start of closed minute
@@ -64,7 +64,7 @@ def test_flush_provisional_bar_skips_wrong_minute():
     daemon.tick_accum["ESH6"] = {
         "minute": (14, 3),  # stale — closed minute is (14, 5)
         "open": 5100.0, "high": 5100.0, "low": 5100.0, "close": 5100.0,
-        "vol_start": 1000, "vol_current": 1050,
+        "vol_total": 50,
     }
     now = datetime(2026, 2, 18, 14, 6, 2)  # closed minute = 5 != 3
     daemon._flush_provisional_bars(now)
