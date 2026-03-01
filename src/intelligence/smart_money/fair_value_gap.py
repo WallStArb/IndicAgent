@@ -44,14 +44,8 @@ class FairValueGapPlugin:
         low = df["low"].to_numpy(dtype=float)
         current_price = float(df["close"].iloc[-1])
 
-        # Scan for all FVGs - optimize fill checking by iterating backwards
+        # Scan for all FVGs - iterate backwards from most recent to oldest
         open_fvgs: list[dict[str, Any]] = []
-
-        # Pre-calculate arrays for vectorized operations
-        has_bullish_fill = (low[2:] <= np.roll(high, 2)[2:])  # Bullish FVG fill: low drops below prior high
-        has_bearish_fill = (high[2:] >= np.roll(low, 2)[2:])  # Bearish FVG fill: high rises above prior low
-
-        # Scan backwards from most recent to oldest - break early if gap filled
         for i in range(len(df) - 1, 1, -1):
             bar1_high = high[i - 2]
             bar1_low = low[i - 2]
