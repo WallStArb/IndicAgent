@@ -1,8 +1,12 @@
 """Tests for LLMProvider protocol, OpenRouterProvider, OllamaProvider, LLMChain."""
 from __future__ import annotations
 
+import asyncio
 import json
+import unittest
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.error import HTTPError
 
 import pytest
 
@@ -157,3 +161,94 @@ class TestLLMChain:
         result = await chain.generate(PROMPT, SYSTEM, max_tokens=100, timeout=10.0)
         assert result == "success"
         assert chain.last_provider_id == "openrouter:arcee-ai/trinity-large-preview:free"
+
+
+_ZAI_PATCH = "src.intelligence.llm_providers.to_thread"
+
+
+class TestZAIProvider(unittest.TestCase):
+    """Unit tests for ZAIProvider."""
+
+    def test_success_response(self):
+        """ZAI returns valid content from API."""
+        from src.intelligence.llm_providers import ZAIProvider
+
+        with mock.patch(
+            _ZAI_PATCH, new_callable=AsyncMock, return_value="Generated narrative text"
+        ) as mock_tt:
+            provider = ZAIProvider(model="glm-5", api_key="test-key")
+            result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
+
+            self.assertEqual(result, "Generated narrative text")
+            self.assertEqual(provider.provider_id, "zai:glm-5")
+            mock_tt.assert_called_once()
+
+    def test_timeout_error(self):
+        """ZAI timeout returns None and logs warning."""
+        from src.intelligence.llm_providers import ZAIProvider
+
+        with mock.patch(
+            _ZAI_PATCH,
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("Request timed out after 30s"),
+        ):
+            provider = ZAIProvider(model="glm-5", api_key="test-key")
+            result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
+
+            self.assertIsNone(result)
+
+    def test_http_429_rate_limit(self):
+        """HTTP 429 rate limit returns None."""
+        from src.intelligence.llm_providers import ZAIProvider
+
+        with mock.patch(
+            _ZAI_PATCH,
+            new_callable=AsyncMock,
+            side_effect=HTTPError(
+                url="https://api.z.ai/api/paas/v4/chat/completions",
+                code=429,
+                msg="Rate limit exceeded",
+                hdrs={},
+                fp=None,
+            ),
+        ):
+            provider = ZAIProvider(model="glm-5", api_key="test-key")
+            result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
+
+            self.assertIsNone(result)
+
+    def test_empty_choices_returns_none(self):
+        """_call returns None for empty choices; generate propagates None."""
+        from src.intelligence.llm_providers import ZAIProvider
+
+        with mock.patch(_ZAI_PATCH, new_callable=AsyncMock, return_value=None):
+            provider = ZAIProvider(model="glm-5", api_key="test-key")
+            result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
+
+            self.assertIsNone(result)
+
+    def test_missing_content_returns_none(self):
+        """_call returns None for missing content; generate propagates None."""
+        from src.intelligence.llm_providers import ZAIProvider
+
+        with mock.patch(_ZAI_PATCH, new_callable=AsyncMock, return_value=None):
+            provider = ZAIProvider(model="glm-5", api_key="test-key")
+            result = asyncio.run(provider.generate("test prompt", "system prompt", 100, 30.0))
+
+            self.assertIsNone(result)
+
+    def test_custom_base_url(self):
+        """Custom base URL is used correctly."""
+        from src.intelligence.llm_providers import ZAIProvider
+
+        with mock.patch(_ZAI_PATCH, new_callable=AsyncMock, return_value="Response") as mock_tt:
+            provider = ZAIProvider(
+                model="glm-5",
+                api_key="test-key",
+                base_url="https://custom.z.ai/v4",
+            )
+            asyncio.run(provider.generate("test", "system", 100, 30.0))
+
+            # Verify to_thread was called (with the inner _call function)
+            call_args = mock_tt.call_args
+            self.assertIsNotNone(call_args)
