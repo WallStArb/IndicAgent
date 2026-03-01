@@ -48,11 +48,12 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ### Active
 
-(Next milestone)
+(Current milestone — v1.1 Code Quality Sprint)
 
-- [ ] Dashboard completeness — timeframe matrix wired to per-TF signal data; signal history view; final audit across all symbol profiles
-- [ ] i7/i8 columns in intelligence_features — add signal context and narrative to feature rows for richer ML training data
-- [ ] ML scoring model — XGBoost/LightGBM trained on intelligence_features + signal_ledger outcomes (needs ~90 days signal history, now accumulating)
+- [ ] Resolve all ruff lint errors (98 total: 75 E501 line-too-long, 6 invalid-syntax, 4 ambiguous-variable-name, 3 unused-loop, 3 import-order, 2 unused-variable, 1 undefined-name, 4 zip-strict)
+- [ ] Resolve mypy type checking errors in `_trend.py` (TrendMixin attributes, Optional type annotations)
+- [ ] Address code complexity and maintainability issues flagged by scanners
+- [ ] Update test coverage for any areas with gaps
 
 ### Out of Scope
 
@@ -66,7 +67,19 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-**Current state (v1.0, 2026-02-28):**
+### Current Milestone: v1.1 Code Quality Sprint
+
+**Goal:** Bring codebase to production-grade standards by resolving all scanner findings from ruff, mypy, and other tools.
+
+**Target:**
+- Zero ruff errors (98 → 0)
+- Zero mypy errors
+- Code complexity within healthy bounds
+- Test coverage maintained/improved
+
+---
+
+**v1.0 baseline state (2026-02-28):**
 - 41,300 LOC Python + TypeScript across services, plugins, dashboard
 - 62 plugins: 23 I1 indicators + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 confluence + 14 I7 trading setups + 2 I7 aggregation
 - 787 unit tests passing, 0 ruff errors
@@ -105,4 +118,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-02-28 after v1.0 milestone*
+*Last updated: 2026-02-28 after v1.1 code quality sprint initiated*
