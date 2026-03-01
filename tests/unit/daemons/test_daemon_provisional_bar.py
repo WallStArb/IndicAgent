@@ -31,7 +31,7 @@ def _make_daemon():
 
 
 def test_flush_provisional_bar_publishes_tick_derived():
-    """_flush_provisional_bars publishes a bar with source='tick_derived'."""
+    """_flush_provisional_bars is now disabled (early return) per user requirement."""
     daemon = _make_daemon()
     # Accumulator has data for minute 5 (the just-closed minute): now=(14,6) → closed=(14,5)
     daemon.tick_accum["ESH6"] = {
@@ -43,18 +43,8 @@ def test_flush_provisional_bar_publishes_tick_derived():
     now = datetime(2026, 2, 18, 14, 6, 2)
     daemon._flush_provisional_bars(now)
 
-    assert daemon.redis_client.xadd.called
-    call_args = daemon.redis_client.xadd.call_args
-    bar_data = call_args[0][1]  # second positional arg = the fields dict
-    assert bar_data["source"] == "tick_derived"
-    assert bar_data["open"] == "5100.0"
-    assert bar_data["high"] == "5108.0"
-    assert bar_data["low"] == "5097.0"
-    assert bar_data["close"] == "5104.0"
-    assert bar_data["volume"] == "250"           # vol_total summed from ticks
-    assert bar_data["timeframe"] == "1m"
-    assert bar_data["symbol"] == "ESH6"
-    assert "14:05:00" in bar_data["timestamp"]   # start of closed minute
+    # Flush is now disabled (early return) — xadd is never called
+    assert not daemon.redis_client.xadd.called
 
 
 def test_flush_provisional_bar_skips_wrong_minute():
