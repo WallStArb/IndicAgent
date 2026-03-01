@@ -13,7 +13,6 @@ import redis.asyncio as redis
 
 from src.core.stream_utils import ensure_consumer_group_with_reset
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -41,7 +40,7 @@ async def test_fresh_creation_returns_true():
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_busygroup_returns_false_and_resets():
-    """xgroup_create raises BUSYGROUP → returns False; xgroup_setid called once with correct args."""
+    """xgroup_create raises BUSYGROUP → returns False; xgroup_setid called with correct args."""
     mock_client = AsyncMock()
     mock_client.xgroup_create = AsyncMock(
         side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists")
@@ -61,10 +60,10 @@ async def test_busygroup_returns_false_and_resets():
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_non_busygroup_error_is_reraised():
-    """xgroup_create raises a non-BUSYGROUP ResponseError → error is re-raised; xgroup_setid NOT called."""
+    """Non-BUSYGROUP ResponseError is re-raised; xgroup_setid NOT called."""
     mock_client = AsyncMock()
     mock_client.xgroup_create = AsyncMock(
-        side_effect=redis.ResponseError("WRONGTYPE Operation against a key holding the wrong kind of value")
+        side_effect=redis.ResponseError("WRONGTYPE Operation against a key holding the wrong kind")
     )
     mock_client.xgroup_setid = AsyncMock()
 
