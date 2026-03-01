@@ -84,8 +84,8 @@ signals:SYMBOL:TF:aggregated
     │
     ▼
 ai_narrative_service ──────────────► narratives:SYMBOL:TF
-(Ollama qwen3:8b per-signal +        narratives:group:GROUP_NAME ──► SSE ──► Dashboard
- phi4-mini:3.8b group synthesis)
+(ZAI GLM-5 / OpenRouter / Ollama    narratives:group:GROUP_NAME ──► SSE ──► Dashboard
+ per-signal + group synthesis)
 ```
 
 | Service | Single Responsibility | Port |
@@ -95,7 +95,7 @@ ai_narrative_service ──────────────► narratives:SY
 | `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | 9114 |
 | `signal_generator_service` | I7 setup plugins, signal aggregation, ledger inserts | 9112 |
 | `signal_tracker_service` | Open signal lifecycle tracking (stop/target/TTL) | 9115 |
-| `ai_narrative_service` | I8 LLM narrative synthesis (per-signal + group) via Ollama | 9113 |
+| `ai_narrative_service` | I8 LLM narrative synthesis (per-signal + group) via ZAI/OpenRouter/Ollama | 9113 |
 | `feature_writer_service` | Redis consumer → batch write to `intelligence_features` (TimescaleDB) | 9116 |
 | `api_service` | FastAPI REST + SSE fan-out to dashboard | 8000 |
 
@@ -221,7 +221,7 @@ docs/                     # Architecture and planning
 ### Tech Stack
 
 - Python 3.13, pandas 3.0, redis 7.1, FastAPI 0.129
-- LangGraph 1.0, LangChain 1.2; LLM providers: Ollama (local) + OpenRouter (cloud)
+- LangGraph 1.0, LangChain 1.2; LLM providers: ZAI (GLM-5, primary), OpenRouter (fallback), Ollama (fallback)
 - DragonflyDB (Redis protocol, Docker); TimescaleDB (PostgreSQL 15, native)
 - Next.js 16.1, React 19.2, Tailwind v4.2
 
@@ -250,12 +250,12 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status
 
-**v1.0 shipped 2026-02-28. All 9 phases complete.**
+**v1.0 shipped 2026-02-28. All 10 phases complete (Phases 0–9).**
 
 - **I1–I8 pipeline:** Fully operational. 63 plugins, 4 aggregation components, typed intelligence bus, feature store, CIS scorer with adaptive weight learning.
 - **Dashboard:** Live — price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
-- **AI Narratives:** Per-signal via qwen3:8b (conf > 0.7, 5m/15m/1h); group synthesis via phi4-mini:3.8b across 6 asset groups.
-- **Test suite:** 784 passing, 0 ruff errors.
+- **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups.
+- **Test suite:** 803 passing, 0 ruff errors.
 - **Next:** v1.1 — see [Roadmap](.planning/ROADMAP.md).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
