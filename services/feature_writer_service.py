@@ -272,7 +272,7 @@ class FeatureWriterService:
                 stream_name = sk_intelligence(self._env_prefix, sym, tf)
                 try:
                     await self.redis_client.xgroup_create(
-                        stream_name, CONSUMER_GROUP, "0", mkstream=True
+                        stream_name, CONSUMER_GROUP, "$", mkstream=True
                     )
                     self.logger.debug(
                         "Created consumer group",

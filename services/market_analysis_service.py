@@ -90,7 +90,7 @@ class MarketAnalysisService:
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self.intelligence_cache: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
-        self._df_cache: dict[str, "pd.DataFrame | None"] = {}
+        self._df_cache: dict[str, pd.DataFrame | None] = {}
         self._active_symbols: set[str] = set()
         self._stream_map: dict[str, tuple[str, str]] = {}  # stream_name → (symbol, timeframe)
 

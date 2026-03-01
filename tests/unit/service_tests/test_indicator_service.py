@@ -70,7 +70,8 @@ def test_parse_indicators_message_splits_ohlcv_and_features():
 def test_stream_map_populated_after_setup():
     """_stream_map must contain (symbol, timeframe) for every stream name after setup."""
     import asyncio
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import AsyncMock
+
     from services.indicator_service import IndicatorService
 
     svc = IndicatorService()
@@ -92,8 +93,10 @@ def test_df_cache_miss_builds_dataframe():
     """_get_df must build DataFrame from bar_history on cache miss."""
     from collections import OrderedDict
     from datetime import datetime
-    from services.indicator_service import IndicatorService
+
     import pandas as pd
+
+    from services.indicator_service import IndicatorService
 
     svc = IndicatorService()
     key = "ES:1m"
@@ -114,8 +117,9 @@ def test_df_cache_miss_builds_dataframe():
 
 def test_df_cache_hit_returns_same_object():
     """_get_df must return cached DataFrame on hit (no rebuild)."""
-    from services.indicator_service import IndicatorService
     import pandas as pd
+
+    from services.indicator_service import IndicatorService
 
     svc = IndicatorService()
     key = "ES:1m"
@@ -131,8 +135,10 @@ def test_bar_append_invalidates_df_cache():
     """Appending a bar must set _df_cache[key] = None."""
     from collections import OrderedDict
     from datetime import datetime
-    from services.indicator_service import IndicatorService
+
     import pandas as pd
+
+    from services.indicator_service import IndicatorService
 
     svc = IndicatorService()
     key = "ES:1m"
@@ -152,6 +158,7 @@ def test_process_single_bar_returns_true_on_success():
     import asyncio
     from datetime import datetime
     from unittest.mock import AsyncMock, MagicMock, patch
+
     from services.indicator_service import IndicatorService
 
     svc = IndicatorService()
@@ -185,8 +192,9 @@ def test_process_single_bar_returns_true_on_success():
 def test_process_single_bar_returns_false_on_exception():
     """_process_single_bar must return False when processing raises."""
     import asyncio
-    from services.indicator_service import IndicatorService
     from unittest.mock import MagicMock
+
+    from services.indicator_service import IndicatorService
 
     svc = IndicatorService()
     svc.redis_client = None  # will cause AttributeError

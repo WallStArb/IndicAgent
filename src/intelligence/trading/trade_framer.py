@@ -224,7 +224,7 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(features, "nearest_resistance")
     if sr_resistance > 0 and sr_resistance > entry:
         stop = sr_resistance + atr * 0.50
-        return max(stop, max_stop), "sr_support"
+        return max(stop, max_stop), "sr_resistance"
 
     # Fallback: ATR×2.0
     return entry + atr * 2.0, "atr"

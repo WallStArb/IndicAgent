@@ -213,7 +213,7 @@ class CISScorer:
         rsi = self._fval(f, "rsi_14", default=50.0)
         rsi_dir = (rsi - 50.0) / 50.0  # maps [0,100] → [-1,+1]
 
-        macd = self._fval(f, "macd_hist_12_26_9")
+        macd = self._fval(f, "macd_histogram_12_26_9")
         macd_dir = 1.0 if macd > 0 else (-1.0 if macd < 0 else 0.0)
 
         roc = self._fval(f, "roc_14")
@@ -267,7 +267,7 @@ class CISScorer:
         dt_dir = -1.0 if dt_pattern == 1.0 else (1.0 if dt_pattern == 2.0 else 0.0)
 
         hs = self._fval(f, "hs_pattern")
-        hs_dir = -1.0 if hs == 1.0 else (1.0 if hs == 2.0 else 0.0)
+        hs_dir = -1.0 if hs in (1.0, 2.0) else (1.0 if hs in (3.0, 4.0) else 0.0)
 
         d, c = self._plug(po, "trad_PatternCompletion")
 

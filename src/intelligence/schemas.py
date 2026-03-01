@@ -59,17 +59,17 @@ class I1Indicators(BaseModel):
     # MACDPlugin
     macd_12_26_9: float | None = None
     macd_signal_12_26_9: float | None = None
-    macd_hist_12_26_9: float | None = None
+    macd_histogram_12_26_9: float | None = None
     # BollingerBandsPlugin
     bb_20_2_upper: float | None = None
     bb_20_2_lower: float | None = None
-    bb_20_2_middle: float | None = None
+    bb_20_2_mid: float | None = None
     # VolumeRatioPlugin
     volume_ratio: float | None = None
     # ROCPlugin
     roc_14: float | None = None
     # StochasticPlugin
-    stoch_k: float | None = None
+    stoch_k_14_3: float | None = None
     stoch_d: float | None = None
     # ADXPlugin
     adx_14: float | None = None

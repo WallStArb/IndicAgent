@@ -1,5 +1,4 @@
 """Tests for group synthesis pure helpers."""
-import pytest
 
 
 def test_asset_groups_covers_all_23_contracts():

@@ -2,8 +2,8 @@
 """
 Check data flow: Redis streams (ticks, 1m bars) and database (market_data_ohlcv).
 
-Version: 1.0.0
-Last Updated: 2026-02-21
+Version: 1.1.0
+Last Updated: 2026-02-28
 Status: Current
 
 Usage:
@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
@@ -25,15 +26,13 @@ sys.path.insert(0, str(project_root))
 from src.config.settings import Settings, get_active_contracts
 from src.core.stream_keys import live_tick as sk_live_tick
 from src.core.stream_keys import market as sk_market
-
-
-def _env_prefix(env_name: str) -> str:
-    return f"{env_name}:" if env_name else ""
+from src.core.stream_keys import prefix as sk_prefix
+from src.core.stream_keys import ticks_pattern as sk_ticks_pattern
 
 
 def check_redis(settings: Settings, symbols: list[str], env: str) -> None:
     """Print Redis stream lengths and latest entry sample for ticks and 1m bars."""
-    env_prefix = _env_prefix(env)
+    env_prefix = sk_prefix(env)
     r = redis.Redis(
         host=settings.redis_host,
         port=settings.redis_port,
@@ -42,32 +41,46 @@ def check_redis(settings: Settings, symbols: list[str], env: str) -> None:
     )
     print("\n--- Redis streams ---")
     print(f"Env prefix: {repr(env_prefix)}")
-    for symbol in symbols:
-        tick_stream = sk_live_tick(env_prefix, symbol)
-        market_1m = sk_market(env_prefix, symbol, "1m")
-        for name, key in [("ticks", tick_stream), ("1m bars", market_1m)]:
-            try:
-                length = r.xlen(key)
-                latest = r.xrevrange(key, count=1)
-                latest_str = ""
-                if latest:
-                    _id, fields = latest[0]
-                    ts = fields.get("timestamp", fields.get("close", ""))
-                    latest_str = f"  latest: {ts}"
-                print(f"  {symbol} {name}: {key}  len={length}{latest_str}")
-            except Exception as e:
-                print(f"  {symbol} {name}: {key}  error={e}")
-    # Optional: list any stream keys matching pattern (in case symbols != actual keys)
     try:
-        pattern = f"{env_prefix}ticks:*:live"
-        keys_ticks = r.keys(pattern)
-        pattern_m = f"{env_prefix}market:*:1m"
-        keys_market = r.keys(pattern_m)
-        if keys_ticks or keys_market:
-            print(f"  All tick streams (KEYS {pattern}): {len(keys_ticks)} keys")
-            print(f"  All market:1m streams (KEYS {pattern_m}): {len(keys_market)} keys")
-    except Exception as e:
-        print(f"  KEYS scan error: {e}")
+        # Build key list and pipeline all xlen + xrevrange calls in one round-trip
+        key_meta: list[tuple[str, str, str]] = []  # (symbol, label, stream_key)
+        pipe = r.pipeline()
+        for symbol in symbols:
+            for label, key in [
+                ("ticks", sk_live_tick(env_prefix, symbol)),
+                ("1m bars", sk_market(env_prefix, symbol, "1m")),
+            ]:
+                key_meta.append((symbol, label, key))
+                pipe.xlen(key)
+                pipe.xrevrange(key, count=1)
+        results = pipe.execute(raise_on_error=False)
+
+        for i, (symbol, label, key) in enumerate(key_meta):
+            length = results[i * 2]
+            latest = results[i * 2 + 1]
+            if isinstance(length, Exception):
+                print(f"  {symbol} {label}: {key}  error={length}")
+                continue
+            latest_str = ""
+            if latest:
+                _id, fields = latest[0]
+                ts = fields.get("timestamp", fields.get("close", ""))
+                latest_str = f"  latest: {ts}"
+            print(f"  {symbol} {label}: {key}  len={length}{latest_str}")
+
+        # Discovery scan: find streams beyond the known symbol list
+        tick_pat = sk_ticks_pattern(env_prefix)
+        market_pat = f"{env_prefix}market:*:1m"
+        try:
+            discovered_ticks = list(r.scan_iter(tick_pat))
+            discovered_market = list(r.scan_iter(market_pat))
+            if discovered_ticks or discovered_market:
+                print(f"  All tick streams ({tick_pat}): {len(discovered_ticks)} keys")
+                print(f"  All market:1m streams ({market_pat}): {len(discovered_market)} keys")
+        except Exception as e:
+            print(f"  Scan error: {e}")
+    finally:
+        r.close()
 
 
 def check_database(settings: Settings) -> None:
@@ -80,24 +93,22 @@ def check_database(settings: Settings) -> None:
         return
     print("\n--- Database (market_data_ohlcv) ---")
     try:
-        conn = psycopg2.connect(settings.database_url)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT symbol, timeframe, COUNT(*) AS cnt, MAX(timestamp) AS last_ts
-            FROM market_data_ohlcv
-            GROUP BY symbol, timeframe
-            ORDER BY symbol, timeframe
-            """
-        )
-        rows = cur.fetchall()
+        with contextlib.closing(psycopg2.connect(settings.database_url)) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT symbol, timeframe, COUNT(*) AS cnt, MAX(timestamp) AS last_ts
+                    FROM market_data_ohlcv
+                    GROUP BY symbol, timeframe
+                    ORDER BY symbol, timeframe
+                    """
+                )
+                rows = cur.fetchall()
         if not rows:
             print("  No rows in market_data_ohlcv.")
         else:
             for symbol, tf, cnt, last_ts in rows:
                 print(f"  {symbol} {tf}: count={cnt}  last={last_ts}")
-        cur.close()
-        conn.close()
     except Exception as e:
         print(f"  DB error: {e}")
 
@@ -105,7 +116,7 @@ def check_database(settings: Settings) -> None:
 def main() -> None:
     settings = Settings()
     parser = argparse.ArgumentParser(description="Check Redis and DB data flow")
-    parser.add_argument("--env", default=settings.env_name or "dev", help="INDICAGENT_ENV value")
+    parser.add_argument("--env", default=settings.env_name, help="INDICAGENT_ENV value")
     parser.add_argument(
         "--symbols",
         default="",
@@ -115,9 +126,6 @@ def main() -> None:
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     if not symbols:
         symbols = get_active_contracts(settings)
-    if not symbols:
-        print("No symbols to check. Set HF_CONTRACTS_JSON/IBKR_CONTRACTS_JSON or pass --symbols.")
-        return
     print("Symbols:", symbols)
     check_redis(settings, symbols, args.env)
     check_database(settings)

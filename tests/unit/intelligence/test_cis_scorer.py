@@ -7,10 +7,8 @@ import pytest
 from src.intelligence.trading.cis_scorer import (
     BOOTSTRAP_WEIGHTS,
     BUCKET_NAMES,
-    CISResult,
     CISScorer,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -55,7 +55,7 @@ def evaluate_signal(
     risk = abs(entry - stop)
 
     # TTL check first (applies to both pending and active)
-    if bars > ttl:
+    if bars >= ttl:
         exit_price = close
         return _make_exit(sid, "expired", "ttl_expired", exit_price,
                           entry, direction, risk, point_value)

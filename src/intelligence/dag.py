@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,13 +29,13 @@ class Dag:
         indeg: dict[str, int] = {k: 0 for k in self.nodes}
         for _a, b in self.edges:
             indeg[b] += 1
-        queue = [k for k, v in indeg.items() if v == 0]
+        queue = deque([k for k, v in indeg.items() if v == 0])
         order: list[str] = []
         adj: dict[str, list[str]] = {}
         for a, b in self.edges:
             adj.setdefault(a, []).append(b)
         while queue:
-            n = queue.pop(0)
+            n = queue.popleft()
             order.append(n)
             for m in adj.get(n, []):
                 indeg[m] -= 1

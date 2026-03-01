@@ -10,10 +10,8 @@ Covers RED→GREEN cycle for:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
-
 
 # ---------------------------------------------------------------------------
 # Helpers

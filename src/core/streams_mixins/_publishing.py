@@ -107,9 +107,7 @@ class PublishingMixin:
             Message ID from Redis Stream
         """
         try:
-            # Update metrics
-            self.metrics.messages_published += 1
-            self.metrics.last_activity = datetime.now()
+            # Case 1: Legacy format with stream_name
 
             # Case 1: Legacy format with stream_name
             if "stream_name" in message:

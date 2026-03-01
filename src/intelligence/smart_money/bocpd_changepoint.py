@@ -246,7 +246,7 @@ class BOCPDChangePointPlugin:
             ):
                 confirmation += 0.25
 
-        return confirmation
+        return min(1.0, confirmation)
 
 
 plugin = BOCPDChangePointPlugin()

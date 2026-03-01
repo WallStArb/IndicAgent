@@ -334,6 +334,7 @@ def test_stream_map_populated_after_setup():
     """_stream_map must contain all signal streams after setup."""
     import asyncio
     from unittest.mock import AsyncMock
+
     from services.ai_narrative_service import AINarrativeService
 
     svc = AINarrativeService()

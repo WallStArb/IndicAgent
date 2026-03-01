@@ -136,7 +136,7 @@ class IndicatorService:
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
         self._stream_map: dict[str, tuple[str, str]] = {}
-        self._df_cache: dict[str, "pd.DataFrame | None"] = {}
+        self._df_cache: dict[str, pd.DataFrame | None] = {}
 
         self.bars_processed_total = counter(
             "indicator_bars_processed_total",

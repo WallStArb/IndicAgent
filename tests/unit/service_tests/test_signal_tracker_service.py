@@ -66,6 +66,7 @@ def test_stream_map_populated_after_setup():
     """_stream_map must have one entry per symbol (1m only)."""
     import asyncio
     from unittest.mock import AsyncMock
+
     from services.signal_tracker_service import SignalTrackerService
 
     svc = SignalTrackerService()

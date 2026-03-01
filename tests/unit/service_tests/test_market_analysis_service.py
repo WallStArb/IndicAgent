@@ -363,7 +363,9 @@ class TestPublisherFormat:
 def test_df_cache_miss_builds_dataframe():
     from collections import deque
     from datetime import datetime
+
     import pandas as pd
+
     from services.market_analysis_service import MarketAnalysisService
     svc = MarketAnalysisService()
     key = "ES:1m"
@@ -375,6 +377,7 @@ def test_df_cache_miss_builds_dataframe():
 
 def test_df_cache_hit_returns_same_object():
     import pandas as pd
+
     from services.market_analysis_service import MarketAnalysisService
     svc = MarketAnalysisService()
     key = "ES:5m"
@@ -383,9 +386,11 @@ def test_df_cache_hit_returns_same_object():
     assert svc._get_df(key) is cached
 
 def test_bar_append_invalidates_cache():
-    import pandas as pd
     from collections import deque
     from datetime import datetime
+
+    import pandas as pd
+
     from services.market_analysis_service import MarketAnalysisService
     svc = MarketAnalysisService()
     key = "NQ:1m"

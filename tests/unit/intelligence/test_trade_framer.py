@@ -6,15 +6,14 @@ import pytest
 
 from src.intelligence.trading.trade_framer import (
     MIN_RR_T1,
-    TradeFrame,
     TradeTarget,
-    frame_trade,
-    _resolve_entry,
-    _resolve_stop_long,
-    _resolve_stop_short,
     _collect_targets_long,
     _collect_targets_short,
     _pick_targets,
+    _resolve_entry,
+    _resolve_stop_long,
+    _resolve_stop_short,
+    frame_trade,
 )
 
 # ---------------------------------------------------------------------------

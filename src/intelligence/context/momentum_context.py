@@ -40,7 +40,7 @@ class MomentumContextPlugin:
             scores.append(1.0 if macd > signal else -1.0 if macd < signal else 0.0)
 
         # Stochastic %K: centered at 50
-        stoch_k = features.get("stoch_k_14_3") or features.get("stoch_14_k")
+        stoch_k = features.get("stoch_k_14_3")
         if is_num(stoch_k):
             scores.append(max(-1.0, min(1.0, (stoch_k - 50) / 50)))
 

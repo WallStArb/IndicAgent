@@ -62,7 +62,7 @@ class ConsumingMixin:
             for stream_name in streams:
                 try:
                     await self.redis_client.xgroup_create(
-                        stream_name, group_name, id="0", mkstream=True
+                        stream_name, group_name, id="$", mkstream=True
                     )
                     logger.debug(f"Created consumer group {group_name} for {stream_name}")
                 except redis.ResponseError as e:
@@ -70,6 +70,7 @@ class ConsumingMixin:
                         logger.debug(
                             f"Consumer group {group_name} already exists for {stream_name}"
                         )
+                        await self.redis_client.xgroup_setid(stream_name, group_name, "$")
                     else:
                         raise
 

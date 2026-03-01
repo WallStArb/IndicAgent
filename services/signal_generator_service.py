@@ -351,15 +351,19 @@ class SignalGeneratorService:
         for tf in self.config["service"]["timeframes"]:
             for sym in self.config["service"]["symbols"]:
                 stream_name = sk_intel(self.env_prefix, sym, tf)
+                group_freshly_created = False
                 try:
                     # Create at $ (current end) for new groups only
                     await self.redis_client.xgroup_create(
                         stream_name, self.consumer_group, "$", mkstream=True
                     )
-                except Exception:
-                    pass  # Group already exists — position preserved from last run
-                # Always rewind warmup_bars from current end for plugin state warm-up
-                try:
+                    group_freshly_created = True
+                except redis.ResponseError as e:
+                    if "BUSYGROUP" not in str(e):
+                        raise
+                # Only rewind warmup_bars if group was freshly created
+                if group_freshly_created:
+                    try:
                     msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
                     if len(msgs) > warmup_bars:
                         await self.redis_client.xgroup_setid(

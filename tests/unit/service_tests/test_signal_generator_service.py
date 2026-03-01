@@ -253,6 +253,7 @@ def test_stream_map_populated_after_setup():
     """_stream_map must map stream_name → (symbol, timeframe) for all 92 streams."""
     import asyncio
     from unittest.mock import AsyncMock
+
     from services.signal_generator_service import SignalGeneratorService
 
     svc = SignalGeneratorService()
@@ -268,6 +269,7 @@ def test_stream_map_populated_after_setup():
 def test_df_cache_invalidated_on_bar_append():
     """After appending a bar, _df_cache[key] must be None."""
     import pandas as pd
+
     from services.signal_generator_service import SignalGeneratorService
 
     svc = SignalGeneratorService()
@@ -284,6 +286,7 @@ def test_df_cache_invalidated_on_bar_append():
 def test_df_cache_hit_avoids_rebuild():
     """_get_df must return the cached DataFrame when cache is warm."""
     import pandas as pd
+
     from services.signal_generator_service import SignalGeneratorService
 
     svc = SignalGeneratorService()

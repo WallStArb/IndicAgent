@@ -250,6 +250,7 @@ def test_stream_map_populated_after_setup():
     """_stream_map must contain all 92 stream → (symbol, tf) entries after setup."""
     import asyncio
     from unittest.mock import AsyncMock
+
     from services.feature_writer_service import FeatureWriterService
 
     svc = FeatureWriterService()

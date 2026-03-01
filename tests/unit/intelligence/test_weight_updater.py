@@ -3,16 +3,12 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from src.intelligence.trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES
 from src.intelligence.weight_updater import (
     MIN_SAMPLES_FULL,
     MIN_SAMPLES_TRAIN,
-    WeightUpdateResult,
     compute_new_weights,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
