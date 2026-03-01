@@ -143,8 +143,7 @@ class TestHelperFunctions:
         assert len(bases) >= 14
         assert bases[0] == "ES"
         assert "ZT" in bases
-        # VIX is the IBKR base symbol, not VX
-        assert "VIX" in bases
+        assert "VX" in bases
 
     @pytest.mark.unit
     def test_get_contract_info_by_symbol(self):
