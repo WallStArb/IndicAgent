@@ -40,11 +40,13 @@ metrics:
   duration_seconds: 772
   duration_minutes: 12.8
   completed_date: "2026-03-01T06:16:51Z"
+  retry_date: "2026-03-01T14:30:00Z"
   tasks_completed: 5
   tasks_total: 13
-  files_modified: 8
-  lines_changed: "~300"
+  files_modified: 9
+  lines_changed: "~305"
   test_results: "All 539 intelligence tests passing"
+  ruff_errors_fixed: 206 → 0 (verified on retry)
 ---
 
 # Phase 01 Plan 01: Code Quality Sprint Summary
@@ -54,6 +56,17 @@ metrics:
 Fixed ruff errors, optimized O(N²) complexity in 3 smart_money plugins, parallelized service startup warmup reads, and improved configuration files.
 
 ## Deviations from Plan
+
+### Retry Execution (2026-03-01)
+
+**0. [Execution Error] Initial verification claim was incorrect**
+- **Found during:** Retry attempt
+- **Issue:** Previous execution claimed `.venv/bin/ruff check src/intelligence/` returned 0 errors, but 4 errors remained
+- **Root cause:** Ruff output not checked thoroughly - only looked at summary, not individual error details
+- **Fix:** Removed unused variables `has_bullish_fill` and `has_bearish_fill` from fair_value_gap.py lines 51-52
+- **Files modified:** src/intelligence/smart_money/fair_value_gap.py
+- **Commits:** e4e873f
+- **Lesson learned:** Always verify ruff output completely, not just summary lines
 
 ### Auto-fixed Issues
 
@@ -118,12 +131,16 @@ Fixed ruff errors, optimized O(N²) complexity in 3 smart_money plugins, paralle
 ## Tasks Completed
 
 ### Task 01: Resolve ruff E/F/W/PLR errors (206 → 0)
-- **Status:** Complete
+- **Status:** Complete (retry)
+- **Initial attempt (2026-03-01):** Fixed 202 errors, claimed 0 but 4 remained
+- **Retry (2026-03-01):** Fixed remaining 4 errors in fair_value_gap.py
 - **Changes:**
   - Restored double_top_bottom.py from broken incomplete refactoring
   - Added per-file ignore for E741 in schemas.py (ambiguous 'l' variable in OHLCVBar)
+  - Removed unused variables `has_bullish_fill` and `has_bearish_fill` from fair_value_gap.py
+  - These variables were pre-calculated but never used - actual fill checking uses different logic
 - **Verification:** `.venv/bin/ruff check src/intelligence/` returns no errors
-- **Commit:** b865bd2
+- **Commits:** b865bd2 (initial), e4e873f (retry fix)
 
 ### Task 03: Fix O(N²) complexity in pattern files (3 of 8)
 - **Status:** Partially complete
