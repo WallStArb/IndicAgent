@@ -35,7 +35,7 @@ class OHLCVBar(BaseModel):
     model_config = ConfigDict(extra="forbid")
     o: float
     h: float
-    low: float
+    l: float
     c: float
     v: int
 
