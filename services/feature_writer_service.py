@@ -298,7 +298,13 @@ class FeatureWriterService:
         try:
             event = _parse_intelligence_event(fields)
             if event is None:
-                # Malformed or missing event — ack-and-skip (do not crash)
+                self.logger.warning(
+                    "Malformed intelligence event — acked and skipped",
+                    stream=stream_name,
+                    message_id=message_id,
+                )
+                if hasattr(self, "error_count_total"):
+                    self.error_count_total.inc()
                 return True
 
             params = _event_to_insert_params(event)
