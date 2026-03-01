@@ -313,52 +313,75 @@ class IndicatorService:
         self.logger.info("Connected to Redis")
 
     async def _setup_consumer_groups(self) -> None:
+        """Setup consumer groups and warm up plugin state from history.
+
+        Optimized: parallel warmup reads using asyncio.gather() instead of sequential loops.
+        """
         warmup_bars = 20  # unique bars target (reduced for faster startup)
         warmup_read_count = warmup_bars * self._WARMUP_READ_MULTIPLIER
-        for timeframe in self.config["service"]["timeframes"]:
-            for symbol in self.config["service"]["symbols"]:
-                stream_name = sk_market(self.env_prefix, symbol, timeframe)
-                # Warm up plugin state from history without emitting to indicators stream
-                try:
-                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_read_count)
-                    for _msg_id, fields in reversed(msgs):
-                        key = f"{symbol}:{timeframe}"
-                        try:
-                            bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
-                            bar_source = fields.get(b"source", b"").decode()
-                            if bar_source == "tick_derived":
-                                continue
-                            bar_data = {
-                                "timestamp": bar_ts,
-                                "open": float(fields[b"open"].decode()),
-                                "high": float(fields[b"high"].decode()),
-                                "low": float(fields[b"low"].decode()),
-                                "close": float(fields[b"close"].decode()),
-                                "volume": int(float(fields[b"volume"].decode())),
-                            }
-                            history = self.bar_history[key]
-                            history[bar_ts.isoformat()] = bar_data
-                            while len(history) > self._bar_history_max:
-                                history.popitem(last=False)
-                        except Exception:
-                            pass
-                    self.logger.info(
-                        "Warmup complete",
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        bars=len(self.bar_history.get(f"{symbol}:{timeframe}", [])),
-                    )
-                except Exception as e:
-                    self.logger.warning("Warmup failed", stream=stream_name, error=str(e))
-                # Create/reset consumer group to current tail — never replay old bars
-                try:
-                    await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "$", mkstream=True
-                    )
-                except Exception:
-                    # Group already exists — reset to current tail so stale backlog is skipped
-                    await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
-                self._stream_map[stream_name] = (symbol, timeframe)
+
+        async def warmup_stream(symbol: str, timeframe: str) -> tuple[str, str]:
+            """Warm up a single stream for plugin state initialization.
+
+            Returns (stream_name, stream_map_entry) tuple for consumer group setup.
+            """
+            stream_name = sk_market(self.env_prefix, symbol, timeframe)
+            try:
+                msgs = await self.redis_client.xrevrange(stream_name, count=warmup_read_count)
+                for _msg_id, fields in reversed(msgs):
+                    key = f"{symbol}:{timeframe}"
+                    try:
+                        bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
+                        bar_source = fields.get(b"source", b"").decode()
+                        if bar_source == "tick_derived":
+                            continue
+                        bar_data = {
+                            "timestamp": bar_ts,
+                            "open": float(fields[b"open"].decode()),
+                            "high": float(fields[b"high"].decode()),
+                            "low": float(fields[b"low"].decode()),
+                            "close": float(fields[b"close"].decode()),
+                            "volume": int(float(fields[b"volume"].decode())),
+                        }
+                        history = self.bar_history[key]
+                        history[bar_ts.isoformat()] = bar_data
+                        while len(history) > self._bar_history_max:
+                            history.popitem(last=False)
+                    except Exception:
+                        pass
+                self.logger.info(
+                    "Warmup complete",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    bars=len(self.bar_history.get(f"{symbol}:{timeframe}", {})),
+                )
+            except Exception as e:
+                self.logger.warning("Warmup failed", stream=stream_name, error=str(e))
+
+            # Create/reset consumer group to current tail — never replay old bars
+            try:
+                await self.redis_client.xgroup_create(
+                    stream_name, self.consumer_group, "$", mkstream=True
+                )
+            except Exception:
+                # Group already exists — reset to current tail so stale backlog is skipped
+                await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+
+            return (stream_name, (symbol, timeframe))
+
+        # Create tasks for all (symbol, timeframe) combinations
+        tasks = [
+            warmup_stream(symbol, timeframe)
+            for timeframe in self.config["service"]["timeframes"]
+            for symbol in self.config["service"]["symbols"]
+        ]
+
+        # Execute all warmup reads in parallel
+        results = await asyncio.gather(*tasks)
+
+        # Build stream_map from results
+        for stream_name, (symbol, timeframe) in results:
+            self._stream_map[stream_name] = (symbol, timeframe)
 
     async def _process_market_data(self) -> None:
         all_streams = {name: ">" for name in self._stream_map}

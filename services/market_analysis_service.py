@@ -413,33 +413,47 @@ class MarketAnalysisService:
         self.logger.info("Connected to Redis")
 
     async def _warmup_bar_history(self) -> None:
-        """Pre-fill bar_history via xrevrange so min_bars threshold is met on first live bar."""
+        """Pre-fill bar_history via xrevrange so min_bars threshold is met on first live bar.
+
+        Optimized: parallel reads using asyncio.gather() instead of sequential loops.
+        """
         warmup_count = 150  # read up to 150 raw entries (covers deduplication waste)
-        for timeframe in self.config["service"]["timeframes"]:
-            for symbol in self.config["service"]["symbols"]:
-                stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
-                try:
-                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_count)
-                    key = f"{symbol}:{timeframe}"
-                    seen_ts: set[str] = set()
-                    bars = []
-                    for _msg_id, fields in msgs:
-                        try:
-                            bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
-                            ts_str = fields[b"timestamp"].decode()
-                            if ts_str in seen_ts:
-                                continue
-                            seen_ts.add(ts_str)
-                            bar_data, _ = parse_indicators_message(fields)
-                            bar_data["timestamp"] = bar_ts
-                            bars.append(bar_data)
-                        except Exception:
+
+        async def warmup_stream(symbol: str, timeframe: str) -> None:
+            """Warm up a single stream."""
+            stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
+            try:
+                msgs = await self.redis_client.xrevrange(stream_name, count=warmup_count)
+                key = f"{symbol}:{timeframe}"
+                seen_ts: set[str] = set()
+                bars = []
+                for _msg_id, fields in msgs:
+                    try:
+                        bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
+                        ts_str = fields[b"timestamp"].decode()
+                        if ts_str in seen_ts:
                             continue
-                    # xrevrange returns newest-first; append oldest-first
-                    for bar in reversed(bars):
-                        self.bar_history[key].append(bar)
-                except Exception as e:
-                    self.logger.warning("Bar history warmup failed", stream=stream_name, error=str(e))
+                        seen_ts.add(ts_str)
+                        bar_data, _ = parse_indicators_message(fields)
+                        bar_data["timestamp"] = bar_ts
+                        bars.append(bar_data)
+                    except Exception:
+                        continue
+                # xrevrange returns newest-first; append oldest-first
+                for bar in reversed(bars):
+                    self.bar_history[key].append(bar)
+            except Exception as e:
+                self.logger.warning("Bar history warmup failed", stream=stream_name, error=str(e))
+
+        # Create tasks for all (symbol, timeframe) combinations
+        tasks = [
+            warmup_stream(symbol, timeframe)
+            for timeframe in self.config["service"]["timeframes"]
+            for symbol in self.config["service"]["symbols"]
+        ]
+
+        # Execute all warmup reads in parallel
+        await asyncio.gather(*tasks)
 
     async def _setup_consumer_groups(self) -> None:
         for timeframe in self.config["service"]["timeframes"]:
