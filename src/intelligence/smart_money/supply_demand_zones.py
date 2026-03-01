@@ -114,25 +114,28 @@ class SupplyDemandZonesPlugin:
             ))
 
         # Lifecycle: mark tested/mitigated based on subsequent price action
+        # Optimized: vectorized operations instead of nested loops
         active: list[_Zone] = []
         for zone in zones:
             mitigated = False
-            for j in range(zone.created_idx + 1, n):
-                price_in = (float(low[j]) <= zone.zone_high and
-                            float(high[j]) >= zone.zone_low)
-                if price_in:
+
+            # Vectorized check for price entering zone
+            if zone.created_idx + 1 < n:
+                price_in_zone = (low[zone.created_idx + 1:] <= zone.zone_high) & (
+                    high[zone.created_idx + 1:] >= zone.zone_low
+                )
+
+                if np.any(price_in_zone):
                     if zone.freshness == 1.0:
                         zone.freshness = 0.5
-                    zone.test_count += 1
+                    zone.test_count += int(np.sum(price_in_zone))
                     zone.freshness = max(0.1, zone.freshness - 0.15)
 
-                # Mitigated: close beyond distal edge
-                if zone.zone_type == "demand" and float(close[j]) < zone.zone_low:
-                    mitigated = True
-                    break
-                if zone.zone_type == "supply" and float(close[j]) > zone.zone_high:
-                    mitigated = True
-                    break
+                    # Check if mitigated (close beyond distal edge)
+                    if zone.zone_type == "demand":
+                        mitigated = np.any(close[zone.created_idx + 1:] < zone.zone_low)
+                    elif zone.zone_type == "supply":
+                        mitigated = np.any(close[zone.created_idx + 1:] > zone.zone_high)
 
             if not mitigated:
                 active.append(zone)

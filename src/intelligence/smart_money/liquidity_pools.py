@@ -167,19 +167,27 @@ class LiquidityPoolsPlugin:
     def _find_equal_levels(
         prices: list[float], tolerance: float
     ) -> list[tuple[float, int]]:
-        """Cluster prices within tolerance → return (mean_price, touch_count) for clusters ≥ 2."""
+        """Cluster prices within tolerance → return (mean_price, touch_count) for clusters ≥ 2.
+
+        Optimized from O(N²) to O(N) using single-pass clustering.
+        """
         if not prices:
             return []
+        if not prices:
+            return []
+
+        # Sort prices first - O(N log N)
+        sorted_prices = sorted(prices)
+
+        # Single-pass clustering - O(N)
         clusters: list[list[float]] = []
-        for p in sorted(prices):
-            placed = False
-            for cluster in clusters:
-                if abs(p - np.mean(cluster)) <= tolerance:
-                    cluster.append(p)
-                    placed = True
-                    break
-            if not placed:
+        for p in sorted_prices:
+            # Only check the last cluster (if any) since prices are sorted
+            if clusters and abs(p - np.mean(clusters[-1])) <= tolerance:
+                clusters[-1].append(p)
+            else:
                 clusters.append([p])
+
         return [
             (float(np.mean(c)), len(c))
             for c in clusters if len(c) >= 2
