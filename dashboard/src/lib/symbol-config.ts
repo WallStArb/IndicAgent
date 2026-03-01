@@ -22,7 +22,54 @@ export interface DashboardConfig {
   profiles: Record<string, SymbolProfile>
 }
 
-// Default configuration — will be replaced by GET /api/instruments fetch in future
+// Default configuration — will be replaced by GET /api/instruments fetch in production
+// These are fallback values only; contract codes are auto-generated from /api/instruments
+
+// Contract month codes (CME/ICE standard)
+const MONTH_CODES = ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"] // Jan-Dec
+
+/**
+ * Generate a futures contract code from base symbol and expiry month/year.
+ * @param baseSymbol Base symbol (e.g., "ES", "NQ", "CL")
+ * @param month Month code (F=Jan, G=Feb, ..., Z=Dec)
+ * @param year Last digit of year (e.g., 6 for 2026)
+ * @returns Contract code (e.g., "ESH6", "CLJ6")
+ */
+export function generateContractCode(baseSymbol: string, month: string, year: string): string {
+  return `${baseSymbol}${month}${year}`
+}
+
+/**
+ * Get current month code for front-month contract.
+ * @returns Month code for the current or next expiry month
+ */
+function getCurrentMonthCode(): string {
+  const now = new Date()
+  const month = now.getMonth() // 0-11
+  // Front-month is typically 1-2 months ahead
+  const targetMonth = (month + 2) % 12
+  return MONTH_CODES[targetMonth]
+}
+
+/**
+ * Get current year digit for contract codes.
+ * @returns Single digit year (e.g., 6 for 2026)
+ */
+function getCurrentYearDigit(): string {
+  const now = new Date()
+  return now.getFullYear().toString().slice(-1)
+}
+
+/**
+ * Generate a front-month contract code dynamically.
+ * @param baseSymbol Base symbol (e.g., "ES", "NQ", "CL")
+ * @returns Contract code (e.g., "ESH6", "CLK6")
+ */
+export function generateFrontMonthContract(baseSymbol: string): string {
+  const month = getCurrentMonthCode()
+  const year = getCurrentYearDigit()
+  return generateContractCode(baseSymbol, month, year)
+}
 const defaultConfig: DashboardConfig = {
   dashboard_symbols: {
     futures: [

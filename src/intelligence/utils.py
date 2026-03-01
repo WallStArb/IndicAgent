@@ -61,3 +61,25 @@ def find_troughs(data: np.ndarray, n: int) -> list[int]:
 def is_num(x: Any) -> bool:
     """Check if value is a valid finite numeric type (rejects NaN and Inf)."""
     return isinstance(x, int | float) and math.isfinite(x)
+
+
+def clamp(value: float, min_val: float = -1.0, max_val: float = 1.0) -> float:
+    """Clamp a value to be within [min_val, max_val] inclusive.
+
+    Commonly used to normalize scores to [-1.0, 1.0] range.
+
+    Parameters
+    ----------
+    value: float
+        Value to clamp
+    min_val: float
+        Minimum allowed value (default: -1.0)
+    max_val: float
+        Maximum allowed value (default: 1.0)
+
+    Returns
+    -------
+    float
+        Clamped value within [min_val, max_val]
+    """
+    return max(min_val, min(max_val, value))
