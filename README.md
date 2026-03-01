@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 5.6.0 | **Status:** v1.0 Shipped | 62 plugins · 784 tests · 23 contracts
+**Version:** 5.8.0 | **Status:** v1.0 Shipped | 63 plugins · 803 tests · 24 contracts
 
 ---
 
@@ -16,7 +16,7 @@ Every output at every tier is encoded into a **canonical `IntelligenceEvent` —
 
 The architecture is designed to be **externally consumable**: a FastAPI layer with JWT + API key auth exposes the full intelligence stream over SSE and REST, so any downstream application — a Vercel dashboard, a Slack bot, an algorithmic execution system, or an ML scoring model — subscribes to the same vetted, structured signal stream. The 8 services are fully systemd-managed with Prometheus metrics on each, making production operation as straightforward as running any other infrastructure daemon.
 
-**The result:** a platform that ingests 100–500+ ticks/sec across 23 futures instruments (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 62 intelligence plugins in a strict DAG, and delivers structured, AI-enriched trading intelligence to any connected consumer — all without a database anywhere in the hot path.
+**The result:** a platform that ingests 100–500+ ticks/sec across 24 contracts (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 63 intelligence plugins in a strict DAG, and delivers structured, AI-enriched trading intelligence to any connected consumer — all without a database anywhere in the hot path.
 
 ---
 
@@ -24,9 +24,9 @@ The architecture is designed to be **externally consumable**: a FastAPI layer wi
 
 | Aspect | Detail |
 |--------|--------|
-| **Data in** | IBKR TWS futures: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL**, **BZ**, **NG** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT**, **SR1** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **6E**, **6J** (FX); **BTC** (crypto). 23 contracts, 100–500+ ticks/sec |
+| **Data in** | IBKR TWS: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **EURUSD**, **GBPUSD**, **USDJPY**, **USDCHF** (spot FX); **BTCUSD**, **ETHUSD**, **SOLUSD** (spot crypto). 24 contracts, 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives, group narratives); TimescaleDB feature store |
-| **Intelligence** | 62 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (14) + 4 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
+| **Intelligence** | 63 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (14) + 4 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16.1 / React 19.2, Ollama |
 | **Deployment** | 8 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
 
@@ -207,16 +207,16 @@ docs/                     # Architecture and planning
 
 ## Reference
 
-### Supported Instruments (23 contracts)
+### Supported Instruments (24 contracts)
 
 - **Equity index futures:** ES, NQ, RTY, YM
-- **Energy:** CL, BZ, NG
+- **Energy:** CL
 - **Metals:** GC, SI, HG, PL
-- **Rates:** ZN, ZF, ZB, ZT, SR1
+- **Rates:** ZN, ZF, ZB, ZT
 - **Volatility:** VX
 - **Agriculture:** ZS, ZC, ZW
-- **FX:** 6E, 6J
-- **Crypto:** BTC
+- **FX:** EURUSD, GBPUSD, USDJPY, USDCHF (spot/IDEALPRO)
+- **Crypto:** BTCUSD, ETHUSD, SOLUSD (spot/PAXOS)
 
 ### Tech Stack
 
@@ -252,7 +252,7 @@ python tests/run_all_tests.py --unit-only
 
 **v1.0 shipped 2026-02-28. All 9 phases complete.**
 
-- **I1–I8 pipeline:** Fully operational. 62 plugins, 4 aggregation components, typed intelligence bus, feature store, CIS scorer with adaptive weight learning.
+- **I1–I8 pipeline:** Fully operational. 63 plugins, 4 aggregation components, typed intelligence bus, feature store, CIS scorer with adaptive weight learning.
 - **Dashboard:** Live — price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
 - **AI Narratives:** Per-signal via qwen3:8b (conf > 0.7, 5m/15m/1h); group synthesis via phi4-mini:3.8b across 6 asset groups.
 - **Test suite:** 784 passing, 0 ruff errors.
@@ -273,4 +273,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 5.6.0 | **Status:** v1.0 shipped — I1–I8 complete, 62 plugins, 784 tests | **Next:** v1.1
+**Version:** 5.8.0 | **Status:** v1.0 shipped — I1–I8 complete, 63 plugins, 803 tests | **Next:** v1.1
