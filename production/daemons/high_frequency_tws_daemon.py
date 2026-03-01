@@ -507,17 +507,17 @@ class HighFrequencyTWSDaemon:
                     "volume": str(bar.volume),
                     "source": "authoritative",
                 }
-                if self.redis_client:
+                if self.async_redis:
                     stream_name = sk_market(self.env_prefix, symbol, "1m")
-                    self.redis_client.xadd(
+                    await self.async_redis.xadd(
                         stream_name,
                         bar_data,
                         maxlen=get_stream_maxlen("1m", "market"),
                         approximate=True,
                     )
-                logger.info(
-                    "1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume
-                )
+                    logger.info(
+                        "1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume
+                    )
                 self.m_bars.inc()
                 bars_published += 1
 
