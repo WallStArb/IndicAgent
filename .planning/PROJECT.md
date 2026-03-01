@@ -50,10 +50,18 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 (Current milestone — v1.1 Code Quality Sprint)
 
-- [ ] Resolve all ruff lint errors (98 total: 75 E501 line-too-long, 6 invalid-syntax, 4 ambiguous-variable-name, 3 unused-loop, 3 import-order, 2 unused-variable, 1 undefined-name, 4 zip-strict)
-- [ ] Resolve mypy type checking errors in `_trend.py` (TrendMixin attributes, Optional type annotations)
-- [ ] Address code complexity and maintainability issues flagged by scanners
-- [ ] Update test coverage for any areas with gaps
+**Scope:** I1-I7 intelligence plugins (62 plugins) — 206 lint issues + 8 complexity concerns + service layer issues
+
+**Target:** Production-grade code with zero blocking defects
+
+Categories:
+- Code Quality (QUAL-01): All ruff E/F/W/PLR errors (206 → 0)
+- Performance (QUAL-02): O(N³) complexity in head_shoulders, O(N²) patterns in 8 plugins
+- Maintainability (MAINT-01-06): Extract shared utilities, reduce duplication, improve service patterns
+- Configuration (CONF-01-03): Active symbols, dynamic contract codes, eliminate duplicate warmup
+- Performance (PERF-01-02): Parallelize plugin execution, cache DataFrame reconstruction
+
+See `.planning/REQUIREMENTS.md` for full breakdown.
 
 ### Out of Scope
 
@@ -118,4 +126,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-02-28 after v1.1 code quality sprint initiated*
+*Last updated: 2026-03-01 after v1.1 requirements finalized*
