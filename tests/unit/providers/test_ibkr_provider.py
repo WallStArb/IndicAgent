@@ -70,7 +70,7 @@ class TestFetchHistoricalBars:
         mock_bar.close = 5102.0
         mock_bar.volume = 1500
 
-        mock_ib.reqHistoricalData.return_value = [mock_bar]
+        mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[mock_bar])
         provider._ib = mock_ib
 
         mock_contract = MagicMock()
@@ -101,7 +101,7 @@ class TestFetchHistoricalBars:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_no_data(self, provider, mock_ib):
-        mock_ib.reqHistoricalData.return_value = []
+        mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
         provider._ib = mock_ib
         provider._qualified_contracts["ESH6"] = MagicMock()
         bars = await provider.fetch_historical_bars(
@@ -172,7 +172,7 @@ class TestResolveInstrument:
         mock_detail.minTick = 0.25
         mock_detail.contract.multiplier = "50"
 
-        mock_ib.reqContractDetails.return_value = [mock_detail]
+        mock_ib.reqContractDetailsAsync = AsyncMock(return_value=[mock_detail])
         provider._ib = mock_ib
 
         instrument = await provider.resolve_instrument("ES")
@@ -184,7 +184,7 @@ class TestResolveInstrument:
 
     @pytest.mark.asyncio
     async def test_returns_none_for_unknown_symbol(self, provider, mock_ib):
-        mock_ib.reqContractDetails.return_value = []
+        mock_ib.reqContractDetailsAsync = AsyncMock(return_value=[])
         provider._ib = mock_ib
         result = await provider.resolve_instrument("XXXXXX")
         assert result is None

@@ -154,7 +154,7 @@ class IBKRProvider:
             else:
                 duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
 
-            ib_bars = self._ib.reqHistoricalData(
+            ib_bars = await self._ib.reqHistoricalDataAsync(
                 contract,
                 endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
                 durationStr=duration_str,
@@ -207,7 +207,7 @@ class IBKRProvider:
             else:
                 contract = Stock(symbol=instrument.symbol, exchange=instrument.exchange)
 
-            details = self._ib.reqContractDetails(contract)
+            details = await self._ib.reqContractDetailsAsync(contract)
             if details:
                 qualified = details[0].contract
                 self._qualified_contracts[instrument.symbol] = qualified
@@ -309,7 +309,7 @@ class IBKRProvider:
         try:
             # Try as futures first (most common for this platform)
             contract = Future(symbol=query)
-            details = self._ib.reqContractDetails(contract)
+            details = await self._ib.reqContractDetailsAsync(contract)
             if details:
                 d = details[0]
                 c = d.contract
