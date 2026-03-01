@@ -252,18 +252,27 @@ class AINarrativeService:
     # ------------------------------------------------------------------
 
     def _build_chains(self) -> None:
-        from src.intelligence.llm_providers import LLMChain, OllamaProvider, OpenRouterProvider
+        from src.intelligence.llm_providers import (
+            AnthropicProvider,
+            LLMChain,
+            OllamaProvider,
+            OpenRouterProvider,
+        )
 
         settings = Settings()
-        api_key = getattr(settings, "openrouter_api_key", None) or ""
+        zai_key = getattr(settings, "zai_api_key", None) or ""
+        or_key = getattr(settings, "openrouter_api_key", None) or ""
 
         pcfg = self.config["providers"]
+        zai_url = pcfg.get("zai_base_url", "https://api.z.ai/api/anthropic")
         or_url = pcfg["openrouter_base_url"]
         ol_url = pcfg["ollama_base_url"]
 
         def _make_provider(spec: dict):
+            if spec["type"] == "anthropic":
+                return AnthropicProvider(spec["model"], api_key=zai_key, base_url=zai_url)
             if spec["type"] == "openrouter":
-                return OpenRouterProvider(spec["model"], api_key=api_key, base_url=or_url)
+                return OpenRouterProvider(spec["model"], api_key=or_key, base_url=or_url)
             return OllamaProvider(spec["model"], base_url=ol_url)
 
         self.per_signal_chain = LLMChain([_make_provider(s) for s in pcfg["per_signal"]])
@@ -298,16 +307,19 @@ class AINarrativeService:
                 "num_predict": 500,
             },
             "providers": {
+                "zai_base_url": "https://api.z.ai/api/anthropic",
                 "openrouter_base_url": "https://openrouter.ai/api/v1",
                 "openrouter_timeout_sec": 30.0,
                 "ollama_base_url": "http://localhost:11434",
                 "ollama_timeout_sec": 60.0,
                 "per_signal": [
+                    {"type": "anthropic",  "model": "glm-5"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama",     "model": "qwen3:8b"},
                 ],
                 "group": [
+                    {"type": "anthropic",  "model": "glm-5"},
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama",     "model": "phi4-mini:3.8b"},

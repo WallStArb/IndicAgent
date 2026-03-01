@@ -1,9 +1,9 @@
-"""LLM provider abstraction — OpenRouter (primary) and Ollama (fallback).
+"""LLM provider abstraction — Anthropic/Z.ai (primary), OpenRouter (secondary), Ollama (fallback).
 
 Usage:
     chain = LLMChain([
+        AnthropicProvider("claude-sonnet-4.6", api_key="sk-..."),
         OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
-        OpenRouterProvider("arcee-ai/trinity-large-preview:free",     api_key="sk-..."),
         OllamaProvider("qwen3:8b"),
     ])
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
@@ -89,6 +89,62 @@ class OpenRouterProvider:
             return await to_thread(_call)
         except Exception as exc:
             logger.warning("OpenRouter call failed", model=self.model, error=str(exc))
+            return None
+
+
+class AnthropicProvider:
+    """Calls Anthropic API v1/messages (supports Z.ai proxy)."""
+
+    ANTHROPIC_VERSION = "2023-06-01"
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str = "https://api.anthropic.com",
+    ) -> None:
+        self.model = model
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.provider_id = f"anthropic:{model}"
+
+    async def generate(
+        self,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+    ) -> str | None:
+        def _call() -> str | None:
+            payload = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [
+                    {"role": "user", "content": prompt},
+                ],
+            }
+            data = json.dumps(payload).encode()
+            req = urllib.request.Request(
+                f"{self.base_url}/v1/messages",
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": self.api_key,
+                    "anthropic-version": self.ANTHROPIC_VERSION,
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result = json.loads(resp.read())
+            content_block = result.get("content", [])
+            if not content_block:
+                return None
+            return content_block[0].get("text", "").strip() or None
+
+        try:
+            return await to_thread(_call)
+        except Exception as exc:
+            logger.warning("Anthropic call failed", model=self.model, error=str(exc))
             return None
 
 
