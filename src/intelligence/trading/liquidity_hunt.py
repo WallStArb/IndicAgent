@@ -125,6 +125,8 @@ class LiquidityHuntPlugin:
             confidence += 0.06
             supporting.append("discount_aligned")
 
+        # fvg_type/ob_type are explicitly reset to 0.0 by their plugins when inactive,
+        # so matching direction (±1) is sufficient — no separate detection flag needed.
         fvg_type = float(features.get("fvg_type", 0.0))
         if fvg_type == float(direction):
             confidence += 0.08

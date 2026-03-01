@@ -136,7 +136,7 @@ class SupplyDemandSetupPlugin:
             confidence += 0.09
             supporting.append("fvg_displacement")
 
-        # Order block overlapping zone
+        # Order block fully contained within zone
         ob_type   = float(features.get("ob_type", 0.0))
         ob_top    = float(features.get("ob_top", 0.0))
         ob_bottom = float(features.get("ob_bottom", 0.0))
