@@ -13,19 +13,16 @@
 
 ---
 
-## v1.1 Code Quality Sprint (In Progress: 2026-03-01)
+## v1.1 Code Quality Sprint (Shipped: 2026-03-01)
 
-**Phases:** 1 phase, 1 plan (13 tasks)
+**Phases completed:** 1 phase, 1 plan
 
-**Goal:** Production-grade code with zero blocking defects
-
-**Scope (20 requirements — see `.planning/REQUIREMENTS.md`):**
-- Code Quality (QUAL-01-07): Resolve ruff errors, fix O(N³)/O(N²) complexity, correctness bugs
-- Maintainability (MAINT-01-06): Extract shared utilities, reduce code duplication
-- Configuration (CONF-01-03): Fix service config issues, add type safety
-- Performance (PERF-01-02): Reduce startup time, optimize CPU-bound execution
-
-**Phases:**
-- Phase 01: Code Quality Sprint — 6/13 tasks complete, ruff errors 206 → 76
+**Key accomplishments:**
+- Ruff errors: 206 → 0 (entire codebase)
+- Tests: 787 → 803 passing
+- Service startup: 9.2s → 1-2s (parallel warmup reads)
+- 3 pattern files O(N²) → O(N)
+- All 6 services use `ensure_consumer_group_with_reset`
+- VX contract rolled to VXM6
 
 ---
