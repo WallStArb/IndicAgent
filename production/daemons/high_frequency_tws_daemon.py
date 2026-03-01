@@ -35,6 +35,7 @@ from prometheus_client import start_http_server
 
 from src.core.stream_keys import live_tick as sk_live_tick
 from src.core.stream_keys import market as sk_market
+from src.core.stream_keys import get_stream_maxlen
 from src.observability.metrics import counter as prom_counter
 from src.observability.metrics import gauge as prom_gauge
 
@@ -109,9 +110,6 @@ class HighFrequencyTWSDaemon:
 
         # Minute-boundary bar polling (replaces 60s countdown)
         self.last_bar_poll_minute: int = -1       # wall-clock minute of last authoritative poll
-        self.last_provisional_minute: int = -1    # wall-clock minute of last provisional flush
-        # Per-symbol tick accumulator for provisional bars
-        self.tick_accum: dict[str, dict] = {}
 
         # 1-minute bar polling (reqRealTimeBars doesn't work reliably)
         # Rolling set of seen bar timestamps per symbol (last 30 bars ~= 30 min)
@@ -254,8 +252,6 @@ class HighFrequencyTWSDaemon:
                             maxlen=10000,
                             approximate=True,
                         )
-                    tick_data = {"last": tick.price, "volume": tick.size or 0}
-                    self._update_tick_accumulator(tick.symbol, tick_data, datetime.now())
                     self.ticks_processed += 1
                     self.m_ticks.inc()
                 except asyncio.CancelledError:
@@ -267,45 +263,6 @@ class HighFrequencyTWSDaemon:
                     logger.warning("Tick loop error", error=str(e))
         except asyncio.CancelledError:
             logger.info("Tick loop cancelled (disconnect or shutdown)")
-
-    def on_bar_update(self, symbol: str, bars_list):
-        """Handle 1-minute bar updates."""
-        try:
-            if not bars_list:
-                return
-
-            latest_bar = bars_list[-1]
-            self.bars_processed += 1
-
-            bar_data = {
-                "timestamp": latest_bar.time.isoformat(),
-                "symbol": symbol,
-                "timeframe": "1m",
-                "open": str(latest_bar.open),
-                "high": str(latest_bar.high),
-                "low": str(latest_bar.low),
-                "close": str(latest_bar.close),
-                "volume": str(latest_bar.volume),
-                "source": "hf_tws_daemon",
-            }
-
-            # Publish bar data
-            if self.redis_client:
-                stream_name = sk_market(self.env_prefix, symbol, "1m")
-                # Bounded retention for 1m bars in the hot stream
-                self.redis_client.xadd(stream_name, bar_data, maxlen=2000, approximate=True)
-
-            logger.info(
-                "High-frequency 1m bar received",
-                symbol=symbol,
-                time=latest_bar.time,
-                close=latest_bar.close,
-                volume=latest_bar.volume,
-            )
-            self.m_bars.inc()
-
-        except Exception as e:
-            logger.warning("Error processing high-frequency bar", symbol=symbol, error=str(e))
 
     def health_check(self) -> None:
         """Log high-frequency health status."""
@@ -481,126 +438,96 @@ class HighFrequencyTWSDaemon:
         else:  # CLOSED
             return ""
 
-    def _update_tick_accumulator(self, symbol: str, tick_data: dict, now: datetime) -> None:
-        """Update per-symbol OHLCV accumulator from a tick. Thread-safe under Python GIL."""
-        last = tick_data.get("last")
-        volume = tick_data.get("volume")
-        if not last:
-            return
-        current_minute = (now.hour, now.minute)
-        if symbol not in self.tick_accum or self.tick_accum[symbol].get("minute") != current_minute:
-            self.tick_accum[symbol] = {
-                "minute": current_minute,
-                "open": last,
-                "high": last,
-                "low": last,
-                "close": last,
-                "vol_total": volume or 0,
-            }
-        else:
-            acc = self.tick_accum[symbol]
-            if last > acc["high"]:
-                acc["high"] = last
-            if last < acc["low"]:
-                acc["low"] = last
-            acc["close"] = last
-            if volume is not None:
-                acc["vol_total"] = acc.get("vol_total", 0) + volume
-
-    def _flush_provisional_bars(self, now: datetime) -> None:
-        """DISABLED: tick-derived bars are disabled per user requirement.
-
-        1m bars should ONLY come from TWS via reqHistoricalData API call.
-        Ticks are for UX display only (last price).
-        """
-        # Early return - do nothing
-        return
-        if not self.redis_client:
-            return
-        closed_minute_ts = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
-        closed_minute = (closed_minute_ts.hour, closed_minute_ts.minute)
-
-        for symbol, acc in list(self.tick_accum.items()):
-            if acc.get("minute") != closed_minute:
-                continue
-            if not acc.get("close"):
-                continue
-            volume = acc.get("vol_total", 0)
-            bar_data = {
-                "timestamp": closed_minute_ts.isoformat(),
-                "symbol": symbol,
-                "timeframe": "1m",
-                "open": str(acc["open"]),
-                "high": str(acc["high"]),
-                "low": str(acc["low"]),
-                "close": str(acc["close"]),
-                "volume": str(volume),
-                "source": "tick_derived",
-            }
-            stream_name = sk_market(self.env_prefix, symbol, "1m")
-            self.redis_client.xadd(stream_name, bar_data, maxlen=2000, approximate=True)
-            self.m_bars.inc()
-            logger.info(
-                "Provisional 1m bar flushed",
-                symbol=symbol,
-                ts=closed_minute_ts.isoformat(),
-                close=acc["close"],
-            )
-
     def poll_1m_bars(self) -> None:
-        """Poll for 1-minute bars via IBKRProvider."""
-        if not self.provider or not self.connected:
-            logger.warning("poll_1m_bars skipped - provider not connected")
+        """Poll for 1-minute bars via IBKRProvider using concurrent gather with semaphore."""
+        if not self.provider or not self.connected or not self.loop:
+            logger.warning("poll_1m_bars skipped - provider not connected or no loop")
             return
 
         now = datetime.now()
         start = now - timedelta(minutes=2)
 
-        for contract_config in self.contracts:
-            symbol = contract_config["symbol"]
-            try:
-                if self.loop:
-                    fut = asyncio.run_coroutine_threadsafe(
-                        self.provider.fetch_historical_bars(symbol, "1m", start, now),
-                        self.loop,
+        async def _gather_all() -> None:
+            # Semaphore to respect IBKR rate limit: 6 requests/2 seconds.
+            # Use 5 concurrent workers ≈ 7s total for 24 symbols.
+            sem = asyncio.Semaphore(5)
+
+            async def _with_sem(symbol: str) -> None:
+                async with sem:
+                    await self._fetch_bars_for_symbol(symbol, start, now)
+
+            symbols = [c["symbol"] for c in self.contracts]
+            await asyncio.gather(*[_with_sem(s) for s in symbols], return_exceptions=True)
+
+        fut = asyncio.run_coroutine_threadsafe(_gather_all(), self.loop)
+        fut.result(timeout=30)
+
+    async def _fetch_bars_for_symbol(
+        self, symbol: str, start: datetime, now: datetime
+    ) -> int:
+        """Fetch 1-minute bars for a single symbol from IBKR and publish to Redis.
+
+        Returns count of newly published bars (0 if all were duplicates).
+
+        Args:
+            symbol: Instrument symbol (e.g., "ES", "BTCUSD")
+            start: Start timestamp for historical query
+            now: Current timestamp (end of query window)
+        """
+        try:
+            ohlcv_bars = await self.provider.fetch_historical_bars(
+                symbol, "1m", start, now
+            )
+
+            if not ohlcv_bars:
+                logger.warning("poll_1m_bars: 0 bars returned", symbol=symbol)
+                return 0
+
+            bars_published = 0
+            for bar in ohlcv_bars:
+                bar_timestamp = bar.timestamp.isoformat()
+                if bar_timestamp in self.seen_bar_timestamps[symbol]:
+                    continue
+                self.seen_bar_timestamps[symbol].add(bar_timestamp)
+                self.seen_bar_timestamps_order[symbol].append(bar_timestamp)
+                # Trim to last 30 to bound memory
+                if len(self.seen_bar_timestamps_order[symbol]) > 30:
+                    evicted = self.seen_bar_timestamps_order[symbol].pop(0)
+                    self.seen_bar_timestamps[symbol].discard(evicted)
+                self.bars_processed += 1
+
+                bar_data = {
+                    "timestamp": bar_timestamp,
+                    "symbol": symbol,
+                    "timeframe": "1m",
+                    "open": str(bar.open),
+                    "high": str(bar.high),
+                    "low": str(bar.low),
+                    "close": str(bar.close),
+                    "volume": str(bar.volume),
+                    "source": "authoritative",
+                }
+                if self.async_redis:
+                    stream_name = sk_market(self.env_prefix, symbol, "1m")
+                    await self.async_redis.xadd(
+                        stream_name,
+                        bar_data,
+                        maxlen=get_stream_maxlen("1m", "market"),
+                        approximate=True,
                     )
-                    ohlcv_bars = fut.result(timeout=10)
-                else:
-                    ohlcv_bars = asyncio.run(
-                        self.provider.fetch_historical_bars(symbol, "1m", start, now)
+                    logger.info(
+                        "1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume
                     )
+                self.m_bars.inc()
+                bars_published += 1
 
-                for bar in ohlcv_bars:
-                    bar_timestamp = bar.timestamp.isoformat()
-                    if bar_timestamp in self.seen_bar_timestamps[symbol]:
-                        continue
-                    self.seen_bar_timestamps[symbol].add(bar_timestamp)
-                    self.seen_bar_timestamps_order[symbol].append(bar_timestamp)
-                    # Trim to last 30 to bound memory
-                    if len(self.seen_bar_timestamps_order[symbol]) > 30:
-                        evicted = self.seen_bar_timestamps_order[symbol].pop(0)
-                        self.seen_bar_timestamps[symbol].discard(evicted)
-                    self.bars_processed += 1
+            return bars_published
 
-                    bar_data = {
-                        "timestamp": bar_timestamp,
-                        "symbol": symbol,
-                        "timeframe": "1m",
-                        "open": str(bar.open),
-                        "high": str(bar.high),
-                        "low": str(bar.low),
-                        "close": str(bar.close),
-                        "volume": str(bar.volume),
-                        "source": "authoritative",
-                    }
-                    if self.redis_client:
-                        stream_name = sk_market(self.env_prefix, symbol, "1m")
-                        self.redis_client.xadd(stream_name, bar_data, maxlen=2000, approximate=True)
-                    logger.info("1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume)
-                    self.m_bars.inc()
-
-            except Exception as e:
-                logger.warning("1m bar polling error", symbol=symbol, error=str(e))
+        except Exception as e:
+            logger.warning(
+                "1m bar polling error", symbol=symbol, error=str(e)
+            )
+            return 0
 
     def cleanup(self) -> None:
         """Cleanup connections and resources."""
