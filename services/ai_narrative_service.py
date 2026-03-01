@@ -35,6 +35,7 @@ import structlog  # noqa: E402
 from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
 from src.core.stream_keys import signals_aggregated  # noqa: E402
+from src.core.stream_utils import ensure_consumer_group_with_reset  # noqa: E402
 from src.observability.metrics import counter, gauge, start_metrics_server  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -397,18 +398,9 @@ class AINarrativeService:
         for tf in self.config["service"]["timeframes"]:
             for sym in self.config["service"]["symbols"]:
                 stream_name = signals_aggregated(self.env_prefix, sym, tf)
-                try:
-                    await self.redis_client.xgroup_create(
-                        stream_name, self.consumer_group, "$", mkstream=True
-                    )
-                except Exception:
-                    # Group exists — force-reset to current tail to skip stale backlog
-                    try:
-                        await self.redis_client.xgroup_setid(
-                            stream_name, self.consumer_group, "$"
-                        )
-                    except Exception:
-                        pass
+                await ensure_consumer_group_with_reset(
+                    self.redis_client, stream_name, self.consumer_group
+                )
                 self._stream_map[stream_name] = (sym, tf)
 
     async def stop(self) -> None:
