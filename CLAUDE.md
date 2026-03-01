@@ -212,7 +212,6 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 - ✅ 06-03: SmartMoneyPanel extended with HMM regime + BSL/SSL liquidity zones
 - ✅ 06-04 (partial): Dashboard UX — drill panel reads `intelligenceByTf[tf]`, signal panel shows entry/SL/TP/RR, TF-matched narrative cards, per-TF signals (1m/5m/15m/1h), AI narrative consumer group backlog fix (`"$"` + `xgroup_setid`)
 - ⏸ 06-04: Human verification skipped — proceeding to Phase 7 CIS
-- ❌ `indicagent-timeframes.service` — legacy service; import fails (`src.data` not `src.core`); non-blocking
 
 ### Phase 7 Status (composite-intelligence-score) — COMPLETE
 - ✅ 07-01: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition)

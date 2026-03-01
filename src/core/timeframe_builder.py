@@ -374,7 +374,8 @@ class TimeframeBuilder:
         for tf, tf_minutes in _TARGET_TIMEFRAMES.items():
             # Skip 5m/15m/1h/4h/1d aggregation when input 1m bar has no volume
             # This prevents empty bars from non-trading hours propagating upward
-            if volume == 0:
+            # Allow volume=0 for crypto paper trading (IBKR returns volume=0 with real prices)
+            if volume == 0 and close == 0.0:
                 continue
             new_period_ts = _floor_to_period(ts_seconds, tf_minutes)
             acc = self._accumulators[symbol][tf]

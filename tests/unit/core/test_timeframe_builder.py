@@ -290,3 +290,94 @@ async def test_bar_accumulation_emits_on_new_period():
 
         # At least 1 xadd call for the completed 5m bar
         assert mock_redis.xadd.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_zero_volume_real_price_bar_accumulates():
+    """Bar with volume=0 but close>0 (crypto paper trading) must accumulate.
+    Verify a 5m bar is eventually emitted after 5 such bars.
+    """
+    from src.core.timeframe_builder import TimeframeBuilder
+
+    mock_redis = AsyncMock()
+    mock_redis.xadd = AsyncMock()
+    mock_streams = MagicMock()
+    mock_streams.redis_client = mock_redis
+
+    # Patch Settings to avoid env dep
+    with patch("src.core.timeframe_builder.Settings") as MockSettings:
+        MockSettings.return_value.env_name = "development"
+        builder = TimeframeBuilder(mock_streams)
+        await builder.subscribe_to_symbols(["BTCUSD"])
+
+    # Process 5 bars with volume=0 but real price (crypto paper trading behavior)
+    # All in same 5m period (ts=0..240, period_ts=0)
+    for i in range(5):
+        ts = i * 60  # 0, 60, 120, 180, 240
+        await builder._process_bar("BTCUSD", {
+            "timestamp": str(ts),
+            "open": "66900.0",
+            "high": str(66900.0 + i * 10),
+            "low": str(66890.0 - i * 5),
+            "close": str(66950.0 + i * 5),
+            "volume": "0",  # Paper trading returns volume=0 for crypto
+        })
+
+    # No emit yet — still in same 5m period
+    assert mock_redis.xadd.call_count == 0
+
+    # 6th bar at ts=300 — new 5m period triggers emit of previous 5m bar
+    await builder._process_bar("BTCUSD", {
+        "timestamp": "300",
+        "open": "67000.0",
+        "high": "67100.0",
+        "low": "66900.0",
+        "close": "67050.0",
+        "volume": "100",  # Now has volume (not required for emit)
+    })
+
+    # At least 1 xadd call for the completed 5m bar
+    # This test FAILS with current implementation (volume==0 skips all bars)
+    assert mock_redis.xadd.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_zero_volume_zero_price_bar_skipped():
+    """Bar with volume=0 AND close=0 (genuine empty bar) must be skipped."""
+    from src.core.timeframe_builder import TimeframeBuilder
+
+    mock_redis = AsyncMock()
+    mock_redis.xadd = AsyncMock()
+    mock_streams = MagicMock()
+    mock_streams.redis_client = mock_redis
+
+    # Patch Settings to avoid env dep
+    with patch("src.core.timeframe_builder.Settings") as MockSettings:
+        MockSettings.return_value.env_name = "development"
+        builder = TimeframeBuilder(mock_streams)
+        await builder.subscribe_to_symbols(["ESH6"])
+
+    # Process 5 bars with volume=0 and close=0.0 (genuine empty bars)
+    for i in range(5):
+        ts = i * 60
+        await builder._process_bar("ESH6", {
+            "timestamp": str(ts),
+            "open": "0.0",
+            "high": "0.0",
+            "low": "0.0",
+            "close": "0.0",
+            "volume": "0",
+        })
+
+    # 6th bar to trigger potential emit
+    await builder._process_bar("ESH6", {
+        "timestamp": "300",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.5",
+        "volume": "100",
+    })
+
+    # No xadd calls — bars were all skipped (volume==0 and close==0.0)
+    assert mock_redis.xadd.call_count == 0
