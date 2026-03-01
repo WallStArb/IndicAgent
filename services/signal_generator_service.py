@@ -32,6 +32,7 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 import redis.asyncio as redis
+from src.core.stream_utils import ensure_consumer_group_with_reset
 import structlog
 from pydantic import ValidationError
 
