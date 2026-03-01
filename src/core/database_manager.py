@@ -82,9 +82,12 @@ class DatabaseManager:
             try:
                 await conn.executemany(statement, params)
                 await tr.commit()
-            except Exception:
-                await tr.rollback()
-                raise
+            except Exception as exc:
+                try:
+                    await tr.rollback()
+                except Exception:
+                    pass  # rollback failed; re-raise original exception
+                raise exc
 
     async def health_check(self) -> bool:
         """Check database health."""
