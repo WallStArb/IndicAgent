@@ -464,9 +464,12 @@ class MarketAnalysisService:
                     await self.redis_client.xgroup_create(
                         stream_name, self.consumer_group, "$", mkstream=True
                     )
-                except Exception:
-                    # Group already exists — reset to current tail so stale backlog is skipped
-                    await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+                except redis.ResponseError as e:
+                    if "BUSYGROUP" in str(e):
+                        # Group already exists — reset to current tail so stale backlog is skipped
+                        await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+                    else:
+                        raise
 
     async def _process_market_data(self) -> None:
         # Single multi-stream read covers all 92 streams (23 symbols × 4 TFs) in one call,
@@ -493,8 +496,8 @@ class MarketAnalysisService:
                         ok = await self._process_single_bar(
                             symbol, timeframe, fields, stream_name, message_id
                         )
-                        if ok:
-                            to_ack.append(message_id)
+                        # Always acknowledge (at-most-once delivery) — failed messages logged by _process_single_bar
+                        to_ack.append(message_id)
                     if to_ack:
                         await self.redis_client.xack(stream_name, self.consumer_group, *to_ack)
             except asyncio.CancelledError:

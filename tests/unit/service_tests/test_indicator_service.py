@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import redis.asyncio as redis
+
 
 def test_build_i1_message_includes_ohlcv_and_features():
     """Combined message must contain OHLCV fields AND I1 feature outputs."""
@@ -77,7 +79,7 @@ def test_stream_map_populated_after_setup():
     svc = IndicatorService()
     svc.redis_client = AsyncMock()
     svc.redis_client.xrevrange = AsyncMock(return_value=[])
-    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("already exists"))
+    svc.redis_client.xgroup_create = AsyncMock(side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists"))
     svc.redis_client.xgroup_setid = AsyncMock()
 
     asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())

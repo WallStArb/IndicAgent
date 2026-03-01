@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils import is_num, clamp
+from ..utils import clamp, is_num
 
 
 @dataclass

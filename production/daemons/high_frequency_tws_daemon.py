@@ -427,9 +427,9 @@ class HighFrequencyTWSDaemon:
                     # Minute-boundary bar events
                     now = datetime.now()
                     # Flush provisional bar at start of each new minute (seconds 0-4)
-                    if now.second < 5 and self.last_provisional_minute != now.minute:
-                        self.last_provisional_minute = now.minute
-                        self._flush_provisional_bars(now)
+                    # DISABLED: tick-derived bars are disabled per user requirement
+                    # - Only authoritative bars from TWS poll_1m_bars() should be published
+                    # - Ticks are for UX display only (last price)
                     # Fire authoritative poll at :05+ past each minute
                     if now.second >= 5 and self.last_bar_poll_minute != now.minute:
                         self.last_bar_poll_minute = now.minute
@@ -500,12 +500,13 @@ class HighFrequencyTWSDaemon:
                 acc["vol_total"] = acc.get("vol_total", 0) + volume
 
     def _flush_provisional_bars(self, now: datetime) -> None:
-        """Publish tick-derived provisional bars for the just-closed minute.
+        """DISABLED: tick-derived bars are disabled per user requirement.
 
-        Called at the start of each new minute (second 0-4). Emits bars with
-        source='tick_derived' so downstream services can trigger immediately.
-        The authoritative reqHistoricalData correction arrives ~5s later.
+        1m bars should ONLY come from TWS via reqHistoricalData API call.
+        Ticks are for UX display only (last price).
         """
+        # Early return - do nothing
+        return
         if not self.redis_client:
             return
         closed_minute_ts = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
@@ -541,10 +542,14 @@ class HighFrequencyTWSDaemon:
     def poll_1m_bars(self) -> None:
         """Poll for 1-minute bars via IBKRProvider."""
         if not self.provider or not self.connected:
+            logger.warning("poll_1m_bars skipped - provider not connected")
             return
 
         now = datetime.now()
         start = now - timedelta(minutes=2)
+
+        # Debug: log when starting to poll
+        logger.info("Starting 1m bar poll", start=start.isoformat(), end=now.isoformat())
 
         for contract_config in self.contracts:
             symbol = contract_config["symbol"]

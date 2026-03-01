@@ -28,6 +28,7 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 import redis.asyncio as redis
+from src.core.stream_utils import ensure_consumer_group_with_reset
 import structlog
 
 from src.config.settings import Settings, get_active_contracts
@@ -359,13 +360,13 @@ class IndicatorService:
                 self.logger.warning("Warmup failed", stream=stream_name, error=str(e))
 
             # Create/reset consumer group to current tail — never replay old bars
-            try:
-                await self.redis_client.xgroup_create(
-                    stream_name, self.consumer_group, "$", mkstream=True
-                )
-            except Exception:
-                # Group already exists — reset to current tail so stale backlog is skipped
-                await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
+            await ensure_consumer_group_with_reset(
+                redis_client=self.redis_client,
+                stream_name=stream_name,
+                group_name=self.consumer_group,
+                start_id="$",
+                mkstream=True,
+            )
 
             return (stream_name, (symbol, timeframe))
 
@@ -403,8 +404,8 @@ class IndicatorService:
                         ok = await self._process_single_bar(
                             symbol, timeframe, fields, stream_name, message_id
                         )
-                        if ok:
-                            to_ack.append(message_id)
+                        # Always acknowledge (at-most-once delivery) — failed messages logged by _process_single_bar
+                        to_ack.append(message_id)
                     if to_ack:
                         await self.redis_client.xack(
                             stream_name, self.consumer_group, *to_ack

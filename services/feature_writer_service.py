@@ -376,6 +376,8 @@ class FeatureWriterService:
                 self.error_count_total.inc()
             if hasattr(self, "_error_count"):
                 self._error_count += 1
+            if hasattr(self, "events_buffered_gauge"):
+                self.events_buffered_gauge.set(len(self._buffer))
 
     async def _process_loop(self) -> None:
         """Main consumer group loop — reads all streams and processes messages."""
@@ -419,15 +421,14 @@ class FeatureWriterService:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 interval = self.config["service"].get("health_check_interval", 30)
-                if uptime % interval == 0:
-                    self.logger.info(
-                        "Health check",
-                        uptime=uptime,
-                        events_consumed=self._total_events,
-                        batches_written=self._total_batches,
-                        buffer_size=len(self._buffer),
-                        errors=self._error_count,
-                    )
+                self.logger.info(
+                    "Health check",
+                    uptime=uptime,
+                    events_consumed=self._total_events,
+                    batches_written=self._total_batches,
+                    buffer_size=len(self._buffer),
+                    errors=self._error_count,
+                )
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break

@@ -214,7 +214,7 @@ class SignalGeneratorService:
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self._stream_map: dict[str, tuple[str, str]] = {}
-        self._df_cache: dict[str, "pd.DataFrame | None"] = {}
+        self._df_cache: dict[str, pd.DataFrame | None] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -361,6 +361,8 @@ class SignalGeneratorService:
                 except redis.ResponseError as e:
                     if "BUSYGROUP" not in str(e):
                         raise
+                    # Group already exists - reset to current tail to skip stale backlog
+                    await self.redis_client.xgroup_setid(stream_name, self.consumer_group, "$")
                 # Only rewind warmup_bars if group was freshly created
                 if group_freshly_created:
                     try:
@@ -387,7 +389,7 @@ class SignalGeneratorService:
             await self.db_manager.close()
         self.logger.info("Signal Generator Service stopped")
 
-    def _get_df(self, key: str) -> "pd.DataFrame":
+    def _get_df(self, key: str) -> pd.DataFrame:
         if self._df_cache.get(key) is None:
             self._df_cache[key] = pd.DataFrame(list(self.bar_history[key]))
         return self._df_cache[key]
@@ -596,8 +598,8 @@ class SignalGeneratorService:
                         ok = await self._process_single_message(
                             symbol, timeframe, fields, stream_name, message_id
                         )
-                        if ok:
-                            to_ack.append(message_id)
+                        # Always acknowledge (at-most-once delivery) — failed messages logged by _process_single_message
+                        to_ack.append(message_id)
                     if to_ack:
                         await self.redis_client.xack(
                             stream_name, self.consumer_group, *to_ack
@@ -616,14 +618,13 @@ class SignalGeneratorService:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 interval = self.config["service"]["health_check_interval"]
-                if uptime % interval == 0:
-                    self.logger.info(
-                        "Health check",
-                        uptime=uptime,
-                        bars_processed=self._total_bars,
-                        signals_generated=self._total_signals,
-                        errors=self._error_count,
-                    )
+                self.logger.info(
+                    "Health check",
+                    uptime=uptime,
+                    bars_processed=self._total_bars,
+                    signals_generated=self._total_signals,
+                    errors=self._error_count,
+                )
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:
                 break

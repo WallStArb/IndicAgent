@@ -4,8 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils import is_num
-from ..utils import clamp
+from ..utils import clamp, is_num
 
 # Timeframe weight: higher timeframes carry more authority
 _TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
