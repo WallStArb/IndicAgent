@@ -31,6 +31,7 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.stream_keys import intelligence as sk_intelligence
+from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.metrics import counter, gauge, start_metrics_server
 
@@ -270,20 +271,9 @@ class FeatureWriterService:
         for tf in self.config["service"]["timeframes"]:
             for sym in self.config["service"]["symbols"]:
                 stream_name = sk_intelligence(self._env_prefix, sym, tf)
-                try:
-                    await self.redis_client.xgroup_create(
-                        stream_name, CONSUMER_GROUP, "$", mkstream=True
-                    )
-                    self.logger.debug(
-                        "Created consumer group",
-                        group=CONSUMER_GROUP,
-                        stream=stream_name,
-                    )
-                except Exception:
-                    # Group already exists — reset position to skip stale backlog
-                    await self.redis_client.xgroup_setid(
-                        stream_name, CONSUMER_GROUP, "$"
-                    )
+                await ensure_consumer_group_with_reset(
+                    self.redis_client, stream_name, CONSUMER_GROUP
+                )
                 self._stream_map[stream_name] = (sym, tf)
 
     async def _process_single_message(

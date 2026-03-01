@@ -251,11 +251,15 @@ def test_stream_map_populated_after_setup():
     import asyncio
     from unittest.mock import AsyncMock
 
+    import redis.asyncio as redis
+
     from services.feature_writer_service import FeatureWriterService
 
     svc = FeatureWriterService()
     svc.redis_client = AsyncMock()
-    svc.redis_client.xgroup_create = AsyncMock(side_effect=Exception("exists"))
+    svc.redis_client.xgroup_create = AsyncMock(
+        side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists")
+    )
     svc.redis_client.xgroup_setid = AsyncMock()
 
     asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
