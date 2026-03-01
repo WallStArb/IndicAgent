@@ -38,8 +38,6 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 **Goal:** Fix all code quality issues identified by ruff, complexity analysis, and manual review
 
-**Plan location:** `.planning/milestones/v1.0-phases/01-code-quality-sprint/01-PLAN.md`
-
 **Status:** 6/13 tasks complete (Wave 2 completed 2026-03-01)
 
 **Tasks completed:**
