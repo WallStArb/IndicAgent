@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.7.0
-Last Updated: 2026-02-28
-Status: I1-I8 pipeline complete — 62 plugins + 4 aggregation components + feature store + typed intelligence bus, 796 tests, 24 contracts
+Version: 5.8.0
+Last Updated: 2026-03-01
+Status: I1-I8 pipeline complete — 63 plugins + 2 aggregation components + feature store + typed intelligence bus, 802 tests, 73 ruff errors pending, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -146,16 +146,16 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - `signal_ledger` — all I7 signals with outcome tracking; JOIN to `intelligence_features` via `(symbol, feature_ts, feature_tf)`
 - Continuous aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 
-## Plugin System (57 total)
+## Plugin System (63 total)
 
-### I1 Technical Indicators (23 plugins) — all incremental `compute_next()`
+### I1 Technical Indicators (24 plugins) — all incremental `compute_next()`
 Trend, Momentum, Volatility, Volume — full list in `src/intelligence/register_plugins.py:TIER_I1`
 
-### I3 Structure (3) · I4 Context (5) · I5 Patterns (8) · I6 SMC (6) · I6 Confluence (1)
-GARCH volatility + Kalman trend in I4. BOS/CHoCH, FVG, Order Blocks, HMM regime in I6 SMC.
+### I3 Structure (3) · I4 Context (5) · I5 Patterns (8) · I6 SMC (8) · I6 Confluence (1)
+GARCH volatility + Kalman trend in I4. BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand in I6 SMC.
 
-### I7 Trading Setups (9 plugins) + Aggregation (4 components)
-TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup. Signal aggregator, ledger, lifecycle tracker, position sizer.
+### I7 Trading Setups (14 plugins) + Aggregation (2 components)
+TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition. Signal aggregator, cross-timeframe confluence.
 
 **GARCH/Kalman quality gates** (Phase 0) wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
@@ -189,15 +189,20 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 - **Plugin protocol**: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
 
+## System Access
+
+- **Sudo password:** `***REDACTED-SUDO-PASSWORD***`
+
 ## Environment Variables
 
 `INDICAGENT_ENV`, `DATABASE_URL` (postgres), `REDIS_URL`, `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3:8b`
 
 ## Current Status
 
-**Tests:** 796 passing, 0 ruff errors
-**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (Phases 0–7 complete)
-**Roadmap:** See `.planning/ROADMAP.md` — Phase 8 next
+**Tests:** 802 passing
+**Ruff:** 73 errors (Phase 10 target)
+**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (v1.0 Phases 0–9 complete)
+**Roadmap:** See `.planning/ROADMAP.md` — v1.1 Phase 10 (Lint & Code Quality) next
 
 ### Phase 6 Status (dashboard-connected)
 - ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard

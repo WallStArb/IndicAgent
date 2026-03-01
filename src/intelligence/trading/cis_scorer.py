@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.intelligence.utils import clamp
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -114,7 +116,7 @@ class CISScorer:
         }
 
         cis_raw = sum(self._weights[b] * bucket_scores[b] for b in BUCKET_NAMES)
-        cis_score = max(-1.0, min(1.0, cis_raw))
+        cis_score = clamp(cis_raw)
 
         # Determine fire direction
         direction = 0
@@ -192,13 +194,13 @@ class CISScorer:
         slope_dir = 1.0 if slope > 0 else (-1.0 if slope < 0 else 0.0)
 
         score = (
-            0.35 * max(-1.0, min(1.0, self._fval(f, "trend_regime")))
+            0.35 * clamp(self._fval(f, "trend_regime"))
             + 0.20 * slope_dir
-            + 0.25 * max(-1.0, min(1.0, self._fval(f, "smc_trend_direction")))
-            + 0.10 * max(-1.0, min(1.0, self._fval(f, "ctf_trend_alignment")))
-            + 0.10 * max(-1.0, min(1.0, self._fval(f, "trend_confluence_score")))
+            + 0.25 * clamp(self._fval(f, "smc_trend_direction"))
+            + 0.10 * clamp(self._fval(f, "ctf_trend_alignment"))
+            + 0.10 * clamp(self._fval(f, "trend_confluence_score"))
         )
-        return max(-1.0, min(1.0, score))
+        return clamp(score)
 
     def _momentum(self, f: dict, po: dict) -> float:
         """Momentum bucket [-1, +1].
@@ -222,13 +224,13 @@ class CISScorer:
         d, c = self._plug(po, "trad_DivergenceStack")
 
         score = (
-            0.30 * max(-1.0, min(1.0, rsi_dir))
+            0.30 * clamp(rsi_dir)
             + 0.25 * macd_dir
             + 0.20 * roc_dir
-            + 0.15 * max(-1.0, min(1.0, self._fval(f, "momentum_bias")))
+            + 0.15 * clamp(self._fval(f, "momentum_bias"))
             + 0.10 * float(d) * float(c)
         )
-        return max(-1.0, min(1.0, score))
+        return clamp(score)
 
     def _structure(self, f: dict, po: dict) -> float:
         """Structure bucket [-1, +1].
@@ -244,12 +246,12 @@ class CISScorer:
         d, c = self._plug(po, "trad_CHoCHReversal")
 
         score = (
-            0.30 * max(-1.0, min(1.0, self._fval(f, "swing_pattern")))
-            + 0.25 * max(-1.0, min(1.0, bos))
-            + 0.25 * max(-1.0, min(1.0, choch))
+            0.30 * clamp(self._fval(f, "swing_pattern"))
+            + 0.25 * clamp(bos)
+            + 0.25 * clamp(choch)
             + 0.20 * float(d) * float(c)
         )
-        return max(-1.0, min(1.0, score))
+        return clamp(score)
 
     def _pattern(self, f: dict, po: dict) -> float:
         """Pattern bucket [-1, +1].
@@ -277,7 +279,7 @@ class CISScorer:
             + 0.20 * self._fval(f, "tri_breakout_bias") * self._fval(f, "tri_confidence")
             + 0.10 * float(d) * float(c)
         )
-        return max(-1.0, min(1.0, score))
+        return clamp(score)
 
     def _institutional(self, f: dict, po: dict) -> float:
         """Institutional bucket [-1, +1].
@@ -296,13 +298,13 @@ class CISScorer:
         sd_d, sd_c = self._plug(po, "trad_SupplyDemandSetup")
 
         score = (
-            0.25 * max(-1.0, min(1.0, self._fval(f, "ob_type") * self._fval(f, "ob_strength")))
-            + 0.15 * max(-1.0, min(1.0, self._fval(f, "fvg_type") * fvg_active))
-            + 0.20 * max(-1.0, min(1.0, zone))
+            0.25 * clamp(self._fval(f, "ob_type") * self._fval(f, "ob_strength"))
+            + 0.15 * clamp(self._fval(f, "fvg_type") * fvg_active)
+            + 0.20 * clamp(zone)
             + 0.20 * float(fd) * float(fc)
             + 0.20 * float(sd_d) * float(sd_c)
         )
-        return max(-1.0, min(1.0, score))
+        return clamp(score)
 
     def _regime(self, f: dict, po: dict) -> float:
         """Regime bucket [-1, +1].
@@ -322,15 +324,15 @@ class CISScorer:
         # Changepoint probability > 0.5 signals imminent regime change → uncertain direction (0).
         # When cp <= 0.5 (stable regime), reinforce HMM direction scaled by stability.
         cp = self._fval(f, "cp_probability")
-        cp_contribution = 0.0 if cp > 0.5 else max(-1.0, min(1.0, hmm_dir)) * (1.0 - cp * 2.0)
+        cp_contribution = 0.0 if cp > 0.5 else clamp(hmm_dir) * (1.0 - cp * 2.0)
 
         d, c = self._plug(po, "trad_RegimeTransition")
 
         score = (
-            0.35 * max(-1.0, min(1.0, hmm_dir))
+            0.35 * clamp(hmm_dir)
             + 0.15 * cp_contribution
-            + 0.20 * max(-1.0, min(1.0, self._fval(f, "ctf_regime_agreement")))
-            + 0.20 * max(-1.0, min(1.0, self._fval(f, "vol_regime") * -1.0))
+            + 0.20 * clamp(self._fval(f, "ctf_regime_agreement"))
+            + 0.20 * clamp(self._fval(f, "vol_regime") * -1.0)
             + 0.10 * float(d) * float(c)
         )
-        return max(-1.0, min(1.0, score))
+        return clamp(score)

@@ -5,6 +5,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.intelligence.utils import clamp
+
 
 class VolumeMixin:
     """Mixin providing volume indicator calculations."""
@@ -450,7 +452,7 @@ class VolumeMixin:
                 normalized_slope = 0
 
             # Clamp to [-1, 1] range
-            return max(-1.0, min(1.0, normalized_slope * 10))
+            return clamp(normalized_slope * 10)
 
         except Exception as e:
             self.logger.error(f"Error calculating trend strength: {e}")

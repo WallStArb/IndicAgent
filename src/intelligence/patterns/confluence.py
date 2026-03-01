@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils import is_num
+from ..utils import is_num, clamp
 
 
 @dataclass
@@ -49,7 +49,7 @@ class ConfluencePlugin:
         # MACD histogram scoring: positive → bullish, negative → bearish
         macd_hist = features.get("macd_histogram_12_26_9")
         if is_num(macd_hist):
-            scores.append(max(-1.0, min(1.0, macd_hist / max(abs(macd_hist), 1e-10))))
+            scores.append(clamp(macd_hist / max(abs(macd_hist), 1e-10)))
 
         # Stochastic %K scoring: <20 bullish, >80 bearish, linear between
         stoch_k = features.get("stoch_k_14_3")

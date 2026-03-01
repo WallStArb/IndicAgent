@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils import is_num
+from ..utils import is_num, clamp
 
 
 @dataclass
@@ -70,7 +70,7 @@ class TrendConfluencePlugin:
         # 6. Trend regime: direct pass-through (already [-1, +1])
         tr = features.get("trend_regime")
         if is_num(tr) and tr != 0:
-            scores.append(max(-1.0, min(1.0, tr)))
+            scores.append(clamp(tr))
 
         if not scores:
             return {}

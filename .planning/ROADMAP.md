@@ -50,7 +50,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 1. Running `ruff check .` returns zero errors (206 → 0 fixed)
 2. head_shoulders.py no longer contains O(N³) triple-nested loops
 3. All 8 pattern files with O(N²) complexity have been refactored to pre-filter candidates before nested iteration
-4. Test suite still passes after all refactorings (796 tests)
+4. Test suite still passes after all refactorings (802 tests)
 
 **Plans:** 1/1 plans complete
 

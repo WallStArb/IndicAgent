@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from ..utils import is_num
+from ..utils import is_num, clamp
 
 
 @dataclass
@@ -31,7 +31,7 @@ class MomentumContextPlugin:
         # RSI: centered at 50, maps to [-1, +1]
         rsi = features.get("rsi_14")
         if is_num(rsi):
-            scores.append(max(-1.0, min(1.0, (rsi - 50) / 50)))
+            scores.append(clamp((rsi - 50) / 50))
 
         # MACD vs signal: direction indicator
         macd = features.get("macd_12_26_9")
@@ -42,12 +42,12 @@ class MomentumContextPlugin:
         # Stochastic %K: centered at 50
         stoch_k = features.get("stoch_k_14_3")
         if is_num(stoch_k):
-            scores.append(max(-1.0, min(1.0, (stoch_k - 50) / 50)))
+            scores.append(clamp((stoch_k - 50) / 50))
 
         # CCI: scaled by 200
         cci = features.get("cci_14")
         if is_num(cci):
-            scores.append(max(-1.0, min(1.0, cci / 200)))
+            scores.append(clamp(cci / 200))
 
         if not scores:
             return {}

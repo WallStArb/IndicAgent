@@ -5,6 +5,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils import is_num
+from ..utils import clamp
 
 # Timeframe weight: higher timeframes carry more authority
 _TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
@@ -78,7 +79,7 @@ class CrossTimeframeConfluencePlugin:
             + self.W_REGIME * regime_agreement
             + self.W_PATTERN * pattern_confirmation
         )
-        ctf_score = max(-1.0, min(1.0, raw))
+        ctf_score = clamp(raw)
 
         # Count how many other timeframes agree with current direction
         aligned_count = 0
