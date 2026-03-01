@@ -41,13 +41,24 @@ class LLMProvider(Protocol):
 class OpenRouterProvider:
     """Calls OpenRouter /api/v1/chat/completions (OpenAI-compatible)."""
 
-    def __init__(self, model: str, api_key: str, base_url: str = "https://openrouter.ai/api/v1") -> None:
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str = "https://openrouter.ai/api/v1",
+    ) -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.provider_id = f"openrouter:{model}"
 
-    async def generate(self, prompt: str, system: str, max_tokens: int, timeout: float) -> str | None:
+    async def generate(
+        self,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+    ) -> str | None:
         def _call() -> str | None:
             payload = {
                 "model": self.model,
@@ -84,12 +95,22 @@ class OpenRouterProvider:
 class OllamaProvider:
     """Calls local Ollama /api/chat."""
 
-    def __init__(self, model: str, base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://localhost:11434",
+    ) -> None:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.provider_id = f"ollama:{model}"
 
-    async def generate(self, prompt: str, system: str, max_tokens: int, timeout: float) -> str | None:
+    async def generate(
+        self,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+    ) -> str | None:
         def _call() -> str | None:
             payload = {
                 "model": self.model,
@@ -124,7 +145,13 @@ class LLMChain:
         self.providers = providers
         self.last_provider_id: str | None = None
 
-    async def generate(self, prompt: str, system: str, max_tokens: int, timeout: float) -> str | None:
+    async def generate(
+        self,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+        timeout: float,
+    ) -> str | None:
         for provider in self.providers:
             result = await provider.generate(prompt, system, max_tokens, timeout)
             if result is not None:

@@ -5,9 +5,9 @@
     "db": 0
   },
   "service": {
-    "symbols": ["ESH6", "NQH6", "RTYH6", "CLK6", "GCM6", "NGK6"],
-    "timeframes": ["1m", "5m", "15m", "1h"],
-    "min_history_bars": 120,
+    "symbols": [],
+    "timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
+    "min_history_bars": 50,
     "processing_interval": 0.1
   },
   "metrics_port": 9109,

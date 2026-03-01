@@ -10,7 +10,8 @@ Sub-model structure:
   I3Structure   — I3 market structure: swing, S/R, trend structure (extra='forbid')
   I4Context     — I4 context classification: regimes, GARCH, Kalman (extra='forbid')
   I5Patterns    — I5 pattern detection: divergence, squeeze, chart patterns (extra='forbid')
-  SMCContext    — Smart Money Concepts: BOS/CHoCH, FVG, OB, sweeps, BOCPD, HMM, pools, zones (extra='forbid')
+  SMCContext    — Smart Money Concepts: BOS/CHoCH, FVG, OB, sweeps,
+                          BOCPD, HMM, pools, zones (extra="forbid")
   I6Confluence  — I6 cross-timeframe confluence (extra='forbid')
 
 Field names are extracted from each plugin's outputs frozenset — no guesswork.
@@ -34,7 +35,7 @@ class OHLCVBar(BaseModel):
     model_config = ConfigDict(extra="forbid")
     o: float
     h: float
-    l: float
+    low: float
     c: float
     v: int
 
@@ -106,7 +107,8 @@ class I3Structure(BaseModel):
     swing_low: float | None = None
     swing_high_idx: float | None = None
     swing_low_idx: float | None = None
-    swing_pattern: float | None = None        # 1.0=uptrend (HH+HL), -1.0=downtrend (LH+LL), 0.0=mixed
+    swing_pattern: float | None = None
+    # 1.0=uptrend (HH+HL), -1.0=downtrend (LH+LL), 0.0=mixed
     swing_high_type: float | None = None      # 1.0=HH, -1.0=LH, 0.0=none
     swing_low_type: float | None = None       # 1.0=HL, -1.0=LL, 0.0=none
     swing_high_age_bars: float | None = None
@@ -223,13 +225,15 @@ class I5Patterns(BaseModel):
     vol_div_strength: float | None = None
 
     # DoubleTBPlugin outputs (double top/bottom)
-    dt_db_pattern: float | None = None        # 0=none, 1=DT forming, 2=DT confirmed, 3=DB forming, 4=DB confirmed
+    dt_db_pattern: float | None = None
+    # 0=none, 1=DT forming, 2=DT confirmed, 3=DB forming, 4=DB confirmed
     dt_db_neckline: float | None = None
     dt_db_target: float | None = None
     dt_db_confidence: float | None = None
 
     # HeadShouldersPlugin outputs
-    hs_pattern: float | None = None           # 0=none, 1=H&S forming, 2=confirmed, 3=IH&S forming, 4=confirmed
+    hs_pattern: float | None = None
+    # 0=none, 1=H&S forming, 2=confirmed, 3=IH&S forming, 4=confirmed
     hs_neckline: float | None = None
     hs_target: float | None = None
     hs_confidence: float | None = None
@@ -242,7 +246,8 @@ class I5Patterns(BaseModel):
     trend_confluence_strength: float | None = None
 
     # TriangleWedgePlugin outputs
-    tri_pattern: float | None = None          # 0=none, 1=ascending, 2=descending, 3=symmetrical, 4=rising wedge, 5=falling wedge
+    tri_pattern: float | None = None
+    # 0=none, 1=ascending, 2=descending, 3=symmetrical, 4=rising wedge, 5=falling wedge
     tri_upper_slope: float | None = None
     tri_lower_slope: float | None = None
     tri_apex_bars: float | None = None

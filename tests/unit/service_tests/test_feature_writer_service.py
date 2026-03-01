@@ -23,7 +23,7 @@ def _make_valid_event() -> "IntelligenceEvent":
         ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
         tf="5m",
-        bar=OHLCVBar(o=5100.25, h=5105.50, l=5098.75, c=5103.00, v=12345),
+        bar=OHLCVBar(o=5100.25, h=5105.50, low=5098.75, c=5103.00, v=12345),
         i1=I1Indicators(rsi_14=58.3, atr_14=12.5),
         i3=I3Structure(
             nearest_support=5080.0,

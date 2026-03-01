@@ -44,8 +44,6 @@ class VWAPDeviationPlugin:
         # ── VWAP features ──
         vwap = features.get("vwap", 0.0)
         vwap_std = features.get("vwap_std", 0.0)
-        vwap_upper_2 = features.get("vwap_upper_2", 0.0)
-        vwap_lower_2 = features.get("vwap_lower_2", 0.0)
         vwap_upper_1 = features.get("vwap_upper_1", 0.0)
         vwap_lower_1 = features.get("vwap_lower_1", 0.0)
 

@@ -41,17 +41,20 @@ from typing import Any
 @dataclass
 class TradeTarget:
     price: float
-    label: str        # e.g. "BSL 4521.25", "VWAP+1σ 4530"
-    level_type: str   # "bsl" | "ssl" | "vwap_1sigma" | "vwap_2sigma" | "sr" | "fvg" | "ob" | "kalman" | "atr" | "demand_zone"
-    rr: float         # reward-to-risk ratio for this target
+    label: str  # e.g. "BSL 4521.25", "VWAP+1σ 4530"
+    level_type: str
+    # "bsl" | "ssl" | "vwap_1sigma" | "vwap_2sigma" | "sr" | "fvg"
+    # | "ob" | "kalman" | "atr" | "demand_zone"
+    rr: float  # reward-to-risk ratio for this target
 
 
 @dataclass
 class TradeFrame:
     entry: float
-    entry_type: str          # "at_close"|"at_reclaim"|"zone_proximal"|"at_limit"|"at_pullback"
+    entry_type: str  # "at_close"|"at_reclaim"|"zone_proximal"|"at_limit"|"at_pullback"
     stop: float
-    stop_type: str           # "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low" | "sr_support" | "atr"
+    stop_type: str  # "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low"
+                          # | "sr_support" | "atr"
     targets: list[TradeTarget] = field(default_factory=list)
     rr_t1: float = 0.0
     rr_t2: float = 0.0
@@ -221,10 +224,12 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
         return max(stop, max_stop), "swing_high"
 
     # Priority 5: S/R nearest resistance
-    sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(features, "nearest_resistance")
+    sr_resistance = _fval(
+        features, "sr_nearest_resistance"
+    ) or _fval(features, "nearest_resistance")
     if sr_resistance > 0 and sr_resistance > entry:
         stop = sr_resistance + atr * 0.50
-        return max(stop, max_stop), "sr_resistance"
+        return max(stop, max_stop), "sr_support"
 
     # Fallback: ATR×2.0
     return entry + atr * 2.0, "atr"
@@ -244,7 +249,9 @@ def _collect_targets_long(
     candidates: list[tuple[float, str, str]] = []  # (price, label, level_type)
 
     # S/R resistance
-    nearest_resistance = _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
+    nearest_resistance = _fval(
+        features, "nearest_resistance"
+    ) or _fval(features, "sr_nearest_resistance")
     if nearest_resistance > 0:
         candidates.append((nearest_resistance, f"S/R {nearest_resistance:.2f}", "sr"))
 
@@ -283,7 +290,13 @@ def _collect_targets_long(
     # Demand zone high (if above entry — targeting into supply)
     nearest_demand_high = _fval(features, "nearest_demand_high")
     if nearest_demand_high > entry:
-        candidates.append((nearest_demand_high, f"Demand zone {nearest_demand_high:.2f}", "demand_zone"))
+        candidates.append(
+            (
+                nearest_demand_high,
+                f"Demand zone {nearest_demand_high:.2f}",
+                "demand_zone",
+            )
+        )
 
     # Filter to valid range
     valid = [
@@ -344,7 +357,9 @@ def _collect_targets_short(
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
     if ob_type == -1.0 and ob_bottom > 0 and ob_bottom < entry:
-        candidates.append((ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob"))
+        candidates.append(
+            (ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob")
+        )
 
     # Kalman lower
     kalman_lower = _fval(features, "kalman_lower")
@@ -354,7 +369,13 @@ def _collect_targets_short(
     # Supply zone low (if below entry)
     nearest_supply_low = _fval(features, "nearest_supply_low")
     if 0 < nearest_supply_low < entry:
-        candidates.append((nearest_supply_low, f"Supply zone {nearest_supply_low:.2f}", "supply_zone"))
+        candidates.append(
+            (
+                nearest_supply_low,
+                f"Supply zone {nearest_supply_low:.2f}",
+                "supply_zone",
+            )
+        )
 
     # Filter to valid range
     valid = [
@@ -408,9 +429,24 @@ def _pick_targets(
     # ATR fallback — always 3 levels
     sign = 1 if direction == 1 else -1
     return [
-        TradeTarget(price=round(entry + sign * risk * 2.0, 2), label="ATR T1", level_type="atr", rr=2.0),
-        TradeTarget(price=round(entry + sign * risk * 3.5, 2), label="ATR T2", level_type="atr", rr=3.5),
-        TradeTarget(price=round(entry + sign * risk * 5.5, 2), label="ATR T3", level_type="atr", rr=5.5),
+        TradeTarget(
+            price=round(entry + sign * risk * 2.0, 2),
+            label="ATR T1",
+            level_type="atr",
+            rr=2.0,
+        ),
+        TradeTarget(
+            price=round(entry + sign * risk * 3.5, 2),
+            label="ATR T2",
+            level_type="atr",
+            rr=3.5,
+        ),
+        TradeTarget(
+            price=round(entry + sign * risk * 5.5, 2),
+            label="ATR T3",
+            level_type="atr",
+            rr=5.5,
+        ),
     ], False
 
 

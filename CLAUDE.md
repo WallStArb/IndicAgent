@@ -2,7 +2,7 @@
 
 Version: 5.7.0
 Last Updated: 2026-02-28
-Status: I1-I8 pipeline complete — 62 plugins + 4 aggregation components + feature store + typed intelligence bus, 796 tests, 22 contracts
+Status: I1-I8 pipeline complete — 62 plugins + 4 aggregation components + feature store + typed intelligence bus, 796 tests, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -164,7 +164,7 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 
 ## Development Standards
 
-### Current Contracts (22 — front-month as of Feb 2026)
+### Current Contracts (24 — front-month as of Feb 2026)
 ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, ZF, ZB, ZT (rates) · VX (volatility) · ZS, ZC, ZW (agriculture) · EURUSD, GBPUSD, USDJPY, USDCHF (spot FX/IDEALPRO) · BTCUSD, ETHUSD, SOLUSD (spot crypto/PAXOS)
 
 **Paper trading unavailable (not in defaults):** BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200, no workaround. NG/BZ valid in live account.

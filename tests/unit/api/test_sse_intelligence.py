@@ -30,7 +30,7 @@ def _make_minimal_event():
         ts=datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
         tf="1m",
-        bar=OHLCVBar(o=5900.0, h=5910.0, l=5895.0, c=5905.0, v=1200),
+        bar=OHLCVBar(o=5900.0, h=5910.0, low=5895.0, c=5905.0, v=1200),
         i1=I1Indicators(rsi_14=62.5, atr_14=8.3),
         i3=I3Structure(trend_direction=1.0),
         i4=I4Context(vol_regime=0.5, garch_sigma=0.0023),

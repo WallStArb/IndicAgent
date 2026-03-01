@@ -106,7 +106,11 @@ class MomentumBreakoutPlugin:
 
         # ── Confidence ──
         roc_score = min(1.0, (abs(roc) - self.roc_threshold) / self.roc_threshold)
-        vol_score = min(1.0, (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold)
+        vol_score = min(
+            1.0,
+            (volume_ratio - self.volume_expansion_threshold)
+            / self.volume_expansion_threshold,
+        )
         break_margin = min(1.0, max(0.0, abs(price - structure_level) / atr))
 
         trend_regime = features.get("trend_regime", 0.0)

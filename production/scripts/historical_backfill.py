@@ -741,6 +741,8 @@ def main() -> None:
                             hour=0, minute=0, second=0, microsecond=0
                         )
                         try:
+                            # Check asset class - only use continuous for futures
+                            use_continuous = (instrument.asset_class == AssetClass.FUTURES)
                             ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
                                 symbol=instrument.symbol,
                                 timeframe=tf,

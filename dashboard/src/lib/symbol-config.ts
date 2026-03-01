@@ -56,13 +56,6 @@ const defaultConfig: DashboardConfig = {
         description: "Crude Oil WTI Futures",
         sector: "energy",
       },
-      {
-        symbol: "NG",
-        display_name: "Natural Gas",
-        contract: "NGJ6",
-        description: "Natural Gas Futures",
-        sector: "energy",
-      },
       // Precious Metals
       {
         symbol: "GC",
@@ -92,6 +85,14 @@ const defaultConfig: DashboardConfig = {
         contract: "PLJ6",
         description: "Platinum Futures",
         sector: "metals",
+      },
+      // Equity Index
+      {
+        symbol: "YM",
+        display_name: "Dow Jones",
+        contract: "YMH6",
+        description: "E-mini Dow Futures",
+        sector: "equity_index",
       },
       // Volatility
       {
@@ -130,6 +131,79 @@ const defaultConfig: DashboardConfig = {
         description: "2-Year Treasury Note Futures",
         sector: "interest_rates",
       },
+      // Agriculture
+      {
+        symbol: "ZS",
+        display_name: "Soybeans",
+        contract: "ZSH6",
+        description: "Soybeans Futures",
+        sector: "agriculture",
+      },
+      {
+        symbol: "ZC",
+        display_name: "Corn",
+        contract: "ZCH6",
+        description: "Corn Futures",
+        sector: "agriculture",
+      },
+      {
+        symbol: "ZW",
+        display_name: "Wheat",
+        contract: "ZWH6",
+        description: "Wheat Futures",
+        sector: "agriculture",
+      },
+      // FX
+      {
+        symbol: "EURUSD",
+        display_name: "Euro/USD",
+        contract: "EURUSD",
+        description: "EUR/USD Spot FX",
+        sector: "fx",
+      },
+      {
+        symbol: "GBPUSD",
+        display_name: "GBP/USD",
+        contract: "GBPUSD",
+        description: "GBP/USD Spot FX",
+        sector: "fx",
+      },
+      {
+        symbol: "USDJPY",
+        display_name: "USD/JPY",
+        contract: "USDJPY",
+        description: "USD/JPY Spot FX",
+        sector: "fx",
+      },
+      {
+        symbol: "USDCHF",
+        display_name: "USD/CHF",
+        contract: "USDCHF",
+        description: "USD/CHF Spot FX",
+        sector: "fx",
+      },
+      // Crypto
+      {
+        symbol: "BTCUSD",
+        display_name: "Bitcoin",
+        contract: "BTCUSD",
+        description: "Bitcoin/USD Spot",
+        sector: "crypto",
+      },
+      {
+        symbol: "ETHUSD",
+        display_name: "Ethereum",
+        contract: "ETHUSD",
+        description: "Ether/USD Spot",
+        sector: "crypto",
+      },
+      {
+        symbol: "SOLUSD",
+        display_name: "Solana",
+        contract: "SOLUSD",
+        description: "Solana/USD Spot",
+        sector: "crypto",
+      },
     ],
     etfs: [
       {
@@ -157,23 +231,34 @@ const defaultConfig: DashboardConfig = {
     all_futures: {
       name: "All Futures",
       symbols: [
-        "ES", "NQ", "RTY",
-        "CL", "NG",
+        "ES", "NQ", "RTY", "YM",
+        "CL",
         "GC", "SI", "HG", "PL",
         "VX",
         "ZN", "ZF", "ZB", "ZT",
+        "ZS", "ZC", "ZW",
       ],
-      description: "All 14 futures contracts",
+      description: "All 17 futures contracts",
     },
     equity_index: {
       name: "Equity Indices",
-      symbols: ["ES", "NQ", "RTY"],
+      symbols: ["ES", "NQ", "RTY", "YM"],
       description: "E-mini equity index futures",
     },
     commodities: {
       name: "Commodities",
-      symbols: ["CL", "NG", "GC", "SI", "HG", "PL"],
-      description: "Energy and metals futures",
+      symbols: ["CL", "GC", "SI", "HG", "PL", "ZS", "ZC", "ZW"],
+      description: "Energy, metals, and agriculture futures",
+    },
+    fx: {
+      name: "FX",
+      symbols: ["EURUSD", "GBPUSD", "USDJPY", "USDCHF"],
+      description: "Spot FX pairs",
+    },
+    crypto: {
+      name: "Crypto",
+      symbols: ["BTCUSD", "ETHUSD", "SOLUSD"],
+      description: "Spot crypto",
     },
     interest_rates: {
       name: "Interest Rates",

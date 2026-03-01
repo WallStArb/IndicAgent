@@ -132,15 +132,15 @@ See [Stream Schemas](reference/schemas/stream-schemas.md) for details.
 
 ## Instrumentation
 
-**Active Contracts:** 23 futures (all H6/J6 front-month as of Feb 2026)
+**Active Contracts:** 24 total (17 futures + 4 FX + 3 crypto) — front-month as of Feb 2026
 - **Equity Indices:** ES, NQ, RTY, YM
-- **Energy:** CL, BZ, NG
+- **Energy:** CL
 - **Metals:** GC, SI, HG, PL
-- **Rates:** ZN, ZF, ZB, ZT, SR1
+- **Rates:** ZN, ZF, ZB, ZT
 - **Volatility:** VX
 - **Agriculture:** ZS, ZC, ZW
-- **FX:** 6E, 6J
-- **Crypto:** BTC
+- **FX:** EURUSD, GBPUSD, USDJPY, USDCHF (spot/IDEALPRO)
+- **Crypto:** BTCUSD, ETHUSD, SOLUSD (spot/PAXOS)
 
 **Timeframes:** 1m, 5m, 15m, 1h, 4h, 1d
 

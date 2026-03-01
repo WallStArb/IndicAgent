@@ -55,16 +55,18 @@ class ChandelierPlugin:
             "chandelier_short_22": round(lowest_low + self.multiplier * atr, 6),
         }
 
-    def _compute_atr(self, high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> float:
+    def _compute_atr(
+        self, high: np.ndarray, low_price: np.ndarray, close: np.ndarray, period: int
+    ) -> float:
         """Wilder's ATR: SMA seed then Wilder smoothing (alpha = 1/period)."""
         n = len(high)
         tr = np.empty(n)
-        tr[0] = high[0] - low[0]
+        tr[0] = high[0] - low_price[0]
         for i in range(1, n):
             tr[i] = max(
-                high[i] - low[i],
+                high[i] - low_price[i],
                 abs(high[i] - close[i - 1]),
-                abs(low[i] - close[i - 1]),
+                abs(low_price[i] - close[i - 1]),
             )
         atr = float(np.mean(tr[1: period + 1]))
         alpha = 1.0 / period
@@ -81,16 +83,16 @@ class ChandelierPlugin:
 
         row = df.iloc[-1]
         h = float(row["high"])
-        l = float(row["low"])
+        low_price = float(row["low"])
         c = float(row["close"])
         s = self._state
 
-        tr = max(h - l, abs(h - s["prev_close"]), abs(l - s["prev_close"]))
+        tr = max(h - low_price, abs(h - s["prev_close"]), abs(low_price - s["prev_close"]))
         alpha = 1.0 / self.period
         s["atr"] = (1 - alpha) * s["atr"] + alpha * tr
         s["prev_close"] = c
         s["high_window"].append(h)
-        s["low_window"].append(l)
+        s["low_window"].append(low_price)
 
         highest_high = max(s["high_window"])
         lowest_low = min(s["low_window"])

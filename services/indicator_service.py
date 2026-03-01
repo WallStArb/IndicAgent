@@ -313,7 +313,7 @@ class IndicatorService:
         self.logger.info("Connected to Redis")
 
     async def _setup_consumer_groups(self) -> None:
-        warmup_bars = 150  # unique bars target
+        warmup_bars = 20  # unique bars target (reduced for faster startup)
         warmup_read_count = warmup_bars * self._WARMUP_READ_MULTIPLIER
         for timeframe in self.config["service"]["timeframes"]:
             for symbol in self.config["service"]["symbols"]:

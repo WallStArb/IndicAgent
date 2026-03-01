@@ -63,11 +63,14 @@ class CMFPlugin:
             return {}
 
         row = df.iloc[-1]
-        h, l, c, v = float(row["high"]), float(row["low"]), float(row["close"]), float(row["volume"])
+        h = float(row["high"])
+        low_price = float(row["low"])
+        c = float(row["close"])
+        v = float(row["volume"])
         s = self._state
 
-        hl = h - l
-        mfm = (2 * c - h - l) / hl if hl > 0 else 0.0
+        hl = h - low_price
+        mfm = (2 * c - h - low_price) / hl if hl > 0 else 0.0
         s["mfv_window"].append(mfm * v)
         s["vol_window"].append(v)
 
