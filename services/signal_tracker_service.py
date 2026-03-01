@@ -164,7 +164,7 @@ class SignalTrackerService:
             return []
 
         # Filter active signals by timeframe for this evaluation (N+1 fix)
-        relevant = [s for s in all_active if s.get("timeframe") == timeframe]
+        relevant = [s for s in (all_active or []) if s.get("timeframe") == timeframe]
         self.active_signals_count.set(len(relevant))
 
         transitions = []

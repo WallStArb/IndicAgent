@@ -98,7 +98,7 @@ def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
         if v is not None:
             f[k] = v
     # BB aliases: plugins may expect bb_middle / bb_upper / bb_lower
-    f["bb_middle"] = event.i1.bb_20_2_middle
+    f["bb_middle"] = event.i1.bb_20_2_mid
     f["bb_upper"] = event.i1.bb_20_2_upper
     f["bb_lower"] = event.i1.bb_20_2_lower
 
@@ -364,17 +364,17 @@ class SignalGeneratorService:
                 # Only rewind warmup_bars if group was freshly created
                 if group_freshly_created:
                     try:
-                    msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
-                    if len(msgs) > warmup_bars:
-                        await self.redis_client.xgroup_setid(
-                            stream_name, self.consumer_group, msgs[warmup_bars][0]
-                        )
-                    elif msgs:
-                        await self.redis_client.xgroup_setid(
-                            stream_name, self.consumer_group, "0-0"
-                        )
-                except Exception as e:
-                    self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
+                        msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
+                        if len(msgs) > warmup_bars:
+                            await self.redis_client.xgroup_setid(
+                                stream_name, self.consumer_group, msgs[warmup_bars][0]
+                            )
+                        elif msgs:
+                            await self.redis_client.xgroup_setid(
+                                stream_name, self.consumer_group, "0-0"
+                            )
+                    except Exception as e:
+                        self.logger.warning("Consumer group rewind failed", stream=stream_name, error=str(e))
                 self._stream_map[stream_name] = (sym, tf)
 
     async def stop(self) -> None:
