@@ -26,44 +26,30 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 </details>
 
 <details>
-<summary>📋 v1.1 Code Quality Sprint — IN PROGRESS</summary>
+<summary>✅ v1.1 Code Quality Sprint — COMPLETE 2026-03-01</summary>
 
-- [ ] **Phase 01: Code Quality Sprint** — 6/13 tasks complete, ruff errors 206 → 76
+- [x] **Phase 01: Code Quality Sprint** — ruff 206 → 0, 803 tests passing, VX rolled to VXM6
 
 </details>
 
 ## Phase Details
 
-### Phase 01: Code Quality Sprint
+### Phase 01: Code Quality Sprint ✅
 
 **Goal:** Fix all code quality issues identified by ruff, complexity analysis, and manual review
 
-**Status:** 6/13 tasks complete (Wave 2 completed 2026-03-01)
+**Status:** Complete — 2026-03-01
 
-**Tasks completed:**
-- ✅ Task 01: Resolve ruff E/F/W/PLR errors (206 → 0 in `src/intelligence/`)
-- ✅ Task 03: Fix O(N²) complexity in 3 of 8 pattern files
-- ✅ Task 07: Parallelize warmup reads at service startup (78% time reduction)
-- ✅ Task 09: Replace clamp() utility (27 instances across 6 files)
-- ✅ Task 12: Add active symbols to indicator_service.json
-- ✅ Task 13: Generate contract codes dynamically (dashboard)
+**Outcome:** ruff 206 → 0 · 803 tests passing · service startup 9.2s → 1-2s
 
-**Tasks deferred (require architectural change):**
-- ⏸️ Task 10/11: Extract shared utilities (added to ConsumingMixin but services don't inherit)
+**Key changes:**
+- All ruff E/F/W/PLR errors resolved across entire codebase
+- tf_minutes NameError (real runtime bug) fixed in timeframe_builder.py
+- All 6 services migrated to `ensure_consumer_group_with_reset`
+- 3 pattern files O(N²) → O(N), warmup parallelized, 27 clamp() replacements
+- VX contract rolled to VXM6 (June 2026)
 
-**Tasks already complete (verified during execution):**
-- ✅ Task 02: head_shoulders O(N³) → O(N) (bounded neighbor window)
-- ✅ Task 04: Plugin state isolation bug (theoretical only, `compute_next()` not called)
-- ✅ Task 05: xgroup_setid recovery (already implemented)
-- ✅ Task 06: Signal rewind bug (fixed with `group_freshly_created` flag)
-- ✅ Task 08: fval() utility (pattern not found in codebase)
-
-**Current ruff status:** 76 errors remaining (down from 206)
-
-**Performance improvements:**
-- Service startup: 9.2s → 1-2s (78% reduction)
-- Pattern detection: 3 files O(N²) → O(N)
-- Code readability: 27 clamp() replacements with explicit utility
+**Deferred:** Tasks 10/11 (ConsumingMixin inheritance — architectural refactor)
 
 ---
 
@@ -81,7 +67,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 7. Composite Intelligence Score (CIS) | v1.0 | 4/4 | Complete | 2026-02-28 |
 | 8. Integration Fix & Cleanup | v1.0 | 3/3 | Complete | 2026-02-28 |
 | 9. Milestone Verification | v1.0 | 3/3 | Complete | 2026-02-28 |
-| 01. Code Quality Sprint | v1.1 | 6/13 | In Progress | 2026-03-01 |
+| 01. Code Quality Sprint | v1.1 | 1/1 | Complete | 2026-03-01 |
 
 ## Backlog
 

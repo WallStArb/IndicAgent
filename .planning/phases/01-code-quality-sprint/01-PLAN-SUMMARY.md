@@ -57,8 +57,8 @@ metrics:
   tasks_total: 13
   files_modified: 20
   lines_changed: "~500"
-  test_results: "798 passed, 2 failed (pre-existing test bugs)"
-  ruff_errors_fixed: 206 → 0 (verified on retry)
+  test_results: "803 passed (pre-existing test bugs fixed in subsequent commits)"
+  ruff_errors_fixed: 206 → 0 (all files, including services/, production/, tests/)
   clamp_replacements: 27 instances across 6 files
 ---
 
@@ -337,6 +337,13 @@ Both failures are due to test design issues, not production code bugs.
 5. **Architectural limitations**: Utility extraction (Tasks 10/11) revealed that services don't inherit from expected mixins. This indicates a need for broader architectural refactoring beyond scope of a single plan.
 
 6. **Test debt**: Some tests are designed for older implementation patterns and don't match current code. Regular test maintenance is needed alongside production code changes.
+
+## Final State (Phase Closed 2026-03-01)
+
+- Ruff errors: **0** (down from 206 in src/intelligence/, then 76 across full codebase)
+- Tests: **803 passing** (up from 787 at v1.0)
+- VX contract rolled: VXH6 → VXM6 (June 2026)
+- All services use `ensure_consumer_group_with_reset` from `src/core/stream_utils`
 
 ## Conclusion
 
