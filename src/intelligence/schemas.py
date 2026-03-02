@@ -90,6 +90,58 @@ class I1Indicators(BaseModel):
     sma_20_gt_50: float | None = None
 
 
+class I2Events(BaseModel):
+    """I2 composite indicator event outputs — crossovers, threshold crossings, extremes.
+
+    Plugins: evt_MACDEvents, evt_RSIEvents, evt_StochasticEvents, evt_ADXEvents, evt_VolumeEvents
+    MAComposite golden/death cross fields flow through I1Indicators (extra='allow').
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # MACDEvents
+    macd_cross_bullish: float | None = None
+    macd_cross_bearish: float | None = None
+    macd_cross_bars_ago: float | None = None
+    macd_hist_positive: float | None = None
+    macd_hist_turning_up: float | None = None
+    macd_negative_support_test: float | None = None
+    macd_price_divergence_bullish: float | None = None
+    macd_price_divergence_bearish: float | None = None
+
+    # RSIEvents
+    rsi_crossed_30_up: float | None = None
+    rsi_crossed_70_down: float | None = None
+    rsi_crossed_50_up: float | None = None
+    rsi_crossed_50_down: float | None = None
+    rsi_extreme_reversal: float | None = None
+    rsi_bars_in_extreme: float | None = None
+
+    # StochasticEvents
+    stoch_cross_bullish: float | None = None
+    stoch_cross_bearish: float | None = None
+    stoch_oversold_reversal: float | None = None
+    stoch_overbought_reversal: float | None = None
+    stoch_both_oversold: float | None = None
+    stoch_both_overbought: float | None = None
+
+    # ADXEvents
+    adx_trend_confirmed: float | None = None
+    adx_ranging_confirmed: float | None = None
+    di_cross_bullish: float | None = None
+    di_cross_bearish: float | None = None
+    di_cross_bars_ago: float | None = None
+    di_spread: float | None = None
+
+    # VolumeEvents
+    vol_spike: float | None = None
+    vol_drying: float | None = None
+    bb_upper_touch: float | None = None
+    bb_lower_touch: float | None = None
+    bb_walking_upper: float | None = None
+    bb_walking_lower: float | None = None
+
+
 class I3Structure(BaseModel):
     """I3 market structure outputs — structural facts about price.
 
@@ -392,6 +444,7 @@ class IntelligenceEvent(BaseModel):
 
     bar: OHLCVBar
     i1: I1Indicators
+    i2: I2Events = I2Events()
     i3: I3Structure
     i4: I4Context
     i5: I5Patterns
