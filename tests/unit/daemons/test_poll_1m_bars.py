@@ -107,8 +107,9 @@ async def test_poll_1m_bars_uses_get_stream_maxlen():
     daemon.async_redis = mock_redis
 
     # Patch get_stream_maxlen to return a test-specific value
-    with patch("production.daemons.high_frequency_tws_daemon.get_stream_maxlen", return_value=9999) as mock_maxlen:
-        # This test will FAIL with AttributeError before implementation (get_stream_maxlen not imported)
+    target = "production.daemons.high_frequency_tws_daemon.get_stream_maxlen"
+    with patch(target, return_value=9999) as mock_maxlen:
+        # This test will FAIL with AttributeError before implementation
         now = datetime.now(UTC)
         start = now - timedelta(minutes=2)
         await daemon._fetch_bars_for_symbol("ES", start, now)
@@ -175,7 +176,7 @@ async def test_poll_1m_bars_fetches_all_symbols_concurrently():
         daemon.connected = True
 
         # Patch the new _fetch_bars_for_symbol method to track calls
-        with patch.object(daemon, "_fetch_bars_for_symbol", side_effect=_fake_fetch) as mock_fetch_method:
+        with patch.object(daemon, "_fetch_bars_for_symbol", side_effect=_fake_fetch):
             try:
                 daemon.poll_1m_bars()
             except (TypeError, AttributeError):

@@ -1,11 +1,9 @@
 """Tests for new I4 context plugins: SessionContext and MTFVolatility."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # SessionContext
@@ -17,7 +15,7 @@ class TestSessionContext:
         from src.intelligence.context.session_context import SessionContextPlugin
 
         # 8:30 AM ET = 13:30 UTC
-        ts = datetime(2026, 3, 1, 13, 30, tzinfo=timezone.utc)
+        ts = datetime(2026, 3, 1, 13, 30, tzinfo=UTC)
         df = pd.DataFrame(
             {
                 "timestamp": [ts],
@@ -37,7 +35,7 @@ class TestSessionContext:
         from src.intelligence.context.session_context import SessionContextPlugin
 
         # 7:00 AM UTC = 2:00 AM ET
-        ts = datetime(2026, 3, 2, 7, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 3, 2, 7, 0, tzinfo=UTC)
         df = pd.DataFrame(
             {
                 "timestamp": [ts],
@@ -56,7 +54,7 @@ class TestSessionContext:
         from src.intelligence.context.session_context import SessionContextPlugin
 
         # 14:00 UTC = 9:00 AM ET (NY not yet open)
-        ts = datetime(2026, 3, 2, 14, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 3, 2, 14, 0, tzinfo=UTC)
         df = pd.DataFrame(
             {
                 "timestamp": [ts],
@@ -75,7 +73,7 @@ class TestSessionContext:
         from src.intelligence.context.session_context import SessionContextPlugin
 
         # 15:00 UTC = 10:00 AM ET — NY is open
-        ts = datetime(2026, 3, 2, 15, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 3, 2, 15, 0, tzinfo=UTC)
         df = pd.DataFrame(
             {
                 "timestamp": [ts],
@@ -93,7 +91,7 @@ class TestSessionContext:
         from src.intelligence.context.session_context import SessionContextPlugin
 
         # 2026-03-02 is a Monday
-        ts = datetime(2026, 3, 2, 15, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 3, 2, 15, 0, tzinfo=UTC)
         df = pd.DataFrame(
             {
                 "timestamp": [ts],
@@ -109,9 +107,10 @@ class TestSessionContext:
         assert result.get("is_friday") == 0.0
 
     def test_no_timestamp_returns_neutral(self):
+        import numpy as np
+
         from src.intelligence.context.session_context import SessionContextPlugin
         from tests.unit.intelligence.helpers import make_ohlcv
-        import numpy as np
 
         close = np.full(10, 5000.0)
         df = make_ohlcv(close)
@@ -129,7 +128,7 @@ class TestSessionContext:
         from src.intelligence.context.session_context import SessionContextPlugin
 
         # 6am ET = before NY open
-        ts = datetime(2026, 3, 2, 11, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 3, 2, 11, 0, tzinfo=UTC)
         df = pd.DataFrame(
             {
                 "timestamp": [ts],

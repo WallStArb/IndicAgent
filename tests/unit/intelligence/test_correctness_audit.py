@@ -5,10 +5,8 @@ import inspect
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
-
 
 # ---------------------------------------------------------------------------
 # Task 1.1: RSI — Wilder's smoothing

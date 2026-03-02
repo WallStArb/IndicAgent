@@ -34,7 +34,9 @@ class VolumeEventsPlugin:
         volume = features.get("volume")
         bb_upper = features.get("bb_20_2_upper")
         bb_lower = features.get("bb_20_2_lower")
-        bb_mid = features.get("bb_20_2_mid") or features.get("bb_mid")
+        bb_mid = features.get("bb_20_2_mid")
+        if bb_mid is None:
+            bb_mid = features.get("bb_mid")
         if not is_num(close):
             return {}
 

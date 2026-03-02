@@ -50,7 +50,9 @@ class StochasticEventsPlugin:
             pk, k, self._STOCH_OVERBOUGHT, "down"
         )
 
-        out["stoch_both_oversold"] = 1 if k < self._STOCH_OVERSOLD and d < self._STOCH_OVERSOLD else 0  # noqa: E501
+        out["stoch_both_oversold"] = (
+            1 if k < self._STOCH_OVERSOLD and d < self._STOCH_OVERSOLD else 0
+        )
         out["stoch_both_overbought"] = (
             1 if k > self._STOCH_OVERBOUGHT and d > self._STOCH_OVERBOUGHT else 0
         )
