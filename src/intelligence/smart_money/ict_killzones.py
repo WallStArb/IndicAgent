@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils import utc_datetime_from_df
 
 
 def _minutes_since_midnight_utc(dt: datetime) -> int:
@@ -59,26 +60,7 @@ class ICTKillzonesPlugin:
             return {}
 
         # Extract timestamp from bar or fall back to now
-        ts: datetime | None = None
-        last_row = df.iloc[-1]
-        if "timestamp" in df.columns:
-            raw = last_row["timestamp"]
-            if isinstance(raw, datetime):
-                ts = raw if raw.tzinfo else raw.replace(tzinfo=UTC)
-            else:
-                try:
-                    import pandas as pd
-                    ts_pd = pd.Timestamp(raw)
-                    ts = ts_pd.to_pydatetime()
-                    if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=UTC)
-                    else:
-                        ts = ts.astimezone(UTC)
-                except Exception:
-                    ts = None
-
-        if ts is None:
-            ts = datetime.now(tz=UTC)
+        ts = utc_datetime_from_df(df) or datetime.now(tz=UTC)
 
         cur_min = _minutes_since_midnight_utc(ts)
         total_day_minutes = 24 * 60

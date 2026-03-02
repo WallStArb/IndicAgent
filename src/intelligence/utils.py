@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -83,3 +84,23 @@ def clamp(value: float, min_val: float = -1.0, max_val: float = 1.0) -> float:
         Clamped value within [min_val, max_val]
     """
     return max(min_val, min(max_val, value))
+
+
+def utc_datetime_from_df(df: Any) -> datetime | None:
+    """Extract a timezone-aware UTC datetime from the last bar's timestamp column.
+
+    Handles both native ``datetime`` objects and pandas ``Timestamp`` values.
+    Returns ``None`` if the column is absent or parsing fails.
+    """
+    if "timestamp" not in df.columns:
+        return None
+    raw = df.iloc[-1]["timestamp"]
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
+    try:
+        import pandas as pd
+
+        ts = pd.Timestamp(raw).to_pydatetime()
+        return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts.astimezone(UTC)
+    except Exception:
+        return None

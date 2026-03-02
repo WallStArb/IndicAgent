@@ -11,10 +11,10 @@ manipulation-phase price spikes breach and then reverse from that range.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils import utc_datetime_from_df
 
 # UTC hour boundaries
 _ACCUM_START = 20
@@ -25,21 +25,8 @@ _DIST_END = 21
 
 def _utc_hour(df: Any) -> int | None:
     """Extract UTC hour from the last bar's timestamp column, or return None."""
-    if "timestamp" not in df.columns:
-        return None
-    raw = df.iloc[-1]["timestamp"]
-    if isinstance(raw, datetime):
-        dt = raw if raw.tzinfo else raw.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).hour
-    try:
-        import pandas as pd
-        ts = pd.Timestamp(raw)
-        dt = ts.to_pydatetime()
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return dt.astimezone(UTC).hour
-    except Exception:
-        return None
+    dt = utc_datetime_from_df(df)
+    return dt.hour if dt is not None else None
 
 
 @dataclass
@@ -86,7 +73,7 @@ class AMDCyclePlugin:
         else:
             phase = "accumulation"
 
-        # Update overnight range during accumulation
+        # Update overnight range during accumulation; reset cycle flags each session
         key_sym = "overnight"
         if phase == "accumulation":
             prev = self._state.get(key_sym, {})
@@ -94,6 +81,9 @@ class AMDCyclePlugin:
                 "high": max(prev.get("high", high), high),
                 "low": min(prev.get("low", low), low),
             }
+            # Reset per-cycle flags so next day's distribution/manipulation fire fresh
+            self._state["dist_reset_done"] = False
+            self._state["manipulation_done"] = False
         elif phase == "distribution":
             # Reset overnight state when we enter distribution
             if self._state.get("dist_reset_done") is not True:
