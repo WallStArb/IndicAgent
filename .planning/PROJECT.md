@@ -48,18 +48,17 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ### Active
 
-(Current milestone — v1.1 Code Quality Sprint)
+(Current milestone — v1.3 Signal Intelligence Expansion)
 
-**Scope:** I1-I7 intelligence plugins (62 plugins) — 206 lint issues + 8 complexity concerns + service layer issues
+**Scope:** Expand I2 and I7 plugin tiers with momentum second-derivative analysis and three new trading setups
 
-**Target:** Production-grade code with zero blocking defects
+**Target:** 4 new plugins (1 I2 + 3 I7), all wired into TIER_I2/TIER_I7 with full test coverage
 
 Categories:
-- Code Quality (QUAL-01): All ruff E/F/W/PLR errors (206 → 0)
-- Performance (QUAL-02): O(N³) complexity in head_shoulders, O(N²) patterns in 8 plugins
-- Maintainability (MAINT-01-06): Extract shared utilities, reduce duplication, improve service patterns
-- Configuration (CONF-01-03): Active symbols, dynamic contract codes, eliminate duplicate warmup
-- Performance (PERF-01-02): Parallelize plugin execution, cache DataFrame reconstruction
+- I2 acceleration (ACCEL-01): MomentumAcceleration — rsi/macd/roc second-derivative + inflection_flag
+- I7 setups (SETUP-01): GapAnalysisSetup — opening gap fade/continuation (ES/NQ 9:30 ET)
+- I7 setups (SETUP-02): CandlestickPatternSetup — doji/hammer/engulfing + confluence
+- I7 setups (SETUP-03): SessionExtremesSetup — Asian session high/low fade during London/NY
 
 See `.planning/REQUIREMENTS.md` for full breakdown.
 
@@ -75,15 +74,15 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 
 ## Context
 
-### Current Milestone: v1.1 Code Quality Sprint
+### Current Milestone: v1.3 Signal Intelligence Expansion
 
-**Goal:** Bring codebase to production-grade standards by resolving all scanner findings from ruff, mypy, and other tools.
+**Goal:** Expand the intelligence pipeline with momentum second-derivative analysis (I2) and three new I7 trading setups targeting opening gaps, candlestick patterns, and session extremes.
 
-**Target:**
-- Zero ruff errors (98 → 0)
-- Zero mypy errors
-- Code complexity within healthy bounds
-- Test coverage maintained/improved
+**Target features:**
+- MomentumAcceleration I2 plugin (rsi_accel, macd_accel, roc_accel, inflection_flag)
+- GapAnalysisSetup I7 (opening gap fade/continuation, ES/NQ focus)
+- CandlestickPatternSetup I7 (consumes I5 candlestick data + confluence)
+- SessionExtremesSetup I7 (Asian session high/low fade, uses I3 SessionLevels)
 
 ---
 
@@ -126,4 +125,4 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-03-01 after v1.1 requirements finalized*
+*Last updated: 2026-03-02 after v1.3 milestone started*
