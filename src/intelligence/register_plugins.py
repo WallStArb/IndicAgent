@@ -37,13 +37,19 @@ from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
+from .patterns.candlestick_patterns import plugin as candlestick_plugin
 from .patterns.confluence import plugin as confluence_plugin
+from .patterns.cup_handle import plugin as cup_handle_plugin
 from .patterns.double_top_bottom import plugin as double_tb_plugin
+from .patterns.flag_pennant import plugin as flag_pennant_plugin
 from .patterns.head_shoulders import plugin as head_shoulders_plugin
+from .patterns.key_level_reaction import plugin as key_level_reaction_plugin
+from .patterns.measured_move import plugin as measured_move_plugin
 from .patterns.rsi_divergence import plugin as rsi_div_plugin
 from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
+from .patterns.volume_profile import plugin as volume_profile_plugin
 from .plugins import registry
 from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
 from .smart_money.bos_choch import plugin as bos_choch_plugin
@@ -145,6 +151,12 @@ def register_all_plugins() -> None:
     registry.register_pattern(double_tb_plugin)
     registry.register_pattern(head_shoulders_plugin)
     registry.register_pattern(triangle_wedge_plugin)
+    registry.register_pattern(candlestick_plugin)
+    registry.register_pattern(flag_pennant_plugin)
+    registry.register_pattern(cup_handle_plugin)
+    registry.register_pattern(measured_move_plugin)
+    registry.register_pattern(volume_profile_plugin)
+    registry.register_pattern(key_level_reaction_plugin)
 
     # I7 Trading Setups
     registry.register_pattern(trend_follow_plugin)
@@ -231,6 +243,12 @@ TIER_I5: list[str] = [
     double_tb_plugin.name,
     head_shoulders_plugin.name,
     triangle_wedge_plugin.name,
+    candlestick_plugin.name,
+    flag_pennant_plugin.name,
+    cup_handle_plugin.name,
+    measured_move_plugin.name,
+    volume_profile_plugin.name,
+    key_level_reaction_plugin.name,
 ]
 
 TIER_SMC: list[str] = [

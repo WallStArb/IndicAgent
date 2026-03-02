@@ -324,7 +324,13 @@ class I5Patterns(BaseModel):
     - patt_HeadShoulders (5 fields)
     - TrendConfluence (4 fields)
     - patt_TriangleWedge (6 fields)
-    Total: 35 fields
+    - patt_CandlestickPatterns (9 fields)
+    - patt_FlagPennant (4 fields)
+    - patt_CupHandle (3 fields)
+    - patt_MeasuredMove (4 fields)
+    - patt_VolumeProfile (4 fields)
+    - patt_KeyLevelReaction (2 fields)
+    Total: 61 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -382,6 +388,44 @@ class I5Patterns(BaseModel):
     tri_apex_bars: float | None = None
     tri_breakout_bias: float | None = None    # -1/0/1
     tri_confidence: float | None = None
+
+    # CandlestickPatternsPlugin outputs
+    engulfing_bull: float | None = None
+    engulfing_bear: float | None = None
+    pin_bar_bull: float | None = None
+    pin_bar_bear: float | None = None
+    hammer_detected: float | None = None
+    shooting_star_detected: float | None = None
+    inside_bar: float | None = None
+    outside_bar: float | None = None
+    doji_detected: float | None = None
+
+    # FlagPennantPlugin outputs
+    flag_pattern: float | None = None
+    pennant_pattern: float | None = None
+    flag_breakout_target: float | None = None
+    consolidation_compression_ratio: float | None = None
+
+    # CupHandlePlugin outputs
+    cup_handle_pattern: float | None = None
+    cup_depth_pct: float | None = None
+    cup_handle_target: float | None = None
+
+    # MeasuredMovePlugin outputs
+    abcd_pattern_active: float | None = None
+    abcd_direction: float | None = None
+    abcd_d_target: float | None = None
+    abcd_completion_pct: float | None = None
+
+    # VolumeProfilePlugin outputs
+    nearest_hvn_level: float | None = None
+    nearest_hvn_dist_atr: float | None = None
+    nearest_lvn_level: float | None = None
+    in_lvn: float | None = None
+
+    # KeyLevelReactionPlugin outputs
+    key_level_reaction_type: float | None = None
+    key_level_confluence_count: float | None = None
 
 
 class SMCContext(BaseModel):
