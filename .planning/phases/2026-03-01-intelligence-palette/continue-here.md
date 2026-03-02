@@ -1,68 +1,54 @@
-# Handoff for Intelligence Palette Expansion (Phase 2 continued)
+# Handoff — Simplify Review Pending Fixes
 
-**Handoff date:** 2026-03-02T04:57:26.009Z
+**Handoff date:** 2026-03-02
 
 ---
 
 ## Current Position
 
 **Phase:** Intelligence Palette Expansion
-**Plan:** docs/plans/2026-03-01-intelligence-palette-expansion.md
-**Branch:** main (all committed, 871 tests passing)
+**Branch:** main (all Phase 2 work committed, 871 tests passing)
+**Immediate task:** Apply fixes identified by /simplify review agents
 
 ---
 
-## Work Completed This Session (Tasks 2.4–2.10)
+## Pending Fixes (from /simplify review — NOT YET APPLIED)
 
-### Task 2.4: MACDEventsPlugin
-- `src/intelligence/composites/macd_events.py` — commit b29bd4b
+### Fix 1: ma_composites.py — remove duplicate `_is_num`, import from common.py
+- Remove `_is_num` static method (line 159–161)
+- Add `from .common import is_num, crossover_detect` import
+- Replace all `self._is_num(x)` calls with `is_num(x)`
+- Replace inline crossover logic (lines 73–75, 109–111) with `crossover_detect()`
+  - Line 73: `crossed_up = pe9 <= pe21 and e9 > e21` + `crossed_down = ...`
+    → `crossed_up, crossed_down = crossover_detect(pe9, e9, pe21, e21)`
+  - Line 109: same pattern for sma_20_cross_50
+  - Line 97: cross_occurred for golden cross — use crossover_detect where applicable
 
-### Task 2.5: RSIEventsPlugin
-- `src/intelligence/composites/rsi_events.py`
+### Fix 2: stochastic_events.py line 53 — remove `# noqa: E501` suppression
+- Reformat to multi-line like lines 54–56 already do:
+  ```python
+  out["stoch_both_oversold"] = (
+      1 if k < self._STOCH_OVERSOLD and d < self._STOCH_OVERSOLD else 0
+  )
+  ```
 
-### Task 2.6: StochasticEventsPlugin, ADXEventsPlugin, VolumeEventsPlugin
-- 3 files created — commit a5cd37e
-- `src/intelligence/composites/common.py` also created by simplifier (shared helpers: is_num, crossover_detect, threshold_cross, track_bars_ago)
-
-### Task 2.7: Register TIER_I2
-- 5 plugins in TIER_I2 (MAComposite stays in TIER_I1)
-- `tests/unit/intelligence/test_i2_registration.py` — commit 31680dc
-
-### Tasks 2.8/2.9/2.10: Wire I2 into services
-- `_prev_i1_features` cache in MarketAnalysisService.__init__
-- `prev_features` injected into frames in `_calculate_intelligence`
-- TIER_I2 validated + executed before I3 in `_run_analysis_pipeline`
-- `i2_results` in return dict, I2Events in IntelligenceEvent
-- feature_writer_service: i2 JSONB column added (INSERT now 14-param)
-- `tests/unit/intelligence/test_i2_pipeline.py` — commit 9d67d73
-
-**Phase 2 is 100% complete. 871 tests passing. 0 ruff errors in new code.**
-
----
-
-## Work Remaining
-
-### Phase 3: I3 Structure Additions
-- Next: Task 3.1 — `struct_MarketProfile` plugin
-- Plan location: `grep -n "Task 3.1" docs/plans/2026-03-01-intelligence-palette-expansion.md`
-- Pattern: create plugin + add fields to I3Structure (extra="forbid") + register in TIER_I3 + test
-
-### Phases 4–8: ~2-3 hours estimated
+### Fix 3: volume_events.py line 37 — falsy zero bug
+- Current: `bb_mid = features.get("bb_20_2_mid") or features.get("bb_mid")`
+- Fix: `bb_mid = features.get("bb_20_2_mid"); bb_mid = features.get("bb_mid") if bb_mid is None else bb_mid`
+- Or: explicit None check pattern
 
 ---
 
-## Decisions Made
+## Work Remaining After Fixes
 
-1. TIER_I2 = 5 plugins (MAComposite stays in TIER_I1)
-2. common.py helpers shared across all I2 plugins (simplifier extracted)
-3. _prev_i1_features keyed by "{symbol}:{tf}", set before pipeline runs
+Phase 3: I3 Structure Additions (register_plugins.py was already updated by simplifier — check TIER_I3 includes market_profile, session_levels, anchored_vwap, fib_zones)
 
 ---
 
 ## Next Action
 
-Phase 2 done. Start Phase 3, Task 3.1:
-```
-grep -n "Task 3.1" docs/plans/2026-03-01-intelligence-palette-expansion.md
-```
-I3 plugins receive frames["main"] (pd.DataFrame) + frames["features"]. I3Structure uses extra="forbid" so new fields must be added to schemas.py explicitly.
+1. Apply the 3 fixes above
+2. Run tests: `.venv/bin/pytest tests/unit/ -q`
+3. Run ruff: `.venv/bin/ruff check .`
+4. Commit: `git commit -m "refactor(i2): consolidate is_num/crossover_detect into common.py"`
+5. Then proceed to Phase 3 (Task 3.1 MarketProfile is already registered per system reminder)
