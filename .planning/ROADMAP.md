@@ -273,4 +273,8 @@ Items decided but not yet scheduled. Pull into a milestone when ready.
 | Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence plugins. | — |
 | Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
 | Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
+| Derivative Oscillator I2 | Constance Brown: RSI → EMA(5) → EMA(3) → subtract SMA(9). Smoothed zero-line oscillator that leads MACD by 1-2 bars. Clean I2 pattern. | `ideas/2nd-derivative-indicator-research.md` |
+| MACD Histogram Accel | Extend MACDEventsPlugin with `macd_hist_accel` + `macd_hist_contracting` flag. ~10 lines. Early warning of trend exhaustion. | `ideas/2nd-derivative-indicator-research.md` |
+| AC Oscillator I1 | Bill Williams: AO = SMA(midpoint,5) − SMA(midpoint,34); AC = AO − SMA(AO,5). 2nd derivative of midpoint momentum. New signal family. | `ideas/2nd-derivative-indicator-research.md` |
 | HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
+| Ehlers Elegant Oscillator I1 | 2-bar price diff → RMS normalize → inverse Fisher transform → SuperSmoother IIR. Near-zero-lag cycle oscillator. Medium-high complexity. | `ideas/2nd-derivative-indicator-research.md` |
