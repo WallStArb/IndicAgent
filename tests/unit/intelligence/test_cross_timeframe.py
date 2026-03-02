@@ -190,3 +190,32 @@ class TestCrossTimeframeConfluence:
         }
         result = plugin.compute_full(frames)
         assert -1.0 <= result["ctf_score"] <= 1.0
+
+    def test_stale_intel_has_less_weight(self, plugin):
+        """Fresh 5m bullish intel should outweigh stale 1h bearish intel."""
+        frames = {
+            "main": None,
+            "features": _bullish_intel(),
+            "intel_5m": _bullish_intel(),      # fresh: bars_since=0 → weight=1.0
+            "intel_1h": _bearish_intel(),       # stale: bars_since=10 → weight≈0.09
+            "intel_5m_bars_since": 0,
+            "intel_1h_bars_since": 10,
+        }
+        result = plugin.compute_full(frames)
+        # Fresh bullish 5m dominates stale bearish 1h → positive score
+        assert result["ctf_score"] > 0
+        assert result["ctf_trend_alignment"] > 0
+
+    def test_smc_bos_alignment_present_in_output(self, plugin):
+        """i6_smc_bos_alignment and placeholder SMC fields appear in output."""
+        frames = {
+            "main": None,
+            "features": _bullish_intel(),
+            "intel_5m": _bullish_intel(),
+        }
+        result = plugin.compute_full(frames)
+        assert "i6_smc_bos_alignment" in result
+        assert "i6_fvg_tf_alignment" in result
+        assert "i6_ob_tf_alignment" in result
+        assert result["i6_fvg_tf_alignment"] == 0.0
+        assert result["i6_ob_tf_alignment"] == 0.0

@@ -565,7 +565,7 @@ class I6Confluence(BaseModel):
     """I6 cross-timeframe confluence outputs.
 
     Plugins:
-    - CrossTimeframeConfluence (6 fields)
+    - CrossTimeframeConfluence (9 fields)
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -577,6 +577,11 @@ class I6Confluence(BaseModel):
     ctf_regime_agreement: float | None = None
     ctf_timeframes_aligned: float | None = None
     ctf_highest_aligned_tf: float | None = None
+
+    # SMC cross-TF alignment sub-scores
+    i6_smc_bos_alignment: float | None = None
+    i6_fvg_tf_alignment: float | None = None
+    i6_ob_tf_alignment: float | None = None
 
 
 class IntelligenceEvent(BaseModel):
