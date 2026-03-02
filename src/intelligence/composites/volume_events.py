@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from .common import is_num
 
 
 @dataclass
@@ -34,7 +35,7 @@ class VolumeEventsPlugin:
         bb_upper = features.get("bb_20_2_upper")
         bb_lower = features.get("bb_20_2_lower")
         bb_mid = features.get("bb_20_2_mid") or features.get("bb_mid")
-        if not isinstance(close, (int, float)):
+        if not is_num(close):
             return {}
 
         out: dict[str, Any] = {}
@@ -42,8 +43,8 @@ class VolumeEventsPlugin:
         # Volume spike / drying
         vol_sma = features.get("volume_sma_20")
         vol_std = features.get("volume_std_20")
-        if isinstance(volume, (int, float)) and isinstance(vol_sma, (int, float)) and vol_sma > 0:
-            if isinstance(vol_std, (int, float)) and vol_std > 0:
+        if is_num(volume) and is_num(vol_sma) and vol_sma > 0:
+            if is_num(vol_std) and vol_std > 0:
                 z = (volume - vol_sma) / vol_std
                 out["vol_spike"] = 1 if z > self._SPIKE_SIGMA else 0
             else:
@@ -54,15 +55,15 @@ class VolumeEventsPlugin:
             out["vol_drying"] = 0
 
         # BB band touches
-        if isinstance(bb_upper, (int, float)) and isinstance(bb_lower, (int, float)):
+        if is_num(bb_upper) and is_num(bb_lower):
             bb_width = bb_upper - bb_lower
             touch_threshold = bb_width * self._BB_TOUCH_PCT
             out["bb_upper_touch"] = 1 if abs(close - bb_upper) <= touch_threshold else 0
             out["bb_lower_touch"] = 1 if abs(close - bb_lower) <= touch_threshold else 0
 
             # Walking the band: 3+ closes above/below midline
-            above_mid = 1 if (isinstance(bb_mid, (int, float)) and close > bb_mid) else 0
-            below_mid = 1 if (isinstance(bb_mid, (int, float)) and close < bb_mid) else 0
+            above_mid = 1 if (is_num(bb_mid) and close > bb_mid) else 0
+            below_mid = 1 if (is_num(bb_mid) and close < bb_mid) else 0
             self._state["above_mid_streak"] = (self._state.get("above_mid_streak", 0) + 1) if above_mid else 0
             self._state["below_mid_streak"] = (self._state.get("below_mid_streak", 0) + 1) if below_mid else 0
             out["bb_walking_upper"] = 1 if self._state["above_mid_streak"] >= self._WALK_BARS else 0

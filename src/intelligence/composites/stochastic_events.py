@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from .common import is_num, crossover_detect, threshold_cross
 
 
 @dataclass
@@ -21,11 +22,15 @@ class StochasticEventsPlugin:
     capability_tags: set[str] = field(default_factory=lambda: frozenset({"momentum"}))
     inputs: list[InputSpec] = field(default_factory=list)
 
+    # Constants
+    _STOCH_OVERSOLD: float = 20.0
+    _STOCH_OVERBOUGHT: float = 80.0
+
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = frames.get("features") or {}
         k = features.get("stoch_k_14_3")
         d = features.get("stoch_d_14_3")
-        if not (isinstance(k, (int, float)) and isinstance(d, (int, float))):
+        if not is_num(k) or not is_num(d):
             return {}
 
         prev = frames.get("prev_features") or {}
@@ -33,20 +38,20 @@ class StochasticEventsPlugin:
         pd_val = prev.get("stoch_d_14_3")
 
         out: dict[str, Any] = {}
-        cross_bull = 0
-        cross_bear = 0
-        if isinstance(pk, (int, float)) and isinstance(pd_val, (int, float)):
-            cross_bull = 1 if pk <= pd_val and k > d else 0
-            cross_bear = 1 if pk >= pd_val and k < d else 0
+        cross_bull, cross_bear = crossover_detect(pk, k, pd_val, d)
         out["stoch_cross_bullish"] = cross_bull
         out["stoch_cross_bearish"] = cross_bear
 
         # K crossing 20/80 thresholds
-        out["stoch_oversold_reversal"] = 1 if isinstance(pk, (int, float)) and pk < 20 <= k else 0
-        out["stoch_overbought_reversal"] = 1 if isinstance(pk, (int, float)) and pk > 80 >= k else 0
+        out["stoch_oversold_reversal"] = threshold_cross(
+            pk, k, self._STOCH_OVERSOLD, "up"
+        )
+        out["stoch_overbought_reversal"] = threshold_cross(
+            pk, k, self._STOCH_OVERBOUGHT, "down"
+        )
 
-        out["stoch_both_oversold"] = 1 if k < 20 and d < 20 else 0
-        out["stoch_both_overbought"] = 1 if k > 80 and d > 80 else 0
+        out["stoch_both_oversold"] = 1 if k < self._STOCH_OVERSOLD and d < self._STOCH_OVERSOLD else 0
+        out["stoch_both_overbought"] = 1 if k > self._STOCH_OVERBOUGHT and d > self._STOCH_OVERBOUGHT else 0
 
         return out
 

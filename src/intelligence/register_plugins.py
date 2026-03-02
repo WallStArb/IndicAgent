@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from .composites.adx_events import plugin as adx_events_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
+from .composites.macd_events import plugin as macd_events_plugin
+from .composites.rsi_events import plugin as rsi_events_plugin
+from .composites.stochastic_events import plugin as stoch_events_plugin
+from .composites.volume_events import plugin as volume_events_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
@@ -90,6 +95,13 @@ def register_all_plugins() -> None:
     registry.register_indicator(psar_plugin)
     registry.register_indicator(stoch_rsi_plugin)
 
+    # I2: Composite event plugins — run on I1 features, before I3
+    registry.register_pattern(macd_events_plugin)
+    registry.register_pattern(rsi_events_plugin)
+    registry.register_pattern(stoch_events_plugin)
+    registry.register_pattern(adx_events_plugin)
+    registry.register_pattern(volume_events_plugin)
+
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)
     registry.register_pattern(vol_div_plugin)
@@ -168,6 +180,14 @@ TIER_I1: list[str] = [
     hv_plugin.name,
     psar_plugin.name,
     stoch_rsi_plugin.name,
+]
+
+TIER_I2: list[str] = [
+    macd_events_plugin.name,
+    rsi_events_plugin.name,
+    stoch_events_plugin.name,
+    adx_events_plugin.name,
+    volume_events_plugin.name,
 ]
 
 TIER_I3: list[str] = [

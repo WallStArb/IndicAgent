@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from .common import is_num, crossover_detect, threshold_cross, track_bars_ago
 
 
 @dataclass
@@ -22,12 +23,16 @@ class ADXEventsPlugin:
     inputs: list[InputSpec] = field(default_factory=list)
     _state: dict = field(default_factory=dict)
 
+    # Constants
+    _ADX_TREND_THRESHOLD: float = 25.0
+    _ADX_RANGE_THRESHOLD: float = 20.0
+
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = frames.get("features") or {}
         adx = features.get("adx_14")
         plus_di = features.get("plus_di_14")
         minus_di = features.get("minus_di_14")
-        if not all(isinstance(v, (int, float)) for v in [adx, plus_di, minus_di]):
+        if not all(is_num(v) for v in [adx, plus_di, minus_di]):
             return {}
 
         prev = frames.get("prev_features") or {}
@@ -38,30 +43,23 @@ class ADXEventsPlugin:
         out: dict[str, Any] = {}
 
         # ADX threshold crossings
-        trend_confirmed = 0
-        ranging_confirmed = 0
-        if isinstance(prev_adx, (int, float)):
-            trend_confirmed = 1 if prev_adx < 25 <= adx else 0
-            ranging_confirmed = 1 if prev_adx > 20 >= adx else 0
-        out["adx_trend_confirmed"] = trend_confirmed
-        out["adx_ranging_confirmed"] = ranging_confirmed
+        out["adx_trend_confirmed"] = threshold_cross(
+            prev_adx, adx, self._ADX_TREND_THRESHOLD, "up"
+        )
+        out["adx_ranging_confirmed"] = threshold_cross(
+            prev_adx, adx, self._ADX_RANGE_THRESHOLD, "down"
+        )
 
         # DI crossovers
-        di_cross_bull = 0
-        di_cross_bear = 0
-        if isinstance(prev_plus, (int, float)) and isinstance(prev_minus, (int, float)):
-            di_cross_bull = 1 if prev_plus <= prev_minus and plus_di > minus_di else 0
-            di_cross_bear = 1 if prev_plus >= prev_minus and plus_di < minus_di else 0
+        di_cross_bull, di_cross_bear = crossover_detect(
+            prev_plus, plus_di, prev_minus, minus_di
+        )
         out["di_cross_bullish"] = di_cross_bull
         out["di_cross_bearish"] = di_cross_bear
 
-        if di_cross_bull or di_cross_bear:
-            self._state["di_cross_bars_ago"] = 0.0
-        else:
-            self._state["di_cross_bars_ago"] = float(
-                min(self._state.get("di_cross_bars_ago", 999) + 1, 999)
-            )
-        out["di_cross_bars_ago"] = self._state["di_cross_bars_ago"]
+        out["di_cross_bars_ago"] = track_bars_ago(
+            self._state, "di_cross_bars_ago", di_cross_bull or di_cross_bear
+        )
         out["di_spread"] = float(plus_di - minus_di)
 
         return out
