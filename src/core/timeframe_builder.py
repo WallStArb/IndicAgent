@@ -315,6 +315,7 @@ class TimeframeBuilder:
                         self._last_ids[stream_key] = "$"
 
                 # XREAD with tracked cursors — never resets to "$" per iteration
+                # Pass cursor dict directly (xread expects dict as first positional arg)
                 messages = await redis.xread(self._last_ids, block=1000, count=100)
 
                 for stream_key, msgs in (messages or []):
@@ -377,6 +378,7 @@ class TimeframeBuilder:
             # Allow volume=0 for crypto paper trading (IBKR returns volume=0 with real prices)
             if volume == 0 and close == 0.0:
                 continue
+
             new_period_ts = _floor_to_period(ts_seconds, tf_minutes)
             acc = self._accumulators[symbol][tf]
 
