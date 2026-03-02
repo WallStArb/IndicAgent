@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.8.0
-Last Updated: 2026-03-01
-Status: I1-I8 pipeline complete — 63 plugins + 2 aggregation components + feature store + typed intelligence bus, 803 tests, 0 ruff errors, 24 contracts
+Version: 5.9.0
+Last Updated: 2026-03-02
+Status: I1-I8 pipeline complete — 78 plugins + 2 aggregation components + feature store + typed intelligence bus, 910 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -146,13 +146,19 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - `signal_ledger` — all I7 signals with outcome tracking; JOIN to `intelligence_features` via `(symbol, feature_ts, feature_tf)`
 - Continuous aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 
-## Plugin System (63 total)
+## Plugin System (78 total + 2 aggregation)
 
-### I1 Technical Indicators (24 plugins) — all incremental `compute_next()`
+### I1 Technical Indicators (23 plugins) — all incremental `compute_next()`
 Trend, Momentum, Volatility, Volume — full list in `src/intelligence/register_plugins.py:TIER_I1`
 
-### I3 Structure (3) · I4 Context (5) · I5 Patterns (8) · I6 SMC (8) · I6 Confluence (1)
-GARCH volatility + Kalman trend in I4. BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand in I6 SMC.
+### I2 Composite Events (5 plugins) — run on I1 features, before I3
+MAComposite, MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents — detect crossovers, threshold crosses, band touches. Defined in `src/intelligence/composites/`. Shared utilities in `common.py` (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`).
+
+### I3 Structure (7) · I4 Context (7) · I5 Patterns (14) · I6 SMC (8) · I6 Confluence (1)
+- **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones
+- **I4**: vol/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility
+- **I5**: RSI divergence, squeeze, vol divergence, confluence, trend confluence, DoubleTopBottom, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction
+- **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps
 
 ### I7 Trading Setups (14 plugins) + Aggregation (2 components)
 TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition. Signal aggregator, cross-timeframe confluence.
@@ -188,7 +194,7 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
   - IBKR localSymbol differs for FX/crypto (EUR.USD vs EURUSD) — `_local_to_canonical` in IBKRProvider handles this
 - **DragonflyDB**: Does not support Redis modules — `TS.*` (TimeSeries) and RediSearch native module commands are unavailable. Use TimescaleDB for time series storage.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
-- **Plugin protocol**: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant.
+- **Plugin protocol**: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant. Use `frozenset[str]` for `outputs`/`capability_tags` and `tuple[InputSpec, ...]` for `inputs` — not `set[str]`/`list[InputSpec]`.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
 
 ## System Access
@@ -201,24 +207,10 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ## Current Status
 
-**Tests:** 803 passing
+**Tests:** 910 passing
 **Ruff:** 0 errors ✅
-**Pipeline:** I1→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (v1.0 Phases 0–9 complete)
-**Roadmap:** See `.planning/ROADMAP.md` — v1.1 Phase 01 (Code Quality Sprint) in progress
-
-### Phase 6 Status (dashboard-connected)
-- ✅ 06-01: TimeframeBuilder dedup + per-TF min_history + `currency="USD"` qualify fix + Stochastic InputSpec wildcard
-- ✅ 06-02: SSE `event.tf` bug fixed, session tracking, Price Hero bid/ask/last + dual % change + flash animation
-- ✅ 06-03: SmartMoneyPanel extended with HMM regime + BSL/SSL liquidity zones
-- ✅ 06-04 (partial): Dashboard UX — drill panel reads `intelligenceByTf[tf]`, signal panel shows entry/SL/TP/RR, TF-matched narrative cards, per-TF signals (1m/5m/15m/1h), AI narrative consumer group backlog fix (`"$"` + `xgroup_setid`)
-- ⏸ 06-04: Human verification skipped — proceeding to Phase 7 CIS
-
-### Phase 7 Status (composite-intelligence-score) — COMPLETE
-- ✅ 07-01: 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition)
-- ✅ 07-02: CISScorer 6-bucket weighted scorer, aggregator rewrite, REGIME_ELIGIBILITY filter, signal_ledger +4 cols, migration 011
-- ✅ 07-03: WeightUpdater (sklearn LogisticRegression), cis_weights table (migration 012), signal_quality on exit
-- ✅ 07-04: at_limit / at_pullback entry types in trade_framer.py
-- **HMM fix (2026-02-28):** `macd_hist_12_26_9` → `macd_histogram_12_26_9` — enables 5D mode; HMM now correctly detects TREND↑/TREND↓ across assets
+**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (v1.0 + v1.1 complete)
+**Roadmap:** See `.planning/ROADMAP.md` — v1.1 complete. Next milestone TBD.
 
 ### ai_narrative_service key facts
 - Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
