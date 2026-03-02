@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 5.8.0 | **Status:** v1.0 Shipped | 63 plugins · 803 tests · 24 contracts
+**Version:** 5.10.0 | **Status:** v5.10.0 Shipped | 84 plugins · 965 tests · 24 contracts
 
 ---
 
@@ -10,13 +10,13 @@
 
 IndicAgent is an **institutional-grade, real-time market intelligence platform** for futures trading — built from the ground up around a plugin-native architecture, a typed intelligence bus, and a zero-database live pipeline that keeps end-to-end latency in the sub-millisecond range.
 
-Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD), which converge in a cross-timeframe confluence engine that outputs **scored, structured trading setups** — capped by an LLM narrative synthesis layer that turns machine signals into natural language market analysis via a local Ollama model.
+Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators and composite event signals feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD, ICT killzones, AMC cycles, breaker/mitigation blocks), which converge in a cross-timeframe confluence engine that outputs **scored, structured trading setups** — capped by an LLM narrative synthesis layer that turns machine signals into natural language market analysis via a local Ollama model.
 
 Every output at every tier is encoded into a **canonical `IntelligenceEvent` — a versioned, typed Pydantic model** published to DragonflyDB streams. This isn't a logging format; it's the backbone of a **typed intelligence bus** that decouples producers from consumers, makes the pipeline replay-able for historical backfill, and feeds a TimescaleDB **feature store** purpose-built for ML training.
 
 The architecture is designed to be **externally consumable**: a FastAPI layer with JWT + API key auth exposes the full intelligence stream over SSE and REST, so any downstream application — a Vercel dashboard, a Slack bot, an algorithmic execution system, or an ML scoring model — subscribes to the same vetted, structured signal stream. The 8 services are fully systemd-managed with Prometheus metrics on each, making production operation as straightforward as running any other infrastructure daemon.
 
-**The result:** a platform that ingests 100–500+ ticks/sec across 24 contracts (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 63 intelligence plugins in a strict DAG, and delivers structured, AI-enriched trading intelligence to any connected consumer — all without a database anywhere in the hot path.
+**The result:** a platform that ingests 100–500+ ticks/sec across 24 contracts (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 84 intelligence plugins in a strict DAG, and delivers structured, AI-enriched trading intelligence to any connected consumer — all without a database anywhere in the hot path.
 
 ---
 
@@ -26,7 +26,7 @@ The architecture is designed to be **externally consumable**: a FastAPI layer wi
 |--------|--------|
 | **Data in** | IBKR TWS: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **EURUSD**, **GBPUSD**, **USDJPY**, **USDCHF** (spot FX); **BTCUSD**, **ETHUSD**, **SOLUSD** (spot crypto). 24 contracts, 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives, group narratives); TimescaleDB feature store |
-| **Intelligence** | 63 plugins: I1 (23), I3 (3), I4 (5), I5 (8), I6 SMC (6), I6 confluence (1), I7 setups (14) + 4 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
+| **Intelligence** | 84 plugins: I1 (23), I2 (5), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (14) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16.1 / React 19.2, Ollama |
 | **Deployment** | 8 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
 
@@ -62,7 +62,7 @@ market:SYMBOL:1m + 5m/15m/1h/4h/1d (multi-TF)
     │
     ▼
 indicator_service
-(23 I1 plugins, incremental; multi-TF bar aggregation)
+(23 I1 plugins, incremental; multi-TF bar aggregation; I2 composite events)
 one combined indicators message per bar + TF
     │
     ▼
@@ -70,7 +70,7 @@ indicators:SYMBOL:TF
     │
     ▼
 market_analysis_service
-(structure → context → patterns → SMC → confluence → IntelligenceEvent)
+(I1 → I2 events → structure → context → patterns → SMC → confluence → IntelligenceEvent)
     │
     ▼
 intelligence:SYMBOL:TF  ─────────────────────────► feature_writer_service
@@ -91,7 +91,7 @@ ai_narrative_service ──────────────► narratives:SY
 | Service | Single Responsibility | Port |
 |---------|----------------------|------|
 | `market_data_daemon` | IBKR connection, tick ingest, 1m bar formation | — |
-| `indicator_service` | 23 I1 technical indicators (incremental) + multi-TF aggregation | 9109 |
+| `indicator_service` | 23 I1 technical indicators + 5 I2 composite events (incremental) + multi-TF aggregation | 9109 |
 | `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | 9114 |
 | `signal_generator_service` | I7 setup plugins, signal aggregation, ledger inserts | 9112 |
 | `signal_tracker_service` | Open signal lifecycle tracking (stop/target/TTL) | 9115 |
@@ -121,12 +121,12 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 | Tier | Name | Purpose | Status |
 |------|------|---------|--------|
 | **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, etc. (23 plugins) | Operational |
-| **I2** | Composites | Crossovers, slopes, distances | Operational (composites/) |
-| **I3** | Market structure | Swings (HH/HL/LH/LL), support/resistance, trend structure (3 plugins) | Operational |
-| **I4** | Context | Volatility regime, trend regime, momentum context, GARCH, Kalman trend (5 plugins) | Operational |
-| **I5** | Patterns | RSI divergence, Bollinger squeeze, volume divergence, confluence, chart patterns (8 plugins) | Operational |
-| **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD, HMM; cross-timeframe confluence | Operational |
-| **I7** | Trading outputs | 14 setup plugins; CIS scorer (6-bucket weighted), signal aggregation (ledger, aggregator, lifecycle, sizer, weight updater) | Operational |
+| **I2** | Composite events | MACD crossovers, RSI events, Stochastic events, ADX events, Volume events (5 plugins) | Operational |
+| **I3** | Market structure | Swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones (7 plugins) | Operational |
+| **I4** | Context | Volatility/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility (7 plugins) | Operational |
+| **I5** | Patterns | RSI divergence, squeeze, vol divergence, confluence, trend confluence, chart patterns, volume profile, key level reaction (14 plugins) | Operational |
+| **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, HMM regime, liquidity pools, supply/demand, BOCPD, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount, cross-timeframe confluence (13 SMC + 1 confluence) | Operational |
+| **I7** | Trading outputs | 14 setup plugins; signal aggregator, cross-timeframe confluence | Operational |
 | **I8** | AI intelligence | AI Narrative Service (Ollama qwen3:8b per-signal + phi4-mini:3.8b group synthesis) | Operational |
 
 The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-02-28).
@@ -250,13 +250,13 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status
 
-**v1.0 shipped 2026-02-28. All 10 phases complete (Phases 0–9).**
+**v5.10.0 shipped 2026-03-02. Intelligence Palette Expansion complete.**
 
-- **I1–I8 pipeline:** Fully operational. 63 plugins, 4 aggregation components, typed intelligence bus, feature store, CIS scorer with adaptive weight learning.
+- **I1–I8 pipeline:** Fully operational. 84 plugins (I1:23, I2:5, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:14), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
 - **Dashboard:** Live — price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
 - **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups.
-- **Test suite:** 803 passing, 0 ruff errors.
-- **Next:** v1.1 — see [Roadmap](.planning/ROADMAP.md).
+- **Test suite:** 965 passing, 0 ruff errors.
+- **Next:** TBD — see [Roadmap](.planning/ROADMAP.md).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
 
@@ -273,4 +273,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 5.8.0 | **Status:** v1.0 shipped — I1–I8 complete, 63 plugins, 803 tests | **Next:** v1.1
+**Version:** 5.10.0 | **Status:** v5.10.0 shipped — I1–I8 complete, 84 plugins, 965 tests | **Next:** TBD
