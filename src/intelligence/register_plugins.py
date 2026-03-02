@@ -5,6 +5,7 @@ from .composites.ma_composites import plugin as ma_compare_plugin
 from .composites.macd_events import plugin as macd_events_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
 from .composites.stochastic_events import plugin as stoch_events_plugin
+from .composites.momentum_accel import plugin as momentum_accel_plugin
 from .composites.volume_events import plugin as volume_events_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
@@ -118,6 +119,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(stoch_events_plugin)
     registry.register_pattern(adx_events_plugin)
     registry.register_pattern(volume_events_plugin)
+    registry.register_pattern(momentum_accel_plugin)
 
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)
@@ -222,6 +224,7 @@ TIER_I2: list[str] = [
     stoch_events_plugin.name,
     adx_events_plugin.name,
     volume_events_plugin.name,
+    momentum_accel_plugin.name,
 ]
 
 TIER_I3: list[str] = [
