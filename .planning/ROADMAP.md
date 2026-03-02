@@ -22,14 +22,6 @@
 - [x] Phase 8: Integration Fix & Cleanup (3/3 plans) — completed 2026-02-28
 - [x] Phase 9: Milestone Verification (3/3 plans) — completed 2026-02-28
 
-**v1.2 Intelligence Palette Expansion — phases completed:**
-- [x] Phase 02: I2 Composite Events — 5 plugins, 0 plans (2026-02-27)
-- [x] Phase 03: I5 Chart Patterns — +6 new plugins (2026-02-27)
-- [x] Phase 04: I6 SMC Plugins — +5 new SMC plugins (2026-02-27)
-- [x] Phase 05: I6 Confluence Refactor — recency weighting + I2 events (2026-03-02)
-- [x] Phase 06: I1-I6 Correctness Audit — 35 tests (2026-03-02)
-- [x] Phase 07: Final Verification & Documentation — 965 tests, v5.10.0 (2026-03-02)
-
 Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
@@ -38,6 +30,18 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 <summary>✅ v1.1 Code Quality Sprint — COMPLETE 2026-03-01</summary>
 
 - [x] **Phase 01: Code Quality Sprint** — ruff 206 → 0, 803 tests passing, VX rolled to VXM6
+
+</details>
+
+<details>
+<summary>✅ v1.2 Intelligence Palette Expansion — COMPLETE 2026-03-02</summary>
+
+- [x] Phase 02: I2 Composite Events — 5 plugins (2026-02-27)
+- [x] Phase 03: I5 Chart Patterns — +6 new plugins (2026-02-27)
+- [x] Phase 04: I6 SMC Plugins — +5 new SMC plugins (2026-02-27)
+- [x] Phase 05: I6 Confluence Refactor — recency weighting + I2 events (2026-03-02)
+- [x] Phase 06: I1-I6 Correctness Audit — 35 tests (2026-03-02)
+- [x] Phase 07: Final Verification & Documentation — 965 tests, v5.10.0 (2026-03-02)
 
 </details>
 
@@ -159,6 +163,12 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 8. Integration Fix & Cleanup | v1.0 | 3/3 | Complete | 2026-02-28 |
 | 9. Milestone Verification | v1.0 | 3/3 | Complete | 2026-02-28 |
 | 01. Code Quality Sprint | v1.1 | 1/1 | Complete | 2026-03-01 |
+| 02. I2 Composite Events | v1.2 | — | Complete | 2026-02-27 |
+| 03. I5 Chart Patterns | v1.2 | — | Complete | 2026-02-27 |
+| 04. I6 SMC Plugins | v1.2 | — | Complete | 2026-02-27 |
+| 05. I6 Confluence Refactor | v1.2 | — | Complete | 2026-03-02 |
+| 06. I1-I6 Correctness Audit | v1.2 | — | Complete | 2026-03-02 |
+| 07. Final Verification | v1.2 | — | Complete | 2026-03-02 |
 
 ## Backlog
 
