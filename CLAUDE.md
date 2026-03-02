@@ -32,6 +32,9 @@ IDEAS → ANALYSIS → BACKLOG → TODOS → ROADMAP → PLANS
 
 ## Required Workflows
 
+### Pre-Commit Quality Gate (Mandatory)
+Before committing any code change, run `/simplify` to review for reuse/quality/efficiency issues, then `/coderabbit:code-review` for comprehensive code quality and security checks. This catches bugs, security vulnerabilities, and technical debt before they reach main.
+
 ### Post-Milestone Housekeeping
 After completing a milestone: `git push origin main`, push tag (`git push origin vX.Y`), run `/gsd:cleanup` to archive phases, update README stats (version, plugin count, test count).
 
@@ -51,6 +54,7 @@ After completing a milestone: `git push origin main`, push tag (`git push origin
 
 ### After Major Changes
 - `revise-claude-md` — Update this file with session learnings
+- `verification-before-completion` — Run full test suite + lint before claiming done
 - `requesting-code-review` — Review own work quality before merge
 
 ### Library & Framework Documentation
@@ -170,6 +174,8 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 `TIER_I1`…`TIER_I7` constants in `src/intelligence/register_plugins.py`. Services import them — do NOT define local string lists. `registry.validate_tier()` hard-crashes at startup on any missing name.
 
 ## Development Standards
+
+**Code Quality Security:** No dedicated security scanning tools installed (bandit/safety/snyk not available). CodeRabbit review (`/coderabbit:code-review`) catches security issues alongside quality concerns. For production deployment, consider adding `bandit` (Python security linter) or `safety` (dependency vulnerability scanner).
 
 ### Current Contracts (24 — front-month as of Feb 2026)
 ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, ZF, ZB, ZT (rates) · VX (volatility) · ZS, ZC, ZW (agriculture) · EURUSD, GBPUSD, USDJPY, USDCHF (spot FX/IDEALPRO) · BTCUSD, ETHUSD, SOLUSD (spot crypto/PAXOS)
