@@ -250,7 +250,9 @@ class I4Context(BaseModel):
     - MomentumContext (4 fields)
     - GARCHVolatility (4 fields)
     - KalmanTrend (7 fields)
-    Total: 24 fields
+    - SessionContext (12 fields)
+    - MTFVolatility (4 fields)
+    Total: 40 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -288,6 +290,26 @@ class I4Context(BaseModel):
     kalman_upper: float | None = None
     kalman_lower: float | None = None
     kalman_gain: float | None = None
+
+    # SessionContextPlugin outputs
+    session_asia: float | None = None
+    session_london: float | None = None
+    session_ny: float | None = None
+    session_london_ny_overlap: float | None = None
+    session_after_hours: float | None = None
+    in_london_killzone: float | None = None
+    in_ny_killzone: float | None = None
+    minutes_to_ny_open: float | None = None
+    minutes_to_london_open: float | None = None
+    bars_since_session_start: float | None = None
+    is_monday: float | None = None
+    is_friday: float | None = None
+
+    # MTFVolatilityPlugin outputs
+    mtf_vol_expansion_15m: float | None = None
+    mtf_vol_expansion_1h: float | None = None
+    squeeze_within_expansion: float | None = None
+    vol_divergence_score: float | None = None
 
 
 class I5Patterns(BaseModel):
