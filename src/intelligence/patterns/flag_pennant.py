@@ -17,7 +17,7 @@ class FlagPennantPlugin:
     """Detect bull/bear flag and pennant continuation patterns."""
 
     name: str = "patt_FlagPennant"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "flag_pattern",
             "pennant_pattern",
@@ -27,8 +27,8 @@ class FlagPennantPlugin:
     )
     min_lookback: int = _LOOKBACK
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
+    capability_tags: frozenset[str] = frozenset({"pattern"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -60,7 +60,7 @@ class FlagPennantPlugin:
         # Detect impulse: consecutive above-avg range bars with net directional move
         impulse_move = float(impulse_window[-1] - impulse_window[0])
         impulse_magnitude = abs(impulse_move)
-        impulse_direction = 1.0 if impulse_move > 0 else -1.0
+        impulse_direction = 1.0 if impulse_move > 0 else (-1.0 if impulse_move < 0 else 0.0)
 
         # Impulse must be strong: > 1.5× average range per bar
         avg_impulse_range = float(np.mean(impulse_ranges))
@@ -94,8 +94,23 @@ class FlagPennantPlugin:
         consol_highs = high[-_CONSOL_BARS:]
         consol_lows = low[-_CONSOL_BARS:]
 
-        upper_slope = float(np.polyfit(x, consol_highs, 1)[0])
-        lower_slope = float(np.polyfit(x, consol_lows, 1)[0])
+        try:
+            upper_slope = float(np.polyfit(x, consol_highs, 1)[0])
+            lower_slope = float(np.polyfit(x, consol_lows, 1)[0])
+        except (np.linalg.LinAlgError, ValueError):
+            return {
+                "flag_pattern": 0.0,
+                "pennant_pattern": 0.0,
+                "flag_breakout_target": None,
+                "consolidation_compression_ratio": round(compression_ratio, 4),
+            }
+        if np.isnan(upper_slope) or np.isnan(lower_slope):
+            return {
+                "flag_pattern": 0.0,
+                "pennant_pattern": 0.0,
+                "flag_breakout_target": None,
+                "consolidation_compression_ratio": round(compression_ratio, 4),
+            }
 
         # Flag: slopes same sign (both falling or both rising after impulse)
         flag_pattern = 0.0

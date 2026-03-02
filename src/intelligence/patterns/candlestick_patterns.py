@@ -11,7 +11,7 @@ class CandlestickPatternsPlugin:
     """Single and two-bar candlestick pattern detection."""
 
     name: str = "patt_CandlestickPatterns"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "engulfing_bull",
             "engulfing_bear",
@@ -26,8 +26,8 @@ class CandlestickPatternsPlugin:
     )
     min_lookback: int = 2
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
+    capability_tags: frozenset[str] = frozenset({"pattern"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

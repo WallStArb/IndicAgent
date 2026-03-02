@@ -18,7 +18,7 @@ class CupHandlePlugin:
     """Detect cup-and-handle continuation pattern."""
 
     name: str = "patt_CupHandle"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "cup_handle_pattern",
             "cup_depth_pct",
@@ -27,19 +27,19 @@ class CupHandlePlugin:
     )
     min_lookback: int = _MIN_CUP_BARS + _HANDLE_BARS
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=80),)
+    capability_tags: frozenset[str] = frozenset({"pattern"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=80),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
         if df is None or len(df) < self.min_lookback:
-            return {}
+            return {"cup_handle_pattern": 0.0, "cup_depth_pct": None, "cup_handle_target": None}
 
         close = df["close"].to_numpy(dtype=float)
 
-        # Try cup sizes from max to min
-        for cup_len in range(min(_MAX_CUP_BARS, len(close) - _HANDLE_BARS), _MIN_CUP_BARS, -5):
+        # Try cup sizes from max to min (inclusive of _MIN_CUP_BARS)
+        for cup_len in range(min(_MAX_CUP_BARS, len(close) - _HANDLE_BARS), _MIN_CUP_BARS - 1, -5):
             handle_end = len(close)
             handle_start = handle_end - _HANDLE_BARS
             cup_end = handle_start

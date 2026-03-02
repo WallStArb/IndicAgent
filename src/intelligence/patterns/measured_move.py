@@ -13,7 +13,7 @@ class MeasuredMovePlugin:
     """ABCD measured-move pattern using swing high/low features."""
 
     name: str = "patt_MeasuredMove"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "abcd_pattern_active",
             "abcd_direction",
@@ -23,8 +23,8 @@ class MeasuredMovePlugin:
     )
     min_lookback: int = 5
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
+    capability_tags: frozenset[str] = frozenset({"pattern"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -37,7 +37,8 @@ class MeasuredMovePlugin:
         swing_low = features.get("swing_low")
         swing_high_idx = features.get("swing_high_idx")
         swing_low_idx = features.get("swing_low_idx")
-        close = float(features.get("close") or df["close"].iloc[-1])
+        _close_feat = features.get("close")
+        close = float(_close_feat if _close_feat is not None else df["close"].iloc[-1])
 
         if not all(
             isinstance(v, (int, float))
@@ -70,11 +71,9 @@ class MeasuredMovePlugin:
             # C is current close if between A and B level
             c_point = close
             b_point = swing_low
-            a_point = swing_high
             bc_retracement = (c_point - b_point) / ab_range if ab_range > 0 else 0
             # Valid BC correction is 0.382–0.786 of AB
             if 0.30 <= bc_retracement <= 0.85:
-                d_target = c_point + (c_point - b_point) * (1 / bc_retracement - 1) * bc_retracement
                 d_target = b_point + ab_range  # symmetric: D = B + AB
                 direction = 1.0
                 denom = d_target - b_point
@@ -92,11 +91,9 @@ class MeasuredMovePlugin:
             # A=low, B=high, bearish ABCD
             c_point = close
             b_point = swing_high
-            a_point = swing_low
             bc_retracement = (b_point - c_point) / ab_range if ab_range > 0 else 0
             if 0.30 <= bc_retracement <= 0.85:
-                d_target = a_point - ab_range  # symmetric: D = A - AB
-                d_target = b_point - ab_range
+                d_target = swing_low - ab_range  # symmetric: D = A - AB (extends below A)
                 direction = -1.0
                 denom2 = b_point - d_target
                 completion_pct = (b_point - close) / denom2 if denom2 != 0 else 0.0

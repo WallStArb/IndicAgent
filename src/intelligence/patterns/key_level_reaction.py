@@ -18,7 +18,7 @@ class KeyLevelReactionPlugin:
     """Classify price behaviour at the nearest key level."""
 
     name: str = "patt_KeyLevelReaction"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "key_level_reaction_type",
             "key_level_confluence_count",
@@ -26,8 +26,8 @@ class KeyLevelReactionPlugin:
     )
     min_lookback: int = 3
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
+    capability_tags: frozenset[str] = frozenset({"pattern"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -36,7 +36,8 @@ class KeyLevelReactionPlugin:
             return {}
 
         features = frames.get("features") or {}
-        close = float(features.get("close") or df["close"].iloc[-1])
+        _close_feat = features.get("close")
+        close = float(_close_feat if _close_feat is not None else df["close"].iloc[-1])
         atr_14 = features.get("atr_14")
         proximity = float(atr_14) * 0.5 if isinstance(atr_14, (int, float)) and atr_14 > 0 else 0.0
 
