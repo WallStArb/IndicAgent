@@ -1,0 +1,68 @@
+"""Shared utilities for IndicAgent services.
+
+Centralises boilerplate that is otherwise copy-pasted across all six
+service files: logging setup and timeframe bar thresholds.
+"""
+
+from __future__ import annotations
+
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+import structlog
+
+# Minimum unique bars required before publishing per timeframe.
+# 1m uses 120 (2 hours) for plugin warm-up quality.
+# All higher TFs use 26 — enough for EMA-26 and Stochastic-14.
+_MIN_BARS_FOR_TF: dict[str, int] = {
+    "1m": 120,
+    "5m": 26,
+    "15m": 26,
+    "1h": 26,
+    "4h": 26,
+    "1d": 26,
+}
+
+
+def min_bars_for_tf(timeframe: str, default: int = 26) -> int:
+    """Return minimum unique bars required before emitting output for a given TF."""
+    return _MIN_BARS_FOR_TF.get(timeframe, default)
+
+
+def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:
+    """Configure structlog and stdlib logging for a service.
+
+    Creates the log directory if it does not exist, attaches a
+    10 MB rotating file handler, and applies the standard structlog
+    processor chain used by all IndicAgent services.
+
+    Should be called once during service ``__init__``, before the first
+    log statement.
+    """
+    log_dir = Path(log_file).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=10 * 1024 * 1024, backupCount=backup_count
+    )
+    structlog.configure(
+        processors=[
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.processors.JSONRenderer(),
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+    logging.basicConfig(
+        level=getattr(logging, level),
+        handlers=[file_handler],
+        format="%(message)s",
+    )

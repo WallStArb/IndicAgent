@@ -25,112 +25,164 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Stream:** `env:features:SYMBOL:TF`
 - **Examples:** RSI, MACD, SMA/EMA, Bollinger Bands, ATR, Stochastic, CCI, Williams %R, MFI, OBV
 
-#### **I2: Composite Indicators**
-**Purpose:** Create sophisticated indicators from I1 raw features
-**Intelligence Focus:** Mathematical relationships and derived intelligence metrics
+#### **I2: Composite Events**
+**Purpose:** Detect discrete market events from I1 features — runs before I3, results feed I3–I7
+**Intelligence Focus:** Crossover events, threshold crosses, band touches, regime signals
 
 - **Input:** I1 raw features
-- **Output:** `composite.v1` (crossovers, slopes, distances, z-scores, momentum combinations)
+- **Output:** Event flags, bar counts, magnitude readings published into the IntelligenceEvent payload
 - **Code Location:** `src/intelligence/composites/`
-- **Stream:** `env:composite:SYMBOL:TF`
-- **Examples:** MA crossovers, RSI divergences, momentum confirmations, volatility ratios
+- **Shared Utilities:** `common.py` — `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`
+- **Plugins (5):**
+  - `MACDEvents` — MACD line crossovers, histogram sign flips, zero-line crosses
+  - `RSIEvents` — overbought/oversold threshold crosses, bars-since tracking
+  - `StochasticEvents` — %K/%D crossovers, extreme zone entries/exits
+  - `ADXEvents` — ADX strength threshold events, DI+/DI− crossovers
+  - `VolumeEvents` — volume spike events, relative-volume threshold crosses
 
 #### **I3: Market Structure Analysis**
-**Purpose:** Identify structural patterns and key levels in market data
-**Intelligence Focus:** Market geometry, support/resistance, swing analysis
+**Purpose:** Identify structural patterns, key levels, and price geometry
+**Intelligence Focus:** Swing structure, support/resistance, market profile, session levels
 
 - **Input:** OHLCV bars + I1 features
-- **Output:** `composite.v1` (swings, pivots, HH/HL/LH/LL patterns, support/resistance touches)
+- **Output:** Structure data published into IntelligenceEvent `i3` JSONB field
 - **Code Location:** `src/intelligence/structure/`
-- **Stream:** `env:composite:SYMBOL:TF`
-- **Examples:** Swing highs/lows, pivot points, support/resistance levels, trend structure
+- **Plugins (7):**
+  - `SwingDetector` — HH/HL/LH/LL swing points, trend structure classification
+  - `SupportResistance` — pivot-based S/R level clustering with touch counts
+  - `TrendStructure` — higher-level trend structure (uptrend / downtrend / ranging)
+  - `MarketProfile` — POC, value area high/low, price distribution by volume
+  - `SessionLevels` — Asian / London / NY session high, low, midpoint
+  - `AnchoredVWAP` — VWAP anchored to swing points or session opens
+  - `FibonacciZones` — Fibonacci retracement and extension zones from swing range
 
 #### **I4: Market Context & Regime Detection**
-**Purpose:** Assess market conditions and regime classification
-**Intelligence Focus:** Market environment, volatility states, trend classification
+**Purpose:** Classify market environment — volatility state, trend regime, session context
+**Intelligence Focus:** Regime labeling, advanced statistical forecasting, multi-timeframe vol
 
-- **Input:** I1/I2/I3 with cross-asset joins
-- **Output:** `regime.v1` (trend/volatility regimes), `composite.v1` (technical sentiment)
+- **Input:** I1/I2/I3 features
+- **Output:** Context data published into IntelligenceEvent `i4` JSONB field
 - **Code Location:** `src/intelligence/context/`
-- **Streams:** `env:regime:MARKET|SYMBOL`, `env:composite:SYMBOL:TF`
-- **Examples:** Bull/bear/sideways regimes, high/low volatility states, risk-on/off sentiment
+- **Plugins (7):**
+  - `VolatilityRegime` — low / normal / high volatility state from ATR percentile
+  - `TrendRegime` — uptrend / downtrend / sideways with ADX-based strength
+  - `MomentumContext` — momentum state (accelerating / decelerating / neutral)
+  - `GARCHVolatility` — GARCH(1,1) one-step volatility forecast; gates I7 quality checks
+  - `KalmanTrend` — 1D Kalman filter, 7 outputs, optional GARCH-adaptive R matrix
+  - `SessionContext` — active trading session (Asian / London / NY / overlap)
+  - `MTFVolatility` — multi-timeframe volatility spread and compression detection
 
 ---
 
 ### **Pattern Intelligence (I5-I7)**
 
-#### **I5: Pattern Recognition (Mathematical & Institutional)**
-**Purpose:** Detect sophisticated market patterns and institutional behavior
-**Intelligence Focus:** Technical patterns, smart money analysis, institutional flow detection
+#### **I5: Pattern Recognition**
+**Purpose:** Detect chart patterns, divergences, squeezes, and confluence conditions
+**Intelligence Focus:** Classical chart patterns, momentum divergence, volume analysis, key level reactions
 
-- **Input:** I1–I4 comprehensive intelligence foundation
-- **Output:** `pattern.v1` (divergence, breakout, channel, FVG, liquidity sweep), `composite.v1` (supporting metrics)
+- **Input:** I1–I4 intelligence foundation
+- **Output:** Pattern data published into IntelligenceEvent `i5` JSONB field
 - **Code Location:** `src/intelligence/patterns/`
-- **Streams:** `env:patterns:SYMBOL:TF`, `env:composite:SYMBOL:TF`
-- **Examples:** MACD divergences, fair value gaps, liquidity sweeps, institutional accumulation patterns
+- **Plugins (14):**
+  - `RSIDivergence` — bullish/bearish RSI divergence vs price
+  - `BollingerSqueeze` — low-volatility squeeze detection + breakout direction
+  - `VolumeDivergence` — price-volume divergence (rising price / falling volume and inverse)
+  - `Confluence` — multi-indicator agreement scorer (RSI + MACD + Stochastic + Volume)
+  - `TrendConfluence` — trend-aligned multi-factor confluence scoring
+  - `DoubleTopBottom` — double top and double bottom pattern detection
+  - `HeadShoulders` — head & shoulders and inverse head & shoulders
+  - `TriangleWedge` — ascending / descending / symmetric triangle and wedge patterns
+  - `CandlestickPatterns` — engulfing, doji, hammer, shooting star, morning/evening star
+  - `FlagPennant` — flag and pennant continuation patterns with pole measurement
+  - `CupHandle` — cup and handle accumulation pattern
+  - `MeasuredMove` — measured move projection from completed swing segments
+  - `VolumeProfile` — volume distribution by price level (POC, VPOC, high-volume nodes)
+  - `KeyLevelReaction` — reaction strength at S/R key levels from I3
 
-#### **I6: Confluence Analysis & Risk Assessment**
-**Purpose:** Multi-factor intelligence synthesis and risk evaluation
-**Intelligence Focus:** Pattern validation, multi-timeframe confluence, risk-adjusted intelligence
+#### **I6 SMC: Smart Money Concepts**
+**Purpose:** Detect institutional order flow signatures — liquidity, structure breaks, order blocks
+**Intelligence Focus:** SMC framework: BOS/CHoCH, FVGs, order blocks, liquidity pools, regime detection
 
-- **Input:** I2–I5 pattern and indicator intelligence
-- **Output:** `composite.v1` (confluence scores, risk assessments, confidence metrics)
+- **Input:** I1–I5 intelligence + OHLCV
+- **Output:** SMC data published into IntelligenceEvent `smc` JSONB field
+- **Code Location:** `src/intelligence/smart_money/`
+- **Plugins (13):**
+  - `BOS_CHoCH` — break of structure and change of character detection
+  - `FairValueGap` — bullish/bearish FVG detection with fill tracking
+  - `OrderBlocks` — bullish/bearish order block identification
+  - `LiquiditySweeps` — sweep of buyside/sellside liquidity with reclaim confirmation
+  - `BOCPDChangepoint` — Bayesian online changepoint detection for regime shifts
+  - `HMMRegime` — Hidden Markov Model: ranging(0) / trending(1/2) with probability
+  - `LiquidityPools` — equal highs/lows liquidity pool mapping
+  - `SupplyDemandZones` — supply and demand zone identification and strength scoring
+  - `ICTKillzones` — ICT killzone time windows (London open, NY open, Asian session)
+  - `AMDCycle` — Accumulation / Manipulation / Distribution cycle phase detection
+  - `BreakerBlocks` — breaker block (failed order block that flips polarity) detection
+  - `MitigationBlocks` — mitigation block identification and partial-fill tracking
+  - `PremiumDiscount` — premium / discount zone classification relative to range equilibrium
+
+#### **I6 Confluence: Cross-Timeframe Synthesis**
+**Purpose:** Aggregate intelligence signals across timeframes into a single confluence score
+**Intelligence Focus:** Multi-timeframe trend/structure/regime/pattern/SMC alignment
+
+- **Input:** I1–I6 SMC intelligence across 1m/5m/15m/1h timeframes
+- **Output:** Confluence scores published into IntelligenceEvent `i6` JSONB field
 - **Code Location:** `src/intelligence/confluence/`
-- **Stream:** `env:composite:SYMBOL:TF`
-- **Examples:** Multi-timeframe pattern agreement, risk-reward ratios, confluence scoring
+- **Plugins (1):**
+  - `CrossTimeframeConfluence` — recency-weighted alignment of trend / structure / regime / pattern / I2 events / SMC BOS sub-score across timeframes; 10 output fields
 
-#### **I7: Intelligence Outputs (Setups & Actionable Intelligence)**
-**Purpose:** Generate actionable intelligence and validated setups
-**Intelligence Focus:** Market opportunities, setup validation, actionable intelligence insights
+#### **I7: Trading Setups & Signal Aggregation**
+**Purpose:** Fire validated trading setup events; aggregate and score them into a single actionable signal
+**Intelligence Focus:** Regime-gated setup detection, 6-bucket scoring, adaptive weight learning
 
 - **Input:** I2–I6 confluence-validated intelligence
-- **Output:** `pattern.v1` (setup events), `signals` (optional actionable intelligence)
+- **Output:** Setup events → `signal_ledger` (TimescaleDB); aggregated signal on `signals:SYMBOL:TF:aggregated`
 - **Code Location:** `src/intelligence/trading/`
-- **Streams:** `env:patterns:SYMBOL:TF`, `env:signals:SYMBOL:TF`
-- **Examples:** Validated setups, intelligence alerts, actionable market opportunities
-- **CIS Aggregator (Phase 7):** CISScorer (6-bucket weighted scorer: trend/momentum/structure/pattern/institutional/regime) replaces winner-pick. Regime eligibility filter gates trend plugins to trending regimes (1/2) and mean-reversion plugins to ranging regime (0); gate skipped when hmm_regime_prob < 0.55 or hmm_regime_duration < 3. WeightUpdater (sklearn LogisticRegression) learns bucket weights from signal_ledger outcomes.
+- **Setup Plugins (14):**
+  - *Original 9:* `TrendFollowing`, `MeanReversion`, `LiquiditySweepReclaim`, `MTFAlignment`, `SqueezeExpansion`, `VWAPDeviation`, `MomentumBreakout`, `LiquidityHunt`, `SupplyDemandSetup`
+  - *CIS contributors (+5):* `CHoCHReversal`, `FVGFill`, `PatternCompletion`, `DivergenceStack`, `RegimeTransition`
+  - **Quality gates:** GARCH/Kalman checks on `MeanReversion`, `VWAPDeviation`, `SqueezeExpansion`
+- **Signal Aggregation (CISScorer):**
+  - Replaces the old winner-pick aggregator
+  - 6-bucket weighted scorer: trend / momentum / structure / pattern / institutional / regime
+  - **Regime eligibility filter:** trend plugins → trending regime only (HMM 1/2); mean-reversion plugins → ranging regime only (HMM 0); gate bypassed when `hmm_regime_prob < 0.55` or `hmm_regime_duration < 3`
+  - **WeightUpdater:** sklearn `LogisticRegression` learns bucket weights from `signal_ledger` outcomes (online adaptive)
 
 ---
 
 ### **AI Intelligence Synthesis (I8)**
 
-#### **I8: AI Insights & Synthesis**
-**Purpose:** Human-readable intelligence interpretation and market narratives
-**Intelligence Focus:** AI-powered market intelligence synthesis, human-readable insights
+#### **I8: AI Narrative Synthesis**
+**Purpose:** Convert I7 signals into human-readable market narratives via 3-tier LLM chain
+**Intelligence Focus:** Natural language market analysis, per-signal + asset-group synthesis
 
-- **Input:** I2–I7 comprehensive intelligence data
-- **Output:** `insight.v1` (market narratives, intelligence summaries, confidence assessments)
-- **Code Location:** `src/intelligence/ai/`
-- **Streams:** `env:insight:SYMBOL:TF`, `env:insight:MARKET`
-- **Examples:** Market narratives, pattern explanations, intelligence summaries, AI-powered market context
+- **Input:** High-confidence I7 signals (`confidence > 0.7`) on 5m / 15m / 1h timeframes
+- **Output:** Narrative text published to Redis
+- **Service:** `services/ai_narrative_service.py` (systemd: `indicagent-ai-narrative`, metrics :9113)
+- **Streams:**
+  - `narratives:SYMBOL:TF` — per-signal narrative
+  - `narratives:group:GROUP_NAME` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
+- **LLM Chain:** ZAI GLM-5 (primary) → OpenRouter (fallback, 100+ models) → Ollama local (offline)
+- See [AI Intelligence Architecture](../intelligence/ai-intelligence-architecture.md) for full chain details
 
 ---
 
 ## **Data Contracts & Stream Architecture**
 
-### **Event Types & Schemas**
+### **Canonical Stream Keys**
 ```yaml
-# Core data contracts
-bar.v1:        # OHLCV market data
-features.v1:   # I1 raw mathematical features
-composite.v1:  # I2-I7 derived intelligence metrics
-pattern.v1:    # I5-I7 pattern detection results
-regime.v1:     # I4 market regime classification
-insight.v1:    # I8 AI intelligence synthesis
+indicators:SYMBOL:TF           # I1 output — raw indicator values
+intelligence:SYMBOL:TF         # I2–I6 output — typed IntelligenceEvent (tiered JSONB: i1/i3/i4/i5/smc/i6)
+signals:SYMBOL:TF:aggregated   # I7 output — CISScorer aggregated signal
+narratives:SYMBOL:TF           # I8 output — per-signal AI narrative
+narratives:group:GROUP_NAME    # I8 output — asset-group synthesis narrative
 ```
 
-### **Stream Distribution Patterns**
-```yaml
-# Foundation data streams
-env:features:SYMBOL:TF     # I1 technical indicators
-env:composite:SYMBOL:TF    # I2-I7 composite intelligence
-env:patterns:SYMBOL:TF     # I5-I7 pattern intelligence
-env:regime:MARKET|SYMBOL   # I4 regime detection
-env:insight:SYMBOL:TF      # I8 AI synthesis
-env:insight:MARKET         # I8 market-wide intelligence
-```
+All keys are env-prefixed (e.g., `development:indicators:ES:1m`) — always build via `src/core/stream_keys.py`.
 
-**Reference:** [Stream Schemas](stream-schemas.md) - Complete data format specifications
+**Canonical event model:** `IntelligenceEvent` in `src/intelligence/schemas.py` — tiered JSONB (`i1`, `i3`, `i4`, `i5`, `smc`, `i6`), versioned, replaces the old flat string key-value stream messages.
+
+**Reference:** [Stream Schemas](../reference/schemas/stream-schemas.md) — complete field-level specifications
 
 ---
 
@@ -205,13 +257,14 @@ src/intelligence/
 
 ### **Plugin Naming Conventions**
 - **I1 Indicators:** `indi_*` (e.g., `indi_rsi`, `indi_macd`)
-- **I2 Composites:** `comp_*` (e.g., `comp_ma_crossover`, `comp_momentum_combo`)
+- **I2 Composites/Events:** `comp_*` (e.g., `comp_macd_events`, `comp_rsi_events`)
 - **I3 Structure:** `struct_*` (e.g., `struct_swings`, `struct_support_resistance`)
-- **I4 Context:** `ctx_*` (e.g., `ctx_regime`, `ctx_volatility_state`)
-- **I5 Patterns:** `patt_*` (e.g., `patt_macd_divergence`, `patt_smart_money`)
-- **I6 Confluence:** `conf_*` (e.g., `conf_multi_timeframe`, `conf_risk_assessment`)
-- **I7 Trading:** `trad_*` (e.g., `trad_setup_validator`, `trad_intelligence_alerts`)
-- **I8 AI:** `ai_*` (e.g., `ai_pattern_interpreter`, `ai_market_narrative`)
+- **I4 Context:** `ctx_*` (e.g., `ctx_vol_regime`, `ctx_kalman_trend`)
+- **I5 Patterns:** `patt_*` (e.g., `patt_rsi_divergence`, `patt_double_top_bottom`)
+- **I6 SMC:** `smc_*` (e.g., `smc_bos_choch`, `smc_fair_value_gap`)
+- **I6 Confluence:** `conf_*` (e.g., `conf_cross_timeframe`)
+- **I7 Trading:** `setup_*` (e.g., `setup_trend_following`, `setup_mean_reversion`)
+- **I8 AI:** `ai_*` (e.g., `ai_narrative`)
 
 ### **Capability Tags**
 ```python
@@ -244,22 +297,22 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 ## **Intelligence Development Status**
 
 ### **Completed Tiers (Production Ready)**
-- **I1 Technical Indicators:** 23 plugins — RSI, MACD, SMA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian (all incremental `compute_next()`)
-- **I2 Composite Indicators:** Crossovers, slopes, distances via `src/intelligence/composites/`
-- **I3 Market Structure:** 3 plugins — swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure
-- **I4 Context/Regime:** 5 plugins — volatility regime, trend regime, momentum context, GARCH(1,1) volatility forecast, Kalman trend (7 outputs, GARCH-adaptive R)
-- **I5 Pattern Recognition:** 8 plugins — RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence, TrendConfluence, DoubleTB, HeadShoulders, TriangleWedge
-- **I6 SMC:** 6 plugins — BOS/CHoCH, FVG, order blocks, liquidity sweeps (+ pools + supply/demand zones), BOCPD changepoint, HMM regime
-- **I6 Cross-Timeframe Confluence:** 1 plugin — trend/structure/regime/pattern alignment scoring across 1m/5m/15m/1h
-- **I7 Trading Setups:** 14 plugins — TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup (9 original); plus CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition (5 CIS contributors added in Phase 7). Signal aggregator replaced by CISScorer (6-bucket weighted scorer: trend/momentum/structure/pattern/institutional/regime). Regime eligibility filter: trend plugins only fire in trending regime (1/2); MeanReversion/VWAPDeviation only in ranging (0); gate skipped when hmm_regime_prob < 0.55 or duration < 3. WeightUpdater (sklearn LogisticRegression) learns weights from signal_ledger outcomes. Plus 4 aggregation components (aggregator, ledger, lifecycle, sizer). GARCH/Kalman quality gates on MeanReversion, VWAPDeviation, SqueezeExpansion.
-- **I8 AI Intelligence:** `ai_narrative_service` — per-signal narratives via ZAI GLM-5/OpenRouter/Ollama (conf>0.7, 5m/15m/1h) + 6-asset-group synthesis. Streams: `narratives:SYMBOL:TF` + `narratives:group:GROUP_NAME`
 
-### **LLM Provider Chain**
-`ZAIProvider` (GLM-5, primary) → `OpenRouterProvider` (cloud fallback) → `OllamaProvider` (local fallback). Defined in `src/intelligence/llm_providers.py`. Add new providers by implementing the `LLMProvider` protocol.
+| Tier | Plugins | Notes |
+|------|---------|-------|
+| I1 Technical Indicators | 23 | RSI, MACD, MA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian — all incremental `compute_next()` |
+| I2 Composite Events | 5 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents |
+| I3 Market Structure | 7 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones |
+| I4 Context / Regime | 7 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, KalmanTrend, SessionContext, MTFVolatility |
+| I5 Patterns | 14 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction |
+| I6 SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
+| I6 Confluence | 1 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, 10 output fields |
+| I7 Trading Setups | 14 + 2 agg | 14 setup plugins (9 original + 5 CIS contributors) + CISScorer aggregator + WeightUpdater |
+| I8 AI Narrative | 1 service | `ai_narrative_service` — ZAI GLM-5 → OpenRouter → Ollama (conf>0.7, 5m/15m/1h) + group synthesis |
 
 ### **Totals**
-- **63 registered plugins:** 23 I1 + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 + 14 I7 + 2 aggregation
-- **803 unit tests passing**, 0 ruff errors
+- **84 registered plugins + 2 aggregation components:** 23 I1 + 5 I2 + 7 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 14 I7
+- **965 unit tests passing**, 0 ruff errors
 
 ---
 

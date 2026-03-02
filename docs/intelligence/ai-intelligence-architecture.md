@@ -1,14 +1,71 @@
 # AI Intelligence Architecture
 
-**Version:** 2.2.0
-**Last Updated:** 2026-02-12
-**Status:** Historical Architecture Reference — I6-I8 are now operational (see STATUS.md). This doc captures the original design intent; the implemented architecture uses Ollama locally rather than LiteLLM/OpenRouter.
+**Version:** 3.0.0
+**Last Updated:** 2026-03-02
+**Status:** Operational — I1–I8 pipeline complete (84 plugins + 2 aggregation). LLM stack: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline fallback). See `docs/STATUS.md` for full current state.
 
 ## Executive Summary
 
-Comprehensive technical architecture for AI intelligence systems within IndicAgent. Provides sophisticated, modular foundation for market intelligence extraction that integrates seamlessly with existing infrastructure. Built on proven frameworks (LangGraph, LiteLLM, OpenRouter) with enterprise-grade observability, safety, and realistic deployment patterns.
+Comprehensive technical architecture for AI intelligence systems within IndicAgent. Provides sophisticated, modular foundation for market intelligence extraction that integrates seamlessly with existing infrastructure. The I8 AI Narrative layer uses a **3-tier LLM inference chain** — highest-quality cloud inference first, broad-model cloud fallback second, and always-available local inference as the last resort.
 
-**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are now operational (57 plugins). See `docs/STATUS.md` for current state.
+**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are operational (84 plugins). See `docs/STATUS.md` for current state.
+
+## 3-Tier LLM Inference Chain (I8)
+
+The `ai_narrative_service` (I8) uses `LLMChain` from `src/intelligence/llm_providers.py` — providers are tried in order and the first successful response is returned immediately.
+
+```
+Tier 1 (Primary)   — ZAI / GLM-5
+                     State-of-the-art foundation model via Z.ai API.
+                     Best reasoning quality; lowest-latency for complex market narratives.
+                     Endpoint: https://api.z.ai/api/paas/v4/chat/completions
+                     Env: ZAI_API_KEY, ZAI_MODEL (default: glm-5), ZAI_TIMEOUT_SEC
+
+Tier 2 (Fallback)  — OpenRouter
+                     Access to 100+ models from major providers (Llama, Mistral, Gemini,
+                     Claude, etc.) through a single API. Free-tier models available.
+                     Endpoint: https://openrouter.ai/api/v1
+                     Env: OPENROUTER_API_KEY, OPENROUTER_TIMEOUT_SEC
+                     Per-signal default: meta-llama/llama-3.3-70b-instruct:free
+                     Group synthesis default: stepfun/step-3.5-flash:free
+
+Tier 3 (Offline)   — Ollama (local)
+                     Runs entirely on-device — always available even with no internet
+                     or API access. Adds latency but guarantees narrative generation.
+                     Endpoint: http://localhost:11434
+                     Env: OLLAMA_BASE_URL, OLLAMA_TIMEOUT_SEC
+                     Per-signal: qwen3:8b  |  Group synthesis: phi4-mini:3.8b
+```
+
+### Provider Chain Setup
+
+```python
+from src.intelligence.llm_providers import LLMChain, ZAIProvider, OpenRouterProvider, OllamaProvider
+
+chain = LLMChain([
+    ZAIProvider(model=settings.zai_model, api_key=settings.zai_api_key),
+    OpenRouterProvider(model="meta-llama/llama-3.3-70b-instruct:free",
+                       api_key=settings.openrouter_api_key),
+    OllamaProvider(model="qwen3:8b", base_url=settings.ollama_base_url),
+])
+text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
+# chain.last_provider_id — which provider succeeded (e.g. "zai:glm-5")
+```
+
+### Adding a New Provider
+
+Implement the `LLMProvider` protocol — one method, one attribute:
+
+```python
+class MyProvider:
+    provider_id: str  # e.g. "myprovider:model-name"
+
+    async def generate(self, prompt: str, system: str,
+                       max_tokens: int, timeout: float) -> str | None:
+        ...  # return text or None on failure
+```
+
+Add to `Settings` with `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec` fields, then insert into the chain at the desired priority position.
 
 ## Scope and Non-Goals
 
@@ -71,10 +128,10 @@ AI Intelligence System Architecture:
 │   ├── Safety & Validation (pattern validation, confidence guardrails)
 │   └── Deployment (Docker Compose, service discovery, health checks)
 └── External Intelligence Layer
-    ├── MCP Tools (brave-search, ref, semgrep for research)
-    ├── AI/ML Services (OpenRouter, LiteLLM model routing)
+    ├── MCP Tools (brave-search, ref for research)
+    ├── AI/ML Services (ZAI GLM-5 → OpenRouter → Ollama local — 3-tier chain)
     ├── Market Data (existing IBKR intelligence streams)
-    └── Intelligence Interfaces (dashboard, WebSocket intelligence broadcasting)
+    └── Intelligence Interfaces (dashboard, SSE intelligence broadcasting)
 ```
 
 ### Architecture Flow (Simplified)
@@ -247,29 +304,22 @@ class IntelligenceValidator:
         return all(validations)
 ```
 
-## Intelligence Development Roadmap
+## Current Status (as of v5.10.0)
 
-### Current Status: LangGraph Integration Complete - Pattern Detection Implementation
-**LangGraph Integration Complete:** Event-driven workflow framework with circuit breakers and enhanced monitoring
-**Plugin Framework Operational:** 11 registered plugins with hybrid plugin-legacy system operational
-**Code Quality Optimized:** 83% improvement with automated cleanup (1,323 issues resolved)
-**Current Focus:** Pattern detection systems (RSI divergence, Bollinger squeeze, volume analysis)
+**All phases complete.** I1–I8 pipeline operational with 84 plugins + 2 aggregation components.
 
-### Phase 1: Pattern Detection Systems (Current Sprint - 2-3 weeks)
-- **RSI Divergence Engine** - Complement existing MACD divergence architecture
-- **Bollinger Squeeze Detection** - High-probability breakout predictor
-- **Volume Divergence Engine** - Price-volume disconnect analysis
-- **Multi-Indicator Confluence** - Stack RSI+MACD+Stochastic+Volume for high-confidence signals
+| Layer | Status |
+|-------|--------|
+| I1 Technical Indicators (23) | ✅ Running — incremental `compute_next()` |
+| I2 Composite Events (5) | ✅ Running — MACD/RSI/Stochastic/ADX/Volume events |
+| I3 Market Structure (7) | ✅ Running — swing, S/R, trend, VWAP, Fibonacci |
+| I4 Context / Regime (7) | ✅ Running — GARCH, Kalman, MTF volatility |
+| I5 Patterns (14) | ✅ Running — chart patterns, divergence, squeeze |
+| I6 SMC + Confluence (14) | ✅ Running — BOS/CHoCH, FVG, order blocks, cross-TF |
+| I7 Trading Setups (14+2) | ✅ Running — 14 setup plugins + signal aggregator + CIS |
+| I8 AI Narrative (1) | ✅ Running — ZAI GLM-5 → OpenRouter → Ollama chain |
 
-### Phase 2: Multi-Timeframe Integration (Next - 2 weeks)
-- **Cross-Timeframe Confluence Engine** - Pattern validation across 1m→5m→15m→1h timeframes
-- **Multi-Timeframe Pattern Analysis** - 90%+ false positive reduction through timeframe validation
-- **Enhanced Dashboard Integration** - Real-time multi-timeframe pattern visualization
-
-### Phase 3: AI Intelligence Integration (Future)
-- **AI Intelligence Service (I8)** - OpenRouter LLM integration with cost controls
-- **Smart Money Intelligence Agent** - Institutional flow detection and liquidity analysis
-- **Mixture-of-Agents (MoA)** - Multi-agent orchestration patterns and intelligence synthesis
+**See** `.planning/ROADMAP.md` for the next milestone backlog.
 
 ---
 

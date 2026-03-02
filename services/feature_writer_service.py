@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import signal
 import sys
 import time
 from datetime import UTC, datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +28,7 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
+from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import intelligence as sk_intelligence
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.schemas import IntelligenceEvent
@@ -215,33 +214,10 @@ class FeatureWriterService:
         return default_config
 
     def _setup_logging(self) -> None:
-        log_dir = Path(self.config["logging"]["file"]).parent
-        log_dir.mkdir(exist_ok=True)
-        file_handler = RotatingFileHandler(
+        setup_service_logging(
             self.config["logging"]["file"],
-            maxBytes=10 * 1024 * 1024,
-            backupCount=self.config["logging"].get("backup_count", 5),
-        )
-        structlog.configure(
-            processors=[
-                structlog.stdlib.filter_by_level,
-                structlog.stdlib.add_logger_name,
-                structlog.stdlib.add_log_level,
-                structlog.stdlib.PositionalArgumentsFormatter(),
-                structlog.processors.TimeStamper(fmt="iso"),
-                structlog.processors.StackInfoRenderer(),
-                structlog.processors.format_exc_info,
-                structlog.processors.UnicodeDecoder(),
-                structlog.processors.JSONRenderer(),
-            ],
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-        logging.basicConfig(
-            level=getattr(logging, self.config["logging"]["level"]),
-            handlers=[file_handler],
-            format="%(message)s",
+            level=self.config["logging"].get("level", "INFO"),
+            backup_count=self.config["logging"].get("backup_count", 5),
         )
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
@@ -349,27 +325,21 @@ class FeatureWriterService:
             return
 
         params = list(self._buffer)
-        self._last_flush = time.monotonic()
 
         try:
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
             self._buffer.clear()
-            if hasattr(self, "batch_writes_total"):
-                self.batch_writes_total.inc()
-            if hasattr(self, "_total_batches"):
-                self._total_batches += 1
-            if hasattr(self, "events_buffered_gauge"):
-                self.events_buffered_gauge.set(0)
+            self._last_flush = time.monotonic()
+            self.batch_writes_total.inc()
+            self._total_batches += 1
+            self.events_buffered_gauge.set(0)
             self.logger.debug("Flushed intelligence_features batch", rows=len(params))
         except Exception as e:
             self.logger.error("Batch write failed", error=str(e), rows=len(params))
             # params remain in self._buffer for retry on next flush cycle
-            if hasattr(self, "error_count_total"):
-                self.error_count_total.inc()
-            if hasattr(self, "_error_count"):
-                self._error_count += 1
-            if hasattr(self, "events_buffered_gauge"):
-                self.events_buffered_gauge.set(len(self._buffer))
+            self.error_count_total.inc()
+            self._error_count += 1
+            self.events_buffered_gauge.set(len(self._buffer))
 
     async def _process_loop(self) -> None:
         """Main consumer group loop — reads all streams and processes messages."""

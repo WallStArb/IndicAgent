@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 import re
 from collections.abc import AsyncGenerator
@@ -23,6 +24,16 @@ router = APIRouter()
 
 _NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
 
+# Cached settings — avoids re-parsing env/config on every SSE connection.
+_settings: Settings | None = None
+
+
+def _get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
+
 
 def _resolve_contract(symbol: str) -> str:
     """Map base symbol (ES) to active contract code (ESH6).
@@ -32,7 +43,7 @@ def _resolve_contract(symbol: str) -> str:
     """
     if any(ch.isdigit() for ch in symbol):
         return symbol  # Already a contract code
-    settings = Settings()
+    settings = _get_settings()
     for c in settings.contracts:
         if c.base == symbol:
             return c.symbol
@@ -45,7 +56,7 @@ def _resolve_contract(symbol: str) -> str:
 
 
 def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
-    settings = Settings()
+    settings = _get_settings()
     env_prefix = f"{settings.env_name}:" if settings.env_name else ""
     # Accept comma-separated timeframes (e.g. "1m,5m,15m,1h,4h,1d")
     timeframes = [tf.strip() for tf in timeframe.split(",") if tf.strip()]
@@ -67,6 +78,7 @@ def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
     return streams
 
 
+@functools.lru_cache(maxsize=512)
 def _event_name_for_stream(stream_name: str) -> str:
     # Remove optional env prefix when testing startswith
     parts = stream_name.split(":", 1)
@@ -207,6 +219,6 @@ async def sse_events(
             logger.info("SSE client disconnected (cancelled)")
         except Exception as e:
             logger.error("SSE stream error", error=str(e))
-            yield f'event: error\ndata: {{"error": "{str(e)}"}}\n\n'.encode()
+            yield b'event: error\ndata: {"error": "stream error"}\n\n'
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

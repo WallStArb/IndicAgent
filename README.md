@@ -10,7 +10,7 @@
 
 IndicAgent is an **institutional-grade, real-time market intelligence platform** for futures trading — built from the ground up around a plugin-native architecture, a typed intelligence bus, and a zero-database live pipeline that keeps end-to-end latency in the sub-millisecond range.
 
-Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators and composite event signals feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD, ICT killzones, AMC cycles, breaker/mitigation blocks), which converge in a cross-timeframe confluence engine that outputs **scored, structured trading setups** — capped by an LLM narrative synthesis layer that turns machine signals into natural language market analysis via a local Ollama model.
+Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators and composite event signals feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD, ICT killzones, AMD cycles, breaker/mitigation blocks), which converge in a cross-timeframe confluence engine that outputs **scored, structured trading setups** — capped by an AI narrative synthesis layer that turns machine signals into natural language market analysis via a **3-tier LLM inference chain: ZAI GLM-5 (primary, SOTA foundation model) → OpenRouter (100+ model fallback) → Ollama local (offline guarantee)**.
 
 Every output at every tier is encoded into a **canonical `IntelligenceEvent` — a versioned, typed Pydantic model** published to DragonflyDB streams. This isn't a logging format; it's the backbone of a **typed intelligence bus** that decouples producers from consumers, makes the pipeline replay-able for historical backfill, and feeds a TimescaleDB **feature store** purpose-built for ML training.
 
@@ -35,7 +35,7 @@ The architecture is designed to be **externally consumable**: a FastAPI layer wi
 ## How It Works
 
 1. **Ingestion** – A daemon connects to IBKR TWS and publishes ticks and 1m bars to DragonflyDB (or Redis) streams.
-2. **Processing** – Services consume streams: multi-timeframe bars (1m→5m→15m→1h→4h→1d), technical indicators (incremental), intelligence processor (I3/I4/I5/I6/I7 plugins), signal orchestrator (aggregation, ledger, lifecycle), and AI narrative service (Ollama-generated narratives from signals).
+2. **Processing** – Services consume streams: multi-timeframe bars (1m→5m→15m→1h→4h→1d), technical indicators (incremental), intelligence processor (I3/I4/I5/I6/I7 plugins), signal orchestrator (aggregation, ledger, lifecycle), and AI narrative service (ZAI GLM-5 → OpenRouter → Ollama narrative generation from signals).
 3. **Distribution** – Results are written to streams (intelligence, signals, narratives). The API exposes SSE; the dashboard subscribes for live updates.
 4. **Storage** – Persistence to PostgreSQL/TimescaleDB is off the hot path and used for cold storage and historical context.
 
@@ -110,7 +110,7 @@ The system is structured as four conceptual layers:
 | **1** | Data Foundation | Ingestion (IBKR), bar building, multi-timeframe aggregation, stream distribution | Operational |
 | **2** | Mathematical Intelligence (I1–I4) | Indicators, composites, market structure, context/regime | Operational |
 | **3** | Pattern Intelligence (I5–I7) | Pattern detection, SMC, confluence, trading setups, signal aggregation | Operational |
-| **4** | AI Intelligence (I8) | LLM synthesis, narratives (Ollama) | Working |
+| **4** | AI Intelligence (I8) | LLM narrative synthesis — ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline) | Operational |
 
 Layer 1 feeds Layer 2; Layer 2 feeds Layer 3; Layer 3 feeds Layer 4. Each layer adds context on top of the previous one.
 
@@ -127,7 +127,7 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 | **I5** | Patterns | RSI divergence, squeeze, vol divergence, confluence, trend confluence, chart patterns, volume profile, key level reaction (14 plugins) | Operational |
 | **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, HMM regime, liquidity pools, supply/demand, BOCPD, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount, cross-timeframe confluence (13 SMC + 1 confluence) | Operational |
 | **I7** | Trading outputs | 14 setup plugins; signal aggregator, cross-timeframe confluence | Operational |
-| **I8** | AI intelligence | AI Narrative Service (Ollama qwen3:8b per-signal + phi4-mini:3.8b group synthesis) | Operational |
+| **I8** | AI intelligence | AI Narrative Service — ZAI GLM-5 → OpenRouter → Ollama (per-signal conf>0.7 + 6-group synthesis) | Operational |
 
 The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-02-28).
 
@@ -141,7 +141,7 @@ The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-0
 
 ## Quick Start
 
-**Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis), Ollama (optional, for I8 AI narratives).
+**Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis). I8 AI narratives use a 3-tier LLM chain — set `ZAI_API_KEY` in `.env` for the primary provider (GLM-5), `OPENROUTER_API_KEY` for the fallback, or install Ollama locally as an always-available offline option.
 
 ```bash
 # Environment
@@ -151,7 +151,8 @@ pip install -r requirements.txt
 # Infrastructure
 docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 timescale/timescaledb:latest-pg15
 docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
-# Optional for I8: install Ollama and run e.g. ollama run qwen3:8b
+# I8 LLM chain: ZAI_API_KEY (primary) + OPENROUTER_API_KEY (fallback) in .env
+# Ollama is the offline last-resort: ollama run qwen3:8b
 
 # Schema (optional, for cold path)
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql

@@ -14,14 +14,12 @@ maintained its own indicator pipeline.
 
 import asyncio
 import json
-import logging
 import os
 import signal
 import sys
 import time
 from collections import defaultdict, deque
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +33,7 @@ from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts
+from src.core.service_utils import min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
 from src.core.stream_utils import ensure_consumer_group_with_reset
@@ -157,33 +156,10 @@ class MarketAnalysisService:
         return default_config
 
     def _setup_logging(self) -> None:
-        log_dir = Path(self.config["logging"]["file"]).parent
-        log_dir.mkdir(exist_ok=True)
-        file_handler = RotatingFileHandler(
+        setup_service_logging(
             self.config["logging"]["file"],
-            maxBytes=10 * 1024 * 1024,
-            backupCount=self.config["logging"].get("backup_count", 5),
-        )
-        structlog.configure(
-            processors=[
-                structlog.stdlib.filter_by_level,
-                structlog.stdlib.add_logger_name,
-                structlog.stdlib.add_log_level,
-                structlog.stdlib.PositionalArgumentsFormatter(),
-                structlog.processors.TimeStamper(fmt="iso"),
-                structlog.processors.StackInfoRenderer(),
-                structlog.processors.format_exc_info,
-                structlog.processors.UnicodeDecoder(),
-                structlog.processors.JSONRenderer(),
-            ],
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-        logging.basicConfig(
-            level=getattr(logging, self.config["logging"]["level"]),
-            handlers=[file_handler],
-            format="%(message)s",
+            level=self.config["logging"].get("level", "INFO"),
+            backup_count=self.config["logging"].get("backup_count", 5),
         )
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
@@ -260,10 +236,7 @@ class MarketAnalysisService:
         }
 
     def _min_bars_for_tf(self, timeframe: str) -> int:
-        """Return minimum bars before publishing intelligence, per-TF."""
-        if timeframe == "1m":
-            return self.config["service"]["min_history_bars"]
-        return 26  # 5m/15m/1h — fewer unique bars available after dedup
+        return min_bars_for_tf(timeframe)
 
     def _get_df(self, key: str) -> "pd.DataFrame":
         if self._df_cache.get(key) is None:

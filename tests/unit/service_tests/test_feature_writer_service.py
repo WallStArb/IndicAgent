@@ -137,6 +137,11 @@ async def test_maybe_flush_force_calls_execute_batch():
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
     svc._last_flush = 0.0  # far in the past
+    svc.batch_writes_total = MagicMock()
+    svc.events_buffered_gauge = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc._total_batches = 0
+    svc._error_count = 0
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
@@ -167,6 +172,11 @@ async def test_maybe_flush_time_based_calls_execute_batch():
     svc.logger = MagicMock()
     # Set last_flush far enough in the past to trigger time-based flush
     svc._last_flush = time.monotonic() - (FLUSH_INTERVAL_SECS + 1.0)
+    svc.batch_writes_total = MagicMock()
+    svc.events_buffered_gauge = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc._total_batches = 0
+    svc._error_count = 0
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
@@ -223,6 +233,12 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
     svc.shutdown_requested = False
     svc._last_flush = 0.0
     svc.running = True
+    svc.batch_writes_total = MagicMock()
+    svc.events_buffered_gauge = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc._total_batches = 0
+    svc._total_events = 0
+    svc._error_count = 0
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()

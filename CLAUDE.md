@@ -230,12 +230,18 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 **Gotcha:** Qwen3 uses thinking mode by default — `content` may be empty if `num_predict` < 500. Use `/no_think` prefix or set `num_predict ≥ 500`.
 
 ### LLM Provider Abstraction (`src/intelligence/llm_providers.py`)
-Protocol-driven system for using multiple LLM backends with automatic fallback.
+Protocol-driven 3-tier inference chain with automatic fallback. `LLMChain` tries each provider in order and returns the first success.
+
+| Tier | Provider | Model | Role |
+|------|----------|-------|------|
+| 1 (Primary) | `ZAIProvider` | GLM-5 (Z.ai) | Highest-quality reasoning — SOTA foundation model |
+| 2 (Fallback) | `OpenRouterProvider` | 100+ models (Llama, Mistral, Gemini…) | Broad model access; free-tier options available |
+| 3 (Offline) | `OllamaProvider` | qwen3:8b / phi4-mini:3.8b | Always available locally — no internet required |
+
 - **`LLMProvider` protocol**: `async generate(prompt, system, max_tokens, timeout) -> str | None`
-- **Providers**: `ZAIProvider` (GLM-5, primary), `OpenRouterProvider` (fallback), `OllamaProvider` (last resort)
-- **`LLMChain`**: Tries providers in sequence, returns first non-None result. Exits immediately on success - no iteration overhead.
-- **Adding new providers**: Create class implementing `LLMProvider` with `generate()` method, add to Settings with `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec` fields.
-- **Settings**: `zai_api_key`, `openrouter_api_key` in `.env` (defaults to empty string for both).
+- **`LLMChain`**: Tries providers in sequence, returns first non-None result. `chain.last_provider_id` tells you which succeeded.
+- **Adding new providers**: Implement `LLMProvider` with `generate()`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
+- **Settings**: `zai_api_key`, `openrouter_api_key` in `.env` (defaults to empty string — chain skips on failure).
 
 ## Key References
 

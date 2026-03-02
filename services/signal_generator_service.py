@@ -15,14 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import signal
 import sys
 import time
 from collections import defaultdict, deque
 from datetime import UTC, datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -37,6 +35,7 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
+from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import signals_aggregated
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
@@ -294,33 +293,10 @@ class SignalGeneratorService:
         return default_config
 
     def _setup_logging(self) -> None:
-        log_dir = Path(self.config["logging"]["file"]).parent
-        log_dir.mkdir(exist_ok=True)
-        file_handler = RotatingFileHandler(
+        setup_service_logging(
             self.config["logging"]["file"],
-            maxBytes=10 * 1024 * 1024,
-            backupCount=self.config["logging"].get("backup_count", 5),
-        )
-        structlog.configure(
-            processors=[
-                structlog.stdlib.filter_by_level,
-                structlog.stdlib.add_logger_name,
-                structlog.stdlib.add_log_level,
-                structlog.stdlib.PositionalArgumentsFormatter(),
-                structlog.processors.TimeStamper(fmt="iso"),
-                structlog.processors.StackInfoRenderer(),
-                structlog.processors.format_exc_info,
-                structlog.processors.UnicodeDecoder(),
-                structlog.processors.JSONRenderer(),
-            ],
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-        logging.basicConfig(
-            level=getattr(logging, self.config["logging"]["level"]),
-            handlers=[file_handler],
-            format="%(message)s",
+            level=self.config["logging"].get("level", "INFO"),
+            backup_count=self.config["logging"].get("backup_count", 5),
         )
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
