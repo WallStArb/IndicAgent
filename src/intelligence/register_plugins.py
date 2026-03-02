@@ -51,6 +51,10 @@ from .smart_money.liquidity_pools import plugin as liquidity_pools_plugin
 from .smart_money.liquidity_sweeps import plugin as liq_sweep_plugin
 from .smart_money.order_blocks import plugin as ob_plugin
 from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
+from .structure.anchored_vwap import plugin as anchored_vwap_plugin
+from .structure.fibonacci_zones import plugin as fib_zones_plugin
+from .structure.market_profile import plugin as market_profile_plugin
+from .structure.session_levels import plugin as session_levels_plugin
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
 from .structure.trend_structure import plugin as trend_plugin
@@ -111,6 +115,10 @@ def register_all_plugins() -> None:
     registry.register_pattern(swing_plugin)
     registry.register_pattern(sr_plugin)
     registry.register_pattern(trend_plugin)
+    registry.register_pattern(market_profile_plugin)
+    registry.register_pattern(session_levels_plugin)
+    registry.register_pattern(anchored_vwap_plugin)
+    registry.register_pattern(fib_zones_plugin)
 
     registry.register_pattern(vol_regime_plugin)
     registry.register_pattern(trend_regime_plugin)
@@ -194,6 +202,10 @@ TIER_I3: list[str] = [
     swing_plugin.name,
     sr_plugin.name,
     trend_plugin.name,
+    market_profile_plugin.name,
+    session_levels_plugin.name,
+    anchored_vwap_plugin.name,
+    fib_zones_plugin.name,
 ]
 
 TIER_I4: list[str] = [

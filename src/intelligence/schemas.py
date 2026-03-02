@@ -149,7 +149,11 @@ class I3Structure(BaseModel):
     - struct_SwingDetector (9 fields)
     - struct_SupportResistance (9 fields)
     - struct_TrendStructure (6 fields)
-    Total: 24 fields
+    - struct_MarketProfile (9 fields)
+    - struct_SessionLevels (14 fields)
+    - struct_AnchoredVWAP (8 fields)
+    - struct_FibonacciZones (12 fields)
+    Total: 67 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -184,6 +188,57 @@ class I3Structure(BaseModel):
     structure_integrity: float | None = None
     price_position: float | None = None
     trend_duration_bars: float | None = None
+
+    # MarketProfilePlugin outputs
+    poc_level: float | None = None
+    va_high: float | None = None
+    va_low: float | None = None
+    va_width_pct: float | None = None
+    price_in_va: float | None = None
+    price_above_va: float | None = None
+    price_below_va: float | None = None
+    poc_dist_pct: float | None = None
+    poc_dist_atr: float | None = None
+
+    # SessionLevelsPlugin outputs
+    prior_session_high: float | None = None
+    prior_session_low: float | None = None
+    prior_session_close: float | None = None
+    overnight_high: float | None = None
+    overnight_low: float | None = None
+    overnight_range_pct: float | None = None
+    opening_gap_pct: float | None = None
+    weekly_pivot: float | None = None
+    weekly_r1: float | None = None
+    weekly_r2: float | None = None
+    weekly_s1: float | None = None
+    weekly_s2: float | None = None
+    nearest_session_level: float | None = None
+    nearest_level_dist_atr: float | None = None
+
+    # AnchoredVWAPPlugin outputs
+    session_vwap: float | None = None
+    session_vwap_dist_pct: float | None = None
+    swing_vwap: float | None = None
+    weekly_vwap: float | None = None
+    above_session_vwap: float | None = None
+    above_swing_vwap: float | None = None
+    above_weekly_vwap: float | None = None
+    vwap_alignment_score: float | None = None
+
+    # FibonacciZonesPlugin outputs
+    fib_swing_high: float | None = None
+    fib_swing_low: float | None = None
+    fib_236: float | None = None
+    fib_382: float | None = None
+    fib_500: float | None = None
+    fib_618: float | None = None
+    fib_786: float | None = None
+    nearest_fib_level: float | None = None
+    nearest_fib_ratio: float | None = None
+    nearest_fib_dist_atr: float | None = None
+    fib_cluster_strength: float | None = None
+    in_fib_discount_zone: float | None = None
 
 
 class I4Context(BaseModel):
