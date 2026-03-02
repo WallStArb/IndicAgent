@@ -126,7 +126,7 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 | **I4** | Context | Volatility/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility (7 plugins) | Operational |
 | **I5** | Patterns | RSI divergence, squeeze, vol divergence, confluence, trend confluence, chart patterns, volume profile, key level reaction (14 plugins) | Operational |
 | **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, HMM regime, liquidity pools, supply/demand, BOCPD, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount, cross-timeframe confluence (13 SMC + 1 confluence) | Operational |
-| **I7** | Trading outputs | 14 setup plugins; signal aggregator, cross-timeframe confluence | Operational |
+| **I7** | Trading outputs | 14 setup plugins (9 original + 5 CIS contributors); CISScorer 6-bucket aggregator + WeightUpdater | Operational |
 | **I8** | AI intelligence | AI Narrative Service — ZAI GLM-5 → OpenRouter → Ollama (per-signal conf>0.7 + 6-group synthesis) | Operational |
 
 The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-02-28).
