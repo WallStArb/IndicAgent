@@ -18,25 +18,18 @@ from typing import Any
 
 from ..plugins import InputSpec
 
-# Killzone windows as (start_hour_utc, start_min, end_hour_utc, end_min, name)
-_KILLZONES: list[tuple[int, int, int, int, str]] = [
-    (8,  0, 10, 0, "asia"),
-    (7,  0, 10, 0, "london"),
-    (13, 30, 16, 0, "ny_am"),
-    (18,  0, 20, 0, "ny_pm"),
-]
-
-
 def _minutes_since_midnight_utc(dt: datetime) -> int:
     return dt.hour * 60 + dt.minute
 
 
-def _window_start_minutes(h: int, m: int) -> int:
-    return h * 60 + m
-
-
-def _window_end_minutes(h: int, m: int) -> int:
-    return h * 60 + m
+# Module-level constants — computed once, reused every bar
+_KZ_MAP: dict[str, tuple[int, int]] = {
+    "asia":   (8 * 60,        10 * 60),
+    "london": (7 * 60,        10 * 60),
+    "ny_am":  (13 * 60 + 30,  16 * 60),
+    "ny_pm":  (18 * 60,       20 * 60),
+}
+_KZ_STARTS: tuple[int, ...] = tuple(sorted(v[0] for v in _KZ_MAP.values()))
 
 
 @dataclass
