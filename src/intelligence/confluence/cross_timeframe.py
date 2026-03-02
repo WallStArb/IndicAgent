@@ -9,6 +9,32 @@ from ..utils import clamp, is_num
 # Timeframe weight: higher timeframes carry more authority
 _TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
+# I2 event keys that indicate bullish momentum (+0.1 each)
+_I2_BULLISH_EVENTS = frozenset(
+    {
+        "macd_cross_bullish",
+        "rsi_crossed_30_up",
+        "rsi_extreme_reversal",
+        "stoch_cross_bullish",
+        "stoch_oversold_reversal",
+        "adx_trend_confirmed",
+        "di_cross_bullish",
+        "stoch_both_oversold",
+    }
+)
+
+# I2 event keys that indicate bearish momentum (-0.1 each)
+_I2_BEARISH_EVENTS = frozenset(
+    {
+        "macd_cross_bearish",
+        "rsi_crossed_70_down",
+        "stoch_cross_bearish",
+        "stoch_overbought_reversal",
+        "di_cross_bearish",
+        "stoch_both_overbought",
+    }
+)
+
 
 def _sign(x: float) -> int:
     if x > 0:
@@ -39,6 +65,7 @@ class CrossTimeframeConfluencePlugin:
             "i6_smc_bos_alignment",
             "i6_fvg_tf_alignment",
             "i6_ob_tf_alignment",
+            "i6_i2_event_score",
         }
     )
     min_lookback: int = 1
@@ -52,6 +79,7 @@ class CrossTimeframeConfluencePlugin:
     W_STRUCTURE = 0.3
     W_REGIME = 0.2
     W_PATTERN = 0.1
+    W_I2 = 0.1  # I2 event signals; total = 1.1 → renormalize by dividing by 1.1
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = frames.get("features") or {}
@@ -77,14 +105,17 @@ class CrossTimeframeConfluencePlugin:
         regime_agreement = self._score_regime_agreement(features, other_intel, weights)
         pattern_confirmation = self._score_pattern_confirmation(features, other_intel)
         bos_alignment = self._score_smc_bos_alignment(features, other_intel, weights)
+        i2_score = self._score_i2_events(features)
 
         # Weighted composite: positive = bullish confluence, negative = bearish
+        # Weights sum to 1.1 (W_I2 added); divide by 1.1 to normalize to [-1, 1]
         raw = (
             self.W_TREND * trend_alignment
             + self.W_STRUCTURE * structure_alignment
             + self.W_REGIME * regime_agreement
             + self.W_PATTERN * pattern_confirmation
-        )
+            + self.W_I2 * i2_score
+        ) / 1.1
         ctf_score = clamp(raw)
 
         # Count how many other timeframes agree with current direction
@@ -108,6 +139,7 @@ class CrossTimeframeConfluencePlugin:
             "i6_smc_bos_alignment": round(bos_alignment, 4),
             "i6_fvg_tf_alignment": 0.0,
             "i6_ob_tf_alignment": 0.0,
+            "i6_i2_event_score": round(i2_score, 4),
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
@@ -295,6 +327,28 @@ class CrossTimeframeConfluencePlugin:
         if total_weight == 0.0:
             return 0.0
         return clamp(bos_sign * (weighted_sum / total_weight))
+
+    @staticmethod
+    def _score_i2_events(features: dict[str, Any]) -> float:
+        """Score I2 composite event signals on the current bar.
+
+        Bullish events add +0.1, bearish events subtract 0.1.
+        macd_negative_support_test adds +0.15 (bullish reversal confirmation).
+        Result clamped to [-1.0, 1.0].
+        """
+        score = 0.0
+        for key in _I2_BULLISH_EVENTS:
+            v = features.get(key)
+            if is_num(v) and v > 0:
+                score += 0.1
+        for key in _I2_BEARISH_EVENTS:
+            v = features.get(key)
+            if is_num(v) and v > 0:
+                score -= 0.1
+        v_neg = features.get("macd_negative_support_test")
+        if is_num(v_neg) and v_neg > 0:
+            score += 0.15
+        return clamp(score)
 
 
 plugin = CrossTimeframeConfluencePlugin()

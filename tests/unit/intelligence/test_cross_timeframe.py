@@ -219,3 +219,28 @@ class TestCrossTimeframeConfluence:
         assert "i6_ob_tf_alignment" in result
         assert result["i6_fvg_tf_alignment"] == 0.0
         assert result["i6_ob_tf_alignment"] == 0.0
+
+    def test_i2_events_boost_bullish_confluence(self, plugin):
+        """Bullish I2 events in uptrend should yield positive i2_event_score and boost ctf_score."""
+        features = dict(_bullish_intel())
+        features["macd_cross_bullish"] = 1.0
+        features["rsi_crossed_30_up"] = 1.0
+        features["stoch_cross_bullish"] = 1.0
+        frames = {
+            "main": None,
+            "features": features,
+            "intel_5m": _bullish_intel(),
+        }
+        result = plugin.compute_full(frames)
+        assert result["i6_i2_event_score"] > 0
+        assert result["ctf_score"] > 0
+
+    def test_i2_events_no_effect_when_absent(self, plugin):
+        """No I2 events → i2_event_score == 0.0."""
+        frames = {
+            "main": None,
+            "features": _bullish_intel(),  # no I2 event keys
+            "intel_5m": _bullish_intel(),
+        }
+        result = plugin.compute_full(frames)
+        assert result["i6_i2_event_score"] == 0.0
