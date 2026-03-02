@@ -73,3 +73,73 @@ class TestMACDEvents:
     def test_empty_returns_empty(self):
         from src.intelligence.composites.macd_events import MACDEventsPlugin
         assert MACDEventsPlugin().compute_full({}) == {}
+
+
+class TestRSIEvents:
+    def test_rsi_crossed_30_up(self):
+        from src.intelligence.composites.rsi_events import RSIEventsPlugin
+        features = {"rsi_14": 32.0}
+        prev = {"rsi_14": 27.0}
+        result = RSIEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result.get("rsi_crossed_30_up") == 1
+
+    def test_rsi_extreme_reversal_from_oversold(self):
+        from src.intelligence.composites.rsi_events import RSIEventsPlugin
+        features = {"rsi_14": 28.0}
+        prev = {"rsi_14": 24.0}
+        result = RSIEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result.get("rsi_extreme_reversal") == 1
+
+    def test_no_signal_on_neutral_rsi(self):
+        from src.intelligence.composites.rsi_events import RSIEventsPlugin
+        features = {"rsi_14": 55.0}
+        prev = {"rsi_14": 53.0}
+        result = RSIEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result.get("rsi_crossed_30_up") == 0
+        assert result.get("rsi_crossed_70_down") == 0
+
+    def test_empty_returns_empty(self):
+        from src.intelligence.composites.rsi_events import RSIEventsPlugin
+        assert RSIEventsPlugin().compute_full({}) == {}
+
+
+class TestStochasticEvents:
+    def test_bullish_cross_k_crosses_d_up(self):
+        from src.intelligence.composites.stochastic_events import StochasticEventsPlugin
+        features = {"stoch_k_14_3": 25.0, "stoch_d_14_3": 22.0}
+        prev = {"stoch_k_14_3": 18.0, "stoch_d_14_3": 22.0}
+        result = StochasticEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result.get("stoch_cross_bullish") == 1
+
+    def test_both_oversold(self):
+        from src.intelligence.composites.stochastic_events import StochasticEventsPlugin
+        features = {"stoch_k_14_3": 15.0, "stoch_d_14_3": 18.0}
+        result = StochasticEventsPlugin().compute_full({"features": features})
+        assert result.get("stoch_both_oversold") == 1
+
+
+class TestADXEvents:
+    def test_trend_confirmed_when_adx_crosses_25(self):
+        from src.intelligence.composites.adx_events import ADXEventsPlugin
+        features = {"adx_14": 26.0, "plus_di_14": 30.0, "minus_di_14": 20.0}
+        prev = {"adx_14": 23.0, "plus_di_14": 28.0, "minus_di_14": 22.0}
+        result = ADXEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result.get("adx_trend_confirmed") == 1
+
+    def test_di_spread_is_plus_minus_di_difference(self):
+        from src.intelligence.composites.adx_events import ADXEventsPlugin
+        features = {"adx_14": 30.0, "plus_di_14": 35.0, "minus_di_14": 20.0}
+        result = ADXEventsPlugin().compute_full({"features": features})
+        assert abs(result.get("di_spread", 0) - 15.0) < 0.01
+
+
+class TestVolumeEvents:
+    def test_vol_spike_detected(self):
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+        features = {"volume": 5000.0, "volume_sma_20": 1000.0, "volume_std_20": 500.0, "close": 5100.0}
+        result = VolumeEventsPlugin().compute_full({"features": features})
+        assert result.get("vol_spike") == 1
+
+    def test_empty_returns_empty(self):
+        from src.intelligence.composites.volume_events import VolumeEventsPlugin
+        assert VolumeEventsPlugin().compute_full({}) == {}

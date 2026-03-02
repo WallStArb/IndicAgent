@@ -86,7 +86,7 @@ class MACompositePlugin:
         s50 = ma.get("sma_50")
         # Golden/Death cross (SMA50 vs SMA200) — I2 event
         s200 = ma.get("sma_200")
-        if self._is_num(s200):
+        if self._is_num(s50) and self._is_num(s200):
             out["golden_cross_active"] = 1 if s50 > s200 else 0
             out["death_cross_active"] = 1 if s50 < s200 else 0
             # Track bars since last cross using prev_features

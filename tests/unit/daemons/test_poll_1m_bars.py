@@ -46,8 +46,8 @@ async def test_poll_1m_bars_logs_warning_on_zero_bars():
     daemon.provider = mock_provider
     daemon.connected = True
 
-    mock_redis = MagicMock()
-    daemon.redis_client = mock_redis
+    mock_redis = AsyncMock()
+    daemon.async_redis = mock_redis
 
     # Patch structlog logger to capture warning
     with patch("production.daemons.high_frequency_tws_daemon.logger") as mock_logger:
@@ -103,8 +103,8 @@ async def test_poll_1m_bars_uses_get_stream_maxlen():
     daemon.provider = mock_provider
     daemon.connected = True
 
-    mock_redis = MagicMock()
-    daemon.redis_client = mock_redis
+    mock_redis = AsyncMock()
+    daemon.async_redis = mock_redis
 
     # Patch get_stream_maxlen to return a test-specific value
     with patch("production.daemons.high_frequency_tws_daemon.get_stream_maxlen", return_value=9999) as mock_maxlen:
@@ -228,8 +228,8 @@ async def test_poll_1m_bars_skips_already_seen_timestamps():
     daemon.provider = mock_provider
     daemon.connected = True
 
-    mock_redis = MagicMock()
-    daemon.redis_client = mock_redis
+    mock_redis = AsyncMock()
+    daemon.async_redis = mock_redis
 
     now = datetime.now(UTC)
     start = now - timedelta(minutes=2)
@@ -282,8 +282,8 @@ async def test_poll_1m_bars_publishes_authoritative_source():
     daemon.provider = mock_provider
     daemon.connected = True
 
-    mock_redis = MagicMock()
-    daemon.redis_client = mock_redis
+    mock_redis = AsyncMock()
+    daemon.async_redis = mock_redis
 
     now = datetime.now(UTC)
     start = now - timedelta(minutes=2)
