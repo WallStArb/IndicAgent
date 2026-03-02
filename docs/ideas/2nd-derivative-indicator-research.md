@@ -82,15 +82,78 @@ This doc surveys 2nd-derivative-style indicators from TradingView/trading litera
 
 ---
 
+---
+
+## Additional Candidates (Round 2, 2026-03-02)
+
+### 4. MACD Histogram Acceleration — PARTIAL GAP
+
+**What it is:** The MACD histogram = MACD line − signal. A _shrinking_ histogram (consecutive bars getting closer to zero) signals momentum deceleration before the crossover. The 1st derivative of the histogram (`Δhist`) is the acceleration of momentum divergence.
+
+**What we have:** `MACDEvents` already detects `macd_hist_turning_up` (histogram sign flip from negative to rising) and `macd_hist_positive`. What we _don't_ have: `macd_hist_accel` = `hist[t] - hist[t-1]` and a `hist_expanding` / `hist_contracting` flag.
+
+**Gap:** Small but real. Histogram contraction (negative `macd_hist_accel` while histogram still positive) is a widely-used early warning of trend exhaustion — earlier than `macd_hist_turning_up`.
+
+**Recommendation:** Extend `MACDEventsPlugin` with two new outputs — `macd_hist_accel` and `macd_hist_contracting` (flag: 1 if positive hist is shrinking or negative hist is expanding toward zero). No new plugin needed.
+
+---
+
+### 5. AC Oscillator (Bill Williams Acceleration/Deceleration) — NEW, BUILDABLE
+
+**Formula:**
+1. `midpoint = (high + low) / 2`
+2. `AO` (Awesome Oscillator) = SMA(midpoint, 5) − SMA(midpoint, 34)
+3. `AC = AO − SMA(AO, 5)`
+
+**What it measures:** AO = momentum of midpoints (1st derivative-ish). AC = rate of change of AO (2nd derivative). Williams called it "the acceleration of momentum itself." The AC crosses zero before AO does, giving an earlier signal.
+
+**What we have:** Nothing. We don't have AO or AC anywhere in the pipeline. We have MACD (EMA-based momentum) but not midpoint SMA-based momentum.
+
+**Architecture fit:** Two-step I1 plugin (`ac_oscillator.py`) computing both AO and AC incrementally. Inputs: `high`, `low`. Outputs: `ao`, `ac`, optionally `ac_bullish` / `ac_bearish` (zero-cross flags — could be I2 events instead).
+
+**Signals:** AC > 0 and rising = accelerating upward momentum. AC turns positive before AO does. AC histogram color changes (green/red relative to prior bar) are Williams' primary signal.
+
+**Implementation complexity:** Low-medium. Two rolling SMAs (5 and 34 of midpoint) + rolling SMA(5) of AO. All incremental-friendly.
+
+---
+
+### 6. Ehlers Simple Deriv (TradingView script) — ALREADY DOCUMENTED
+
+Same as the Ehlers Elegant Oscillator in the previous section (Section 2). The TradingView script wraps the same d²price/dt² → normalize → SuperSmoother approach. No new information.
+
+---
+
+### 7. Hull Moving Average Derivatives — INTERESTING, DEFERRED
+
+**What it is:** HMA = WMA(2×WMA(n/2) − WMA(n), sqrt(n)). Taking 1st derivative (HMA[t] − HMA[t-1]) gives HMA slope. 2nd derivative detects when the slope itself reverses — earlier entry signal than the price crossing HMA.
+
+**What we have:** No HMA in I1. We have many MAs (`ma_plugin` covers EMA/SMA/WMA) but HMA requires WMA-of-combination-WMA.
+
+**Prerequisite:** Add HMA to I1 first. Then HMA 1st and 2nd derivatives are natural I2 plugin outputs.
+
+**Gap assessment:** Genuine gap — HMA is widely used and its derivative is a cleaner signal than price-crosses-HMA. But blocked until HMA lands in I1.
+
+**Recommendation:** Add HMA as a todo for `ma_plugin` or a new `hma_plugin`. Once there, 2nd derivative is trivial (same pattern as `MomentumAcceleration`).
+
+---
+
 ## Recommendation
 
-**Build next:** Derivative Oscillator (Constance Brown) as an I2 plugin.
-- Well-documented formula, proven in live trading
-- Clean I2 pattern: RSI from I1 → EMA chains in `_state` → crossover events
-- Minimal complexity relative to signal quality
-- Complements `MomentumAcceleration` — where that gives raw acceleration, this gives a smoothed oscillator with explicit crossover signals
+**Priority order:**
 
-**Defer:** Ehlers Elegant Oscillator — higher implementation complexity (SuperSmoother IIR + inverse Fisher transform), but genuinely interesting for low-lag cycle detection. If we ever add an I1 DSP indicator tier (Ehlers-style), this fits naturally.
+| Priority | Indicator | Effort | Notes |
+|----------|-----------|--------|-------|
+| 1 | **Derivative Oscillator** (Constance Brown) | Low | I2 plugin, RSI from I1, EMA chain in `_state` |
+| 2 | **MACD Histogram Accel** | Very low | Extend `MACDEventsPlugin` — 2 new outputs |
+| 3 | **AC Oscillator** (Bill Williams) | Low-med | New I1 plugin — AO + AC from high/low midpoints |
+| 4 | **HMA + derivatives** | Med | I1 HMA first, then I2 accel trivial |
+| 5 | **Ehlers Elegant Oscillator** | Med-high | I1 plugin, inverse Fisher + SuperSmoother IIR |
+
+**Immediate:** Derivative Oscillator is the highest signal-to-effort ratio — well-documented, clean I2 fit, leads MACD.
+
+**Quick win:** MACD histogram acceleration extends an existing plugin with ~10 lines of code.
+
+**Interesting pipeline expansion:** AC Oscillator brings Bill Williams' framework in; if we later add Williams Alligator / Fractals, AC fits that family.
 
 ---
 
