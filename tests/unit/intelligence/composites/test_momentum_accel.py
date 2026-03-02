@@ -172,6 +172,6 @@ def test_state_persists_across_multiple_calls():
 
 
 def test_plugin_registered_in_tier_i2():
-    from src.intelligence.register_plugins import TIER_I2
     from src.intelligence.composites.momentum_accel import plugin
+    from src.intelligence.register_plugins import TIER_I2
     assert plugin.name in TIER_I2
