@@ -19,15 +19,17 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.3 Signal Intelligence Expansion — Phase 08 complete, Phases 09-11 pending.
+**Current focus:** v1.3 Signal Intelligence Expansion — Phase 09 (GapAnalysisSetup) is next.
 
 ---
 
 ## Current Position
 
-Phase: 08 - momentum-acceleration — **COMPLETE**
-Status: Defining requirements for remaining v1.3 phases (09-11).
-Last activity: 2026-03-02 — Milestone v1.3 started. MomentumAcceleration I2 plugin shipped (977 tests, 0 ruff errors).
+Phase: 09 - gap-analysis-setup — **Ready to plan**
+Status: Roadmap defined. Phase 08 complete. Phase 09 is the next planned phase.
+Last activity: 2026-03-02 — Roadmap created for v1.3 (Phases 08-11). Phase 08 (MomentumAcceleration) already shipped (977 tests, 0 ruff errors).
+
+Progress: [##########░░░░░░░░░░░░░░░░░░░░] 25% (1/4 phases)
 
 ## Performance Metrics
 
@@ -42,6 +44,8 @@ Last activity: 2026-03-02 — Milestone v1.3 started. MomentumAcceleration I2 pl
 - [v1.2]: I2 composites expanded to 6 plugins (added MomentumAcceleration)
 - [v1.2]: MomentumAcceleration fires inflection_flag on any-one sign change (not 2-of-3) — RSI/MACD/ROC have different smoothing, requiring agreement adds lag with no statistical basis
 - [v1.3]: GapAnalysis, CandlestickPattern, SessionExtremes are the 3 remaining I7 setups for this milestone
+- [v1.3]: CandlestickPatternSetup reads I5 `candlestick_*` fields — no re-detection of raw price in I7
+- [v1.3]: SessionExtremesSetup reads I3 SessionLevels output — no separate session window computation
 
 ### Pending Todos
 
@@ -52,4 +56,4 @@ Last activity: 2026-03-02 — Milestone v1.3 started. MomentumAcceleration I2 pl
 
 ## Ready to Proceed
 
-Phase 08 (MomentumAcceleration) is **complete**. Next: `/gsd:plan-phase 09` to plan GapAnalysisSetup.
+Phase 09 (GapAnalysisSetup) is **ready to plan**. Next: `/gsd:plan-phase 09`

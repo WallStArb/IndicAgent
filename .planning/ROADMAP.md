@@ -5,6 +5,7 @@
 - ✅ **v1.0 MVP** — Phases 0-9 (shipped 2026-02-28)
 - ✅ **v1.1 Code Quality Sprint** — Phase 01 complete (ruff 206 → 0, 6/13 tasks done)
 - ✅ **v1.2 Intelligence Palette Expansion** — Phases 2-6 + Phase 7 + Phase 8 complete (965 tests, I2/I5/I6 expanded)
+- 🚧 **v1.3 Signal Intelligence Expansion** — Phases 08-11 (in progress)
 
 ## Phases
 
@@ -42,6 +43,16 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] Phase 05: I6 Confluence Refactor — recency weighting + I2 events (2026-03-02)
 - [x] Phase 06: I1-I6 Correctness Audit — 35 tests (2026-03-02)
 - [x] Phase 07: Final Verification & Documentation — 965 tests, v5.10.0 (2026-03-02)
+
+</details>
+
+<details>
+<summary>🚧 v1.3 Signal Intelligence Expansion — IN PROGRESS</summary>
+
+- [x] **Phase 08: MomentumAcceleration** — I2 plugin: rsi/macd/roc second-derivative + inflection_flag (complete)
+- [ ] **Phase 09: GapAnalysisSetup** — I7 opening gap fade/continuation for ES/NQ (GAP-01, GAP-02, GAP-03)
+- [ ] **Phase 10: CandlestickPatternSetup** — I7 confluence-gated candlestick setup consuming I5 output (CNDL-01, CNDL-02, CNDL-03)
+- [ ] **Phase 11: SessionExtremesSetup** — I7 Asian session high/low fade during London/NY (SESS-01, SESS-02, SESS-03)
 
 </details>
 
@@ -148,6 +159,78 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 ---
 
+### Phase 08: MomentumAcceleration ✅
+
+**Goal:** Users can observe momentum acceleration signals — the rate of change of RSI, MACD, and ROC — and inflection flags in the live intelligence stream
+
+**Status:** Complete — 2026-03-02
+
+**Requirements:** ACCEL-01, ACCEL-02, ACCEL-03
+
+**Success Criteria** (what must be TRUE):
+  1. Every bar's IntelligenceEvent contains `rsi_accel`, `macd_accel`, `roc_accel` fields with valid float values (not null)
+  2. `inflection_flag` is 1 on any bar where at least one acceleration delta changes sign vs the prior bar, and 0 otherwise
+  3. The plugin appears in TIER_I2 and `registry.validate_tier()` passes at service startup with no crash
+  4. All MomentumAcceleration tests pass (`tests/unit/intelligence/composites/`)
+
+**Plans:** TBD
+
+---
+
+### Phase 09: GapAnalysisSetup
+
+**Goal:** Traders can see opening gap setups — fade or continuation — generated for ES and NQ at market open (9:30 ET), with confidence scores and defined entry/stop/target levels
+
+**Depends on:** Phase 08
+
+**Requirements:** GAP-01, GAP-02, GAP-03
+
+**Success Criteria** (what must be TRUE):
+  1. On a bar where a gap is detected (prior close vs current open), the plugin produces a setup with `direction` (bullish/bearish) and `bias` (fade/continuation) populated
+  2. `confidence`, `entry_type` (at_limit or at_pullback), `stop_price`, and `target_price` are all present and non-null on any fired signal
+  3. Gap classification correctly distinguishes fade vs continuation based on gap size relative to ATR and volume context
+  4. The plugin is registered in TIER_I7 and the full unit test suite passes (`tests/unit/intelligence/trading/`)
+
+**Plans:** TBD
+
+---
+
+### Phase 10: CandlestickPatternSetup
+
+**Goal:** Traders can see candlestick-confluence setups that consume existing I5 pattern detections and gate on trend, structure, and volume — no re-detection of raw price patterns in I7
+
+**Depends on:** Phase 09
+
+**Requirements:** CNDL-01, CNDL-02, CNDL-03
+
+**Success Criteria** (what must be TRUE):
+  1. The plugin reads `candlestick_*` fields from the I5 section of IntelligenceEvent and does not access raw OHLCV directly
+  2. A setup signal is only produced when the confluence score meets the configured threshold (trend direction, structure level proximity, and volume confirmation are evaluated)
+  3. Signals include a `confluence_score` field that reflects how many confirming factors were present
+  4. The plugin is registered in TIER_I7 and all unit tests pass (`tests/unit/intelligence/trading/`)
+
+**Plans:** TBD
+
+---
+
+### Phase 11: SessionExtremesSetup
+
+**Goal:** Traders can see fade setups triggered when price approaches Asian session highs or lows during London or NY session windows, confirmed by at least one context factor
+
+**Depends on:** Phase 10
+
+**Requirements:** SESS-01, SESS-02, SESS-03
+
+**Success Criteria** (what must be TRUE):
+  1. The plugin reads `session_high` and `session_low` from I3 SessionLevels output rather than computing its own session extremes
+  2. A setup signal fires only within a London or NY session window (not during the Asian session itself)
+  3. A fade signal is only produced when at least one confirming factor — trend alignment, volume spike, or RSI extreme — is present alongside the session extreme test
+  4. The plugin is registered in TIER_I7 and all unit tests pass (`tests/unit/intelligence/trading/`)
+
+**Plans:** TBD
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans | Status | Completed |
@@ -169,6 +252,10 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 05. I6 Confluence Refactor | v1.2 | — | Complete | 2026-03-02 |
 | 06. I1-I6 Correctness Audit | v1.2 | — | Complete | 2026-03-02 |
 | 07. Final Verification | v1.2 | — | Complete | 2026-03-02 |
+| 08. MomentumAcceleration | v1.3 | — | Complete | 2026-03-02 |
+| 09. GapAnalysisSetup | v1.3 | TBD | Not started | - |
+| 10. CandlestickPatternSetup | v1.3 | TBD | Not started | - |
+| 11. SessionExtremesSetup | v1.3 | TBD | Not started | - |
 
 ## Backlog
 
@@ -183,9 +270,6 @@ Items decided but not yet scheduled. Pull into a milestone when ready.
 | Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. | — |
 | Days-to-expiry feature | `(expiry_date - bar_ts).days` → intelligence_features. Roll proximity signal. | — |
 | Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. | — |
-| Gap Analysis Setup (I7) | Opening gap fade/continuation. Best for ES/NQ at 9:30 ET. | — |
-| Candlestick Pattern Setup (I7) | Doji/hammer/engulfing + confluence. | — |
-| Session Extremes Setup (I7) | Asian session high/low fade during London/NY. | — |
 | Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence plugins. | — |
 | Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
 | Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
