@@ -273,3 +273,4 @@ Items decided but not yet scheduled. Pull into a milestone when ready.
 | Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence plugins. | — |
 | Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
 | Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
+| HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
