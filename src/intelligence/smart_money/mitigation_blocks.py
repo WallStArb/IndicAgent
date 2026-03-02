@@ -62,8 +62,9 @@ class MitigationBlocksPlugin:
             }
 
         # Track deepest penetration within OB zone via running state
-        low = float(df["low"].iloc[-1])
-        high = float(df["high"].iloc[-1])
+        last_row = df.iloc[-1]
+        low = float(last_row["low"])
+        high = float(last_row["high"])
 
         # For bullish OB (price traded down into zone), track how far into the zone
         # For bearish OB (price traded up into zone), track similarly

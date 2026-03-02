@@ -77,7 +77,7 @@ class AMDCyclePlugin:
             }
 
         # Determine phase
-        if hour >= _ACCUM_START or hour < 0:
+        if hour >= _ACCUM_START:
             phase = "accumulation"
         elif hour < _MANIP_END:
             phase = "manipulation"
@@ -96,16 +96,13 @@ class AMDCyclePlugin:
             }
         elif phase == "distribution":
             # Reset overnight state when we enter distribution
-            if self._state.get("dist_reset_done") != True:  # noqa: E712
+            if self._state.get("dist_reset_done") is not True:
                 self._state["dist_reset_done"] = True
                 self._state["dist_direction"] = 0.0
                 manip = self._state.get("manipulation_done", False)
                 if manip:
                     # Direction: based on whether manipulation was a sweep high or sweep low
                     self._state["dist_direction"] = self._state.get("manip_direction", 0.0)
-        elif phase == "accumulation":
-            self._state["dist_reset_done"] = False
-            self._state["manipulation_done"] = False
 
         # Manipulation detection: breach overnight range then reverse
         manip_detected = 0.0

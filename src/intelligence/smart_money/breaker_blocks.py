@@ -49,14 +49,6 @@ class BreakerBlocksPlugin:
         ob_bottom = features.get("ob_bottom")
         ob_mitigated = features.get("ob_mitigated")
 
-        _null = {
-            "breaker_block_active": 0.0,
-            "breaker_block_type": 0.0,
-            "breaker_block_top": None,
-            "breaker_block_bottom": None,
-            "breaker_dist_atr": None,
-        }
-
         if not all(isinstance(v, (int, float)) for v in [ob_type, ob_top, ob_bottom]):
             # Try to use stored breaker from state
             return self._from_state(close, atr)

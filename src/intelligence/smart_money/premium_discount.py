@@ -16,10 +16,11 @@ These complement the LiquidityPools fields with higher precision and the raw lev
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils import clamp
 
 
 @dataclass
@@ -35,7 +36,6 @@ class PremiumDiscountPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = frames.get("features") or {}
@@ -68,8 +68,7 @@ class PremiumDiscountPlugin:
             return _null
 
         # premium_discount_pct: positive = premium, negative = discount
-        pct = (close - equilibrium) / half_range
-        pct = max(-1.0, min(1.0, pct))
+        pct = clamp((close - equilibrium) / half_range)
 
         return {
             "equilibrium_level": round(equilibrium, 4),

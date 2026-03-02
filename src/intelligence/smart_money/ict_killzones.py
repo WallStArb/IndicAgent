@@ -18,6 +18,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 
+
 def _minutes_since_midnight_utc(dt: datetime) -> int:
     return dt.hour * 60 + dt.minute
 
@@ -89,15 +90,8 @@ class ICTKillzonesPlugin:
         active_name: str | None = None
         minutes_in: float = 0.0
 
-        kz_map = {
-            "asia": (8 * 60, 10 * 60),
-            "london": (7 * 60, 10 * 60),
-            "ny_am": (13 * 60 + 30, 16 * 60),
-            "ny_pm": (18 * 60, 20 * 60),
-        }
-
         earliest_start: int | None = None
-        for kz_name, (start, end) in kz_map.items():
+        for kz_name, (start, end) in _KZ_MAP.items():
             if start <= cur_min < end:
                 if kz_name == "asia":
                     in_asia = 1.0
@@ -114,9 +108,8 @@ class ICTKillzonesPlugin:
                     minutes_in = float(cur_min - start)
 
         # Minutes until next killzone start
-        starts = sorted(kz_map[k][0] for k in kz_map)
         minutes_until: float = float(min(
-            (s - cur_min) % total_day_minutes for s in starts
+            (s - cur_min) % total_day_minutes for s in _KZ_STARTS
         ))
 
         return {
