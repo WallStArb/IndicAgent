@@ -84,15 +84,15 @@ def test_parse_malformed_json_returns_none():
 
 # ── _event_to_insert_params ───────────────────────────────────────────────────
 
-def test_event_to_insert_params_returns_13_tuple():
-    """_event_to_insert_params returns a 13-element tuple."""
+def test_event_to_insert_params_returns_14_tuple():
+    """_event_to_insert_params returns a 14-element tuple (i2 column added)."""
     from services.feature_writer_service import _event_to_insert_params
 
     event = _make_valid_event()
     params = _event_to_insert_params(event)
 
     assert isinstance(params, tuple)
-    assert len(params) == 13
+    assert len(params) == 14
 
 
 def test_event_to_insert_params_first_element_is_datetime():

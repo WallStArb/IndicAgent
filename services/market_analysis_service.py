@@ -40,6 +40,7 @@ from src.core.stream_keys import intelligence as sk_intelligence
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
+    TIER_I2,
     TIER_I3,
     TIER_I4,
     TIER_I5,
@@ -49,6 +50,7 @@ from src.intelligence.register_plugins import (
 )
 from src.intelligence.schemas import (
     I1Indicators,
+    I2Events,
     I3Structure,
     I4Context,
     I5Patterns,
@@ -80,7 +82,7 @@ class MarketAnalysisService:
 
         register_all_plugins()
         for tier_list, tier_name in [
-            (TIER_I3, "I3"), (TIER_I4, "I4"), (TIER_I5, "I5"),
+            (TIER_I2, "I2"), (TIER_I3, "I3"), (TIER_I4, "I4"), (TIER_I5, "I5"),
             (TIER_SMC, "SMC"), (TIER_I6, "I6"),
         ]:
             registry.validate_tier(tier_list, tier_name)
@@ -90,6 +92,7 @@ class MarketAnalysisService:
         self.consumer_name = f"market_analysis_consumer_{os.getpid()}"
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+        self._prev_i1_features: dict[str, dict[str, Any]] = {}  # key="{symbol}:{tf}"
         self.intelligence_cache: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
         self._df_cache: dict[str, pd.DataFrame | None] = {}
         self._active_symbols: set[str] = set()
@@ -217,6 +220,11 @@ class MarketAnalysisService:
                         pname, symbol, timeframe, time.time() - t0, "error", tier
                     )
 
+        # I2: Composite indicator events (crossovers, extremes) — runs on I1 features
+        i2_results: dict[str, Any] = {}
+        _run_tier(TIER_I2, "I2", i2_results)
+        features.update(i2_results)
+
         i3_results: dict[str, Any] = {}
         _run_tier(TIER_I3, "I3", i3_results)
         features.update(i3_results)
@@ -239,9 +247,10 @@ class MarketAnalysisService:
         i6_results: dict[str, Any] = {}
         _run_tier(TIER_I6, "I6", i6_results)
 
-        flat = {**i3_results, **i4_results, **i5_results, **smc_results, **i6_results}
+        flat = {**i2_results, **i3_results, **i4_results, **i5_results, **smc_results, **i6_results}
         self.intelligence_cache[symbol][timeframe] = flat
         return {
+            "i2": i2_results,
             "i3": i3_results,
             "i4": i4_results,
             "i5": i5_results,
@@ -292,6 +301,12 @@ class MarketAnalysisService:
 
         # I1 features arrive pre-computed from indicator_service
         frames["features"] = dict(i1_features)
+
+        # Inject previous bar's I1 features for I2 crossover detection
+        prev_key = f"{symbol}:{timeframe}"
+        if prev_key in self._prev_i1_features:
+            frames["prev_features"] = self._prev_i1_features[prev_key]
+        self._prev_i1_features[prev_key] = dict(i1_features)
 
         tiered = self._run_analysis_pipeline(symbol, timeframe, frames)
         self.calculations_total.inc()
@@ -378,6 +393,7 @@ class MarketAnalysisService:
                     v=int(bar_data.get("volume", 0)),
                 ),
                 i1=I1Indicators(**{k: v for k, v in i1_features.items() if v is not None}),
+                i2=I2Events(**{k: v for k, v in tiered.get("i2", {}).items() if v is not None}),
                 i3=I3Structure(**tiered.get("i3", {})),
                 i4=I4Context(**tiered.get("i4", {})),
                 i5=I5Patterns(**tiered.get("i5", {})),

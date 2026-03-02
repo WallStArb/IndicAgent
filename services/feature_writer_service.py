@@ -47,10 +47,10 @@ CONSUMER_NAME: str = "feature_writer_1"
 _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i3, i4, i5, smc, i6
+    bar, i1, i2, i3, i4, i5, smc, i6
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb
+    $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
 )
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -77,9 +77,9 @@ def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent |
 
 
 def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
-    """Build a 13-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
+    """Build a 14-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
 
-    Returns positional params matching $1..$13:
+    Returns positional params matching $1..$14:
       $1  ts             — datetime
       $2  symbol         — str
       $3  tf             — str
@@ -88,16 +88,17 @@ def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
       $6  schema_version — str
       $7  bar            — JSON string (jsonb)
       $8  i1             — JSON string (jsonb)
-      $9  i3             — JSON string (jsonb)
-      $10 i4             — JSON string (jsonb)
-      $11 i5             — JSON string (jsonb)
-      $12 smc            — JSON string (jsonb)
-      $13 i6             — JSON string (jsonb)
+      $9  i2             — JSON string (jsonb)
+      $10 i3             — JSON string (jsonb)
+      $11 i4             — JSON string (jsonb)
+      $12 i5             — JSON string (jsonb)
+      $13 smc            — JSON string (jsonb)
+      $14 i6             — JSON string (jsonb)
 
     JSONB columns MUST be json.dumps() strings — asyncpg does not auto-serialize dicts.
     - bar uses model.model_dump() (no exclude_none — bar always has full data)
     - i1 uses model.model_dump() (no exclude_none — I1 has extra='allow', many dynamic fields)
-    - i3..i6 use model.model_dump(exclude_none=True) (strict models, exclude None for compactness)
+    - i2..i6 use model.model_dump(exclude_none=True) (strict models, exclude None for compactness)
     """
     return (
         event.ts,
@@ -108,6 +109,7 @@ def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
         event.schema_version,
         json.dumps(event.bar.model_dump()),
         json.dumps(event.i1.model_dump()),
+        json.dumps(event.i2.model_dump(exclude_none=True)),
         json.dumps(event.i3.model_dump(exclude_none=True)),
         json.dumps(event.i4.model_dump(exclude_none=True)),
         json.dumps(event.i5.model_dump(exclude_none=True)),

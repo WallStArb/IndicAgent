@@ -1,8 +1,5 @@
 """Tests for I2 composite indicator event plugins."""
-import numpy as np
-import pandas as pd
 
-from tests.unit.intelligence.helpers import make_ohlcv
 
 
 class TestMACompositeExtended:
@@ -108,7 +105,9 @@ class TestStochasticEvents:
         from src.intelligence.composites.stochastic_events import StochasticEventsPlugin
         features = {"stoch_k_14_3": 25.0, "stoch_d_14_3": 22.0}
         prev = {"stoch_k_14_3": 18.0, "stoch_d_14_3": 22.0}
-        result = StochasticEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        result = StochasticEventsPlugin().compute_full(
+            {"features": features, "prev_features": prev}
+        )
         assert result.get("stoch_cross_bullish") == 1
 
     def test_both_oversold(self):
@@ -136,7 +135,9 @@ class TestADXEvents:
 class TestVolumeEvents:
     def test_vol_spike_detected(self):
         from src.intelligence.composites.volume_events import VolumeEventsPlugin
-        features = {"volume": 5000.0, "volume_sma_20": 1000.0, "volume_std_20": 500.0, "close": 5100.0}
+        features = {
+            "volume": 5000.0, "volume_sma_20": 1000.0, "volume_std_20": 500.0, "close": 5100.0
+        }
         result = VolumeEventsPlugin().compute_full({"features": features})
         assert result.get("vol_spike") == 1
 

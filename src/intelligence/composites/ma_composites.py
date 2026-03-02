@@ -96,7 +96,9 @@ class MACompositePlugin:
             if self._is_num(ps50) and self._is_num(ps200):
                 cross_occurred = (ps50 <= ps200 and s50 > s200) or (ps50 >= ps200 and s50 < ps200)
                 prev_ago = self._state.get("golden_cross_bars_ago", 999)
-                out["golden_cross_bars_ago"] = 0.0 if cross_occurred else float(min(prev_ago + 1, 999))
+                out["golden_cross_bars_ago"] = (
+                    0.0 if cross_occurred else float(min(prev_ago + 1, 999))
+                )
                 self._state["golden_cross_bars_ago"] = out["golden_cross_bars_ago"]
         if self._is_num(s20) and self._is_num(s50):
             out["sma_20_gt_50"] = 1 if s20 > s50 else 0

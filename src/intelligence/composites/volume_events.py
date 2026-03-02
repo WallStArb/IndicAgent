@@ -64,8 +64,12 @@ class VolumeEventsPlugin:
             # Walking the band: 3+ closes above/below midline
             above_mid = 1 if (is_num(bb_mid) and close > bb_mid) else 0
             below_mid = 1 if (is_num(bb_mid) and close < bb_mid) else 0
-            self._state["above_mid_streak"] = (self._state.get("above_mid_streak", 0) + 1) if above_mid else 0
-            self._state["below_mid_streak"] = (self._state.get("below_mid_streak", 0) + 1) if below_mid else 0
+            self._state["above_mid_streak"] = (
+                (self._state.get("above_mid_streak", 0) + 1) if above_mid else 0
+            )
+            self._state["below_mid_streak"] = (
+                (self._state.get("below_mid_streak", 0) + 1) if below_mid else 0
+            )
             out["bb_walking_upper"] = 1 if self._state["above_mid_streak"] >= self._WALK_BARS else 0
             out["bb_walking_lower"] = 1 if self._state["below_mid_streak"] >= self._WALK_BARS else 0
         else:

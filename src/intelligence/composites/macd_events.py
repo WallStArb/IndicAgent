@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from .common import is_num, crossover_detect, track_bars_ago
+from .common import crossover_detect, is_num, track_bars_ago
 
 
 @dataclass
