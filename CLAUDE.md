@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.9.0
+Version: 5.10.0
 Last Updated: 2026-03-02
-Status: I1-I8 pipeline complete — 84 plugins + 2 aggregation components + feature store + typed intelligence bus, 910 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 84 plugins + 2 aggregation components + feature store + typed intelligence bus, 965 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -146,19 +146,20 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - `signal_ledger` — all I7 signals with outcome tracking; JOIN to `intelligence_features` via `(symbol, feature_ts, feature_tf)`
 - Continuous aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 
-## Plugin System (78 total + 2 aggregation)
+## Plugin System (84 total + 2 aggregation)
 
 ### I1 Technical Indicators (23 plugins) — all incremental `compute_next()`
 Trend, Momentum, Volatility, Volume — full list in `src/intelligence/register_plugins.py:TIER_I1`
 
 ### I2 Composite Events (5 plugins) — run on I1 features, before I3
-MAComposite, MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents — detect crossovers, threshold crosses, band touches. Defined in `src/intelligence/composites/`. Shared utilities in `common.py` (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`).
+MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents — detect crossovers, threshold crosses, band touches. Defined in `src/intelligence/composites/`. Shared utilities in `common.py` (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`).
 
-### I3 Structure (7) · I4 Context (7) · I5 Patterns (14) · I6 SMC (8) · I6 Confluence (1)
+### I3 Structure (7) · I4 Context (7) · I5 Patterns (14) · I6 SMC (13) · I6 Confluence (1)
 - **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones
 - **I4**: vol/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility
 - **I5**: RSI divergence, squeeze, vol divergence, confluence, trend confluence, DoubleTopBottom, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction
-- **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps
+- **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
+- **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (trend/structure/regime/pattern/I2 events + SMC BOS sub-score; 10 output fields)
 
 ### I7 Trading Setups (14 plugins) + Aggregation (2 components)
 TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition. Signal aggregator, cross-timeframe confluence.
@@ -207,9 +208,10 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ## Current Status
 
-**Tests:** 910 passing
+**Tests:** 965 passing
 **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (v1.0 + v1.1 complete)
+**Intelligence Palette Expansion:** complete — I2 composites (5), I5 patterns (+6), SMC plugins (+5), I6 confluence recency weighting + I2 event scoring, I1-I6 correctness audit (35 tests)
 **Roadmap:** See `.planning/ROADMAP.md` — v1.1 complete. Next milestone TBD.
 
 ### ai_narrative_service key facts
