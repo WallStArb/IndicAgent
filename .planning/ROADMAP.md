@@ -189,9 +189,13 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   1. On a bar where a gap is detected (prior close vs current open), the plugin produces a setup with `direction` (bullish/bearish) and `bias` (fade/continuation) populated
   2. `confidence`, `entry_type` (at_limit or at_pullback), `stop_price`, and `target_price` are all present and non-null on any fired signal
   3. Gap classification correctly distinguishes fade vs continuation based on gap size relative to ATR and volume context
-  4. The plugin is registered in TIER_I7 and the full unit test suite passes (`tests/unit/intelligence/trading/`)
+  4. The plugin is registered in TIER_I7 and the full unit test suite passes (`tests/unit/intelligence/`)
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Write failing test suite for GapAnalysisSetup (TDD RED phase)
+- [ ] 09-02-PLAN.md — Implement GapAnalysisSetupPlugin and register in TIER_I7
 
 ---
 
@@ -253,7 +257,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 | 06. I1-I6 Correctness Audit | v1.2 | — | Complete | 2026-03-02 |
 | 07. Final Verification | v1.2 | — | Complete | 2026-03-02 |
 | 08. MomentumAcceleration | v1.3 | — | Complete | 2026-03-02 |
-| 09. GapAnalysisSetup | v1.3 | TBD | Not started | - |
+| 09. GapAnalysisSetup | v1.3 | 2/2 | Not started | - |
 | 10. CandlestickPatternSetup | v1.3 | TBD | Not started | - |
 | 11. SessionExtremesSetup | v1.3 | TBD | Not started | - |
 
