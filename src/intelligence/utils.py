@@ -92,11 +92,11 @@ def utc_datetime_from_df(df: Any) -> datetime | None:
     Handles both native ``datetime`` objects and pandas ``Timestamp`` values.
     Returns ``None`` if the column is absent or parsing fails.
     """
-    if "timestamp" not in df.columns:
+    if "timestamp" not in df.columns or df.empty:
         return None
     raw = df.iloc[-1]["timestamp"]
     if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
+        return raw.astimezone(UTC) if raw.tzinfo else raw.replace(tzinfo=UTC)
     try:
         import pandas as pd
 

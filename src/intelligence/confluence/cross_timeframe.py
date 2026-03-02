@@ -260,9 +260,9 @@ class CrossTimeframeConfluencePlugin:
                     total_weight += w
                     if (cur_vol_exp > 0) == (other_exp > 0):
                         weighted_sum += w
-            if total_weight > 0.0:
-                # Agreement is unsigned — it amplifies magnitude but not direction
-                scores.append(weighted_sum / total_weight if scores else 0.0)
+            if total_weight > 0.0 and scores:
+                # Agreement is unsigned — only valid when a directional baseline exists
+                scores.append(weighted_sum / total_weight)
 
         if not scores:
             return 0.0
