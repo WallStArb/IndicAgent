@@ -15,7 +15,7 @@ class SessionLevelsPlugin:
     """Session and weekly pivot levels derived from bar-count windows."""
 
     name: str = "struct_SessionLevels"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "prior_session_high",
             "prior_session_low",
@@ -35,8 +35,8 @@ class SessionLevelsPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"structure"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=400),)
+    capability_tags: frozenset[str] = frozenset({"structure"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=400),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

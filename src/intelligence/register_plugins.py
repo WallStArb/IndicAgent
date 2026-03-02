@@ -51,13 +51,18 @@ from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
 from .patterns.volume_profile import plugin as volume_profile_plugin
 from .plugins import registry
+from .smart_money.amd_cycle import plugin as amd_cycle_plugin
 from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
 from .smart_money.bos_choch import plugin as bos_choch_plugin
+from .smart_money.breaker_blocks import plugin as breaker_blocks_plugin
 from .smart_money.fair_value_gap import plugin as fvg_plugin
 from .smart_money.hmm_regime import plugin as hmm_plugin
+from .smart_money.ict_killzones import plugin as ict_killzones_plugin
 from .smart_money.liquidity_pools import plugin as liquidity_pools_plugin
 from .smart_money.liquidity_sweeps import plugin as liq_sweep_plugin
+from .smart_money.mitigation_blocks import plugin as mitigation_blocks_plugin
 from .smart_money.order_blocks import plugin as ob_plugin
+from .smart_money.premium_discount import plugin as premium_discount_plugin
 from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
 from .structure.anchored_vwap import plugin as anchored_vwap_plugin
 from .structure.fibonacci_zones import plugin as fib_zones_plugin
@@ -144,6 +149,11 @@ def register_all_plugins() -> None:
     registry.register_pattern(hmm_plugin)
     registry.register_pattern(liquidity_pools_plugin)
     registry.register_pattern(supply_demand_zones_plugin)
+    registry.register_pattern(ict_killzones_plugin)
+    registry.register_pattern(amd_cycle_plugin)
+    registry.register_pattern(breaker_blocks_plugin)
+    registry.register_pattern(mitigation_blocks_plugin)
+    registry.register_pattern(premium_discount_plugin)
 
     registry.register_pattern(ctf_plugin)
 
@@ -260,6 +270,11 @@ TIER_SMC: list[str] = [
     hmm_plugin.name,
     liquidity_pools_plugin.name,
     supply_demand_zones_plugin.name,
+    ict_killzones_plugin.name,
+    amd_cycle_plugin.name,
+    breaker_blocks_plugin.name,
+    mitigation_blocks_plugin.name,
+    premium_discount_plugin.name,
 ]
 
 TIER_I6: list[str] = [

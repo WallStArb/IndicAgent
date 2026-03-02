@@ -440,7 +440,12 @@ class SMCContext(BaseModel):
     - smc_HMMRegime (6 fields)
     - smc_LiquidityPools (13 fields)
     - smc_SupplyDemandZones (14 fields)
-    Total: 61 fields
+    - smc_ICTKillzones (7 fields)
+    - smc_AMDCycle (3 fields)
+    - smc_BreakerBlocks (5 fields)
+    - smc_MitigationBlocks (2 fields)
+    - smc_PremiumDiscount (2 fields)
+    Total: 80 fields
 
     NOTE: SMC has smc_trend_direction (not trend_direction) to avoid collision
     with I3Structure.trend_direction. Both I3 TrendStructure and SMC BOSCHoCH
@@ -525,6 +530,35 @@ class SMCContext(BaseModel):
     in_supply_zone: float | None = None       # 0.0/1.0 flag
     active_demand_zones: float | None = None
     active_supply_zones: float | None = None
+
+    # ICTKillzonesPlugin outputs
+    in_asia_killzone: float | None = None
+    in_london_killzone: float | None = None
+    in_ny_am_killzone: float | None = None
+    in_ny_pm_killzone: float | None = None
+    killzone_name: str | None = None
+    minutes_in_killzone: float | None = None
+    minutes_until_next_killzone: float | None = None
+
+    # AMDCyclePlugin outputs
+    amd_phase: str | None = None          # "accumulation"/"manipulation"/"distribution"/"unknown"
+    amd_manipulation_detected: float | None = None
+    amd_distribution_direction: float | None = None  # -1/0/1
+
+    # BreakerBlocksPlugin outputs
+    breaker_block_active: float | None = None
+    breaker_block_type: float | None = None       # -1 (bearish breaker) / +1 (bullish breaker)
+    breaker_block_top: float | None = None
+    breaker_block_bottom: float | None = None
+    breaker_dist_atr: float | None = None
+
+    # MitigationBlocksPlugin outputs
+    ob_mitigation_status: str | None = None   # "fresh"/"partial"/"void"
+    ob_mitigation_pct: float | None = None
+
+    # PremiumDiscountPlugin outputs
+    equilibrium_level: float | None = None
+    premium_discount_pct: float | None = None  # -1.0 to +1.0
 
 
 class I6Confluence(BaseModel):

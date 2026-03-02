@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from ..utils import clamp
 
 
 @dataclass
@@ -11,7 +12,7 @@ class MTFVolatilityPlugin:
     """Multi-timeframe volatility context from cached intel dicts."""
 
     name: str = "ctx_MTFVolatility"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "mtf_vol_expansion_15m",
             "mtf_vol_expansion_1h",
@@ -21,8 +22,8 @@ class MTFVolatilityPlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"context"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
+    capability_tags: frozenset[str] = frozenset({"context"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -45,12 +46,9 @@ class MTFVolatilityPlugin:
 
         # vol_divergence_score: weighted sum across TFs, clamped to [-1, 1]
         # Weights: 1m (current, from features), 15m, 1h
-        cur_exp = features.get("vol_expansion", 0.0) or 0.0
-        cur_exp = float(cur_exp) if isinstance(cur_exp, (int, float)) else 0.0
-        exp_1h_val = float(exp_1h) if isinstance(exp_1h, (int, float)) else 0.0
-        exp_15m_val = float(exp_15m) if isinstance(exp_15m, (int, float)) else 0.0
-        divergence = (cur_exp * 1.0 + exp_15m_val * 0.7 + exp_1h_val * 0.5) / 2.2
-        divergence = max(-1.0, min(1.0, divergence))
+        cur_exp = float(features.get("vol_expansion") or 0.0)
+        divergence = (cur_exp * 1.0 + float(exp_15m) * 0.7 + float(exp_1h) * 0.5) / 2.2
+        divergence = clamp(divergence)
 
         return {
             "mtf_vol_expansion_15m": mtf_exp_15m,

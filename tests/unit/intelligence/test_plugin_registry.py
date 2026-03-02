@@ -103,9 +103,9 @@ def test_tier_i1_has_23_plugins():
     assert len(TIER_I1) == 23, f"Expected 23 I1 plugins, got {len(TIER_I1)}: {TIER_I1}"
 
 
-def test_tier_smc_has_8_plugins():
+def test_tier_smc_has_13_plugins():
     from src.intelligence.register_plugins import TIER_SMC
-    assert len(TIER_SMC) == 8, f"Expected 8 SMC plugins, got {len(TIER_SMC)}: {TIER_SMC}"
+    assert len(TIER_SMC) == 13, f"Expected 13 SMC plugins, got {len(TIER_SMC)}: {TIER_SMC}"
 
 
 def test_tier_i7_has_14_plugins():

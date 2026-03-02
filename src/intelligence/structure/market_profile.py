@@ -13,7 +13,7 @@ class MarketProfilePlugin:
     """TPO-based market profile: Point of Control and Value Area."""
 
     name: str = "struct_MarketProfile"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "poc_level",
             "va_high",
@@ -28,8 +28,8 @@ class MarketProfilePlugin:
     )
     min_lookback: int = 30
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"structure"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    capability_tags: frozenset[str] = frozenset({"structure"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

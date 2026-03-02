@@ -61,7 +61,7 @@ class SessionContextPlugin:
     """Time-of-day session context — Asia / London / NY / killzones."""
 
     name: str = "ctx_SessionContext"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "session_asia",
             "session_london",
@@ -79,8 +79,8 @@ class SessionContextPlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"context"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
+    capability_tags: frozenset[str] = frozenset({"context"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -98,28 +98,20 @@ class SessionContextPlugin:
 
         et = _et_from_utc(ts)
 
-        sess_asia = 1.0 if _in_window(et, (20, 0), (4, 0)) else 0.0
-        sess_london = 1.0 if _in_window(et, (3, 0), (12, 0)) else 0.0
-        sess_ny = 1.0 if _in_window(et, (9, 30), (16, 0)) else 0.0
-        sess_overlap = 1.0 if _in_window(et, (8, 0), (12, 0)) else 0.0
+        sess_asia = 1.0 if _in_window(et, *_SESSIONS["asia"]) else 0.0
+        sess_london = 1.0 if _in_window(et, *_SESSIONS["london"]) else 0.0
+        sess_ny = 1.0 if _in_window(et, *_SESSIONS["ny"]) else 0.0
+        sess_overlap = 1.0 if _in_window(et, *_SESSIONS["overlap"]) else 0.0
         sess_after = 0.0 if (sess_asia or sess_london or sess_ny) else 1.0
 
-        in_london_kz = 1.0 if _in_window(et, (2, 0), (5, 0)) else 0.0
-        in_ny_kz = 1.0 if _in_window(et, (7, 0), (10, 0)) else 0.0
+        in_london_kz = 1.0 if _in_window(et, *_KILLZONES["london_kz"]) else 0.0
+        in_ny_kz = 1.0 if _in_window(et, *_KILLZONES["ny_kz"]) else 0.0
 
         mins_to_ny = _minutes_until(et, 9, 30)
         mins_to_london = _minutes_until(et, 3, 0)
 
-        # Bars since NY open (rough: bars where t >= 9:30)
-        bars_since = 0.0
-        if "timestamp" in df.columns:
-            bars_since = float(
-                sum(
-                    1
-                    for v in df["timestamp"]
-                    if hasattr(v, "tzinfo") or isinstance(v, datetime)
-                )
-            )
+        # Bars in lookback window (rough proxy for session length)
+        bars_since = float(len(df))
 
         return {
             "session_asia": sess_asia,

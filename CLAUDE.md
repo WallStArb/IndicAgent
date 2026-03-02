@@ -2,7 +2,7 @@
 
 Version: 5.9.0
 Last Updated: 2026-03-02
-Status: I1-I8 pipeline complete — 78 plugins + 2 aggregation components + feature store + typed intelligence bus, 910 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 84 plugins + 2 aggregation components + feature store + typed intelligence bus, 910 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 

@@ -6,10 +6,8 @@ Covers: CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove,
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
-
 
 # ---------------------------------------------------------------------------
 # CandlestickPatterns
@@ -33,12 +31,12 @@ class TestCandlestickPatterns:
         assert result.get("engulfing_bear") == 0.0
 
     def test_pin_bar_bull_detected(self):
-        from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
-
         # Two bars needed; only current bar matters for pin bar
         # Pin bar bull: long lower wick >= 2× body, upper wick <= body
         # open=5005, close=5010, high=5011, low=4980 → body=5, lower_wick=25, upper_wick=1
         import pandas as pd
+
+        from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
         df = pd.DataFrame({
             "open":  [5005.0, 5005.0],
             "high":  [5011.0, 5011.0],
@@ -50,9 +48,9 @@ class TestCandlestickPatterns:
         assert result.get("pin_bar_bull") == 1.0
 
     def test_doji_detected(self):
-        from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
-
         import pandas as pd
+
+        from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
         # Doji: open ≈ close, range exists
         df = pd.DataFrame({
             "open":  [5000.0, 5000.5],
@@ -107,7 +105,10 @@ class TestFlagPennant:
         df = make_ohlcv(close)
         result = FlagPennantPlugin().compute_full({"main": df, "features": {}})
         if result:
-            expected = {"flag_pattern", "pennant_pattern", "flag_breakout_target", "consolidation_compression_ratio"}
+            expected = {
+                "flag_pattern", "pennant_pattern",
+                "flag_breakout_target", "consolidation_compression_ratio",
+            }
             assert expected.issubset(result.keys())
 
     def test_empty_returns_empty(self):

@@ -17,7 +17,7 @@ class VolumeProfilePlugin:
     """Volume-weighted price histogram: HVN and LVN detection."""
 
     name: str = "patt_VolumeProfile"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "nearest_hvn_level",
             "nearest_hvn_dist_atr",
@@ -27,8 +27,8 @@ class VolumeProfilePlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    capability_tags: frozenset[str] = frozenset({"pattern"})
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -43,10 +43,8 @@ class VolumeProfilePlugin:
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
         volume = df["volume"].to_numpy(dtype=float)
-        arr_h = df["high"].to_numpy(dtype=float)
-        arr_l = df["low"].to_numpy(dtype=float)
-        arr_c2 = df["close"].to_numpy(dtype=float)
-        typical = (arr_h + arr_l + arr_c2) / 3.0
+        close_arr = df["close"].to_numpy(dtype=float)
+        typical = (high + low + close_arr) / 3.0
 
         price_min = float(low.min())
         price_max = float(high.max())
@@ -74,8 +72,9 @@ class VolumeProfilePlugin:
         bucket_prices = price_min + (np.arange(_N_BUCKETS) + 0.5) * bucket_size
 
         # HVN: top 20% by volume
-        vol_threshold_high = np.quantile(vol_hist[vol_hist > 0], _HVN_THRESHOLD)
-        vol_threshold_low = np.quantile(vol_hist[vol_hist > 0], _LVN_THRESHOLD)
+        nonzero_vols = vol_hist[vol_hist > 0]
+        vol_threshold_high = np.quantile(nonzero_vols, _HVN_THRESHOLD)
+        vol_threshold_low = np.quantile(nonzero_vols, _LVN_THRESHOLD)
 
         hvn_prices = bucket_prices[vol_hist >= vol_threshold_high]
         lvn_prices = bucket_prices[vol_hist <= vol_threshold_low]
