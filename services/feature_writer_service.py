@@ -46,10 +46,12 @@ CONSUMER_NAME: str = "feature_writer_1"
 _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i2, i3, i4, i5, smc, i6
+    bar, i1, i2, i3, i4, i5, smc, i6,
+    bar_close_ts, i1_computed_at, computed_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
+    $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
+    $15, $16, $17
 )
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
@@ -76,9 +78,9 @@ def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent |
 
 
 def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
-    """Build a 14-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
+    """Build a 17-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
 
-    Returns positional params matching $1..$14:
+    Returns positional params matching $1..$17:
       $1  ts             — datetime
       $2  symbol         — str
       $3  tf             — str
@@ -93,6 +95,9 @@ def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
       $12 i5             — JSON string (jsonb)
       $13 smc            — JSON string (jsonb)
       $14 i6             — JSON string (jsonb)
+      $15 bar_close_ts   — datetime | None (always set for live; set for backfill too)
+      $16 i1_computed_at — datetime | None (None for backfill)
+      $17 computed_at    — datetime | None (None for backfill)
 
     JSONB columns MUST be json.dumps() strings — asyncpg does not auto-serialize dicts.
     - bar uses model.model_dump() (no exclude_none — bar always has full data)
@@ -114,6 +119,9 @@ def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
         json.dumps(event.i5.model_dump(exclude_none=True)),
         json.dumps(event.smc.model_dump(exclude_none=True)),
         json.dumps(event.i6.model_dump(exclude_none=True)),
+        event.bar_close_ts,    # $15 — always set for live; also set for backfill
+        event.i1_computed_at,  # $16 — None for backfill
+        event.computed_at,     # $17 — None for backfill
     )
 
 

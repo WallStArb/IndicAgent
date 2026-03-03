@@ -67,7 +67,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 28
+        assert len(params) == 29
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -83,6 +83,8 @@ class TestLedgerEntry:
         assert params[25] is None  # bucket_scores (JSON)
         assert params[26] is None  # weights_version
         assert params[27] is None  # signal_quality
+        # Timing field ($29)
+        assert params[28] is None  # signal_computed_at (default None)
 
     def test_to_insert_params_with_cis_fields(self):
         """LedgerEntry with CIS fields — bucket_scores serialized to JSON string at index 25."""
@@ -95,7 +97,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 28
+        assert len(params) == 29
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -103,6 +105,7 @@ class TestLedgerEntry:
         assert parsed["momentum"] == pytest.approx(0.3)
         assert params[26] == 0  # weights_version
         assert params[27] is None  # signal_quality still None at fire time
+        assert params[28] is None  # signal_computed_at default None
 
 
 # ---------------------------------------------------------------------------

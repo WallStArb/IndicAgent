@@ -144,6 +144,26 @@ MARKET_CONDITIONS_GAUGE = Gauge(
     ["symbol", "timeframe"],
 )
 
+# Pipeline timing — bar-close to each stage latency (live events only)
+BAR_TO_I1_LATENCY = Histogram(
+    "indic_bar_to_i1_latency_seconds",
+    "Seconds from bar close to I1 computation complete",
+    ["symbol", "tf"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+)
+BAR_TO_INTELLIGENCE_LATENCY = Histogram(
+    "indic_bar_to_intelligence_latency_seconds",
+    "Seconds from bar close to I3-I6 intelligence event published",
+    ["symbol", "tf"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+BAR_TO_SIGNAL_LATENCY = Histogram(
+    "indic_bar_to_signal_latency_seconds",
+    "Seconds from bar close to I7 signal generated",
+    ["symbol", "tf"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+
 
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""

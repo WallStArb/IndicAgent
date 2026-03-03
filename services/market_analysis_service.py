@@ -19,7 +19,7 @@ import signal
 import sys
 import time
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +63,7 @@ from src.intelligence.schemas import (
     SMCContext,
 )
 from src.observability.metrics import (
+    BAR_TO_INTELLIGENCE_LATENCY,
     counter,
     gauge,
     record_plugin_execution,
@@ -313,6 +314,8 @@ class MarketAnalysisService:
     ) -> bool:
         try:
             bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
+            bar_close_ts_str = fields.get(b"bar_close_ts", b"").decode() or None
+            i1_computed_at_str = fields.get(b"i1_computed_at", b"").decode() or None
             bar_data, i1_features = parse_indicators_message(fields)
             bar_data["timestamp"] = bar_ts
 
@@ -328,7 +331,9 @@ class MarketAnalysisService:
 
             if tiered:
                 await self._publish_intelligence(
-                    symbol, timeframe, tiered, bar_ts, bar_data, i1_features
+                    symbol, timeframe, tiered, bar_ts, bar_data, i1_features,
+                    bar_close_ts_str=bar_close_ts_str,
+                    i1_computed_at_str=i1_computed_at_str,
                 )
 
             self.bars_processed_total.inc()
@@ -362,6 +367,8 @@ class MarketAnalysisService:
         timestamp: datetime,
         bar_data: dict[str, Any] | None = None,
         i1_features: dict[str, Any] | None = None,
+        bar_close_ts_str: str | None = None,
+        i1_computed_at_str: str | None = None,
     ) -> None:
         """Publish a validated IntelligenceEvent to the intelligence: Redis stream.
 
@@ -370,6 +377,20 @@ class MarketAnalysisService:
         """
         bar_data = bar_data or {}
         i1_features = i1_features or {}
+
+        bar_close_ts_dt: datetime | None = None
+        if bar_close_ts_str:
+            try:
+                bar_close_ts_dt = datetime.fromisoformat(bar_close_ts_str)
+            except (ValueError, TypeError):
+                pass
+
+        i1_computed_at_dt: datetime | None = None
+        if i1_computed_at_str:
+            try:
+                i1_computed_at_dt = datetime.fromisoformat(i1_computed_at_str)
+            except (ValueError, TypeError):
+                pass
 
         try:
             event = IntelligenceEvent(
@@ -391,7 +412,16 @@ class MarketAnalysisService:
                 smc=SMCContext(**tiered.get("smc", {})),
                 i6=I6Confluence(**tiered.get("i6", {})),
                 source="live",
+                bar_close_ts=bar_close_ts_dt,
+                i1_computed_at=i1_computed_at_dt,
+                computed_at=datetime.now(UTC),
             )
+
+            # Emit bar-to-intelligence latency for live events with known close time
+            if bar_close_ts_dt is not None:
+                BAR_TO_INTELLIGENCE_LATENCY.labels(symbol=symbol, tf=timeframe).observe(
+                    (event.computed_at - bar_close_ts_dt).total_seconds()
+                )
         except ValidationError as e:
             self.logger.error(
                 "IntelligenceEvent validation failed — event dropped",

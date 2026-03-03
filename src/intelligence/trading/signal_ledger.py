@@ -53,9 +53,10 @@ class LedgerEntry:
     bucket_scores: dict | None = None    # {"trend": 0.4, ...} — serialised to JSONB
     weights_version: int | None = None   # FK to cis_weights.version; 0 = bootstrap
     signal_quality: float | None = None  # populated by signal_tracker on exit
+    signal_computed_at: datetime | None = None  # when signal_generator fired; NULL for backfill
 
     def to_insert_params(self) -> tuple:
-        """Return a 28-element tuple ready for batch INSERT.
+        """Return a 29-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores)
         are serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
@@ -89,6 +90,7 @@ class LedgerEntry:
             json.dumps(self.bucket_scores) if self.bucket_scores is not None else None,  # $26
             self.weights_version,   # $27 — INTEGER, nullable
             self.signal_quality,    # $28 — FLOAT, nullable
+            self.signal_computed_at,  # $29 — TIMESTAMPTZ, nullable (None for backfill)
         )
 
 
@@ -104,7 +106,8 @@ INSERT INTO signal_ledger (
     was_selected, num_signals_bar, num_agreeing, num_conflicting,
     resolution_method, composite_rank, market_context, status,
     feature_ts, feature_tf,
-    cis_score, bucket_scores, weights_version, signal_quality
+    cis_score, bucket_scores, weights_version, signal_quality,
+    signal_computed_at
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -112,7 +115,8 @@ INSERT INTO signal_ledger (
     $15, $16, $17, $18,
     $19, $20, $21::jsonb, $22,
     $23, $24,
-    $25, $26::jsonb, $27, $28
+    $25, $26::jsonb, $27, $28,
+    $29
 )
 """
 

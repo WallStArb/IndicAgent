@@ -17,7 +17,7 @@ import signal
 import sys
 import time
 from collections import OrderedDict, defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,28 +39,43 @@ from src.core.stream_keys import market as sk_market
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
-from src.observability.metrics import counter, gauge, record_plugin_execution, start_metrics_server
+from src.observability.metrics import (
+    BAR_TO_I1_LATENCY,
+    counter,
+    gauge,
+    record_plugin_execution,
+    start_metrics_server,
+)
 
 # I1 plugin names — imported from register_plugins (single source of truth)
 I1_PLUGINS = TIER_I1
 
 _OHLCV_FIELDS = frozenset(
-    {"timestamp", "symbol", "timeframe", "open", "high", "low", "close", "volume", "source"}
+    {
+        "timestamp", "symbol", "timeframe",
+        "open", "high", "low", "close", "volume",
+        "source", "bar_close_ts", "i1_computed_at",
+    }
 )
-
-
 def build_i1_message(
     bar: dict[str, Any],
     features: dict[str, Any],
     timestamp: datetime,
     symbol: str,
     timeframe: str,
+    bar_close_ts: str | None = None,
+    source: str = "live",
 ) -> dict[str, str]:
     """Build a flat string-valued Redis message combining OHLCV and I1 features.
 
     Only scalar values (str, int, float, bool) are included. Lists and dicts
     are silently dropped — Redis stream fields must be flat strings.
+
+    bar_close_ts is propagated from the incoming market stream message.
+    i1_computed_at is added when source=='live' to enable pipeline lag measurement.
     """
+
+
     msg: dict[str, str] = {
         "timestamp": timestamp.isoformat(),
         "symbol": symbol,
@@ -70,13 +85,16 @@ def build_i1_message(
         "low": str(bar.get("low", "")),
         "close": str(bar.get("close", "")),
         "volume": str(int(bar.get("volume", 0))),
+        "source": source,
     }
     for k, v in features.items():
         if isinstance(v, (str, int, float, bool)):
             msg[k] = str(v)
+    if bar_close_ts is not None:
+        msg["bar_close_ts"] = bar_close_ts
+    if source == "live":
+        msg["i1_computed_at"] = datetime.now(UTC).isoformat()
     return msg
-
-
 def parse_indicators_message(
     fields: dict[bytes, bytes],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -110,8 +128,6 @@ def parse_indicators_message(
                 features[key] = val
 
     return bar, features
-
-
 class IndicatorService:
     """Compute I1 technical indicators and publish one combined message per bar."""
 
@@ -242,8 +258,11 @@ class IndicatorService:
         message_id: bytes,
     ) -> bool:
         try:
+
+
             bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
             bar_source = fields.get(b"source", b"").decode()
+            bar_close_ts_str = fields.get(b"bar_close_ts", b"").decode() or None
             bar_data = {
                 "timestamp": bar_ts,
                 "open": float(fields[b"open"].decode()),
@@ -274,8 +293,21 @@ class IndicatorService:
 
             features = self._run_i1_plugins(frames, symbol, timeframe)
 
-            msg = build_i1_message(bar_data, features, bar_ts, symbol, timeframe)
+            msg = build_i1_message(
+                bar_data, features, bar_ts, symbol, timeframe,
+                bar_close_ts=bar_close_ts_str, source="live",
+            )
             out_stream = sk_indicators(self.env_prefix, symbol, timeframe)
+
+            # Emit bar-to-I1 latency for live events with known close time
+            if bar_close_ts_str:
+                try:
+                    bct_dt = datetime.fromisoformat(bar_close_ts_str)
+                    BAR_TO_I1_LATENCY.labels(symbol=symbol, tf=timeframe).observe(
+                        (datetime.now(UTC) - bct_dt).total_seconds()
+                    )
+                except (ValueError, TypeError):
+                    pass
             await self.redis_client.xadd(out_stream, msg, maxlen=1000, approximate=True)
 
             self.bars_processed_total.inc()
@@ -444,8 +476,6 @@ class IndicatorService:
         if self.redis_client:
             await self.redis_client.aclose()
         self.logger.info("Indicator Service stopped")
-
-
 async def main() -> None:
     import argparse
 
@@ -457,7 +487,5 @@ async def main() -> None:
         await service.start()
     except KeyboardInterrupt:
         pass
-
-
 if __name__ == "__main__":
     asyncio.run(main())

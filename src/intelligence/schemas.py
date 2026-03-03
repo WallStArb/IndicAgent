@@ -605,6 +605,12 @@ class IntelligenceEvent(BaseModel):
     platform: str = "futures"               # Multi-platform prep; always "futures" for now
     source: Literal["live", "backfill"] = "live"
 
+    # Pipeline timing fields — enable lag measurement from bar close to signal.
+    # bar_close_ts is always set (live + backfill); computed_at fields are live-only.
+    bar_close_ts: datetime | None = None      # Actual close (differs from ts for 5m+)
+    i1_computed_at: datetime | None = None    # When indicator_service finished I1
+    computed_at: datetime | None = None       # When market_analysis_service built event
+
     bar: OHLCVBar
     i1: I1Indicators
     i2: I2Events = I2Events()

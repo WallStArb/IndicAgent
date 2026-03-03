@@ -11,12 +11,13 @@ Last Updated: 2026-02-26
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 
 from src.config.settings import Settings
+from src.core.service_utils import TF_DURATIONS
 from src.core.stream_keys import get_stream_maxlen, market
 
 logger = structlog.get_logger(__name__)
@@ -424,16 +425,23 @@ class TimeframeBuilder:
         stream_key = market(self._env_prefix, symbol, timeframe)
         maxlen = get_stream_maxlen(timeframe, "market")
 
+
+
+        period_ts_dt = datetime.fromtimestamp(period_ts, tz=UTC)
+        tf_secs = TF_DURATIONS.get(timeframe, 0)
+        close_ts = (period_ts_dt + timedelta(seconds=tf_secs)).isoformat()
+
         payload = {
             "symbol": symbol,
             "timeframe": timeframe,
-            "timestamp": datetime.fromtimestamp(period_ts, tz=UTC).isoformat(),
+            "timestamp": period_ts_dt.isoformat(),
             "open": str(acc["open"]),
             "high": str(acc["high"]),
             "low": str(acc["low"]),
             "close": str(acc["close"]),
             "volume": str(acc["volume"]),
             "source": "timeframe_builder",
+            "bar_close_ts": close_ts,
         }
 
         try:

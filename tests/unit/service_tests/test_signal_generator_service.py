@@ -230,7 +230,7 @@ async def test_process_message_accesses_typed_attributes():
     captured_bar = {}
     captured_features = {}
 
-    async def mock_process_bar(symbol, timeframe, bar, features, frames, timestamp):
+    async def mock_process_bar(symbol, timeframe, bar, features, frames, timestamp, **kwargs):
         captured_bar.update(bar)
         captured_features.update({k: v for k, v in features.items() if v is not None})
 

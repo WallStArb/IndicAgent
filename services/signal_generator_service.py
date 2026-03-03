@@ -45,6 +45,7 @@ from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_ledger import LedgerEntry, insert_signals
 from src.intelligence.trading.trade_framer import frame_trade
 from src.observability.metrics import (
+    BAR_TO_SIGNAL_LATENCY,
     counter,
     gauge,
     record_plugin_execution,
@@ -144,6 +145,7 @@ def build_ledger_entries(
     timeframe: str,
     timestamp: datetime,
     features: dict[str, Any],
+    signal_computed_at: datetime | None = None,
 ) -> list[LedgerEntry]:
     """Build LedgerEntry list from an AggregatedResult."""
     if not result.all_ranked:
@@ -186,6 +188,7 @@ def build_ledger_entries(
             bucket_scores=result.bucket_scores,
             weights_version=result.weights_version,
             signal_quality=None,    # populated by signal_tracker on exit
+            signal_computed_at=signal_computed_at,
         ))
     return entries
 
@@ -392,6 +395,8 @@ class SignalGeneratorService:
         features: dict[str, Any],
         frames: dict[str, Any],
         timestamp: datetime,
+        bar_close_ts: datetime | None = None,
+        source: str = "live",
     ) -> None:
         """Generate signals, aggregate, persist, and publish winner."""
         df = frames.get("main")
@@ -447,7 +452,18 @@ class SignalGeneratorService:
                     "framing_method": frame.method,
                 })
 
-        entries = build_ledger_entries(result, symbol, timeframe, timestamp, features)
+        signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
+
+        # Emit bar-to-signal latency for live events with known close time
+        if source == "live" and bar_close_ts is not None and signal_computed_at is not None:
+            BAR_TO_SIGNAL_LATENCY.labels(symbol=symbol, tf=timeframe).observe(
+                (signal_computed_at - bar_close_ts).total_seconds()
+            )
+
+        entries = build_ledger_entries(
+            result, symbol, timeframe, timestamp, features,
+            signal_computed_at=signal_computed_at,
+        )
         if entries and self.db_manager:
             await insert_signals(self.db_manager, entries)
             selected_count = sum(1 for e in entries if e.was_selected)
@@ -536,7 +552,11 @@ class SignalGeneratorService:
                 "features": features,
             }
 
-            await self._process_bar(symbol, timeframe, bar, features, frames, timestamp)
+            await self._process_bar(
+                symbol, timeframe, bar, features, frames, timestamp,
+                bar_close_ts=event.bar_close_ts,
+                source=event.source,
+            )
             return True
 
         except Exception as e:

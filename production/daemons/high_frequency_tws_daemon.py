@@ -506,6 +506,7 @@ class HighFrequencyTWSDaemon:
                     "close": str(bar.close),
                     "volume": str(bar.volume),
                     "source": "authoritative",
+                    "bar_close_ts": bar_timestamp,  # 1m: close == bar timestamp
                 }
                 if self.async_redis:
                     stream_name = sk_market(self.env_prefix, symbol, "1m")

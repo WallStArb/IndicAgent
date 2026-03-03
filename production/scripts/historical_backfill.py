@@ -48,6 +48,7 @@ import pandas as pd
 
 from src.config.settings import Settings
 from src.core.models import AssetClass
+from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
@@ -221,11 +222,14 @@ def _build_intelligence_event(
             fields = model_cls.model_fields.keys()
             return {k: v for k, v in src.items() if k in fields}
 
+
+
         return IntelligenceEvent(
             ts=ts,
             symbol=symbol,
             tf=tf,
             source="backfill",
+            bar_close_ts=compute_bar_close_ts(ts, tf),  # always set; i1/computed_at left None
             bar=OHLCVBar(
                 o=float(bar["open"]),
                 h=float(bar["high"]),

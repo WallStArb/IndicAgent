@@ -7,6 +7,7 @@ service files: logging setup and timeframe bar thresholds.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -32,6 +33,22 @@ _MIN_BARS_FOR_TF: dict[str, int] = {
 def min_bars_for_tf(timeframe: str, default: int = 26) -> int:
     """Return minimum unique bars required before emitting output for a given TF."""
     return _MIN_BARS_FOR_TF.get(timeframe, default)
+
+
+# Seconds from period start to period close per timeframe.
+# 1m is omitted: for 1m bars ts IS the close time, no offset needed.
+# For 5m/15m/1h bars ts is the period start; close = ts + duration.
+TF_DURATIONS: dict[str, int] = {"5m": 300, "15m": 900, "1h": 3600}
+
+
+def bar_close_ts(ts: datetime, tf: str) -> datetime:
+    """Return actual bar close time.
+
+    For 1m bars, ts is already the close timestamp.
+    For 5m/15m/1h bars, ts is the period start — close = ts + tf_duration.
+    Unknown timeframes return ts unchanged (zero offset).
+    """
+    return ts + timedelta(seconds=TF_DURATIONS.get(tf, 0))
 
 
 def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:
