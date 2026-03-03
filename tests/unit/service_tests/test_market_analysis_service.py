@@ -399,6 +399,69 @@ class TestPluginCache:
         mock_get.assert_not_called()
 
 
+class TestPluginStateIsolation:
+    """Plugin _state must be namespaced per (plugin, symbol, timeframe)."""
+
+    def test_state_is_keyed_per_symbol(self):
+        """Running the same plugin for ES and NQ must produce independent state dicts."""
+        import pandas as pd
+        from services.market_analysis_service import MarketAnalysisService
+
+        svc = MarketAnalysisService()
+
+        def make_frames(rsi_prev, rsi_curr):
+            df = pd.DataFrame(
+                [{"open": 100.0, "high": 101.0, "low": 99.0,
+                  "close": 100.5, "volume": 500}] * 30
+            )
+            return {
+                "main": df,
+                "features": {"rsi_14": rsi_curr, "macd_12_26_9": 0.5, "roc_14": 0.3},
+                "prev_features": {"rsi_14": rsi_prev, "macd_12_26_9": 0.4, "roc_14": 0.2},
+            }
+
+        # Run ES:1m — rsi accel = 5.0
+        svc._run_analysis_pipeline("ES", "1m", make_frames(50.0, 55.0))
+        # Run NQ:1m — rsi accel = -3.0
+        svc._run_analysis_pipeline("NQ", "1m", make_frames(60.0, 57.0))
+
+        pname = "evt_MomentumAcceleration"
+        es_state = svc._plugin_states.get((pname, "ES", "1m"), {})
+        nq_state = svc._plugin_states.get((pname, "NQ", "1m"), {})
+
+        # States must be separate dicts
+        assert es_state is not nq_state
+        # ES accumulated rsi_accel = 5.0, NQ = -3.0
+        assert es_state.get("prev_rsi_accel") == pytest.approx(5.0, abs=0.01)
+        assert nq_state.get("prev_rsi_accel") == pytest.approx(-3.0, abs=0.01)
+
+    def test_state_accumulates_across_bars_same_symbol(self):
+        """Calling the same symbol twice must accumulate state in the same dict."""
+        import pandas as pd
+        from services.market_analysis_service import MarketAnalysisService
+
+        svc = MarketAnalysisService()
+        pname = "evt_MomentumAcceleration"
+
+        def run(rsi_prev, rsi_curr):
+            df = pd.DataFrame(
+                [{"open": 100.0, "high": 101.0, "low": 99.0,
+                  "close": 100.5, "volume": 500}] * 30
+            )
+            svc._run_analysis_pipeline("ES", "1m", {
+                "main": df,
+                "features": {"rsi_14": rsi_curr, "macd_12_26_9": 0.5, "roc_14": 0.3},
+                "prev_features": {"rsi_14": rsi_prev, "macd_12_26_9": 0.4, "roc_14": 0.2},
+            })
+            return svc._plugin_states.get((pname, "ES", "1m"), {}).copy()
+
+        state_after_bar1 = run(50.0, 55.0)   # accel = +5.0
+        state_after_bar2 = run(55.0, 53.0)   # accel = -2.0
+
+        assert state_after_bar1.get("prev_rsi_accel") == pytest.approx(5.0, abs=0.01)
+        assert state_after_bar2.get("prev_rsi_accel") == pytest.approx(-2.0, abs=0.01)
+
+
 def test_df_cache_miss_builds_dataframe():
     from collections import deque
     from datetime import datetime

@@ -90,6 +90,9 @@ class MarketAnalysisService:
         all_tier_names = TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6
         self._plugin_cache: dict[str, Any] = {n: registry.get_pattern(n) for n in all_tier_names}
 
+        # Per-(plugin, symbol, timeframe) state namespace — prevents cross-symbol state bleed
+        self._plugin_states: dict[tuple[str, str, str], dict] = {}
+
         self.redis_client: redis.Redis | None = None
         self.consumer_group = "market_analysis"
         self.consumer_name = f"market_analysis_consumer_{os.getpid()}"
@@ -187,7 +190,10 @@ class MarketAnalysisService:
                 t0 = time.time()
                 try:
                     p = self._plugin_cache[pname]
+                    state_key = (pname, symbol, timeframe)
+                    p._state = self._plugin_states.setdefault(state_key, {})
                     out = p.compute_full(frames)
+                    self._plugin_states[state_key] = p._state  # capture full reassignments
                     results.update(out)
                     record_plugin_execution(
                         pname, symbol, timeframe, time.time() - t0, "success", tier
