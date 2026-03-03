@@ -204,7 +204,9 @@ class IndicatorService:
             self._df_cache[key] = pd.DataFrame(list(self.bar_history[key].values()))
         return self._df_cache[key]
 
-    def _run_i1_plugins(self, frames: dict[str, Any], symbol: str, timeframe: str) -> dict[str, Any]:
+    def _run_i1_plugins(
+        self, frames: dict[str, Any], symbol: str, timeframe: str
+    ) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
         features: dict[str, Any] = {}
         for plugin_name in I1_PLUGINS:
@@ -218,7 +220,9 @@ class IndicatorService:
                 features.update(result)
             except Exception as e:
                 self.logger.warning("I1 plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "I1")
+                record_plugin_execution(
+                    plugin_name, symbol, timeframe, time.time() - t0, "error", "I1"
+                )
             else:
                 self._i1_call_counts[(plugin_name, "I1")] += 1
                 if self._i1_call_counts[(plugin_name, "I1")] % _METRICS_SAMPLE_RATE == 0:

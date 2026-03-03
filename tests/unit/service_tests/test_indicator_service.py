@@ -198,7 +198,7 @@ class TestIndicatorServicePluginOptimizations:
 
     def test_i1_plugin_cache_populated_at_init(self):
         """_i1_plugin_cache must contain all I1 plugin names after __init__."""
-        from services.indicator_service import IndicatorService, I1_PLUGINS
+        from services.indicator_service import I1_PLUGINS, IndicatorService
 
         svc = IndicatorService()
         for name in I1_PLUGINS:
@@ -206,10 +206,12 @@ class TestIndicatorServicePluginOptimizations:
 
     def test_i1_state_keyed_per_symbol_timeframe(self):
         """I1 plugin state must be namespaced per (plugin, symbol, timeframe)."""
-        import pandas as pd
         from collections import OrderedDict
         from datetime import datetime, timedelta
-        from services.indicator_service import IndicatorService, I1_PLUGINS
+
+        import pandas as pd
+
+        from services.indicator_service import I1_PLUGINS, IndicatorService
 
         svc = IndicatorService()
 
@@ -243,11 +245,13 @@ class TestIndicatorServicePluginOptimizations:
 
     def test_i1_success_metrics_sampled(self):
         """I1 success metrics sampled at _METRICS_SAMPLE_RATE, errors always recorded."""
-        import pandas as pd
         from collections import OrderedDict
         from datetime import datetime, timedelta
         from unittest.mock import patch
-        from services.indicator_service import IndicatorService, I1_PLUGINS
+
+        import pandas as pd
+
+        from services.indicator_service import I1_PLUGINS, IndicatorService
 
         svc = IndicatorService()
         key = "ES:1m"

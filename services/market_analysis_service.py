@@ -58,6 +58,7 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
+
 _METRICS_SAMPLE_RATE = 10  # record 1 in 10 success executions; errors always recorded
 
 from src.observability.metrics import (

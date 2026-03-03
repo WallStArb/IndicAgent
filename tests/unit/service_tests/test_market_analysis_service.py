@@ -369,7 +369,12 @@ class TestPluginCache:
         """_plugin_cache must contain all I2-I6 plugin names after __init__."""
         from services.market_analysis_service import MarketAnalysisService
         from src.intelligence.register_plugins import (
-            TIER_I2, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6,
+            TIER_I2,
+            TIER_I3,
+            TIER_I4,
+            TIER_I5,
+            TIER_I6,
+            TIER_SMC,
         )
 
         svc = MarketAnalysisService()
@@ -379,8 +384,10 @@ class TestPluginCache:
 
     def test_run_tier_does_not_call_registry_get_pattern(self):
         """_run_tier must use _plugin_cache — NOT call registry.get_pattern() on each bar."""
+        from unittest.mock import patch
+
         import pandas as pd
-        from unittest.mock import patch, MagicMock
+
         from services.market_analysis_service import MarketAnalysisService
         from src.intelligence.plugins import registry
 
@@ -405,6 +412,7 @@ class TestPluginStateIsolation:
     def test_state_is_keyed_per_symbol(self):
         """Running the same plugin for ES and NQ must produce independent state dicts."""
         import pandas as pd
+
         from services.market_analysis_service import MarketAnalysisService
 
         svc = MarketAnalysisService()
@@ -438,6 +446,7 @@ class TestPluginStateIsolation:
     def test_state_accumulates_across_bars_same_symbol(self):
         """Calling the same symbol twice must accumulate state in the same dict."""
         import pandas as pd
+
         from services.market_analysis_service import MarketAnalysisService
 
         svc = MarketAnalysisService()
@@ -467,8 +476,10 @@ class TestPrometheusSampling:
 
     def test_success_metrics_sampled_at_rate_10(self):
         """Success metrics recorded only every 10th call, not every call."""
-        import pandas as pd
         from unittest.mock import patch
+
+        import pandas as pd
+
         from services.market_analysis_service import MarketAnalysisService
 
         svc = MarketAnalysisService()
@@ -501,8 +512,10 @@ class TestPrometheusSampling:
 
     def test_error_metrics_always_recorded(self):
         """Error metrics are recorded on every failure — never sampled."""
+        from unittest.mock import MagicMock, patch
+
         import pandas as pd
-        from unittest.mock import patch, MagicMock
+
         from services.market_analysis_service import MarketAnalysisService
 
         svc = MarketAnalysisService()
