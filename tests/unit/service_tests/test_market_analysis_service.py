@@ -362,6 +362,43 @@ class TestPublisherFormat:
         assert recovered.i4.garch_vol_regime == 1
 
 
+class TestPluginCache:
+    """Plugin reference cache — eliminates per-bar registry.get_pattern() calls."""
+
+    def test_plugin_cache_populated_at_init(self):
+        """_plugin_cache must contain all I2-I6 plugin names after __init__."""
+        from services.market_analysis_service import MarketAnalysisService
+        from src.intelligence.register_plugins import (
+            TIER_I2, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6,
+        )
+
+        svc = MarketAnalysisService()
+        all_names = TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6
+        for name in all_names:
+            assert name in svc._plugin_cache, f"_plugin_cache missing: {name}"
+
+    def test_run_tier_does_not_call_registry_get_pattern(self):
+        """_run_tier must use _plugin_cache — NOT call registry.get_pattern() on each bar."""
+        import pandas as pd
+        from unittest.mock import patch, MagicMock
+        from services.market_analysis_service import MarketAnalysisService
+        from src.intelligence.plugins import registry
+
+        svc = MarketAnalysisService()
+        frames = {
+            "main": pd.DataFrame(
+                [{"open": 100.0, "high": 101.0, "low": 99.0,
+                  "close": 100.5, "volume": 500}] * 30
+            ),
+            "features": {},
+        }
+
+        with patch.object(registry, "get_pattern") as mock_get:
+            svc._run_analysis_pipeline("ES", "1m", frames)
+
+        mock_get.assert_not_called()
+
+
 def test_df_cache_miss_builds_dataframe():
     from collections import deque
     from datetime import datetime

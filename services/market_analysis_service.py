@@ -86,6 +86,10 @@ class MarketAnalysisService:
         ]:
             registry.validate_tier(tier_list, tier_name)
 
+        # Build plugin reference cache — eliminates per-bar registry lookups
+        all_tier_names = TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6
+        self._plugin_cache: dict[str, Any] = {n: registry.get_pattern(n) for n in all_tier_names}
+
         self.redis_client: redis.Redis | None = None
         self.consumer_group = "market_analysis"
         self.consumer_name = f"market_analysis_consumer_{os.getpid()}"
@@ -182,7 +186,7 @@ class MarketAnalysisService:
             for pname in plugins:
                 t0 = time.time()
                 try:
-                    p = registry.get_pattern(pname)
+                    p = self._plugin_cache[pname]
                     out = p.compute_full(frames)
                     results.update(out)
                     record_plugin_execution(
