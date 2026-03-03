@@ -14,15 +14,15 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.3 Signal Intelligence Expansion — Phase 09 (GapAnalysisSetup) is next.
+**Current focus:** v1.3 Signal Intelligence Expansion — Phase 10 (CandlestickPatternSetup) in progress.
 
 ---
 
 ## Current Position
 
-Phase: 09 - gap-analysis-setup — **In progress (Plan 02 complete)**
-Status: Plan 09-02 (GapAnalysisSetupPlugin implementation) complete. Plan 09-03 is next.
-Last activity: 2026-03-03 — Plan 09-02 executed: GapAnalysisSetupPlugin GREEN, registered as 86th plugin in TIER_I7.
+Phase: 10 - candlestickpatternsetup — **In progress (Plan 01 complete)**
+Status: Plan 10-01 (TDD RED — failing test suite) complete. Plan 10-02 (implementation) is next.
+Last activity: 2026-03-03 — Plan 10-01 executed: 15 failing tests for CandlestickPatternSetup established (RED state).
 
 Progress: [##########░░░░░░░░░░░░░░░░░░░░] 25% (1/4 phases)
 
@@ -44,6 +44,9 @@ Progress: [##########░░░░░░░░░░░░░░░░░░░�
 - [09-01]: make_gap_df() always overwrites open[-1] explicitly — never relies on make_ohlcv() random seed for gap tests
 - [09-01]: 13 tests in 4 classes: TestGapDetection (4), TestGapClassification (5), TestGapSignalFields (4), TestGapNoSignal (1)
 - [Phase 09-02]: signal_type format uses abbreviation 'cont' not 'continuation' — consistent with test contracts from plan 09-01
+- [10-01]: base_features() returns (df, features) tuple so callers can inject high volume before passing to plugin
+- [10-01]: inject_high_volume() is a module-level helper; pin_bar does NOT self-confirm S/R (unlike hammer/shooting_star)
+- [10-01]: 15 tests in 4 classes: TestCandlestickPatternDetection (4), TestCandlestickConfluenceGating (6), TestCandlestickSignalFields (4), TestCandlestickNoSignal (1)
 
 ### Pending Todos
 
@@ -54,5 +57,5 @@ Progress: [##########░░░░░░░░░░░░░░░░░░░�
 
 ## Ready to Proceed
 
-Plan 09-03 is next.
-Last session: 2026-03-03 — Stopped at: Completed 09-02-PLAN.md
+Plan 10-02 is next.
+Last session: 2026-03-03 — Stopped at: Completed 10-01-PLAN.md

@@ -22,9 +22,9 @@
 
 ### I7 Candlestick Setups
 
-- [ ] **CNDL-01**: CandlestickPatternSetup reads existing I5 `candlestick_*` output fields (no re-detection of raw price patterns)
-- [ ] **CNDL-02**: Plugin scores confluence of the active candlestick signal with trend direction, structure level proximity, and volume confirmation
-- [ ] **CNDL-03**: Plugin produces a setup signal only when confluence threshold is met (consistent with other I7 gate logic)
+- [x] **CNDL-01**: CandlestickPatternSetup reads existing I5 `candlestick_*` output fields (no re-detection of raw price patterns)
+- [x] **CNDL-02**: Plugin scores confluence of the active candlestick signal with trend direction, structure level proximity, and volume confirmation
+- [x] **CNDL-03**: Plugin produces a setup signal only when confluence threshold is met (consistent with other I7 gate logic)
 
 ### I7 Session Extremes
 
@@ -71,9 +71,9 @@
 | GAP-01 | Phase 09 | Complete |
 | GAP-02 | Phase 09 | Complete |
 | GAP-03 | Phase 09 | Complete |
-| CNDL-01 | Phase 10 | Pending |
-| CNDL-02 | Phase 10 | Pending |
-| CNDL-03 | Phase 10 | Pending |
+| CNDL-01 | Phase 10 | Complete |
+| CNDL-02 | Phase 10 | Complete |
+| CNDL-03 | Phase 10 | Complete |
 | SESS-01 | Phase 11 | Pending |
 | SESS-02 | Phase 11 | Pending |
 | SESS-03 | Phase 11 | Pending |

@@ -213,7 +213,7 @@ Plans:
   3. Signals include a `confluence_score` field that reflects how many confirming factors were present
   4. The plugin is registered in TIER_I7 and all unit tests pass (`tests/unit/intelligence/trading/`)
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 10-01-PLAN.md — Write failing test suite for CandlestickPatternSetup (TDD RED phase)
@@ -262,7 +262,7 @@ Plans:
 | 07. Final Verification | v1.2 | — | Complete | 2026-03-02 |
 | 08. MomentumAcceleration | v1.3 | — | Complete | 2026-03-02 |
 | 09. GapAnalysisSetup | 2/2 | Complete    | 2026-03-03 | - |
-| 10. CandlestickPatternSetup | v1.3 | 0/2 | Not started | - |
+| 10. CandlestickPatternSetup | 1/2 | In Progress|  | - |
 | 11. SessionExtremesSetup | v1.3 | TBD | Not started | - |
 
 ## Backlog
