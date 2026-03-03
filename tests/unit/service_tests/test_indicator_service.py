@@ -271,8 +271,10 @@ class TestIndicatorServicePluginOptimizations:
             for _ in range(10):
                 svc._run_i1_plugins(frames, "ES", "1m")
 
+        # args: (plugin_name, symbol, timeframe, elapsed, status, tier) — index 4 = status
         success_calls = [c for c in mock_record.call_args_list if c.args[4] == "success"]
         assert len(success_calls) < len(I1_PLUGINS) * 10, "Expected sampling"
+        # Fresh counter starts at 0; after exactly 10 calls each plugin records once
         assert len(success_calls) == len(I1_PLUGINS) * 1  # 1-in-10
 
 
