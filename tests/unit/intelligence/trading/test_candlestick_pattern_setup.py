@@ -238,7 +238,7 @@ class TestCandlestickSignalFields:
 
 
 class TestCandlestickNoSignal:
-    """Edge cases that must return empty dict {}."""
+    """Edge cases: insufficient data returns {}, gated no-signal returns signal_type='none'."""
 
     def test_insufficient_data_returns_empty(self):
         """DataFrame with only 10 rows (< min_lookback=20) returns {}."""
@@ -247,3 +247,12 @@ class TestCandlestickNoSignal:
         plugin = CandlestickPatternSetupPlugin()
         result = plugin.compute_full({"main": df, "features": features})
         assert result == {}
+
+    def test_gated_no_signal_returns_signal_type_none(self):
+        """Regime gate returns {'signal_type': 'none', ...}, not {}."""
+        df, features = base_features(engulfing_bull=1.0, trend_regime=0.3)
+        plugin = CandlestickPatternSetupPlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+        assert result["signal_type"] == "none"
+        assert result["direction"] == 0
+        assert "confidence" in result

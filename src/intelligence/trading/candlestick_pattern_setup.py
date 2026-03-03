@@ -58,6 +58,7 @@ class CandlestickPatternSetupPlugin:
         close = df["close"].to_numpy(dtype=float)
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
+        vol = df["volume"].to_numpy(dtype=float)
 
         # ATR with fallback (same pattern as PatternCompletion and GapAnalysisSetup)
         atr = float(features.get("atr_14") or 0.0)
@@ -111,7 +112,6 @@ class CandlestickPatternSetupPlugin:
         _, direction, pattern_name, base_conf, sr_auto = best
 
         # CNDL-02: Volume confirmation
-        vol = df["volume"].to_numpy(dtype=float)
         vol_sma20 = float(features.get("volume_sma_20") or 0.0)
         if vol_sma20 <= 0:
             vol_sma20 = float(np.mean(vol[-20:])) if len(vol) >= 20 else float(np.mean(vol))
@@ -144,14 +144,13 @@ class CandlestickPatternSetupPlugin:
             stop = entry + atr * self.atr_stop_mult
             targets = [round(entry - atr * m, 2) for m in self.atr_target_mults]
 
-        # Confidence
+        # Confidence: +0.10 per confirming factor (volume, S/R).
+        # sr_confirms is True for hammer/shooting_star (sr_auto) and for explicit proximity.
         confidence = base_conf
         if volume_confirms:
             confidence += 0.10
-        if sr_confirms and not sr_auto:
+        if sr_confirms:
             confidence += 0.10
-        elif sr_auto:
-            confidence += 0.10  # hammer/shooting_star already embed S/R — count it
         confidence = round(min(0.90, max(0.10, confidence)), 4)
 
         # confluence_score: mandatory trend factor + optional volume + optional S/R
