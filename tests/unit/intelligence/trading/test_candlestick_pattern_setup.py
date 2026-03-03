@@ -6,11 +6,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
-from tests.unit.intelligence.helpers import make_ohlcv
 from src.intelligence.trading.candlestick_pattern_setup import CandlestickPatternSetupPlugin
-
+from tests.unit.intelligence.helpers import make_ohlcv
 
 # ---------------------------------------------------------------------------
 # Module-level helpers
@@ -80,7 +78,7 @@ class TestCandlestickPatternDetection:
     """CNDL-01: plugin reads I5 feature flags, not raw OHLCV, for pattern detection."""
 
     def test_engulfing_bull_fires_long(self):
-        """engulfing_bull=1.0, trend_regime=0.7, high volume → direction == 1, 'long' in signal_type."""
+        """engulfing_bull + bullish trend + high volume -> direction==1, 'long' in signal_type."""
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
@@ -89,7 +87,7 @@ class TestCandlestickPatternDetection:
         assert "long" in result["signal_type"]
 
     def test_engulfing_bear_fires_short(self):
-        """engulfing_bear=1.0, trend_regime=-0.7, high volume → direction == -1, 'short' in signal_type."""
+        """engulfing_bear + bearish trend + high volume -> direction==-1, 'short' in signal_type."""
         df, features = base_features(engulfing_bear=1.0, trend_regime=-0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
@@ -98,7 +96,7 @@ class TestCandlestickPatternDetection:
         assert "short" in result["signal_type"]
 
     def test_hammer_fires_without_extra_confirm(self):
-        """hammer_detected=1.0, trend_regime=0.7, no volume boost, no S/R → signal fires.
+        """hammer_detected=1.0, trend_regime=0.7, no volume boost, no S/R -> signal fires.
 
         Hammer satisfies S/R factor automatically — it does not need an additional confirm.
         """
@@ -109,7 +107,7 @@ class TestCandlestickPatternDetection:
         assert result["direction"] == 1
 
     def test_shooting_star_fires_without_extra_confirm(self):
-        """shooting_star_detected=1.0, trend_regime=-0.7, no volume boost, no S/R → signal fires."""
+        """shooting_star + bearish trend, no volume boost, no S/R -> signal fires."""
         df, features = base_features(shooting_star_detected=1.0, trend_regime=-0.7)
         plugin = CandlestickPatternSetupPlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -125,7 +123,7 @@ class TestCandlestickConfluenceGating:
     """CNDL-02: regime gate and direction-agreement gate block signals when not met."""
 
     def test_flat_regime_blocks_signal(self):
-        """trend_regime=0.3 (< 0.5 threshold), any pattern, high volume → signal_type == 'none'."""
+        """trend_regime=0.3 (< 0.5 threshold), any pattern, high volume -> signal_type == 'none'."""
         df, features = base_features(engulfing_bull=1.0, trend_regime=0.3)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
@@ -133,7 +131,7 @@ class TestCandlestickConfluenceGating:
         assert result["signal_type"] == "none"
 
     def test_bullish_pattern_in_bearish_trend(self):
-        """engulfing_bull=1.0, trend_regime=-0.7, high volume → signal_type == 'none' (direction mismatch)."""
+        """engulfing_bull in bearish trend + high volume -> signal_type=='none' (mismatch)."""
         df, features = base_features(engulfing_bull=1.0, trend_regime=-0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
@@ -141,7 +139,7 @@ class TestCandlestickConfluenceGating:
         assert result["signal_type"] == "none"
 
     def test_bearish_pattern_in_bullish_trend(self):
-        """engulfing_bear=1.0, trend_regime=0.7, high volume → signal_type == 'none' (direction mismatch)."""
+        """engulfing_bear in bullish trend + high volume -> signal_type=='none' (mismatch)."""
         df, features = base_features(engulfing_bear=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
@@ -149,7 +147,7 @@ class TestCandlestickConfluenceGating:
         assert result["signal_type"] == "none"
 
     def test_pin_bar_no_volume_no_sr_blocked(self):
-        """pin_bar_bull=1.0, trend_regime=0.7, no volume boost, no S/R → signal_type == 'none'.
+        """pin_bar_bull=1.0, trend_regime=0.7, no volume boost, no S/R -> signal_type == 'none'.
 
         pin_bar does NOT self-confirm S/R — it needs at least one additional factor.
         """
@@ -159,7 +157,7 @@ class TestCandlestickConfluenceGating:
         assert result["signal_type"] == "none"
 
     def test_pin_bar_with_volume_fires(self):
-        """pin_bar_bull=1.0, trend_regime=0.7, high volume → signal fires, direction == 1."""
+        """pin_bar_bull=1.0, trend_regime=0.7, high volume -> signal fires, direction == 1."""
         df, features = base_features(pin_bar_bull=1.0, trend_regime=0.7)
         df = inject_high_volume(df, features)
         plugin = CandlestickPatternSetupPlugin()
@@ -167,7 +165,7 @@ class TestCandlestickConfluenceGating:
         assert result["direction"] == 1
 
     def test_priority_hammer_over_engulfing(self):
-        """hammer_detected=1.0 AND engulfing_bull=1.0, trend_regime=0.7, no volume → hammer wins.
+        """hammer_detected=1.0 AND engulfing_bull=1.0, trend_regime=0.7, no volume -> hammer wins.
 
         Priority: hammer/shooting_star (rank 0) beats engulfing (rank 1).
         Expected signal_type == 'candlestick_hammer_long'.

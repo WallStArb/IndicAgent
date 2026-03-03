@@ -72,6 +72,7 @@ from .structure.session_levels import plugin as session_levels_plugin
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
 from .structure.trend_structure import plugin as trend_plugin
+from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
 from .trading.divergence_stack import plugin as divergence_stack_plugin
 from .trading.fvg_fill import plugin as fvg_fill_plugin
@@ -187,6 +188,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(divergence_stack_plugin)
     registry.register_pattern(regime_transition_plugin)
     registry.register_pattern(gap_analysis_setup_plugin)
+    registry.register_pattern(candlestick_pattern_setup_plugin)
 
 # ---------------------------------------------------------------------------
 # Canonical tier plugin lists — single source of truth.
@@ -302,4 +304,5 @@ TIER_I7: list[str] = [
     divergence_stack_plugin.name,
     regime_transition_plugin.name,
     gap_analysis_setup_plugin.name,
+    candlestick_pattern_setup_plugin.name,
 ]
