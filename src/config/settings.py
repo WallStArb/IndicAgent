@@ -130,9 +130,9 @@ class Settings(BaseSettings):
                 symbol="PLJ6", base="PL", exchange="NYMEX", expiry="20260428",
                 name="Platinum", point_value=50, tick_size=0.10, sector="metals",
             ),
-            # Volatility — June 2026 (M6) - May contract not yet available
+            # Volatility — April 2026 (J6)
             Instrument(
-                symbol="VXM6", base="VX", exchange="CFE", expiry="20260617",
+                symbol="VXJ6", base="VX", exchange="CFE", expiry="202604",
                 name="CBOE VIX Futures", point_value=1000, tick_size=0.05, sector="volatility",
             ),
             # Interest Rate Futures — March 2026

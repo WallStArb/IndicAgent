@@ -144,7 +144,7 @@ const defaultConfig: DashboardConfig = {
       {
         symbol: "VX",
         display_name: "VIX Futures",
-        contract: "VXH6",
+        contract: "VXJ6",
         description: "CBOE VIX Futures",
         sector: "volatility",
       },
