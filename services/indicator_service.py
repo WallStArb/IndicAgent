@@ -40,6 +40,8 @@ from src.observability.metrics import counter, gauge, record_plugin_execution, s
 # I1 plugin names — imported from register_plugins (single source of truth)
 I1_PLUGINS = TIER_I1
 
+_METRICS_SAMPLE_RATE = 10
+
 _OHLCV_FIELDS = frozenset(
     {"timestamp", "symbol", "timeframe", "open", "high", "low", "close", "volume", "source"}
 )
@@ -123,6 +125,13 @@ class IndicatorService:
         register_all_plugins()
         registry.validate_tier(I1_PLUGINS, "I1")
 
+        # I1 plugin reference cache and per-symbol state isolation
+        self._i1_plugin_cache: dict[str, Any] = {
+            n: registry.get_indicator(n) for n in I1_PLUGINS
+        }
+        self._i1_plugin_states: dict[tuple[str, str, str], dict] = {}
+        self._i1_call_counts: dict[tuple[str, str], int] = defaultdict(int)
+
         self.redis_client: redis.Redis | None = None
         self.consumer_group = "indicator_service"
         self.consumer_name = f"indicator_consumer_{os.getpid()}"
@@ -195,19 +204,27 @@ class IndicatorService:
             self._df_cache[key] = pd.DataFrame(list(self.bar_history[key].values()))
         return self._df_cache[key]
 
-    def _run_i1_plugins(self, frames: dict[str, Any]) -> dict[str, Any]:
+    def _run_i1_plugins(self, frames: dict[str, Any], symbol: str, timeframe: str) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
         features: dict[str, Any] = {}
         for plugin_name in I1_PLUGINS:
             t0 = time.time()
             try:
-                p = registry.get_indicator(plugin_name)
+                p = self._i1_plugin_cache[plugin_name]
+                state_key = (plugin_name, symbol, timeframe)
+                p._state = self._i1_plugin_states.setdefault(state_key, {})
                 result = p.compute_full(frames)
+                self._i1_plugin_states[state_key] = p._state
                 features.update(result)
-                record_plugin_execution(plugin_name, "", "", time.time() - t0, "success", "I1")
             except Exception as e:
                 self.logger.warning("I1 plugin failed", plugin=plugin_name, error=str(e))
-                record_plugin_execution(plugin_name, "", "", time.time() - t0, "error", "I1")
+                record_plugin_execution(plugin_name, symbol, timeframe, time.time() - t0, "error", "I1")
+            else:
+                self._i1_call_counts[(plugin_name, "I1")] += 1
+                if self._i1_call_counts[(plugin_name, "I1")] % _METRICS_SAMPLE_RATE == 0:
+                    record_plugin_execution(
+                        plugin_name, symbol, timeframe, time.time() - t0, "success", "I1"
+                    )
         return features
 
     async def _process_single_bar(
@@ -249,7 +266,7 @@ class IndicatorService:
 
             frames = {"main": self._get_df(key)}
 
-            features = self._run_i1_plugins(frames)
+            features = self._run_i1_plugins(frames, symbol, timeframe)
 
             msg = build_i1_message(bar_data, features, bar_ts, symbol, timeframe)
             out_stream = sk_indicators(self.env_prefix, symbol, timeframe)

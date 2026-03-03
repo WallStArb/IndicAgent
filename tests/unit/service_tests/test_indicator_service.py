@@ -193,6 +193,85 @@ def test_process_single_bar_returns_true_on_success():
     assert result is True
 
 
+class TestIndicatorServicePluginOptimizations:
+    """Plugin cache, state isolation, and metrics sampling for I1 plugins."""
+
+    def test_i1_plugin_cache_populated_at_init(self):
+        """_i1_plugin_cache must contain all I1 plugin names after __init__."""
+        from services.indicator_service import IndicatorService, I1_PLUGINS
+
+        svc = IndicatorService()
+        for name in I1_PLUGINS:
+            assert name in svc._i1_plugin_cache, f"_i1_plugin_cache missing: {name}"
+
+    def test_i1_state_keyed_per_symbol_timeframe(self):
+        """I1 plugin state must be namespaced per (plugin, symbol, timeframe)."""
+        import pandas as pd
+        from collections import OrderedDict
+        from datetime import datetime, timedelta
+        from services.indicator_service import IndicatorService, I1_PLUGINS
+
+        svc = IndicatorService()
+
+        # Build minimal bar history for two symbols
+        for sym in ("ES", "NQ"):
+            key = f"{sym}:1m"
+            svc.bar_history[key] = OrderedDict()
+            for i in range(130):
+                ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
+                svc.bar_history[key][ts.isoformat()] = {
+                    "timestamp": ts, "open": 100.0, "high": 101.0,
+                    "low": 99.0, "close": 100.5, "volume": 500,
+                }
+            svc._df_cache[key] = None
+
+        df = pd.DataFrame(list(svc.bar_history["ES:1m"].values()))
+        frames = {"main": df}
+
+        # Run for ES, then NQ
+        svc._run_i1_plugins(frames, "ES", "1m")
+        svc._run_i1_plugins(frames, "NQ", "1m")
+
+        # Each plugin should have separate state dicts for ES vs NQ
+        pname = I1_PLUGINS[0]  # check first I1 plugin
+        es_state = svc._i1_plugin_states.get((pname, "ES", "1m"))
+        nq_state = svc._i1_plugin_states.get((pname, "NQ", "1m"))
+        # Both should exist and be different objects
+        assert es_state is not None
+        assert nq_state is not None
+        assert es_state is not nq_state
+
+    def test_i1_success_metrics_sampled(self):
+        """I1 success metrics sampled at _METRICS_SAMPLE_RATE, errors always recorded."""
+        import pandas as pd
+        from collections import OrderedDict
+        from datetime import datetime, timedelta
+        from unittest.mock import patch
+        from services.indicator_service import IndicatorService, I1_PLUGINS
+
+        svc = IndicatorService()
+        key = "ES:1m"
+        svc.bar_history[key] = OrderedDict()
+        for i in range(130):
+            ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
+            svc.bar_history[key][ts.isoformat()] = {
+                "timestamp": ts, "open": 100.0, "high": 101.0,
+                "low": 99.0, "close": 100.5, "volume": 500,
+            }
+        df = pd.DataFrame(list(svc.bar_history[key].values()))
+        frames = {"main": df}
+
+        with patch(
+            "services.indicator_service.record_plugin_execution"
+        ) as mock_record:
+            for _ in range(10):
+                svc._run_i1_plugins(frames, "ES", "1m")
+
+        success_calls = [c for c in mock_record.call_args_list if c.args[4] == "success"]
+        assert len(success_calls) < len(I1_PLUGINS) * 10, "Expected sampling"
+        assert len(success_calls) == len(I1_PLUGINS) * 1  # 1-in-10
+
+
 def test_process_single_bar_returns_false_on_exception():
     """_process_single_bar must return False when processing raises."""
     import asyncio
