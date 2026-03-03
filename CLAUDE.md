@@ -2,9 +2,9 @@
 
 Version: 5.11.0
 Last Updated: 2026-03-03
-Status: I1-I8 pipeline complete — 86 plugins + 2 aggregation components + feature store + typed intelligence bus, 1000 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 86 plugins + 2 aggregation components + feature store + typed intelligence bus, 1028 tests, 0 ruff errors, 24 contracts
 
-This file provides guidance to Claude Code when working with this repository.
+This file provides guidance to Claude Code when working in this repository.
 
 # IndicAgent Market Intelligence Platform
 
@@ -12,66 +12,56 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 
 ## Knowledge Hierarchy
 
-Ideas and plans live in a 6-level hierarchy:
-
-```
-IDEAS → ANALYSIS → BACKLOG → TODOS → ROADMAP → PLANS
-```
-
 | Level | Location | Description |
 |-------|----------|-------------|
-| **Ideas** | `.planning/IDEAS.md` | Rough bullet captures — no structure required, no commitment |
-| **Ideas (detailed)** | `docs/ideas/*.md` | Fleshed-out idea documents with context, trade-offs, open questions |
-| **Analysis** | `.planning/analysis/*.md` | Architecture decisions, trade-offs, design discussions |
-| **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features that would become their own phase |
-| **Todos** | `.planning/todos/pending/` | Implementation tasks: fixes, refactors, small improvements — bundled into existing phases |
+| **Ideas** | `.planning/IDEAS.md` | Rough bullet captures |
+| **Ideas (detailed)** | `docs/ideas/*.md` | Context, trade-offs, open questions |
+| **Analysis** | `docs/plans/*.md` | Design docs, architecture decisions, brainstorming outputs |
+| **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features |
+| **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements |
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases (GSD-managed) |
-| **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (GSD-managed) |
+| **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans |
 
-**When to file where:** Capture rough ideas in IDEAS.md immediately. When an idea warrants more context, trade-off discussion, or open questions, write a full doc in `docs/ideas/`. Design discussions that produce decisions go to `analysis/`. Use `/gsd:add-todo` for implementation-level tasks (bug fixes, refactors, small improvements) — bundled into phase plans when relevant. Use ROADMAP.md `## Backlog` for milestone-scale features that would become their own phase (new service, ML model, auth layer). GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
+Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features. GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
 
 ## Required Workflows
 
 ### Pre-Commit Quality Gate (Mandatory)
-Before committing any code change, run `/simplify` to review for reuse/quality/efficiency issues, then `/coderabbit:code-review` for comprehensive code quality and security checks. This catches bugs, security vulnerabilities, and technical debt before they reach main.
+Before committing: `/simplify` then `/coderabbit:code-review`.
 
 ### Post-Milestone Housekeeping
-After completing a milestone: `git push origin main`, push tag (`git push origin vX.Y`), run `/gsd:cleanup` to archive phases, update README stats (version, plugin count, test count).
+`git push origin main`, push tag (`git push origin vX.Y`), `/gsd:cleanup`, update README stats.
 
 ### Feature Development (any new plugin, service, or significant change)
 **Mandatory skill chain — do not skip steps:**
-1. `brainstorming` — Explore context, clarify requirements, propose approaches, get design approval. Save design to `.planning/analysis/YYYY-MM-DD-<topic>.md`
-2. `writing-plans` — Create TDD implementation plan with bite-sized tasks
-3. `executing-plans` — Execute plan task-by-task with review checkpoints between batches
-4. `verification-before-completion` — Run full test suite + lint before claiming done
-5. `finishing-a-development-branch` — Clean git history, decide merge/PR/cleanup
+1. `brainstorming` — design approval → save to `docs/plans/YYYY-MM-DD-<topic>-design.md`
+2. `writing-plans` — TDD implementation plan
+3. `executing-plans` — task-by-task with review checkpoints
+4. `verification-before-completion` — full test suite + lint
+5. `finishing-a-development-branch` — clean git history, decide merge/PR/cleanup
 
-**Do NOT jump straight to coding.** Even "simple" plugins need the brainstorming step to validate design decisions.
+**Do NOT jump straight to coding.** Even "simple" plugins need the brainstorming step.
 
 ### Bug Fixes & Debugging
-1. `systematic-debugging` — Structured investigation before proposing fixes
-2. `verification-before-completion` — Confirm fix works before committing
+1. `systematic-debugging` — structured investigation before proposing fixes
+2. `verification-before-completion` — confirm fix works before committing
 
 ### After Major Changes
-- `revise-claude-md` — Update this file with session learnings
-- `verification-before-completion` — Run full test suite + lint before claiming done
-- `requesting-code-review` — Review own work quality before merge
+`revise-claude-md` · `verification-before-completion` · `requesting-code-review`
 
 ### Library & Framework Documentation
-- Use `context7` MCP for any library/framework question — FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
+Use `context7` MCP for FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
 
 ### Todo Management
-- `/gsd:add-todo` — capture implementation tasks during a session
-- `/gsd:check-todos` — select a todo and route to work
-- `/gsd:review-todos` — review all todos: close done/won't-do, update stale content
+`/gsd:add-todo` · `/gsd:check-todos` · `/gsd:review-todos`
 
 ## Core Commands
 
-> Full command reference: `docs/cheatsheet.md`
+> Full reference: `docs/cheatsheet.md`
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
-**Services** (all systemd-managed, `Restart=always`):
+**Services** (systemd-managed, `Restart=always`):
 - `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-tracker,ai-narrative,feature-writer,api}`
 - `journalctl -u indicagent-<name> -f` — live logs
 - Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-tracker :9115, feature-writer :9116
@@ -81,9 +71,6 @@ After completing a milestone: `git push origin main`, push tag (`git push origin
 
 ## Architecture Overview
 
-**Plugin-Native Intelligence Platform** with LangGraph event-driven workflows:
-
-### 4-Layer Intelligence Architecture
 ```
 Layer 4: AI Intelligence (I8)              -> LLM analysis, Ollama qwen3:8b
 Layer 3: Pattern Intelligence (I5-I7)      -> Pattern detection, confluence, trading signals
@@ -91,21 +78,18 @@ Layer 2: Mathematical Intelligence (I1-I4) -> Technical indicators, context clas
 Layer 1: Data Foundation                   -> HF collection, aggregation, typed event bus
 ```
 
-### Intelligence Pipeline
+**Intelligence Pipeline:**
 ```
 IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
   signal_generator_service (I7) → signal_ledger + intelligence_features →
   feature_writer_service → TimescaleDB → SSE → Dashboard
 ```
 
-### Typed Intelligence Bus (Phase 1+2)
-- **`IntelligenceEvent`** (`src/intelligence/schemas.py`) — canonical Pydantic model; tiered JSONB (i1/i3/i4/i5/smc/i6), versioned, replaces flat string k/v stream messages
-- **`intelligence_features`** hypertable — persists every IntelligenceEvent to TimescaleDB; GIN-indexed, 7-day compression; the ML training dataset
-- **`feature_writer_service`** — async Redis consumer group `feature_writer:persist` → batch writes to `intelligence_features`
+**Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i3/i4/i5/smc/i6), persisted to `intelligence_features` hypertable by `feature_writer_service`.
 
 ## Key Components
 
-### Active Services (systemd-managed)
+### Active Services
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
@@ -113,29 +97,25 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger` | :9112 |
 | Signal Tracker | `indicagent-signal-tracker` | Signal lifecycle (pending→active→exit) | :9115 |
-| AI Narrative | `indicagent-ai-narrative` | I8: Ollama → `narratives:SYMBOL:TF` | :9113 |
+| AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
 
-### Data Providers
-- `src/providers/ibkr.py` — all ib_insync logic isolated here. `fetch_historical_bars()` supports `continuous=True` for back-adjusted `ContFuture` data (used by backfill for multi-year history)
-- **Rule:** No `ib_insync` imports outside `src/providers/ibkr.py`
-
-### Core Runtime
-- `src/core/stream_keys.py` — all Redis stream key construction (always use this, never hardcode)
+### Core Runtime Files
+- `src/core/stream_keys.py` — all Redis stream key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
-- `src/core/service_utils.py` — shared service helpers: `setup_service_logging()`, `min_bars_for_tf()`, `PLUGIN_METRICS_SAMPLE_RATE` (used by all 6 services)
-- `src/intelligence/schemas.py` — `IntelligenceEvent`, `I1Indicators`, `I3Structure`, etc. (canonical typed bus)
+- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `PLUGIN_METRICS_SAMPLE_RATE`
+- `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
+- `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
 
 ## Data Flow
 
 ### Stream Keys (env-prefixed: `development:` in dev)
-- `indicators:SYMBOL:TF` — I1 indicators output
+- `indicators:SYMBOL:TF` — I1 output
 - `intelligence:SYMBOL:TF` — typed IntelligenceEvent (I3→I6 output)
 - `signals:SYMBOL:TF:aggregated` — selected I7 signal
-- `narratives:SYMBOL:TF` — I8 AI narrative text
-- `development:ticks:SYMBOL:live` — raw ticks from TWS
+- `narratives:SYMBOL:TF` — I8 AI narrative
 
 ### Hot/Warm/Cold Tiers
 ```
@@ -146,63 +126,35 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **Real-time pipeline never touches the database directly.**
 
 ### TimescaleDB Tables
-- `market_data_ohlcv` — raw OHLCV bars (1m named + 5m/15m/1h/1d continuous-adjusted)
+- `market_data_ohlcv` — raw OHLCV (backfill only)
 - `intelligence_features` — full feature vectors per bar (ML training dataset)
-- `signal_ledger` — all I7 signals with outcome tracking; JOIN to `intelligence_features` via `(symbol, feature_ts, feature_tf)`
-- Continuous aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
+- `signal_ledger` — I7 signals; JOIN via `(symbol, feature_ts, feature_tf)`
+- Aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 
-## Plugin System (84 total + 2 aggregation)
+## Plugin System
 
-### I1 Technical Indicators (23 plugins) — all incremental `compute_next()`
-Trend, Momentum, Volatility, Volume — full list in `src/intelligence/register_plugins.py:TIER_I1`
+86 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
-### I2 Composite Events (6 plugins) — run on I1 features, before I3
-MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration — detect crossovers, threshold crosses, band touches, and 2nd-derivative acceleration/inflection. Defined in `src/intelligence/composites/`. Shared utilities in `common.py` (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`).
-
-### I3 Structure (7) · I4 Context (7) · I5 Patterns (14) · I6 SMC (13) · I6 Confluence (1)
-- **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones
-- **I4**: vol/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility
-- **I5**: RSI divergence, squeeze, vol divergence, confluence, trend confluence, DoubleTopBottom, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction
-- **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
-- **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (trend/structure/regime/pattern/I2 events + SMC BOS sub-score; 10 output fields)
-
-### I7 Trading Setups (15 plugins) + Aggregation (2 components)
-TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup. Signal aggregator, cross-timeframe confluence.
-
-**GARCH/Kalman quality gates** (Phase 0) wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
-
-### Plugin tier lists — single source of truth
-`TIER_I1`…`TIER_I7` constants in `src/intelligence/register_plugins.py`. Services import them — do NOT define local string lists. `registry.validate_tier()` hard-crashes at startup on any missing name.
+- Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
+- `registry.validate_tier()` hard-crashes at startup on any missing name
 
 ## Development Standards
 
-**Code Quality Security:** No dedicated security scanning tools installed (bandit/safety/snyk not available). CodeRabbit review (`/coderabbit:code-review`) catches security issues alongside quality concerns. For production deployment, consider adding `bandit` (Python security linter) or `safety` (dependency vulnerability scanner).
-
-### Current Contracts (24 — front-month as of Feb 2026)
-ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, ZF, ZB, ZT (rates) · VX (volatility) · ZS, ZC, ZW (agriculture) · EURUSD, GBPUSD, USDJPY, USDCHF (spot FX/IDEALPRO) · BTCUSD, ETHUSD, SOLUSD (spot crypto/PAXOS)
-
-**Paper trading unavailable (not in defaults):** BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200, no workaround. NG/BZ valid in live account.
-
-**Always use `get_active_contracts()` from `src/config/settings.py` — never hardcode symbol lists.**
+**Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
 
 ### Key Rules
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
-- **Ruff**: always run `.venv/bin/ruff check .` from project root — absolute paths bypass `pyproject.toml` and give wrong counts.
-- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils` — all 6 services use it; returns `bool` (True=freshly created).
+- **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
+- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils`.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
-- **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Use `.venv/bin/pytest`. Integration tests require live infra — unit tests are CI-clean.
+- **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests are CI-clean; integration requires live infra.
 - **Services**: graceful SIGINT/SIGTERM, drain queues, `await` Redis close, idempotent consumer groups.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
-- **IBKR**: VIX symbol is `"VX"` (not "VIX"). Client IDs 35+ range. All ib_insync in `src/providers/ibkr.py` only.
-  - `genericTickList="233"` (RTVolume) for futures only — use `""` for FX (CASH) and crypto (CRYPTO)
-  - `whatToShow`: `TRADES` for futures, `MIDPOINT` for FX/CASH, `AGGTRADES` for CRYPTO
-  - Some futures need `tradingClass` to qualify — pass via `provider_meta={"trading_class": "XYZ"}`
-  - `qualify_instrument` handles `AssetClass.FUTURES` (Future), `.FX` (Forex), `.CRYPTO` (Contract secType='CRYPTO')
-  - IBKR localSymbol differs for FX/crypto (EUR.USD vs EURUSD) — `_local_to_canonical` in IBKRProvider handles this
-- **DragonflyDB**: Does not support Redis modules — `TS.*` (TimeSeries) and RediSearch native module commands are unavailable. Use TimescaleDB for time series storage.
+- **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
+- **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
-- **Plugin protocol**: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant. Use `frozenset[str]` for `outputs`/`capability_tags` and `tuple[InputSpec, ...]` for `inputs` — not `set[str]`/`list[InputSpec]`.
+- **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
 
 ## System Access
@@ -215,47 +167,16 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ## Current Status
 
-**Tests:** 1000 passing
-**Ruff:** 0 errors ✅
+**Tests:** 1028 passing · **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.2 complete:** I2 composites (6), I5 patterns (+6), SMC plugins (+5), I6 confluence recency weighting + I2 event scoring, I1-I6 correctness audit (35 tests)
-**v1.3 in progress:** Phase 08 (MomentumAcceleration) + Phase 09 (GapAnalysisSetup) complete; Phase 10 (CandlestickPatternSetup) next — see `.planning/ROADMAP.md`
-
-### ai_narrative_service key facts
-- Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
-- Timeframes: `["1m", "5m", "15m", "1h"]` — matches signal_generator_service
-- Ollama timeout: 120s (qwen3:8b needs ~90s on CPU at num_predict=500)
-
-### Local LLM (Ollama — Docker container `ollama/ollama:rocm`, port :11434)
-`qwen3:8b` (default), `gemma3n:e4b`, `qwen3:4b`, `phi4-mini:3.8b`, `deepscaler:1.5b`
-**Gotcha:** Qwen3 uses thinking mode by default — `content` may be empty if `num_predict` < 500. Use `/no_think` prefix or set `num_predict ≥ 500`.
-
-### LLM Provider Abstraction (`src/intelligence/llm_providers.py`)
-Protocol-driven 3-tier inference chain with automatic fallback. `LLMChain` tries each provider in order and returns the first success.
-
-| Tier | Provider | Model | Role |
-|------|----------|-------|------|
-| 1 (Primary) | `ZAIProvider` | GLM-5 (Z.ai) | Highest-quality reasoning — SOTA foundation model |
-| 2 (Fallback) | `OpenRouterProvider` | 100+ models (Llama, Mistral, Gemini…) | Broad model access; free-tier options available |
-| 3 (Offline) | `OllamaProvider` | qwen3:8b / phi4-mini:3.8b | Always available locally — no internet required |
-
-- **`LLMProvider` protocol**: `async generate(prompt, system, max_tokens, timeout) -> str | None`
-- **`LLMChain`**: Tries providers in sequence, returns first non-None result. `chain.last_provider_id` tells you which succeeded.
-- **Adding new providers**: Implement `LLMProvider` with `generate()`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- **Settings**: `zai_api_key`, `openrouter_api_key` in `.env` (defaults to empty string — chain skips on failure).
+**v1.2 complete** · **v1.3 in progress:** Phase 10 (CandlestickPatternSetup) + pipeline timing observability complete — see `.planning/ROADMAP.md`
 
 ## Key References
 
-**Planning (start here):**
-- `.planning/ROADMAP.md` — current milestone phases, backlog
-- `.planning/IDEAS.md` — rough idea captures
-- `.planning/analysis/` — architecture decisions and design discussions
-
-**Architecture:**
+- `.planning/ROADMAP.md` — phases, backlog
+- `.planning/IDEAS.md` — rough captures
+- `docs/plans/` — design docs and architecture decisions
 - `docs/concepts/intelligence-tiers.md`
 - `docs/reference/schemas/stream-schemas.md`
-- `docs/architecture/plugin-registry-and-dag-execution.md`
-
-**External APIs:**
 - IBKR TWS: https://interactivebrokers.github.io/tws-api/
 - TimescaleDB: https://docs.timescale.com/
