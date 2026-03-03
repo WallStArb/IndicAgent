@@ -51,7 +51,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 08: MomentumAcceleration** — I2 plugin: rsi/macd/roc second-derivative + inflection_flag (complete)
 - [x] **Phase 09: GapAnalysisSetup** — I7 opening gap fade/continuation for ES/NQ (GAP-01, GAP-02, GAP-03) (completed 2026-03-03)
-- [ ] **Phase 10: CandlestickPatternSetup** — I7 confluence-gated candlestick setup consuming I5 output (CNDL-01, CNDL-02, CNDL-03)
+- [x] **Phase 10: CandlestickPatternSetup** — I7 confluence-gated candlestick setup consuming I5 output (CNDL-01, CNDL-02, CNDL-03) (completed 2026-03-03)
 - [ ] **Phase 11: SessionExtremesSetup** — I7 Asian session high/low fade during London/NY (SESS-01, SESS-02, SESS-03)
 
 </details>
@@ -213,11 +213,11 @@ Plans:
   3. Signals include a `confluence_score` field that reflects how many confirming factors were present
   4. The plugin is registered in TIER_I7 and all unit tests pass (`tests/unit/intelligence/trading/`)
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
-- [ ] 10-01-PLAN.md — Write failing test suite for CandlestickPatternSetup (TDD RED phase)
-- [ ] 10-02-PLAN.md — Implement CandlestickPatternSetupPlugin and register in TIER_I7 (16th plugin, 87 total)
+- [x] 10-01-PLAN.md — Write failing test suite for CandlestickPatternSetup (TDD RED phase)
+- [x] 10-02-PLAN.md — Implement CandlestickPatternSetupPlugin and register in TIER_I7 (16th plugin, 87 total)
 
 ---
 
