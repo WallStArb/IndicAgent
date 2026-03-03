@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.10.0
-Last Updated: 2026-03-02
-Status: I1-I8 pipeline complete — 84 plugins + 2 aggregation components + feature store + typed intelligence bus, 965 tests, 0 ruff errors, 24 contracts
+Version: 5.11.0
+Last Updated: 2026-03-03
+Status: I1-I8 pipeline complete — 85 plugins + 2 aggregation components + feature store + typed intelligence bus, 986 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
@@ -124,6 +124,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 ### Core Runtime
 - `src/core/stream_keys.py` — all Redis stream key construction (always use this, never hardcode)
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
+- `src/core/service_utils.py` — shared service helpers: `setup_service_logging()`, `min_bars_for_tf()`, `PLUGIN_METRICS_SAMPLE_RATE` (used by all 6 services)
 - `src/intelligence/schemas.py` — `IntelligenceEvent`, `I1Indicators`, `I3Structure`, etc. (canonical typed bus)
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 
@@ -155,8 +156,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ### I1 Technical Indicators (23 plugins) — all incremental `compute_next()`
 Trend, Momentum, Volatility, Volume — full list in `src/intelligence/register_plugins.py:TIER_I1`
 
-### I2 Composite Events (5 plugins) — run on I1 features, before I3
-MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents — detect crossovers, threshold crosses, band touches. Defined in `src/intelligence/composites/`. Shared utilities in `common.py` (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`).
+### I2 Composite Events (6 plugins) — run on I1 features, before I3
+MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration — detect crossovers, threshold crosses, band touches, and 2nd-derivative acceleration/inflection. Defined in `src/intelligence/composites/`. Shared utilities in `common.py` (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`).
 
 ### I3 Structure (7) · I4 Context (7) · I5 Patterns (14) · I6 SMC (13) · I6 Confluence (1)
 - **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones
@@ -214,18 +215,18 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ## Current Status
 
-**Tests:** 965 passing
+**Tests:** 986 passing
 **Ruff:** 0 errors ✅
-**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator (v1.0 + v1.1 complete)
-**Intelligence Palette Expansion:** complete — I2 composites (5), I5 patterns (+6), SMC plugins (+5), I6 confluence recency weighting + I2 event scoring, I1-I6 correctness audit (35 tests)
-**Roadmap:** See `.planning/ROADMAP.md` — v1.1 complete. Next milestone TBD.
+**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
+**v1.2 complete:** I2 composites (6), I5 patterns (+6), SMC plugins (+5), I6 confluence recency weighting + I2 event scoring, I1-I6 correctness audit (35 tests), MomentumAcceleration (Phase 08)
+**v1.3 in progress:** Phase 09 (GapAnalysisSetup) active — see `.planning/ROADMAP.md`
 
 ### ai_narrative_service key facts
 - Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
 - Timeframes: `["1m", "5m", "15m", "1h"]` — matches signal_generator_service
 - Ollama timeout: 120s (qwen3:8b needs ~90s on CPU at num_predict=500)
 
-### Local LLM (Ollama — native process, not Docker)
+### Local LLM (Ollama — Docker container `ollama/ollama:rocm`, port :11434)
 `qwen3:8b` (default), `gemma3n:e4b`, `qwen3:4b`, `phi4-mini:3.8b`, `deepscaler:1.5b`
 **Gotcha:** Qwen3 uses thinking mode by default — `content` may be empty if `num_predict` < 500. Use `/no_think` prefix or set `num_predict ≥ 500`.
 

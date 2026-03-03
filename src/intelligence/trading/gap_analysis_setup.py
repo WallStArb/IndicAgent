@@ -38,6 +38,8 @@ class GapAnalysisSetupPlugin:
     stop_atr_fade: float = 1.0
     stop_atr_cont: float = 1.5
     target_atr_cont: float = 2.0
+    target_atr_cont2: float = 3.0
+    target_atr_fade_ext: float = 0.5
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -56,17 +58,18 @@ class GapAnalysisSetupPlugin:
         # GAP-01: Gap detection — close[-2] is prior bar close, open[-1] is current bar open
         close = df["close"].to_numpy(dtype=float)
         open_ = df["open"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
+        prior_close = float(close[-2])
 
-        gap_size = open_[-1] - close[-2]
+        gap_size = float(open_[-1]) - prior_close
         direction = 1 if gap_size > 0 else (-1 if gap_size < 0 else 0)
         if direction == 0:
             return self._no_signal()
 
         # ATR with fallback (established pattern from all I7 plugins)
-        atr = float(features.get("atr_14") or 0.0)
+        atr = float(features.get("atr_14", 0.0))
         if atr <= 0:
+            high = df["high"].to_numpy(dtype=float)
+            low = df["low"].to_numpy(dtype=float)
             atr = float(np.mean(high[-14:] - low[-14:]))
         if atr <= 0:
             return self._no_signal()
@@ -94,28 +97,22 @@ class GapAnalysisSetupPlugin:
         else:
             bias = "fade"
 
-        # GAP-03: Entry
+        # GAP-03: Entry, stop, and targets — all bias-dependent
         if bias == "fade":
             entry_type = "at_limit"
             entry = open_[-1]  # current session open (fade from here toward prior close)
+            stop = open_[-1] - direction * self.stop_atr_fade * atr
+            targets = [
+                round(prior_close, 2),
+                round(prior_close + direction * self.target_atr_fade_ext * atr, 2),
+            ]
         else:
             entry_type = "at_pullback"
             entry = open_[-1] + (-direction * 0.25 * atr)
-
-        # GAP-03: Stop
-        if bias == "fade":
-            stop = open_[-1] - direction * self.stop_atr_fade * atr
-        else:
             stop = open_[-1] - direction * self.stop_atr_cont * atr
-
-        # GAP-03: Targets
-        prior_close = float(close[-2])
-        if bias == "fade":
-            targets = [round(prior_close, 2), round(prior_close + direction * 0.5 * atr, 2)]
-        else:
             targets = [
                 round(open_[-1] + direction * self.target_atr_cont * atr, 2),
-                round(open_[-1] + direction * 3.0 * atr, 2),
+                round(open_[-1] + direction * self.target_atr_cont2 * atr, 2),
             ]
 
         # GAP-03: Confidence
