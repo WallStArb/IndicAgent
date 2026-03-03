@@ -12,6 +12,10 @@ from pathlib import Path
 
 import structlog
 
+# Fraction of successful plugin executions to record as Prometheus metrics.
+# 1-in-10 reduces write pressure on the hot path; errors are always recorded.
+PLUGIN_METRICS_SAMPLE_RATE: int = 10
+
 # Minimum unique bars required before publishing per timeframe.
 # 1m uses 120 (2 hours) for plugin warm-up quality.
 # All higher TFs use 26 — enough for EMA-26 and Stochastic-14.

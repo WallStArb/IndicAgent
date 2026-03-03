@@ -29,7 +29,11 @@ import redis.asyncio as redis
 import structlog
 
 from src.config.settings import Settings, get_active_contracts
-from src.core.service_utils import min_bars_for_tf, setup_service_logging
+from src.core.service_utils import (
+    PLUGIN_METRICS_SAMPLE_RATE,
+    min_bars_for_tf,
+    setup_service_logging,
+)
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import market as sk_market
 from src.core.stream_utils import ensure_consumer_group_with_reset
@@ -39,8 +43,6 @@ from src.observability.metrics import counter, gauge, record_plugin_execution, s
 
 # I1 plugin names — imported from register_plugins (single source of truth)
 I1_PLUGINS = TIER_I1
-
-_METRICS_SAMPLE_RATE = 10
 
 _OHLCV_FIELDS = frozenset(
     {"timestamp", "symbol", "timeframe", "open", "high", "low", "close", "volume", "source"}
@@ -225,7 +227,7 @@ class IndicatorService:
                 )
             else:
                 self._i1_call_counts[(plugin_name, "I1")] += 1
-                if self._i1_call_counts[(plugin_name, "I1")] % _METRICS_SAMPLE_RATE == 0:
+                if self._i1_call_counts[(plugin_name, "I1")] % PLUGIN_METRICS_SAMPLE_RATE == 0:
                     record_plugin_execution(
                         plugin_name, symbol, timeframe, time.time() - t0, "success", "I1"
                     )

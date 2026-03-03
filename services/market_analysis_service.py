@@ -33,7 +33,11 @@ from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts
-from src.core.service_utils import min_bars_for_tf, setup_service_logging
+from src.core.service_utils import (
+    PLUGIN_METRICS_SAMPLE_RATE,
+    min_bars_for_tf,
+    setup_service_logging,
+)
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
 from src.core.stream_utils import ensure_consumer_group_with_reset
@@ -58,9 +62,6 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
-
-_METRICS_SAMPLE_RATE = 10  # record 1 in 10 success executions; errors always recorded
-
 from src.observability.metrics import (
     counter,
     gauge,
@@ -208,7 +209,7 @@ class MarketAnalysisService:
                     )
                 else:
                     self._plugin_call_counts[(pname, tier)] += 1
-                    if self._plugin_call_counts[(pname, tier)] % _METRICS_SAMPLE_RATE == 0:
+                    if self._plugin_call_counts[(pname, tier)] % PLUGIN_METRICS_SAMPLE_RATE == 0:
                         record_plugin_execution(
                             pname, symbol, timeframe, time.time() - t0, "success", tier
                         )
