@@ -462,6 +462,76 @@ class TestPluginStateIsolation:
         assert state_after_bar2.get("prev_rsi_accel") == pytest.approx(-2.0, abs=0.01)
 
 
+class TestPrometheusSampling:
+    """record_plugin_execution is called at sampled rate for successes, always for errors."""
+
+    def test_success_metrics_sampled_at_rate_10(self):
+        """Success metrics recorded only every 10th call, not every call."""
+        import pandas as pd
+        from unittest.mock import patch
+        from services.market_analysis_service import MarketAnalysisService
+
+        svc = MarketAnalysisService()
+        df = pd.DataFrame(
+            [{"open": 100.0, "high": 101.0, "low": 99.0,
+              "close": 100.5, "volume": 500}] * 30
+        )
+        frames = {"main": df, "features": {}, "prev_features": {}}
+
+        with patch(
+            "services.market_analysis_service.record_plugin_execution"
+        ) as mock_record:
+            for _ in range(10):
+                svc._run_analysis_pipeline("ES", "1m", frames)
+
+        # With 48 plugins × 10 calls = 480 total success invocations
+        # At rate=10, we expect 48 recorded (every 10th)
+        # But we only care that it's less than total, i.e. sampled
+        success_calls = [
+            c for c in mock_record.call_args_list if c.args[4] == "success"
+        ]
+        total_plugin_invocations = len(
+            list(svc._plugin_cache.keys())
+        ) * 10
+        assert len(success_calls) < total_plugin_invocations, (
+            "Expected sampling: fewer success records than total invocations"
+        )
+        # Exactly 1-in-10 should be recorded
+        assert len(success_calls) == len(svc._plugin_cache) * 1  # 1 per plugin at call 10
+
+    def test_error_metrics_always_recorded(self):
+        """Error metrics are recorded on every failure — never sampled."""
+        import pandas as pd
+        from unittest.mock import patch, MagicMock
+        from services.market_analysis_service import MarketAnalysisService
+
+        svc = MarketAnalysisService()
+
+        # Make one plugin always raise
+        boom_name = list(svc._plugin_cache.keys())[0]
+        mock_plugin = MagicMock()
+        mock_plugin.compute_full.side_effect = RuntimeError("boom")
+        svc._plugin_cache[boom_name] = mock_plugin
+
+        df = pd.DataFrame(
+            [{"open": 100.0, "high": 101.0, "low": 99.0,
+              "close": 100.5, "volume": 500}] * 30
+        )
+        frames = {"main": df, "features": {}, "prev_features": {}}
+
+        with patch(
+            "services.market_analysis_service.record_plugin_execution"
+        ) as mock_record:
+            for _ in range(5):
+                svc._run_analysis_pipeline("ES", "1m", frames)
+
+        error_calls = [
+            c for c in mock_record.call_args_list
+            if c.args[4] == "error" and c.args[0] == boom_name
+        ]
+        assert len(error_calls) == 5, "Errors must be recorded on every invocation"
+
+
 def test_df_cache_miss_builds_dataframe():
     from collections import deque
     from datetime import datetime

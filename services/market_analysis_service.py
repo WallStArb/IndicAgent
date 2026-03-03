@@ -58,6 +58,8 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
+_METRICS_SAMPLE_RATE = 10  # record 1 in 10 success executions; errors always recorded
+
 from src.observability.metrics import (
     counter,
     gauge,
@@ -92,6 +94,7 @@ class MarketAnalysisService:
 
         # Per-(plugin, symbol, timeframe) state namespace — prevents cross-symbol state bleed
         self._plugin_states: dict[tuple[str, str, str], dict] = {}
+        self._plugin_call_counts: dict[tuple[str, str], int] = defaultdict(int)
 
         self.redis_client: redis.Redis | None = None
         self.consumer_group = "market_analysis"
@@ -195,9 +198,6 @@ class MarketAnalysisService:
                     out = p.compute_full(frames)
                     self._plugin_states[state_key] = p._state  # capture full reassignments
                     results.update(out)
-                    record_plugin_execution(
-                        pname, symbol, timeframe, time.time() - t0, "success", tier
-                    )
                 except Exception as exc:
                     self.logger.warning(
                         f"{tier} plugin failed", plugin=pname, error=str(exc)
@@ -205,6 +205,12 @@ class MarketAnalysisService:
                     record_plugin_execution(
                         pname, symbol, timeframe, time.time() - t0, "error", tier
                     )
+                else:
+                    self._plugin_call_counts[(pname, tier)] += 1
+                    if self._plugin_call_counts[(pname, tier)] % _METRICS_SAMPLE_RATE == 0:
+                        record_plugin_execution(
+                            pname, symbol, timeframe, time.time() - t0, "success", tier
+                        )
 
         # I2: Composite indicator events (crossovers, extremes) — runs on I1 features
         i2_results: dict[str, Any] = {}
