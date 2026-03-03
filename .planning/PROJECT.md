@@ -2,7 +2,7 @@
 
 ## What This Is
 
-IndicAgent is a real-time futures trading intelligence platform covering 23 contracts across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 62 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store. A live React dashboard displays all tiers in real time via SSE.
+IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 62 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store. A live React dashboard displays all tiers in real time via SSE.
 
 ## Core Value
 
@@ -38,7 +38,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ Historical backfill: 413K signals, 482K feature rows, 0 orphans — v1.0
 - ✓ Historical query API: GET /api/features/{symbol}/{timeframe}, GET /api/signals/{symbol} — v1.0
 - ✓ SSE stream publishes typed `IntelligenceEvent` payloads — v1.0
-- ✓ Dashboard live: all 23 contracts qualify, all panels (I1–I8) showing real data — v1.0
+- ✓ Dashboard live: all 23 instruments qualify, all panels (I1–I8) showing real data — v1.0
 - ✓ CIS 6-bucket factor scorer replacing winner-pick aggregator — v1.0
 - ✓ 5 new I7 plugins (CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition) — v1.0
 - ✓ Adaptive weight learning via logistic regression (weight_updater + cis_weights table) — v1.0
