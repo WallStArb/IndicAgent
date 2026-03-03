@@ -86,12 +86,30 @@ def test_bar_close_ts_1h_returns_ts_plus_1_hour():
     assert result == ts + timedelta(hours=1)
 
 
+def test_bar_close_ts_4h_returns_ts_plus_4_hours():
+    """For 4h bars, bar_close_ts = ts + 4 hours."""
+    from src.core.service_utils import bar_close_ts
+
+    ts = datetime(2026, 1, 15, 9, 30, 0, tzinfo=UTC)
+    result = bar_close_ts(ts, "4h")
+    assert result == datetime(2026, 1, 15, 13, 30, 0, tzinfo=UTC)
+
+
+def test_bar_close_ts_1d_returns_ts_plus_24_hours():
+    """For 1d bars, bar_close_ts = ts + 24 hours."""
+    from src.core.service_utils import bar_close_ts
+
+    ts = datetime(2026, 1, 15, 0, 0, 0, tzinfo=UTC)
+    result = bar_close_ts(ts, "1d")
+    assert result == datetime(2026, 1, 16, 0, 0, 0, tzinfo=UTC)
+
+
 def test_bar_close_ts_unknown_tf_returns_ts_unchanged():
     """Unknown timeframe falls back to 0 offset (returns ts unchanged)."""
     from src.core.service_utils import bar_close_ts
 
     ts = datetime(2026, 1, 15, 13, 0, 0, tzinfo=UTC)
-    result = bar_close_ts(ts, "4h")
+    result = bar_close_ts(ts, "2h")
     assert result == ts
 
 

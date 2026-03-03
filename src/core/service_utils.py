@@ -37,8 +37,8 @@ def min_bars_for_tf(timeframe: str, default: int = 26) -> int:
 
 # Seconds from period start to period close per timeframe.
 # 1m is omitted: for 1m bars ts IS the close time, no offset needed.
-# For 5m/15m/1h bars ts is the period start; close = ts + duration.
-TF_DURATIONS: dict[str, int] = {"5m": 300, "15m": 900, "1h": 3600}
+# For all higher TFs ts is the period start; close = ts + duration.
+TF_DURATIONS: dict[str, int] = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
 
 def bar_close_ts(ts: datetime, tf: str) -> datetime:
