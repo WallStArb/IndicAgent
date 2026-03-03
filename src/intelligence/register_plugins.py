@@ -75,6 +75,7 @@ from .structure.trend_structure import plugin as trend_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
 from .trading.divergence_stack import plugin as divergence_stack_plugin
 from .trading.fvg_fill import plugin as fvg_fill_plugin
+from .trading.gap_analysis_setup import plugin as gap_analysis_setup_plugin
 from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
 from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
 from .trading.mean_reversion import plugin as mean_revert_plugin
@@ -185,6 +186,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(pattern_completion_plugin)
     registry.register_pattern(divergence_stack_plugin)
     registry.register_pattern(regime_transition_plugin)
+    registry.register_pattern(gap_analysis_setup_plugin)
 
 # ---------------------------------------------------------------------------
 # Canonical tier plugin lists — single source of truth.
@@ -299,4 +301,5 @@ TIER_I7: list[str] = [
     pattern_completion_plugin.name,
     divergence_stack_plugin.name,
     regime_transition_plugin.name,
+    gap_analysis_setup_plugin.name,
 ]
