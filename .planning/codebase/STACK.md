@@ -5,7 +5,7 @@
 ## Languages
 
 **Primary:**
-- Python 3.13.5 - Core trading intelligence platform, backend services, daemons
+- Python 3.13.5 - Core market intelligence platform, backend services, daemons
 - TypeScript 5 - Next.js dashboard frontend type definitions
 - JavaScript (React 19) - Dashboard UI components and real-time views
 - SQL (PostgreSQL/TimescaleDB) - Historical data and time-series storage

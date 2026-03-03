@@ -2,13 +2,13 @@
 
 Version: 5.11.0
 Last Updated: 2026-03-03
-Status: I1-I8 pipeline complete — 85 plugins + 2 aggregation components + feature store + typed intelligence bus, 986 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 86 plugins + 2 aggregation components + feature store + typed intelligence bus, 1000 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working with this repository.
 
-# IndicAgent Trading Intelligence Platform
+# IndicAgent Market Intelligence Platform
 
-Real-time futures trading intelligence platform with plugin-native architecture, LangGraph event-driven workflows, and production-grade monitoring infrastructure.
+Real-time market intelligence platform with plugin-native architecture, LangGraph event-driven workflows, and production-grade monitoring infrastructure.
 
 ## Knowledge Hierarchy
 
@@ -166,8 +166,8 @@ MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccele
 - **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
 - **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (trend/structure/regime/pattern/I2 events + SMC BOS sub-score; 10 output fields)
 
-### I7 Trading Setups (14 plugins) + Aggregation (2 components)
-TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition. Signal aggregator, cross-timeframe confluence.
+### I7 Trading Setups (15 plugins) + Aggregation (2 components)
+TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup. Signal aggregator, cross-timeframe confluence.
 
 **GARCH/Kalman quality gates** (Phase 0) wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
@@ -215,11 +215,11 @@ ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG, PL (metals) · ZN, 
 
 ## Current Status
 
-**Tests:** 986 passing
+**Tests:** 1000 passing
 **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.2 complete:** I2 composites (6), I5 patterns (+6), SMC plugins (+5), I6 confluence recency weighting + I2 event scoring, I1-I6 correctness audit (35 tests), MomentumAcceleration (Phase 08)
-**v1.3 in progress:** Phase 09 (GapAnalysisSetup) active — see `.planning/ROADMAP.md`
+**v1.2 complete:** I2 composites (6), I5 patterns (+6), SMC plugins (+5), I6 confluence recency weighting + I2 event scoring, I1-I6 correctness audit (35 tests)
+**v1.3 in progress:** Phase 08 (MomentumAcceleration) + Phase 09 (GapAnalysisSetup) complete; Phase 10 (CandlestickPatternSetup) next — see `.planning/ROADMAP.md`
 
 ### ai_narrative_service key facts
 - Consumer group: stable `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
