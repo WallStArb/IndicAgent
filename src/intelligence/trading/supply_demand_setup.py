@@ -28,6 +28,7 @@ class SupplyDemandSetupPlugin:
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "zones", "smc"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    regime_type: str = "any"
     _state: dict = field(default_factory=dict)
 
     MIN_FRESHNESS: float = 0.40

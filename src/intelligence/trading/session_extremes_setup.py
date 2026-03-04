@@ -40,6 +40,7 @@ class SessionExtremesSetupPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "session"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "mean_reversion"
     proximity_atr_mult: float = 0.3
     _state: dict = field(default_factory=dict)
 

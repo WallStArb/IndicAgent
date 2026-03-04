@@ -32,6 +32,7 @@ class GapAnalysisSetupPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "gap"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "any"
     min_gap_atr_mult: float = 0.3
     continuation_atr_mult: float = 1.0
     volume_confirm_ratio: float = 1.5

@@ -29,6 +29,7 @@ class MeanReversionPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "mean_reversion"
     regime_threshold: float = 0.4
     _state: dict = field(default_factory=dict)
 

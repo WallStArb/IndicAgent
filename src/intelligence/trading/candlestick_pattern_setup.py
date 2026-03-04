@@ -42,6 +42,7 @@ class CandlestickPatternSetupPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    regime_type: str = "any"
     regime_threshold: float = 0.5
     volume_boost_ratio: float = 1.3
     sr_proximity_atr: float = 0.3

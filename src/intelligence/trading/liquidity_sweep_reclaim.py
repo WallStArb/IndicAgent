@@ -27,6 +27,7 @@ class LiquiditySweepReclaimPlugin:
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "sweep"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "mean_reversion"
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

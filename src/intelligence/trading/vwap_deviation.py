@@ -31,6 +31,7 @@ class VWAPDeviationPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "vwap", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "mean_reversion"
     sigma_threshold: float = 2.0
     atr_stop_multiplier: float = 1.5
     _state: dict = field(default_factory=dict)

@@ -32,6 +32,7 @@ class RegimeTransitionPlugin:
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "regime", "smc", "structure"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    regime_type: str = "any"
     cp_threshold: float = 0.5
     atr_stop_multiplier: float = 1.5
     atr_target_multipliers: tuple = (2.0, 3.5, 5.0)
