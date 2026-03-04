@@ -3,6 +3,7 @@ from __future__ import annotations
 from .composites.adx_events import plugin as adx_events_plugin
 from .composites.donchian_position import plugin as donchian_pos_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
+from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.macd_events import plugin as macd_events_plugin
 from .composites.momentum_accel import plugin as momentum_accel_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
@@ -125,6 +126,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(volume_events_plugin)
     registry.register_pattern(momentum_accel_plugin)
     registry.register_pattern(donchian_pos_plugin)
+    registry.register_pattern(obv_momentum_plugin)
 
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)
@@ -234,6 +236,7 @@ TIER_I2: list[str] = [
     volume_events_plugin.name,
     momentum_accel_plugin.name,
     donchian_pos_plugin.name,
+    obv_momentum_plugin.name,
 ]
 
 TIER_I3: list[str] = [
