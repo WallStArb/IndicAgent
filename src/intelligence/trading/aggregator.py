@@ -13,21 +13,17 @@ from typing import Any
 
 from .cis_scorer import CISScorer
 
-# Regime eligibility: maps plugin name → allowed hmm_regime values.
-# Plugins not listed here are allowed in any regime.
-# Gate is skipped entirely when hmm_regime_prob < 0.55 or hmm_regime_duration < 3
-# (uncertain or newly-started regime — don't suppress on weak evidence).
-REGIME_ELIGIBILITY: dict[str, list[int]] = {
-    "trad_TrendFollowing":    [1, 2],  # trending only
-    "trad_MomentumBreakout":  [1, 2],
-    "trad_LiquidityHunt":     [1, 2],
-    "trad_MTFAlignment":      [1, 2],
-    "trad_MeanReversion":     [0],     # ranging only
-    "trad_VWAPDeviation":     [0],
+# Regime type map: maps regime_type attribute value → allowed hmm_regime int values.
+# Plugins declare their regime_type attribute; this dict maps it to allowed regimes.
+# 0 = ranging, 1 = trend-up, 2 = trend-down.
+_REGIME_MAP: dict[str, list[int]] = {
+    "trend":          [1, 2],
+    "mean_reversion": [0],
+    "any":            [0, 1, 2],
 }
 
-_REGIME_PROB_MIN = 0.55   # minimum confidence to trust regime label
-_REGIME_DUR_MIN = 3       # minimum bars before regime is considered stable
+_REGIME_PROB_MIN = 0.60   # minimum confidence to trust regime label (raised from 0.55)
+_REGIME_DUR_MIN = 5       # minimum bars before regime is considered stable (raised from 3)
 
 # Plugin priority: higher value = higher priority
 SETUP_PRIORITY: dict[str, int] = {
@@ -63,11 +59,56 @@ def _pick_with_method(group: list[dict]) -> dict:
     return group[0]
 
 
+def _regime_gate_signals(
+    signals: list[dict],
+    regime_data: dict[str, Any] | None,
+) -> None:
+    """Tag each signal dict with regime_eligible and suppression_reason in-place.
+
+    If regime_data is None (absent or authority TF not yet seen), skips the gate
+    and marks all signals as eligible. This avoids suppressing on absent data.
+
+    Gate priority order:
+    1. prob check: if hmm_regime_prob < _REGIME_PROB_MIN → suppression_reason="regime_prob"
+    2. duration check: if hmm_regime_duration < _REGIME_DUR_MIN → suppression_reason="regime_dur"
+    3. type check: if int(hmm_regime) not in allowed → suppression_reason="regime_type"
+    4. else: eligible=True
+    """
+    if regime_data is None:
+        for sig in signals:
+            sig["regime_eligible"] = True
+            sig["suppression_reason"] = None
+        return
+
+    hmm_regime = regime_data.get("hmm_regime")
+    hmm_regime_prob = float(regime_data.get("hmm_regime_prob", 0.0))
+    hmm_regime_duration = int(regime_data.get("hmm_regime_duration", 0))
+
+    for sig in signals:
+        plugin_regime_type = sig.get("regime_type", "any")
+        allowed = _REGIME_MAP.get(plugin_regime_type, [0, 1, 2])
+
+        # Priority: prob check first, then duration, then type
+        if hmm_regime_prob < _REGIME_PROB_MIN:
+            sig["regime_eligible"] = False
+            sig["suppression_reason"] = "regime_prob"
+        elif hmm_regime_duration < _REGIME_DUR_MIN:
+            sig["regime_eligible"] = False
+            sig["suppression_reason"] = "regime_duration"
+        elif hmm_regime is not None and int(hmm_regime) not in allowed:
+            sig["regime_eligible"] = False
+            sig["suppression_reason"] = "regime_type"
+        else:
+            sig["regime_eligible"] = True
+            sig["suppression_reason"] = None
+
+
 def aggregate(
     signals: list[dict],
     *,
     trend_regime: float = 0.0,
     features: dict[str, Any] | None = None,
+    regime_data: dict[str, Any] | None = None,
 ) -> AggregatedResult:
     """Aggregate signals from trading setup plugins into a single result.
 
@@ -85,47 +126,45 @@ def aggregate(
     features:
         Optional flat feature dict for CIS bucket scoring. When provided,
         CIS result is always attached to AggregatedResult (even if fallback).
+    regime_data:
+        Optional higher-TF HMM regime cache entry for slow-clock gating.
+        Dict with keys: hmm_regime, hmm_regime_prob, hmm_regime_duration.
+        When None, the regime gate is skipped (no suppression on absent data).
 
     Returns
     -------
     AggregatedResult with selected signal and metadata.
+    All fired signals (eligible + suppressed) appear in all_ranked.
+    Suppressed signals have regime_eligible=False and suppression_reason set.
     """
-    # Apply regime eligibility filter before scoring.
-    # Only filters when regime is confident (prob >= 0.55) and stable (duration >= 3).
-    if features is not None:
-        hmm_regime = features.get("hmm_regime")
-        hmm_regime_prob = features.get("hmm_regime_prob", 0.0)
-        hmm_regime_duration = features.get("hmm_regime_duration", 0)
-        regime_gate_active = (
-            hmm_regime is not None
-            and float(hmm_regime_prob) >= _REGIME_PROB_MIN
-            and int(hmm_regime_duration) >= _REGIME_DUR_MIN
-        )
-        if regime_gate_active:
-            current_regime = int(hmm_regime)
-            signals = [
-                s for s in signals
-                if s.get("setup_plugin") not in REGIME_ELIGIBILITY
-                or current_regime in REGIME_ELIGIBILITY[s["setup_plugin"]]
-            ]
+    # Tag each signal with regime eligibility (in-place mutation).
+    # Uses regime_data (higher-TF, slow-clock) not features (same-TF, noisy).
+    _regime_gate_signals(signals, regime_data)
 
     # Build plugin_outputs for CIS scorer from all signals (regardless of active/inactive)
     plugin_outputs: dict[str, dict] = {s["setup_plugin"]: s for s in signals if "setup_plugin" in s}
 
-    # Run CIS if features provided
+    # Run CIS if features provided (CIS still uses same-TF features, unchanged)
     cis_result = None
     if features is not None:
         scorer = CISScorer()
         cis_result = scorer.score(features, plugin_outputs)
 
-    # Filter out inactive signals
+    # Filter for active eligible signals only (eligible + fired + non-none)
     active = [
         s
         for s in signals
-        if s.get("direction") != 0 and s.get("signal_type") != "none"
+        if s.get("direction") != 0
+        and s.get("signal_type") != "none"
+        and s.get("regime_eligible", True)
     ]
 
-    all_ranked = _build_all_ranked(active)
+    # Build all_ranked from ALL fired signals (eligible + suppressed as shadow entries)
+    all_fired = [
+        s for s in signals
+        if s.get("direction") != 0 and s.get("signal_type") != "none"
+    ]
+    all_ranked = _build_all_ranked(all_fired)
 
     # Attach CIS metadata to result (even if no signal)
     cis_kwargs: dict[str, Any] = {}
@@ -323,10 +362,10 @@ def _aggregate_fallback(
     )
 
 
-def _build_all_ranked(active: list[dict]) -> list[dict]:
-    """Build ranked list of all active signals, sorted by priority descending."""
+def _build_all_ranked(fired: list[dict]) -> list[dict]:
+    """Build ranked list of all fired signals (eligible + suppressed), sorted by priority."""
     ranked = sorted(
-        active,
+        fired,
         key=lambda s: SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0),
         reverse=True,
     )
