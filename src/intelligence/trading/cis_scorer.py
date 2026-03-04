@@ -9,7 +9,7 @@ Phase C will load learned weights from the cis_weights table.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from src.intelligence.utils import clamp
@@ -51,6 +51,9 @@ class CISResult:
     bucket_scores: dict[str, float]
     weights_version: int      # 0 = bootstrap; positive = learned from cis_weights table
     buckets_agreeing: int     # count of buckets agreeing with the CIS direction
+    # Per-constituent contributions to final CIS score
+    # {bucket: {signal_name: actual_contribution_to_cis_score}}
+    constituent_contributions: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +147,7 @@ class CISScorer:
             bucket_scores={k: round(v, 4) for k, v in bucket_scores.items()},
             weights_version=self._weights_version,
             buckets_agreeing=agreeing,
+            constituent_contributions={b: {} for b in BUCKET_NAMES},  # populated in Task 13
         )
 
     # ------------------------------------------------------------------

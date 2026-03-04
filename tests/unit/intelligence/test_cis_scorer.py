@@ -286,3 +286,24 @@ class TestCISCustomWeights:
         assert result is not None
         for b in BUCKET_NAMES:
             assert result.bucket_scores[b] == pytest.approx(0.0, abs=0.01)
+
+
+def test_cis_result_has_constituent_contributions():
+    scorer = CISScorer()
+    features = {"rsi_14": 65.0, "trend_regime": 0.8}
+    result = scorer.score(features, {})
+    assert hasattr(result, "constituent_contributions")
+    assert isinstance(result.constituent_contributions, dict)
+    assert "momentum" in result.constituent_contributions
+    assert "trend" in result.constituent_contributions
+    # Each bucket entry is a dict of signal → contribution float
+    assert isinstance(result.constituent_contributions["momentum"], dict)
+
+
+def test_constituent_contributions_values_are_floats():
+    scorer = CISScorer()
+    features = {"rsi_14": 30.0, "macd_histogram_12_26_9": -0.5}
+    result = scorer.score(features, {})
+    for bucket, contribs in result.constituent_contributions.items():
+        for signal, val in contribs.items():
+            assert isinstance(val, float), f"{bucket}.{signal} is not float"
