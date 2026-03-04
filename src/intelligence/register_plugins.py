@@ -84,6 +84,7 @@ from .trading.momentum_breakout import plugin as momentum_breakout_plugin
 from .trading.mtf_alignment import plugin as mtf_align_plugin
 from .trading.pattern_completion import plugin as pattern_completion_plugin
 from .trading.regime_transition import plugin as regime_transition_plugin
+from .trading.session_extremes_setup import plugin as session_extremes_setup_plugin
 from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
 from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
@@ -189,6 +190,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(regime_transition_plugin)
     registry.register_pattern(gap_analysis_setup_plugin)
     registry.register_pattern(candlestick_pattern_setup_plugin)
+    registry.register_pattern(session_extremes_setup_plugin)
 
 # ---------------------------------------------------------------------------
 # Canonical tier plugin lists — single source of truth.
@@ -305,4 +307,5 @@ TIER_I7: list[str] = [
     regime_transition_plugin.name,
     gap_analysis_setup_plugin.name,
     candlestick_pattern_setup_plugin.name,
+    session_extremes_setup_plugin.name,  # "trad_SessionExtremesSetup"
 ]

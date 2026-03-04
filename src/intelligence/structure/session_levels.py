@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta, timezone
 from typing import Any
 
 from ..plugins import InputSpec
@@ -8,6 +9,22 @@ from ..plugins import InputSpec
 _SESSION_BARS = 390   # ~1 trading day on 1m
 _WEEK_BARS = 1950     # ~5 trading days on 1m
 _OVERNIGHT_BARS = 60  # ~1 hour on 1m
+
+# Asian session: 20:00–04:00 ET (wraps midnight). UTC-5 — consistent with session_context.py.
+_ET_OFFSET = timedelta(hours=-5)
+_ASIA_START = (20, 0)
+_ASIA_END = (4, 0)
+
+
+def _et_hour_min(ts: Any) -> tuple[int, int]:
+    et = ts.astimezone(timezone(offset=_ET_OFFSET))
+    return et.hour, et.minute
+
+
+def _in_asia(h: int, m: int) -> bool:
+    """True if (h, m) falls in Asia session: 20:00–04:00 ET (wraps midnight)."""
+    t = (h, m)
+    return t >= _ASIA_START or t < _ASIA_END
 
 
 @dataclass
@@ -31,12 +48,14 @@ class SessionLevelsPlugin:
             "weekly_s2",
             "nearest_session_level",
             "nearest_level_dist_atr",
+            "asian_session_high",
+            "asian_session_low",
         }
     )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"structure"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=400),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=520),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -144,6 +163,29 @@ class SessionLevelsPlugin:
         else:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
+
+        # Asian session H/L — scan timestamp column for Asia-session bars (20:00–04:00 ET)
+        if "timestamp" in df.columns and len(df) > 0:
+            from datetime import UTC
+
+            asia_mask = []
+            for ts in df["timestamp"]:
+                if hasattr(ts, "to_pydatetime"):
+                    ts = ts.to_pydatetime()
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                h, m = _et_hour_min(ts)
+                asia_mask.append(_in_asia(h, m))
+            asia_bars = df[asia_mask]
+            if len(asia_bars) > 0:
+                result["asian_session_high"] = float(asia_bars["high"].max())
+                result["asian_session_low"] = float(asia_bars["low"].min())
+            else:
+                result["asian_session_high"] = None
+                result["asian_session_low"] = None
+        else:
+            result["asian_session_high"] = None
+            result["asian_session_low"] = None
 
         return result
 
