@@ -9,7 +9,14 @@ files:
 
 ## Problem
 
-I7 plugins currently fire regardless of market regime. TrendFollowing and MomentumBreakout firing in a ranging market, MeanReversion and VWAPDeviation firing in a trending market — these are structurally false signals. `hmm_regime`, `hmm_regime_prob`, and `hmm_regime_duration` are already present in every `IntelligenceEvent` (SMC tier) but not used as gates.
+Most I7 plugins fire regardless of HMM-derived regime quality. `hmm_regime`, `hmm_regime_prob`, and `hmm_regime_duration` are already present in every `IntelligenceEvent` (SMC tier) but not used as gates in most plugins.
+
+**Existing gating (partial):**
+- `TrendFollowing`: gates on `abs(trend_regime) >= 0.5` and `trend_confidence >= 0.4` (I4-based, not HMM)
+- `MeanReversion`: gates on `abs(trend_regime) < 0.4` (I4-based, not HMM)
+- All other 15 I7 plugins: no regime gating
+
+**What's missing:** HMM-based conviction gate, HMM-based stability gate, and per-plugin regime-type filters for the 15 ungated plugins.
 
 ## Solution
 

@@ -2,7 +2,7 @@
 
 Version: 5.12.0
 Last Updated: 2026-03-04
-Status: I1-I8 pipeline complete — 87 plugins + 2 aggregation components + feature store + typed intelligence bus, 1053 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1083 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -133,7 +133,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Plugin System
 
-87 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+88 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
@@ -167,9 +167,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1053 passing · **Ruff:** 0 errors ✅
+**Tests:** 1083 passing · **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.2 complete** · **v1.3 in progress:** Phase 10 (CandlestickPatternSetup) + Signal Lifecycle redesign complete — Phase 11 (SessionExtremesSetup) is next — see `.planning/ROADMAP.md`
+**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Signal Integrity, Data Completeness, Feedback Loop, Validated Alpha) — see `.planning/ROADMAP.md`
 
 ## Key References
 
