@@ -7,26 +7,29 @@ Understand the architectural decisions and design patterns.
 ## Core Architecture
 
 **[Intelligence Tiers](intelligence-tiers.md)**
-I1-I8 progressive intelligence framework
+I1-I8 progressive intelligence framework — what each tier computes and why
 
 **[Plugin Architecture](plugin-architecture.md)**
-Plugin system, DAG execution, registry pattern
+Plugin protocol, registry pattern, incremental compute interface
+
+**[DAG Execution](dag-execution.md)**
+Directed acyclic graph — dependency ordering, topological sort, cycle prevention
 
 **[Data Pipeline](data-pipeline.md)**
-Hot/warm/cold data flow, Redis streams, TimescaleDB persistence
+Hot/warm/cold data flow, Redis streams, consumer groups, TimescaleDB persistence
 
 ---
 
 ## Advanced Topics
 
 **[Incremental Computation](incremental-computation.md)**
-State-based calculations — 141x performance boost explained
+State-based calculations — 141x performance boost, Wilder's smoothing, Welford's algorithm
 
 **[Signal Lifecycle](signal-lifecycle.md)**
-I7 trading signals, aggregation, P&L tracking
+I7 signal creation → zone activation → MAE/MFE tracking → 8-class outcome classification
 
 **[Regime Classification](regime-classification.md)**
-Context-aware intelligence with HMM, GARCH, Kalman filters
+Context-aware intelligence: HMM hidden states, GARCH volatility forecast, Kalman trend filter, BOCPD changepoint detection
 
 ---
 

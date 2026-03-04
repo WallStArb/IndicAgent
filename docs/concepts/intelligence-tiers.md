@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-03-01
+**Last Updated:** 2026-03-04
 
 ## Overview
 
@@ -311,8 +311,8 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 | I8 AI Narrative | 1 service | `ai_narrative_service` — ZAI GLM-5 → OpenRouter → Ollama (conf>0.7, 5m/15m/1h) + group synthesis |
 
 ### **Totals**
-- **84 registered plugins + 2 aggregation components:** 23 I1 + 5 I2 + 7 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 14 I7
-- **965 unit tests passing**, 0 ruff errors
+- **87 registered plugins + 2 aggregation components:** 23 I1 + 5 I2 + 7 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 14 I7 (+ 3 new I7 setups in v1.3)
+- **1053 unit tests passing**, 0 ruff errors
 
 ---
 

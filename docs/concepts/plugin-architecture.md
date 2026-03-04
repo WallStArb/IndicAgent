@@ -1,7 +1,7 @@
 # Plugin Architecture
 
 **Current Plugin Count:** See [STATUS.md](../STATUS.md)
-**Last Updated:** 2026-02-17
+**Last Updated:** 2026-03-04
 
 ## Executive Summary
 
@@ -191,9 +191,11 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (31 Total)
+## Registered Plugins (87 Total + 2 Aggregation)
 
-### I1 Indicator Plugins (16) — All support incremental `compute_next()`
+See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summary below.
+
+### I1 Indicator Plugins (23) — All support incremental `compute_next()`
 
 | Plugin | Category | Key Outputs |
 |--------|----------|-------------|
@@ -377,46 +379,16 @@ ticks:ES:live         # Raw tick data
 
 ---
 
-## Future Enhancements (Not Yet Implemented)
-
-### Planned Architecture Additions
-
-**Cross-Asset & Multi-Timeframe Plugins (I6):**
-- Multi-input plugins consuming multiple symbols/timeframes
-- Data alignment with temporal join policies
-- Cross-timeframe confluence scoring (1m→5m→15m→1h)
-
-**YAML Pipeline Configuration:**
-- Configuration-driven pipeline composition (currently Python-only)
-- Hot-reloading with zero-downtime updates
-
-**Parallel DAG Execution:**
-- Async parallel execution within DAG stages (independent plugins)
-- Symbol sharding across processing instances
-
-**AI Intelligence (I8):**
-- LLM-powered pattern interpretation via OpenRouter
-- Cost-controlled inference with caching
-- Human-readable market narratives
-
-**Backpressure & Autoscaling:**
-- Stream queue depth monitoring
-- Dynamic concurrency adjustment
-- Graceful degradation under load
-
 ---
 
 ## Related Documentation
 
-### Core Architecture
-- [Intelligence Tiers (I1-I8)](intelligence-tiers.md) - Complete intelligence tier definitions
-- [Layered Architecture](layered-architecture.md) - Foundation infrastructure overview
-- [Stream Schemas](stream-schemas.md) - Data format and event specifications
-- [Plugin-Native Architecture Explained](plugin-native-architecture-explained.md) - Architectural principles
-
-### Service Integration
-- [Event-Driven Indicator System](event-driven-indicator-system.md) - Service-based processing
-- [Comprehensive Intelligence Architecture](comprehensive-intelligence-architecture.md) - Executive overview
+- [Intelligence Tiers](intelligence-tiers.md) — complete tier-by-tier plugin reference
+- [DAG Execution](dag-execution.md) — how plugin dependencies are ordered via topological sort
+- [Incremental Computation](incremental-computation.md) — 141x speedup, state patterns by indicator type
+- [Data Pipeline](data-pipeline.md) — hot/warm/cold tiers, stream keys, consumer groups
+- **Architecture:** `docs/architecture/plugin-native-architecture-explained.md`
+- **Code:** `src/intelligence/plugins.py`, `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
 
 ---
 

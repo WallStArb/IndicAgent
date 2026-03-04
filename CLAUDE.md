@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.11.0
-Last Updated: 2026-03-03
-Status: I1-I8 pipeline complete — 86 plugins + 2 aggregation components + feature store + typed intelligence bus, 1028 tests, 0 ruff errors, 24 contracts
+Version: 5.12.0
+Last Updated: 2026-03-04
+Status: I1-I8 pipeline complete — 87 plugins + 2 aggregation components + feature store + typed intelligence bus, 1053 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -96,7 +96,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | Indicator Service | `indicagent-indicator` | I1: 23 indicators → `indicators:SYMBOL:TF` | :9109 |
 | Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger` | :9112 |
-| Signal Tracker | `indicagent-signal-tracker` | Signal lifecycle (pending→active→exit) | :9115 |
+| Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
@@ -133,7 +133,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Plugin System
 
-86 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+87 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
@@ -167,9 +167,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1028 passing · **Ruff:** 0 errors ✅
+**Tests:** 1053 passing · **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.2 complete** · **v1.3 in progress:** Phase 10 (CandlestickPatternSetup) + pipeline timing observability complete — see `.planning/ROADMAP.md`
+**v1.2 complete** · **v1.3 in progress:** Phase 10 (CandlestickPatternSetup) + Signal Lifecycle redesign complete — Phase 11 (SessionExtremesSetup) is next — see `.planning/ROADMAP.md`
 
 ## Key References
 
