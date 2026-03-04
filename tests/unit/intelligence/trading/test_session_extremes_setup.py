@@ -81,7 +81,8 @@ class TestSess01AsianExtremesGate:
 
 class TestSess02SessionWindowGate:
     def test_no_signal_during_asia_session(self):
-        frames = make_frames(session_london=0.0, session_ny=0.0)
+        # close=5009.0 puts price within proximity range; session gate should still block it
+        frames = make_frames(close=5009.0, session_london=0.0, session_ny=0.0)
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") == "none"
 
@@ -262,15 +263,14 @@ class TestSignalFields:
         }
         frames = make_frames(close=5009.0)
         result = SessionExtremesSetupPlugin().compute_full(frames)
-        # When a signal fires, all 11 fields present
-        if result.get("signal_type") != "none":
-            assert expected.issubset(result.keys())
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert expected.issubset(result.keys())
 
     def test_regime_context_london(self):
         frames = make_frames(close=5009.0, session_london=1.0, session_ny=0.0)
         result = SessionExtremesSetupPlugin().compute_full(frames)
-        if result.get("signal_type") != "none":
-            assert result.get("regime_context") == "london"
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert result.get("regime_context") == "london"
 
     def test_regime_context_ny(self):
         frames = make_frames(
@@ -281,8 +281,8 @@ class TestSignalFields:
             rsi_14=30.0,
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
-        if result.get("signal_type") != "none":
-            assert result.get("regime_context") == "ny"
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert result.get("regime_context") == "ny"
 
 
 # ---------------------------------------------------------------------------
@@ -305,9 +305,10 @@ class TestEdgeCases:
         assert result.get("signal_type") != "none"
 
     def test_proximity_boundary_no_signal_just_outside(self):
-        """Price at 0.31 * ATR from asian_high → does not fire."""
+        """Price at 0.31 * ATR from asian_high → does not fire (proximity gate, not factor gate)."""
         close = ASIAN_HIGH - 0.31 * ATR  # = 5006.9
-        frames = make_frames(close=close, trend_regime=0.0, rsi_14=50.0, high_volume=False)
+        # Confirming factors present so only the proximity gate can block the signal
+        frames = make_frames(close=close, trend_regime=-0.6, rsi_14=70.0, high_volume=False)
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") == "none"
 
@@ -324,11 +325,16 @@ class TestEdgeCases:
         assert result == {}
 
     def test_tight_asian_range_picks_closer_extreme(self):
-        """When close is equidistant from both extremes but within range, picks the closer one."""
-        # Move extremes very close together so price is within 0.3 ATR of both
-        frames = make_frames(close=5001.0, asian_high=5002.0, asian_low=5000.5)
+        """When simultaneously near both extremes, picks the closer one (near_low wins here)."""
         # dist_high = |5001 - 5002| / 10 = 0.1; dist_low = |5001 - 5000.5| / 10 = 0.05
-        # near_low should win (closer)
+        # near_low wins (closer); use bullish factors to confirm the long direction
+        frames = make_frames(
+            close=5001.0,
+            asian_high=5002.0,
+            asian_low=5000.5,
+            trend_regime=0.6,   # bullish — aligns with fade-low (long)
+            rsi_14=30.0,        # oversold — aligns with fade-low (long)
+        )
         result = SessionExtremesSetupPlugin().compute_full(frames)
-        if result.get("signal_type") != "none":
-            assert result.get("direction") == 1  # fade low = long
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert result.get("direction") == 1  # fade low = long
