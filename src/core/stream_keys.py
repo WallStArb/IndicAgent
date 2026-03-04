@@ -22,6 +22,11 @@ def live_tick(env_prefix: str, symbol: str) -> str:
     return f"{env_prefix}ticks:{symbol}:live"
 
 
+def quote_latest(env_prefix: str, symbol: str) -> str:
+    """Hash key for latest bid/ask snapshot. Written by AsyncTickPublisher."""
+    return f"{env_prefix}price:{symbol}:latest"
+
+
 def market(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}market:{symbol}:{timeframe}"
 
