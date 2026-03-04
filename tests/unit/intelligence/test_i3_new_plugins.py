@@ -1,7 +1,10 @@
 """Tests for new I3 structure plugins: MarketProfile, SessionLevels, AnchoredVWAP, FibZones."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
@@ -115,6 +118,70 @@ class TestSessionLevels:
         from src.intelligence.structure.session_levels import SessionLevelsPlugin
 
         assert SessionLevelsPlugin().compute_full({}) == {}
+
+    def test_asian_session_high_low_from_timestamps(self):
+        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+
+        # Build 60 bars: first 20 in Asia (02:00 UTC = 21:00 ET), rest in NY (15:00 UTC = 10:00 ET)
+        _UTC = UTC
+        asia_ts = [datetime(2026, 1, 1, 2, i, tzinfo=_UTC) for i in range(20)]  # 02:00 UTC
+        ny_ts = [datetime(2026, 1, 1, 15, i, tzinfo=_UTC) for i in range(40)]  # 15:00 UTC
+        timestamps = asia_ts + ny_ts
+
+        n = len(timestamps)
+        close = np.full(n, 5000.0)
+        high = np.full(n, 5005.0)
+        low = np.full(n, 4995.0)
+        # Asia bars get extreme high/low
+        high[:20] = 9999.0
+        low[:20] = 1.0
+        open_ = close.copy()
+        df = pd.DataFrame(
+            {
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": np.full(n, 1000.0),
+                "timestamp": timestamps,
+            }
+        )
+        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        assert result.get("asian_session_high") == pytest.approx(9999.0)
+        assert result.get("asian_session_low") == pytest.approx(1.0)
+
+    def test_asian_session_none_without_timestamps(self):
+        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+
+        close = np.linspace(5000, 5100, 60)
+        df = make_ohlcv(close)  # no timestamp column
+        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        assert result.get("asian_session_high") is None
+        assert result.get("asian_session_low") is None
+
+    def test_asian_session_none_when_no_asia_bars(self):
+        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+
+        # All bars at 15:00 UTC = 10:00 ET — fully in NY session, not Asia
+        _UTC = UTC
+        timestamps = [datetime(2026, 1, 1, 15, i, tzinfo=_UTC) for i in range(60)]
+        close = np.full(60, 5000.0)
+        high = close + 5.0
+        low = close - 5.0
+        open_ = close.copy()
+        df = pd.DataFrame(
+            {
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": np.full(60, 1000.0),
+                "timestamp": timestamps,
+            }
+        )
+        result = SessionLevelsPlugin().compute_full({"main": df, "features": {}})
+        assert result.get("asian_session_high") is None
+        assert result.get("asian_session_low") is None
 
 
 # ---------------------------------------------------------------------------

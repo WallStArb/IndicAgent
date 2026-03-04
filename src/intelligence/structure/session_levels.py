@@ -3,11 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pandas as pd
+
 from ..plugins import InputSpec
 
 _SESSION_BARS = 390   # ~1 trading day on 1m
 _WEEK_BARS = 1950     # ~5 trading days on 1m
 _OVERNIGHT_BARS = 60  # ~1 hour on 1m
+_ASIA_ET_OFFSET = -5  # fixed UTC-5, consistent with session_context.py
 
 
 @dataclass
@@ -31,12 +34,14 @@ class SessionLevelsPlugin:
             "weekly_s2",
             "nearest_session_level",
             "nearest_level_dist_atr",
+            "asian_session_high",
+            "asian_session_low",
         }
     )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"structure"})
-    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=400),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=520),)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -144,6 +149,22 @@ class SessionLevelsPlugin:
         else:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
+
+        # Asian session H/L — vectorized: UTC-5 fixed offset, 20:00–04:00 ET wraps midnight
+        if "timestamp" in df.columns and len(df) > 0:
+            ts_utc = pd.to_datetime(df["timestamp"], utc=True)
+            et_hours = (ts_utc.dt.hour + _ASIA_ET_OFFSET) % 24
+            asia_mask = (et_hours >= 20) | (et_hours < 4)
+            asia_bars = df[asia_mask]
+            if len(asia_bars) > 0:
+                result["asian_session_high"] = float(asia_bars["high"].max())
+                result["asian_session_low"] = float(asia_bars["low"].min())
+            else:
+                result["asian_session_high"] = None
+                result["asian_session_low"] = None
+        else:
+            result["asian_session_high"] = None
+            result["asian_session_low"] = None
 
         return result
 
