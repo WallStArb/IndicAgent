@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2   # bars_in_trade <= this → stopped_at_entry
 
 

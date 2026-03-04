@@ -1,14 +1,15 @@
 """Unit tests for signal lifecycle service helpers."""
 
 import asyncio
-import importlib
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 
-def _compute_bars_elapsed(signal_timestamp: datetime, current_bar_time: datetime, timeframe: str) -> int:
+def _compute_bars_elapsed(
+    signal_timestamp: datetime, current_bar_time: datetime, timeframe: str
+) -> int:
     """Compute bars elapsed since signal fire. Mirrors service implementation."""
     TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
     tf_secs = TF_SECONDS.get(timeframe, 60)

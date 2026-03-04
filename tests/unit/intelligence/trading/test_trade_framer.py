@@ -1,6 +1,7 @@
 """Tests for trade_framer zone bound computation."""
 import pytest
-from src.intelligence.trading.trade_framer import TradeFrame, frame_trade
+
+from src.intelligence.trading.trade_framer import frame_trade
 
 
 def _features_with_demand_zone():

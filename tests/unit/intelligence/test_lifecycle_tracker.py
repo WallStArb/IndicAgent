@@ -1,6 +1,5 @@
 """Tests for signal lifecycle tracker."""
 
-from datetime import UTC, datetime, timedelta
 
 import pytest
 

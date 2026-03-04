@@ -31,6 +31,9 @@ _TF_TO_IB: dict[str, str] = {
     "1d":  "1 day",
 }
 
+# RTVolume generic tick type — required for futures, not supported on other asset classes
+_FUT_TICK_LIST = "233"
+
 # Max days per IBKR historical data request by bar size (conservative, under hard limits)
 _MAX_CHUNK_DAYS: dict[str, int] = {
     "1m":  6,    # IBKR hard limit: 7 days
@@ -253,6 +256,40 @@ class IBKRProvider:
             )
             return False
 
+    async def get_quote(self, symbol: str, timeout_sec: float = 5.0) -> dict | None:
+        """Request a one-off snapshot quote for a pre-qualified symbol.
+
+        Sleeps for timeout_sec to allow IBKR to fill the snapshot, then returns
+        a dict with bid, ask, last (and optionally lastSize), or None if no data arrived.
+        """
+        if not self._ib:
+            return None
+        contract = self._qualified_contracts.get(symbol)
+        if not contract:
+            logger.warning("get_quote: symbol not qualified", extra={"symbol": symbol})
+            return None
+        sec_type = getattr(contract, "secType", "")
+        tick_list = _FUT_TICK_LIST if sec_type == "FUT" else ""
+        ticker = self._ib.reqMktData(contract, genericTickList=tick_list, snapshot=True)
+        try:
+            await asyncio.sleep(timeout_sec)
+            bid = getattr(ticker, "bid", None)
+            ask = getattr(ticker, "ask", None)
+            last = getattr(ticker, "last", None) or getattr(ticker, "close", None)
+            last_size = getattr(ticker, "lastSize", None)
+            result = {}
+            if isinstance(bid, (int, float)) and bid > 0:
+                result["bid"] = float(bid)
+            if isinstance(ask, (int, float)) and ask > 0:
+                result["ask"] = float(ask)
+            if isinstance(last, (int, float)) and last > 0:
+                result["last"] = float(last)
+            if isinstance(last_size, (int, float)) and last_size > 0:
+                result["lastSize"] = int(last_size)
+            return result if result else None
+        finally:
+            self._ib.cancelMktData(contract)
+
     def _normalize_ticker(self, ticker) -> Tick | None:
         """Normalize an ib_insync Ticker to a Tick. Returns None if no valid price."""
         symbol = getattr(ticker.contract, "localSymbol", None)
@@ -317,9 +354,9 @@ class IBKRProvider:
         for symbol in symbols:
             contract = self._qualified_contracts.get(symbol)
             if contract and self._ib:
-                # RTVolume (233) is futures-only; FX (CASH) uses basic bid/ask/last
+                # RTVolume is futures-only; FX (CASH) uses basic bid/ask/last
                 sec_type = getattr(contract, "secType", "")
-                tick_list = "233" if sec_type == "FUT" else ""
+                tick_list = _FUT_TICK_LIST if sec_type == "FUT" else ""
                 self._ib.reqMktData(contract, genericTickList=tick_list, snapshot=False)
 
         try:

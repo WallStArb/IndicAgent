@@ -10,15 +10,37 @@
 
 ---
 
+## Task 0: Data Cleanup — Wipe Corrupt Signal Data
+
+**Context:** `signal_ledger` has 545k rows of junk from broken signal tracking (TTL bug meant bars_elapsed=0 always, so 68k pending + 17k active signals are permanently stuck). `market_data_ohlcv` only has 1m data. `intelligence_features` is good and can be kept.
+
+**Migration file numbering:** `014_pipeline_timing.sql` already exists — signal lifecycle migration must be `015_signal_lifecycle_fields.sql`.
+
+**Steps:**
+1. TRUNCATE signal_ledger (drops all 545k corrupt rows)
+2. Optionally trim intelligence_features to last 3 days (reduces bloat; live pipeline will repopulate)
+3. market_data_ohlcv is fine as-is (1m only, used for backfill replay)
+
+```sql
+-- Run before migration 015
+TRUNCATE TABLE signal_ledger;
+-- Optional: trim intelligence_features
+DELETE FROM intelligence_features WHERE ts < NOW() - INTERVAL '3 days';
+```
+
+**Verification:** `SELECT COUNT(*) FROM signal_ledger;` → 0
+
+---
+
 ## Task 1: DB Migration — 14 New signal_ledger Columns
 
 **Files:**
-- Create: `production/migrations/014_signal_lifecycle_fields.sql`
+- Create: `production/migrations/015_signal_lifecycle_fields.sql`  (014 is taken by pipeline_timing.sql)
 
 **Step 1: Write the migration**
 
 ```sql
--- production/migrations/014_signal_lifecycle_fields.sql
+-- production/migrations/015_signal_lifecycle_fields.sql
 -- Institutional-grade signal lifecycle tracking
 -- All columns NULLABLE — pre-existing rows unaffected.
 
@@ -54,7 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_ledger_outcome
 **Step 2: Apply migration**
 
 ```bash
-psql $DATABASE_URL -f production/migrations/014_signal_lifecycle_fields.sql
+psql $DATABASE_URL -f production/migrations/015_signal_lifecycle_fields.sql
 ```
 
 Expected: `ALTER TABLE` and `CREATE INDEX`
@@ -70,7 +92,7 @@ Expected: 14 new columns listed
 **Step 4: Commit**
 
 ```bash
-git add production/migrations/014_signal_lifecycle_fields.sql
+git add production/migrations/015_signal_lifecycle_fields.sql
 git commit -m "feat(migration): add 14 institutional signal lifecycle columns to signal_ledger"
 ```
 

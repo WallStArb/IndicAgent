@@ -37,7 +37,6 @@ from src.intelligence.trading.lifecycle_tracker import (
 from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
 from src.observability.metrics import counter, gauge, start_metrics_server
 
-
 TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
 
 
