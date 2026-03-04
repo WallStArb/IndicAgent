@@ -48,17 +48,17 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ### Active
 
-(Current milestone — v1.3 Signal Intelligence Expansion)
+(Current milestone — v1.4 Quant Foundation)
 
-**Scope:** Expand I2 and I7 plugin tiers with momentum second-derivative analysis and three new trading setups
+**Philosophy:** Build to Renaissance Technologies standard. Every decision is grounded in three Jim Simons principles: (1) data first — never lose a training sample; (2) signal validation before scale — discard unless proven; (3) self-improving systems — feedback loops that make the platform smarter without manual intervention.
 
-**Target:** 4 new plugins (1 I2 + 3 I7), all wired into TIER_I2/TIER_I7 with full test coverage
+**Scope:** Four disciplines that elevate the platform from a signal generator to a quant-grade intelligence system.
 
-Categories:
-- I2 acceleration (ACCEL-01): MomentumAcceleration — rsi/macd/roc second-derivative + inflection_flag
-- I7 setups (SETUP-01): GapAnalysisSetup — opening gap fade/continuation (ES/NQ 9:30 ET)
-- I7 setups (SETUP-02): CandlestickPatternSetup — doji/hammer/engulfing + confluence
-- I7 setups (SETUP-03): SessionExtremesSetup — Asian session high/low fade during London/NY
+**Target disciplines:**
+- Signal Integrity (SIGINT): Regime-aware I7 gating — stop generating structurally false signals
+- Data Completeness (DATA): Complete intelligence_features for ML — i7/i8 JSONB, fix polling, days-to-expiry
+- Feedback Loop (FEED): Setup performance analytics → adaptive aggregator weights + promotion gate
+- Validated Alpha (ALPHA): New indicators/patterns with historical validation before promotion to live
 
 See `.planning/REQUIREMENTS.md` for full breakdown.
 
@@ -74,32 +74,32 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 
 ## Context
 
-### Current Milestone: v1.3 Signal Intelligence Expansion
+### Current Milestone: v1.4 Quant Foundation
 
-**Goal:** Expand the intelligence pipeline with momentum second-derivative analysis (I2) and three new I7 trading setups targeting opening gaps, candlestick patterns, and session extremes.
+**Goal:** Elevate the platform to Renaissance Technologies standard — regime-aware signal integrity, complete ML training data, self-improving feedback loops, and validated new alpha sources.
 
-**Target features:**
-- MomentumAcceleration I2 plugin (rsi_accel, macd_accel, roc_accel, inflection_flag)
-- GapAnalysisSetup I7 (opening gap fade/continuation, ES/NQ focus)
-- CandlestickPatternSetup I7 (consumes I5 candlestick data + confluence)
-- SessionExtremesSetup I7 (Asian session high/low fade, uses I3 SessionLevels)
+**Design philosophy:** Jim Simons built Medallion on three principles we're encoding here: (1) never lose a training sample — feature store must be complete before the ML layer can be built; (2) discard unless proven — signals must clear regime, conviction, and stability gates before firing; (3) self-improving systems — outcome data must feed back into signal selection without manual intervention.
+
+**Target disciplines:**
+- Signal Integrity: Per-plugin regime gates (hmm_regime), conviction gate (prob≥0.60), stability gate (duration≥5) across all I7 setups
+- Data Completeness: i7/i8 JSONB in intelligence_features, concurrent feature_writer polling, days-to-expiry column
+- Feedback Loop: Setup performance report + adaptive weights from signal_ledger outcomes + setup promotion gate (n≥30)
+- Validated Alpha: Derivative Oscillator (I2), Candlestick Tier 1 (10 patterns), MACD Hist Accel, AC Oscillator (I1) — each validated on historical data before live promotion
 
 ---
 
-**v1.0 baseline state (2026-02-28):**
-- 41,300 LOC Python + TypeScript across services, plugins, dashboard
-- 62 plugins: 23 I1 indicators + 3 I3 + 5 I4 + 8 I5 + 6 SMC + 1 I6 confluence + 14 I7 trading setups + 2 I7 aggregation
-- 787 unit tests passing, 0 ruff errors
-- 8 active systemd services + weight-updater timer
-- 413K signals and 482K feature rows in TimescaleDB (35-day backfill + live accumulation)
-- cis_weights table: version 1 bootstrap weights active; transitions to learned after 100 resolved signals
+**v1.3 baseline state (2026-03-04):**
+- 88 plugins + 2 aggregation components (I1: 23, I2: 6, I3: 3, I4: 5, I5: 14, SMC: 11+1 confluence, I7: 12 setups + 2 agg)
+- 1083 unit tests passing, 0 ruff errors
+- 9 active systemd services (incl. signal_lifecycle_service) + weight-updater timer
+- Signal lifecycle: zone-aware activation, MAE/MFE, 8-class outcome — labeled training data accumulating
+- intelligence_features: live per-bar feature vectors accumulating (missing i7/i8 — DATA discipline target)
 
 **Infrastructure:** Ollama (:11434, qwen3:8b default), PostgreSQL/TimescaleDB (:5432), DragonflyDB (:6379), IBKR TWS at 10.0.0.33:7497
 
 **Known issues:**
 - indicagent-timeframes.service — legacy, import bug (src.data → src.core), non-blocking
-- I3 trend / RSI conf shows stale values in drill panel post-RTH — data display issue, not pipeline failure
-- feature_writer_service still uses sequential stream polling (todo: fix to concurrent xreadgroup)
+- feature_writer_service still uses sequential stream polling (targeted in DATA discipline)
 
 ## Key Decisions
 
@@ -124,5 +124,7 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
+| Build to Renaissance standard | v1.4 philosophy: signal validation before scale, data first, self-improving systems | — Pending |
+
 ---
-*Last updated: 2026-03-02 after v1.3 milestone started*
+*Last updated: 2026-03-04 after v1.4 milestone started*
