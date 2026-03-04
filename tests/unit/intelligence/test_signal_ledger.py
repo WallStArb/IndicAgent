@@ -67,7 +67,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 29
+        assert len(params) == 36
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -97,7 +97,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 29
+        assert len(params) == 36
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -106,6 +106,63 @@ class TestLedgerEntry:
         assert params[26] == 0  # weights_version
         assert params[27] is None  # signal_quality still None at fire time
         assert params[28] is None  # signal_computed_at default None
+
+
+@pytest.mark.unit
+class TestLedgerEntryNewFields:
+    def test_ledger_entry_has_zone_fields(self):
+        """LedgerEntry dataclass includes all new institutional fields."""
+        entry = LedgerEntry(
+            signal_id="test-uuid",
+            timestamp=datetime.now(UTC),
+            symbol="ES",
+            timeframe="5m",
+            setup_plugin="TrendFollowing",
+            signal_type="trend_long",
+            direction=1,
+            entry_price=5100.0,
+            stop_loss=5085.0,
+            targets=[5115.0, 5130.0],
+            confidence=0.8,
+            confluence_score=0.7,
+            regime_context="trending",
+            supporting_factors=["rsi_bull"],
+            was_selected=True,
+            num_signals_bar=2,
+            num_agreeing=1,
+            num_conflicting=1,
+            resolution_method="priority",
+            composite_rank=1,
+            determined_at=datetime.now(UTC),
+            ask_at_signal=5101.5,
+            bid_at_signal=5101.0,
+            market_price_at_signal=5101.5,
+            entry_zone_low=5095.0,
+            entry_zone_high=5100.0,
+            zone_valid_at_signal=True,
+        )
+        assert entry.determined_at is not None
+        assert entry.ask_at_signal == 5101.5
+        assert entry.entry_zone_low == 5095.0
+        assert entry.zone_valid_at_signal is True
+        assert entry.mae is None
+        assert entry.outcome is None
+
+    def test_to_insert_params_length(self):
+        """to_insert_params() returns correct number of elements for new SQL."""
+        entry = LedgerEntry(
+            signal_id="test-uuid",
+            timestamp=datetime.now(UTC),
+            symbol="ES", timeframe="5m",
+            setup_plugin="TrendFollowing", signal_type="trend_long",
+            direction=1, entry_price=5100.0, stop_loss=5085.0,
+            targets=[5115.0], confidence=0.8, confluence_score=0.7,
+            regime_context="trending", supporting_factors=[],
+            was_selected=True, num_signals_bar=1, num_agreeing=1,
+            num_conflicting=0, resolution_method="sole", composite_rank=1,
+        )
+        params = entry.to_insert_params()
+        assert len(params) == 36  # 29 existing + 7 new fire-time fields
 
 
 # ---------------------------------------------------------------------------
