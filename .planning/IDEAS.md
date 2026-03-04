@@ -36,6 +36,14 @@ When an idea is ready to flesh out, move it to `analysis/`. When ready to build,
 
 - **MomentumAcceleration plugin (second-derivative analysis)** — new I1 plugin that computes the second derivative of RSI, MACD line, and ROC. Outputs `rsi_accel`, `macd_accel`, `roc_accel`, plus an `inflection_flag` when any crosses zero. Detects momentum exhaustion and trend changes *before* they show in price. RSI decelerating toward 50 is earlier signal than RSI crossing 50. Inflection points map directly onto I5 pattern exhaustion detection. See `docs/plans/2026-02-25-momentum-acceleration-analysis.md`.
 
+- **Cross-asset plugin inputs** — plugins that consume multiple symbols simultaneously (e.g., ES vs VIX correlation, CL vs XLE divergence, SPY vs IWM rotation). Currently all plugins are single-symbol; the DAG and InputSpec would need to support `symbol="*"` or named multi-symbol inputs. Data alignment (temporal join across symbols) is the hard part — bars don't arrive at exactly the same time.
+
+- **Parallel DAG execution** — plugins within the same tier that share no dependencies could run concurrently (async tasks). Today execution is sequential within each tier. Benefit is mostly for I3–I5 which are `compute_full()` and the most expensive. Distinct from the per-TF worker refactor (which is about service-level sharding, not intra-stage plugin parallelism).
+
+- **YAML pipeline configuration** — declare the plugin DAG in config rather than Python code. Would enable hot-reload of plugin graphs without service restart, and make pipeline composition visible outside the codebase. Low priority until the plugin set stabilizes.
+
+- **Backpressure & autoscaling** — stream queue depth monitoring with dynamic concurrency adjustment. If `intelligence:ES:1m` stream backlog grows beyond N seconds, automatically scale up processing workers or shed lower-priority timeframes first. Graceful degradation: drop 4h/1d processing under load to protect 1m/5m latency.
+
 ## Indicator Service Per-TF Worker Refactor (Option C)
 Captured: 2026-02-25
 
