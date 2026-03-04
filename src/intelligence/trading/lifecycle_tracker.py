@@ -221,10 +221,9 @@ def _make_exit(
 
     if target_index is not None:
         outcome = _determine_target_outcome(target_index)
-    elif current_mfe <= 0.05:
-        outcome = "stopped_at_entry"
     else:
-        outcome = "stopped_in_trade"
+        # Stop loss — outcome needs bars_in_trade context available only in the service
+        outcome = None
 
     return Transition(
         signal_id=sid,

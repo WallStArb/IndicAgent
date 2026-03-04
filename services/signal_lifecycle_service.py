@@ -305,7 +305,6 @@ class SignalLifecycleService:
 
             # Fetch all active signals once per symbol per bar
             active = await get_active_signals(self.db_manager, symbol=symbol)
-            self.active_signals_count.set(len(active))
 
             for tf in self.config["service"]["timeframes"]:
                 await self._evaluate_signals_against_bar(symbol, tf, bar, bar_time, active)

@@ -240,10 +240,10 @@ class TestOutcomeClassification:
                             current_mae=-0.1, current_mfe=0.8)
         assert t is not None
         assert t.new_status == "stopped_out"
-        assert t.outcome == "stopped_in_trade"
+        assert t.outcome is None  # stop outcomes deferred to service (needs bars_in_trade)
 
     def test_outcome_stopped_at_entry_when_mfe_zero(self):
-        """Signal stopped quickly (mfe near 0) → stopped_at_entry."""
+        """Signal stopped quickly (mfe near 0) → outcome deferred to service."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5085.0,
                              targets=[5115.0, 5130.0])
         sig["entry_zone_low"] = 5095.0
@@ -251,7 +251,7 @@ class TestOutcomeClassification:
         t = evaluate_signal(sig, high=5098.0, low=5084.0, close=5085.0,
                             current_mae=0.0, current_mfe=0.0)
         assert t is not None
-        assert t.outcome == "stopped_at_entry"
+        assert t.outcome is None  # stop outcomes deferred to service (needs bars_in_trade)
 
 
 class TestPnLCalculation:
