@@ -55,6 +55,19 @@ from src.observability.metrics import (
 # I7 plugin names — imported from register_plugins (single source of truth)
 I7_PLUGINS = TIER_I7
 
+# Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
+# is used for gating. Avoids gating 1m signals on noisy 1m HMM.
+# If the authority TF stream is not subscribed, cache entry is absent → gate skipped.
+# 1h signals gate on 4h HMM. If 4h stream not subscribed, cache entry absent → gate skipped.
+_REGIME_AUTHORITY_TF: dict[str, str] = {
+    "1m": "5m",
+    "5m": "15m",
+    "15m": "1h",
+    "1h": "4h",
+    "4h": "1d",
+    "1d": "1d",
+}
+
 MARKET_CONTEXT_KEYS: tuple[str, ...] = (
     "trend_regime",
     "volatility_regime",
@@ -209,7 +222,12 @@ def build_ledger_entries(
     entries = []
     for sig in result.all_ranked:
         rank = sig.get("composite_rank", 99)
-        was_selected = (rank == 1 and result.selected_signal is not None)
+        is_regime_eligible = sig.get("regime_eligible", True)
+        # Regime-suppressed signals persist to ledger for observability, not selection.
+        # was_selected is always False for regime-suppressed signals.
+        was_selected = (rank == 1 and result.selected_signal is not None and is_regime_eligible)
+        # Determine status based on regime eligibility
+        entry_status = "pending" if is_regime_eligible else "regime_suppressed"
         direction = int(sig.get("direction", 0))
         zone_low = sig.get("entry_zone_low") or None
         zone_high = sig.get("entry_zone_high") or None
@@ -238,7 +256,7 @@ def build_ledger_entries(
             resolution_method=result.resolution_method,
             composite_rank=rank,
             market_context=market_ctx,
-            status="pending",
+            status=entry_status,
             feature_ts=timestamp,
             feature_tf=timeframe,
             cis_score=result.cis_score,
@@ -283,6 +301,12 @@ class SignalGeneratorService:
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self._stream_map: dict[str, tuple[str, str]] = {}
         self._df_cache: dict[str, pd.DataFrame | None] = {}
+        # Regime cache for slow-clock gating (SIGINT-04).
+        # Structure: {symbol: {tf: {"hmm_regime": float, "hmm_regime_prob": float,
+        #                           "hmm_regime_duration": float}}}
+        # Updated on every IntelligenceEvent arrival; used by _process_bar() to look
+        # up the authority TF regime data for regime gating in aggregate().
+        self._regime_cache: dict[str, dict[str, dict]] = defaultdict(dict)
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -433,7 +457,11 @@ class SignalGeneratorService:
         return self._df_cache[key]
 
     def _run_setup_plugins(self, frames: dict[str, Any]) -> list[dict]:
-        """Run all I7 setup plugins and return only directional signals."""
+        """Run all I7 setup plugins and return only directional signals.
+
+        Each signal dict is tagged with regime_type from the plugin attribute
+        (Option B from RESEARCH.md — tag at plugin execution, keeps aggregator stateless).
+        """
         signals = []
         for name in I7_PLUGINS:
             t0 = time.time()
@@ -443,6 +471,8 @@ class SignalGeneratorService:
                 elapsed = time.time() - t0
                 if result and result.get("direction", 0) != 0:
                     result["setup_plugin"] = name
+                    # Tag with regime_type from plugin attribute for slow-clock gate
+                    result["regime_type"] = getattr(plugin, "regime_type", "any")
                     signals.append(result)
                     record_plugin_execution(name, "", "", elapsed, "success", "I7")
                 else:
@@ -473,7 +503,13 @@ class SignalGeneratorService:
 
         raw_signals = self._run_setup_plugins(frames)
         trend_regime = float(features.get("trend_regime", 0.0))
-        result = aggregate(raw_signals, trend_regime=trend_regime, features=features)
+        # Look up authority TF regime data for slow-clock gating (SIGINT-04).
+        # regime_data is None if authority TF not yet seen → aggregate() skips gate.
+        authority_tf = _REGIME_AUTHORITY_TF.get(timeframe, timeframe)
+        regime_data = self._regime_cache.get(symbol, {}).get(authority_tf)
+        result = aggregate(
+            raw_signals, trend_regime=trend_regime, features=features, regime_data=regime_data
+        )
 
         # Apply structural trade framing to the winning signal
         if result.selected_signal:
@@ -606,6 +642,18 @@ class SignalGeneratorService:
             if event is None:
                 # Malformed or missing event — ack and skip (do not crash)
                 return True
+
+            # Update regime cache for slow-clock gating (SIGINT-04).
+            # Cache the HMM regime from every IntelligenceEvent so _process_bar()
+            # can look up the authority TF (higher-TF) regime when gating signals.
+            regime_cache = getattr(self, "_regime_cache", None)
+            smc_has_regime = event.smc is not None and event.smc.hmm_regime is not None
+            if regime_cache is not None and smc_has_regime:
+                regime_cache[symbol][timeframe] = {
+                    "hmm_regime": event.smc.hmm_regime,
+                    "hmm_regime_prob": event.smc.hmm_regime_prob or 0.0,
+                    "hmm_regime_duration": event.smc.hmm_regime_duration or 0,
+                }
 
             timestamp = event.ts
             bar = {
