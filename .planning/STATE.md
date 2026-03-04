@@ -22,7 +22,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 Phase: Not started (defining requirements)
 Plan: —
-Status: Defining requirements
+Status: Requirements defined — ready for roadmap
 Last activity: 2026-03-04 — Milestone v1.4 started. v1.3 complete (1083 tests, 88 plugins, signal lifecycle live).
 
 ## Accumulated Context

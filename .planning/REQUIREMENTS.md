@@ -27,6 +27,7 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 - [ ] **SIGINT-02**: Every I7 plugin applies a conviction gate — `hmm_regime_prob < 0.60` suppresses the signal regardless of setup logic
 - [ ] **SIGINT-03**: Every I7 plugin applies a stability gate — `hmm_regime_duration < 5` suppresses the signal (new regime may be a false start; require 5-bar confirmation)
 - [ ] **SIGINT-04**: Regime authority for gating uses 5m or 15m timeframe HMM regime, not 1m (1m HMM is noisy; 5m regime is the minimum reliable unit for signal gating)
+- [ ] **SIGINT-05**: All I7 signals are emitted to the aggregator regardless of regime eligibility, carrying a `regime_eligible` boolean and `suppression_reason` (null / `regime_type` / `regime_prob` / `regime_duration`). Aggregator excludes ineligible signals from selection but records them in `signal_ledger` with `status='regime_suppressed'`. Signal lifecycle tracks their would-be MAE/MFE/outcome — these "shadow signals" are the feedback data for validating and tuning gate thresholds. A gate that cannot be validated by its own shadow data has no place in a quant system.
 
 ### Discipline 2: Data Completeness (DATA)
 
@@ -104,6 +105,7 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | SIGINT-02 | — | Pending |
 | SIGINT-03 | — | Pending |
 | SIGINT-04 | — | Pending |
+| SIGINT-05 | — | Pending |
 | DATA-01 | — | Pending |
 | DATA-02 | — | Pending |
 | DATA-03 | — | Pending |
@@ -118,9 +120,9 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | ALPHA-05 | — | Pending |
 
 **Coverage:**
-- v1.4 requirements: 16 total
+- v1.4 requirements: 17 total
 - Mapped to phases: 0 (pending roadmap)
-- Unmapped: 16 ⚠️
+- Unmapped: 17 ⚠️
 
 ---
 *Requirements defined: 2026-03-04*
