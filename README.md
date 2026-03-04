@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 1.3.x | **Status:** v1.3 in progress | 87 plugins · 1016 tests · 24 instruments
+**Version:** 1.3.0 | **Status:** v1.3 complete | 88 plugins · 1083 tests · 24 instruments
 
 ---
 
@@ -20,13 +20,89 @@ The platform ingests 100–500+ ticks/sec across 24 instruments (equity index, e
 
 ---
 
+## What Makes This Different
+
+Most market intelligence systems are monolithic pipelines: one process reads prices, computes indicators, and emits signals. That works at small scale. It breaks at production scale — and it breaks in ways that are hard to debug, harder to extend, and impossible to reason about under load.
+
+IndicAgent is built around three architectural principles that solve the hard problems directly.
+
+### 1. Directed Acyclic Graph (DAG) execution — dependency ordering without chaos
+
+**The problem:** 87 plugins across 8 tiers. RSI must complete before RSI Divergence can read it. HMM regime must complete before the CIS scorer gates on it. In a naive system, you manage execution order manually — and one wrong dependency creates silent data corruption, or worse, a circular loop that hangs the pipeline indefinitely.
+
+**The solution:** Every plugin declares its inputs. The DAG engine runs Kahn's topological sort at startup, producing a guaranteed valid execution order. Cycles are impossible to introduce — the engine detects them and hard-crashes at startup, not silently at runtime. Adding a new plugin means declaring its dependencies; ordering is inferred automatically.
+
+The result: a pipeline that always moves forward, where every value has a clear lineage back to raw OHLCV data, and where the execution order is a property of the dependency graph — not a convention someone has to remember.
+
+```
+Raw OHLCV
+  └─► I1 Indicators (23 plugins, no dependencies)
+        └─► I2 Composite Events (depend on I1)
+  └─► I3 Structure (reads OHLCV directly)
+        └─► I4 Context / Regime (reads I3 + OHLCV)
+  └─► I5 Patterns (reads I1 features)
+  └─► I6 SMC + Confluence (reads I1–I5, cross-timeframe)
+        └─► I7 Setups (reads I2–I6, regime-gated)
+              └─► I8 AI Narrative (reads I7 signals)
+```
+
+→ [DAG Execution](docs/concepts/dag-execution.md)
+
+### 2. Microservices over streams — isolation without coupling
+
+**The problem:** A monolithic process that computes indicators, detects patterns, scores setups, tracks signal lifecycle, and generates AI narratives is operationally fragile. Restart the process to deploy a new plugin and you lose the in-flight state of every open signal. A bug in the AI narrative step causes backpressure that delays the indicator calculation. Scaling one stage means scaling all of them.
+
+**The solution:** Each stage is a separate process that reads from Redis streams and writes to Redis streams. No service calls another service directly — there are no HTTP calls between services in the pipeline. Services communicate only through the stream layer.
+
+This means: restarting `market_analysis_service` to deploy a new I5 pattern plugin has zero effect on `signal_lifecycle_service` tracking open trades. The AI narrative service can fall behind without slowing indicator calculation. A new consumer (a Slack bot, an ML scoring model, a second dashboard) subscribes to the existing `intelligence:SYMBOL:TF` stream without any change to the producers.
+
+The streams are the API. Services are stateless workers that consume and produce messages. The typed `IntelligenceEvent` Pydantic model is the contract between them.
+
+```
+IBKR TWS → [DragonflyDB streams] → indicator_service
+                                  → market_analysis_service
+                                  → signal_generator_service → signal_lifecycle_service
+                                  → feature_writer_service
+                                  → ai_narrative_service
+                                  → api_service → SSE → Dashboard
+```
+
+Each arrow is a Redis stream. No service knows the others exist.
+
+→ [Data Pipeline](docs/concepts/data-pipeline.md)
+
+### 3. Composite Intelligence Score (CIS) — signal selection under uncertainty
+
+**The problem:** On a typical bar during an active session, 5–8 I7 setup plugins fire simultaneously — a TrendFollowing setup, a VWAPDeviation setup, and a CHoCHReversal with conflicting directions. Highest-confidence-wins is fragile: a high-confidence mean-reversion signal in a trending market still loses. Priority ordering goes stale as market regimes shift.
+
+**The solution:** CIS aggregates evidence from the *entire* pipeline — not just the I7 plugins — into a single directional score using 6 weighted buckets:
+
+| Bucket | Reads from | Weight |
+|--------|-----------|--------|
+| **Trend** | Kalman slope, trend regime, SMC trend, cross-TF alignment | 0.20 |
+| **Momentum** | RSI deviation, MACD histogram, ROC, momentum bias | 0.20 |
+| **Structure** | Swing pattern, BOS/CHoCH events, CHoCHReversal plugin | 0.15 |
+| **Pattern** | Double top/bottom, H&S, triangle completions | 0.05 |
+| **Institutional** | Order blocks, FVG activity, supply/demand zones | 0.25 |
+| **Regime** | HMM hidden state probabilities, BOCPD changepoint, vol regime | 0.15 |
+
+CIS fires only when `|score| > 0.35` **and** at least 3 of 6 buckets agree on direction. A single strong bucket cannot override the rest — cross-tier confirmation is required.
+
+When CIS fires, it selects the highest-priority I7 signal that matches its direction. If no signal matches, it overrides the direction of the best available signal. CIS never drops a signal — only the hard RR gate (risk:reward) and regime eligibility filter (HMM state mismatch) can do that.
+
+The weights are currently hand-tuned bootstraps. The architecture is designed to replace them with learned weights: signal outcomes from `signal_ledger` become labeled training data, a logistic regression fits per-bucket weights, and CIS improves without code changes. Every signal carries its `weights_version` so all outcomes are traceable to the exact weight set that produced them.
+
+→ [CIS Scoring](docs/concepts/cis-scoring.md)
+
+---
+
 ## At a Glance
 
 | Aspect | Detail |
 |--------|--------|
 | **Data in** | IBKR TWS: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **EURUSD**, **GBPUSD**, **USDJPY**, **USDCHF** (spot FX); **BTCUSD**, **ETHUSD**, **SOLUSD** (spot crypto). 24 instruments, 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives, group narratives); TimescaleDB feature store |
-| **Intelligence** | 87 plugins: I1 (23), I2 (6), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (16) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
+| **Intelligence** | 88 plugins: I1 (23), I2 (6), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16.1 / React 19.2, Ollama |
 | **Deployment** | 8 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
 
@@ -74,9 +150,9 @@ market_analysis_service
 intelligence:SYMBOL:TF  ─────────────────────────► feature_writer_service
     │                                               → intelligence_features (TimescaleDB)
     ▼
-signal_generator_service ──────────► signal_tracker_service
-(I7 setup plugins + aggregation)     (open signal lifecycle,
-    │                                 reads market:SYMBOL:1m)
+signal_generator_service ──────────► signal_lifecycle_service
+(I7 setup plugins + aggregation)     (zone activation, MAE/MFE,
+    │                                 8-class outcome tracking)
     ▼
 signals:SYMBOL:TF:aggregated
     │
@@ -92,7 +168,7 @@ ai_narrative_service ──────────────► narratives:SY
 | `indicator_service` | 23 I1 technical indicators + 6 I2 composite events (incremental) + multi-TF aggregation | 9109 |
 | `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | 9114 |
 | `signal_generator_service` | I7 setup plugins, signal aggregation, ledger inserts | 9112 |
-| `signal_tracker_service` | Open signal lifecycle tracking (stop/target/TTL) | 9115 |
+| `signal_lifecycle_service` | Zone-aware signal lifecycle: activation, MAE/MFE, 8-class outcome | 9115 |
 | `ai_narrative_service` | I8 LLM narrative synthesis (per-signal + group) via ZAI/OpenRouter/Ollama | 9113 |
 | `feature_writer_service` | Redis consumer → batch write to `intelligence_features` (TimescaleDB) | 9116 |
 | `api_service` | FastAPI REST + SSE fan-out to dashboard | 8000 |
@@ -124,7 +200,7 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 | **I4** | Context | Volatility/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility (7 plugins) | Operational |
 | **I5** | Patterns | RSI divergence, squeeze, vol divergence, confluence, trend confluence, chart patterns, volume profile, key level reaction (14 plugins) | Operational |
 | **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, HMM regime, liquidity pools, supply/demand, BOCPD, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount, cross-timeframe confluence (13 SMC + 1 confluence) | Operational |
-| **I7** | Market setups | 16 setup plugins: TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup (opening gap fade/continuation), CandlestickPatternSetup (confluence-gated candlestick setups); CISScorer 6-bucket aggregator + WeightUpdater | Operational |
+| **I7** | Market setups | 17 setup plugins: TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup (opening gap fade/continuation), CandlestickPatternSetup (confluence-gated candlestick setups), SessionExtremesSetup (Asian session H/L fade London/NY); CISScorer 6-bucket aggregator + WeightUpdater | Operational |
 | **I8** | AI intelligence | AI Narrative Service: ZAI GLM-5 → OpenRouter → Ollama (per-signal conf>0.7 + 6-group synthesis) | Operational |
 
 The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-02-28).
@@ -137,14 +213,14 @@ When multiple I7 setup plugins fire on the same bar, the system needs to pick a 
 
 CIS aggregates six intelligence buckets, each drawing from different parts of the pipeline, into a single directional score in the range **[-1.0, +1.0]** (negative = bearish, positive = bullish):
 
-| Bucket | What it reads | Weight |
-|--------|--------------|--------|
-| **Trend** | `trend_regime`, Kalman slope, SMC trend direction, cross-TF alignment, trend confluence | 0.35 + 0.20 + 0.25 + 0.10 + 0.10 |
-| **Momentum** | RSI deviation, ROC sign, momentum bias, DivergenceStack plugin | 0.40 + 0.20 + 0.15 + 0.25 |
-| **Structure** | Swing pattern, BOS/CHoCH direction, CHoCHReversal plugin | 0.30 + 0.25 + 0.25 + 0.20 |
-| **Liquidity** | FVG type + activity, supply/demand zone, FVGFill + SupplyDemandSetup plugins | 0.25 + 0.20 + 0.20 + 0.20 |
-| **Regime** | HMM hidden state probabilities, changepoint detection, cross-TF regime agreement, vol regime, RegimeTransition plugin | 0.35 + 0.15 + 0.20 + 0.20 + 0.10 |
-| **Volume** | OBV trend, CMF value, volume regime | 0.40 + 0.35 + 0.25 |
+| Bucket | What it reads | Top-level weight |
+|--------|--------------|-----------------|
+| **Trend** | `trend_regime`, Kalman slope, SMC trend direction, cross-TF alignment, trend confluence | 0.20 |
+| **Momentum** | RSI deviation from 50, MACD histogram sign, ROC sign, momentum bias, DivergenceStack plugin | 0.20 |
+| **Structure** | Swing pattern, BOS/CHoCH direction, CHoCHReversal plugin | 0.15 |
+| **Pattern** | Double top/bottom, H&S, triangle breakout bias, PatternCompletion plugin | 0.05 |
+| **Institutional** | Order block type×strength, FVG type×activity, supply/demand zone position, FVGFill + SupplyDemandSetup plugins | 0.25 |
+| **Regime** | HMM hidden state probabilities, BOCPD changepoint stability, cross-TF regime agreement, vol regime, RegimeTransition plugin | 0.15 |
 
 #### The gate: two conditions must be met
 
@@ -228,7 +304,7 @@ Run services (each in its own terminal, or use systemd in production):
 .venv/bin/python services/indicator_service.py
 .venv/bin/python services/market_analysis_service.py
 .venv/bin/python services/signal_generator_service.py
-.venv/bin/python services/signal_tracker_service.py
+.venv/bin/python services/signal_lifecycle_service.py
 .venv/bin/python services/ai_narrative_service.py
 .venv/bin/python services/feature_writer_service.py
 ```
@@ -243,7 +319,7 @@ uvicorn src.api.main:app --reload
 cd dashboard && npm install && npm run dev
 ```
 
-Health: `:9109` (indicator), `:9112` (signal generator), `:9113` (AI narrative), `:9114` (market analysis), `:9115` (signal tracker), `:9116` (feature writer), `:8000` (API). See `docs/cheatsheet.md` for full commands and systemd usage.
+Health: `:9109` (indicator), `:9112` (signal generator), `:9113` (AI narrative), `:9114` (market analysis), `:9115` (signal lifecycle), `:9116` (feature writer), `:8000` (API). See `docs/cheatsheet.md` for full commands and systemd usage.
 
 ---
 
@@ -260,7 +336,7 @@ src/
                           # smart_money/, confluence/, trading/ (setups, aggregator, ledger, lifecycle, sizer)
   observability/          # metrics, otel
 production/               # daemons, schemas, migrations, scripts, docker-compose
-services/                 # indicator, market_analysis, timeframes, signal_generator, signal_tracker, ai_narrative
+services/                 # indicator, market_analysis, timeframes, signal_generator, signal_lifecycle, ai_narrative
 config/                   # JSON configs per service
 dashboard/                # Next.js 15 / React 19
 tests/                    # unit, integration, run_all_tests.py
@@ -314,14 +390,14 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status
 
-**v1.2 complete 2026-03-02. v1.3 Signal Intelligence Expansion in progress.**
+**v1.3 complete 2026-03-04. Signal Intelligence Expansion shipped.**
 
-- **I1–I8 pipeline:** Fully operational. 87 plugins (I1:23, I2:6, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:16), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
-- **v1.3 progress:** Phase 08 (MomentumAcceleration I2), Phase 09 (GapAnalysisSetup I7), Phase 10 (CandlestickPatternSetup I7) complete. Phase 11 (SessionExtremesSetup) next.
+- **I1–I8 pipeline:** Fully operational. 88 plugins (I1:23, I2:6, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
+- **v1.3 delivered:** Phase 08 (MomentumAcceleration I2), Phase 09 (GapAnalysisSetup I7), Phase 10 (CandlestickPatternSetup I7), Phase 11 (SessionExtremesSetup I7) + Signal Lifecycle redesign (zone-aware lifecycle, 8-class outcome, MAE/MFE tracking).
 - **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
 - **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups.
-- **Test suite:** 1016 passing, 0 ruff errors.
-- **Next:** Phase 11 SessionExtremesSetup (see [Roadmap](.planning/ROADMAP.md)).
+- **Test suite:** 1083 passing, 0 ruff errors.
+- **Next:** v1.4 (see [Roadmap](.planning/ROADMAP.md)).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
 
@@ -338,4 +414,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 1.3.x | **Status:** v1.3 in progress, 87 plugins, 1016 tests | **Next:** Phase 11 SessionExtremesSetup
+**Version:** 1.3.0 | **Status:** v1.3 complete, 88 plugins, 1083 tests | **Next:** v1.4

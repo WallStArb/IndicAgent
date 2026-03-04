@@ -5,7 +5,7 @@
 - ✅ **v1.0 MVP** — Phases 0-9 (shipped 2026-02-28)
 - ✅ **v1.1 Code Quality Sprint** — Phase 01 complete (ruff 206 → 0, 6/13 tasks done)
 - ✅ **v1.2 Intelligence Palette Expansion** — Phases 2-6 + Phase 7 + Phase 8 complete (965 tests, I2/I5/I6 expanded)
-- 🚧 **v1.3 Signal Intelligence Expansion** — Phases 08-11 (in progress)
+- ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 + Signal Lifecycle redesign (shipped 2026-03-04)
 
 ## Phases
 
@@ -47,12 +47,12 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 </details>
 
 <details>
-<summary>🚧 v1.3 Signal Intelligence Expansion — IN PROGRESS</summary>
+<summary>✅ v1.3 Signal Intelligence Expansion — COMPLETE 2026-03-04</summary>
 
 - [x] **Phase 08: MomentumAcceleration** — I2 plugin: rsi/macd/roc second-derivative + inflection_flag (complete)
 - [x] **Phase 09: GapAnalysisSetup** — I7 opening gap fade/continuation for ES/NQ (GAP-01, GAP-02, GAP-03) (completed 2026-03-03)
 - [x] **Phase 10: CandlestickPatternSetup** — I7 confluence-gated candlestick setup consuming I5 output (CNDL-01, CNDL-02, CNDL-03) (completed 2026-03-03)
-- [ ] **Phase 11: SessionExtremesSetup** — I7 Asian session high/low fade during London/NY (SESS-01, SESS-02, SESS-03)
+- [x] **Phase 11: SessionExtremesSetup** — I7 Asian session high/low fade during London/NY (SESS-01, SESS-02, SESS-03) (completed 2026-03-04)
 
 </details>
 

@@ -25,6 +25,9 @@ Hot/warm/cold data flow, Redis streams, consumer groups, TimescaleDB persistence
 **[Incremental Computation](incremental-computation.md)**
 State-based calculations — 141x performance boost, Wilder's smoothing, Welford's algorithm
 
+**[CIS Scoring](cis-scoring.md)**
+Composite Intelligence Score — 6-bucket weighted signal selection, regime gating, adaptive weight learning
+
 **[Signal Lifecycle](signal-lifecycle.md)**
 I7 signal creation → zone activation → MAE/MFE tracking → 8-class outcome classification
 
