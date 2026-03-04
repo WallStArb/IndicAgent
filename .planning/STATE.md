@@ -2,8 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
-status: ready
-last_updated: "2026-03-04T23:19:02Z"
+status: in_progress
+last_updated: "2026-03-04T23:28:52Z"
+last_activity: "2026-03-04 — 12-03 complete: regime gate refactor with shadow signals + slow-clock cascade"
+progress:
+  total_phases: 15
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 3
 ---
 
 # Project State
@@ -20,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 ## Current Position
 
-Phase: Phase 12 (in progress — Plans 12-01 and 12-02 complete)
-Plan: 12-02 complete → 12-03 next
-Status: In execution — 2 of 4 Phase 12 plans done
-Last activity: 2026-03-04 — 12-01 re-executed (fresh test files); 12-02 complete: regime_type attribute added to all 17 I7 plugins
+Phase: Phase 12 (in progress — Plans 12-01, 12-02, and 12-03 complete)
+Plan: 12-03 complete → 12-04 next
+Status: In execution — 3 of 4 Phase 12 plans done
+Last activity: 2026-03-04 — 12-03 complete: regime gate refactor with shadow signals + slow-clock cascade
 
 ## Accumulated Context
 
@@ -41,6 +47,8 @@ Last activity: 2026-03-04 — 12-01 re-executed (fresh test files); 12-02 comple
 - [12-01]: Shadow signals in all_ranked — regime_suppressed signals must NOT be dropped, must appear tagged with regime_eligible=False
 - [12-01]: Virtual-activation pattern confirmed — evaluate_signal(status='active') handles shadow signal tracking without lifecycle_tracker changes
 - [12-01]: I7 plugins already had regime_type before plan expected — test passes immediately (no Plan 02 work needed for plugin attributes)
+- [Phase 12]: regime_data= (higher-TF) drives regime gate; features= (same-TF) unchanged for CIS
+- [Phase 12]: Shadow signals persist to signal_ledger with status='regime_suppressed' for observability
 
 ### Pending Todos
 
