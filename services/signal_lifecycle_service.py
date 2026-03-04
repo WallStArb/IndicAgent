@@ -168,6 +168,13 @@ class SignalLifecycleService:
         bar_time: datetime,
         all_active: list[dict[str, Any]] | None = None,
     ) -> None:
+        """Evaluate all relevant signals against the current bar.
+
+        Regime-suppressed signals are virtually activated at signal bar close
+        (SIGINT-05). They skip zone-activation and are evaluated as if immediately
+        active. Their status never changes from 'regime_suppressed' — the outcome
+        provides counterfactual data for gate threshold validation.
+        """
         if not self.db_manager:
             return
 
@@ -178,6 +185,7 @@ class SignalLifecycleService:
         for sig in relevant:
             sid = str(sig["signal_id"])
             point_value = self.point_values.get(symbol, 1.0)
+            status = sig.get("status")
 
             # Compute bars_elapsed from timestamps (fixes TTL bug)
             sig_ts = sig.get("timestamp")
@@ -191,6 +199,102 @@ class SignalLifecycleService:
                 "point_value": point_value,
                 "bars_elapsed": computed_bars,
             }
+
+            current_mae = self._mae.get(sid, 0.0)
+            current_mfe = self._mfe.get(sid, 0.0)
+
+            # --- Shadow signal virtual-activation path (SIGINT-05) ---
+            # Regime-suppressed signals skip zone-activation. They are treated as
+            # immediately active from signal bar close for MAE/MFE/outcome tracking.
+            if status == "regime_suppressed":
+                # Ensure _mae/_mfe initialized (covers first-bar-after-startup case)
+                if sid not in self._mae:
+                    self._mae[sid] = 0.0
+                    current_mae = 0.0
+                if sid not in self._mfe:
+                    self._mfe[sid] = 0.0
+                    current_mfe = 0.0
+                # Ensure activated_at is set (use signal timestamp as virtual activation)
+                if sid not in self._activated_at and sig_ts:
+                    act_ts = sig_ts if isinstance(sig_ts, datetime) else sig_ts
+                    self._activated_at[sid] = act_ts
+
+                # Pass status='active' override so evaluate_signal() takes exit path
+                sig_for_eval = {**sig_with_extras, "status": "active"}
+                try:
+                    transition = evaluate_signal(
+                        sig_for_eval,
+                        high=float(bar["high"]),
+                        low=float(bar["low"]),
+                        close=float(bar["close"]),
+                        current_mae=current_mae,
+                        current_mfe=current_mfe,
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        "Shadow signal evaluation failed",
+                        signal_id=sid,
+                        error=str(e),
+                    )
+                    continue
+
+                if transition is None:
+                    # No exit — update MAE/MFE in-memory (same logic as active signals)
+                    entry = float(sig.get("entry_price", 0))
+                    stop = float(sig.get("stop_loss", 0))
+                    risk = abs(entry - stop)
+                    if risk > 0:
+                        direction = sig.get("direction", 1)
+                        close_pnl_r = ((float(bar["close"]) - entry) * direction) / risk
+                        self._mae[sid] = min(current_mae, close_pnl_r)
+                        self._mfe[sid] = max(current_mfe, close_pnl_r)
+                    continue
+
+                # Shadow signal exit (stop/target/TTL hit)
+                if transition.exit_reason:
+                    exit_at = now
+                    bit = _bars_in_trade(self._activated_at.get(sid), now, timeframe)
+                    outcome = transition.outcome
+                    if outcome is None:
+                        outcome = _classify_stop_outcome(current_mfe, bit)
+
+                    confidence = float(sig.get("confidence") or 1.0)
+                    signal_quality = max(
+                        0.0, round((transition.pnl_r or 0.0) * confidence, 4)
+                    )
+
+                    # Status stays 'regime_suppressed' — never promoted to 'active'
+                    await update_signal_status(
+                        self.db_manager,
+                        sid,
+                        status="regime_suppressed",
+                        exit_at=exit_at,
+                        exit_price=transition.exit_price,
+                        exit_reason=transition.exit_reason,
+                        pnl_ticks=transition.pnl_ticks,
+                        pnl_r=transition.pnl_r,
+                        pnl_dollars=transition.pnl_dollars,
+                        signal_quality=signal_quality,
+                        mae=transition.mae,
+                        mfe=transition.mfe,
+                        bars_in_trade=bit,
+                        outcome=outcome,
+                    )
+
+                    # Clean up in-memory state
+                    self._mae.pop(sid, None)
+                    self._mfe.pop(sid, None)
+                    self._activated_at.pop(sid, None)
+
+                    self.lifecycle_transitions_total.inc()
+                    self.logger.info(
+                        "Shadow signal exit",
+                        signal_id=sid,
+                        exit_reason=transition.exit_reason,
+                        pnl_r=transition.pnl_r,
+                        outcome=outcome,
+                    )
+                continue  # regime_suppressed handled; skip normal pending/active paths
 
             current_mae = self._mae.get(sid, 0.0)
             current_mfe = self._mfe.get(sid, 0.0)
@@ -214,7 +318,7 @@ class SignalLifecycleService:
 
             if transition is None:
                 # Update in-memory MAE/MFE for active signals
-                if sig.get("status") == "active":
+                if status == "active":
                     entry = float(sig.get("entry_price", 0))
                     stop = float(sig.get("stop_loss", 0))
                     risk = abs(entry - stop)
