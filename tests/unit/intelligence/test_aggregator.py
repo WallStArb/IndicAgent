@@ -332,17 +332,25 @@ class TestRegimeEligibilityFilter:
 
     @pytest.mark.unit
     def test_gate_bypassed_when_regime_prob_low(self):
-        """Gate is skipped when hmm_regime_prob < 0.55 — uncertain regime."""
+        """Gate is skipped when hmm_regime_prob < 0.60 — uncertain regime.
+
+        Probe value updated from 0.50 to 0.54 (still below new threshold of 0.60).
+        """
         sig = _signal("trad_TrendFollowing", 1)
-        result = aggregate([sig], features=_regime_features(0, prob=0.50))
+        result = aggregate([sig], features=_regime_features(0, prob=0.54))
         # Gate skipped — TrendFollowing survives even in regime=0
         assert result.num_signals_fired == 1
 
     @pytest.mark.unit
     def test_gate_bypassed_when_regime_duration_short(self):
-        """Gate is skipped when hmm_regime_duration < 3 — newly-started regime."""
+        """Gate is skipped when hmm_regime_duration < 5 — newly-started regime.
+
+        Probe value updated from 2 to 4 (must be below new threshold of 5).
+        RED: With old threshold=3, duration=4 currently passes the gate and
+        suppresses the signal — so this test fails until Plan 02 raises threshold to 5.
+        """
         sig = _signal("trad_TrendFollowing", 1)
-        result = aggregate([sig], features=_regime_features(0, duration=2))
+        result = aggregate([sig], features=_regime_features(0, duration=4))
         assert result.num_signals_fired == 1
 
     @pytest.mark.unit
@@ -370,3 +378,146 @@ class TestRegimeEligibilityFilter:
         assert result.selected_signal is not None
         assert result.selected_signal["setup_plugin"] == "trad_MeanReversion"
         assert result.num_signals_fired == 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 — Shadow signals: regime-suppressed signals appear in all_ranked
+# ---------------------------------------------------------------------------
+
+
+class TestShadowSignals:
+    """Regime-suppressed signals must appear in all_ranked as shadow entries.
+
+    RED: All tests in this class fail until Plan 02 implements shadow signal
+    propagation in aggregate(). Currently, suppressed signals are dropped
+    entirely and never appear in all_ranked.
+    """
+
+    @pytest.mark.unit
+    def test_suppressed_signal_in_all_ranked(self):
+        """Trend signal suppressed by ranging regime still appears in all_ranked.
+
+        RED: Current code drops suppressed signals; all_ranked is empty.
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0, prob=0.80, duration=10))
+        # Suppressed but should appear as shadow signal
+        assert result.all_ranked, "Suppressed signal must appear in all_ranked"
+
+    @pytest.mark.unit
+    def test_suppressed_signal_has_regime_eligible_false(self):
+        """Shadow signal in all_ranked has regime_eligible=False.
+
+        RED: regime_eligible key does not exist in current all_ranked entries.
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0, prob=0.80, duration=10))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("regime_eligible") is False, (
+            "Suppressed signal must have regime_eligible=False"
+        )
+
+    @pytest.mark.unit
+    def test_suppressed_signal_has_suppression_reason(self):
+        """Shadow signal carries suppression_reason='regime_type'.
+
+        RED: suppression_reason key does not exist in current all_ranked entries.
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0, prob=0.80, duration=10))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("suppression_reason") == "regime_type", (
+            "Suppressed signal must have suppression_reason='regime_type'"
+        )
+
+    @pytest.mark.unit
+    def test_suppressed_signal_has_direction_populated(self):
+        """Shadow signal retains original setup data (direction != 0).
+
+        RED: Current code drops suppressed signals; all_ranked is empty.
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(0, prob=0.80, duration=10))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("direction") != 0, (
+            "Shadow signal must retain direction from original setup"
+        )
+
+    @pytest.mark.unit
+    def test_eligible_signal_has_regime_eligible_true(self):
+        """Trend signal in trending regime (regime=1) has regime_eligible=True.
+
+        RED: regime_eligible key does not exist in current all_ranked entries.
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        result = aggregate([sig], features=_regime_features(1, prob=0.80, duration=10))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("regime_eligible") is True, (
+            "Eligible signal must have regime_eligible=True"
+        )
+
+    @pytest.mark.unit
+    def test_regime_prob_below_threshold_suppresses_all(self):
+        """Trend signal with prob=0.55 (below new threshold 0.60) is suppressed.
+
+        RED: (a) regime_eligible key doesn't exist; (b) old threshold is 0.55
+        so prob=0.55 currently passes the gate unfiltered.
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        # prob=0.55 is at old threshold boundary; new threshold will be 0.60
+        result = aggregate([sig], features=_regime_features(1, prob=0.55, duration=10))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("regime_eligible") is False, (
+            "Signal with prob=0.55 must be suppressed under new threshold of 0.60"
+        )
+        assert result.all_ranked[0].get("suppression_reason") == "regime_prob", (
+            "Suppression due to low regime probability must set reason='regime_prob'"
+        )
+
+    @pytest.mark.unit
+    def test_regime_duration_below_threshold_suppresses_all(self):
+        """Trend signal with duration=4 (below new threshold 5) is suppressed.
+
+        RED: (a) regime_eligible key doesn't exist; (b) old threshold is 3
+        so duration=4 currently passes the gate (4 > 3).
+        """
+        sig = _signal("trad_TrendFollowing", 1)
+        # duration=4 is above old threshold (3) but below new threshold (5)
+        result = aggregate([sig], features=_regime_features(1, prob=0.80, duration=4))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("regime_eligible") is False, (
+            "Signal with duration=4 must be suppressed under new threshold of 5"
+        )
+        assert result.all_ranked[0].get("suppression_reason") == "regime_duration", (
+            "Suppression due to short duration must set reason='regime_duration'"
+        )
+
+    @pytest.mark.unit
+    def test_any_regime_plugin_eligible_in_any_regime(self):
+        """Plugin not in REGIME_ELIGIBILITY (trad_CHoCHReversal) has regime_eligible=True.
+
+        RED: regime_eligible key does not exist in current all_ranked entries.
+        Note: trad_CHoCHReversal is not in REGIME_ELIGIBILITY, so it passes the
+        gate — but the key is not tagged yet.
+        """
+        sig = _signal("trad_CHoCHReversal", 1)
+        # regime=0 (ranging) — CHoCHReversal is not regime-restricted
+        result = aggregate([sig], features=_regime_features(0, prob=0.80, duration=10))
+        assert result.all_ranked, "all_ranked must not be empty"
+        assert result.all_ranked[0].get("regime_eligible") is True, (
+            "trad_CHoCHReversal (not in REGIME_ELIGIBILITY) must have regime_eligible=True"
+        )
+
+    @pytest.mark.unit
+    def test_no_duplicate_signals_in_all_ranked(self):
+        """One suppressed + one eligible signal both appear exactly once in all_ranked.
+
+        MIXED: The length=2 assertion may fail if suppressed signal is currently
+        dropped (len==1) or duplicated (len>2).
+        """
+        trend = _signal("trad_TrendFollowing", 1)   # suppressed in regime=0
+        choch = _signal("trad_CHoCHReversal", 1)     # eligible (not restricted)
+        result = aggregate([trend, choch], features=_regime_features(0, prob=0.80, duration=10))
+        assert len(result.all_ranked) == 2, (
+            f"Expected exactly 2 signals in all_ranked, got {len(result.all_ranked)}"
+        )
