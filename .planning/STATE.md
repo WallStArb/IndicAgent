@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: ready
-last_updated: "2026-03-04T00:00:00.000Z"
+last_updated: "2026-03-04T23:19:02Z"
 ---
 
 # Project State
@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 Phase: Phase 12 (in progress — Plans 12-01 and 12-02 complete)
 Plan: 12-02 complete → 12-03 next
 Status: In execution — 2 of 4 Phase 12 plans done
-Last activity: 2026-03-04 — 12-02 complete: regime_type attribute added to all 17 I7 plugins
+Last activity: 2026-03-04 — 12-01 re-executed (fresh test files); 12-02 complete: regime_type attribute added to all 17 I7 plugins
 
 ## Accumulated Context
 
@@ -38,6 +38,9 @@ Last activity: 2026-03-04 — 12-02 complete: regime_type attribute added to all
 - [12-02]: regime_type attribute on all 17 I7 plugins — 5 trend, 5 mean_reversion, 7 any — zero logic changes
 - [12-02]: LiquidityHunt=trend, LiquiditySweepReclaim=mean_reversion, SqueezeExpansion=trend (CONTEXT.md decisions honored)
 - [12-02]: CHoCHReversal/RegimeTransition=any — gating on current regime would suppress at exact moment they should fire
+- [12-01]: Shadow signals in all_ranked — regime_suppressed signals must NOT be dropped, must appear tagged with regime_eligible=False
+- [12-01]: Virtual-activation pattern confirmed — evaluate_signal(status='active') handles shadow signal tracking without lifecycle_tracker changes
+- [12-01]: I7 plugins already had regime_type before plan expected — test passes immediately (no Plan 02 work needed for plugin attributes)
 
 ### Pending Todos
 

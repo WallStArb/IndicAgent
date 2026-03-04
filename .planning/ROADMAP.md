@@ -262,7 +262,7 @@ Plans:
   4. Regime authority is sourced from 5m or 15m IntelligenceEvent, not 1m — the gating logic reads from the correct timeframe key
   5. Regime-suppressed signals appear in `signal_ledger` with `status='regime_suppressed'` and their MAE/MFE/outcome are tracked by `signal_lifecycle_service`, making gate threshold tuning possible from data
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 
 Plans:
 - [ ] 12-01-PLAN.md — Write Wave 0 failing tests for all 5 SIGINT requirements (TDD RED phase)
@@ -351,7 +351,7 @@ Plans:
 | 09. GapAnalysisSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
-| 12. Signal Integrity | 1/4 | In Progress|  | — |
+| 12. Signal Integrity | 2/4 | In Progress|  | — |
 | 13. Data Completeness | v1.4 | 0/0 | Not started | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
