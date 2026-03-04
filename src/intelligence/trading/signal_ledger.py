@@ -63,6 +63,8 @@ class LedgerEntry:
     entry_zone_low: float | None = None
     entry_zone_high: float | None = None
     zone_valid_at_signal: bool | None = None
+    # Attribution — per-constituent CIS contributions at signal fire time
+    cis_attribution: dict | None = None
     # At activation (set by signal_lifecycle_service)
     activation_price: float | None = None
     zone_entry_pct: float | None = None
@@ -74,7 +76,7 @@ class LedgerEntry:
     outcome: str | None = None
 
     def to_insert_params(self) -> tuple:
-        """Return a 36-element tuple ready for batch INSERT.
+        """Return a 37-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores)
         are serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
@@ -116,6 +118,7 @@ class LedgerEntry:
             self.entry_zone_low,       # $34
             self.entry_zone_high,      # $35
             self.zone_valid_at_signal, # $36
+            json.dumps(self.cis_attribution) if self.cis_attribution is not None else None,  # $37
         )
 
 
@@ -134,7 +137,8 @@ INSERT INTO signal_ledger (
     cis_score, bucket_scores, weights_version, signal_quality,
     signal_computed_at,
     determined_at, ask_at_signal, bid_at_signal, market_price_at_signal,
-    entry_zone_low, entry_zone_high, zone_valid_at_signal
+    entry_zone_low, entry_zone_high, zone_valid_at_signal,
+    cis_attribution
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -145,7 +149,8 @@ INSERT INTO signal_ledger (
     $25, $26::jsonb, $27, $28,
     $29,
     $30, $31, $32, $33,
-    $34, $35, $36
+    $34, $35, $36,
+    $37::jsonb
 )
 """
 

@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.intelligence.trading.aggregator import AggregatedResult
 from src.intelligence.trading.signal_ledger import (
     LedgerEntry,
+    _SELECT_ACTIVE_SQL,
     get_active_signals,
     insert_signals,
     update_signal_status,
@@ -67,7 +69,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 36
+        assert len(params) == 37
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -97,7 +99,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 36
+        assert len(params) == 37
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -162,7 +164,39 @@ class TestLedgerEntryNewFields:
             num_conflicting=0, resolution_method="sole", composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 36  # 29 existing + 7 new fire-time fields
+        assert len(params) == 37  # 29 existing + 7 new fire-time fields + cis_attribution
+
+
+def test_ledger_entry_has_cis_attribution_field():
+    entry = LedgerEntry(
+        signal_id="test-id",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        symbol="ES", timeframe="1m", setup_plugin="test", signal_type="test",
+        direction=1, entry_price=5000.0, stop_loss=4990.0, targets=[5010.0],
+        confidence=0.8, confluence_score=0.7, regime_context="trending",
+        supporting_factors=[], was_selected=True,
+        num_signals_bar=1, num_agreeing=1, num_conflicting=0,
+        resolution_method="solo", composite_rank=1,
+        cis_attribution={"momentum": {"rsi_14": 0.038, "williams_r_14": 0.011}},
+    )
+    assert entry.cis_attribution == {"momentum": {"rsi_14": 0.038, "williams_r_14": 0.011}}
+
+
+def test_ledger_entry_to_insert_params_includes_attribution():
+    entry = LedgerEntry(
+        signal_id="test-id",
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        symbol="ES", timeframe="1m", setup_plugin="test", signal_type="test",
+        direction=1, entry_price=5000.0, stop_loss=4990.0, targets=[],
+        confidence=0.8, confluence_score=0.7, regime_context="",
+        supporting_factors=[], was_selected=True,
+        num_signals_bar=1, num_agreeing=1, num_conflicting=0,
+        resolution_method="solo", composite_rank=1,
+        cis_attribution={"trend": {"psar_direction": 0.05}},
+    )
+    params = entry.to_insert_params()
+    assert len(params) == 37   # was 36, now 37
+    assert '"psar_direction"' in params[36]  # last param is JSON string
 
 
 # ---------------------------------------------------------------------------
@@ -263,3 +297,86 @@ class TestGetActiveSignals:
         db.execute_query.assert_awaited_once()
         assert len(result) == 2
         assert result[0]["signal_id"] == "a"
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 — Signal Integrity: regime_suppressed status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRegimeSuppressedStatus:
+    """Tests for regime_suppressed signal status written by build_ledger_entries.
+
+    RED: Both tests fail until Plan 03 updates build_ledger_entries and
+    _SELECT_ACTIVE_SQL to support regime_suppressed status.
+    """
+
+    def test_build_ledger_entries_sets_regime_suppressed_status(self):
+        """build_ledger_entries writes status='regime_suppressed' for ineligible signals.
+
+        RED: build_ledger_entries currently always sets status='pending'.
+        """
+        from services.signal_generator_service import build_ledger_entries
+
+        # Build a shadow signal: regime_eligible=False means suppressed
+        suppressed_signal = {
+            "type": "signal.v1",
+            "symbol": "ES",
+            "timeframe": "5m",
+            "timestamp": "2026-02-17T14:30:00Z",
+            "signal_type": "trend_long",
+            "setup_plugin": "trad_TrendFollowing",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5115.0],
+            "confidence": 0.7,
+            "risk_reward_ratio": 1.0,
+            "regime_context": "bullish",
+            "confluence_score": 0.5,
+            "supporting_factors": ["test_factor"],
+            "invalidation_conditions": [],
+            "ttl_bars": 10,
+            "composite_rank": 1,
+            # Shadow signal fields (set by Plan 02 aggregate())
+            "regime_eligible": False,
+            "suppression_reason": "regime_type",
+        }
+
+        result = AggregatedResult(
+            selected_signal=None,
+            all_ranked=[suppressed_signal],
+            resolution_method="no_signal",
+            num_signals_fired=0,
+            num_agreeing=0,
+            num_conflicting=0,
+        )
+
+        ts = datetime(2026, 2, 17, 14, 30, 0, tzinfo=UTC)
+        entries = build_ledger_entries(
+            result,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            features={"vol_regime": 0.2},
+        )
+
+        assert len(entries) == 1, "Expected one LedgerEntry for the suppressed signal"
+        assert entries[0].status == "regime_suppressed", (
+            f"Expected status='regime_suppressed', got {entries[0].status!r}. "
+            "build_ledger_entries must set status='regime_suppressed' when "
+            "regime_eligible=False in the signal dict."
+        )
+
+    def test_get_active_signals_query_includes_regime_suppressed(self):
+        """_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the IN clause.
+
+        RED: Current SQL only has ('pending', 'active').
+        Phase 12 requires the lifecycle service to also track shadow signals.
+        """
+        assert "regime_suppressed" in _SELECT_ACTIVE_SQL, (
+            "_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the status IN clause "
+            "so that shadow signals are loaded by the lifecycle service. "
+            f"Current SQL:\n{_SELECT_ACTIVE_SQL}"
+        )
