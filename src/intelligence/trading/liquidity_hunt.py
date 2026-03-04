@@ -28,6 +28,7 @@ class LiquidityHuntPlugin:
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "liquidity"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "trend"
     _state: dict = field(default_factory=dict)
 
     MIN_SIGNIFICANCE: float = 0.60

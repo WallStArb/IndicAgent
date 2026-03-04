@@ -29,6 +29,7 @@ class SqueezeExpansionPlugin:
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "squeeze", "volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "trend"
     volume_expansion_threshold: float = 1.3
     _state: dict = field(default_factory=dict)
 

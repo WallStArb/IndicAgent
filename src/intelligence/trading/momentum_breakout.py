@@ -28,6 +28,7 @@ class MomentumBreakoutPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "breakout", "momentum"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    regime_type: str = "trend"
     roc_period: int = 14
     roc_threshold: float = 0.3
     volume_expansion_threshold: float = 1.5
