@@ -103,6 +103,14 @@ def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
     f["bb_upper"] = event.i1.bb_20_2_upper
     f["bb_lower"] = event.i1.bb_20_2_lower
 
+    # I2 — composite events (crossovers, threshold extremes, volume events)
+    for k, v in event.i2.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    # Close price — used by bridge composites stored in I2 (DonchianPosition etc.)
+    f["close_price"] = event.bar.c
+
     # I3 — swing, S/R, trend structure
     for k, v in event.i3.model_dump().items():
         if v is not None:

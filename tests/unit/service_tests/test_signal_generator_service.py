@@ -301,3 +301,53 @@ def test_df_cache_hit_avoids_rebuild():
     result = svc._get_df(key)
 
     assert result is cached_df
+
+
+# ---------------------------------------------------------------------------
+# _build_features_from_event — I2 wiring tests (Task 4)
+# ---------------------------------------------------------------------------
+
+from datetime import timezone
+from src.intelligence.schemas import (
+    I1Indicators, I2Events, I3Structure, I4Context, I5Patterns,
+    I6Confluence, IntelligenceEvent, OHLCVBar, SMCContext,
+)
+
+
+def _minimal_event(**i2_kwargs) -> "IntelligenceEvent":
+    """Build a minimal IntelligenceEvent with given I2 fields."""
+    return IntelligenceEvent(
+        ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        symbol="ES", tf="1m",
+        bar=OHLCVBar(o=5000, h=5010, l=4990, c=5005, v=1000),
+        i1=I1Indicators(),
+        i2=I2Events(**i2_kwargs),
+        i3=I3Structure(),
+        i4=I4Context(),
+        i5=I5Patterns(),
+        smc=SMCContext(),
+        i6=I6Confluence(),
+    )
+
+
+def test_build_features_includes_i2_stoch_cross():
+    from services.signal_generator_service import _build_features_from_event
+    event = _minimal_event(stoch_cross_bullish=1.0, stoch_cross_bearish=0.0)
+    features = _build_features_from_event(event)
+    assert features.get("stoch_cross_bullish") == 1.0
+
+
+def test_build_features_includes_i2_adx_events():
+    from services.signal_generator_service import _build_features_from_event
+    event = _minimal_event(adx_trend_confirmed=1.0, di_spread=25.0)
+    features = _build_features_from_event(event)
+    assert features.get("adx_trend_confirmed") == 1.0
+    assert features.get("di_spread") == 25.0
+
+
+def test_build_features_includes_i2_vol_events():
+    from services.signal_generator_service import _build_features_from_event
+    event = _minimal_event(vol_spike=1.0, bb_walking_upper=1.0)
+    features = _build_features_from_event(event)
+    assert features.get("vol_spike") == 1.0
+    assert features.get("bb_walking_upper") == 1.0
