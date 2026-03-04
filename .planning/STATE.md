@@ -20,10 +20,10 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 ## Current Position
 
-Phase: Phase 12 (not started)
-Plan: —
-Status: Roadmap created — ready to execute
-Last activity: 2026-03-04 — v1.4 roadmap created. 4 phases (12-15), 17 requirements mapped.
+Phase: Phase 12 (in progress — Plans 12-01 and 12-02 complete)
+Plan: 12-02 complete → 12-03 next
+Status: In execution — 2 of 4 Phase 12 plans done
+Last activity: 2026-03-04 — 12-02 complete: regime_type attribute added to all 17 I7 plugins
 
 ## Accumulated Context
 
@@ -35,6 +35,9 @@ Last activity: 2026-03-04 — v1.4 roadmap created. 4 phases (12-15), 17 require
 - [v1.4]: All new indicators/patterns must pass historical validation before live promotion
 - [v1.4]: Phase numbering continues from 12 (v1.3 ended at Phase 11)
 - [v1.4]: Roadmap — Phase 12: Signal Integrity (SIGINT-01..05), Phase 13: Data Completeness (DATA-01..04), Phase 14: Feedback Loop (FEED-01..03), Phase 15: Validated Alpha (ALPHA-01..05)
+- [12-02]: regime_type attribute on all 17 I7 plugins — 5 trend, 5 mean_reversion, 7 any — zero logic changes
+- [12-02]: LiquidityHunt=trend, LiquiditySweepReclaim=mean_reversion, SqueezeExpansion=trend (CONTEXT.md decisions honored)
+- [12-02]: CHoCHReversal/RegimeTransition=any — gating on current regime would suppress at exact moment they should fire
 
 ### Pending Todos
 
