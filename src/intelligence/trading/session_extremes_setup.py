@@ -40,6 +40,7 @@ class SessionExtremesSetupPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "session"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
+    proximity_atr_mult: float = 0.3
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -69,13 +70,12 @@ class SessionExtremesSetupPlugin:
         if atr <= 0:
             return self._no_signal()
 
-        # Gate 3: proximity to Asian extreme (0.3 ATR)
+        # Gate 3: proximity to Asian extreme
         close = float(df["close"].iloc[-1])
-        proximity_atr_mult = 0.3
         dist_high = abs(close - asian_high) / atr
         dist_low = abs(close - asian_low) / atr
-        near_high = dist_high <= proximity_atr_mult
-        near_low = dist_low <= proximity_atr_mult
+        near_high = dist_high <= self.proximity_atr_mult
+        near_low = dist_low <= self.proximity_atr_mult
 
         if not (near_high or near_low):
             return self._no_signal()
@@ -128,7 +128,12 @@ class SessionExtremesSetupPlugin:
         extreme = "high" if near_high else "low"
         side = "short" if direction == -1 else "long"
         signal_type = f"session_extreme_{extreme}_fade_{side}"
-        session_ctx = "london" if session_london and not session_ny else "ny"
+        if session_london and session_ny:
+            session_ctx = "both"
+        elif session_london:
+            session_ctx = "london"
+        else:
+            session_ctx = "ny"
 
         return {
             "signal_type": signal_type,

@@ -1,30 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta, timezone
 from typing import Any
+
+import pandas as pd
 
 from ..plugins import InputSpec
 
 _SESSION_BARS = 390   # ~1 trading day on 1m
 _WEEK_BARS = 1950     # ~5 trading days on 1m
 _OVERNIGHT_BARS = 60  # ~1 hour on 1m
-
-# Asian session: 20:00–04:00 ET (wraps midnight). UTC-5 — consistent with session_context.py.
-_ET_OFFSET = timedelta(hours=-5)
-_ASIA_START = (20, 0)
-_ASIA_END = (4, 0)
-
-
-def _et_hour_min(ts: Any) -> tuple[int, int]:
-    et = ts.astimezone(timezone(offset=_ET_OFFSET))
-    return et.hour, et.minute
-
-
-def _in_asia(h: int, m: int) -> bool:
-    """True if (h, m) falls in Asia session: 20:00–04:00 ET (wraps midnight)."""
-    t = (h, m)
-    return t >= _ASIA_START or t < _ASIA_END
+_ASIA_ET_OFFSET = -5  # fixed UTC-5, consistent with session_context.py
 
 
 @dataclass
@@ -164,18 +150,11 @@ class SessionLevelsPlugin:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
 
-        # Asian session H/L — scan timestamp column for Asia-session bars (20:00–04:00 ET)
+        # Asian session H/L — vectorized: UTC-5 fixed offset, 20:00–04:00 ET wraps midnight
         if "timestamp" in df.columns and len(df) > 0:
-            from datetime import UTC
-
-            asia_mask = []
-            for ts in df["timestamp"]:
-                if hasattr(ts, "to_pydatetime"):
-                    ts = ts.to_pydatetime()
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=UTC)
-                h, m = _et_hour_min(ts)
-                asia_mask.append(_in_asia(h, m))
+            ts_utc = pd.to_datetime(df["timestamp"], utc=True)
+            et_hours = (ts_utc.dt.hour + _ASIA_ET_OFFSET) % 24
+            asia_mask = (et_hours >= 20) | (et_hours < 4)
             asia_bars = df[asia_mask]
             if len(asia_bars) > 0:
                 result["asian_session_high"] = float(asia_bars["high"].max())
