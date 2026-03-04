@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
-status: defining_requirements
+status: ready
 last_updated: "2026-03-04T00:00:00.000Z"
 ---
 
@@ -14,16 +14,16 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.4 Quant Foundation — defining requirements.
+**Current focus:** v1.4 Quant Foundation — Phase 12: Signal Integrity
 
 ---
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 12 (not started)
 Plan: —
-Status: Requirements defined — ready for roadmap
-Last activity: 2026-03-04 — Milestone v1.4 started. v1.3 complete (1083 tests, 88 plugins, signal lifecycle live).
+Status: Roadmap created — ready to execute
+Last activity: 2026-03-04 — v1.4 roadmap created. 4 phases (12-15), 17 requirements mapped.
 
 ## Accumulated Context
 
@@ -34,10 +34,11 @@ Last activity: 2026-03-04 — Milestone v1.4 started. v1.3 complete (1083 tests,
 - [v1.4]: Four disciplines: Signal Integrity → Data Completeness → Feedback Loop → Validated Alpha
 - [v1.4]: All new indicators/patterns must pass historical validation before live promotion
 - [v1.4]: Phase numbering continues from 12 (v1.3 ended at Phase 11)
+- [v1.4]: Roadmap — Phase 12: Signal Integrity (SIGINT-01..05), Phase 13: Data Completeness (DATA-01..04), Phase 14: Feedback Loop (FEED-01..03), Phase 15: Validated Alpha (ALPHA-01..05)
 
 ### Pending Todos
 
-- feature_writer_service: sequential stream polling → concurrent xreadgroup (targeted in DATA discipline)
+- feature_writer_service: sequential stream polling → concurrent xreadgroup (targeted in Phase 13 DATA discipline)
 - 5 O(N²) pattern files still unoptimized (non-blocking, low priority)
 - 25 todos total in .planning/todos/pending/ (see directory for full list)
 
@@ -45,4 +46,4 @@ Last activity: 2026-03-04 — Milestone v1.4 started. v1.3 complete (1083 tests,
 
 ## Ready to Proceed
 
-Defining v1.4 requirements — four disciplines: Signal Integrity, Data Completeness, Feedback Loop, Validated Alpha.
+Roadmap created — 4 phases, 17 requirements. Start with Phase 12: Signal Integrity.

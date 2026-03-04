@@ -6,6 +6,7 @@
 - ✅ **v1.1 Code Quality Sprint** — Phase 01 complete (ruff 206 → 0, 6/13 tasks done)
 - ✅ **v1.2 Intelligence Palette Expansion** — Phases 2-6 + Phase 7 + Phase 8 complete (965 tests, I2/I5/I6 expanded)
 - ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 + Signal Lifecycle redesign (shipped 2026-03-04)
+- 🔲 **v1.4 Quant Foundation** — Phases 12-15 (in progress)
 
 ## Phases
 
@@ -55,6 +56,13 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 11: SessionExtremesSetup** — I7 Asian session high/low fade during London/NY (SESS-01, SESS-02, SESS-03) (completed 2026-03-04)
 
 </details>
+
+### v1.4 Quant Foundation
+
+- [ ] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking
+- [ ] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry
+- [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
+- [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
 
 ## Phase Details
 
@@ -239,10 +247,83 @@ Plans:
 
 ---
 
+### Phase 12: Signal Integrity
+
+**Goal:** All 12 I7 plugins only fire when the market regime supports the setup type — regime-ineligible signals are tracked as shadow signals rather than discarded
+
+**Depends on:** Phase 11
+
+**Requirements:** SIGINT-01, SIGINT-02, SIGINT-03, SIGINT-04, SIGINT-05
+
+**Success Criteria** (what must be TRUE):
+  1. A trend/momentum I7 plugin does not produce an eligible signal when `hmm_regime` is 0 (ranging), and a mean-reversion plugin does not produce an eligible signal when `hmm_regime` is 1 or 2 (trending)
+  2. Any bar where `hmm_regime_prob < 0.60` results in all I7 signals carrying `regime_eligible=False` and `suppression_reason='regime_prob'`, regardless of setup logic outcome
+  3. Any bar where `hmm_regime_duration < 5` results in all I7 signals carrying `regime_eligible=False` and `suppression_reason='regime_duration'`
+  4. Regime authority is sourced from 5m or 15m IntelligenceEvent, not 1m — the gating logic reads from the correct timeframe key
+  5. Regime-suppressed signals appear in `signal_ledger` with `status='regime_suppressed'` and their MAE/MFE/outcome are tracked by `signal_lifecycle_service`, making gate threshold tuning possible from data
+
+**Plans:** TBD
+
+---
+
+### Phase 13: Data Completeness
+
+**Goal:** Every bar written to `intelligence_features` contains complete i7, i8, and temporal context — no permanently incomplete training samples
+
+**Depends on:** Phase 12
+
+**Requirements:** DATA-01, DATA-02, DATA-03, DATA-04
+
+**Success Criteria** (what must be TRUE):
+  1. A row in `intelligence_features` contains a non-null `i7` JSONB column populated with which setups fired on that bar, their confidence scores, and direction — verifiable by querying any recent bar
+  2. A row in `intelligence_features` contains a non-null `i8` JSONB column for any bar where an AI narrative was generated, with model name, confidence, and summary fields present
+  3. `feature_writer_service` reads all streams in a single concurrent `xreadgroup` call — lag between a bar completing and its feature row appearing drops to under 2 seconds, verifiable from service metrics
+  4. Every `intelligence_features` row has a `days_to_expiry` integer populated (0 for non-futures, positive integer for futures contracts based on `get_active_contracts()` expiry)
+
+**Plans:** TBD
+
+---
+
+### Phase 14: Feedback Loop
+
+**Goal:** Setup performance data flows from resolved signal outcomes into the aggregator's ranking weights automatically — no manual intervention required
+
+**Depends on:** Phase 13
+
+**Requirements:** FEED-01, FEED-02, FEED-03
+
+**Success Criteria** (what must be TRUE):
+  1. A `setup_performance` table exists and is populated daily by a scheduled job with win rate, avg pnl_r, sample size, and Sharpe per setup type from the rolling 30-day window of resolved signals
+  2. A setup with fewer than 30 resolved signals in `signal_ledger` has no performance weight applied — the aggregator uses baseline weights for that setup regardless of early win/loss data
+  3. The signal aggregator reads setup performance weights at startup and outperforming setups rank higher than underperforming setups in aggregation — verifiable by comparing aggregator selection logs against `setup_performance` table values
+
+**Plans:** TBD
+
+---
+
+### Phase 15: Validated Alpha
+
+**Goal:** Four new alpha sources (Derivative Oscillator, 10 Candlestick Tier 1 patterns, MACD histogram acceleration, AC Oscillator) are live in production after each passes historical validation — no unvalidated signals fire
+
+**Depends on:** Phase 14
+
+**Requirements:** ALPHA-01, ALPHA-02, ALPHA-03, ALPHA-04, ALPHA-05
+
+**Success Criteria** (what must be TRUE):
+  1. A validation script exists that accepts an indicator or pattern name and produces: ADF stationarity result, correlation with pnl_r, signal frequency, and false-positive rate — runnable against `intelligence_features` + `signal_ledger` history from the command line
+  2. The Derivative Oscillator I2 plugin outputs `deriv_osc`, `deriv_osc_signal`, `deriv_osc_cross_bullish`, and `deriv_osc_cross_bearish` on every bar and has passed the ALPHA-01 validation gate before being wired to the live pipeline
+  3. The CandlestickPatternsPlugin (I5) and CandlestickPatternSetupPlugin (I7) include all 10 new Tier 1 patterns (Three White Soldiers, Three Black Crows, Morning Star, Evening Star, Three Inside Up/Down, Harami Cross, Dark Cloud Cover, Piercing Line), each having passed the ALPHA-01 gate
+  4. `MACDEventsPlugin` emits `macd_hist_accel` (float) and `macd_hist_contracting` (bool) on every bar, validated via ALPHA-01 before live promotion
+  5. The AC Oscillator I1 plugin emits `ao` and `ac` on every bar, registered in TIER_I1, and validated via ALPHA-01 before live wiring
+
+**Plans:** TBD
+
+---
+
 ## Progress
 
-| Phase | Milestone | Plans | Status | Completed |
-|-------|-----------|-------|--------|-----------|
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
 | 0. GARCH/Kalman Quality Gates | v1.0 | 3/3 | Complete | 2026-02-22 |
 | 1. Typed Event Schema | v1.0 | 3/3 | Complete | 2026-02-23 |
 | 2. Feature Store | v1.0 | 3/3 | Complete | 2026-02-23 |
@@ -252,7 +333,7 @@ Plans:
 | 6. Dashboard Connected | v1.0 | 4/4 | Complete | 2026-02-28 |
 | 7. Composite Intelligence Score (CIS) | v1.0 | 4/4 | Complete | 2026-02-28 |
 | 8. Integration Fix & Cleanup | v1.0 | 3/3 | Complete | 2026-02-28 |
-| 9. Milestone Verification | 1/2 | In Progress|  | 2026-02-28 |
+| 9. Milestone Verification | v1.0 | 3/3 | Complete | 2026-02-28 |
 | 01. Code Quality Sprint | v1.1 | 1/1 | Complete | 2026-03-01 |
 | 02. I2 Composite Events | v1.2 | — | Complete | 2026-02-27 |
 | 03. I5 Chart Patterns | v1.2 | — | Complete | 2026-02-27 |
@@ -261,9 +342,13 @@ Plans:
 | 06. I1-I6 Correctness Audit | v1.2 | — | Complete | 2026-03-02 |
 | 07. Final Verification | v1.2 | — | Complete | 2026-03-02 |
 | 08. MomentumAcceleration | v1.3 | — | Complete | 2026-03-02 |
-| 09. GapAnalysisSetup | 2/2 | Complete    | 2026-03-03 | - |
-| 10. CandlestickPatternSetup | 1/2 | Complete    | 2026-03-03 | - |
-| 11. SessionExtremesSetup | v1.3 | TBD | Not started | - |
+| 09. GapAnalysisSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
+| 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
+| 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
+| 12. Signal Integrity | v1.4 | 0/0 | Not started | — |
+| 13. Data Completeness | v1.4 | 0/0 | Not started | — |
+| 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
+| 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 
 ## Backlog
 
@@ -272,17 +357,13 @@ Items decided but not yet scheduled. Pull into a milestone when ready.
 | Item | Notes | Analysis |
 |------|-------|---------|
 | Dashboard Complete | Timeframe matrix wired to live per-TF signal data; signal history view; final audit across all symbol profiles. | — |
-| Add i7/i8 columns to intelligence_features | Add `i7 JSONB` (setups + scores) and `i8 JSONB` (narrative + metadata) to intelligence_features. Enrichment stream pattern. | `analysis/2026-02-24-feature-store-completeness.md` |
 | ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history. | — |
 | Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
 | Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. | — |
-| Days-to-expiry feature | `(expiry_date - bar_ts).days` → intelligence_features. Roll proximity signal. | — |
 | Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. | — |
 | Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence plugins. | — |
 | Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
 | Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
-| Derivative Oscillator I2 | Constance Brown: RSI → EMA(5) → EMA(3) → subtract SMA(9). Smoothed zero-line oscillator that leads MACD by 1-2 bars. Clean I2 pattern. | `ideas/2nd-derivative-indicator-research.md` |
-| MACD Histogram Accel | Extend MACDEventsPlugin with `macd_hist_accel` + `macd_hist_contracting` flag. ~10 lines. Early warning of trend exhaustion. | `ideas/2nd-derivative-indicator-research.md` |
-| AC Oscillator I1 | Bill Williams: AO = SMA(midpoint,5) − SMA(midpoint,34); AC = AO − SMA(AO,5). 2nd derivative of midpoint momentum. New signal family. | `ideas/2nd-derivative-indicator-research.md` |
 | HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
 | Ehlers Elegant Oscillator I1 | 2-bar price diff → RMS normalize → inverse Fisher transform → SuperSmoother IIR. Near-zero-lag cycle oscillator. Medium-high complexity. | `ideas/2nd-derivative-indicator-research.md` |
+| Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
