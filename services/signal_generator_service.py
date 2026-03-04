@@ -36,7 +36,7 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import signals_aggregated
+from src.core.stream_keys import quote_latest, signals_aggregated
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
@@ -139,6 +139,47 @@ def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
     return f
 
 
+async def _fetch_live_quote(
+    redis_client: redis.Redis,
+    env_prefix: str,
+    symbol: str,
+) -> dict[str, float | None]:
+    """Fetch live bid/ask from price:{symbol}:latest hash."""
+    try:
+        raw = await redis_client.hgetall(quote_latest(env_prefix, symbol))
+        if not raw:
+            return {"bid": None, "ask": None}
+
+        def _parse(key: bytes) -> float | None:
+            val = raw.get(key) or raw.get(key.decode() if isinstance(key, bytes) else key.encode())
+            if val is None:
+                return None
+            try:
+                f = float(val)
+                return f if f > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        return {"bid": _parse(b"bid"), "ask": _parse(b"ask")}
+    except Exception:
+        return {"bid": None, "ask": None}
+
+
+def _is_zone_valid(
+    direction: int,
+    market_price: float | None,
+    entry_zone_low: float | None,
+    entry_zone_high: float | None,
+) -> bool | None:
+    """True if market price is still reachable (within or near zone)."""
+    if market_price is None or entry_zone_low is None or entry_zone_high is None:
+        return None
+    if direction == 1:
+        return market_price <= entry_zone_high
+    else:
+        return market_price >= entry_zone_low
+
+
 def build_ledger_entries(
     result: AggregatedResult,
     symbol: str,
@@ -146,6 +187,8 @@ def build_ledger_entries(
     timestamp: datetime,
     features: dict[str, Any],
     signal_computed_at: datetime | None = None,
+    quote: dict[str, float | None] | None = None,
+    determined_at: datetime | None = None,
 ) -> list[LedgerEntry]:
     """Build LedgerEntry list from an AggregatedResult."""
     if not result.all_ranked:
@@ -154,10 +197,17 @@ def build_ledger_entries(
     market_ctx = {k: features.get(k, None) for k in MARKET_CONTEXT_KEYS
                   if features.get(k) is not None}
 
+    _quote = quote or {}
     entries = []
     for sig in result.all_ranked:
         rank = sig.get("composite_rank", 99)
         was_selected = (rank == 1 and result.selected_signal is not None)
+        direction = int(sig.get("direction", 0))
+        zone_low = sig.get("entry_zone_low") or None
+        zone_high = sig.get("entry_zone_high") or None
+        ask = _quote.get("ask")
+        bid = _quote.get("bid")
+        market_price = ask if direction == 1 else bid
         entries.append(LedgerEntry(
             signal_id=str(uuid4()),
             timestamp=timestamp,
@@ -165,7 +215,7 @@ def build_ledger_entries(
             timeframe=timeframe,
             setup_plugin=sig.get("setup_plugin", "unknown"),
             signal_type=sig.get("signal_type", "unknown"),
-            direction=int(sig.get("direction", 0)),
+            direction=direction,
             entry_price=float(sig.get("entry_price", 0.0)),
             stop_loss=float(sig.get("stop_loss", 0.0)),
             targets=[float(t) for t in sig.get("targets", [])],
@@ -181,14 +231,21 @@ def build_ledger_entries(
             composite_rank=rank,
             market_context=market_ctx,
             status="pending",
-            feature_ts=timestamp,   # IntelligenceEvent.ts — the bar timestamp
-            feature_tf=timeframe,   # IntelligenceEvent.tf — the timeframe string
-            # CIS fields — populated by aggregator, None for non-CIS signals
+            feature_ts=timestamp,
+            feature_tf=timeframe,
             cis_score=result.cis_score,
             bucket_scores=result.bucket_scores,
             weights_version=result.weights_version,
-            signal_quality=None,    # populated by signal_tracker on exit
+            signal_quality=None,
             signal_computed_at=signal_computed_at,
+            # Institutional lifecycle fields
+            determined_at=determined_at,
+            ask_at_signal=ask,
+            bid_at_signal=bid,
+            market_price_at_signal=market_price,
+            entry_zone_low=zone_low,
+            entry_zone_high=zone_high,
+            zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
         ))
     return entries
 
@@ -450,9 +507,17 @@ class SignalGeneratorService:
                     "rr_t2":          frame.rr_t2,
                     "rr_t3":          frame.rr_t3,
                     "framing_method": frame.method,
+                    "entry_zone_low":  frame.zone_low,
+                    "entry_zone_high": frame.zone_high,
                 })
 
         signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
+        determined_at = signal_computed_at  # same wall-clock snapshot
+
+        # Fetch live quote for institutional fields (non-blocking, falls back to None)
+        live_quote: dict[str, float | None] = {"bid": None, "ask": None}
+        if self.redis_client and source == "live":
+            live_quote = await _fetch_live_quote(self.redis_client, self.env_prefix, symbol)
 
         # Emit bar-to-signal latency for live events with known close time
         if source == "live" and bar_close_ts is not None and signal_computed_at is not None:
@@ -463,6 +528,8 @@ class SignalGeneratorService:
         entries = build_ledger_entries(
             result, symbol, timeframe, timestamp, features,
             signal_computed_at=signal_computed_at,
+            quote=live_quote,
+            determined_at=determined_at,
         )
         if entries and self.db_manager:
             await insert_signals(self.db_manager, entries)

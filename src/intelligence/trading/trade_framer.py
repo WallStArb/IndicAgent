@@ -62,6 +62,8 @@ class TradeFrame:
     method: str = "atr_fallback"       # "structural" | "atr_fallback"
     viable: bool = True
     rejection_reason: str | None = None
+    zone_low: float = 0.0    # lower bound of entry zone (zone_low < zone_high always)
+    zone_high: float = 0.0   # upper bound of entry zone
 
 
 def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
@@ -73,6 +75,53 @@ def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _resolve_zone_bounds(
+    setup_type: str,
+    direction: int,
+    entry: float,
+    features: dict[str, Any],
+    atr: float,
+) -> tuple[float, float]:
+    """Return (zone_low, zone_high) for the entry zone.
+
+    Uses structural levels when available; falls back to entry ± ATR multiples.
+    zone_low < zone_high always (independent of direction).
+    """
+    st = setup_type.lower()
+
+    # Supply/Demand zone entries — use the demand/supply zone bounds
+    if st.startswith("supply_demand"):
+        if direction == 1:
+            low = _fval(features, "nearest_demand_low")
+            high = _fval(features, "nearest_demand_high")
+        else:
+            low = _fval(features, "nearest_supply_low")
+            high = _fval(features, "nearest_supply_high")
+        if 0 < low < high:
+            return low, high
+
+    # FVG fill — use FVG bottom/top
+    if st.startswith("fvg"):
+        fvg_bottom = _fval(features, "fvg_bottom")
+        fvg_top = _fval(features, "fvg_top")
+        if 0 < fvg_bottom < fvg_top:
+            return fvg_bottom, fvg_top
+
+    # Order block entries — use OB bottom/top
+    if st.startswith("choch") or "ob" in st:
+        ob_bottom = _fval(features, "ob_bottom")
+        ob_top = _fval(features, "ob_top")
+        if 0 < ob_bottom < ob_top:
+            return ob_bottom, ob_top
+
+    # Sweep/reclaim — tight zone ± 0.5×ATR around entry
+    if st.startswith("sweep") or st.startswith("liquidity_hunt"):
+        return entry - atr * 0.5, entry + atr * 0.5
+
+    # ATR fallback — standard ±ATR band
+    return entry - atr * 1.0, entry + atr * 0.5
 
 
 def _resolve_entry(
@@ -493,6 +542,11 @@ def frame_trade(
         stop, stop_type = _resolve_stop_short(resolved_entry, atr, features)
         candidates = _collect_targets_short(resolved_entry, stop, atr, features)
 
+    # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
+    zone_low, zone_high = _resolve_zone_bounds(
+        setup_type, direction, resolved_entry, features, atr
+    )
+
     risk = abs(resolved_entry - stop)
     if risk <= 0:
         return TradeFrame(
@@ -507,6 +561,8 @@ def frame_trade(
             method="atr_fallback",
             viable=False,
             rejection_reason="zero_risk: stop == entry",
+            zone_low=zone_low,
+            zone_high=zone_high,
         )
 
     targets, is_structural = _pick_targets(candidates, resolved_entry, stop, atr, direction)
@@ -524,6 +580,8 @@ def frame_trade(
             method="atr_fallback",
             viable=False,
             rejection_reason="no_targets_found",
+            zone_low=zone_low,
+            zone_high=zone_high,
         )
 
     rr_t1 = targets[0].rr
@@ -544,6 +602,8 @@ def frame_trade(
             method=method,
             viable=False,
             rejection_reason=f"rr_below_{MIN_RR_T1}: {rr_t1:.2f}",
+            zone_low=zone_low,
+            zone_high=zone_high,
         )
 
     return TradeFrame(
@@ -558,4 +618,6 @@ def frame_trade(
         method=method,
         viable=True,
         rejection_reason=None,
+        zone_low=zone_low,
+        zone_high=zone_high,
     )
