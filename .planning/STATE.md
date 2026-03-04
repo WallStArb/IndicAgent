@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
-status: in_progress
-last_updated: "2026-03-04T23:28:52Z"
-last_activity: "2026-03-04 — 12-03 complete: regime gate refactor with shadow signals + slow-clock cascade"
+status: completed
+last_updated: "2026-03-04T23:37:08.480Z"
+last_activity: "2026-03-04 — 12-04 complete: shadow signal virtual-activation; Phase 12 all 4 plans done"
 progress:
   total_phases: 15
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 ## Current Position
 
-Phase: Phase 12 (in progress — Plans 12-01, 12-02, and 12-03 complete)
-Plan: 12-03 complete → 12-04 next
-Status: In execution — 3 of 4 Phase 12 plans done
-Last activity: 2026-03-04 — 12-03 complete: regime gate refactor with shadow signals + slow-clock cascade
+Phase: Phase 12 COMPLETE (all 4 plans done: 12-01 through 12-04)
+Plan: 12-04 complete → Phase 13 next
+Status: Phase 12 done — 4 of 4 plans complete — ready for Phase 13: Data Completeness
+Last activity: 2026-03-04 — 12-04 complete: shadow signal virtual-activation; Phase 12 all 4 plans done
 
 ## Accumulated Context
 
@@ -49,6 +49,8 @@ Last activity: 2026-03-04 — 12-03 complete: regime gate refactor with shadow s
 - [12-01]: I7 plugins already had regime_type before plan expected — test passes immediately (no Plan 02 work needed for plugin attributes)
 - [Phase 12]: regime_data= (higher-TF) drives regime gate; features= (same-TF) unchanged for CIS
 - [Phase 12]: Shadow signals persist to signal_ledger with status='regime_suppressed' for observability
+- [Phase 12-signal-integrity]: Shadow signal virtual-activation: status='regime_suppressed' preserved on exit; _activated_at set from signal timestamp
+- [Phase 12-signal-integrity]: SIGINT-05 complete: all 4 Phase 12 plans done; shadow counterfactual data accumulates in signal_ledger for empirical gate tuning
 
 ### Pending Todos
 

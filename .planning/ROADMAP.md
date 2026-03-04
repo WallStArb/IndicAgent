@@ -59,7 +59,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 ### v1.4 Quant Foundation
 
-- [ ] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking
+- [x] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking (completed 2026-03-04)
 - [ ] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry
 - [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
@@ -262,7 +262,7 @@ Plans:
   4. Regime authority is sourced from 5m or 15m IntelligenceEvent, not 1m — the gating logic reads from the correct timeframe key
   5. Regime-suppressed signals appear in `signal_ledger` with `status='regime_suppressed'` and their MAE/MFE/outcome are tracked by `signal_lifecycle_service`, making gate threshold tuning possible from data
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 12-01-PLAN.md — Write Wave 0 failing tests for all 5 SIGINT requirements (TDD RED phase)
@@ -351,7 +351,7 @@ Plans:
 | 09. GapAnalysisSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
-| 12. Signal Integrity | 3/4 | In Progress|  | — |
+| 12. Signal Integrity | 4/4 | Complete   | 2026-03-04 | — |
 | 13. Data Completeness | v1.4 | 0/0 | Not started | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
