@@ -10,13 +10,13 @@
 
 IndicAgent is an **institutional-grade, real-time market intelligence platform** built from the ground up around a plugin-native architecture, a typed intelligence bus, and a zero-database live pipeline that keeps end-to-end latency in the sub-millisecond range.
 
-Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators and composite event signals feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD, ICT killzones, AMD cycles, breaker/mitigation blocks), which converge in a cross-timeframe confluence engine that outputs **scored, structured market setups** — capped by an AI narrative synthesis layer that turns machine signals into natural language market analysis via a **3-tier LLM inference chain: ZAI GLM-5 (primary, SOTA foundation model) → OpenRouter (100+ model fallback) → Ollama local (offline guarantee)**.
+Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators and composite event signals feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD, ICT killzones, AMD cycles, breaker/mitigation blocks), which converge in a cross-timeframe confluence engine that outputs **scored, structured market setups**. An AI narrative synthesis layer on top turns machine signals into natural language market analysis via a **3-tier LLM inference chain: ZAI GLM-5 (primary) → OpenRouter (100+ model fallback) → Ollama local (offline guarantee)**.
 
-Every output at every tier is encoded into a **canonical `IntelligenceEvent` — a versioned, typed Pydantic model** published to DragonflyDB streams. This isn't a logging format; it's the backbone of a **typed intelligence bus** that decouples producers from consumers, makes the pipeline replay-able for historical backfill, and feeds a TimescaleDB **feature store** purpose-built for ML training.
+Every output at every tier is encoded into a **canonical `IntelligenceEvent`, a versioned typed Pydantic model**, published to DragonflyDB streams. This is the backbone of a **typed intelligence bus** that decouples producers from consumers, makes the pipeline replayable for historical backfill, and feeds a TimescaleDB **feature store** built for ML training.
 
-The architecture is designed to be **externally consumable**: a FastAPI layer with JWT + API key auth exposes the full intelligence stream over SSE and REST, so any downstream application — a Vercel dashboard, a Slack bot, an algorithmic execution system, or an ML scoring model — subscribes to the same vetted, structured signal stream. The 8 services are fully systemd-managed with Prometheus metrics on each, making production operation as straightforward as running any other infrastructure daemon.
+The architecture is designed to be **externally consumable**: a FastAPI layer with JWT + API key auth exposes the full intelligence stream over SSE and REST, so downstream applications (a Vercel dashboard, a Slack bot, an algorithmic execution system, an ML scoring model) subscribe to the same vetted, structured signal stream. The 8 services are fully systemd-managed with Prometheus metrics on each, making production operation as straightforward as running any other infrastructure daemon.
 
-**The result:** a platform that ingests 100–500+ ticks/sec across 24 instruments (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 87 intelligence plugins in a strict DAG, and delivers structured, AI-enriched market intelligence to any connected consumer — all without a database anywhere in the hot path.
+The platform ingests 100–500+ ticks/sec across 24 instruments (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 87 intelligence plugins in a strict DAG, and delivers structured, AI-enriched market intelligence to any connected consumer. No database in the hot path.
 
 ---
 
@@ -47,9 +47,7 @@ So: **ticks → bars → indicators → structure/context/patterns/SMC/confluenc
 
 ### Services (Microservices over Streams)
 
-Services are independent processes that communicate exclusively via Redis Streams — no
-direct service-to-service HTTP calls in the pipeline. Each service has a single responsibility
-and can be restarted or redeployed without affecting others.
+Services are independent processes that communicate exclusively via Redis Streams, with no direct service-to-service HTTP calls in the pipeline. Each service has a single responsibility and can be restarted or redeployed without affecting others.
 
 ```
 IBKR TWS
@@ -110,7 +108,7 @@ The system is structured as four conceptual layers:
 | **1** | Data Foundation | Ingestion (IBKR), bar building, multi-timeframe aggregation, stream distribution | Operational |
 | **2** | Mathematical Intelligence (I1–I4) | Indicators, composites, market structure, context/regime | Operational |
 | **3** | Pattern Intelligence (I5–I7) | Pattern detection, SMC, confluence, market setups, signal aggregation | Operational |
-| **4** | AI Intelligence (I8) | LLM narrative synthesis — ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline) | Operational |
+| **4** | AI Intelligence (I8) | LLM narrative synthesis: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline) | Operational |
 
 Layer 1 feeds Layer 2; Layer 2 feeds Layer 3; Layer 3 feeds Layer 4. Each layer adds context on top of the previous one.
 
@@ -127,9 +125,74 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 | **I5** | Patterns | RSI divergence, squeeze, vol divergence, confluence, trend confluence, chart patterns, volume profile, key level reaction (14 plugins) | Operational |
 | **I6** | SMC + confluence | BOS/CHoCH, FVG, order blocks, HMM regime, liquidity pools, supply/demand, BOCPD, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount, cross-timeframe confluence (13 SMC + 1 confluence) | Operational |
 | **I7** | Market setups | 16 setup plugins: TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup (opening gap fade/continuation), CandlestickPatternSetup (confluence-gated candlestick setups); CISScorer 6-bucket aggregator + WeightUpdater | Operational |
-| **I8** | AI intelligence | AI Narrative Service — ZAI GLM-5 → OpenRouter → Ollama (per-signal conf>0.7 + 6-group synthesis) | Operational |
+| **I8** | AI intelligence | AI Narrative Service: ZAI GLM-5 → OpenRouter → Ollama (per-signal conf>0.7 + 6-group synthesis) | Operational |
 
 The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-02-28).
+
+### Signal Selection: The CIS Gate
+
+When multiple I7 setup plugins fire on the same bar, the system needs to pick a winner and filter out noise when nothing is clearly dominant. That's the job of the **Composite Intelligence Score (CIS)**.
+
+#### How it works
+
+CIS aggregates six intelligence buckets, each drawing from different parts of the pipeline, into a single directional score in the range **[-1.0, +1.0]** (negative = bearish, positive = bullish):
+
+| Bucket | What it reads | Weight |
+|--------|--------------|--------|
+| **Trend** | `trend_regime`, Kalman slope, SMC trend direction, cross-TF alignment, trend confluence | 0.35 + 0.20 + 0.25 + 0.10 + 0.10 |
+| **Momentum** | RSI deviation, ROC sign, momentum bias, DivergenceStack plugin | 0.40 + 0.20 + 0.15 + 0.25 |
+| **Structure** | Swing pattern, BOS/CHoCH direction, CHoCHReversal plugin | 0.30 + 0.25 + 0.25 + 0.20 |
+| **Liquidity** | FVG type + activity, supply/demand zone, FVGFill + SupplyDemandSetup plugins | 0.25 + 0.20 + 0.20 + 0.20 |
+| **Regime** | HMM hidden state probabilities, changepoint detection, cross-TF regime agreement, vol regime, RegimeTransition plugin | 0.35 + 0.15 + 0.20 + 0.20 + 0.10 |
+| **Volume** | OBV trend, CMF value, volume regime | 0.40 + 0.35 + 0.25 |
+
+#### The gate: two conditions must be met
+
+CIS only "fires" (overrides direction) when **both** of these hold:
+
+1. **Threshold:** `|cis_score| > 0.35` (the composite score is meaningfully bullish or bearish, not noise)
+2. **Agreement:** at least **3 of 6 buckets** push in the same direction as the score (each bucket must exceed a 0.10 noise floor to count)
+
+If either condition fails, CIS is considered **neutral** and the system falls back to simpler rules: highest-priority plugin wins, with majority voting and HMM regime tiebreaking as backup.
+
+#### The three decision paths
+
+```
+Multiple I7 plugins fire
+        │
+        ▼
+  CIS gate check
+        │
+   ┌────┴─────────────────────────────────────┐
+   │                                          │
+CIS fires (|score|>0.35, ≥3 buckets agree)  CIS neutral → fallback rules
+   │                                          │   priority → majority → regime tiebreak
+   ▼                                          │
+Pick highest-priority signal                  ▼
+matching CIS direction                   Highest-priority signal wins
+(if none match, force-override             (or no winner if direction conflict
+direction on best available signal)         is unresolvable)
+        │
+        ▼
+  RR gate (TradeFramer)
+  Must be viable (risk:reward, zone quality)
+  ↳ fails → signal dropped entirely
+        │
+        ▼
+  Regime gate (HMM confidence ≥ 0.55, duration ≥ 3 bars)
+  Filters out signals mismatched to the current macro regime
+        │
+        ▼
+  Winner published to signal_ledger + stream
+```
+
+The RR gate and regime gate are the only hard drops. CIS itself never drops a signal outright; it redirects direction.
+
+#### Adaptive weights (learning path)
+
+The weights above are **bootstrap weights (version 0)**: fixed, manually tuned, and sufficient for early operation. The system is architected to replace them with **learned weights** from a `cis_weights` database table. When a weights row with `version > 0` is present, the scorer loads it at startup and tags every CIS result with that version number, so all signal outcomes are traceable to the exact weight set that produced them. This creates a closed loop: signal lifecycle outcomes (stop hit, target hit, TTL expired) from the `signal_ledger` become labeled training data, a future weight-learning step updates `cis_weights`, and the scorer improves without any code changes.
+
+Bootstrap weights get the system running, outcome data trains the next version, and CIS gradually learns which market conditions precede profitable setups.
 
 ### Data Path: Hot / Warm / Cold
 
@@ -141,7 +204,7 @@ The full I1–I8 pipeline is complete and operational as of v1.0 (shipped 2026-0
 
 ## Quick Start
 
-**Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis). I8 AI narratives use a 3-tier LLM chain — set `ZAI_API_KEY` in `.env` for the primary provider (GLM-5), `OPENROUTER_API_KEY` for the fallback, or install Ollama locally as an always-available offline option.
+**Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis). I8 AI narratives use a 3-tier LLM chain: set `ZAI_API_KEY` in `.env` for the primary provider (GLM-5), `OPENROUTER_API_KEY` for the fallback, or install Ollama locally as the offline option.
 
 ```bash
 # Environment
@@ -255,10 +318,10 @@ python tests/run_all_tests.py --unit-only
 
 - **I1–I8 pipeline:** Fully operational. 87 plugins (I1:23, I2:6, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:16), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
 - **v1.3 progress:** Phase 08 (MomentumAcceleration I2), Phase 09 (GapAnalysisSetup I7), Phase 10 (CandlestickPatternSetup I7) complete. Phase 11 (SessionExtremesSetup) next.
-- **Dashboard:** Live — price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
+- **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
 - **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups.
 - **Test suite:** 1016 passing, 0 ruff errors.
-- **Next:** Phase 11 SessionExtremesSetup — see [Roadmap](.planning/ROADMAP.md).
+- **Next:** Phase 11 SessionExtremesSetup (see [Roadmap](.planning/ROADMAP.md)).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
 
@@ -275,4 +338,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 1.3.x | **Status:** v1.3 in progress — 87 plugins, 1016 tests | **Next:** Phase 11 SessionExtremesSetup
+**Version:** 1.3.x | **Status:** v1.3 in progress, 87 plugins, 1016 tests | **Next:** Phase 11 SessionExtremesSetup
