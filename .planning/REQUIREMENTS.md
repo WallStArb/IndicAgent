@@ -24,10 +24,10 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 *Stop generating structurally false signals. Mean-reversion setups firing in trending markets, trend setups firing in ranging markets — these are not edge, they are noise. Renaissance would discard any signal that ignores market state.*
 
 - [x] **SIGINT-01**: Every I7 plugin reads `hmm_regime` from the IntelligenceEvent SMC tier and applies a regime-appropriate gate before firing (trend/momentum setups: regime 1 or 2 only; mean-reversion setups: regime 0 only)
-- [ ] **SIGINT-02**: Every I7 plugin applies a conviction gate — `hmm_regime_prob < 0.60` suppresses the signal regardless of setup logic
-- [ ] **SIGINT-03**: Every I7 plugin applies a stability gate — `hmm_regime_duration < 5` suppresses the signal (new regime may be a false start; require 5-bar confirmation)
-- [ ] **SIGINT-04**: Regime authority for gating uses 5m or 15m timeframe HMM regime, not 1m (1m HMM is noisy; 5m regime is the minimum reliable unit for signal gating)
-- [ ] **SIGINT-05**: All I7 signals are emitted to the aggregator regardless of regime eligibility, carrying a `regime_eligible` boolean and `suppression_reason` (null / `regime_type` / `regime_prob` / `regime_duration`). Aggregator excludes ineligible signals from selection but records them in `signal_ledger` with `status='regime_suppressed'`. Signal lifecycle tracks their would-be MAE/MFE/outcome — these "shadow signals" are the feedback data for validating and tuning gate thresholds. A gate that cannot be validated by its own shadow data has no place in a quant system.
+- [x] **SIGINT-02**: Every I7 plugin applies a conviction gate — `hmm_regime_prob < 0.60` suppresses the signal regardless of setup logic
+- [x] **SIGINT-03**: Every I7 plugin applies a stability gate — `hmm_regime_duration < 5` suppresses the signal (new regime may be a false start; require 5-bar confirmation)
+- [x] **SIGINT-04**: Regime authority for gating uses 5m or 15m timeframe HMM regime, not 1m (1m HMM is noisy; 5m regime is the minimum reliable unit for signal gating)
+- [x] **SIGINT-05**: All I7 signals are emitted to the aggregator regardless of regime eligibility, carrying a `regime_eligible` boolean and `suppression_reason` (null / `regime_type` / `regime_prob` / `regime_duration`). Aggregator excludes ineligible signals from selection but records them in `signal_ledger` with `status='regime_suppressed'`. Signal lifecycle tracks their would-be MAE/MFE/outcome — these "shadow signals" are the feedback data for validating and tuning gate thresholds. A gate that cannot be validated by its own shadow data has no place in a quant system.
 
 ### Discipline 2: Data Completeness (DATA)
 
@@ -100,10 +100,10 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SIGINT-01 | Phase 12 | Complete |
-| SIGINT-02 | Phase 12 | Pending |
-| SIGINT-03 | Phase 12 | Pending |
-| SIGINT-04 | Phase 12 | Pending |
-| SIGINT-05 | Phase 12 | Pending |
+| SIGINT-02 | Phase 12 | Complete |
+| SIGINT-03 | Phase 12 | Complete |
+| SIGINT-04 | Phase 12 | Complete |
+| SIGINT-05 | Phase 12 | Complete |
 | DATA-01 | Phase 13 | Pending |
 | DATA-02 | Phase 13 | Pending |
 | DATA-03 | Phase 13 | Pending |
