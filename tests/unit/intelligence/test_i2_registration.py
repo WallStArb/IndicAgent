@@ -4,7 +4,7 @@
 def test_tier_i2_constant_exists():
     from src.intelligence.register_plugins import TIER_I2
 
-    assert len(TIER_I2) == 6
+    assert len(TIER_I2) == 7  # was 6; +DonchianPosition (Task 5)
 
 
 def test_tier_i2_all_registered():

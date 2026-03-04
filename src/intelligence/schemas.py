@@ -141,6 +141,10 @@ class I2Events(BaseModel):
     bb_walking_upper: float | None = None
     bb_walking_lower: float | None = None
 
+    # Bridge composites — translate I1 price-relative outputs into directional signals
+    donchian_position_20: float | None = None  # DonchianPosition composite
+    obv_slope_sign: float | None = None        # OBVMomentum composite
+
 
 class I3Structure(BaseModel):
     """I3 market structure outputs — structural facts about price.
