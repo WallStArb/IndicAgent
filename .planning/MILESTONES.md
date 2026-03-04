@@ -40,4 +40,21 @@
 - I1-I6 correctness audit: 35 tests verifying mathematical correctness across tiers
 - Code simplification: 5 SMC plugins + refactor review findings addressed
 - Documentation: CLAUDE.md updated to v5.10.0, plugin counts aligned
+
+---
+
+## v1.3 Signal Intelligence Expansion (Shipped: 2026-03-04)
+
+**Phases completed:** 4 phases + Signal Lifecycle redesign
+
+**Key accomplishments:**
+- 88 plugins + 2 aggregation components (I2: +1 MomentumAcceleration; I7: +3 new setups)
+- Tests: 965 → 1083 passing (+118 tests)
+- Phase 08: MomentumAcceleration (I2) — RSI/MACD/ROC 2nd-derivative + inflection detection
+- Phase 09: GapAnalysisSetup (I7) — opening gap fade/continuation for ES/NQ (3 sub-setups)
+- Phase 10: CandlestickPatternSetup (I7) — confluence-gated candlestick setups consuming I5 output
+- Phase 11: SessionExtremesSetup (I7) — Asian session H/L fade during London/NY sessions
+- Signal Lifecycle redesign: zone-aware activation, MAE/MFE tracking, 8-class outcome classification
+- New `signal_lifecycle_service` (replaces `signal_tracker_service`), migration 015
+
 ---
