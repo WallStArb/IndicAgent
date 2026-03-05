@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-05T15:09:12.338Z"
-last_activity: "2026-03-05 — 13-04 complete: feature_writer i7/i8 enrichment + days_to_expiry; Phase 13 all 4 plans done"
+last_updated: "2026-03-05T19:35:48.938Z"
+last_activity: "2026-03-05 — 16-01 complete: llm_calls hypertable + llm_model_scores schema + stream keys + TDD RED tests"
 progress:
   total_phases: 16
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 13
+  completed_plans: 9
 ---
 
 # Project State
@@ -20,16 +20,16 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.4 Quant Foundation — Phase 14: Feedback Loop (Phase 13 complete)
+**Current focus:** v1.4 Quant Foundation — Phase 16: LLM Intelligence Layer (16-01 complete)
 
 ---
 
 ## Current Position
 
-Phase: Phase 13 COMPLETE (all 4 plans done: 13-01 through 13-04)
-Plan: 13-04 complete → Phase 14 next
-Status: Phase 13 done — 4 of 4 plans complete — ready for Phase 14: Feedback Loop
-Last activity: 2026-03-05 — 13-04 complete: feature_writer i7/i8 enrichment + days_to_expiry; Phase 13 all 4 plans done
+Phase: Phase 16 IN PROGRESS (1 of 5 plans done: 16-01)
+Plan: 16-01 complete → 16-02 next (llm_writer_service GREEN phase + implementation)
+Status: Phase 16 active — schema foundation done, stream keys locked, TDD RED confirmed
+Last activity: 2026-03-05 — 16-01 complete: llm_calls hypertable + llm_model_scores schema + stream keys + TDD RED tests
 
 ## Accumulated Context
 
@@ -57,6 +57,9 @@ Last activity: 2026-03-05 — 13-04 complete: feature_writer i7/i8 enrichment + 
 - [Phase 13-data-completeness]: ENRICH_CONSUMER_GROUP ('feature_writer:enrich') separate from CONSUMER_GROUP for independent i7/i8 stream position tracking
 - [Phase 13-data-completeness]: days_to_expiry computed at feature_writer write time via startup-cached expiry_map; None for uncached, 0 for non-futures
 - [Phase 13-data-completeness]: DATA-01..04 all complete — intelligence_features now carries i7/i8 JSONB + days_to_expiry; Phase 13 done 2026-03-05
+- [Phase 16]: llm_calls partitioned by called_at; outcome columns NULL at insert, back-filled on lifecycle exit
+- [Phase 16]: is_significant gate: n_outcomes >= 30 AND p_value < 0.05 — Renaissance significance requirement for model routing
+- [Phase 16]: Stream keys locked: llm_calls_stream, llm_outcomes_stream, llm_scores_cache; maxlens 500/200
 
 ### Pending Todos
 
