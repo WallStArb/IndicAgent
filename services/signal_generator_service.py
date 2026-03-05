@@ -36,7 +36,13 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import quote_latest, signals_aggregated
+from src.core.stream_keys import (
+    intelligence_i7 as sk_intelligence_i7,
+)
+from src.core.stream_keys import (
+    quote_latest,
+    signals_aggregated,
+)
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
@@ -274,6 +280,52 @@ def build_ledger_entries(
             zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
         ))
     return entries
+
+
+def _build_i7_payload(
+    result: AggregatedResult,
+    timestamp: datetime,
+    symbol: str,
+    timeframe: str,
+) -> dict:
+    """Build the intelligence_i7 stream message from an AggregatedResult.
+
+    Publishes all_ranked as a compact JSON list. is_winner flags the aggregator's
+    selected signal so the ML layer can learn from both selected and counterfactual
+    signals.
+    """
+    selected_plugin = None
+    if result.selected_signal is not None:
+        selected_plugin = result.selected_signal.get("setup_plugin")
+
+    signals_out = []
+    for sig in result.all_ranked:
+        is_winner = (
+            sig.get("composite_rank") == 1
+            and selected_plugin is not None
+            and sig.get("setup_plugin") == selected_plugin
+            and sig.get("regime_eligible", True)
+        )
+        targets = sig.get("targets") or []
+        signals_out.append({
+            "setup_type": sig.get("signal_type", "unknown"),
+            "confidence": float(sig.get("confidence", 0.0)),
+            "direction": int(sig.get("direction", 0)),
+            "regime_eligible": bool(sig.get("regime_eligible", True)),
+            "suppression_reason": sig.get("suppression_reason"),
+            "entry": float(sig.get("entry_price", 0.0)),
+            "stop": float(sig.get("stop_loss", 0.0)),
+            "target": float(targets[0]) if targets and targets[0] is not None else None,
+            "composite_rank": int(sig.get("composite_rank", 99)),
+            "is_winner": is_winner,
+        })
+
+    return {
+        "ts": timestamp.isoformat(),
+        "symbol": symbol,
+        "tf": timeframe,
+        "data": json.dumps(signals_out),
+    }
 
 
 class SignalGeneratorService:
@@ -613,6 +665,12 @@ class SignalGeneratorService:
             message["symbol"] = symbol
             message["timeframe"] = timeframe
             await self.redis_client.xadd(stream_name, message, maxlen=200, approximate=True)
+
+        # Publish all_ranked to intelligence_i7 enrichment stream (DATA-01)
+        if self.redis_client:
+            i7_stream = sk_intelligence_i7(self.env_prefix, symbol, timeframe)
+            i7_msg = _build_i7_payload(result, timestamp, symbol, timeframe)
+            await self.redis_client.xadd(i7_stream, i7_msg, maxlen=200, approximate=True)
 
         elapsed_ms = (time.time() - calc_start) * 1000
         self.bars_processed_total.inc()
