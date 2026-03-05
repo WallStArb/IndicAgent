@@ -31,6 +31,7 @@ import structlog  # noqa: E402
 
 from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
+from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
 from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
 from src.core.stream_keys import signals_aggregated  # noqa: E402
 from src.core.stream_utils import ensure_consumer_group_with_reset  # noqa: E402
@@ -306,9 +307,9 @@ class AINarrativeService:
             },
             "ollama": {
                 "base_url": "http://localhost:11434",
-                "model": "qwen3:8b",
+                "model": "qwen3.5:9b",
                 "group_model": "phi4-mini:3.8b",
-                "timeout_sec": 60.0,  # was 120.0; qwen3:8b needs ~60s max on CPU
+                "timeout_sec": 60.0,
                 "num_predict": 500,
             },
             "providers": {
@@ -320,7 +321,7 @@ class AINarrativeService:
                     {"type": "zai",        "model": "glm-5"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
-                    {"type": "ollama",     "model": "qwen3:8b"},
+                    {"type": "ollama",     "model": "qwen3.5:9b"},
                 ],
                 "group": [
                     {"type": "zai",        "model": "glm-5"},
@@ -472,6 +473,21 @@ class AINarrativeService:
                 await self.redis_client.expire(cache_key, 90)
                 self.narratives_generated_total.inc()
                 self._total_narratives += 1
+                # Publish i8 metadata to enrichment stream (DATA-02)
+                if self.redis_client:
+                    i8_stream = sk_intelligence_i8(self.env_prefix, symbol, timeframe)
+                    i8_msg = {
+                        "ts": signal_data["timestamp"],
+                        "symbol": symbol,
+                        "tf": timeframe,
+                        "model": self.per_signal_chain.last_provider_id or "unknown",
+                        "confidence": str(signal_data["confidence"]),
+                        "summary": narrative_text[:280],
+                        "generated_at": datetime.now(tz=UTC).isoformat(),
+                    }
+                    await self.redis_client.xadd(
+                        i8_stream, i8_msg, maxlen=200, approximate=True
+                    )
                 self.logger.info(
                     "Narrative published",
                     symbol=symbol,
