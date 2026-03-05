@@ -35,6 +35,11 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 | **TradeAgent vision** | `docs/ideas/tradeagent-vision.md` | Autonomous trading app (separate repo): agents, broker-agnostic execution, learning, HITL, guardrails, dashboards. Consumes IndicAgent + QualAgent signals. |
 | **QualAgent vision** | `docs/ideas/qualagent-vision.md` | Standalone qualitative intelligence platform (separate repo): macro regime, COT, prediction markets, news NLP, sentiment, QualScore, quantamental feedback loop. Build deferred. |
 | **DerivAgent vision** | `docs/ideas/derivagent-vision.md` | Derivatives intelligence + autonomous options execution platform (separate repo, name confirmed): vol surface, GEX, VANNA/CHARM, VRP, skew, term structure + agentic strategy selection, multi-leg execution, Greeks management, lifecycle, learning loop. Build deferred. |
+| **Platform architecture** | `docs/ideas/platform-architecture.md` | Unified platform architecture across all four products: hot/warm/cold data spine, canonical stream namespace, cross-product signal flow, portfolio/risk management, trade execution, strategy bots/automation. |
+| **PrimeAgent vision** | `docs/ideas/primeagent-vision.md` | Portfolio management product (name confirmed): unified P&L across all execution products, portfolio Greek aggregation, capital allocation, Kelly sizing inputs, performance attribution by source/regime, multi-account/SMA/fund management. |
+| **AegisAgent vision** | `docs/ideas/aegisagent-vision.md` | Independent risk management product (name confirmed): VaR, drawdown enforcement, margin monitoring, stress testing, pre-trade check protocol, emergency halt. Override authority over all execution products. Required before real capital deployed at scale. |
+| **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning: Redpanda vs DragonflyDB, pgvector, TimescaleDB consolidation strategy, migration timing, decision log. Living document — update when stack decisions are made. |
+| **Renaissance framing** | `docs/ideas/renaissance-framing.md` | Philosophical and architectural framing of the entire product family through the Jim Simons / Medallion lens: all 10 principles mapped to platform decisions, the VRP as primary edge, unified model over siloed strategies, learning machine, compounding insight. |
 | **Analysis** | `docs/plans/*.md` | Design docs, architecture decisions, brainstorming outputs |
 | **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features |
 | **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements |
@@ -149,6 +154,12 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - `intelligence_features` — full feature vectors per bar (ML training dataset)
 - `signal_ledger` — I7 signals; JOIN via `(symbol, feature_ts, feature_tf)`
 - Aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
+
+### TimescaleDB Gotchas
+- **DB shell:** `docker exec timescaledb psql -U postgres -d indicagent` — container is `timescaledb`
+- **VACUUM:** Cannot run inside a transaction block — use a standalone `psql -c "VACUUM ..."` command
+- **Autovacuum on hypertables:** `ALTER TABLE hypertable SET (autovacuum_...)` only applies to new chunks. Cover existing chunks by iterating `timescaledb_information.chunks`: `FOR r IN SELECT chunk_schema, chunk_name FROM timescaledb_information.chunks WHERE hypertable_name = '...' AND hypertable_schema = 'public' LOOP EXECUTE format('ALTER TABLE %I.%I SET (...)', r.chunk_schema, r.chunk_name); END LOOP` — use `record` type (not `text`) to avoid ambiguous column name conflicts with `chunk_name`
+- **pg_stat_statements:** Enabled (2026-03-05). Slow query analysis: `SELECT calls, round(mean_exec_time::numeric,2) AS mean_ms, query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10`
 
 ## Plugin System
 

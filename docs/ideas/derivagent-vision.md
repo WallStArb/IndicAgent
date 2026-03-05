@@ -19,7 +19,6 @@ While IndicAgent reads price/volume (the *what*) and QualAgent reads macro/senti
 
 This is a vision and ideation document. We are not building yet.
 
----
 
 ## Product family (updated)
 
