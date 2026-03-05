@@ -358,3 +358,122 @@ def test_build_features_includes_i2_vol_events():
     features = _build_features_from_event(event)
     assert features.get("vol_spike") == 1.0
     assert features.get("bb_walking_upper") == 1.0
+
+
+# ── _build_i7_payload ─────────────────────────────────────────────────────────
+
+
+class TestBuildI7Payload:
+    """Tests for _build_i7_payload pure function."""
+
+    def _make_result(self, all_ranked=None, selected_plugin=None):
+        from src.intelligence.trading.aggregator import AggregatedResult
+        selected = {"setup_plugin": selected_plugin} if selected_plugin else None
+        return AggregatedResult(
+            selected_signal=selected,
+            all_ranked=all_ranked or [],
+            num_signals_fired=len(all_ranked or []),
+        )
+
+    def _ts(self):
+        return datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC)
+
+    def test_empty_all_ranked_produces_empty_list(self):
+        """result.all_ranked=[] → payload data decodes to []."""
+        import json
+
+        from services.signal_generator_service import _build_i7_payload
+
+        result = self._make_result()
+        msg = _build_i7_payload(result, self._ts(), "ESH6", "5m")
+
+        assert json.loads(msg["data"]) == []
+
+    def test_signal_shape_has_all_required_keys(self):
+        """Single signal in all_ranked → decoded list item has all required keys."""
+        import json
+
+        from services.signal_generator_service import _build_i7_payload
+
+        sig = {
+            "setup_plugin": "trad_TrendFollowing",
+            "signal_type": "trend_following_long",
+            "direction": 1,
+            "confidence": 0.75,
+            "regime_eligible": True,
+            "suppression_reason": None,
+            "entry_price": 5100.0,
+            "stop_loss": 5080.0,
+            "targets": [5140.0],
+            "composite_rank": 1,
+        }
+        result = self._make_result(all_ranked=[sig], selected_plugin="trad_TrendFollowing")
+        msg = _build_i7_payload(result, self._ts(), "ESH6", "5m")
+
+        items = json.loads(msg["data"])
+        assert len(items) == 1
+        item = items[0]
+        for key in (
+            "setup_type", "confidence", "direction", "regime_eligible",
+            "suppression_reason", "entry", "stop", "target", "composite_rank", "is_winner",
+        ):
+            assert key in item, f"Missing key: {key}"
+
+    def test_winner_flagged_on_selected_signal(self):
+        """Rank-1 eligible signal matching selected_plugin gets is_winner=True."""
+        import json
+
+        from services.signal_generator_service import _build_i7_payload
+
+        sig1 = {
+            "setup_plugin": "trad_TrendFollowing",
+            "signal_type": "trend_following_long",
+            "direction": 1, "confidence": 0.75, "regime_eligible": True,
+            "suppression_reason": None, "entry_price": 5100.0,
+            "stop_loss": 5080.0, "targets": [5140.0], "composite_rank": 1,
+        }
+        sig2 = {
+            "setup_plugin": "trad_MeanReversion",
+            "signal_type": "mean_reversion_long",
+            "direction": 1, "confidence": 0.60, "regime_eligible": True,
+            "suppression_reason": None, "entry_price": 5100.0,
+            "stop_loss": 5080.0, "targets": [5140.0], "composite_rank": 2,
+        }
+        result = self._make_result(all_ranked=[sig1, sig2], selected_plugin="trad_TrendFollowing")
+        msg = _build_i7_payload(result, self._ts(), "ESH6", "5m")
+
+        items = json.loads(msg["data"])
+        winners = [i for i in items if i["is_winner"]]
+        assert len(winners) == 1
+        assert winners[0]["setup_type"] == "trend_following_long"
+
+    def test_suppressed_signal_never_winner(self):
+        """regime_eligible=False signal is never is_winner even if rank 1."""
+        import json
+
+        from services.signal_generator_service import _build_i7_payload
+
+        sig = {
+            "setup_plugin": "trad_TrendFollowing",
+            "signal_type": "trend_following_long",
+            "direction": 1, "confidence": 0.75, "regime_eligible": False,
+            "suppression_reason": "regime_type", "entry_price": 5100.0,
+            "stop_loss": 5080.0, "targets": [5140.0], "composite_rank": 1,
+        }
+        result = self._make_result(all_ranked=[sig], selected_plugin="trad_TrendFollowing")
+        msg = _build_i7_payload(result, self._ts(), "ESH6", "5m")
+
+        items = json.loads(msg["data"])
+        assert items[0]["is_winner"] is False
+
+    def test_payload_contains_ts_symbol_tf(self):
+        """Payload dict has ts, symbol, tf keys for feature_writer routing."""
+        from services.signal_generator_service import _build_i7_payload
+
+        result = self._make_result()
+        msg = _build_i7_payload(result, self._ts(), "NQH6", "15m")
+
+        assert msg["symbol"] == "NQH6"
+        assert msg["tf"] == "15m"
+        assert "ts" in msg
+        assert "2026-03-04" in msg["ts"]
