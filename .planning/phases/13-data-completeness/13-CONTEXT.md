@@ -17,7 +17,7 @@ Add `i7 JSONB`, `i8 JSONB`, and `days_to_expiry INTEGER` columns to `intelligenc
 - **All ranked signals, not just the aggregator winner**
 - Every setup that fired is a data point — the ML layer needs the full signal space, not just the aggregator's selection
 - i7 JSONB per bar contains a list of all_ranked signals with: `setup_type`, `confidence`, `direction`, `regime_eligible`, `suppression_reason`, `entry`, `stop`, `target`
-- Aggregator winner flagged via `is_winner: true` field on the winning entry (null on suppressed entries)
+- Aggregator winner flagged via `is_winner` boolean: `true` for the winning entry, `false` for all other entries (both non-winning and regime-suppressed)
 - Rationale: winner selection is a downstream inference task; the ML model learns which signals are worth selecting, which requires seeing everything the system considered
 
 ### i7 Stream Wiring
@@ -42,7 +42,7 @@ Add `i7 JSONB`, `i8 JSONB`, and `days_to_expiry INTEGER` columns to `intelligenc
 
 ### Historical Rows Migration
 - **Accept `{}` for all pre-migration rows** — no retroactive backfill
-- Existing ~482K rows get empty i7/i8 via `DEFAULT '{}'` — honest absence, not noisy approximation
+- Existing ~482K rows get empty i7 via `DEFAULT '[]'` and empty i8 via `DEFAULT '{}'` — honest absence, not noisy approximation
 - A signal_ledger JOIN backfill would approximate i7 but risks label leakage and doesn't recover i8
 - Training dataset is labeled with bar `ts` — ML pipeline can exclude pre-migration rows or treat them as a pre-training regime distinct from fully-populated rows
 - Migration adds columns non-destructively: `ALTER TABLE intelligence_features ADD COLUMN IF NOT EXISTS`
