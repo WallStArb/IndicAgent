@@ -235,6 +235,7 @@ async def test_process_message_accesses_typed_attributes():
         captured_features.update({k: v for k, v in features.items() if v is not None})
 
     svc._df_cache = {}
+    svc._regime_cache = collections.defaultdict(dict)
     svc._process_bar = mock_process_bar
 
     await svc._process_single_message("ESH6", "5m", fields, "intel:ESH6:5m", b"1-0")
@@ -307,17 +308,23 @@ def test_df_cache_hit_avoids_rebuild():
 # _build_features_from_event — I2 wiring tests (Task 4)
 # ---------------------------------------------------------------------------
 
-from datetime import timezone
-from src.intelligence.schemas import (
-    I1Indicators, I2Events, I3Structure, I4Context, I5Patterns,
-    I6Confluence, IntelligenceEvent, OHLCVBar, SMCContext,
+from src.intelligence.schemas import (  # noqa: E402
+    I1Indicators,
+    I2Events,
+    I3Structure,
+    I4Context,
+    I5Patterns,
+    I6Confluence,
+    IntelligenceEvent,
+    OHLCVBar,
+    SMCContext,
 )
 
 
 def _minimal_event(**i2_kwargs) -> "IntelligenceEvent":
     """Build a minimal IntelligenceEvent with given I2 fields."""
     return IntelligenceEvent(
-        ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ts=datetime(2026, 1, 1, tzinfo=UTC),
         symbol="ES", tf="1m",
         bar=OHLCVBar(o=5000, h=5010, l=4990, c=5005, v=1000),
         i1=I1Indicators(),

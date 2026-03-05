@@ -646,10 +646,8 @@ class SignalGeneratorService:
             # Update regime cache for slow-clock gating (SIGINT-04).
             # Cache the HMM regime from every IntelligenceEvent so _process_bar()
             # can look up the authority TF (higher-TF) regime when gating signals.
-            regime_cache = getattr(self, "_regime_cache", None)
-            smc_has_regime = event.smc is not None and event.smc.hmm_regime is not None
-            if regime_cache is not None and smc_has_regime:
-                regime_cache[symbol][timeframe] = {
+            if event.smc is not None and event.smc.hmm_regime is not None:
+                self._regime_cache[symbol][timeframe] = {
                     "hmm_regime": event.smc.hmm_regime,
                     "hmm_regime_prob": event.smc.hmm_regime_prob or 0.0,
                     "hmm_regime_duration": event.smc.hmm_regime_duration or 0,

@@ -216,7 +216,11 @@ class SignalLifecycleService:
                     current_mfe = 0.0
                 # Ensure activated_at is set (use signal timestamp as virtual activation)
                 if sid not in self._activated_at and sig_ts:
-                    act_ts = sig_ts if isinstance(sig_ts, datetime) else sig_ts
+                    act_ts = (
+                        sig_ts
+                        if isinstance(sig_ts, datetime)
+                        else datetime.fromisoformat(str(sig_ts))
+                    )
                     self._activated_at[sid] = act_ts
 
                 # Pass status='active' override so evaluate_signal() takes exit path
@@ -295,9 +299,6 @@ class SignalLifecycleService:
                         outcome=outcome,
                     )
                 continue  # regime_suppressed handled; skip normal pending/active paths
-
-            current_mae = self._mae.get(sid, 0.0)
-            current_mfe = self._mfe.get(sid, 0.0)
 
             try:
                 transition = evaluate_signal(

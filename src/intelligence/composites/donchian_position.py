@@ -18,7 +18,9 @@ class DonchianPositionPlugin(PatternPlugin):
     name: str = "evt_DonchianPosition"
     outputs: frozenset[str] = field(default_factory=lambda: frozenset({"donchian_position_20"}))
     min_lookback: int = 2
-    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"structure", "channel"}))
+    capability_tags: frozenset[str] = field(
+        default_factory=lambda: frozenset({"structure", "channel"})
+    )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=25),)
     _state: dict = field(default_factory=dict)
 

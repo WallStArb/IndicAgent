@@ -22,7 +22,9 @@ class OBVMomentumPlugin(PatternPlugin):
     name: str = "evt_OBVMomentum"
     outputs: frozenset[str] = field(default_factory=lambda: frozenset({"obv_slope_sign"}))
     min_lookback: int = _WINDOW + 1
-    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"volume", "momentum"}))
+    capability_tags: frozenset[str] = field(
+        default_factory=lambda: frozenset({"volume", "momentum"})
+    )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=_WINDOW + 5),)
     _state: dict = field(default_factory=dict)
 

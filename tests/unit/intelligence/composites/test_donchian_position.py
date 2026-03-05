@@ -1,13 +1,20 @@
 import pandas as pd
 import pytest
+
 from src.intelligence.composites.donchian_position import plugin
 
 
 def _frames(close: float, d_high: float, d_mid: float, d_low: float) -> dict:
-    df = pd.DataFrame({"close": [close - 1, close], "high": [close] * 2, "low": [close] * 2, "volume": [100] * 2})
+    df = pd.DataFrame(
+        {"close": [close - 1, close], "high": [close] * 2, "low": [close] * 2, "volume": [100] * 2}
+    )
     return {
         "main": df,
-        "features": {"donchian_high_20": d_high, "donchian_mid_20": d_mid, "donchian_low_20": d_low},
+        "features": {
+            "donchian_high_20": d_high,
+            "donchian_mid_20": d_mid,
+            "donchian_low_20": d_low,
+        },
     }
 
 
