@@ -39,6 +39,16 @@ def intelligence(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}intelligence:{symbol}:{timeframe}"
 
 
+def intelligence_i7(env_prefix: str, symbol: str, timeframe: str) -> str:
+    """Enrichment stream: signal_generator publishes all_ranked per bar."""
+    return f"{env_prefix}intelligence_i7:{symbol}:{timeframe}"
+
+
+def intelligence_i8(env_prefix: str, symbol: str, timeframe: str) -> str:
+    """Enrichment stream: ai_narrative publishes narrative metadata per bar."""
+    return f"{env_prefix}intelligence_i8:{symbol}:{timeframe}"
+
+
 def signals(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}signals:{symbol}:{timeframe}"
 
@@ -59,6 +69,7 @@ def get_stream_maxlen(
     timeframe: str,
     kind: Literal[
         "ticks", "market", "indicators", "intelligence",
+        "intelligence_i7", "intelligence_i8",
         "signals", "signals_aggregated", "narratives", "narratives_group",
     ],
 ) -> int:
@@ -74,6 +85,8 @@ def get_stream_maxlen(
         return 1000
     if kind == "intelligence":
         return 1000
+    if kind in {"intelligence_i7", "intelligence_i8"}:
+        return 200
     if kind == "signals":
         return 500
     if kind == "signals_aggregated":
@@ -100,6 +113,14 @@ def indicators_pattern(env_prefix: str) -> str:
 
 def intelligence_pattern(env_prefix: str) -> str:
     return f"{env_prefix}intelligence:*:*"
+
+
+def intelligence_i7_pattern(env_prefix: str) -> str:
+    return f"{env_prefix}intelligence_i7:*:*"
+
+
+def intelligence_i8_pattern(env_prefix: str) -> str:
+    return f"{env_prefix}intelligence_i8:*:*"
 
 
 def signals_pattern(env_prefix: str) -> str:
