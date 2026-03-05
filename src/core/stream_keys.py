@@ -65,12 +65,28 @@ def narratives_group(env_prefix: str, group_name: str) -> str:
     return f"{env_prefix}narratives:group:{group_name}"
 
 
+def llm_calls_stream(env_prefix: str) -> str:
+    """Stream written by ai_narrative_service after every LLM call."""
+    return f"{env_prefix}llm_calls:stream"
+
+
+def llm_outcomes_stream(env_prefix: str) -> str:
+    """Stream written by signal_lifecycle_service on signal exit for outcome back-fill."""
+    return f"{env_prefix}llm_outcomes:stream"
+
+
+def llm_scores_cache(env_prefix: str, call_type: str, regime: str) -> str:
+    """Redis HSET key for model score blobs keyed by model name."""
+    return f"{env_prefix}llm_scores:{call_type}:{regime}"
+
+
 def get_stream_maxlen(
     timeframe: str,
     kind: Literal[
         "ticks", "market", "indicators", "intelligence",
         "intelligence_i7", "intelligence_i8",
         "signals", "signals_aggregated", "narratives", "narratives_group",
+        "llm_calls", "llm_outcomes",
     ],
 ) -> int:
     if kind == "ticks":
@@ -95,6 +111,10 @@ def get_stream_maxlen(
         return 100
     if kind == "narratives_group":
         return 50
+    if kind == "llm_calls":
+        return 500
+    if kind == "llm_outcomes":
+        return 200
     return 1000
 
 
