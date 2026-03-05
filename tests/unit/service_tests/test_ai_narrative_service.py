@@ -80,11 +80,15 @@ async def test_process_message_publishes_narrative():
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
 
-    # Stream publish
-    svc.redis_client.xadd.assert_called_once()
-    call_args = svc.redis_client.xadd.call_args[0]
-    stream_name = call_args[0]
-    msg = call_args[1]
+    # Stream publish — narratives xadd plus i8 xadd (>= 1 total)
+    assert svc.redis_client.xadd.call_count >= 1
+    # Find the narratives call specifically
+    narrative_call = next(
+        c for c in svc.redis_client.xadd.call_args_list
+        if "narratives" in str(c.args[0])
+    )
+    stream_name = narrative_call.args[0]
+    msg = narrative_call.args[1]
     assert "narratives:ESH6:5m" in stream_name
     assert msg["narrative"] == fake_narrative
     assert msg["action_bias"] == "bullish"
@@ -351,3 +355,154 @@ def test_stream_map_populated_after_setup():
     symbols = svc.config["service"]["symbols"]
     tfs = svc.config["service"]["timeframes"]
     assert len(svc._stream_map) == len(symbols) * len(tfs)
+
+
+# -- i8 enrichment stream publish --------------------------------------------------
+
+
+def _make_service_new():
+    """Build AINarrativeService via __new__ (bypass __init__ to avoid LLM chain setup)."""
+    from services.ai_narrative_service import AINarrativeService
+
+    svc = AINarrativeService.__new__(AINarrativeService)
+    svc.logger = MagicMock()
+    svc.running = False
+    svc.shutdown_requested = False
+    svc.env_prefix = "development:"
+    svc.consumer_group = "ai_narrative"
+    svc.consumer_name = "narrative_test"
+    svc._stream_map = {}
+    svc._latest_signals = {}
+
+    # Metrics stubs
+    svc.narratives_generated_total = MagicMock()
+    svc.narratives_skipped_total = MagicMock()
+    svc.ollama_latency_ms = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc.group_narratives_generated = MagicMock()
+    svc._total_narratives = 0
+    svc._error_count = 0
+
+    # LLM chain mock
+    svc.per_signal_chain = MagicMock()
+    svc.per_signal_chain.last_provider_id = "zai"
+    svc._per_signal_timeout = 30.0
+
+    # Redis mock
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xadd = AsyncMock()
+    svc.redis_client.hset = AsyncMock()
+    svc.redis_client.expire = AsyncMock()
+
+    return svc
+
+
+def _make_signal_fields_i8(confidence: float = 0.80, direction: int = 1) -> dict[bytes, bytes]:
+    """Build a signals:aggregated stream message fields dict."""
+    return {
+        b"symbol": b"ESH6",
+        b"timeframe": b"5m",
+        b"timestamp": b"2026-03-04T10:00:00+00:00",
+        b"direction": str(direction).encode(),
+        b"confidence": str(confidence).encode(),
+        b"confluence_score": b"0.75",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following_long",
+        b"entry_price": b"5100.0",
+        b"stop_loss": b"5080.0",
+        b"profit_target": b"5140.0",
+        b"risk_reward_ratio": b"2.0",
+        b"regime_context": b"trend_up",
+        b"supporting_factors": b"rsi_aligned",
+    }
+
+
+@pytest.mark.asyncio
+async def test_i8_publish_called_when_narrative_generated():
+    """xadd called for both narratives and i8 streams when narrative succeeds."""
+    svc = _make_service_new()
+    svc.per_signal_chain.generate = AsyncMock(return_value="Bullish trend setup, entry at 5100.")
+
+    fields = _make_signal_fields_i8(confidence=0.85)
+    await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+
+    # xadd called at least twice: narratives + i8
+    assert svc.redis_client.xadd.call_count >= 2
+
+    # One of the calls must be to the i8 stream
+    call_args_list = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
+    assert any("intelligence_i8" in name for name in call_args_list), (
+        f"No i8 xadd found. Streams called: {call_args_list}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_i8_not_published_when_narrative_empty():
+    """No i8 xadd when Ollama/LLM returns empty string."""
+    svc = _make_service_new()
+    svc.per_signal_chain.generate = AsyncMock(return_value=None)
+
+    fields = _make_signal_fields_i8(confidence=0.85)
+    await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+
+    call_args_list = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
+    assert not any("intelligence_i8" in name for name in call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_i8_payload_shape():
+    """i8 xadd message has required keys: ts, symbol, tf, model, confidence, summary, generated_at."""
+    svc = _make_service_new()
+    svc.per_signal_chain.generate = AsyncMock(return_value="Short narrative for test.")
+
+    fields = _make_signal_fields_i8(confidence=0.85)
+    await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+
+    # Find the i8 xadd call
+    i8_call = None
+    for c in svc.redis_client.xadd.call_args_list:
+        if "intelligence_i8" in str(c.args[0]):
+            i8_call = c
+            break
+    assert i8_call is not None, "Expected i8 xadd call not found"
+
+    payload = i8_call.args[1]
+    for key in ("ts", "symbol", "tf", "model", "confidence", "summary", "generated_at"):
+        assert key in payload, f"Missing key in i8 payload: {key}"
+    assert payload["symbol"] == "ESH6"
+    assert payload["tf"] == "5m"
+    assert payload["model"] == "zai"
+
+
+@pytest.mark.asyncio
+async def test_i8_summary_truncated_at_280_chars():
+    """Summary in i8 payload is capped at 280 characters."""
+    svc = _make_service_new()
+    long_narrative = "A" * 500
+    svc.per_signal_chain.generate = AsyncMock(return_value=long_narrative)
+
+    fields = _make_signal_fields_i8(confidence=0.85)
+    await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+
+    i8_call = None
+    for c in svc.redis_client.xadd.call_args_list:
+        if "intelligence_i8" in str(c.args[0]):
+            i8_call = c
+            break
+    assert i8_call is not None
+    assert len(i8_call.args[1]["summary"]) == 280
+
+
+@pytest.mark.asyncio
+async def test_i8_not_published_on_low_confidence():
+    """confidence <= 0.70 -> skipped before narrative generation, no i8 xadd."""
+    svc = _make_service_new()
+    svc.per_signal_chain.generate = AsyncMock(return_value="Should not be called")
+
+    fields = _make_signal_fields_i8(confidence=0.65)
+    result = await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+
+    assert result is True
+    call_args_list = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
+    assert not any("intelligence_i8" in name for name in call_args_list)
+    svc.per_signal_chain.generate.assert_not_called()
