@@ -350,7 +350,14 @@ Plans:
   4. When a model reaches `is_significant=True` (p < 0.05, n_outcomes >= 30), `ai_narrative_service` moves it to position 0 in the provider chain for that call_type + regime combination at next score refresh
   5. `llm_writer_service` is running as a systemd service (`indicagent-llm-writer`) with Prometheus metrics on its assigned port
 
-**Plans:** TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — Schema foundation: migration 019 + stream key helpers + TDD RED tests
+- [ ] 16-02-PLAN.md — llm_writer_service implementation: batch INSERT, outcome UPDATE, score recompute (GREEN)
+- [ ] 16-03-PLAN.md — ai_narrative_service instrumentation: xadd on all call paths + adaptive routing
+- [ ] 16-04-PLAN.md — signal_lifecycle_service outcome emission: both exit paths to llm_outcomes:stream
+- [ ] 16-05-PLAN.md — Systemd deployment + migration apply + integration smoke test
 
 ---
 
