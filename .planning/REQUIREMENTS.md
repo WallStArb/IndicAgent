@@ -33,10 +33,10 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 
 *Never lose a training sample. The ML layer cannot be built on incomplete rows. Every bar written to `intelligence_features` today becomes a permanent training record — missing i7/i8 data cannot be retroactively recovered at scale.*
 
-- [ ] **DATA-01**: `intelligence_features` has an `i7 JSONB NOT NULL DEFAULT '{}'` column populated with which setups fired per bar, their confidence scores, and direction — using the enrichment stream pattern (signal_generator publishes to `intelligence_i7:SYMBOL:TF`; feature_writer UPSERTs)
-- [ ] **DATA-02**: `intelligence_features` has an `i8 JSONB NOT NULL DEFAULT '{}'` column populated with AI narrative metadata per bar (model, confidence, summary) when narrative is available
-- [ ] **DATA-03**: `feature_writer_service` uses a single concurrent `xreadgroup` call for all streams (not sequential polling) — eliminates worst-case 9.2s lag and ensures feature rows align temporally with the bars they describe
-- [ ] **DATA-04**: `intelligence_features` has a `days_to_expiry INTEGER` column populated at write time from `get_active_contracts()` — roll proximity is a genuine regime signal for futures (liquidity shifts, basis widening near expiry)
+- [x] **DATA-01**: `intelligence_features` has an `i7 JSONB NOT NULL DEFAULT '{}'` column populated with which setups fired per bar, their confidence scores, and direction — using the enrichment stream pattern (signal_generator publishes to `intelligence_i7:SYMBOL:TF`; feature_writer UPSERTs)
+- [x] **DATA-02**: `intelligence_features` has an `i8 JSONB NOT NULL DEFAULT '{}'` column populated with AI narrative metadata per bar (model, confidence, summary) when narrative is available
+- [x] **DATA-03**: `feature_writer_service` uses a single concurrent `xreadgroup` call for all streams (not sequential polling) — eliminates worst-case 9.2s lag and ensures feature rows align temporally with the bars they describe
+- [x] **DATA-04**: `intelligence_features` has a `days_to_expiry INTEGER` column populated at write time from `get_active_contracts()` — roll proximity is a genuine regime signal for futures (liquidity shifts, basis widening near expiry)
 
 ### Discipline 3: Feedback Loop (FEED)
 
@@ -104,10 +104,10 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | SIGINT-03 | Phase 12 | Complete |
 | SIGINT-04 | Phase 12 | Complete |
 | SIGINT-05 | Phase 12 | Complete |
-| DATA-01 | Phase 13 | Pending |
-| DATA-02 | Phase 13 | Pending |
-| DATA-03 | Phase 13 | Pending |
-| DATA-04 | Phase 13 | Pending |
+| DATA-01 | Phase 13 | Complete |
+| DATA-02 | Phase 13 | Complete |
+| DATA-03 | Phase 13 | Complete |
+| DATA-04 | Phase 13 | Complete |
 | FEED-01 | Phase 14 | Pending |
 | FEED-02 | Phase 14 | Pending |
 | FEED-03 | Phase 14 | Pending |

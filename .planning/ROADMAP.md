@@ -265,10 +265,10 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
-- [ ] 12-01-PLAN.md — Write Wave 0 failing tests for all 5 SIGINT requirements (TDD RED phase)
-- [ ] 12-02-PLAN.md — Add regime_type class attribute to all 17 I7 plugin dataclasses
-- [ ] 12-03-PLAN.md — Refactor aggregator (shadow signal gate) + signal_generator (regime cache + wiring)
-- [ ] 12-04-PLAN.md — Extend signal_ledger query + implement shadow signal virtual-activation in lifecycle service
+- [x] 12-01-PLAN.md — Write Wave 0 failing tests for all 5 SIGINT requirements (TDD RED phase)
+- [x] 12-02-PLAN.md — Add regime_type class attribute to all 17 I7 plugin dataclasses
+- [x] 12-03-PLAN.md — Refactor aggregator (shadow signal gate) + signal_generator (regime cache + wiring)
+- [x] 12-04-PLAN.md — Extend signal_ledger query + implement shadow signal virtual-activation in lifecycle service
 
 ---
 
@@ -286,7 +286,7 @@ Plans:
   3. `feature_writer_service` reads all streams in a single concurrent `xreadgroup` call — lag between a bar completing and its feature row appearing drops to under 2 seconds, verifiable from service metrics
   4. Every `intelligence_features` row has a `days_to_expiry` integer populated (0 for non-futures, positive integer for futures contracts based on `get_active_contracts()` expiry)
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 - [ ] 13-01-PLAN.md — DB migration (i7/i8/days_to_expiry columns) + stream key constructors
@@ -358,7 +358,7 @@ Plans:
 | 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
-| 13. Data Completeness | v1.4 | 0/4 | In planning | — |
+| 13. Data Completeness | 1/4 | In Progress|  | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 
