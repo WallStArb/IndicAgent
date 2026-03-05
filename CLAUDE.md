@@ -16,6 +16,9 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 |-------|----------|-------------|
 | **Ideas** | `.planning/IDEAS.md` | Rough bullet captures |
 | **Ideas (detailed)** | `docs/ideas/*.md` | Context, trade-offs, open questions |
+| **TradeAgent vision** | `docs/ideas/tradeagent-vision.md` | Autonomous trading app (separate repo): agents, broker-agnostic execution, learning, HITL, guardrails, dashboards. Consumes IndicAgent + QualAgent signals. |
+| **QualAgent vision** | `docs/ideas/qualagent-vision.md` | Standalone qualitative intelligence platform (separate repo): macro regime, COT, prediction markets, news NLP, sentiment, QualScore, quantamental feedback loop. Build deferred. |
+| **DerivAgent vision** | `docs/ideas/derivagent-vision.md` | Derivatives intelligence + autonomous options execution platform (separate repo, name confirmed): vol surface, GEX, VANNA/CHARM, VRP, skew, term structure + agentic strategy selection, multi-leg execution, Greeks management, lifecycle, learning loop. Build deferred. |
 | **Analysis** | `docs/plans/*.md` | Design docs, architecture decisions, brainstorming outputs |
 | **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features |
 | **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements |

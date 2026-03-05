@@ -98,9 +98,128 @@ Shared-brain model: data costs are fixed per symbol, not per user. At 1,000 Pro 
 
 ---
 
+## Competitive Landscape
+
+### Option Alpha (optionalpha.com/bots)
+
+**What they are:** A no-code automated trading platform for options and stocks. Users build "bots" using natural language "recipes" — deterministic if-then rules applied to standard technical indicators and position data. Connects to TradeStation and Tradier. Recently moved to a **free** model with broker connection.
+
+**What they do well:**
+- Clean UX for non-coders; accessible to a wide retail audience
+- Template library lets users adopt strategies without building from scratch
+- Good execution infrastructure (SmartPricing, position limits, scheduling)
+- Paper trading and bot logs — transparency and testing
+- Community sharing of templates
+
+**The critical limitation — they automate rules, they don't generate intelligence:**
+
+Option Alpha's "intelligence" is the user's own rule — "if RSI < 30 AND price > VWAP, buy." The platform executes that rule reliably. It does not:
+- Generate signals through a multi-tier analytical pipeline
+- Know what macro regime the market is in
+- Understand derivatives structure (no GEX, no vol surface, no VRP)
+- Adapt based on outcomes (no feedback loop)
+- Synthesize qualitative context (no news regime, no COT, no prediction markets)
+- Reason over context — it applies rules, not judgment
+
+**What their free pricing tells us:** Basic trading automation is being commoditized. The differentiation edge has to be in **intelligence depth**, not automation infrastructure. A rule engine is table stakes. The question is what the rule is based on — and that is precisely what IndicAgent, QualAgent, and DerivAgent provide.
+
+**Competitive positioning of our stack vs Option Alpha:**
+
+| Capability | Option Alpha | Our stack |
+|-----------|-------------|-----------|
+| Signal generation | User-defined if-then rules | IndicAgent I1–I8 multi-tier pipeline |
+| Regime awareness | None | IndicAgent I4 + QualAgent macro regime |
+| Qualitative context | None | QualAgent: COT, prediction markets, macro, sentiment |
+| Derivatives structure | Standard indicators only | DerivAgent: GEX, VRP, vol surface, VANNA/CHARM |
+| Decision layer | Deterministic rules | TradeAgent: LLM-assisted lead agent over full context |
+| Self-improvement | None | Signal ledger → feedback loop → adaptive weights |
+| Narrative / explanation | None | I8 AI narrative + QualAgent synthesis |
+| Target instrument | Options + equities | Futures (then expanding) |
+| Pricing model | Free (broker-connected) | Subscription tiers + performance layer |
+
+**The key insight from Option Alpha:** The retail market wants automation but is getting rule-based automation. Our product delivers **intelligence-based** automation — the system understands context, not just conditions. That is a different product category even if it looks similar from the outside.
+
+**Reference:** [Option Alpha Bots](https://optionalpha.com/bots)
+
+---
+
 ## Open Questions
 
 - Target user profile: discretionary trader (dashboard-first) vs. systematic trader (API-first)?
 - How much of the intelligence methodology to expose vs. keep as black box?
 - Solo venture or bring in partners/team early?
 - Jurisdiction for regulatory considerations (market data redistribution, financial advice disclaimers)
+
+---
+
+## Product Family & Suite Naming
+
+*Captured 2026-03-04. As the platform grows from IndicAgent to a four-product suite (IndicAgent + QualAgent + DerivAgent + TradeAgent), the suite needs its own brand identity.*
+
+### The problem with individual product names as .com
+
+- `tradeagent.com` — **not available**
+- `qualagent.com` — **not available**
+- `indicagent.com` / `indicagent.io` — check / TBC
+- `derivagent.com` — likely available (new concept)
+
+### TLD strategy
+
+For an AI-native platform in 2026, **.ai is more credible than .com**. The namespace is less saturated and the TLD signals what the product is before any copy is read. `.io` is the backup — widely trusted in fintech infrastructure.
+
+Priority: `[product].ai` → `[product].io` → `[product].com`
+
+### Suite name candidates
+
+The suite needs a name that encompasses quant + qual + deriv + trade without being confused with any individual component. Evaluated below:
+
+| Name | Verdict | Reasoning |
+|------|---------|-----------|
+| **QuantAgent** | ❌ Avoid | Implies quant-only; contradicts QualAgent's entire purpose; confused with IndicAgent |
+| **AlphaAgent** | ✅ Strong | Universal hedge fund language; the whole suite exists to generate alpha; short, memorable, immediately understood. Check `alphaagent.ai` |
+| **SpectraAgent** | ✅ Distinctive | Spectrum metaphor — each product is a wavelength of market intelligence. Unique, ownable, visual. Check `spectra.ai` |
+| **ApexAgent** | ⚠️ Decent | The apex of market intelligence. Simple. Risks sounding generic/fitness-brand. |
+| **SynthAgent** | ⚠️ Interesting | The synthesis narrative is the core value prop. But sounds like a chemistry/audio product. |
+| **NexusAgent** | ❌ Generic | Nexus = connection point; correct concept but forgettable tech-startup name. |
+| **AegisAgent** | ⚠️ Strong imagery | Aegis = shield; protecting capital through intelligence. Institutional feel. Less obvious connection to signals. |
+
+### Recommendation
+
+**Primary: AlphaAgent** (`alphaagent.ai`) — clearest statement of the platform's purpose, instantly understood in every hedge fund / prop shop / trading context globally.
+
+**Secondary: SpectraAgent** (`spectra.ai`) — if AlphaAgent.ai is taken or too generic; more ownable as a brand.
+
+### Domain structure options
+
+**Option A — Suite domain, subdomains per product:**
+```
+alphaagent.ai           → marketing site, suite overview
+indic.alphaagent.ai     → IndicAgent dashboard
+trade.alphaagent.ai     → TradeAgent app
+qual.alphaagent.ai      → QualAgent intelligence
+deriv.alphaagent.ai     → DerivAgent overlay
+```
+Best for single-brand marketing. Products feel like features of one platform.
+
+**Option B — Each product gets its own domain:**
+```
+indicagent.ai           → core quant product (existing)
+qualagent.ai            → qualitative add-on
+derivagent.ai           → derivatives overlay
+tradeagent.ai           → execution product
+alphaagent.ai           → suite landing / marketing
+```
+Best for products sold to distinct audiences. IndicAgent SaaS customers ≠ TradeAgent autonomous trading customers.
+
+**Recommended: Option B** — the products serve meaningfully different buyer profiles and will be launched sequentially. Each product should be able to stand alone commercially. The suite domain (`alphaagent.ai`) becomes the master brand and cross-links all four.
+
+### Commercial tier evolution (with expanded product family)
+
+| Phase | Product | Price range | Primary buyer |
+|-------|---------|------------|--------------|
+| **Phase 1** | IndicAgent SaaS | $49–299/mo | Discretionary futures trader |
+| **Phase 2** | QualAgent context add-on | $199–399/mo | Systematic trader, small fund |
+| **Phase 3** | DerivAgent overlay | $299–599/mo | Options-aware trader, prop shop |
+| **Phase 4** | TradeAgent execution | Subscription + performance fee | Affluent trader, family office |
+
+The moat is not any single product — it is the **compounding intelligence** when all four are connected. A competitor can copy one product; they cannot replicate four years of live `signal_ledger` outcomes feeding a self-improving QualScore.
