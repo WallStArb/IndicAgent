@@ -182,7 +182,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Services**: graceful SIGINT/SIGTERM, drain queues, `await` Redis close, idempotent consumer groups.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series.
+- **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series. No `--config`/`--flagfile` flag — pass all settings as CLI args only.
+- **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks don't restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in the test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise the service silently fails mid-test with a misleading error.
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
@@ -191,11 +192,11 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## System Access
 
-- **Sudo password:** `***REDACTED-SUDO-PASSWORD***`
+- **Sudo password:** `***REDACTED-SUDO-PASSWORD***` — `sudo-rs` (Rust sudo) does NOT support `-S` stdin. Ask user to run sudo commands in their terminal directly.
 
 ## Environment Variables
 
-`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `REDIS_URL`, `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3:8b`
+`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `REDIS_URL`, `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
 
 ## Current Status
 
