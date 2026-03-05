@@ -122,14 +122,14 @@ For us: **same Kafka client code, dramatically simpler to run**. No ZooKeeper, n
 
 **Cross-product replay for free.** When DerivAgent subscribes to `intelligence` for the first time, it can start from offset 0 and process every historical event. This enables zero-touch bootstrap of new products.
 
-### Drop DragonflyDB entirely — the case for two-component infrastructure
+### Redpanda only — start clean, add DragonflyDB when a real trigger exists
 
-After migrating streams to Redpanda, DragonflyDB's only remaining job is one Redis hash: `price:SYMBOL:latest`, read by `signal_generator_service` for live bid/ask at signal time.
+**The decision: Redpanda is the only event bus. DragonflyDB is not in the initial target stack.**
 
-That does not justify running a separate in-memory store. The right replacement is **in-process state in signal_generator**. The service already subscribes to bar and intelligence streams — it can maintain an in-memory dict updated from the tick stream. No external lookup. No network call. No second infrastructure component.
+The one remaining non-stream use (the `price:SYMBOL:latest` hash) is replaced with in-process state in signal_generator:
 
 ```python
-# signal_generator — replace HGETALL with in-process cache
+# signal_generator — replace HGETALL with in-process dict
 self._live_quotes: dict[str, dict] = {}
 
 async def _on_tick(self, symbol: str, bid: float, ask: float):
@@ -139,7 +139,7 @@ def _get_spread(self, symbol: str) -> dict:
     return self._live_quotes.get(symbol, {"bid": None, "ask": None})
 ```
 
-**Result: the full platform runs on two infrastructure components.**
+**Target infrastructure: two components.**
 
 ```
 Redpanda        → ALL streams
@@ -152,7 +152,7 @@ PostgreSQL      → Cold tier
 + pgvector        vector search — regime analogs, vol surface matching (extension, no new service)
 ```
 
-DragonflyDB is retired. Three components → two. The operational simplicity gain is significant — one fewer service to monitor, patch, and recover when things go wrong.
+DragonflyDB has well-defined roles where it is the right tool — see "When to add DragonflyDB" below. None of those triggers apply to the current platform. Start simple. Add it when a trigger is real and measurable.
 
 ### Why Redpanda for BOTH hot AND warm — not just one
 
@@ -318,12 +318,26 @@ For scheduled triggers (run at 9:45 ET every weekday), APScheduler is a Python l
 
 ### When to consider Temporal
 
-Temporal (MIT) is the right tool when:
-- Hundreds of concurrent strategy workflows are running simultaneously
-- Workflow state needs to survive service restarts reliably across complex multi-day sequences
-- A workflow failure mid-execution needs guaranteed resumption from the exact failed step
+**Important:** Temporal is NOT a library. It is a server (separate process, requires PostgreSQL or Cassandra) plus an SDK. It carries real operational overhead — another service to run, monitor, and recover.
 
-That moment arrives at institutional scale with many accounts running many strategies simultaneously. Not in the near term. Note it as a future upgrade.
+| | LangGraph + APScheduler | Temporal |
+|---|---|---|
+| **Infrastructure** | Zero — libraries in your process | Temporal server + DB required |
+| **Workflow durability** | State lives in memory | Server persists state — survives crashes |
+| **Long-running workflows** | You manage restarts manually | Server resumes from exact failed step |
+| **Retry logic** | You write it | Built-in, declarative |
+| **Visibility** | Your logs | Full workflow history UI, execution timeline |
+| **Concurrency** | Bounded by your process | Designed for millions of concurrent workflows |
+
+Temporal is the right tool when:
+- Hundreds of concurrent strategy workflows are running simultaneously across many accounts
+- Workflow state must survive service restarts across **multi-day or multi-week** sequences (e.g., a 21-day theta decay strategy)
+- A workflow failure mid-execution requires guaranteed resumption from the exact failed step
+- A full audit trail of every workflow decision is required (regulatory or risk management)
+
+For bar-based strategy bots that complete in minutes to hours on a single machine, LangGraph is sufficient. The moment a real production crash shows that a strategy workflow died mid-execution and lost state — that's the trigger to evaluate Temporal.
+
+That moment arrives at institutional scale. Not in the near term.
 
 ---
 
@@ -346,22 +360,153 @@ Consider adding **Loki** (Grafana's log aggregation system, Apache 2.0) alongsid
 | **Temporal** | LangGraph + APScheduler cover the near-term workflow use case. Temporal is the institutional-scale upgrade. |
 | **MinIO** | Add only when object storage is actually needed (model artifacts, bulk exports). Not a current requirement. |
 | **MongoDB / Cassandra** | PostgreSQL with TimescaleDB handles the data model. No need for a document or wide-column store. |
+| **RabbitMQ / ActiveMQ / SQS** | No traditional message queue needed. Redpanda consumer groups handle work distribution. The one request/reply use case (AegisAgent pre-trade check) is better served by a direct HTTP call — not a queue. See below. |
 
 ---
 
-## Recommended full stack (near-term evolution)
+## Redpanda is not a message queue — and that's fine
 
-| Layer | Technology | When to add | Notes |
-|-------|-----------|-------------|-------|
-| **Event bus** | → **Redpanda** | Before QualAgent | Replaces DragonflyDB streams |
-| **Key/value cache** | DragonflyDB | Keep now | Remains for current state, caching |
-| **Time-series DB** | TimescaleDB | Keep now | Feature store, signal ledger |
-| **Vector search** | **pgvector** | With QualAgent | Extension on existing PostgreSQL |
-| **Workflows** | LangGraph + **APScheduler** | With strategy bots | APScheduler is a library, not infra |
-| **Observability** | Prometheus + **Grafana (+ Loki)** | Near-term | Single Docker container |
-| **OLAP analytics** | TimescaleDB continuous aggregates | Now (already available) | Use more aggressively before ClickHouse |
+Redpanda (Kafka model) and traditional MQs (RabbitMQ, SQS) are different tools:
 
-Everything is open source. Everything is self-hostable. Everything consolidates around PostgreSQL and Redpanda as the two core infrastructure components.
+| | Redpanda / Kafka | Traditional MQ |
+|---|---|---|
+| **Message lifecycle** | Retained in log until retention period expires | Deleted after consumer acknowledges |
+| **Multiple consumers** | Each consumer group reads all messages independently | One consumer per message (point-to-point) |
+| **Replay** | Any consumer group can seek to any offset and replay | No replay — once consumed, gone |
+| **Best for** | Event streaming, pub/sub, data pipelines | Task queues, work distribution, RPC |
+
+**Consumer groups give queue-like distribution.** Within a single consumer group, messages are distributed across consumers — each message processed by exactly one consumer in the group. This handles multi-instance service scaling without a separate MQ.
+
+**The one genuinely queue-like pattern in our platform: pre-trade check.**
+
+AegisAgent's pre-trade check is a **request/reply** pattern — TradeAgent needs a synchronous answer before proceeding. Kafka/Redpanda wasn't designed for this. Options:
+
+1. **Correlation ID pattern on Redpanda** — works but adds complexity (publish request, filter response by correlation ID)
+2. **Direct HTTP call to AegisAgent API** ✅ — synchronous, simple, correct tool for a blocking request
+
+**Decision: pre-trade check is HTTP, not bus.**
+
+> The bus is for **events** (things that happened, many consumers, async).  
+> HTTP is for **requests** (I need an answer right now, one caller, one responder).
+
+This principle applies platform-wide: intelligence signals, regime states, fills, portfolio updates → bus. Pre-trade checks, configuration reads, health checks → HTTP.
+
+---
+
+## Recommended full stack
+
+| Layer | Technology | Status | Notes |
+|-------|-----------|--------|-------|
+| **Event bus** | **Redpanda** | Migrate before QualAgent | Replaces all DragonflyDB streams |
+| **Key/value cache** | ~~DragonflyDB~~ → in-process | On migration | `price:SYMBOL:latest` replaced by signal_generator in-process dict |
+| **Time-series DB** | **TimescaleDB** | Live, keep | Feature store, signal ledger |
+| **Vector search** | **pgvector** | Add with QualAgent | PostgreSQL extension, zero new infra |
+| **Workflows** | **LangGraph + APScheduler** | Add with strategy bots | LangGraph already in stack; APScheduler is a library |
+| **Observability** | **Prometheus + Grafana** | Near-term | Grafana is one Docker container |
+| **OLAP analytics** | TimescaleDB continuous aggregates | Use now | Available today; only consider ClickHouse when provably needed |
+| **Service APIs** | **FastAPI** (existing) | Live, keep | Pre-trade checks and config calls go here, not through the bus |
+| **DragonflyDB** | *(conditional, see triggers)* | Add when triggered | Tick SaaS fan-out, options chain state (DerivAgent), or scale fan-out |
+
+**Target infrastructure: Redpanda + PostgreSQL (TimescaleDB + pgvector).** Two components. DragonflyDB added only when a specific trigger is real. Everything is open source and self-hostable.
+
+---
+
+## When to add DragonflyDB — three specific triggers
+
+DragonflyDB is the right tool for certain problems. None of those problems exist yet. When one of the three triggers below is real and measurable, add DragonflyDB for that specific role. It does not replace Redpanda — it complements it for the use cases where RAM-primary, sub-ms access is the correct model.
+
+### The performance difference (evaluated and documented)
+
+| | DragonflyDB | Redpanda |
+|---|---|---|
+| **Typical latency** | < 1ms (~0.3–0.5ms) | 5–15ms |
+| **P99 tail latency** | ~1–2ms under heavy load | 10–25ms |
+| **Architecture** | Multi-threaded, shared-nothing | Thread-per-core, C++ |
+| **Storage** | RAM-primary (snapshots to disk) | NVMe/SSD append-only log |
+| **Max throughput** | 4M–15M+ ops/sec (single node) | GB/s+ (disk-bound) |
+| **Fan-out model** | Push (pub/sub) — all subscribers receive immediately | Pull (consumer poll) — each consumer polls independently |
+
+### Trigger 1 — Tick streaming SaaS tier
+
+**When:** A paid subscription tier offers live tick/quote streaming to external subscribers and < 5ms delivery matters commercially.
+
+**Why DragonflyDB:** Redpanda's pull model requires each external subscriber to poll independently. DragonflyDB's pub/sub is a push model — one publish event delivers to all N subscribers simultaneously with < 1ms fan-out. At 1000+ concurrent subscribers all wanting tick data, this is the correct architecture.
+
+**Important context:** The current tick publisher (`async_tick_publisher.py`) already introduces up to 30ms batching delay by design. True sub-5ms tick streaming requires a dedicated DragonflyDB pub/sub path bypassing the adaptive batcher — it is a distinct product feature, not just an infrastructure change.
+
+```
+IBKR tick → DragonflyDB pub/sub channel
+                    │
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼          < 2ms total
+   SSE client  SSE client  SSE client
+        │
+  (fan-out service subscribes to channel,
+   broadcasts to N connected SSE clients)
+
+Bar/intelligence pipeline → Redpanda (unchanged)
+```
+
+**Trigger:** Tick streaming tier is defined as a product feature and user count makes Redpanda fan-out latency a real user complaint.
+
+---
+
+### Trigger 2 — DerivAgent options chain state store
+
+**When:** DerivAgent is built and requires a high-speed, randomly-accessible store for full options chain state.
+
+**Why DragonflyDB:** An SPX options chain alone is 20,000+ contracts (100 expiries × 200+ strikes), each with bid/ask/IV/Greeks/OI. Vol surface construction and GEX computation require random access by strike and expiry — "give me all contracts expiring March 21" — not sequential log reads. This is a key/value lookup workload, not a streaming workload.
+
+```
+External feed (Polygon / CBOE / IBKR)
+    │
+    └→ DragonflyDB (options chain state store)
+         key: chain:{SYMBOL}:{strike}:{expiry}
+         value: {bid, ask, iv, delta, gamma, theta, vega, oi}
+         → sub-ms random access for vol surface fitting
+         → sub-ms access for GEX computation across all strikes
+
+         Chain data is ephemeral — no replay of 3-month-old option quotes needed.
+
+DerivAgent outputs → Redpanda (derived signals only):
+    deriv.vol_regime, deriv.gex, deriv.vrp, deriv.skew
+```
+
+Nobody else needs the raw chain data. Only DerivAgent's analytics read it. Derived signals go to Redpanda.
+
+**Trigger:** DerivAgent is being built and options chain access patterns are confirmed.
+
+---
+
+### Trigger 3 — High-scale Redpanda consumer fan-out bottleneck
+
+**When:** SaaS user count reaches a level where thousands of concurrent Redpanda consumers create measurable CPU/memory overhead on the Redpanda cluster.
+
+**Why DragonflyDB:** Redpanda was designed for high throughput with moderate consumer counts. Thousands of persistent consumer connections each polling independently creates overhead that grows linearly. DragonflyDB pub/sub is designed for exactly this fan-out pattern.
+
+**Architecture when triggered:**
+```
+Redpanda → ONE internal fan-out service (single consumer)
+                │
+                └→ DragonflyDB pub/sub channel
+                            │
+                  N external subscribers (push delivery)
+```
+
+**Trigger:** Monitoring shows Redpanda consumer connection overhead is measurable at current scale. Not a concern before thousands of concurrent subscribers.
+
+---
+
+### Summary: Redpanda and DragonflyDB are complementary, not competing
+
+| Role | Tool | Why |
+|------|------|-----|
+| Inter-product event bus (durable, replayable) | **Redpanda** | Log model, consumer groups, replay |
+| Hot tick buffer for streaming SaaS tier | **DragonflyDB** (Trigger 1) | Sub-ms push fan-out |
+| Options chain state store (DerivAgent) | **DragonflyDB** (Trigger 2) | RAM-primary key/value, random access |
+| External subscriber fan-out at scale | **DragonflyDB** (Trigger 3) | Pub/sub push model, millions of connections |
+
+Start with Redpanda only. Add DragonflyDB when a trigger is real.
 
 ---
 
@@ -369,9 +514,11 @@ Everything is open source. Everything is self-hostable. Everything consolidates 
 
 | Date | Decision | Reasoning |
 |------|---------|-----------|
-| 2026-03-04 | DragonflyDB retired entirely on Redpanda migration | Only remaining use was `price:SYMBOL:latest` hash in signal_generator. Replaced with in-process state. No need for a third infrastructure component. |
-| 2026-03-04 | Redpanda replaces DragonflyDB streams (before QualAgent) | Durable replay, consumer offsets, cross-product stream contracts. Now is the lowest-friction migration window. Full stack becomes Redpanda + PostgreSQL only. |
+| 2026-03-04 | Redpanda replaces all DragonflyDB streams (migrate before QualAgent) | Durable replay, consumer offsets, schema registry, cross-product stream contracts. Now is the lowest-friction migration window — one product, 8 services, no established cross-product contracts yet. |
+| 2026-03-04 | DragonflyDB dropped from initial target stack | Remaining use (`price:SYMBOL:latest` hash) replaced with in-process state in signal_generator. Start simple: Redpanda + PostgreSQL. Add DragonflyDB when a specific trigger is real (tick SaaS fan-out, DerivAgent options chain, or scale fan-out bottleneck). |
+| 2026-03-04 | Redpanda for BOTH hot and warm tiers | The hot/warm distinction is conceptual, not infrastructural. Both benefit from durability and replay. Single streaming system is simpler to operate. |
 | 2026-03-04 | pgvector over Qdrant | Zero new infra, already in PostgreSQL, sufficient for near-term scale. |
 | 2026-03-04 | No ClickHouse yet | TimescaleDB continuous aggregates are sufficient. Add ClickHouse only when provably needed. |
 | 2026-03-04 | LangGraph + APScheduler over Temporal | LangGraph already in stack. APScheduler is a library. Temporal is the institutional-scale upgrade path. |
-| 2026-03-04 | Redpanda for BOTH hot and warm tiers | The hot/warm distinction is conceptual, not infrastructural. Both benefit from durability and replay. Single streaming system is simpler to operate. |
+| 2026-03-04 | No message queue (RabbitMQ etc.) | Redpanda consumer groups handle work distribution. No traditional MQ patterns in our use cases. |
+| 2026-03-04 | Pre-trade check via HTTP not bus | Request/reply patterns (need an answer now, one caller, one responder) belong on HTTP. The bus is for events (async, many consumers). AegisAgent exposes a FastAPI endpoint for pre-trade checks. |

@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 1.3.0 | **Status:** v1.3 complete | 88 plugins · 1083 tests · 24 instruments
+**Version:** 1.4.0-dev | **Status:** v1.3 complete · v1.4 in progress | 88 plugins · 1117 tests · 24 instruments
 
 ---
 
@@ -16,7 +16,7 @@ Every output at every tier is encoded into a **canonical `IntelligenceEvent`, a 
 
 The architecture is designed to be **externally consumable**: a FastAPI layer with JWT + API key auth exposes the full intelligence stream over SSE and REST, so downstream applications (a Vercel dashboard, a Slack bot, an algorithmic execution system, an ML scoring model) subscribe to the same vetted, structured signal stream. The 8 services are fully systemd-managed with Prometheus metrics on each, making production operation as straightforward as running any other infrastructure daemon.
 
-The platform ingests 100–500+ ticks/sec across 24 instruments (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 87 intelligence plugins in a strict DAG, and delivers structured, AI-enriched market intelligence to any connected consumer. No database in the hot path.
+The platform ingests 100–500+ ticks/sec across 24 instruments (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 88 intelligence plugins in a strict DAG, and delivers structured, AI-enriched market intelligence to any connected consumer. No database in the hot path.
 
 ---
 
@@ -291,7 +291,7 @@ pip install -r requirements.txt
 docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 timescale/timescaledb:latest-pg15
 docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
 # I8 LLM chain: ZAI_API_KEY (primary) + OPENROUTER_API_KEY (fallback) in .env
-# Ollama is the offline last-resort: ollama run qwen3:8b
+# Ollama is the offline last-resort: ollama run qwen3.5:9b
 
 # Schema (optional, for cold path)
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
@@ -390,13 +390,14 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status
 
-**v1.3 complete 2026-03-04. Signal Intelligence Expansion shipped.**
+**v1.3 complete 2026-03-04. v1.4 Quant Foundation in progress.**
 
 - **I1–I8 pipeline:** Fully operational. 88 plugins (I1:23, I2:6, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
 - **v1.3 delivered:** Phase 08 (MomentumAcceleration I2), Phase 09 (GapAnalysisSetup I7), Phase 10 (CandlestickPatternSetup I7), Phase 11 (SessionExtremesSetup I7) + Signal Lifecycle redesign (zone-aware lifecycle, 8-class outcome, MAE/MFE tracking).
+- **v1.4 in progress:** Phase 12 Signal Integrity ✅ (regime gating, shadow signals, SIGINT-01–05); Phase 13 Data Completeness, Phase 14 Feedback Loop, Phase 15 Validated Alpha — next.
 - **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
 - **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups.
-- **Test suite:** 1083 passing, 0 ruff errors.
+- **Test suite:** 1117 passing, 0 ruff errors.
 - **Next:** v1.4 (see [Roadmap](.planning/ROADMAP.md)).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
@@ -414,4 +415,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 1.3.0 | **Status:** v1.3 complete, 88 plugins, 1083 tests | **Next:** v1.4
+**Version:** 1.4.0-dev | **Status:** v1.3 complete · v1.4 in progress · 88 plugins · 1117 tests | **Next:** Phase 13 Data Completeness

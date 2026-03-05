@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Version: 5.13.0
-Last Updated: 2026-03-04
+Version: 5.14.0
+Last Updated: 2026-03-05
 Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1117 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
@@ -119,7 +119,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
 | Indicator Service | `indicagent-indicator` | I1: 23 indicators → `indicators:SYMBOL:TF` | :9109 |
 | Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
-| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger` | :9112 |
+| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; needs ~50 live 1m bars (~50 min) warmup after restart before signals fire | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
@@ -175,7 +175,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ### Key Rules
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
-- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils`.
+- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils`. Gotcha: `xgroup_create(..., "$")` silently fails when group exists → stale position → processes old backlog. Fix in `except`: call `xgroup_setid(stream, group, "$")` to force-reset.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests are CI-clean; integration requires live infra.
@@ -183,6 +183,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
 - **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series. No `--config`/`--flagfile` flag — pass all settings as CLI args only.
+- **Redis CLI**: `redis-cli` not installed — test/debug with `.venv/bin/python -c "import redis; print(redis.Redis().ping())"` or `redis.Redis().xlen(key)`.
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks don't restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in the test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise the service silently fails mid-test with a misleading error.

@@ -68,7 +68,7 @@ COLD  (TimescaleDB + pgvector)
 
 The streams are the nervous system. Every event that matters flows through them. Actions are triggered by data events, never by polling.
 
-> **Infrastructure note:** The event bus is **Redpanda** (Kafka-compatible, single binary, no ZooKeeper). DragonflyDB is retired — its only non-stream use was one Redis hash (`price:SYMBOL:latest`) which is replaced by in-process state in the signal generator. Full platform infrastructure: **Redpanda + PostgreSQL** (TimescaleDB + pgvector extensions). See `docs/ideas/tech-stack.md`.
+> **Infrastructure note:** The event bus is **Redpanda** (Kafka-compatible, single binary, no ZooKeeper). Target infrastructure: **Redpanda + PostgreSQL** (TimescaleDB + pgvector extensions). DragonflyDB is not in the initial target stack — it will be added only when a specific trigger is real (tick SaaS fan-out, DerivAgent options chain state, or scale fan-out bottleneck). See `docs/ideas/tech-stack.md`.
 
 ---
 
@@ -171,7 +171,7 @@ The streams are the nervous system. Every event that matters flows through them.
           │  Drawdown limit enforcement                    │
           │  Margin monitoring and alerts                  │
           │  Stress testing (pre-trade + continuous)       │
-          │  Pre-trade risk check (required before fills)  │
+          │  Pre-trade check: HTTP API (synchronous)       │
           │  Emergency trading halt                        │
           │  Correlation and concentration limits          │
           │                                                │
@@ -336,12 +336,16 @@ DerivAgent Execution  (subscribes to: all intelligence + qual + deriv warm strea
   └─→ PUBLISHES: execution:close:ACCOUNT
         SUBSCRIBERS: PrimeAgent · AegisAgent · Learning loop
 
-  ↑ Both execution products SUBSCRIBE to AegisAgent before acting:
+  ↑ Both execution products call AegisAgent via HTTP before acting:
+  │   POST /risk/pretrade  →  {approved, approved_size, warnings}
+  │   Synchronous, blocking. If AegisAgent is unreachable, order is rejected (fail-safe).
+  │   Rule: the bus is for events (async, many consumers).
+  │         HTTP is for requests (need an answer now, one caller, one responder).
   │
   AegisAgent  (subscribes to: market:price + all warm streams + portfolio:state)
   │
-  ├─→ PUBLISHES: risk:pretrade:response        (pre-trade check result — required before fills)
-  │     SUBSCRIBERS: TradeAgent · DerivAgent Execution  [BLOCKING — must receive before order]
+  ├─→ HTTP API: POST /risk/pretrade             (synchronous pre-trade check)
+  │     CALLERS: TradeAgent · DerivAgent Execution  [BLOCKING before every order]
   │
   ├─→ PUBLISHES: risk:alert:ACCOUNT            (non-blocking warning)
   │     SUBSCRIBERS: Dashboard · PrimeAgent
@@ -607,7 +611,8 @@ Defined upfront so all products can be built to the same contract. All keys are 
 | `risk:block:ACCOUNT` | AegisAgent | Soft halt — block new positions **(binding)** |
 | `risk:halt:ACCOUNT` | AegisAgent | Full emergency halt **(binding, immediate)** |
 | `risk:reduce:ACCOUNT` | AegisAgent | Instruct position reduction **(binding)** |
-| `risk:pretrade:response` | AegisAgent | Pre-trade check result **(blocking — required before fills)** |
+
+> **Bus vs HTTP rule:** Everything in the table above flows through Redpanda — events (things that happened), async, many potential consumers. The one exception: **AegisAgent pre-trade check** is a synchronous HTTP call (`POST /risk/pretrade`). Request/reply patterns with one caller and one responder belong on HTTP, not the bus.
 
 ### Cold tier — TimescaleDB tables
 
@@ -628,7 +633,7 @@ Defined upfront so all products can be built to the same contract. All keys are 
 
 ## Deployment model
 
-**Phase 0 (pre-QualAgent — recommended):** Migrate IndicAgent's event bus from DragonflyDB Streams to Redpanda. Retire DragonflyDB. Replace `price:SYMBOL:latest` Redis hash with in-process state in signal_generator. Full infrastructure becomes: **Redpanda + PostgreSQL**. All 8 IndicAgent services updated, 1083 tests verify migration. See `docs/ideas/tech-stack.md` for migration detail. Add pgvector extension to existing PostgreSQL.
+**Phase 0 (pre-QualAgent — recommended):** Migrate IndicAgent's event bus from DragonflyDB Streams to Redpanda. Replace `price:SYMBOL:latest` Redis hash with in-process state in signal_generator. Drop DragonflyDB from the stack — it has no remaining role at this scale. Infrastructure becomes: **Redpanda + PostgreSQL**. All 8 IndicAgent services updated, 1083 tests verify migration. See `docs/ideas/tech-stack.md` for migration detail and the three specific triggers when DragonflyDB gets added back. Add pgvector extension to existing PostgreSQL.
 
 **Phase 1 (now — live):** IndicAgent runs standalone. TWS daemon publishes 1m bars + ticks. `timeframes_builder_service` aggregates to 5m→1D. Dashboard and SSE/API serve signals to external consumers.
 
@@ -643,6 +648,104 @@ Defined upfront so all products can be built to the same contract. All keys are 
 **Phase 6 (optional extraction):** If any product needs to run without IndicAgent, the TWS daemon and timeframes_builder_service are extracted into a minimal shared `MarketCore` service. Until then, they live in IndicAgent.
 
 Adding a new product is always additive — subscribe to what you need, publish what you produce. No existing products need to change.
+
+---
+
+## Technology stack
+
+> Full reasoning, migration guide, and decision log: `docs/ideas/tech-stack.md`
+
+### The two-component infrastructure (target)
+
+The initial target platform runs on two infrastructure components. Everything else is a Python service or library.
+
+```
+Redpanda          Event bus — ALL streams (hot + warm + execution + portfolio + risk)
+                  Kafka-compatible. Single binary. No ZooKeeper. Apache 2.0.
+                  Durable, replayable log. Consumer groups for work distribution.
+                  Replaces all DragonflyDB Streams.
+
+PostgreSQL        Cold tier — institutional memory
++ TimescaleDB       Time-series feature store, signal ledger, continuous aggregates
++ pgvector          Vector/embedding search for regime analog matching (extension, zero new infra)
+                  Apache 2.0 (TimescaleDB core). MIT (pgvector).
+```
+
+**DragonflyDB added as a third component when a specific trigger is real** — tick SaaS fan-out tier, DerivAgent options chain state store, or high-scale external subscriber fan-out. See `docs/ideas/tech-stack.md` for the three triggers and when each applies.
+
+### Why Redpanda over Apache Kafka
+
+Same Kafka API — 100% compatible, no code changes to switch. But:
+
+| | Apache Kafka | Redpanda |
+|---|---|---|
+| **Requires ZooKeeper** | Yes (or KRaft in newer versions) | Never |
+| **Runtime** | JVM (GC pauses, tuning overhead) | C++ single binary |
+| **Latency** | ~5–15ms | ~1–5ms |
+| **Deployment** | Complex cluster setup | Single binary locally, simple 3-node cluster in prod |
+| **License** | Apache 2.0 | Apache 2.0 (core) |
+
+### Why DragonflyDB is not in the initial target stack
+
+DragonflyDB (Redis-compatible) currently serves two roles:
+
+1. **Streams** — all 9 stream types (ticks, bars, indicators, intelligence, signals, narratives, …) → **migrate to Redpanda**
+2. **One Redis hash** — `price:SYMBOL:latest` (live bid/ask, read by signal_generator) → **replaced with in-process state** — signal_generator maintains a `{symbol: {bid, ask}}` dict updated from the tick stream. No external lookup needed.
+
+At current scale DragonflyDB has no remaining role. Three infrastructure components become two.
+
+DragonflyDB is well-suited for three specific use cases that don't exist yet: tick streaming SaaS fan-out (push pub/sub, < 5ms), DerivAgent options chain state (random-access key/value for 20K+ contracts), and high-scale external subscriber fan-out. It gets added back when one of those triggers is real.
+
+### Why pgvector over a dedicated vector database
+
+pgvector is a PostgreSQL extension (MIT). It adds a `vector` column type and approximate nearest-neighbor search to the existing database. Zero new service, zero new operational overhead.
+
+Use cases: QualAgent regime analog matching ("find the 5 most historically similar macro configurations to today's"), DerivAgent vol surface pattern matching, TradeAgent lead agent historical context.
+
+Upgrade to Qdrant only if pgvector is measurably insufficient at scale — unlikely for years.
+
+### The bus vs HTTP rule
+
+Not everything belongs on the bus. The rule:
+
+> **Bus (Redpanda):** events — things that happened, async, potentially many consumers.  
+> **HTTP (FastAPI):** requests — I need an answer right now, one caller, one responder.
+
+| Pattern | Transport | Example |
+|---------|-----------|---------|
+| Intelligence signal published | Bus | `intelligence:ES:5m` → TradeAgent subscribes |
+| Risk limit breached | Bus | `risk:halt:ACCOUNT` → all execution products |
+| Pre-trade check before an order | **HTTP** | `POST /risk/pretrade` → AegisAgent responds synchronously |
+| Health check | HTTP | `GET /health` |
+
+AegisAgent's pre-trade check is the clearest example: TradeAgent needs a blocking answer before submitting an order. That is HTTP. If AegisAgent is unreachable, the order is rejected (fail-safe default) — this can't be achieved with an async bus event.
+
+### What is NOT in the stack (and why)
+
+| Rejected | Reason |
+|----------|--------|
+| **Apache Kafka** | Redpanda is 100% compatible with dramatically lower operational overhead |
+| **DragonflyDB / Redis** | Not in initial target stack — added only when a specific trigger is real (see `tech-stack.md`) |
+| **RabbitMQ / ActiveMQ** | No traditional MQ patterns needed. Redpanda consumer groups handle work distribution |
+| **ClickHouse** | TimescaleDB continuous aggregates cover analytics. Add only when provably insufficient |
+| **Qdrant / Weaviate** | pgvector in existing PostgreSQL is sufficient for near-term scale |
+| **Temporal** | LangGraph + APScheduler cover strategy workflows. Temporal is the institutional-scale upgrade |
+| **Elasticsearch / OpenSearch** | pgvector + pg_trgm handle search inside PostgreSQL |
+| **MongoDB / Cassandra** | PostgreSQL + TimescaleDB handles all data model needs |
+
+### Current stack vs target stack
+
+| Layer | Current (IndicAgent live) | Target (before QualAgent) |
+|-------|--------------------------|--------------------------|
+| Event bus | DragonflyDB Streams | **Redpanda** |
+| Key/value cache | DragonflyDB | **Dropped** (in-process state in signal_generator) |
+| Time-series DB | PostgreSQL + TimescaleDB | Same — keep |
+| Vector search | — | **pgvector** (PostgreSQL extension) |
+| Workflows | systemd services | LangGraph + APScheduler |
+| Observability | Prometheus | Prometheus + **Grafana** |
+| Service APIs | FastAPI | Same — keep |
+
+Migration scope: 2 core files (`stream_utils.py` 51 lines, `stream_keys.py` 136 lines) + 8 service files. Estimated 1–2 weeks. 1083 tests verify the migration. DragonflyDB is not replaced by anything — it's just dropped. See `docs/ideas/tech-stack.md` for the full migration breakdown and the three DragonflyDB triggers.
 
 ---
 
