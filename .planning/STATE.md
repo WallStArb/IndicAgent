@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-05T19:35:48.938Z"
-last_activity: "2026-03-05 — 16-01 complete: llm_calls hypertable + llm_model_scores schema + stream keys + TDD RED tests"
+last_updated: "2026-03-05T19:48:00.000Z"
+last_activity: "2026-03-05 — 16-02 complete: LLMWriterService — dual-stream consumer, binomtest significance gate, 15-min score recompute, Redis HSET cache"
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 13
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -20,16 +20,16 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.4 Quant Foundation — Phase 16: LLM Intelligence Layer (16-01 complete)
+**Current focus:** v1.4 Quant Foundation — Phase 16: LLM Intelligence Layer (16-02 complete)
 
 ---
 
 ## Current Position
 
-Phase: Phase 16 IN PROGRESS (1 of 5 plans done: 16-01)
-Plan: 16-01 complete → 16-02 next (llm_writer_service GREEN phase + implementation)
-Status: Phase 16 active — schema foundation done, stream keys locked, TDD RED confirmed
-Last activity: 2026-03-05 — 16-01 complete: llm_calls hypertable + llm_model_scores schema + stream keys + TDD RED tests
+Phase: Phase 16 IN PROGRESS (2 of 5 plans done: 16-01, 16-02)
+Plan: 16-02 complete → 16-03 next (ai_narrative_service instrumentation — publish to llm_calls:stream)
+Status: Phase 16 active — schema done, writer service complete, ready for instrumentation plans
+Last activity: 2026-03-05 — 16-02 complete: LLMWriterService dual-stream consumer, binomtest significance gate, 15-min score recompute, Redis HSET cache, 12 tests GREEN
 
 ## Accumulated Context
 
@@ -60,6 +60,7 @@ Last activity: 2026-03-05 — 16-01 complete: llm_calls hypertable + llm_model_s
 - [Phase 16]: llm_calls partitioned by called_at; outcome columns NULL at insert, back-filled on lifecycle exit
 - [Phase 16]: is_significant gate: n_outcomes >= 30 AND p_value < 0.05 — Renaissance significance requirement for model routing
 - [Phase 16]: Stream keys locked: llm_calls_stream, llm_outcomes_stream, llm_scores_cache; maxlens 500/200
+- [Phase 16]: LLM-04 complete: _build_score_insert_params uses rows list interface (not pre-aggregated); outcomes processed immediately without buffering; score recompute fires 15-min after service start
 
 ### Pending Todos
 
