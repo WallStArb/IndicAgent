@@ -1,0 +1,37 @@
+# Prometheus config for IndicAgent pipeline metrics
+# Scrapes services running on the host (use host.docker.internal from Docker)
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "indicagent-indicator"
+    static_configs:
+      - targets: ["host.docker.internal:9109"]
+    metrics_path: /metrics
+
+  - job_name: "indicagent-market-analysis"
+    static_configs:
+      - targets: ["host.docker.internal:9114"]
+    metrics_path: /metrics
+
+  - job_name: "indicagent-signal-generator"
+    static_configs:
+      - targets: ["host.docker.internal:9112"]
+    metrics_path: /metrics
+
+  - job_name: "indicagent-signal-tracker"
+    static_configs:
+      - targets: ["host.docker.internal:9115"]
+    metrics_path: /metrics
+
+  - job_name: "indicagent-ai-narrative"
+    static_configs:
+      - targets: ["host.docker.internal:9113"]
+    metrics_path: /metrics
+
+  - job_name: "indicagent-feature-writer"
+    static_configs:
+      - targets: ["host.docker.internal:9116"]
+    metrics_path: /metrics

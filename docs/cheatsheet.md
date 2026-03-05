@@ -43,6 +43,12 @@ curl http://localhost:9114/metrics   # Market Analysis
 curl http://localhost:9115/metrics   # Signal Tracker
 curl http://localhost:9116/metrics   # Feature Writer
 
+# Grafana & Prometheus (optional — dashboards and alerts)
+cd production && docker compose up -d prometheus grafana
+# Grafana: http://localhost:3001  (admin / admin). Prometheus data source is preconfigured.
+# Prometheus UI: http://localhost:9090  (query and targets)
+# Note: 3001 avoids conflict with IndicAgent dashboard (Next.js on 3000)
+
 # Direct invocation (debugging only)
 .venv/bin/python production/daemons/high_frequency_tws_daemon.py --client-id 35
 .venv/bin/python services/indicator_service.py
