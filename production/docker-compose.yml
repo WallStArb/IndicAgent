@@ -28,19 +28,28 @@ services:
       - "dump"
       - "--snapshot_cron"
       - "*/5 * * * *"
+      - "--tcp_keepalive"
+      - "300"
     ports:
       - "6379:6379"
     volumes:
       - dragonfly-data:/data
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:rocm
     container_name: ollama
     restart: unless-stopped
     ports:
       - "127.0.0.1:11434:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "992"
+      - "44"
     volumes:
       - ollama-data:/root/.ollama
 

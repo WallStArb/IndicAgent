@@ -33,7 +33,7 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 
 - Consumer group: `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
 - Timeframes: `["1m", "5m", "15m", "1h"]` — matches signal_generator_service
-- Ollama timeout: 120s (qwen3:8b needs ~90s on CPU at num_predict=500)
+- Ollama timeout: 60s (qwen3.5:9b on AMD ROCm iGPU)
 
 ## LLM Provider Chain (`llm_providers.py`)
 
@@ -41,7 +41,7 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 |------|----------|-------|------|
 | 1 | `ZAIProvider` | GLM-5 (Z.ai) | Primary |
 | 2 | `OpenRouterProvider` | 100+ models | Fallback |
-| 3 | `OllamaProvider` | qwen3:8b / phi4-mini:3.8b | Offline |
+| 3 | `OllamaProvider` | qwen3.5:9b / phi4-mini:3.8b | Offline |
 
 - `LLMChain` tries in order, returns first non-None. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
@@ -81,5 +81,5 @@ Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lif
 ## Gotchas
 
 - **Qwen3 thinking mode**: `content` empty if `num_predict < 500` (thinking tokens consume budget). Use `/no_think` prefix or `num_predict ≥ 500`.
-- **Local Ollama models**: qwen3:8b, gemma3n:e4b, qwen3:4b, phi4-mini:3.8b, deepscaler:1.5b (Docker `:11434`).
+- **Local Ollama models**: qwen3.5:9b (per-signal), phi4-mini:3.8b (group synthesis) (Docker `:11434`).
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.

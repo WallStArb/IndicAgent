@@ -4,7 +4,7 @@ Usage:
     chain = LLMChain([
         AnthropicProvider("claude-sonnet-4.6", api_key="sk-..."),
         OpenRouterProvider("meta-llama/llama-3.3-70b-instruct:free", api_key="sk-..."),
-        OllamaProvider("qwen3:8b"),
+        OllamaProvider("qwen3.5:9b"),
     ])
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
     # chain.last_provider_id tells you which provider succeeded
