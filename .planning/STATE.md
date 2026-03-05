@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-05T10:01:34.652Z"
+last_updated: "2026-03-05T14:48:24.657Z"
 last_activity: "2026-03-04 — 12-04 complete: shadow signal virtual-activation; Phase 12 all 4 plans done"
 progress:
   total_phases: 15
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 8
 ---
 
 # Project State
@@ -54,6 +54,8 @@ Last activity: 2026-03-04 — 12-04 complete: shadow signal virtual-activation; 
 - [Phase 13-data-completeness]: i7 defaults '[]' not '{}' — empty list semantics for no signals fired per bar
 - [Phase 13-data-completeness]: days_to_expiry nullable — NULL honest for pre-migration rows; feature_writer sets value on new writes
 - [Phase 13-data-completeness]: intelligence_i7/i8 stream maxlen=200 — async enrichment backpressure without excessive memory
+- [Phase 13-data-completeness]: ENRICH_CONSUMER_GROUP ('feature_writer:enrich') separate from CONSUMER_GROUP for independent i7/i8 stream position tracking
+- [Phase 13-data-completeness]: days_to_expiry computed at feature_writer write time via startup-cached expiry_map; None for uncached, 0 for non-futures
 
 ### Pending Todos
 

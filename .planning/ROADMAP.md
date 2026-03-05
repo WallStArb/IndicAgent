@@ -60,7 +60,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 ### v1.4 Quant Foundation
 
 - [x] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking (completed 2026-03-04)
-- [ ] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready)
+- [x] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready) (completed 2026-03-05)
 - [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
 
@@ -286,7 +286,7 @@ Plans:
   3. `feature_writer_service` reads all streams in a single concurrent `xreadgroup` call — lag between a bar completing and its feature row appearing drops to under 2 seconds, verifiable from service metrics
   4. Every `intelligence_features` row has a `days_to_expiry` integer populated (0 for non-futures, positive integer for futures contracts based on `get_active_contracts()` expiry)
 
-**Plans:** 1/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 13-01-PLAN.md — DB migration (i7/i8/days_to_expiry columns) + stream key constructors
@@ -358,7 +358,7 @@ Plans:
 | 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
-| 13. Data Completeness | 1/4 | In Progress|  | — |
+| 13. Data Completeness | 4/4 | Complete   | 2026-03-05 | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 
