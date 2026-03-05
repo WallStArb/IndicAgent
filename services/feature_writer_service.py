@@ -11,11 +11,12 @@ Every IntelligenceEvent published is durably persisted here.
 from __future__ import annotations
 
 import asyncio
+import calendar
 import json
 import signal
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,8 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import intelligence as sk_intelligence
+from src.core.stream_keys import intelligence_i7 as sk_intelligence_i7
+from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.metrics import counter, gauge, start_metrics_server
@@ -39,6 +42,7 @@ from src.observability.metrics import counter, gauge, start_metrics_server
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
 CONSUMER_GROUP: str = "feature_writer:persist"
+ENRICH_CONSUMER_GROUP: str = "feature_writer:enrich"
 CONSUMER_NAME: str = "feature_writer_1"
 
 # ── Module-level SQL ──────────────────────────────────────────────────────────
@@ -47,13 +51,25 @@ _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
     bar, i1, i2, i3, i4, i5, smc, i6,
-    bar_close_ts, i1_computed_at, computed_at
+    bar_close_ts, i1_computed_at, computed_at, days_to_expiry
 ) VALUES (
     $1, $2, $3, $4, $5, $6,
     $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
-    $15, $16, $17
+    $15, $16, $17, $18
 )
 ON CONFLICT (ts, symbol, tf) DO NOTHING
+"""
+
+_UPSERT_I7_SQL = """
+INSERT INTO intelligence_features (ts, symbol, tf, i7)
+VALUES ($1::timestamptz, $2, $3, $4::jsonb)
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = EXCLUDED.i7
+"""
+
+_UPSERT_I8_SQL = """
+INSERT INTO intelligence_features (ts, symbol, tf, i8)
+VALUES ($1::timestamptz, $2, $3, $4::jsonb)
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET i8 = EXCLUDED.i8
 """
 
 logger = structlog.get_logger(__name__)
@@ -77,10 +93,58 @@ def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent |
         return None
 
 
-def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
-    """Build a 17-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
+def _build_expiry_map(settings: Settings) -> dict[str, date]:
+    """Build symbol → expiry date lookup at service startup. Call once; cache result.
 
-    Returns positional params matching $1..$17:
+    VX format "YYYYMM" → last calendar day of that month (conservative estimate).
+    Non-futures (FX, CRYPTO) → omitted from map; _compute_days_to_expiry returns 0.
+    Malformed expiry strings are silently skipped (symbol omitted, returns 0).
+    """
+    from src.core.models import AssetClass
+
+    result: dict[str, date] = {}
+    for inst in settings.contracts:
+        if inst.asset_class in (AssetClass.FX, AssetClass.CRYPTO) or not inst.expiry:
+            continue
+        expiry_str = inst.expiry
+        try:
+            if len(expiry_str) == 8:  # YYYYMMDD — standard futures
+                result[inst.symbol] = date.fromisoformat(expiry_str)
+            elif len(expiry_str) == 6:  # YYYYMM — VX style
+                year, month = int(expiry_str[:4]), int(expiry_str[4:])
+                last_day = calendar.monthrange(year, month)[1]
+                result[inst.symbol] = date(year, month, last_day)
+        except ValueError:
+            pass  # malformed — leave out; _compute_days_to_expiry returns 0
+    return result
+
+
+def _compute_days_to_expiry(
+    symbol: str,
+    bar_ts: datetime,
+    expiry_map: dict[str, date],
+) -> int | None:
+    """Return calendar days to expiry for a symbol at bar_ts.
+
+    Returns 0 for non-futures (symbol not in expiry_map: FX, crypto).
+    Returns None if expiry_map is empty (service not yet initialized — signals uncached state).
+    Clamps at 0: never returns negative (post-expiry rows get 0, not a negative value).
+    """
+    if not expiry_map:
+        return None
+    expiry_date = expiry_map.get(symbol)
+    if expiry_date is None:
+        return 0  # non-futures (FX, crypto) or unknown symbol
+    return max(0, (expiry_date - bar_ts.date()).days)
+
+
+def _event_to_insert_params(
+    event: IntelligenceEvent,
+    expiry_map: dict[str, date] | None = None,
+) -> tuple:
+    """Build an 18-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
+
+    Returns positional params matching $1..$18:
       $1  ts             — datetime
       $2  symbol         — str
       $3  tf             — str
@@ -98,12 +162,14 @@ def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
       $15 bar_close_ts   — datetime | None (always set for live; set for backfill too)
       $16 i1_computed_at — datetime | None (None for backfill)
       $17 computed_at    — datetime | None (None for backfill)
+      $18 days_to_expiry — int | None (None when expiry_map not yet built)
 
     JSONB columns MUST be json.dumps() strings — asyncpg does not auto-serialize dicts.
     - bar uses model.model_dump() (no exclude_none — bar always has full data)
     - i1 uses model.model_dump() (no exclude_none — I1 has extra='allow', many dynamic fields)
     - i2..i6 use model.model_dump(exclude_none=True) (strict models, exclude None for compactness)
     """
+    days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
     return (
         event.ts,
         event.symbol,
@@ -122,6 +188,7 @@ def _event_to_insert_params(event: IntelligenceEvent) -> tuple:
         event.bar_close_ts,    # $15 — always set for live; also set for backfill
         event.i1_computed_at,  # $16 — None for backfill
         event.computed_at,     # $17 — None for backfill
+        days,                  # $18 — days_to_expiry
     )
 
 
@@ -176,6 +243,9 @@ class FeatureWriterService:
         self._total_batches = 0
         self._error_count = 0
         self._stream_map: dict[str, tuple[str, str]] = {}
+        self._i7_stream_map: dict[str, tuple[str, str]] = {}
+        self._i8_stream_map: dict[str, tuple[str, str]] = {}
+        self._expiry_map: dict[str, date] = {}
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -253,14 +323,38 @@ class FeatureWriterService:
             self.db_manager = None
 
     async def _setup_consumer_groups(self) -> None:
-        """Create consumer group for each intelligence:SYMBOL:TF stream."""
+        """Create consumer groups for intelligence base and i7/i8 enrichment streams."""
         for tf in self.config["service"]["timeframes"]:
             for sym in self.config["service"]["symbols"]:
+                # Base intelligence stream (persist group)
                 stream_name = sk_intelligence(self._env_prefix, sym, tf)
                 await ensure_consumer_group_with_reset(
                     self.redis_client, stream_name, CONSUMER_GROUP
                 )
                 self._stream_map[stream_name] = (sym, tf)
+
+                # i7 enrichment stream (enrich group)
+                i7_stream = sk_intelligence_i7(self._env_prefix, sym, tf)
+                await ensure_consumer_group_with_reset(
+                    self.redis_client, i7_stream, ENRICH_CONSUMER_GROUP
+                )
+                self._i7_stream_map[i7_stream] = (sym, tf)
+
+                # i8 enrichment stream (enrich group)
+                i8_stream = sk_intelligence_i8(self._env_prefix, sym, tf)
+                await ensure_consumer_group_with_reset(
+                    self.redis_client, i8_stream, ENRICH_CONSUMER_GROUP
+                )
+                self._i8_stream_map[i8_stream] = (sym, tf)
+
+        # Build expiry map at startup (cached for lifetime of service)
+        try:
+            _s = Settings()
+            self._expiry_map = _build_expiry_map(_s)
+            self.logger.info("Expiry map built", contracts=len(self._expiry_map))
+        except Exception as e:
+            self.logger.warning("Failed to build expiry map", error=str(e))
+            self._expiry_map = {}
 
     async def _process_single_message(
         self,
@@ -283,7 +377,7 @@ class FeatureWriterService:
                     self.error_count_total.inc()
                 return True
 
-            params = _event_to_insert_params(event)
+            params = _event_to_insert_params(event, self._expiry_map)
             self._buffer.append(params)
             self.events_consumed_total.inc()
             self._total_events += 1
@@ -349,8 +443,56 @@ class FeatureWriterService:
             self._error_count += 1
             self.events_buffered_gauge.set(len(self._buffer))
 
-    async def _process_loop(self) -> None:
-        """Main consumer group loop — reads all streams and processes messages."""
+    async def _process_i7_message(
+        self,
+        symbol: str,
+        timeframe: str,
+        fields: dict[bytes, bytes],
+    ) -> bool:
+        """UPSERT i7 column from intelligence_i7 stream message."""
+        try:
+            ts_raw = fields.get(b"ts", b"").decode()
+            data_raw = fields.get(b"data", b"[]").decode()
+            if not ts_raw:
+                return True  # no ts — skip silently
+            json.loads(data_raw)  # validate — raises ValueError if malformed
+            await self.db_manager.execute_batch(
+                _UPSERT_I7_SQL, [(ts_raw, symbol, timeframe, data_raw)]
+            )
+            return True
+        except Exception as e:
+            self.logger.error("i7 UPSERT failed", symbol=symbol, tf=timeframe, error=str(e))
+            self.error_count_total.inc()
+            return False
+
+    async def _process_i8_message(
+        self,
+        symbol: str,
+        timeframe: str,
+        fields: dict[bytes, bytes],
+    ) -> bool:
+        """UPSERT i8 column from intelligence_i8 stream message."""
+        try:
+            ts_raw = fields.get(b"ts", b"").decode()
+            if not ts_raw:
+                return True  # no ts — skip silently
+            i8_payload = {
+                "model": fields.get(b"model", b"unknown").decode(),
+                "confidence": fields.get(b"confidence", b"0.0").decode(),
+                "summary": fields.get(b"summary", b"").decode(),
+                "generated_at": fields.get(b"generated_at", b"").decode(),
+            }
+            await self.db_manager.execute_batch(
+                _UPSERT_I8_SQL, [(ts_raw, symbol, timeframe, json.dumps(i8_payload))]
+            )
+            return True
+        except Exception as e:
+            self.logger.error("i8 UPSERT failed", symbol=symbol, tf=timeframe, error=str(e))
+            self.error_count_total.inc()
+            return False
+
+    async def _base_process_loop(self) -> None:
+        """Base consumer group loop — reads intelligence: streams and writes rows."""
         all_streams = {name: ">" for name in self._stream_map}
         while self.running and not self.shutdown_requested:
             try:
@@ -383,6 +525,52 @@ class FeatureWriterService:
                 self.logger.error("Error in processing loop", error=str(e))
                 self.error_count_total.inc()
                 self._error_count += 1
+                await asyncio.sleep(1)
+
+    async def _enrich_process_loop(self) -> None:
+        """Enrichment loop — reads i7/i8 streams concurrently via single xreadgroup call."""
+        enrich_streams = {
+            **{name: ">" for name in self._i7_stream_map},
+            **{name: ">" for name in self._i8_stream_map},
+        }
+        if not enrich_streams:
+            return
+
+        while self.running and not self.shutdown_requested:
+            try:
+                messages = await self.redis_client.xreadgroup(
+                    ENRICH_CONSUMER_GROUP, CONSUMER_NAME,
+                    enrich_streams, count=10, block=1000,
+                )
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
+                    )
+                    to_ack: list[bytes] = []
+                    if stream_name in self._i7_stream_map:
+                        sym, tf = self._i7_stream_map[stream_name]
+                        for message_id, fields in msgs:
+                            if self.db_manager:
+                                await self._process_i7_message(sym, tf, fields)
+                            to_ack.append(message_id)
+                    elif stream_name in self._i8_stream_map:
+                        sym, tf = self._i8_stream_map[stream_name]
+                        for message_id, fields in msgs:
+                            if self.db_manager:
+                                await self._process_i8_message(sym, tf, fields)
+                            to_ack.append(message_id)
+                    if to_ack:
+                        await self.redis_client.xack(
+                            stream_name, ENRICH_CONSUMER_GROUP, *to_ack
+                        )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in enrich loop", error=str(e))
+                self.error_count_total.inc()
                 await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:
@@ -434,7 +622,8 @@ class FeatureWriterService:
             await self._setup_consumer_groups()
             self.running = True
             tasks = [
-                asyncio.create_task(self._process_loop()),
+                asyncio.create_task(self._base_process_loop()),
+                asyncio.create_task(self._enrich_process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
             self.logger.info("Feature Writer Service started")
