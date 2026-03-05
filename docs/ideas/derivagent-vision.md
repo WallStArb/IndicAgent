@@ -691,6 +691,416 @@ Key Renaissance principles applied:
 
 ---
 
+## The big picture vision — democratizing the house edge
+
+*Integrated from the Agentic Derivatives Platform source documents. Core positioning and market vision.*
+
+---
+
+### The institutional advantage gap
+
+Major trading firms and $30B+ ETFs (JEPI, JEPQ) generate consistent profits not through market prediction but through **mathematical advantages** — systematic edges in volatility pricing, time decay, and mean reversion. These edges have been monopolised by institutions because accessing them requires:
+
+- Millions in technology infrastructure (custom quant systems, real-time risk engines, execution infrastructure)
+- PhD-level quantitative analysts and professional risk managers
+- Capital minimums of $10M+ for proper diversification
+- Regulatory and compliance frameworks designed for institutional operators
+
+**The proof that the market exists:** JEPI and JEPQ grew to $30B+ AUM. They are covered call ETFs — a basic options income strategy — running at institutional scale. The demand for systematic income from options is massive and proven. What retail traders and emerging fund managers lack is the intelligence layer, not the desire.
+
+**DerivAgent's mission:** Make the same mathematical edge accessible at any scale — from a $10K individual account to a $100M fund — through AI agents that think, adapt, and execute like professional quantitative trading teams.
+
+The framing: *"Democratizing the house edge."* Casinos are consistently profitable not because they predict outcomes but because they have systematically favorable odds across thousands of small bets. DerivAgent applies the same philosophy — a diversified portfolio of options strategies, each with a mathematical edge, deployed intelligently by regime.
+
+---
+
+### The four mathematical edges being unlocked
+
+**1. Volatility risk premium harvesting**
+Implied volatility consistently trades 3–5% above realized volatility across major indices. Selling options systematically captures this structural overpricing. The institutional implementation requires real-time vol surface analysis, dynamic delta hedging, multi-timeframe coordination, and portfolio-level optimization — capabilities that DerivAgent automates.
+
+**2. Time decay monetization**
+Options lose 60–80% of their time value in the final weeks before expiration. Theta accelerates in a predictable, mathematical curve. The MEIC (Multiple Entry Iron Condor) strategy exploits this systematically with layered deployments across the steepest part of the decay curve.
+
+**3. Mean reversion exploitation**
+Markets spend 70–80% of time in range-bound conditions. Range-bound regimes are precisely where premium collection strategies (iron condors, butterflies, jade lizards) have their highest expected value. Regime detection is the intelligence gate — know when the range-bound regime is active, deploy accordingly.
+
+**4. Flow-based systematic advantages**
+Institutional order flow, gamma exposure, and dealer positioning create predictable structural flows (GEX pinning, VANNA rallies, CHARM decay pressure). Understanding these flows gives a systematic edge in entry timing, strike selection, and exit points that pure chart-based trading cannot access.
+
+---
+
+### "Start with AI guidance, evolve to AI autonomy"
+
+The platform's user experience philosophy. Users don't start fully autonomous — they start with AI-recommended strategies they can review and approve, learning the logic as they go. As confidence and track record build, the system takes on more autonomy.
+
+**Three operating modes:**
+
+| Mode | Who controls what |
+|------|-----------------|
+| **Market Condition Router** | AI analyzes regime and recommends the optimal strategy. User approves. AI executes and manages. |
+| **Strategy Buffet** | User picks a strategy category (income, directional, volatility). AI optimizes all parameters, timing, and lifecycle. |
+| **Integrated Portfolio** | AI autonomously manages a balanced portfolio of strategies across regimes. User sets objectives and guardrails. System runs. |
+
+Users can operate in different modes for different accounts or strategies. A conservative account might stay in Strategy Buffet; an advanced user lets the system run Integrated Portfolio mode for their main account.
+
+---
+
+### Complete strategy universe — 24 strategies
+
+The full institutional strategy arsenal, organized by the "4 Flavors of Premium Collection" framework:
+
+#### Flavor 1 — Range-bound premium collection
+*Deploy when: ADX < 25, VIX moderate, strong support/resistance, positive gamma environment*
+
+| Strategy | Edge | Risk profile |
+|----------|------|-------------|
+| **Iron Condor** | VRP + range + theta | Defined risk both sides |
+| **Broken Wing Butterfly** | Asymmetric risk elimination | Net credit, one side risk-free |
+| **Jade Lizard** | Eliminate upside risk entirely | No upside risk, defined downside |
+| **Traditional Butterfly** | High probability price pinning | Tight profit zone, max if pins ATM |
+| **Short Strangle** | Wider zones than condor | Undefined risk — requires strict stops |
+
+#### Flavor 2 — Directional premium collection
+*Deploy when: IndicAgent generates directional signal, moderate IV, confirmed trend*
+
+| Strategy | Edge | Risk profile |
+|----------|------|-------------|
+| **Bull Call Spread** | Directional + debit optimization | Defined risk, limited reward |
+| **Bull Put Spread** | Bullish + theta collection | Defined risk credit structure |
+| **Bear Call Spread** | Bearish + theta collection | Defined risk credit structure |
+| **Bear Put Spread** | Directional + debit optimization | Defined risk, limited reward |
+| **Covered Call** | Income on existing holding | Caps upside, income in flat market |
+| **Cash-Secured Put** | Income + potential acquisition | Assignment risk at strike |
+| **Protective Put** | Insurance + hedging | Cost of protection |
+| **Collar** | Protection + income | Defined range, near-zero cost |
+
+#### Flavor 3 — Time decay strategies
+*Deploy when: Low IV expecting expansion, stable price, steep contango term structure*
+
+| Strategy | Edge | Risk profile |
+|----------|------|-------------|
+| **Calendar Spread** | Time decay differential + vol expansion | Long vega, positive theta |
+| **Diagonal Spread** | Time decay + directional bias | Mixed delta, positive theta |
+| **Double Calendar** | Range-bound + vol expansion | Multiple calendar positions |
+| **0DTE Time Decay** | Extreme intraday theta capture | Extreme theta, extreme gamma risk |
+
+#### Flavor 4 — Volatility strategies
+*Deploy when: VRP compressed (cheap options), bimodal PDF detected, pre-event uncertainty*
+
+| Strategy | Edge | Risk profile |
+|----------|------|-------------|
+| **Long Straddle** | Big move expectation, direction unknown | Long gamma, long vega |
+| **Long Strangle** | Big move, lower cost than straddle | Long gamma, long vega, wider breaks |
+| **Short Straddle** | Vol contraction + theta | Short gamma, extreme risk (use strict guardrails) |
+| **Ratio Spread** | Asymmetric vol expectations | Unbalanced, requires careful management |
+
+#### Advanced / Institutional strategies
+
+| Strategy | Complexity | When deployed |
+|----------|-----------|--------------|
+| **MEIC (Multiple Entry Iron Condor)** | Advanced | Institutional income: layered condor entries over 3-hour window at 18-delta, 45 DTE. The flagship systematic income strategy. |
+| **Volatility Arbitrage** | Institutional | Vol surface mispricing across strikes/expiries. Requires full surface construction. |
+| **Gamma Scalping** | Professional | Dynamic delta hedging around a long gamma position. Profits from realized vol > implied vol. |
+
+**MEIC — the institutional flagship.** Multiple Entry Iron Condor is the core of systematic income generation at institutional scale. Instead of a single iron condor entry, MEIC deploys 6 entries over a 3-hour window with staggered strikes around the ATM. This achieves a better average entry price (cost averaging into the spread), captures different volatility moments during the session, and creates a smoother overall risk profile than a single large entry.
+
+---
+
+### Market regime classification — routing logic
+
+The intelligence layer drives automatic strategy routing. Seven distinct regime types, each matched to optimal strategies:
+
+| Regime | Detection criteria | Primary strategies | Key AI enhancement |
+|--------|-------------------|-------------------|-------------------|
+| **Low vol, range-bound** | ADX < 25, VIX < 18, RSI 30–70, positive GEX | Iron condors, butterflies, MEIC | Strike optimization, GEX-aligned levels |
+| **High IV, mean-reverting** | IV rank > 70th pct, low correlation | Short strangles, volatility harvesting, VRP selling | Vol surface analysis, regime timing |
+| **Strong bullish trend** | ADX > 25, RSI > 50, momentum confirmed | Bull call/put spreads, covered calls | IndicAgent signal integration |
+| **Strong bearish trend** | ADX > 25, RSI < 50, breakdown confirmed | Bear put spreads, bear call spreads | IndicAgent signal integration |
+| **Moderate trending** | Directional bias with consolidations | Progressive credit laddering, directional spreads | Momentum detection, entry timing |
+| **High vol, unstable** | VIX > 25, negative GEX, news events | Calendar spreads, protective strategies, long premium | QualAgent event flags, event coordination |
+| **Intraday volatility spike** | Elevated intraday IV, volume spikes | 0DTE strategies, multi-entry construction | Real-time gamma management |
+
+**The routing intelligence:** The regime is not a manual label — it is computed continuously from the DerivAgent intelligence layer (vol surface, GEX regime, term structure shape) combined with QualAgent's macro regime and IndicAgent's technical regime. The three platforms collectively determine the market state; the strategy selection agent routes to the appropriate strategy bucket automatically.
+
+---
+
+### The LEGO agent architecture — four layers
+
+The execution platform is built as a modular, layered multi-agent system. Each layer can operate independently or combine with others for more sophisticated operations. Like LEGO bricks — each piece works alone, but combining creates something more powerful.
+
+```
+═══════════════════════════════════════════════════════════════
+LAYER 4: AUTONOMOUS TRADING SYSTEMS (Institutional)
+  Fully autonomous agent clusters — minimal human intervention
+  ├── High-Frequency Premium Collection System
+  │   ├── 0DTE opportunity scanner
+  │   ├── Rapid execution agent (sub-second decisions)
+  │   ├── Gamma explosion monitor
+  │   └── Emergency shutdown agent (circuit breaker)
+  └── Volatility Arbitrage System
+      ├── Real-time vol surface analysis agent
+      ├── Arbitrage detection agent
+      ├── Complex multi-leg strategy builder
+      └── Advanced Greeks / correlation monitoring
+═══════════════════════════════════════════════════════════════
+LAYER 3: MULTI-STRATEGY ORCHESTRATORS (Professional)
+  Coordination agents managing multiple specialists simultaneously
+  ├── Portfolio Balance Orchestrator
+  │   ├── Strategy allocation agent (which strategies to run when)
+  │   ├── Greeks coordination agent (portfolio-level balance)
+  │   ├── Risk distribution agent (spread risk across approaches)
+  │   └── Capital efficiency agent (margin optimization)
+  └── Market Regime Adapter
+      ├── Strategy rotation agent (switch on regime changes)
+      ├── Transition management agent (exit old, enter new)
+      ├── Performance attribution agent (which strategies winning)
+      └── Learning coordination agent (cross-strategy insights)
+═══════════════════════════════════════════════════════════════
+LAYER 2: SINGLE STRATEGY SPECIALISTS (Modular)
+  Individual strategy-focused clusters — run independently
+  ├── Iron Condor Specialist
+  │   Strike Selection → Greeks Management → Adjustment → Exit
+  ├── Calendar Spread Specialist
+  │   Term Structure → Vol Expansion → Roll Orchestration → Vega
+  ├── Straddle / Strangle Specialist
+  │   Event Coordination → Vol Prediction → Breakout → Dynamic Exit
+  ├── Directional Spread Specialist
+  │   Technical Analysis → Support/Resistance → Entry Timing → R/R
+  └── MEIC Specialist (institutional income)
+      Multi-entry window → Layered strikes → Greeks → Roll management
+═══════════════════════════════════════════════════════════════
+LAYER 1: MARKET CONDITION INTELLIGENCE (Foundational — always on)
+  Environmental analysis that all other layers depend on
+  ├── Volatility Regime Agent (IV rank, vol forecasting, VRP)
+  ├── Market Structure Agent (range-bound vs trending, S/R mapping)
+  ├── Risk Environment Agent (economic calendar, earnings, events)
+  └── Execution Timing Agent (optimal entry/exit, liquidity analysis)
+═══════════════════════════════════════════════════════════════
+```
+
+**Four coordination patterns:**
+
+| Pattern | When used |
+|---------|----------|
+| **Independent** | A single specialist runs alone. Example: Iron Condor Specialist for a simple income account. |
+| **Coordinated** | An orchestrator manages multiple specialists. Example: Portfolio Balance Orchestrator running condor + calendar + directional spreads simultaneously. |
+| **Hierarchical** | Advanced layers can override specialist decisions. Example: Emergency Shutdown Agent overrides all specialists during a flash crash. |
+| **Collaborative** | All layers share intelligence from Layer 1. Market regime updates flow simultaneously to all active agents. |
+
+**User-facing:** An on/off panel for each agent suite. Users can activate only the layers and specialists appropriate for their account size, risk tolerance, and sophistication level:
+
+```
+☐ Market Intelligence       (always recommended — the foundation)
+☐ Iron Condor Specialist    (range-bound markets)
+☐ Calendar Spread Specialist (low vol environments)
+☐ Straddle Specialist       (events / vol expansion plays)
+☐ Bull/Bear Spread Specialist (trending markets)
+☐ MEIC System               (institutional income)
+☐ Portfolio Orchestrator    (multi-strategy coordination)
+☐ Volatility Arbitrage      (advanced — full surface required)
+☐ 0DTE System               (intraday — high skill required)
+```
+
+---
+
+### Agent reusability matrix
+
+Every agent is a reusable building block. The same Greeks Calculator runs inside the Iron Condor Specialist, the Calendar Specialist, and the MEIC Specialist — it is built once and shared:
+
+| Agent | Iron Condor | Calendar | Straddle | Bull Spread | Bear Spread |
+|-------|:-----------:|:--------:|:--------:|:-----------:|:-----------:|
+| Market Regime | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Vol Surface | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Support/Resistance | ✅ | ❌ | ❌ | ✅ | ✅ |
+| Momentum Detection | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Strike Selection | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Greeks Calculator | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Position Sizing | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Order Management | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Economic Calendar | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Performance Attribution | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+This means the development effort compounds — each new specialist reuses the shared agent library. Adding a new strategy does not require rebuilding the intelligence layer, just composing the right agents.
+
+---
+
+### Theta-to-Delta portfolio optimization — industry-first framework
+
+One of the most novel concepts from the platform vision. Institutional portfolio managers balance income generation (theta) against directional exposure (delta) deliberately. No consumer options platform quantifies this relationship or helps optimize it.
+
+**The ratio:** `Portfolio Theta / Absolute Portfolio Delta`
+
+| Target ratio | Portfolio profile | When to use |
+|-------------|-----------------|-------------|
+| **5:1 to 10:1** | Income-focused | Maximum theta collection, minimal directional risk. Mostly iron condors, credit spreads, calendar spreads. |
+| **2:1 to 5:1** | Balanced | Moderate income with controlled market exposure. Mix of income and directional strategies. |
+| **1:1 to 2:1** | Growth-enhanced | Directional exposure with income enhancement. Heavier directional spreads. |
+
+**Dynamic rebalancing:** The orchestrator continuously monitors the portfolio T/D ratio and makes strategy allocation decisions to keep it in the target range. If delta drifts from a trending move, add a higher-theta position to rebalance. If theta is compressed (options cheap), shift to directional strategies.
+
+**Market condition adjustments:**
+- Low volatility: increase target ratio (maximize theta when premium is scarce)
+- High volatility: decrease target ratio (reduce exposure during uncertain periods)
+- Trending: lower ratio (capture directional moves while maintaining income)
+
+This framework gives portfolio managers a single KPI that summarizes the risk-return balance across all active strategies — more intuitive than managing five individual Greeks.
+
+---
+
+### User progression model — Explorer to Institutional
+
+Users move through competency tiers. Each tier unlocks more sophisticated agent layers, expanded strategy access, and more automation:
+
+```
+EXPLORER
+  │  Single strategy, AI-guided, human approval required
+  │  Strategy Buffet mode only
+  │  Income-focused: iron condors, cash-secured puts, covered calls
+  │
+  ▼
+TRADER  
+  │  Multiple strategies, AI-coordinated
+  │  Market Condition Router mode unlocked
+  │  Full premium collection arsenal
+  │
+  ▼
+PROFESSIONAL
+  │  Multi-strategy portfolio orchestration
+  │  Integrated Portfolio mode unlocked
+  │  Advanced strategies: MEIC, calendar arbitrage, ratio spreads
+  │  Team collaboration features
+  │
+  ▼
+INSTITUTIONAL
+     Multi-portfolio fund management
+     Full LEGO system — all four layers active
+     SMA / white-label capabilities
+     Volatility arbitrage, gamma scalping, 0DTE systems
+     Client reporting and compliance audit trails
+```
+
+**No platform graduation required.** A key failure of existing tools is that users outgrow them — they start on one platform, graduate to a more expensive institutional tool, losing their history and learning. DerivAgent is designed to scale from Explorer to Institutional on a single platform, retaining all trading history, all performance attribution, all learned parameters.
+
+---
+
+### Fund management and institutional architecture
+
+DerivAgent scales to professional fund management operations — not as a future feature but as a core design principle:
+
+**Multi-portfolio architecture:**
+```
+Fund / Firm dashboard
+├── Conservative Income Portfolio ($2M allocation)
+│   Iron condors, MEIC, calendar spreads only
+├── Growth Strategy Portfolio ($5M allocation)
+│   Directional spreads, covered calls, momentum-triggered
+├── Market-Neutral Portfolio ($8M allocation)
+│   Straddles, risk-reversals, vol arb, gamma scalping
+├── Client SMA Templates
+│   Per-client customized strategy profiles
+└── Cross-portfolio coordination
+    Unified risk management, consolidated reporting
+```
+
+**Team structure with role-based agent access:**
+
+| Role | Agent access | Typical responsibility |
+|------|-------------|----------------------|
+| **Portfolio Manager** | Full orchestration + allocation | Strategy deployment decisions across portfolios |
+| **Risk Manager** | Risk monitoring + Greeks dashboard | Continuous exposure monitoring, stop protocols |
+| **Senior Trader** | Execution optimization | Position management, fill quality, order routing |
+| **Research Analyst** | Performance attribution + learning | Strategy optimization, regime-performance analysis |
+
+**Separately Managed Accounts (SMAs):**
+- Create template strategies that can be customized per client risk profile
+- Deploy identical intelligence across multiple client accounts with appropriate sizing
+- Per-client attribution tracking while maintaining systematic consistency
+- White-label interface for RIAs and regional broker-dealers
+
+---
+
+### Community learning with privacy preservation
+
+As the user base grows, collective intelligence improves the system for everyone while preserving individual privacy:
+
+- **Individual learning:** Each account's performance history improves its own agent parameters. An account that has traded iron condors for 200 sessions has precisely calibrated entry timing, stop levels, and profit targets for its specific risk profile.
+- **Community patterns:** Successful patterns (anonymized) are surfaced across the user base. "Iron condor entries in the 65–80th IV rank percentile have historically outperformed 16-delta vs 18-delta shorts by 2.3% win rate across the user community."
+- **Efficiency compounding:** Shared learning reduces the AI reasoning cost per trade decision over time. As the system learns which analyses lead to profitable outcomes, it routes faster — lower cost per user while improving accuracy.
+- **Network effect:** Each user makes the platform more valuable for everyone. The more trading history the system accumulates, the better its regime detection, strategy selection, and parameter optimization.
+
+This is the competitive moat that is impossible to replicate without years of live trading data. A new competitor starting from scratch cannot duplicate what the DerivAgent community has collectively learned.
+
+---
+
+### AI reasoning tiers — options trading requires mathematical precision
+
+Standard AI models are insufficient for options trading. The challenge: options pricing, vol surface construction, and multi-leg strategy optimization require mathematical precision that general-purpose AI doesn't reliably deliver.
+
+DerivAgent's AI architecture is tiered by the mathematical and speed requirements of each decision type:
+
+| Tier | Decision type | Latency requirement | Mathematical requirement |
+|------|--------------|--------------------|-----------------------|
+| **Speed tier** | Real-time trading decisions, entry/exit signals | < 500ms | Moderate — regime confirmation, signal routing |
+| **Cost tier** | High-volume processing, monitoring, screening | < 2s | Moderate — status checks, routine adjustments |
+| **Reasoning tier** | Complex mathematical analysis, strategy optimization, vol surface modeling | < 5s acceptable | High — Greeks optimization, surface fitting, portfolio T/D optimization |
+
+**Key principle:** Match the reasoning model to the decision complexity. Real-time execution uses fast, cost-efficient models. Complex portfolio optimization uses maximum mathematical precision, with latency tolerance because the decision is not time-critical second by second. This tiered approach delivers both speed where it matters and precision where it counts — while keeping costs viable.
+
+**Emergency actions** always use cached, pre-computed decisions from Redis — no AI inference in the critical path. Risk circuit breakers are deterministic rules, not LLM calls.
+
+---
+
+### Operational procedures — market hours awareness
+
+DerivAgent operates on a market-hours-aware cadence:
+
+**Pre-market (8:30–9:30 AM ET):**
+- System health verification: all broker connections live, data feeds flowing, Redis warm
+- Portfolio Greeks review: delta, theta, vega across all active positions
+- Catalyst check: read QualAgent's pre-event flags — any major events before close today?
+- GEX update: pull latest gamma exposure map for the session
+- Strategy review: any positions requiring early management (near DTE, near stop)?
+
+**Market hours (9:30 AM–4:00 PM ET):**
+- Continuous regime monitoring via Layer 1 agents
+- Position lifecycle checks every 15 minutes (P&L vs targets, Greeks drift)
+- Opportunity scanning per configured regime (is the current regime still the same as at open?)
+- Event monitoring: QualAgent publishes any intraday catalyst flags
+- Emergency halt: circuit breakers always active, accessible within 10 seconds
+
+**After-hours (4:00 PM–close):**
+- End-of-day reconciliation: all fills confirmed, positions matched to broker statements
+- Performance attribution run: P&L broken down by strategy, time decay, vol change, delta
+- Parameter update: learning agent proposes any regime-specific updates for review
+- Next-session preparation: upcoming catalyst calendar, GEX reset, strategy queue for tomorrow
+
+**Weekend maintenance:**
+- Backtest runs for any new strategy proposals
+- Learning agent weight updates (weekly cycle)
+- Vol surface model recalibration with Friday close data
+
+---
+
+### Usage-based economic alignment
+
+DerivAgent's pricing model should align platform revenue with user success — not flat subscription fees that extract value regardless of outcomes.
+
+**The principle:** Users pay for AI intelligence consumed, not for access. Light users exploring strategies pay almost nothing. Successful traders building wealth pay proportionally to the value they receive.
+
+**AI cost transparency:** Every analysis, every agent decision, every optimization run is tracked with an estimated cost and attributed to the outcome it drove. Users can see: "Your systematic approach generated $45K in realized gains this quarter. AI analysis for those decisions cost $180. Return on intelligence: 250x."
+
+**Learning reduces costs:** As agents become more efficient — learning which analyses reliably predict profitable outcomes and which are redundant — the cost per decision decreases. A mature DerivAgent account costs less to operate per trade than a new one, because the system stops asking questions it already knows the answers to.
+
+**Tier examples:**
+- Explorer (learning, 1-2 strategies, small account): $20–75/month
+- Trader (3-5 strategies, multiple strategies): $75–200/month
+- Professional (full LEGO system, team features): $200–500/month
+- Institutional / Fund Management: $1,000–5,000/month
+- White-label / RIA: custom pricing
+
+---
+
 ## Open questions
 
 1. **Data cost:** Real-time OPRA options chain data is expensive (~$1k+/month for professional feeds). 15-minute delayed CBOE data is free and may be sufficient for daily regime signals (GEX doesn't change significantly intraday for regime purposes). Which cadence is needed for which signals?
