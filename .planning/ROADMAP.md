@@ -6,7 +6,7 @@
 - ✅ **v1.1 Code Quality Sprint** — Phase 01 complete (ruff 206 → 0, 6/13 tasks done)
 - ✅ **v1.2 Intelligence Palette Expansion** — Phases 2-6 + Phase 7 + Phase 8 complete (965 tests, I2/I5/I6 expanded)
 - ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 + Signal Lifecycle redesign (shipped 2026-03-04)
-- 🔲 **v1.4 Quant Foundation** — Phases 12-15 (in progress)
+- 🔲 **v1.4 Quant Foundation** — Phases 12-16 (in progress)
 
 ## Phases
 
@@ -63,6 +63,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready) (completed 2026-03-05)
 - [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
+- [ ] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime
 
 ## Phase Details
 
@@ -332,6 +333,27 @@ Plans:
 
 ---
 
+### Phase 16: LLM Intelligence Layer
+
+**Goal:** Every LLM call is captured, outcome-linked, and used to adaptively route model selection — no model decision is made without data
+
+**Depends on:** Phase 13
+
+**Requirements:** LLM-01, LLM-02, LLM-03, LLM-04, LLM-05
+
+**Design:** `docs/plans/2026-03-05-llm-intelligence-layer-design.md`
+
+**Success Criteria** (what must be TRUE):
+  1. Every LLM call from `ai_narrative_service` (per-signal, group synthesis, counterfactual) produces a row in `llm_calls` hypertable within 30 seconds, with full prompt, response, model, latency, and signal context captured
+  2. When a signal exits in `signal_lifecycle_service`, the corresponding `llm_calls` rows for that `signal_id` are back-filled with outcome, pnl_r, mae, mfe within 60 seconds — verifiable by querying `llm_calls WHERE signal_id = ? AND outcome IS NOT NULL`
+  3. `llm_model_scores` is recomputed every 15 minutes from rows with non-null outcome, and Redis score cache is updated — verifiable by watching `llm_scores:*` keys in DragonflyDB
+  4. When a model reaches `is_significant=True` (p < 0.05, n_outcomes >= 30), `ai_narrative_service` moves it to position 0 in the provider chain for that call_type + regime combination at next score refresh
+  5. `llm_writer_service` is running as a systemd service (`indicagent-llm-writer`) with Prometheus metrics on its assigned port
+
+**Plans:** TBD
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -361,6 +383,7 @@ Plans:
 | 13. Data Completeness | 4/4 | Complete   | 2026-03-05 | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
+| 16. LLM Intelligence Layer | v1.4 | 0/0 | Not started | — |
 
 ## Backlog
 
