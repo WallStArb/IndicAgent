@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-05T14:48:24.657Z"
-last_activity: "2026-03-04 — 12-04 complete: shadow signal virtual-activation; Phase 12 all 4 plans done"
+last_updated: "2026-03-05T15:00:00Z"
+last_activity: "2026-03-05 — 13-04 complete: feature_writer i7/i8 enrichment + days_to_expiry; Phase 13 all 4 plans done"
 progress:
   total_phases: 15
   completed_phases: 2
@@ -20,16 +20,16 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.4 Quant Foundation — Phase 12: Signal Integrity
+**Current focus:** v1.4 Quant Foundation — Phase 14: Feedback Loop (Phase 13 complete)
 
 ---
 
 ## Current Position
 
-Phase: Phase 12 COMPLETE (all 4 plans done: 12-01 through 12-04)
-Plan: 12-04 complete → Phase 13 next
-Status: Phase 12 done — 4 of 4 plans complete — ready for Phase 13: Data Completeness
-Last activity: 2026-03-04 — 12-04 complete: shadow signal virtual-activation; Phase 12 all 4 plans done
+Phase: Phase 13 COMPLETE (all 4 plans done: 13-01 through 13-04)
+Plan: 13-04 complete → Phase 14 next
+Status: Phase 13 done — 4 of 4 plans complete — ready for Phase 14: Feedback Loop
+Last activity: 2026-03-05 — 13-04 complete: feature_writer i7/i8 enrichment + days_to_expiry; Phase 13 all 4 plans done
 
 ## Accumulated Context
 
@@ -56,10 +56,10 @@ Last activity: 2026-03-04 — 12-04 complete: shadow signal virtual-activation; 
 - [Phase 13-data-completeness]: intelligence_i7/i8 stream maxlen=200 — async enrichment backpressure without excessive memory
 - [Phase 13-data-completeness]: ENRICH_CONSUMER_GROUP ('feature_writer:enrich') separate from CONSUMER_GROUP for independent i7/i8 stream position tracking
 - [Phase 13-data-completeness]: days_to_expiry computed at feature_writer write time via startup-cached expiry_map; None for uncached, 0 for non-futures
+- [Phase 13-data-completeness]: DATA-01..04 all complete — intelligence_features now carries i7/i8 JSONB + days_to_expiry; Phase 13 done 2026-03-05
 
 ### Pending Todos
 
-- feature_writer_service: sequential stream polling → concurrent xreadgroup (targeted in Phase 13 DATA discipline)
 - 5 O(N²) pattern files still unoptimized (non-blocking, low priority)
 - 25 todos total in .planning/todos/pending/ (see directory for full list)
 
