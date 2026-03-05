@@ -82,7 +82,7 @@ completed: "2026-03-04"
    - RED: `117f674` — 5 failing tests in `test_signal_lifecycle_service.py`
    - GREEN: `23216af` — shadow signal branch in `_evaluate_signals_against_bar()`
 
-**Plan metadata:** pending (docs commit below)
+**Plan metadata:** committed
 
 ## Files Created/Modified
 

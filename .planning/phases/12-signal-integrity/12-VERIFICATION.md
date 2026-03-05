@@ -8,7 +8,7 @@ re_verification: false
 
 # Phase 12: Signal Integrity Verification Report
 
-**Phase Goal:** All 12 I7 plugins only fire when the market regime supports the setup type — regime-ineligible signals are tracked as shadow signals rather than discarded
+**Phase Goal:** All 17 I7 plugins only fire when the market regime supports the setup type — regime-ineligible signals are tracked as shadow signals rather than discarded
 **Verified:** 2026-03-04T23:55:00Z
 **Status:** PASSED
 **Re-verification:** No — initial verification
@@ -157,7 +157,7 @@ None. All Phase 12 behaviors are unit-testable and verified programmatically. Th
 
 ## Summary
 
-Phase 12 goal is fully achieved. All 12 I7 plugins (verified: 17 plugins, not 12 as the goal summary stated — the goal description was approximate; the PLAN covers all 17 in TIER_I7) now declare their regime affinity via `regime_type` class attribute. The aggregator gate uses higher-timeframe HMM data to suppress mismatched signals while preserving them as shadow entries in `all_ranked` and `signal_ledger`. The lifecycle service tracks their counterfactual MAE/MFE/outcome under `status='regime_suppressed'` without ever promoting them to `active`. All 5 SIGINT requirements satisfy their stated behaviors. 1117 unit tests pass with 0 ruff errors.
+Phase 12 goal is fully achieved. All 17 I7 plugins now declare their regime affinity via `regime_type` class attribute. The aggregator gate uses higher-timeframe HMM data to suppress mismatched signals while preserving them as shadow entries in `all_ranked` and `signal_ledger`. The lifecycle service tracks their counterfactual MAE/MFE/outcome under `status='regime_suppressed'` without ever promoting them to `active`. All 5 SIGINT requirements satisfy their stated behaviors. 1117 unit tests pass with 0 ruff errors.
 
 ---
 

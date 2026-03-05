@@ -216,12 +216,21 @@ class SignalLifecycleService:
                     current_mfe = 0.0
                 # Ensure activated_at is set (use signal timestamp as virtual activation)
                 if sid not in self._activated_at and sig_ts:
-                    act_ts = (
-                        sig_ts
-                        if isinstance(sig_ts, datetime)
-                        else datetime.fromisoformat(str(sig_ts))
-                    )
-                    self._activated_at[sid] = act_ts
+                    try:
+                        act_ts = (
+                            sig_ts
+                            if isinstance(sig_ts, datetime)
+                            else datetime.fromisoformat(str(sig_ts))
+                        )
+                        self._activated_at[sid] = act_ts
+                    except (ValueError, TypeError) as e:
+                        self.logger.warning(
+                            "Invalid timestamp for shadow activation",
+                            signal_id=sid,
+                            sig_ts=str(sig_ts),
+                            error=str(e),
+                        )
+                        continue
 
                 # Pass status='active' override so evaluate_signal() takes exit path
                 sig_for_eval = {**sig_with_extras, "status": "active"}
