@@ -1,10 +1,26 @@
 # CLAUDE.md
 
-Version: 5.12.0
+Version: 5.13.0
 Last Updated: 2026-03-04
-Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1083 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1117 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
+
+## Decision Framework: What Would Jim Simons Do?
+
+When evaluating any design, feature, or architectural decision, apply this filter:
+
+> **What would Jim Simons and Renaissance Capital demand?**
+
+Renaissance principles that govern this codebase:
+- **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
+- **Let the system run.** Don't override data with intuition. Build the automation, then trust it.
+- **Earn the right through proof.** No model, strategy, or feature gets promoted to production without statistically significant evidence (p < 0.05, sufficient N). Shadow mode first, always.
+- **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
+- **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
+- **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
+
+Apply this framing when: designing new features, choosing between approaches, deciding what to log, evaluating model/strategy performance, or questioning whether something is "good enough."
 
 # IndicAgent Market Intelligence Platform
 
@@ -157,6 +173,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
 - **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
+- **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in the test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise the service silently fails mid-test with a misleading error.
+- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
 
@@ -170,9 +188,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1083 passing · **Ruff:** 0 errors ✅
+**Tests:** 1117 passing · **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Signal Integrity, Data Completeness, Feedback Loop, Validated Alpha) — see `.planning/ROADMAP.md`
+**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Phase 12 Signal Integrity ✅, Data Completeness, Feedback Loop, Validated Alpha) — see `.planning/ROADMAP.md`
 
 ## Key References
 
