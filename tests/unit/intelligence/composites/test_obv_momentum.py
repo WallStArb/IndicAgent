@@ -1,4 +1,5 @@
 import pandas as pd
+
 from src.intelligence.composites.obv_momentum import plugin
 
 

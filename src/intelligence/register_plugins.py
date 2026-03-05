@@ -3,9 +3,9 @@ from __future__ import annotations
 from .composites.adx_events import plugin as adx_events_plugin
 from .composites.donchian_position import plugin as donchian_pos_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
-from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.macd_events import plugin as macd_events_plugin
 from .composites.momentum_accel import plugin as momentum_accel_plugin
+from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
 from .composites.stochastic_events import plugin as stoch_events_plugin
 from .composites.volume_events import plugin as volume_events_plugin

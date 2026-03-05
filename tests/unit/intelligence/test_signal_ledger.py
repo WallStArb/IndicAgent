@@ -10,8 +10,8 @@ import pytest
 
 from src.intelligence.trading.aggregator import AggregatedResult
 from src.intelligence.trading.signal_ledger import (
-    LedgerEntry,
     _SELECT_ACTIVE_SQL,
+    LedgerEntry,
     get_active_signals,
     insert_signals,
     update_signal_status,
