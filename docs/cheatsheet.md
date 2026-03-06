@@ -74,6 +74,21 @@ cd production && docker compose up -d prometheus grafana
 .venv/bin/python production/scripts/historical_backfill.py --days 60 --symbols ESH6,NQH6
 ```
 
+## Pipeline Reset
+```bash
+# Preview what would be cleared (no changes)
+.venv/bin/python production/scripts/pipeline_reset.py --dry-run
+
+# Fast reset — keep OHLCV, re-replay through updated signal logic
+.venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv
+
+# Full reset — re-fetch from IBKR + replay everything
+.venv/bin/python production/scripts/pipeline_reset.py
+
+# Limit to specific symbols
+.venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv --symbols ESH6,NQH6
+```
+
 ## Development & Testing
 ```bash
 .venv/bin/pytest tests/unit/ -v        # Unit tests
