@@ -64,7 +64,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
 - [x] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime (completed 2026-03-06)
-- [ ] **Phase 17: LLM Wiring Fix** — Fix signal_id linkage (signals:aggregated missing UUID) and regime vocabulary mismatch (plugin vocab vs cache keys) — closes LLM-04/LLM-05 production breaks, restores E2E Flow 3 + Flow 4
+- [x] **Phase 17: LLM Wiring Fix** — Fix signal_id linkage (signals:aggregated missing UUID) and regime vocabulary mismatch (plugin vocab vs cache keys) — closes LLM-04/LLM-05 production breaks, restores E2E Flow 3 + Flow 4 (completed 2026-03-06)
 
 ## Phase Details
 
@@ -376,7 +376,7 @@ Plans:
   3. Plugin `regime_context` values are translated to canonical vocabulary (`trending`/`ranging`/`volatile`) before being stored in `llm_calls.regime` — score cache keys match `_apply_score_routing` lookups
   4. `_preferred_models` is populated after at least one score recompute cycle — adaptive routing activates for at least one call_type + regime combination
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 17-01-PLAN.md — Fix SessionExtremesSetup regime vocabulary (session_extreme_london/ny/both)
@@ -414,7 +414,7 @@ Plans:
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
-| 17. LLM Wiring Fix | 1/2 | In Progress|  | — |
+| 17. LLM Wiring Fix | 2/2 | Complete   | 2026-03-06 | — |
 
 ## Backlog
 

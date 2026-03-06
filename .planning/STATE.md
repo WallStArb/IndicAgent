@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T15:32:16.504Z"
+last_updated: "2026-03-06T15:32:54.774Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
   total_phases: 17
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -71,6 +71,8 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 16-llm-intelligence-layer]: Migration 020 applied to production: llm_calls is now a TimescaleDB hypertable partitioned by called_at with composite PK (call_id, called_at)
 - [Phase 17-llm-wiring-fix]: session_extreme_london/ny/both are the canonical regime strings for SessionExtremesSetup — raw plugin output IS the LLM routing vocabulary, no translation layer
 - [Phase 17-llm-wiring-fix]: supporting_factors in SessionExtremesSetup now carries session:<ctx> label alongside confirming-factor strings; consumers must use membership checks not equality
+- [Phase 17]: stream xadd fires before insert_signals (hot tier first); xdel compensates on DB failure to avoid orphaned signal_id
+- [Phase 17]: signal_id sourced from winning LedgerEntry (was_selected=True); empty string when no winner
 
 ### Pending Todos
 
