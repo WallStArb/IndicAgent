@@ -311,7 +311,12 @@ Plans:
   2. A setup with fewer than 30 resolved signals in `signal_ledger` has no performance weight applied — the aggregator uses baseline weights for that setup regardless of early win/loss data
   3. The signal aggregator reads setup performance weights at startup and outperforming setups rank higher than underperforming setups in aggregation — verifiable by comparing aggregator selection logs against `setup_performance` table values
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 14-01-PLAN.md — TDD RED: write all failing tests for FEED-01, FEED-02, FEED-03
+- [ ] 14-02-PLAN.md — Implement setup_performance_updater + migration 021 + weight_updater extension (FEED-01, FEED-02)
+- [ ] 14-03-PLAN.md — Aggregator perf multiplier + signal_generator_service Redis refresh (FEED-03)
 
 ---
 
