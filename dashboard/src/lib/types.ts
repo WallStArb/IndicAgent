@@ -206,6 +206,10 @@ export interface SignalData {
   signal_computed_at?: string;   // ISO — when signal_generator_service fired this signal
   bar_close_ts?: string;         // ISO — when bar closed (pipeline lag start)
   pipeline_lag_s?: number;       // computed client-side: signal_computed_at - bar_close_ts
+  bar_close_price?: number;      // close price of the bar that triggered the signal
+  market_price_at_signal?: number; // live bid (short) or ask (long) at signal creation
+  ask_at_signal?: number;        // live ask at signal creation
+  bid_at_signal?: number;        // live bid at signal creation
 }
 
 // ── I8 AI Narratives ──

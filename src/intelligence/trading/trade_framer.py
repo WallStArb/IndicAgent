@@ -30,6 +30,9 @@ Target level collection (longs, candidates above entry):
   Fallback: ATR-based T1=+2.0×risk, T2=+3.5×risk.
 
 RR gate: if T1 rr < 1.5 → viable=False.
+Pullback-entry staleness gate: for at_pullback entries, if close has already passed T1
+  in the signal direction (short: close < T1; long: close > T1) → viable=False
+  with rejection_reason="pullback_entry_price_past_t1".
 """
 
 from __future__ import annotations
@@ -75,6 +78,38 @@ def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _reject_frame(
+    reason: str,
+    entry: float,
+    entry_type: str,
+    stop: float,
+    stop_type: str,
+    zone_low: float,
+    zone_high: float,
+    targets: list[TradeTarget] | None = None,
+    rr_t1: float = 0.0,
+    rr_t2: float = 0.0,
+    rr_t3: float = 0.0,
+    method: str = "atr_fallback",
+) -> TradeFrame:
+    """Return a non-viable TradeFrame with the given rejection reason."""
+    return TradeFrame(
+        entry=entry,
+        entry_type=entry_type,
+        stop=stop,
+        stop_type=stop_type,
+        targets=targets if targets is not None else [],
+        rr_t1=rr_t1,
+        rr_t2=rr_t2,
+        rr_t3=rr_t3,
+        method=method,
+        viable=False,
+        rejection_reason=reason,
+        zone_low=zone_low,
+        zone_high=zone_high,
+    )
 
 
 def _resolve_zone_bounds(
@@ -549,39 +584,17 @@ def frame_trade(
 
     risk = abs(resolved_entry - stop)
     if risk <= 0:
-        return TradeFrame(
-            entry=resolved_entry,
-            entry_type=entry_type,
-            stop=stop,
-            stop_type=stop_type,
-            targets=[],
-            rr_t1=0.0,
-            rr_t2=0.0,
-            rr_t3=0.0,
-            method="atr_fallback",
-            viable=False,
-            rejection_reason="zero_risk: stop == entry",
-            zone_low=zone_low,
-            zone_high=zone_high,
+        return _reject_frame(
+            "zero_risk: stop == entry",
+            resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
         )
 
     targets, is_structural = _pick_targets(candidates, resolved_entry, stop, atr, direction)
 
     if not targets:
-        return TradeFrame(
-            entry=resolved_entry,
-            entry_type=entry_type,
-            stop=stop,
-            stop_type=stop_type,
-            targets=[],
-            rr_t1=0.0,
-            rr_t2=0.0,
-            rr_t3=0.0,
-            method="atr_fallback",
-            viable=False,
-            rejection_reason="no_targets_found",
-            zone_low=zone_low,
-            zone_high=zone_high,
+        return _reject_frame(
+            "no_targets_found",
+            resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
         )
 
     rr_t1 = targets[0].rr
@@ -589,21 +602,29 @@ def frame_trade(
     rr_t3 = targets[2].rr if len(targets) > 2 else 0.0
     method = "structural" if is_structural else "atr_fallback"
 
+    # Pullback-entry staleness gate: reject if current price has already moved past T1.
+    # For at_pullback entries the close price ≠ entry (price must rally/fall to entry).
+    # If close has already passed T1 in the signal direction, the trade is unreachable:
+    # price would need to reverse N points just to enter, having already exceeded the target.
+    close_price = _fval(features, "close_price")
+    if close_price > 0 and entry_type == "at_pullback":
+        t1_price = targets[0].price
+        price_past_t1 = (
+            (direction == -1 and close_price < t1_price)  # short: close below T1
+            or (direction == 1 and close_price > t1_price)  # long: close above T1
+        )
+        if price_past_t1:
+            return _reject_frame(
+                "pullback_entry_price_past_t1",
+                resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
+                targets=targets, rr_t1=rr_t1, rr_t2=rr_t2, rr_t3=rr_t3, method=method,
+            )
+
     if rr_t1 < MIN_RR_T1:
-        return TradeFrame(
-            entry=resolved_entry,
-            entry_type=entry_type,
-            stop=stop,
-            stop_type=stop_type,
-            targets=targets,
-            rr_t1=rr_t1,
-            rr_t2=rr_t2,
-            rr_t3=rr_t3,
-            method=method,
-            viable=False,
-            rejection_reason=f"rr_below_{MIN_RR_T1}: {rr_t1:.2f}",
-            zone_low=zone_low,
-            zone_high=zone_high,
+        return _reject_frame(
+            f"rr_below_{MIN_RR_T1}: {rr_t1:.2f}",
+            resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
+            targets=targets, rr_t1=rr_t1, rr_t2=rr_t2, rr_t3=rr_t3, method=method,
         )
 
     return TradeFrame(

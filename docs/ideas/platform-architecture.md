@@ -1,11 +1,33 @@
 # Platform Architecture — Unified Intelligence & Execution Suite (Vision)
 
 **Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
+**Last Updated:** 2026-03-06  
 **Status:** Vision — architecture ideation / ideas capture  
 **Related:** `docs/ideas/qualagent-vision.md`, `docs/ideas/derivagent-vision.md`, `docs/ideas/tradeagent-vision.md`, `docs/ideas/primeagent-vision.md`, `docs/ideas/aegisagent-vision.md`, `docs/ideas/renaissance-framing.md`
 
 > **Living document.** The data flow section and canonical stream namespace are the source of truth for stream contracts across all products. Update these whenever a stream is added, renamed, or retired.
+
+---
+
+## Executive Summary
+
+**TLDR:** The entire platform — all six products across intelligence, execution, portfolio, and risk — is unified by a single shared event bus (Redpanda). Every piece of market data, every intelligence signal, every execution event, and every risk action flows through this bus. Products don't call each other; they publish to streams and subscribe from them. This means any new product or external system can be integrated simply by subscribing to the streams it needs and publishing the signals it produces. No existing code changes, no tight coupling, no data duplication. The bus is the spine. Everything else is a consumer or producer attached to it.
+
+### What the shared bus enables
+
+The architecture was designed around a single architectural insight inspired by Renaissance Technologies: **signal value compounds at the intersections**. A volatility compression signal alone is useful. A confirmed macro regime shift alone is useful. A technical confluence score peaking alone is useful. All three aligning simultaneously — and a system that can see all three because they flow through the same bus — that is where institutional-grade edge comes from.
+
+The shared data spine makes this possible:
+
+- **IndicAgent** (live today) produces the full I1–I8 quantitative intelligence stack — indicators, patterns, regime confluence, trading signals, AI narrative — and publishes it all to the bus. Any product, now or future, can subscribe to `intelligence:SYMBOL:TF` and immediately consume 88 plugins worth of signal without any integration work.
+- **QualAgent** (vision) will subscribe to the same market data streams and publish qualitative regime states (`qual:regime`, `qual:score`, `qual:event`) to the same bus. TradeAgent and DerivAgent can then combine quantitative and qualitative signals in a single reasoning step — without either product knowing anything about the other's internal implementation.
+- **DerivAgent** (vision) will publish derivatives intelligence (`deriv:vol_regime`, `deriv:gex`, `deriv:vrp`) to the bus. The cross-product signal — IndicAgent I6 confluence HIGH + QualAgent macro BULLISH + DerivAgent VRP ELEVATED — becomes readable by any downstream system as a single composite regime view.
+- **TradeAgent and DerivAgent Execution** (vision) subscribe to all warm-tier intelligence streams and publish execution events (`execution:open`, `execution:fill`, `execution:close`) back to the bus, where PrimeAgent and AegisAgent pick them up for portfolio management and risk enforcement.
+- **External systems** — a research tool, a third-party signal consumer, a backtesting engine, a custom strategy bot — can integrate by subscribing to any combination of streams. Redpanda consumer groups allow multiple independent consumers to read the same stream without interfering with each other. Replay from offset 0 means a new system can bootstrap on full historical data from day one.
+
+The three-tier model (hot → warm → cold) mirrors how institutional quant shops structure their data infrastructure. Hot tier is raw, sub-millisecond market data. Warm tier is enriched intelligence outputs and regime states. Cold tier is the institutional memory — TimescaleDB — where every signal, every outcome, and every portfolio snapshot accumulates as the training dataset for the learning loop. The system improves without manual retuning because all the raw material for learning flows through the same bus and lands in the same database.
+
+Integration cost for a new product: subscribe to the streams you need, publish what you produce. The contract is the stream namespace. No existing products change.
 
 ---
 
@@ -19,9 +41,9 @@ Capture the architectural vision for how all six products — IndicAgent, QualAg
 
 Jim Simons and Medallion didn't build separate silos for equities, futures, and currencies. They built **one data spine** where everything landed — price, fundamentals, macro, alternative data, all of it — and strategies consumed from that single source.
 
-The insight that made Medallion exceptional: **the alpha lives in the intersections**. A vol surface dislocation alone is interesting. COT positioning at an extreme alone is interesting. Technical confluence with a confirmed regime shift alone is interesting. All three aligned simultaneously — that's a signal worth 10x any individual input.
+The insight: signal value compounds at the intersections. A vol surface dislocation alone is useful. COT positioning at an extreme alone is useful. Technical confluence with a confirmed regime shift alone is useful. All three aligned simultaneously is a materially stronger signal than any individual input.
 
-You can only discover and act on those cross-domain combinations if all signals flow through a shared bus that every downstream consumer can subscribe to. Siloed products with private data pipelines can't see the intersections.
+That combination is only discoverable if all signals flow through a shared bus that every downstream consumer can subscribe to. Siloed products with private data pipelines cannot see across domain boundaries.
 
 The architecture built for IndicAgent already has the right DNA. The hot/warm/cold tier model maps directly to how a quantitative hedge fund structures its data infrastructure.
 

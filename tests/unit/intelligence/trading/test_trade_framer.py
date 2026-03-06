@@ -54,3 +54,58 @@ class TestZoneBounds:
                     "nearest_supply_low": 455.0, "in_supply_zone": 1.0, "swing_high": 462.0}
         frame = frame_trade("supply_demand_short", -1, 457.0, features, atr=3.0)
         assert frame.zone_low < frame.zone_high
+
+
+@pytest.mark.unit
+class TestPullbackStalenessGate:
+    """at_pullback entries where close has already passed T1 must be rejected."""
+
+    def _short_pullback_features(self, close_price: float) -> dict:
+        # nearest_resistance=120 > plugin entry=100 → at_pullback resolves to 120
+        # ATR=5, stop=120+2×5=130, risk=10, T1=120-2×10=100 (ATR fallback 2.0×risk)
+        return {
+            "nearest_resistance": 120.0,
+            "close_price": close_price,
+        }
+
+    def _long_pullback_features(self, close_price: float) -> dict:
+        # nearest_support=80 < plugin entry=100 → at_pullback resolves to 80
+        # ATR=5, stop=80-2×5=70, risk=10, T1=80+2×10=100 (ATR fallback 2.0×risk)
+        return {
+            "nearest_support": 80.0,
+            "close_price": close_price,
+        }
+
+    def test_short_pullback_rejected_when_close_below_t1(self):
+        """SHORT at_pullback: close already below T1 → not viable."""
+        features = self._short_pullback_features(close_price=90.0)  # below T1≈100
+        frame = frame_trade("trend_short", -1, 100.0, features, atr=5.0)
+        assert not frame.viable
+        assert frame.rejection_reason == "pullback_entry_price_past_t1"
+
+    def test_short_pullback_viable_when_close_above_t1(self):
+        """SHORT at_pullback: close between T1 and entry → viable (normal pending)."""
+        features = self._short_pullback_features(close_price=110.0)  # between T1≈100 and entry=120
+        frame = frame_trade("trend_short", -1, 100.0, features, atr=5.0)
+        assert frame.viable
+
+    def test_long_pullback_rejected_when_close_above_t1(self):
+        """LONG at_pullback: close already above T1 → not viable."""
+        features = self._long_pullback_features(close_price=110.0)  # above T1≈100
+        frame = frame_trade("trend_long", 1, 100.0, features, atr=5.0)
+        assert not frame.viable
+        assert frame.rejection_reason == "pullback_entry_price_past_t1"
+
+    def test_long_pullback_viable_when_close_below_t1(self):
+        """LONG at_pullback: close between entry and T1 → viable."""
+        features = self._long_pullback_features(close_price=90.0)  # between entry=80 and T1≈100
+        frame = frame_trade("trend_long", 1, 100.0, features, atr=5.0)
+        assert frame.viable
+
+    def test_at_close_entry_not_affected_by_gate(self):
+        """Non-pullback (at_close) entries are never filtered by the pullback gate."""
+        # mean_reversion uses at_close; close=entry so close can never be past T1 on same bar
+        features = {"close_price": 450.0, "atr_14": 5.0}
+        frame = frame_trade("mean_reversion_long", 1, 450.0, features, atr=5.0)
+        # Gate should not fire — viable determined only by RR
+        assert frame.rejection_reason != "pullback_entry_price_past_t1"

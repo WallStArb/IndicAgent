@@ -75,6 +75,16 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
             and hasattr(row["signal_computed_at"], "isoformat")
             else None
         ),
+        "market_price_at_signal": (
+            float(row["market_price_at_signal"])
+            if row.get("market_price_at_signal") is not None else None
+        ),
+        "ask_at_signal": (
+            float(row["ask_at_signal"]) if row.get("ask_at_signal") is not None else None
+        ),
+        "bid_at_signal": (
+            float(row["bid_at_signal"]) if row.get("bid_at_signal") is not None else None
+        ),
     }
     if include_features:
         # feature_ts NULL → features=None (pre-Phase-2 signals without feature context)
@@ -121,6 +131,7 @@ async def get_signals(
                        sl.setup_plugin, sl.signal_type, sl.direction,
                        sl.entry_price, sl.stop_loss, sl.confidence, sl.status,
                        sl.feature_ts, sl.feature_tf, sl.signal_computed_at,
+                       sl.market_price_at_signal, sl.ask_at_signal, sl.bid_at_signal,
                        f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
                 FROM signal_ledger sl
                 LEFT JOIN intelligence_features f
@@ -138,7 +149,8 @@ async def get_signals(
                 SELECT signal_id, timestamp, symbol, timeframe,
                        setup_plugin, signal_type, direction,
                        entry_price, stop_loss, confidence, status,
-                       feature_ts, feature_tf, signal_computed_at
+                       feature_ts, feature_tf, signal_computed_at,
+                       market_price_at_signal, ask_at_signal, bid_at_signal
                 FROM signal_ledger
                 WHERE symbol = $1
                   AND ($3::timestamptz IS NULL OR timestamp >= $3)
