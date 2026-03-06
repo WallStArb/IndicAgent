@@ -303,7 +303,7 @@ class SignalLifecycleService:
 
                     # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
                     if self.redis_client:
-                        asyncio.create_task(self.redis_client.xadd(
+                        _t = asyncio.create_task(self.redis_client.xadd(
                             sk_llm_outcomes_stream(self.env_prefix),
                             _build_outcome_payload(
                                 signal_id=sid,
@@ -316,6 +316,11 @@ class SignalLifecycleService:
                             maxlen=200,
                             approximate=True,
                         ))
+                        _t.add_done_callback(
+                            lambda t: self.logger.warning(
+                                "llm_outcomes xadd failed", error=str(t.exception())
+                            ) if not t.cancelled() and t.exception() else None
+                        )
 
                     # Status stays 'regime_suppressed' — never promoted to 'active'
                     await update_signal_status(
@@ -409,7 +414,7 @@ class SignalLifecycleService:
 
                 # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
                 if self.redis_client:
-                    asyncio.create_task(self.redis_client.xadd(
+                    _t = asyncio.create_task(self.redis_client.xadd(
                         sk_llm_outcomes_stream(self.env_prefix),
                         _build_outcome_payload(
                             signal_id=sid,
@@ -422,6 +427,11 @@ class SignalLifecycleService:
                         maxlen=200,
                         approximate=True,
                     ))
+                    _t.add_done_callback(
+                        lambda t: self.logger.warning(
+                            "llm_outcomes xadd failed", error=str(t.exception())
+                        ) if not t.cancelled() and t.exception() else None
+                    )
 
                 # Clean up memory
                 self._mae.pop(sid, None)

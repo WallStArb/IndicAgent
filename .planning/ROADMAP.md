@@ -63,7 +63,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready) (completed 2026-03-05)
 - [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
-- [ ] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime
+- [x] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime (completed 2026-03-06)
 
 ## Phase Details
 
@@ -350,7 +350,7 @@ Plans:
   4. When a model reaches `is_significant=True` (p < 0.05, n_outcomes >= 30), `ai_narrative_service` moves it to position 0 in the provider chain for that call_type + regime combination at next score refresh
   5. `llm_writer_service` is running as a systemd service (`indicagent-llm-writer`) with Prometheus metrics on its assigned port
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [ ] 16-01-PLAN.md — Schema foundation: migration 019 + stream key helpers + TDD RED tests
@@ -390,7 +390,7 @@ Plans:
 | 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
-| 16. LLM Intelligence Layer | 4/5 | In Progress|  | — |
+| 16. LLM Intelligence Layer | 5/5 | Complete   | 2026-03-06 | — |
 
 ## Backlog
 

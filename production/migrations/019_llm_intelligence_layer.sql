@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     call_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     called_at       TIMESTAMPTZ NOT NULL,
     call_type       TEXT NOT NULL,          -- 'per_signal' | 'group_synthesis' | 'counterfactual'
-    signal_id       UUID REFERENCES signal_ledger(signal_id),  -- nullable
+    signal_id       UUID,                                       -- nullable; soft ref to signal_ledger(signal_id)
     group_name      TEXT,
     symbol          TEXT NOT NULL,
     timeframe       TEXT NOT NULL,
@@ -64,7 +64,7 @@ COMMENT ON COLUMN llm_calls.call_type IS
     'Invocation type: per_signal (ai_narrative per setup), group_synthesis (phi4-mini group), counterfactual (shadow/suppressed signal).';
 
 COMMENT ON COLUMN llm_calls.signal_id IS
-    'FK to signal_ledger.signal_id. NULL for group_synthesis calls.';
+    'Soft reference to signal_ledger.signal_id (no FK — signal_ledger PK is composite). NULL for group_synthesis calls.';
 
 COMMENT ON COLUMN llm_calls.provider IS
     'LLM provider name, e.g. ''ollama''. Supports multi-provider routing in future.';
