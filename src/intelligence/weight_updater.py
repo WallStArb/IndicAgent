@@ -218,15 +218,39 @@ if __name__ == "__main__":
         settings = Settings()
         db = DatabaseManager(settings.database_url)
         await db.initialize()
+
+        # Existing CIS weight update
         run_result = await run_weight_update(db)
         if run_result:
             print(
-                f"Updated: {run_result.weights_type}, "
+                f"CIS weights updated: {run_result.weights_type}, "
                 f"n={run_result.n_resolved}, "
                 f"weights={run_result.weights}"
             )
         else:
-            print("No update needed (insufficient resolved signals)")
+            print("CIS weights: no update needed (insufficient resolved signals)")
+
+        # New: setup performance update (FEED-01)
+        import redis.asyncio as aioredis  # noqa: E402
+
+        from src.core.stream_keys import prefix  # noqa: E402
+        from src.intelligence.setup_performance_updater import (  # noqa: E402
+            run_setup_performance_update,
+        )
+
+        redis_client = aioredis.from_url(settings.redis_url)
+        env_prefix = prefix(settings.env)
+        try:
+            perf_weights = await run_setup_performance_update(db, redis_client, env_prefix)
+            if perf_weights:
+                print(f"Setup performance weights updated: {len(perf_weights)} eligible setups")
+                for plugin, multiplier in perf_weights.items():
+                    print(f"  {plugin}: {multiplier:.3f}")
+            else:
+                print("Setup performance: no eligible setups (n<30 for all)")
+        finally:
+            await redis_client.aclose()
+
         await db.close()
 
     asyncio.run(_main())
