@@ -65,3 +65,41 @@ export function fmtCompact(value: number | undefined): string {
   if (Math.abs(value) >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
   return value.toFixed(0);
 }
+
+// ── Signal timing utilities ──
+
+/** Convert timeframe string to minutes. */
+export function tfToMinutes(tf: string): number {
+  const map: Record<string, number> = {
+    "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440,
+  };
+  return map[tf] ?? 1;
+}
+
+/**
+ * Returns staleness ratio (elapsed / bar_period_minutes) when >= 1.0, else null.
+ * >= 1.0 means at least one full bar period has elapsed since the signal/narrative fired.
+ * TODO(v1.4-feedback): replace provisional 1.0 display threshold with empirically-derived
+ * percentile from signal_ledger outcomes once N > 100 resolved signals.
+ */
+export function stalenessRatio(timestamp: string, tfMinutes: number): number | null {
+  const ms = Date.parse(timestamp);
+  if (isNaN(ms)) return null;
+  const ratio = (Date.now() - ms) / (tfMinutes * 60 * 1000);
+  return ratio >= 1.0 ? ratio : null;
+}
+
+/**
+ * Returns pipeline lag in seconds (signal_computed_at - bar_close_ts).
+ * Returns null if either timestamp is missing or invalid.
+ */
+export function pipelineLagS(
+  signalComputedAt: string | undefined,
+  barCloseTs: string | undefined
+): number | null {
+  if (!signalComputedAt || !barCloseTs) return null;
+  const computed = Date.parse(signalComputedAt);
+  const barClose = Date.parse(barCloseTs);
+  if (isNaN(computed) || isNaN(barClose)) return null;
+  return (computed - barClose) / 1000;
+}
