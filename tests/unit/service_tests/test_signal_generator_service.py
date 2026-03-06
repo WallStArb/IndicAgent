@@ -511,3 +511,48 @@ def test_signal_redis_message_includes_timing_fields():
     assert "bar_close_ts" in message
     assert "2026-03-06T05:10:00.800000" in message["signal_computed_at"]
     assert "2026-03-06T05:10:00" in message["bar_close_ts"]
+
+
+# ── signal_id threading ──────────────────────────────────────────────────────
+
+
+def test_build_ledger_entries_winning_entry_has_signal_id():
+    """The was_selected=True LedgerEntry has a non-empty UUID4 signal_id."""
+    import re
+
+    from src.intelligence.trading.aggregator import AggregatedResult
+    from services.signal_generator_service import build_ledger_entries
+
+    selected_signal = {
+        "setup_plugin": "trad_TrendFollowing",
+        "signal_type": "trend_long",
+        "direction": 1,
+        "entry_price": 5100.0,
+        "stop_loss": 5090.0,
+        "targets": [5120.0],
+        "confidence": 0.80,
+        "confluence_score": 0.75,
+        "regime_context": "trending_up",
+        "supporting_factors": ["BOS confirmed"],
+        "composite_rank": 1,
+        "regime_eligible": True,
+    }
+    result = AggregatedResult(
+        selected_signal=selected_signal,
+        all_ranked=[selected_signal],
+        num_signals_fired=1,
+    )
+    entries = build_ledger_entries(
+        result,
+        symbol="ESH6",
+        timeframe="5m",
+        timestamp=datetime(2026, 3, 6, 10, 0, 0, tzinfo=UTC),
+        features={},
+    )
+
+    assert len(entries) == 1
+    winning = entries[0]
+    assert winning.was_selected is True
+    assert winning.signal_id != ""
+    assert re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                    winning.signal_id)

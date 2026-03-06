@@ -1,6 +1,10 @@
 """Tests for pure helper functions in ai_narrative_service."""
 
-from services.ai_narrative_service import build_narrative_prompt, parse_aggregated_signal
+from services.ai_narrative_service import (
+    _build_llm_call_payload,
+    build_narrative_prompt,
+    parse_aggregated_signal,
+)
 
 
 def _make_fields(direction: int = 1, **overrides) -> dict[bytes, bytes]:
@@ -62,3 +66,60 @@ def test_build_narrative_prompt_contains_key_fields():
     assert "BOS confirmed" in prompt  # supporting_factors
     assert "/no_think" in prompt      # suppress qwen3 thinking overhead
     assert "Bullish" in prompt
+
+
+# ── signal_id threading tests ────────────────────────────────────────────────
+
+def test_parse_aggregated_signal_includes_signal_id():
+    """signal_id present in stream fields is included in parse result."""
+    result = parse_aggregated_signal(_make_fields(signal_id="abc-123"))
+    assert result is not None
+    assert result["signal_id"] == "abc-123"
+
+
+def test_parse_aggregated_signal_signal_id_empty_when_missing():
+    """signal_id absent from stream fields returns empty string in parse result."""
+    result = parse_aggregated_signal(_make_fields())
+    assert result is not None
+    assert result["signal_id"] == ""
+
+
+def test_build_llm_call_payload_uses_signal_id_from_signal_data():
+    """_build_llm_call_payload passes signal_data['signal_id'] through to payload."""
+    signal_data = {
+        "signal_id": "test-uuid-456",
+        "symbol": "ESH6",
+        "timeframe": "5m",
+        "regime_context": "trending",
+        "confidence": 0.74,
+        "entry_price": "5100",
+        "stop_loss": "5090",
+        "profit_target": "5120",
+        "setup_plugin": "trad_TrendFollowing",
+    }
+    payload = _build_llm_call_payload(
+        call_type="per_signal",
+        signal_data=signal_data,
+        group_name="",
+        prompt="test prompt",
+        response="test response",
+        latency_ms=100.0,
+        succeeded=True,
+        model_id="qwen3.5:9b",
+    )
+    assert payload["signal_id"] == "test-uuid-456"
+
+
+def test_build_llm_call_payload_empty_string_when_no_signal_id():
+    """_build_llm_call_payload returns empty string for signal_id when not in signal_data."""
+    payload = _build_llm_call_payload(
+        call_type="per_signal",
+        signal_data={},
+        group_name="",
+        prompt="test prompt",
+        response=None,
+        latency_ms=50.0,
+        succeeded=False,
+        model_id="ollama",
+    )
+    assert payload["signal_id"] == ""
