@@ -520,8 +520,8 @@ def test_build_ledger_entries_winning_entry_has_signal_id():
     """The was_selected=True LedgerEntry has a non-empty UUID4 signal_id."""
     import re
 
-    from src.intelligence.trading.aggregator import AggregatedResult
     from services.signal_generator_service import build_ledger_entries
+    from src.intelligence.trading.aggregator import AggregatedResult
 
     selected_signal = {
         "setup_plugin": "trad_TrendFollowing",

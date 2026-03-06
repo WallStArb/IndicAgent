@@ -627,13 +627,10 @@ class SignalGeneratorService:
             quote=live_quote,
             determined_at=determined_at,
         )
-        if entries and self.db_manager:
-            await insert_signals(self.db_manager, entries)
-            selected_count = sum(1 for e in entries if e.was_selected)
-            self.signals_generated_total.inc(len(entries))
-            self.signals_selected_total.inc(selected_count)
-            self._total_signals += len(entries)
 
+        # STREAM PUBLISH FIRST (hot tier — consistent with platform architecture)
+        stream_name = None
+        stream_entry_id = None
         if result.selected_signal and self.redis_client:
             stream_name = signals_aggregated(self.env_prefix, symbol, timeframe)
             sig = result.selected_signal
@@ -664,14 +661,45 @@ class SignalGeneratorService:
             message["timestamp"] = timestamp.isoformat()
             message["symbol"] = symbol
             message["timeframe"] = timeframe
-            # Thread timing fields to SSE stream (already persisted to DB via signal_ledger)
-            # TODO(v1.4-feedback): derive staleness thresholds from percentile analysis of
-            # signal_ledger once N > 100 signals with resolved outcomes.
+            # Thread timing + price-at-creation fields to SSE stream
+            # (also persisted to DB via signal_ledger for query-time analysis)
             if signal_computed_at:
                 message["signal_computed_at"] = signal_computed_at.isoformat()
             if bar_close_ts:
                 message["bar_close_ts"] = bar_close_ts.isoformat()
-            await self.redis_client.xadd(stream_name, message, maxlen=200, approximate=True)
+            # Bar close price — the price at which the triggering bar closed
+            message["bar_close_price"] = str(float(bar.get("close", 0)))
+            # Live quote snapshot at signal creation — enables entry distance calculation
+            direction = int(sig.get("direction", 0))
+            ask = live_quote.get("ask")
+            bid = live_quote.get("bid")
+            if ask is not None:
+                message["ask_at_signal"] = str(ask)
+            if bid is not None:
+                message["bid_at_signal"] = str(bid)
+            market_price = ask if direction == 1 else bid
+            if market_price is not None:
+                message["market_price_at_signal"] = str(market_price)
+            # Inject signal_id from winning LedgerEntry (UUID assigned in build_ledger_entries)
+            selected_entry = next((e for e in entries if e.was_selected), None)
+            message["signal_id"] = selected_entry.signal_id if selected_entry else ""
+            stream_entry_id = await self.redis_client.xadd(
+                stream_name, message, maxlen=200, approximate=True
+            )
+
+        # DB INSERT SECOND (cold tier)
+        if entries and self.db_manager:
+            try:
+                await insert_signals(self.db_manager, entries)
+            except Exception:
+                # Compensate: remove stream entry to avoid orphaned signal_id in downstream
+                if stream_entry_id and self.redis_client and stream_name:
+                    await self.redis_client.xdel(stream_name, stream_entry_id)
+                raise
+            selected_count = sum(1 for e in entries if e.was_selected)
+            self.signals_generated_total.inc(len(entries))
+            self.signals_selected_total.inc(selected_count)
+            self._total_signals += len(entries)
 
         # Publish all_ranked to intelligence_i7 enrichment stream (DATA-01)
         if self.redis_client:

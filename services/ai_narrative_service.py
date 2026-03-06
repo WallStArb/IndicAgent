@@ -153,6 +153,7 @@ def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None
         "symbol": _get("symbol"),
         "timeframe": _get("timeframe"),
         "timestamp": _get("timestamp"),
+        "signal_id": _get("signal_id"),
         "direction": direction,
         "direction_label": "Bullish" if direction > 0 else "Bearish",
         "confidence": float(_get("confidence", "0.0")),
@@ -201,14 +202,14 @@ def _build_llm_call_payload(
     """Build the stream payload dict for a single LLM call log entry.
 
     All values are str — Redis stream messages require string values.
-    signal_id is intentionally "" for per_signal calls (not in aggregated stream).
+    signal_id is threaded from the signals:aggregated stream message.
     """
     sd = signal_data or {}
     return {
         "call_id":         str(uuid.uuid4()),
         "called_at":       datetime.now(tz=UTC).isoformat(),
         "call_type":       call_type,
-        "signal_id":       "",                                          # not in aggregated stream
+        "signal_id":       str(sd.get("signal_id", "")),
         "group_name":      group_name,
         "symbol":          str(sd.get("symbol", "")),
         "timeframe":       str(sd.get("timeframe", "")),
