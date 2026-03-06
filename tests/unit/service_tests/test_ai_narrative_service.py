@@ -1,4 +1,5 @@
 """Tests for AINarrativeService class."""
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -102,10 +103,11 @@ async def test_process_message_publishes_narrative():
 
 @pytest.mark.asyncio
 async def test_process_message_handles_ollama_failure():
-    """Chain returns None → no stream publish, message still acked."""
+    """Chain returns None → narrative not published, but LLM call record IS emitted."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
     svc.per_signal_chain.generate = AsyncMock(return_value=None)
+    svc.per_signal_chain.last_provider_id = "ollama:qwen3.5:9b"
 
     fields = {
         b"direction": b"1",
@@ -126,7 +128,14 @@ async def test_process_message_handles_ollama_failure():
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
 
-    svc.redis_client.xadd.assert_not_called()
+    # LLM call record emitted to llm_calls:stream (fire-and-forget)
+    await asyncio.sleep(0)  # let create_task run
+    xadd_streams = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
+    assert any("llm_calls" in s for s in xadd_streams), "Expected llm_calls:stream emit"
+    # Narrative stream must NOT be published
+    assert not any("narratives" in s for s in xadd_streams), (
+        "Narrative must not be published on LLM failure"
+    )
     svc.redis_client.xack.assert_not_called()
 
 
@@ -296,9 +305,12 @@ async def test_group_synthesis_fires_on_fingerprint_change():
     svc.group_chain.last_provider_id = "openrouter:stepfun/step-3.5-flash:free"
 
     await svc._synthesize_group("equity")
+    await asyncio.sleep(0)  # let create_task run
 
-    # Should publish stream + update state
-    svc.redis_client.xadd.assert_called_once()
+    # Should publish both llm_calls:stream (fire-and-forget) and narratives:group:equity
+    xadd_streams = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
+    assert any("llm_calls" in s for s in xadd_streams), "Expected llm_calls:stream emit"
+    assert any("narratives:group:equity" in s for s in xadd_streams), "Expected narrative stream"
     svc.redis_client.hset.assert_called()
 
 
@@ -451,7 +463,7 @@ async def test_i8_not_published_when_narrative_empty():
 
 @pytest.mark.asyncio
 async def test_i8_payload_shape():
-    """i8 xadd message has required keys: ts, symbol, tf, model, confidence, summary, generated_at."""
+    """i8 xadd message has required keys: ts, symbol, tf, model, confidence, summary, generated_at."""  # noqa: E501
     svc = _make_service_new()
     svc.per_signal_chain.generate = AsyncMock(return_value="Short narrative for test.")
 
@@ -585,8 +597,10 @@ def test_build_llm_call_payload_group_synthesis():
 def test_promote_model_in_chain_moves_to_position_0():
     """Model not at position 0 gets promoted."""
     from services.ai_narrative_service import _promote_model_in_chain
-    p1 = MagicMock(); p1.provider_id = "ollama:qwen3.5:9b"
-    p2 = MagicMock(); p2.provider_id = "zai:glm-5"
+    p1 = MagicMock()
+    p1.provider_id = "ollama:qwen3.5:9b"
+    p2 = MagicMock()
+    p2.provider_id = "zai:glm-5"
     chain = MagicMock()
     chain.providers = [p1, p2]
     _promote_model_in_chain(chain, "zai:glm-5")
@@ -597,8 +611,10 @@ def test_promote_model_in_chain_moves_to_position_0():
 def test_promote_model_in_chain_already_first_no_change():
     """Model at position 0 — chain unchanged."""
     from services.ai_narrative_service import _promote_model_in_chain
-    p1 = MagicMock(); p1.provider_id = "zai:glm-5"
-    p2 = MagicMock(); p2.provider_id = "ollama:qwen3.5:9b"
+    p1 = MagicMock()
+    p1.provider_id = "zai:glm-5"
+    p2 = MagicMock()
+    p2.provider_id = "ollama:qwen3.5:9b"
     chain = MagicMock()
     original = [p1, p2]
     chain.providers = original
@@ -609,7 +625,8 @@ def test_promote_model_in_chain_already_first_no_change():
 def test_promote_model_in_chain_unknown_id_no_change():
     """Unknown provider_id — chain unchanged."""
     from services.ai_narrative_service import _promote_model_in_chain
-    p1 = MagicMock(); p1.provider_id = "ollama:qwen3.5:9b"
+    p1 = MagicMock()
+    p1.provider_id = "ollama:qwen3.5:9b"
     chain = MagicMock()
     chain.providers = [p1]
     _promote_model_in_chain(chain, "zai:nonexistent")

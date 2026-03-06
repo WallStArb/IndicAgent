@@ -33,10 +33,12 @@ import structlog  # noqa: E402
 from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
-from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
+    llm_calls_stream,
+    llm_scores_cache,
     signals_aggregated,  # noqa: E402
 )
+from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
 from src.core.stream_utils import ensure_consumer_group_with_reset  # noqa: E402
 from src.observability.metrics import counter, gauge, start_metrics_server  # noqa: E402
 
@@ -507,6 +509,25 @@ class AINarrativeService:
                     symbol=symbol, timeframe=timeframe,
                     confidence=signal_data["confidence"],
                 )
+                # Counterfactual: log that we would have called, but didn't
+                if self.redis_client:
+                    cf_prompt = build_narrative_prompt(signal_data)
+                    cf_payload = _build_llm_call_payload(
+                        call_type="counterfactual",
+                        signal_data=signal_data,
+                        group_name="",
+                        prompt=cf_prompt,
+                        response=None,
+                        latency_ms=0.0,
+                        succeeded=False,
+                        model_id="",
+                    )
+                    asyncio.create_task(self.redis_client.xadd(
+                        llm_calls_stream(self.env_prefix),
+                        cf_payload,
+                        maxlen=500,
+                        approximate=True,
+                    ))
                 return True
 
             prompt = build_narrative_prompt(signal_data)
@@ -519,6 +540,25 @@ class AINarrativeService:
             )
             latency_ms = (time.time() - t0) * 1000
             self.ollama_latency_ms.set(latency_ms)
+
+            # Emit LLM call record — fire-and-forget, no latency impact
+            if self.redis_client:
+                ps_payload = _build_llm_call_payload(
+                    call_type="per_signal",
+                    signal_data=signal_data,
+                    group_name="",
+                    prompt=prompt,
+                    response=narrative_text,
+                    latency_ms=latency_ms,
+                    succeeded=narrative_text is not None,
+                    model_id=self.per_signal_chain.last_provider_id or "",
+                )
+                asyncio.create_task(self.redis_client.xadd(
+                    llm_calls_stream(self.env_prefix),
+                    ps_payload,
+                    maxlen=500,
+                    approximate=True,
+                ))
 
             if narrative_text:
                 stream_out = sk_narratives(self.env_prefix, symbol, timeframe)
@@ -641,6 +681,68 @@ class AINarrativeService:
                 self.logger.error("Error in health monitor", error=str(e))
                 await asyncio.sleep(5)
 
+    async def _score_refresh_loop(self) -> None:
+        """Read Redis llm_scores cache every 5 min; promote significant winner."""
+        _REFRESH_INTERVAL = 300  # 5 minutes
+        self.logger.info("Starting score refresh loop")
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL)
+                    break  # shutdown
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._apply_score_routing()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("Score refresh error", error=str(e))
+                await asyncio.sleep(30)
+
+    async def _apply_score_routing(self) -> None:
+        """Read Redis score cache and promote significant winner per call_type+regime."""
+        if not self.redis_client:
+            return
+        for call_type, chain in [
+            ("per_signal", self.per_signal_chain),
+            ("group_synthesis", self.group_chain),
+        ]:
+            # Collect significant scores across all regime keys
+            best_model: str | None = None
+            best_avg_pnl_r: float = float("-inf")
+            for regime in ("trending", "ranging", "volatile", "__all__"):
+                cache_key = llm_scores_cache(self.env_prefix, call_type, regime)
+                try:
+                    raw = await self.redis_client.hgetall(cache_key)
+                except Exception:
+                    continue
+                for model_bytes, blob_bytes in (raw or {}).items():
+                    try:
+                        blob = json.loads(
+                            blob_bytes.decode() if isinstance(blob_bytes, bytes) else blob_bytes
+                        )
+                        is_sig = blob.get("is_significant")
+                        pnl_r = float(blob.get("avg_pnl_r", 0))
+                        if is_sig and pnl_r > best_avg_pnl_r:
+                            best_avg_pnl_r = pnl_r
+                            best_model = (
+                                model_bytes.decode()
+                                if isinstance(model_bytes, bytes)
+                                else model_bytes
+                            )
+                    except Exception:
+                        continue
+            if best_model:
+                _promote_model_in_chain(chain, best_model)
+                self.logger.info(
+                    "Provider chain promoted",
+                    call_type=call_type,
+                    model=best_model,
+                    avg_pnl_r=best_avg_pnl_r,
+                )
+
     async def _synthesize_group(self, group_name: str) -> None:
         """Check if group state changed and publish synthesis if so."""
         group_symbols = ASSET_GROUPS.get(group_name, [])
@@ -687,6 +789,25 @@ class AINarrativeService:
             timeout=self._group_timeout,
         )
         latency_ms = (time.time() - t0) * 1000
+
+        # Emit group synthesis LLM call record — fire-and-forget
+        if self.redis_client:
+            gs_payload = _build_llm_call_payload(
+                call_type="group_synthesis",
+                signal_data=None,
+                group_name=group_name,
+                prompt=prompt,
+                response=narrative_text,
+                latency_ms=latency_ms,
+                succeeded=narrative_text is not None,
+                model_id=self.group_chain.last_provider_id or "",
+            )
+            asyncio.create_task(self.redis_client.xadd(
+                llm_calls_stream(self.env_prefix),
+                gs_payload,
+                maxlen=500,
+                approximate=True,
+            ))
 
         if narrative_text:
             from src.core.stream_keys import narratives_group as sk_narratives_group
@@ -750,10 +871,13 @@ class AINarrativeService:
             await self._setup_consumer_groups()
 
             self.running = True
+            # Apply routing at startup (before any LLM calls)
+            await self._apply_score_routing()
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
                 asyncio.create_task(self._group_synthesis_loop()),
+                asyncio.create_task(self._score_refresh_loop()),
             ]
             self.logger.info("AI Narrative Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
