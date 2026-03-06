@@ -79,3 +79,51 @@ def test_clear_redis_streams_returns_zero_when_no_keys():
 
     count = clear_redis_streams(r, env_prefix="development")
     assert count == 0
+
+
+def test_truncate_tables_always_clears_core_tables():
+    """truncate_tables always clears signal_ledger, intelligence_features, technical_indicators."""
+    from production.scripts.pipeline_reset import truncate_tables
+
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__ = lambda s: cur
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    truncate_tables(conn, keep_ohlcv=True, clear_llm=False)
+
+    executed = [call.args[0] for call in cur.execute.call_args_list]
+    assert any("signal_ledger" in sql for sql in executed)
+    assert any("intelligence_features" in sql for sql in executed)
+    assert any("technical_indicators" in sql for sql in executed)
+    assert not any("market_data_ohlcv" in sql for sql in executed)
+
+
+def test_truncate_tables_includes_ohlcv_when_not_keep():
+    """truncate_tables includes market_data_ohlcv when keep_ohlcv=False."""
+    from production.scripts.pipeline_reset import truncate_tables
+
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__ = lambda s: cur
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    truncate_tables(conn, keep_ohlcv=False, clear_llm=False)
+
+    executed = [call.args[0] for call in cur.execute.call_args_list]
+    assert any("market_data_ohlcv" in sql for sql in executed)
+
+
+def test_truncate_tables_includes_llm_when_flag_set():
+    """truncate_tables includes llm_calls when clear_llm=True."""
+    from production.scripts.pipeline_reset import truncate_tables
+
+    conn = MagicMock()
+    cur = MagicMock()
+    conn.cursor.return_value.__enter__ = lambda s: cur
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    truncate_tables(conn, keep_ohlcv=True, clear_llm=True)
+
+    executed = [call.args[0] for call in cur.execute.call_args_list]
+    assert any("llm_calls" in sql for sql in executed)
