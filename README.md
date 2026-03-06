@@ -2,21 +2,27 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 1.4.0-dev | **Status:** v1.3 complete · v1.4 in progress | 88 plugins · 1117 tests · 24 instruments
+**Version:** 1.4.0-dev | **Status:** v1.4 in progress | 90 plugins · 24 instruments
+
+> **TLDR:** IndicAgent is a real-time market intelligence platform built on a shared, durable event bus. Every tick, every signal, and every intelligence output flows through that bus. An 8-tier pipeline (I1-I8) runs 90 plugins in a dependency-ordered DAG where each tier builds on the outputs of the tier below: raw indicators and market structure feed into adaptive statistical models (HMM, GARCH, Kalman, BOCPD) and Smart Money Concepts, which feed into cross-timeframe confluence scoring and AI narrative synthesis. Every output is encoded into a canonical typed schema, published to the bus, and persisted to a feature store, creating a learning loop where signal outcomes feed back into model weights without manual retuning. New data domains and product layers (qualitative data, derivatives, execution, portfolio, risk) attach as independent services that subscribe to existing streams and publish their own, with no changes to anything already running.
 
 ---
 
-## Executive Summary
+## Overview
 
-IndicAgent is an **institutional-grade, real-time market intelligence platform** built from the ground up around a plugin-native architecture, a typed intelligence bus, and a zero-database live pipeline that keeps end-to-end latency in the sub-millisecond range.
+IndicAgent is a real-time market intelligence platform built around a shared, durable event bus and a layered intelligence pipeline across 8 tiers (I1-I8). The design applies the rigor of institutional quantitative fund infrastructure: signal validation gates, regime-aware filtering, outcome tracking, and a self-improving feedback loop. All of it on a modern stack with zero technical debt. Single-binary event bus, columnar time-series storage, a plugin DAG that replaces manual orchestration, and narrative synthesis that turns machine signals into structured natural language analysis. The rigor, built clean. Market data flows in across 24 instruments (equity index, energy, metals, rates, FX, agriculture, crypto), is processed through 90 intelligence plugins in a strict dependency-ordered DAG, and is delivered as structured, AI-enriched signals to any connected consumer. No database in the hot path. The pipeline throughput is feed-provider bound, not processing bound — the data ingestion layer is designed to normalize inputs from multiple providers under a single orchestrating process, so switching or adding a data source does not affect anything downstream.
 
-Where most indicator frameworks stop at RSI and MACD, IndicAgent runs a **layered intelligence pipeline across 8 tiers (I1–I8)**: raw technical indicators and composite event signals feed into market structure detection, which feeds into GARCH/Kalman volatility and trend regimes, which feed into pattern recognition and Smart Money Concepts (BOS/CHoCH, FVG, order blocks, liquidity sweeps, HMM regime, BOCPD, ICT killzones, AMD cycles, breaker/mitigation blocks), which converge in a cross-timeframe confluence engine that outputs **scored, structured market setups**. An AI narrative synthesis layer on top turns machine signals into natural language market analysis via a **3-tier LLM inference chain: ZAI GLM-5 (primary) → OpenRouter (100+ model fallback) → Ollama local (offline guarantee)**.
+**The bus is the contract.** Every output at every tier is encoded into a canonical versioned `IntelligenceEvent` schema and published to the stream bus. Producers publish. Consumers subscribe. No service calls another directly. This keeps producers and consumers fully decoupled and means a new consumer subscribes to the existing stream without any change to the producers. The bus is being extended to Redpanda (Kafka-compatible) for durable, replayable logs and consumer group semantics — new products and services bootstrap by replaying from offset 0 on the full historical stream, with no special onboarding path required.
 
-Every output at every tier is encoded into a **canonical `IntelligenceEvent`, a versioned typed Pydantic model**, published to DragonflyDB streams. This is the backbone of a **typed intelligence bus** that decouples producers from consumers, makes the pipeline replayable for historical backfill, and feeds a TimescaleDB **feature store** built for ML training.
+**Each tier builds on the tier below.** The pipeline is compositional, not a flat collection of indicators. Raw technical indicators (I1) and composite event signals (I2) feed into market structure detection (I3), which feeds into volatility and trend regime classification via GARCH, Kalman, and HMM (I4), which feeds into pattern recognition (I5) and Smart Money Concepts (I6: BOS/CHoCH, FVG, order blocks, liquidity sweeps, ICT killzones, AMD cycles, breaker blocks), which converge in a cross-timeframe confluence engine that produces scored, structured market setups (I7). AI narrative synthesis (I8) sits at the top and turns the full machine signal into natural language market analysis via a 3-tier LLM chain: ZAI GLM-5 (primary), OpenRouter (100+ model fallback), Ollama local (offline).
 
-The architecture is designed to be **externally consumable**: a FastAPI layer with JWT + API key auth exposes the full intelligence stream over SSE and REST, so downstream applications (a Vercel dashboard, a Slack bot, an algorithmic execution system, an ML scoring model) subscribe to the same vetted, structured signal stream. The 8 services are fully systemd-managed with Prometheus metrics on each, making production operation as straightforward as running any other infrastructure daemon.
+**Events drive actions, nothing polls.** When a regime shifts or a setup fires, that event is published to the bus immediately. Downstream systems react to the event. The hot/warm/cold tier model keeps raw market data and intelligence outputs in fast streams, while TimescaleDB handles cold storage as a feature store for ML training and backtesting.
 
-The platform ingests 100–500+ ticks/sec across 24 instruments (equity index, energy, metals, rates, FX, agriculture, crypto), processes them through 88 intelligence plugins in a strict DAG, and delivers structured, AI-enriched market intelligence to any connected consumer. No database in the hot path.
+**The system learns.** Every signal outcome lands in the feature store. The CIS scorer carries a weights version on every signal it produces, so all outcomes are traceable to the exact weight set that produced them. When outcome data is sufficient, weights are updated and the scorer improves without code changes.
+
+**The intelligence is designed to be consumed.** A FastAPI layer with JWT and API key auth exposes the full intelligence stream over SSE and REST, so downstream applications — a dashboard, a Slack bot, an algorithmic execution system, an ML scoring model — subscribe to the same vetted, structured signal stream without touching the pipeline internals. 10 systemd-managed services with Prometheus metrics on each.
+
+**Extension is additive.** The intelligence stream on `intelligence:SYMBOL:TF` already carries the full quantitative signal vector that any downstream system needs. Qualitative data, derivatives intelligence, execution, portfolio management, and risk each attach as independent services: subscribe to the streams they need, publish what they produce. Nothing already running changes.
 
 ---
 
@@ -96,15 +102,42 @@ The weights are currently hand-tuned bootstraps. The architecture is designed to
 
 ---
 
+## The Shared Data Bus
+
+The three architectural principles above converge on a single structural decision: **the streams are the spine of the entire platform.**
+
+Every tick, every bar, every indicator value, every intelligence signal, every AI narrative, every risk event — all of it flows through one shared, durable, replayable event bus. No service calls another directly. Producers publish. Consumers subscribe. The bus is the only contract between them.
+
+This is how institutional quantitative funds structure their data infrastructure. Not because it is fashionable, but because it is the only architecture that scales across data domains, product boundaries, and time. Siloed pipelines with private data stores cannot discover the intersections between domains. A bus that every system reads from and writes to can.
+
+### What this enables today
+
+The `intelligence:SYMBOL:TF` stream flowing out of IndicAgent carries the full I1–I8 signal vector — indicators, structure, patterns, SMC, confluence, setup signals, and AI narrative — for every bar across 24 instruments and 6 timeframes. Any consumer that subscribes gets institutional-grade, structured market intelligence without knowing anything about how it was produced. The dashboard is one consumer. The feature store is another. Any downstream system — a model scoring service, an alert engine, a paper trading framework — subscribes to the same stream and gets the same signal.
+
+### Where this naturally extends
+
+The bus model is explicitly designed to accommodate data domains and product layers beyond the current quantitative pipeline:
+
+- **Qualitative and fundamental data** — macro regime, COT positioning, economic surprise indices, news sentiment — can each be processed by an independent service that subscribes to market data streams, runs its own pipeline, and publishes regime states and scored signals back to the bus. Downstream consumers see `qual:regime:SYMBOL` and `qual:score:GLOBAL` — not raw COT files or news corpora. The intelligence is distilled at the edge; consumers get the signal.
+- **Derivatives intelligence** — vol surface state, gamma exposure, volatility risk premium, skew — follows the same pattern. An independent service ingests options chain data and publishes `deriv:vol_regime`, `deriv:gex`, `deriv:vrp` to the bus. Any consumer that needs to reason about volatility subscribes to those streams.
+- **Trade execution and management** — a directional execution system subscribes to `intelligence:SYMBOL:TF` and `signals:SYMBOL:TF:aggregated`, applies position sizing and risk logic, and publishes execution events (`execution:open`, `execution:fill`, `execution:close`) back to the same bus. It never touches the intelligence pipeline internals.
+- **Portfolio management and risk** — a portfolio layer subscribes to execution events from all active strategies, maintains a unified P&L and Greeks view, and publishes allocation signals back to execution systems. An independent risk layer monitors the same execution events and portfolio state in real time, publishing binding halt and reduce instructions when limits are breached. Risk enforcement is a stream subscriber, not a wrapper around execution code.
+
+In each case, the integration cost is: subscribe to the streams you need, publish what you produce. No existing services change. No shared state. No coupling.
+
+The typed `IntelligenceEvent` schema on `intelligence:SYMBOL:TF` already contains the full quantitative signal vector that any of these downstream systems would need to consume on day one. The bus is live. The data is flowing. Extension is additive.
+
+---
+
 ## At a Glance
 
 | Aspect | Detail |
 |--------|--------|
 | **Data in** | IBKR TWS: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **EURUSD**, **GBPUSD**, **USDJPY**, **USDCHF** (spot FX); **BTCUSD**, **ETHUSD**, **SOLUSD** (spot crypto). 24 instruments, 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives, group narratives); TimescaleDB feature store |
-| **Intelligence** | 88 plugins: I1 (23), I2 (6), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
+| **Intelligence** | 90 plugins: I1 (23), I2 (8), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16.1 / React 19.2, Ollama |
-| **Deployment** | 8 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
+| **Deployment** | 10 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
 
 ---
 
@@ -165,12 +198,14 @@ ai_narrative_service ──────────────► narratives:SY
 | Service | Single Responsibility | Port |
 |---------|----------------------|------|
 | `market_data_daemon` | IBKR connection, tick ingest, 1m bar formation | — |
-| `indicator_service` | 23 I1 technical indicators + 6 I2 composite events (incremental) + multi-TF aggregation | 9109 |
+| `timeframes_builder_service` | Aggregates 1m bars to 5m/15m/1h/4h/1d streams | — |
+| `indicator_service` | 23 I1 technical indicators + 8 I2 composite events (incremental) | 9109 |
 | `market_analysis_service` | I3 structure, I4 context, I5 patterns, SMC, I6 confluence | 9114 |
 | `signal_generator_service` | I7 setup plugins, signal aggregation, ledger inserts | 9112 |
 | `signal_lifecycle_service` | Zone-aware signal lifecycle: activation, MAE/MFE, 8-class outcome | 9115 |
 | `ai_narrative_service` | I8 LLM narrative synthesis (per-signal + group) via ZAI/OpenRouter/Ollama | 9113 |
 | `feature_writer_service` | Redis consumer → batch write to `intelligence_features` (TimescaleDB) | 9116 |
+| `llm_writer_service` | Persists LLM calls and signal outcomes to `llm_calls` hypertable | — |
 | `api_service` | FastAPI REST + SSE fan-out to dashboard | 8000 |
 
 Full separation-of-duties reference: [`docs/architecture/service-separation.md`](docs/architecture/service-separation.md)
@@ -195,7 +230,7 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 | Tier | Name | Purpose | Status |
 |------|------|---------|--------|
 | **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, etc. (23 plugins) | Operational |
-| **I2** | Composite events | MACD crossovers, RSI events, Stochastic events, ADX events, Volume events, MomentumAcceleration (2nd-derivative RSI/MACD/ROC acceleration + inflection detection) (6 plugins) | Operational |
+| **I2** | Composite events | MACD crossovers, RSI events, Stochastic events, ADX events, Volume events, MomentumAcceleration (2nd-derivative RSI/MACD/ROC acceleration + inflection detection), DonchianPosition, OBVMomentum (8 plugins) | Operational |
 | **I3** | Market structure | Swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones (7 plugins) | Operational |
 | **I4** | Context | Volatility/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility (7 plugins) | Operational |
 | **I5** | Patterns | RSI divergence, squeeze, vol divergence, confluence, trend confluence, chart patterns, volume profile, key level reaction (14 plugins) | Operational |
@@ -272,9 +307,24 @@ Bootstrap weights get the system running, outcome data trains the next version, 
 
 ### Data Path: Hot / Warm / Cold
 
-- **Hot** – Ticks and bars stay in DragonflyDB/Redis streams; sub-ms writes, no DB.
-- **Warm** – Services read from streams, compute, publish back to streams; dashboard and API read from there (SSE/WebSocket).
-- **Cold** – Optional background archival to TimescaleDB for history and backtesting.
+```
+HOT   DragonflyDB (Redis-compatible) → Redpanda (Kafka-compatible)
+      Raw events, durable and replayable
+      Real-time market data, sub-millisecond writes, no DB in path
+      IBKR provides 1m bars — timeframes_builder_service aggregates to 5m→1D
+      ↓
+
+WARM  Redpanda (Kafka-compatible), processed
+      Intelligence outputs, regime states, signal bus
+      All services publish here, all services and consumers can subscribe
+      New consumers bootstrap by replaying from offset 0
+      ↓
+
+COLD  TimescaleDB + pgvector
+      Historical feature vectors, signal ledger, outcomes
+      ML training dataset, backtesting data, learning loop
+      Vector embeddings for regime analog matching
+```
 
 ---
 
@@ -390,14 +440,13 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status
 
-**v1.3 complete 2026-03-04. v1.4 Quant Foundation in progress.**
+**v1.4 Quant Foundation in progress.**
 
-- **I1–I8 pipeline:** Fully operational. 88 plugins (I1:23, I2:6, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
+- **I1–I8 pipeline:** Fully operational. 90 plugins (I1:23, I2:8, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
 - **v1.3 delivered:** Phase 08 (MomentumAcceleration I2), Phase 09 (GapAnalysisSetup I7), Phase 10 (CandlestickPatternSetup I7), Phase 11 (SessionExtremesSetup I7) + Signal Lifecycle redesign (zone-aware lifecycle, 8-class outcome, MAE/MFE tracking).
-- **v1.4 in progress:** Phase 12 Signal Integrity ✅ (regime gating, shadow signals, SIGINT-01–05); Phase 13 Data Completeness, Phase 14 Feedback Loop, Phase 15 Validated Alpha — next.
-- **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards.
-- **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups.
-- **Test suite:** 1117 passing, 0 ruff errors.
+- **v1.4 in progress:** Phase 12 Signal Integrity ✅ (regime gating, shadow signals); Phase 16 LLM Intelligence Layer ✅ (per-regime routing, LLM call + outcome persistence, `llm_calls` hypertable); Phase 13 Data Completeness, Phase 14 Feedback Loop, Phase 15 Validated Alpha — next.
+- **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards, pipeline lag and staleness ratio per signal.
+- **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; per-regime model routing.
 - **Next:** v1.4 (see [Roadmap](.planning/ROADMAP.md)).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
@@ -415,4 +464,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 1.4.0-dev | **Status:** v1.3 complete · v1.4 in progress · 88 plugins · 1117 tests | **Next:** Phase 13 Data Completeness
+**Version:** 1.4.0-dev | **Status:** v1.4 in progress | 90 plugins · 24 instruments | **Next:** Phase 13 Data Completeness
