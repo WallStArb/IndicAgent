@@ -512,7 +512,9 @@ class TestTerminalEventWiring:
     @pytest.mark.asyncio
     async def test_terminal_event_fires_on_normal_exit(self):
         """Active signal stopped out → _publish_terminal_event called."""
-        from unittest.mock import patch, AsyncMock as AM
+        from unittest.mock import AsyncMock as AM
+        from unittest.mock import patch
+
         from src.intelligence.trading.lifecycle_tracker import Transition
 
         svc = self._make_svc_with_db()

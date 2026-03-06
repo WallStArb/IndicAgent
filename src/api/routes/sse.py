@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import re
+import time
 from collections.abc import AsyncGenerator
 
 import structlog
@@ -29,32 +30,39 @@ _TF_MINUTES: dict[str, int] = {
 }
 
 
+@functools.lru_cache(maxsize=256)
+def _signal_max_age_s(stream_name: str) -> float | None:
+    """Return staleness threshold (seconds) for a signal stream, or None for non-signal streams.
+
+    Cached — stream names are static per SSE connection so parsing happens once per unique name.
+    """
+    if "signals:" not in stream_name:
+        return None
+    parts = stream_name.split(":")
+    try:
+        agg_idx = parts.index("aggregated")
+        tf = parts[agg_idx - 1]
+    except (ValueError, IndexError):
+        return None
+    tf_minutes = _TF_MINUTES.get(tf)
+    return None if tf_minutes is None else 2 * tf_minutes * 60
+
+
 def _signal_entry_stale(stream_name: str, entry_id: str | bytes) -> bool:
     """Return True if this signal stream entry is older than 2×TF.
 
     Uses the Redis entry ID's embedded Unix-ms timestamp — no payload parsing.
     Only applies to signals: streams; other streams always return False.
     """
-    import time as _time
-    if "signals:" not in stream_name:
+    max_age_s = _signal_max_age_s(stream_name)
+    if max_age_s is None:
         return False
-    parts = stream_name.split(":")
-    try:
-        agg_idx = parts.index("aggregated")
-        tf = parts[agg_idx - 1]
-    except (ValueError, IndexError):
-        return False
-    tf_minutes = _TF_MINUTES.get(tf)
-    if tf_minutes is None:
-        return False
-    max_age_s = 2 * tf_minutes * 60
     try:
         id_str = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
         entry_unix_ms = int(id_str.split("-")[0])
     except (ValueError, IndexError):
         return False
-    age_s = (_time.time() * 1000 - entry_unix_ms) / 1000
-    return age_s > max_age_s
+    return (time.time() * 1000 - entry_unix_ms) / 1000 > max_age_s
 
 
 # Cached settings — avoids re-parsing env/config on every SSE connection.
@@ -188,10 +196,9 @@ async def sse_events(
                     # xrevrange returns newest-first; reverse for chronological order
                     event_name = _event_name_for_stream(stream_name)
                     for msg_id, fields in reversed(entries):
+                        last_ids[stream_name] = msg_id  # always advance cursor
                         if _signal_entry_stale(stream_name, msg_id):
-                            last_ids[stream_name] = msg_id  # advance cursor even when skipping
                             continue
-                        last_ids[stream_name] = msg_id
                         try:
                             data_json = json.dumps(
                                 {"stream": stream_name, "id": msg_id, "payload": fields}

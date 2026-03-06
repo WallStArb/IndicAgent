@@ -1,5 +1,6 @@
 """Tests for SSE snapshot age filter on signal streams."""
 import time
+
 import pytest
 
 
