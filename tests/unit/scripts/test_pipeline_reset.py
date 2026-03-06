@@ -127,3 +127,38 @@ def test_truncate_tables_includes_llm_when_flag_set():
 
     executed = [call.args[0] for call in cur.execute.call_args_list]
     assert any("llm_calls" in sql for sql in executed)
+
+
+def test_verify_dataset_passes_when_rows_exist():
+    """verify_dataset returns True when all tables have rows."""
+    from production.scripts.pipeline_reset import verify_dataset
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__ = lambda s: s
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    # Returns different counts per call: signal_ledger=1000, intelligence_features=5000
+    conn.cursor.return_value.fetchone.side_effect = [(1000,), (5000,), (10,)]
+    conn.cursor.return_value.fetchall.return_value = [
+        ("ESH6", "1m", 500, "2026-03-01", "2026-03-06"),
+    ]
+
+    ok, report = verify_dataset(conn)
+
+    assert ok is True
+    assert "ESH6" in report
+
+
+def test_verify_dataset_fails_when_signal_ledger_empty():
+    """verify_dataset returns False when signal_ledger has 0 rows."""
+    from production.scripts.pipeline_reset import verify_dataset
+
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__ = lambda s: s
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    conn.cursor.return_value.fetchone.side_effect = [(0,), (0,), (0,)]
+    conn.cursor.return_value.fetchall.return_value = []
+
+    ok, report = verify_dataset(conn)
+
+    assert ok is False
+    assert "EMPTY" in report or "0" in report
