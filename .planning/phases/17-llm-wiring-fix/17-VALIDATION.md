@@ -2,7 +2,7 @@
 phase: 17
 slug: llm-wiring-fix
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-03-06
 ---
@@ -39,8 +39,8 @@ created: 2026-03-06
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
 | signal_id-thread | 01 | 1 | LLM-04 | unit | `.venv/bin/pytest tests/unit/service_tests/test_signal_generator_service.py -v -k signal_id` | ✅ | ⬜ pending |
-| narrative-signal-id | 01 | 1 | LLM-04 | unit | `.venv/bin/pytest tests/unit/service_tests/test_ai_narrative_service.py -v -k signal_id` | ✅ | ⬜ pending |
-| session-regime-buckets | 02 | 1 | LLM-05 | unit | `.venv/bin/pytest tests/unit/plugin_tests/test_session_extremes_setup.py -v` | ✅ | ⬜ pending |
+| narrative-signal-id | 01 | 1 | LLM-04 | unit | `.venv/bin/pytest tests/unit/service_tests/test_ai_narrative_helpers.py -v -k signal_id` | ✅ | ⬜ pending |
+| session-regime-buckets | 02 | 1 | LLM-05 | unit | `.venv/bin/pytest tests/unit/intelligence/trading/test_session_extremes_setup.py -v` | ✅ | ⬜ pending |
 | score-routing-smoke | 02 | 2 | LLM-05 | unit | `.venv/bin/pytest tests/unit/service_tests/test_llm_writer_service.py -v -k routing` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
@@ -51,8 +51,8 @@ created: 2026-03-06
 
 Existing infrastructure covers all phase requirements. Test files already exist:
 - `tests/unit/service_tests/test_signal_generator_service.py`
-- `tests/unit/service_tests/test_ai_narrative_service.py`
-- `tests/unit/plugin_tests/test_session_extremes_setup.py`
+- `tests/unit/service_tests/test_ai_narrative_helpers.py`
+- `tests/unit/intelligence/trading/test_session_extremes_setup.py`
 - `tests/unit/service_tests/test_llm_writer_service.py`
 
 New test cases are additions/updates to existing files — no new files needed.
