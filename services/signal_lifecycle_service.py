@@ -383,6 +383,16 @@ class SignalLifecycleService:
                     self._mfe.pop(sid, None)
                     self._activated_at.pop(sid, None)
 
+                    # Publish terminal event to signals stream for dashboard resolved state
+                    asyncio.create_task(self._publish_terminal_event(
+                        signal_id=sid,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        outcome=outcome,
+                        exit_price=transition.exit_price,
+                        bar_ts=bar_time.isoformat(),
+                    ))
+
                     self.lifecycle_transitions_total.inc()
                     self.logger.info(
                         "Shadow signal exit",
@@ -475,6 +485,16 @@ class SignalLifecycleService:
                 self._mae.pop(sid, None)
                 self._mfe.pop(sid, None)
                 self._activated_at.pop(sid, None)
+
+                # Publish terminal event to signals stream for dashboard resolved state
+                asyncio.create_task(self._publish_terminal_event(
+                    signal_id=sid,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    outcome=outcome,
+                    exit_price=transition.exit_price,
+                    bar_ts=bar_time.isoformat(),
+                ))
 
             await update_signal_status(
                 self.db_manager,

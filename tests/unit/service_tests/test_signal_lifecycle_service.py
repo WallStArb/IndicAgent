@@ -485,3 +485,80 @@ class TestPublishTerminalEvent:
             bar_ts="2026-03-06T15:20:00+00:00",
         )
         # No assertion needed — no AttributeError = pass
+
+
+class TestTerminalEventWiring:
+    """Terminal events fire in both shadow and normal exit paths."""
+
+    def _make_svc_with_db(self):
+        from services.signal_lifecycle_service import SignalLifecycleService
+
+        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc.env_prefix = "development:"
+        svc.redis_client = AsyncMock()
+        svc.redis_client.xadd = AsyncMock(return_value=b"123-0")
+        svc.db_manager = AsyncMock()
+        svc.logger = AsyncMock()
+        svc._mae = {}
+        svc._mfe = {}
+        svc._activated_at = {}
+        svc.lifecycle_transitions_total = AsyncMock()
+        svc.lifecycle_transitions_total.inc = lambda: None
+        svc.active_signals_count = AsyncMock()
+        svc.active_signals_count.set = lambda x: None
+        svc.point_values = {"ESH6": 50.0}
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_terminal_event_fires_on_normal_exit(self):
+        """Active signal stopped out → _publish_terminal_event called."""
+        from unittest.mock import patch, AsyncMock as AM
+        from src.intelligence.trading.lifecycle_tracker import Transition
+
+        svc = self._make_svc_with_db()
+        svc._publish_terminal_event = AM()
+
+        # Active signal that stops out
+        sig = {
+            "signal_id": "uuid-exit",
+            "symbol": "ESH6",
+            "timeframe": "5m",
+            "status": "active",
+            "direction": -1,
+            "entry_price": 6800.0,
+            "stop_loss": 6820.0,
+            "targets": [6760.0],
+            "confidence": 0.85,
+            "timestamp": datetime(2026, 3, 6, 15, 0, tzinfo=UTC),
+        }
+        bar_time = datetime(2026, 3, 6, 15, 5, tzinfo=UTC)
+        transition = Transition(
+            signal_id="uuid-exit",
+            new_status="stopped_out",
+            exit_reason="stop_hit",
+            exit_price=6820.0,
+            pnl_ticks=-20.0,
+            pnl_r=-1.0,
+            pnl_dollars=-1000.0,
+            outcome=None,
+            activation_price=None,
+            zone_entry_pct=None,
+            bars_to_activation=None,
+            mae=None,
+            mfe=None,
+        )
+
+        with patch("services.signal_lifecycle_service.evaluate_signal", return_value=transition), \
+             patch("services.signal_lifecycle_service.update_signal_status", new_callable=AM):
+            await svc._evaluate_signals_against_bar(
+                "ESH6", "5m",
+                {"high": 6825.0, "low": 6795.0, "close": 6822.0},
+                bar_time,
+                all_active=[sig],
+            )
+
+        svc._publish_terminal_event.assert_called_once()
+        call_kwargs = svc._publish_terminal_event.call_args[1]
+        assert call_kwargs["signal_id"] == "uuid-exit"
+        assert call_kwargs["symbol"] == "ESH6"
+        assert call_kwargs["timeframe"] == "5m"
