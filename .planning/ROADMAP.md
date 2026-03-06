@@ -311,7 +311,7 @@ Plans:
   2. A setup with fewer than 30 resolved signals in `signal_ledger` has no performance weight applied — the aggregator uses baseline weights for that setup regardless of early win/loss data
   3. The signal aggregator reads setup performance weights at startup and outperforming setups rank higher than underperforming setups in aggregation — verifiable by comparing aggregator selection logs against `setup_performance` table values
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 - [ ] 14-01-PLAN.md — TDD RED: write all failing tests for FEED-01, FEED-02, FEED-03
@@ -416,7 +416,7 @@ Plans:
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
 | 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
-| 14. Feedback Loop | 1/3 | In Progress|  | — |
+| 14. Feedback Loop | 2/3 | In Progress|  | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
 | 17. LLM Wiring Fix | 2/2 | Complete    | 2026-03-06 | — |
