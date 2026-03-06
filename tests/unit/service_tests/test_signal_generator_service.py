@@ -483,10 +483,10 @@ class TestBuildI7Payload:
 
 def test_signal_redis_message_includes_timing_fields():
     """signal_computed_at and bar_close_ts must appear in Redis stream message."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    bar_close_ts = datetime(2026, 3, 6, 5, 10, 0, tzinfo=timezone.utc)
-    signal_computed_at = datetime(2026, 3, 6, 5, 10, 0, 800000, tzinfo=timezone.utc)
+    bar_close_ts = datetime(2026, 3, 6, 5, 10, 0, tzinfo=UTC)
+    signal_computed_at = datetime(2026, 3, 6, 5, 10, 0, 800000, tzinfo=UTC)
 
     # Build a minimal message dict the same way the service does
     sig = {
@@ -499,7 +499,7 @@ def test_signal_redis_message_includes_timing_fields():
         "regime_context": "bullish",
     }
     message = {k: str(v) for k, v in sig.items() if isinstance(v, (str, int, float, bool))}
-    message["timestamp"] = datetime(2026, 3, 6, 5, 10, 0, tzinfo=timezone.utc).isoformat()
+    message["timestamp"] = datetime(2026, 3, 6, 5, 10, 0, tzinfo=UTC).isoformat()
     message["symbol"] = "ESH6"
     message["timeframe"] = "5m"
     if signal_computed_at:
