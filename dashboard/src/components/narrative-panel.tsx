@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { NarrativeData, GroupNarrativeData } from "@/lib/types";
+import { stalenessRatio, tfToMinutes } from "@/lib/format";
 
 /** Map base symbol → asset group name (matches backend ASSET_GROUPS). */
 const SYMBOL_TO_GROUP: Record<string, string> = {
@@ -97,6 +98,8 @@ export function NarrativePanel({
 
 function NarrativeCard({ data }: { data: NarrativeData }) {
   const isStale = Date.now() - data.receivedAt > STALE_AFTER_MS;
+  const tfMinutes = tfToMinutes(data.timeframe);
+  const staleness = stalenessRatio(data.timestamp, tfMinutes);
   const barTimeStr = data.timestamp
     ? new Date(data.timestamp).toLocaleTimeString([], {
         hour: "2-digit", minute: "2-digit", hour12: false,
@@ -138,7 +141,20 @@ function NarrativeCard({ data }: { data: NarrativeData }) {
         <div className="ml-auto flex items-center gap-1 shrink-0">
           {barDateStr && <span className="text-[0.5rem] text-[var(--text-muted)]">{barDateStr}</span>}
           {barTimeStr && <span className="text-[0.5rem] font-data text-[var(--text-muted)]">{barTimeStr}</span>}
-          {isStale && <span className="text-[0.45rem] text-[var(--text-muted)] italic">stale</span>}
+          {staleness !== null && (
+            <span
+              className="text-[0.45rem] font-data"
+              style={{
+                color: staleness >= 2.0 ? "var(--red-dim)" : "#f59e0b",
+                opacity: 0.7,
+              }}
+            >
+              {staleness.toFixed(1)}×
+            </span>
+          )}
+          {isStale && staleness === null && (
+            <span className="text-[0.45rem] text-[var(--text-muted)] italic">stale</span>
+          )}
         </div>
       </div>
       <p className="text-[0.6rem] text-[var(--text-secondary)] italic leading-relaxed line-clamp-5 m-0">
