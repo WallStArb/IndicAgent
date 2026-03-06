@@ -80,6 +80,17 @@ def llm_scores_cache(env_prefix: str, call_type: str, regime: str) -> str:
     return f"{env_prefix}llm_scores:{call_type}:{regime}"
 
 
+def setup_performance_weights_cache(env_prefix: str) -> str:
+    """Redis string key for JSON perf multiplier dict keyed by setup_plugin.
+
+    Written nightly by run_setup_performance_update().
+    Read at startup + every 60 min by signal_generator_service.
+    Format: {"trad_TrendFollowing": 0.85, "trad_MeanReversion": 1.15, ...}
+    Only setups with sample_size >= 30 appear (FEED-02 promotion gate).
+    """
+    return f"{env_prefix}setup_performance:weights"
+
+
 def get_stream_maxlen(
     timeframe: str,
     kind: Literal[
