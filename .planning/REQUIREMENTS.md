@@ -62,7 +62,7 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 
 - [x] **LLM-01**: Migration `016_llm_intelligence_layer.sql` creates `llm_calls` TimescaleDB hypertable (partitioned by `called_at`) and `llm_model_scores` aggregate table — schema per design doc `docs/plans/2026-03-05-llm-intelligence-layer-design.md`
 - [x] **LLM-02**: `ai_narrative_service` emits to `{env}:llm_calls:stream` after every LLM call (success, failure, and counterfactual) — full payload: model, provider, prompt, response, latency_ms, tokens_est, succeeded, regime, session, and all signal context fields
-- [ ] **LLM-03**: `signal_lifecycle_service` emits to `{env}:llm_outcomes:stream` when any signal exits — payload: signal_id, outcome, pnl_r, mae, mfe, bars_in_trade
+- [x] **LLM-03**: `signal_lifecycle_service` emits to `{env}:llm_outcomes:stream` when any signal exits — payload: signal_id, outcome, pnl_r, mae, mfe, bars_in_trade
 - [x] **LLM-04**: New `llm_writer_service` (mirrors feature_writer_service pattern) — batch INSERTs from `llm_calls:stream`, back-fills outcome fields from `llm_outcomes:stream` by `signal_id`, recomputes `llm_model_scores` every 15 min from rows with non-null outcome, writes score cache to Redis `{env}:llm_scores:{call_type}:{regime}`
 - [x] **LLM-05**: `ai_narrative_service` reads Redis score cache at startup and every 5 min — if a model is `is_significant=True` (p < 0.05, n_outcomes >= 30), it is moved to position 0 in the provider chain for that call_type + regime combination
 
@@ -128,7 +128,7 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | ALPHA-05 | Phase 15 | Pending |
 | LLM-01 | Phase 16 | Complete |
 | LLM-02 | Phase 16 | Complete |
-| LLM-03 | Phase 16 | Pending |
+| LLM-03 | Phase 16 | Complete |
 | LLM-04 | Phase 16 | Complete |
 | LLM-05 | Phase 16 | Complete |
 

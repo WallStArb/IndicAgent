@@ -350,7 +350,7 @@ Plans:
   4. When a model reaches `is_significant=True` (p < 0.05, n_outcomes >= 30), `ai_narrative_service` moves it to position 0 in the provider chain for that call_type + regime combination at next score refresh
   5. `llm_writer_service` is running as a systemd service (`indicagent-llm-writer`) with Prometheus metrics on its assigned port
 
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 - [ ] 16-01-PLAN.md — Schema foundation: migration 019 + stream key helpers + TDD RED tests
@@ -390,7 +390,7 @@ Plans:
 | 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
-| 16. LLM Intelligence Layer | 3/5 | In Progress|  | — |
+| 16. LLM Intelligence Layer | 4/5 | In Progress|  | — |
 
 ## Backlog
 

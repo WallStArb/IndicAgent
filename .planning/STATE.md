@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T00:08:32.986Z"
-last_activity: "2026-03-05 — 16-03 complete: ai_narrative_service instrumented with xadd on 3 call paths (counterfactual/per_signal/group_synthesis) + _score_refresh_loop + adaptive model routing, 25 tests GREEN"
+last_updated: "2026-03-06T00:12:53.198Z"
+last_activity: "2026-03-05 — 16-02 complete: LLMWriterService dual-stream consumer, binomtest significance gate, 15-min score recompute, Redis HSET cache, 12 tests GREEN"
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -20,16 +20,16 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.4 Quant Foundation — Phase 16: LLM Intelligence Layer (16-03 complete)
+**Current focus:** v1.4 Quant Foundation — Phase 16: LLM Intelligence Layer (16-04 complete)
 
 ---
 
 ## Current Position
 
-Phase: Phase 16 IN PROGRESS (3 of 5 plans done: 16-01, 16-02, 16-03)
-Plan: 16-03 complete → 16-04 next (signal_lifecycle_service emission — publish llm_outcomes:stream on signal exit)
-Status: Phase 16 active — schema done, writer service done, ai_narrative instrumented, lifecycle emission next
-Last activity: 2026-03-05 — 16-02 complete: LLMWriterService dual-stream consumer, binomtest significance gate, 15-min score recompute, Redis HSET cache, 12 tests GREEN
+Phase: Phase 16 IN PROGRESS (4 of 5 plans done: 16-01, 16-02, 16-03, 16-04)
+Plan: 16-04 complete → 16-05 next (deployment — systemd unit, production wiring)
+Status: Phase 16 active — schema done, writer service done, ai_narrative instrumented, lifecycle emission wired, deployment remaining
+Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN
 
 ## Accumulated Context
 
@@ -62,6 +62,7 @@ Last activity: 2026-03-05 — 16-02 complete: LLMWriterService dual-stream consu
 - [Phase 16]: Stream keys locked: llm_calls_stream, llm_outcomes_stream, llm_scores_cache; maxlens 500/200
 - [Phase 16]: LLM-04 complete: _build_score_insert_params uses rows list interface (not pre-aggregated); outcomes processed immediately without buffering; score recompute fires 15-min after service start
 - [Phase 16]: Per-signal xadd emits even on LLM failure — succeeded=0, full context preserved; counterfactual captures would-have-been prompt; _apply_score_routing picks global best_model by avg_pnl_r across regimes
+- [Phase 16]: LLM-03 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths via fire-and-forget create_task; emit order (before update_signal_status and before memory cleanup) ensures data capture even on DB failure
 
 ### Pending Todos
 
