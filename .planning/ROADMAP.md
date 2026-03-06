@@ -64,6 +64,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
 - [x] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime (completed 2026-03-06)
+- [ ] **Phase 17: LLM Wiring Fix** — Fix signal_id linkage (signals:aggregated missing UUID) and regime vocabulary mismatch (plugin vocab vs cache keys) — closes LLM-04/LLM-05 production breaks, restores E2E Flow 3 + Flow 4
 
 ## Phase Details
 
@@ -361,6 +362,24 @@ Plans:
 
 ---
 
+### Phase 17: LLM Wiring Fix
+
+**Goal:** Restore two broken production flows identified by the v1.4 audit — signal_id linkage and regime vocabulary — so LLM outcome back-fill and adaptive routing actually work in production
+
+**Gap Closure:** Closes gaps from v1.4-MILESTONE-AUDIT.md
+
+**Requirements:** LLM-04, LLM-05
+
+**Success Criteria** (what must be TRUE):
+  1. `signals:aggregated` stream payload includes `signal_id` UUID assigned at INSERT time — `ai_narrative_service` reads it and writes non-null to `llm_calls.signal_id`
+  2. When a signal exits, `llm_writer_service._UPDATE_OUTCOME_SQL WHERE signal_id = $1::uuid` matches the correct `llm_calls` row — verifiable by querying `llm_calls WHERE signal_id IS NOT NULL AND outcome IS NOT NULL`
+  3. Plugin `regime_context` values are translated to canonical vocabulary (`trending`/`ranging`/`volatile`) before being stored in `llm_calls.regime` — score cache keys match `_apply_score_routing` lookups
+  4. `_preferred_models` is populated after at least one score recompute cycle — adaptive routing activates for at least one call_type + regime combination
+
+**Plans:** TBD
+
+---
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -391,6 +410,7 @@ Plans:
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
+| 17. LLM Wiring Fix | v1.4 | 0/0 | Not started | — |
 
 ## Backlog
 
