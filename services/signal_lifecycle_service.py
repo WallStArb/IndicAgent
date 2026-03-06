@@ -67,6 +67,30 @@ def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) 
     return "stopped_in_trade"
 
 
+def _build_outcome_payload(
+    signal_id: str,
+    outcome: str,
+    pnl_r: float | None,
+    mae: float | None,
+    mfe: float | None,
+    bars_in_trade: int | None,
+) -> dict[str, str]:
+    """Build the Redis stream payload for an llm_outcomes:stream message.
+
+    All values are str — Redis stream messages require string values.
+    None numerics become "" so the writer service stores NULL in the DB.
+    """
+    return {
+        "signal_id": signal_id,
+        "outcome": outcome or "",
+        "pnl_r": str(pnl_r) if pnl_r is not None else "",
+        "mae": str(mae) if mae is not None else "",
+        "mfe": str(mfe) if mfe is not None else "",
+        "bars_in_trade": str(bars_in_trade) if bars_in_trade is not None else "",
+        "outcome_at": datetime.now(tz=UTC).isoformat(),
+    }
+
+
 class SignalLifecycleService:
     """Zone-aware institutional signal lifecycle tracker."""
 

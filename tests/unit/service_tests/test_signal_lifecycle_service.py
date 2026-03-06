@@ -350,3 +350,57 @@ class TestShadowSignalLifecycleService:
         assert outcome in valid_outcomes, (
             f"TTL-expired shadow signal must have 8-class outcome. Got: {outcome!r}"
         )
+
+
+# ---- LLM outcome payload helper ----
+
+
+class TestBuildOutcomePayload:
+    def test_all_fields_present_as_strings(self):
+        """All 7 required fields present and all are str."""
+        from services.signal_lifecycle_service import _build_outcome_payload
+
+        result = _build_outcome_payload(
+            signal_id="abc-123",
+            outcome="target_1",
+            pnl_r=1.5,
+            mae=-0.3,
+            mfe=1.8,
+            bars_in_trade=12,
+        )
+        required = {"signal_id", "outcome", "pnl_r", "mae", "mfe", "bars_in_trade", "outcome_at"}
+        assert required <= result.keys()
+        for k, v in result.items():
+            assert isinstance(v, str), f"Field {k!r} must be str, got {type(v).__name__}"
+
+    def test_none_pnl_r_emits_empty_string(self):
+        """None pnl_r → '' (not 'None')."""
+        from services.signal_lifecycle_service import _build_outcome_payload
+
+        result = _build_outcome_payload("sid", "stopped_at_entry", None, None, None, None)
+        assert result["pnl_r"] == ""
+        assert result["mae"] == ""
+        assert result["mfe"] == ""
+        assert result["bars_in_trade"] == ""
+
+    def test_zero_mae_emits_zero_string(self):
+        """0.0 mae → '0.0' (not empty)."""
+        from services.signal_lifecycle_service import _build_outcome_payload
+
+        result = _build_outcome_payload("sid", "target_full", 2.0, 0.0, 2.0, 5)
+        assert result["mae"] == "0.0"
+
+    def test_signal_id_passthrough(self):
+        """signal_id returned as-is."""
+        from services.signal_lifecycle_service import _build_outcome_payload
+
+        result = _build_outcome_payload("my-uuid-string", "never_activated", 0.0, 0.0, 0.0, 0)
+        assert result["signal_id"] == "my-uuid-string"
+
+    def test_outcome_at_is_non_empty_iso_string(self):
+        """outcome_at is a non-empty ISO datetime string."""
+        from services.signal_lifecycle_service import _build_outcome_payload
+
+        result = _build_outcome_payload("sid", "ttl_expired_ahead", 0.5, -0.1, 0.5, 3)
+        assert result["outcome_at"]  # non-empty
+        assert "T" in result["outcome_at"]  # ISO format sanity check
