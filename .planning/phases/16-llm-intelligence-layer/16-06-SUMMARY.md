@@ -53,7 +53,7 @@ completed: 2026-03-06
 - **Duration:** 4 min
 - **Started:** 2026-03-06T05:05:20Z
 - **Completed:** 2026-03-06T05:09:30Z
-- **Tasks:** 1 of 2 complete (Task 2 is checkpoint:human-action — requires docker exec in user terminal)
+- **Tasks:** 2 of 2 complete
 - **Files modified:** 4
 
 ## Accomplishments
@@ -68,8 +68,9 @@ completed: 2026-03-06
 Each task was committed atomically:
 
 1. **Task 1: Write migration 020 + corrected 019 + unit test** - `428f175` (feat)
+2. **Task 2: Apply migration 020 to production TimescaleDB** - applied by user (human checkpoint — docker exec commands require real TTY)
 
-**Plan metadata:** pending final commit after checkpoint
+**Plan metadata:** see final commit hash
 
 _Note: TDD tasks may have multiple commits (test -> feat -> refactor)_
 
@@ -125,27 +126,25 @@ _Note: TDD tasks may have multiple commits (test -> feat -> refactor)_
 
 ## User Setup Required
 
-**Production DB migration requires manual docker exec.** Apply in your terminal:
-
-```bash
-cd /home/bg/dev/indicagent
-docker exec -i timescaledb psql -U postgres -d indicagent < production/migrations/020_llm_calls_hypertable_fix.sql
-```
-
-Verify with:
-```bash
-docker exec timescaledb psql -U postgres -d indicagent -c \
-  "SELECT hypertable_name, num_dimensions FROM timescaledb_information.hypertables WHERE hypertable_name='llm_calls';"
-```
-Expected: one row — `llm_calls | 1`
+None — migration applied to production by user in this session. llm_calls is now a TimescaleDB hypertable.
 
 ## Next Phase Readiness
 
-- Migration 020 file committed and tested — ready to apply to production
-- After migration applied: `timescaledb_information.hypertables` will return one row for llm_calls
+- Migration 020 applied in production — llm_calls is a TimescaleDB hypertable partitioned by called_at
 - llm_writer_service INSERT SQL unchanged — composite PK does not break existing writes
-- Phase 16 gap closures (16-06, 16-07) complete after checkpoint passes
+- Phase 16 gap closures (16-06 and 16-07) fully complete
+- All 1172 unit tests passing, ruff 0 errors
 
 ---
 *Phase: 16-llm-intelligence-layer*
 *Completed: 2026-03-06*
+
+## Self-Check: PASSED
+
+- `16-06-SUMMARY.md` — FOUND
+- `production/migrations/020_llm_calls_hypertable_fix.sql` — FOUND
+- `tests/unit/test_migration_020.py` — FOUND
+- Commit `428f175` (Task 1: migration files + unit tests) — FOUND
+- 7 migration unit tests GREEN — confirmed
+- 1172 unit tests passing, ruff 0 errors — confirmed
+- Migration 020 applied in production by user — confirmed

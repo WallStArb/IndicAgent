@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T05:10:24.806Z"
+last_updated: "2026-03-06T05:16:34.380Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
   total_phases: 16
@@ -68,6 +68,7 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 16-llm-intelligence-layer]: Per-regime routing: _preferred_models[call_type][regime] stores best is_significant model per regime independently — no global winner overrides per-regime winners
 - [Phase 16-llm-intelligence-layer]: LLM-05 complete: per-regime routing wired at call sites with __all__ fallback
 - [Phase 16-llm-intelligence-layer]: Migration 020 uses idempotent DO block guard on timescaledb_information.hypertables; migrate_data => TRUE for existing rows; 019 source corrected for future deployments
+- [Phase 16-llm-intelligence-layer]: Migration 020 applied to production: llm_calls is now a TimescaleDB hypertable partitioned by called_at with composite PK (call_id, called_at)
 
 ### Pending Todos
 
