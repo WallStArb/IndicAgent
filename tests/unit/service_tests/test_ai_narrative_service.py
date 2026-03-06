@@ -1,5 +1,6 @@
 """Tests for AINarrativeService class."""
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -385,6 +386,7 @@ def _make_service_new():
     svc.consumer_name = "narrative_test"
     svc._stream_map = {}
     svc._latest_signals = {}
+    svc._preferred_models = {}  # required per CLAUDE.md __new__ pattern
 
     # Metrics stubs
     svc.narratives_generated_total = MagicMock()
@@ -639,3 +641,96 @@ def test_promote_model_in_chain_none_id_no_op():
     chain = MagicMock()
     chain.providers = []
     _promote_model_in_chain(chain, None)  # must not raise
+
+
+# ---- Per-regime routing (_apply_score_routing / _preferred_models) ----
+
+
+def _make_svc_routing():
+    """Build AINarrativeService via __new__ for routing tests."""
+    from services.ai_narrative_service import AINarrativeService
+
+    svc = AINarrativeService.__new__(AINarrativeService)
+    svc.env_prefix = "development:"
+    svc.redis_client = AsyncMock()
+    svc._preferred_models = {}  # new attribute — must be set manually per CLAUDE.md pattern
+    # Mock chains
+    svc.per_signal_chain = MagicMock()
+    svc.per_signal_chain.providers = []
+    svc.group_chain = MagicMock()
+    svc.group_chain.providers = []
+    svc.logger = MagicMock()
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_apply_score_routing_per_regime():
+    """Per-regime: trending winner != ranging winner, each stored independently."""
+    svc = _make_svc_routing()
+
+    async def fake_hgetall(key):
+        if "trending" in key and "per_signal" in key:
+            return {b"model_A": json.dumps({"is_significant": True, "avg_pnl_r": 2.0}).encode()}
+        if "ranging" in key and "per_signal" in key:
+            return {b"model_B": json.dumps({"is_significant": True, "avg_pnl_r": 1.5}).encode()}
+        return {}
+
+    svc.redis_client.hgetall = fake_hgetall
+    await svc._apply_score_routing()
+
+    assert svc._preferred_models.get("per_signal", {}).get("trending") == "model_A"
+    assert svc._preferred_models.get("per_signal", {}).get("ranging") == "model_B"
+    # volatile has no significant model — should not be in dict
+    assert "volatile" not in svc._preferred_models.get("per_signal", {})
+
+
+@pytest.mark.asyncio
+async def test_apply_score_routing_falls_back_without_significant():
+    """Regime with no significant model gets no entry in _preferred_models."""
+    svc = _make_svc_routing()
+
+    async def fake_hgetall(key):
+        if "trending" in key and "per_signal" in key:
+            # Not significant
+            return {b"model_X": json.dumps({"is_significant": False, "avg_pnl_r": 5.0}).encode()}
+        return {}
+
+    svc.redis_client.hgetall = fake_hgetall
+    await svc._apply_score_routing()
+
+    assert "trending" not in svc._preferred_models.get("per_signal", {})
+
+
+def test_preferred_models_initialized():
+    """__init__ sets self._preferred_models = {} so attribute always exists."""
+    import inspect
+
+    from services.ai_narrative_service import AINarrativeService
+
+    src = inspect.getsource(AINarrativeService.__init__)
+    assert "_preferred_models" in src
+
+
+@pytest.mark.asyncio
+async def test_promote_uses_regime_from_signal():
+    """Per-signal call site promotes regime-specific model before chain.generate()."""
+    svc = _make_service_new()
+    svc._preferred_models = {"per_signal": {"trend_up": "model_A"}}
+
+    # Give per_signal_chain real providers so _promote_model_in_chain can find model_A
+    p1 = MagicMock()
+    p1.provider_id = "default_model"
+    p2 = MagicMock()
+    p2.provider_id = "model_A"
+    svc.per_signal_chain.providers = [p1, p2]
+    svc.per_signal_chain.generate = AsyncMock(return_value="Promoted narrative.")
+    svc.per_signal_chain.last_provider_id = "model_A"
+
+    fields = _make_signal_fields_i8(confidence=0.85)
+    # Override regime_context to match our preferred model key
+    fields[b"regime_context"] = b"trend_up"
+
+    await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+
+    # model_A should now be at position 0 after promotion
+    assert svc.per_signal_chain.providers[0].provider_id == "model_A"

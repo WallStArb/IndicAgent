@@ -304,6 +304,10 @@ class AINarrativeService:
         # In-memory cache: "SYMBOL:TF" → latest parsed signal dict (any direction)
         self._latest_signals: dict[str, dict] = {}
 
+        # Per-regime preferred models: {call_type: {regime: model_provider_id}}
+        # Populated by _apply_score_routing; used at call time for regime-aware promotion.
+        self._preferred_models: dict[str, dict[str, str]] = {}
+
         # Metrics for group synthesis
         self.group_narratives_generated = counter(
             "narrative_group_generated_total",
@@ -531,6 +535,14 @@ class AINarrativeService:
                 return True
 
             prompt = build_narrative_prompt(signal_data)
+            # Regime-aware model promotion: use per-regime preferred model if available
+            regime_key = signal_data.get("regime_context", "")
+            preferred = (
+                self._preferred_models.get("per_signal", {}).get(regime_key)
+                or self._preferred_models.get("per_signal", {}).get("__all__")
+            )
+            if preferred:
+                _promote_model_in_chain(self.per_signal_chain, preferred)
             t0 = time.time()
             narrative_text = await self.per_signal_chain.generate(
                 prompt,
@@ -705,27 +717,27 @@ class AINarrativeService:
         """Read Redis score cache and promote significant winner per call_type+regime."""
         if not self.redis_client:
             return
-        for call_type, chain in [
+        new_preferred: dict[str, dict[str, str]] = {}
+        for call_type, _chain in [
             ("per_signal", self.per_signal_chain),
             ("group_synthesis", self.group_chain),
         ]:
-            # Collect significant scores across all regime keys
-            best_model: str | None = None
-            best_avg_pnl_r: float = float("-inf")
+            regime_winners: dict[str, str] = {}
             for regime in ("trending", "ranging", "volatile", "__all__"):
                 cache_key = llm_scores_cache(self.env_prefix, call_type, regime)
                 try:
                     raw = await self.redis_client.hgetall(cache_key)
                 except Exception:
                     continue
+                best_model: str | None = None
+                best_avg_pnl_r: float = float("-inf")
                 for model_bytes, blob_bytes in (raw or {}).items():
                     try:
                         blob = json.loads(
                             blob_bytes.decode() if isinstance(blob_bytes, bytes) else blob_bytes
                         )
-                        is_sig = blob.get("is_significant")
                         pnl_r = float(blob.get("avg_pnl_r", 0))
-                        if is_sig and pnl_r > best_avg_pnl_r:
+                        if blob.get("is_significant") and pnl_r > best_avg_pnl_r:
                             best_avg_pnl_r = pnl_r
                             best_model = (
                                 model_bytes.decode()
@@ -734,14 +746,17 @@ class AINarrativeService:
                             )
                     except Exception:
                         continue
-            if best_model:
-                _promote_model_in_chain(chain, best_model)
-                self.logger.info(
-                    "Provider chain promoted",
-                    call_type=call_type,
-                    model=best_model,
-                    avg_pnl_r=best_avg_pnl_r,
-                )
+                if best_model:
+                    regime_winners[regime] = best_model
+                    self.logger.info(
+                        "Per-regime provider preferred",
+                        call_type=call_type,
+                        regime=regime,
+                        model=best_model,
+                        avg_pnl_r=best_avg_pnl_r,
+                    )
+            new_preferred[call_type] = regime_winners
+        self._preferred_models = new_preferred
 
     async def _synthesize_group(self, group_name: str) -> None:
         """Check if group state changed and publish synthesis if so."""
@@ -781,6 +796,10 @@ class AINarrativeService:
 
         # Build prompt and call group chain
         prompt = build_group_synthesis_prompt(group_name, current_signals)
+        # Use __all__ regime entry for group synthesis (cross-symbol, no single regime)
+        gs_preferred = self._preferred_models.get("group_synthesis", {}).get("__all__")
+        if gs_preferred:
+            _promote_model_in_chain(self.group_chain, gs_preferred)
         t0 = time.time()
         narrative_text = await self.group_chain.generate(
             prompt,
