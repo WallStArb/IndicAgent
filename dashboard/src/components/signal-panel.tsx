@@ -1,7 +1,7 @@
 "use client";
 
 import type { SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum, stalenessRatio, tfToMinutes } from "@/lib/format";
+import { fmtPrice, fmtNum, fmtTimeHMS, fmtLagSeconds } from "@/lib/format";
 
 interface SignalPanelProps {
   signal: SignalData | null;
@@ -41,9 +41,9 @@ export function SignalPanel({ signal }: SignalPanelProps) {
           >
             {signal.timeframe || "1m"}
           </span>
-          {signal.timestamp && (
+          {(signal.bar_close_ts || signal.timestamp) && (
             <span className="text-[0.55rem] font-data text-[var(--text-muted)]">
-              {new Date(signal.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+              {new Date(signal.bar_close_ts ?? signal.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
             </span>
           )}
           <span
@@ -78,13 +78,9 @@ export function SignalPanel({ signal }: SignalPanelProps) {
   const isLong = signal.direction === "long";
   const pluginShort = _abbreviatePlugin(signal.setup_plugin);
   const timeLabel = signal.timeframe || "1m";
-  const timeStr = signal.timestamp
-    ? new Date(signal.timestamp).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      })
-    : null;
+  const barStr = fmtTimeHMS(signal.bar_close_ts) ?? fmtTimeHMS(signal.timestamp);
+  const computedStr = fmtTimeHMS(signal.signal_computed_at);
+  const lagStr = fmtLagSeconds(signal.pipeline_lag_s);
 
   const labels = signal.target_labels ?? [];
   const t1 = signal.profit_target ?? null;
@@ -94,11 +90,6 @@ export function SignalPanel({ signal }: SignalPanelProps) {
   const rr2 = signal.rr_t2 ?? 0;
   const rr3 = signal.rr_t3 ?? 0;
   const isStructural = signal.framing_method === "structural";
-
-  const tfMinutes = tfToMinutes(signal.timeframe);
-  const staleness = stalenessRatio(signal.timestamp, tfMinutes);
-  const lagS = signal.pipeline_lag_s ?? null;
-  const lagStr = lagS !== null ? `+${lagS < 1 ? lagS.toFixed(2) : lagS.toFixed(1)}s` : null;
 
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const dirDim = isLong ? "var(--green-dim)" : "var(--red-dim)";
@@ -117,17 +108,13 @@ export function SignalPanel({ signal }: SignalPanelProps) {
           {timeLabel}
         </span>
 
-        {/* Timestamp */}
-        {timeStr && (
+        {/* Bar close time + latency to signal */}
+        {barStr && (
           <span className="text-[0.55rem] font-data text-[var(--text-muted)]">
-            {timeStr}
-          </span>
-        )}
-
-        {/* Pipeline lag — only shown when available (live signals only, not backfill) */}
-        {lagStr && (
-          <span className="text-[0.5rem] font-data text-[var(--text-muted)] opacity-60">
-            {lagStr}
+            {barStr}
+            {computedStr && lagStr && (
+              <span className="opacity-50 ml-0.5">{lagStr}</span>
+            )}
           </span>
         )}
 
@@ -215,21 +202,54 @@ export function SignalPanel({ signal }: SignalPanelProps) {
         </div>
       )}
 
-      {/* Staleness ratio — shown only when >= 1.0× (one full bar has elapsed) */}
-      {staleness !== null && (
-        <div className="pl-[3.25rem]">
-          <span
-            className="text-[0.5rem] font-data"
-            style={{
-              // TODO(v1.4-feedback): replace fixed thresholds with p80/p95 from signal_ledger
-              color: staleness >= 2.0 ? "var(--red-dim)" : "#f59e0b",
-              opacity: 0.7,
-            }}
-          >
-            {staleness.toFixed(1)}× stale
-          </span>
-        </div>
-      )}
+      {/* Price context: bar close / market at signal / entry zone */}
+      <div className="pl-[3.25rem] space-y-0.5">
+        {/* Row: BAR @ price  →  SIG @ price */}
+        {(signal.bar_close_price != null || signal.market_price_at_signal != null) && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {signal.bar_close_price != null && (
+              <span className="text-[0.5rem] font-data text-[var(--text-muted)]">
+                <span className="opacity-50">BAR </span>
+                <span>{fmtPrice(signal.bar_close_price)}</span>
+              </span>
+            )}
+            {signal.bar_close_price != null && signal.market_price_at_signal != null && (
+              <span className="opacity-30 text-[0.45rem]">→</span>
+            )}
+            {signal.market_price_at_signal != null && (
+              <span className="text-[0.5rem] font-data" style={{ color: "var(--text-secondary)" }}>
+                <span className="opacity-50">SIG </span>
+                {computedStr && (
+                  <>
+                    <span>{computedStr}</span>
+                    <span className="opacity-40 mx-0.5">@</span>
+                  </>
+                )}
+                <span>{fmtPrice(signal.market_price_at_signal)}</span>
+              </span>
+            )}
+          </div>
+        )}
+        {/* Row: ZONE low – high  [✓ in zone / ✗ outside] */}
+        {signal.entry_zone_low != null && signal.entry_zone_high != null && (
+          <div className="flex items-center gap-1">
+            <span className="text-[0.5rem] font-data text-[var(--text-muted)]">
+              <span className="opacity-50">ZONE </span>
+              <span>{fmtPrice(signal.entry_zone_low)}</span>
+              <span className="opacity-40 mx-0.5">–</span>
+              <span>{fmtPrice(signal.entry_zone_high)}</span>
+            </span>
+            {signal.zone_valid_at_signal != null && (
+              <span
+                className="text-[0.45rem] font-bold"
+                style={{ color: signal.zone_valid_at_signal ? "var(--green)" : "#f59e0b" }}
+              >
+                {signal.zone_valid_at_signal ? "✓" : "↑"}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

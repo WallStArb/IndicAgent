@@ -90,6 +90,20 @@ export function stalenessRatio(timestamp: string, tfMinutes: number): number | n
   return ratio >= 1.0 ? ratio : null;
 }
 
+/** Format ISO timestamp as HH:MM:SS (24h). Returns null if iso is falsy or unparseable. */
+export function fmtTimeHMS(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+/** Format pipeline lag as "+0.42s" or "+1.3s". Returns null if lagS is null/undefined/NaN. */
+export function fmtLagSeconds(lagS: number | null | undefined): string | null {
+  if (lagS == null || isNaN(lagS)) return null;
+  return `+${lagS < 1 ? lagS.toFixed(2) : lagS.toFixed(1)}s`;
+}
+
 /**
  * Returns pipeline lag in seconds (signal_computed_at - bar_close_ts).
  * Returns null if either timestamp is missing or invalid.

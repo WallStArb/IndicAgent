@@ -561,6 +561,9 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
           ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
           bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
+          entry_zone_low: _parseOptFloat(payload.entry_zone_low) ?? undefined,
+          entry_zone_high: _parseOptFloat(payload.entry_zone_high) ?? undefined,
+          zone_valid_at_signal: payload.zone_valid_at_signal != null ? Number(payload.zone_valid_at_signal) > 0 : undefined,
           signal_id: String(payload.signal_id || ""),
         };
       }

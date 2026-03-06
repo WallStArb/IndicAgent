@@ -683,6 +683,10 @@ class SignalGeneratorService:
             # Inject signal_id from winning LedgerEntry (UUID assigned in build_ledger_entries)
             selected_entry = next((e for e in entries if e.was_selected), None)
             message["signal_id"] = selected_entry.signal_id if selected_entry else ""
+            if selected_entry and selected_entry.zone_valid_at_signal is not None:
+                message["zone_valid_at_signal"] = (
+                    "1" if selected_entry.zone_valid_at_signal else "0"
+                )
             stream_entry_id = await self.redis_client.xadd(
                 stream_name, message, maxlen=200, approximate=True
             )

@@ -210,6 +210,9 @@ export interface SignalData {
   market_price_at_signal?: number; // live bid (short) or ask (long) at signal creation
   ask_at_signal?: number;        // live ask at signal creation
   bid_at_signal?: number;        // live bid at signal creation
+  entry_zone_low?: number;       // proximal edge of entry zone
+  entry_zone_high?: number;      // distal edge of entry zone
+  zone_valid_at_signal?: boolean; // true = market was inside entry zone when signal fired
   signal_id?: string;            // unique identifier — used to match terminal lifecycle events
   // Resolved state — set when lifecycle service publishes direction=0 terminal event
   resolved?: boolean;            // true = signal closed, outcome known

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { SignalData, SymbolData, NarrativeData } from "@/lib/types";
-import { fmtPrice } from "@/lib/format";
+import { fmtPrice, fmtTimeHMS, fmtLagSeconds } from "@/lib/format";
 import { DrillPanel } from "@/components/drill-panel";
 import { X, Brain } from "lucide-react";
 
@@ -72,6 +72,10 @@ function SignalCard({
   const isHighConfidence = signal.confidence >= 0.75;
   const { absolute, relative, isStale } = useFormattedTimestamp(signal.timestamp);
 
+  const barCloseTimeStr = useMemo(() => fmtTimeHMS(signal.bar_close_ts), [signal.bar_close_ts]);
+  const computedTimeStr = useMemo(() => fmtTimeHMS(signal.signal_computed_at), [signal.signal_computed_at]);
+  const lagStr = useMemo(() => fmtLagSeconds(signal.pipeline_lag_s), [signal.pipeline_lag_s]);
+
   const hasT1 = signal.profit_target != null;
   const hasT2 = signal.profit_target_2 != null;
   const narrativeText = narrative?.narrative?.trim();
@@ -121,6 +125,48 @@ function SignalCard({
               {absolute}
               {relative && (
                 <> · <span style={{ color: "var(--text-secondary)" }}>{relative}</span></>
+              )}
+              {/* Price context: bar close / market at signal / entry zone */}
+              {(signal.bar_close_ts || signal.bar_close_price != null || signal.market_price_at_signal != null) && (
+                <div className="text-[0.65rem] mt-0.5 space-y-0.5 opacity-80 font-data tabular-nums">
+                  {/* BAR: time @ price  +lag→  SIG: time @ price */}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="opacity-50">BAR</span>
+                    {barCloseTimeStr && <span>{barCloseTimeStr}</span>}
+                    {signal.bar_close_price != null && (
+                      <span style={{ color: "var(--text-secondary)" }}>@ {signal.bar_close_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</span>
+                    )}
+                    {computedTimeStr && lagStr && (
+                      <>
+                        <span className="opacity-40">{lagStr}</span>
+                        <span className="opacity-30">→</span>
+                      </>
+                    )}
+                    {computedTimeStr && (
+                      <>
+                        <span className="opacity-50">SIG</span>
+                        <span>{computedTimeStr}</span>
+                      </>
+                    )}
+                    {signal.market_price_at_signal != null && (
+                      <span style={{ color: "var(--text-secondary)" }}>@ {signal.market_price_at_signal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</span>
+                    )}
+                  </div>
+                  {/* ZONE: low – high  [✓ in zone / ↑ above] */}
+                  {signal.entry_zone_low != null && signal.entry_zone_high != null && (
+                    <div className="flex items-center gap-1">
+                      <span className="opacity-50">ZONE</span>
+                      <span>{signal.entry_zone_low.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</span>
+                      <span className="opacity-30">–</span>
+                      <span>{signal.entry_zone_high.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</span>
+                      {signal.zone_valid_at_signal != null && (
+                        <span style={{ color: signal.zone_valid_at_signal ? "var(--green)" : "#f59e0b", fontWeight: 600 }}>
+                          {signal.zone_valid_at_signal ? "✓ in zone" : "↑ above zone"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
