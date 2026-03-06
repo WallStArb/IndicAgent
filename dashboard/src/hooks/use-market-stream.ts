@@ -485,56 +485,89 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       const dir = parseInt(String(payload.direction || "0"));
       const tf = String(payload.timeframe || timeframe);
 
+      const _parseOptFloat = (v: unknown): number | null => {
+        const n = parseFloat(String(v || "0"));
+        return isNaN(n) || n === 0 ? null : n;
+      };
+      const _parseLabels = (v: unknown): string[] => {
+        if (!v) return [];
+        try { return JSON.parse(String(v)) as string[]; } catch { return []; }
+      };
+      const _signalComputedAt = payload.signal_computed_at
+        ? String(payload.signal_computed_at) : undefined;
+      const _barCloseTs = payload.bar_close_ts
+        ? String(payload.bar_close_ts) : undefined;
+
+      // Terminal lifecycle event — direction=0 with status + signal_id
+      // Published by signal_lifecycle_service on every signal exit.
+      // Match by signal_id so stale events for preempted signals are no-ops.
+      if (dir === 0 && payload.status && payload.signal_id) {
+        const resolvedId = String(payload.signal_id);
+        setSymbolData((prev) => {
+          const old2 = prev[sym];
+          if (!old2) return prev;
+          const currentSignal = old2.signalsByTf[tf];
+          if (!currentSignal || currentSignal.signal_id !== resolvedId) {
+            return prev; // stale resolved event for a preempted signal — no-op
+          }
+          const resolvedSignal: SignalData = {
+            ...currentSignal,
+            resolved: true,
+            outcome: String(payload.status),
+            exit_price: _parseOptFloat(payload.exit_price) ?? undefined,
+          };
+          return {
+            ...prev,
+            [sym]: {
+              ...old2,
+              signal: tf === timeframe ? resolvedSignal : old2.signal,
+              signalsByTf: { ...old2.signalsByTf, [tf]: resolvedSignal },
+              lastUpdate: Date.now(),
+            },
+          };
+        });
+        touch();
+        return;
+      }
+
+      // Standard signal birth (direction != 0)
+      let fullSignal: SignalData | null = null;
+      if (dir !== 0) {
+        fullSignal = {
+          direction: dir > 0 ? "long" : "short",
+          signal_type: String(payload.signal_type || ""),
+          setup_plugin: String(payload.setup_plugin || ""),
+          confidence: parseFloat(String(payload.confidence || "0")),
+          entry_price: parseFloat(String(payload.entry_price || "0")),
+          entry_type: String(payload.entry_type || "at_close"),
+          stop_loss: parseFloat(String(payload.stop_loss || "0")),
+          stop_type: String(payload.stop_type || "atr"),
+          profit_target: _parseOptFloat(payload.profit_target),
+          profit_target_2: _parseOptFloat(payload.profit_target_2),
+          profit_target_3: _parseOptFloat(payload.profit_target_3),
+          target_labels: _parseLabels(payload.target_labels),
+          rr_t1: _parseOptFloat(payload.rr_t1) ?? undefined,
+          rr_t2: _parseOptFloat(payload.rr_t2) ?? undefined,
+          rr_t3: _parseOptFloat(payload.rr_t3) ?? undefined,
+          framing_method: String(payload.framing_method || "atr_fallback"),
+          risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
+          regime_context: String(payload.regime_context || ""),
+          timeframe: tf,
+          timestamp: String(payload.timestamp || ""),
+          signal_computed_at: _signalComputedAt,
+          bar_close_ts: _barCloseTs,
+          pipeline_lag_s: pipelineLagS(_signalComputedAt, _barCloseTs) ?? undefined,
+          bar_close_price: _parseOptFloat(payload.bar_close_price) ?? undefined,
+          market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
+          ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
+          bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
+          signal_id: String(payload.signal_id || ""),
+        };
+      }
+
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
-
-        // Full signal data for this TF (stored regardless of selected TF)
-        const _parseOptFloat = (v: unknown): number | null => {
-          const n = parseFloat(String(v || "0"));
-          return isNaN(n) || n === 0 ? null : n;
-        };
-        const _parseLabels = (v: unknown): string[] => {
-          if (!v) return [];
-          try { return JSON.parse(String(v)) as string[]; } catch { return []; }
-        };
-
-        const _signalComputedAt = payload.signal_computed_at
-          ? String(payload.signal_computed_at) : undefined;
-        const _barCloseTs = payload.bar_close_ts
-          ? String(payload.bar_close_ts) : undefined;
-
-        const fullSignal: SignalData | null = dir !== 0
-          ? {
-              direction: dir > 0 ? "long" : "short",
-              signal_type: String(payload.signal_type || ""),
-              setup_plugin: String(payload.setup_plugin || ""),
-              confidence: parseFloat(String(payload.confidence || "0")),
-              entry_price: parseFloat(String(payload.entry_price || "0")),
-              entry_type: String(payload.entry_type || "at_close"),
-              stop_loss: parseFloat(String(payload.stop_loss || "0")),
-              stop_type: String(payload.stop_type || "atr"),
-              profit_target: _parseOptFloat(payload.profit_target),
-              profit_target_2: _parseOptFloat(payload.profit_target_2),
-              profit_target_3: _parseOptFloat(payload.profit_target_3),
-              target_labels: _parseLabels(payload.target_labels),
-              rr_t1: _parseOptFloat(payload.rr_t1) ?? undefined,
-              rr_t2: _parseOptFloat(payload.rr_t2) ?? undefined,
-              rr_t3: _parseOptFloat(payload.rr_t3) ?? undefined,
-              framing_method: String(payload.framing_method || "atr_fallback"),
-              risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
-              regime_context: String(payload.regime_context || ""),
-              timeframe: tf,
-              timestamp: String(payload.timestamp || ""),
-              signal_computed_at: _signalComputedAt,
-              bar_close_ts: _barCloseTs,
-              pipeline_lag_s: pipelineLagS(_signalComputedAt, _barCloseTs) ?? undefined,
-              bar_close_price: _parseOptFloat(payload.bar_close_price) ?? undefined,
-              market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
-              ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
-              bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
-            }
-          : null;
 
         // Lightweight matrix entry
         const tfSignal: PerTfSignal = {
