@@ -64,6 +64,6 @@ class TestSseSnapshotFilter:
         assert not _is_signal_entry_stale("development:indicators:ESH6:5m", entry_id)
 
     def test_1m_boundary(self):
-        """Entry 3 minutes old on 1m stream: max_age=120s → stale."""
+        """Entry 3 min 1 sec old on 1m stream: max_age=120s → stale."""
         entry_id = _entry_id_for_age(181)
         assert _is_signal_entry_stale("development:signals:ESH6:1m:aggregated", entry_id)
