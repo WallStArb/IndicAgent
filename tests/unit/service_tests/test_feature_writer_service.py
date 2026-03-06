@@ -85,7 +85,7 @@ def test_parse_malformed_json_returns_none():
 # ── _event_to_insert_params ───────────────────────────────────────────────────
 
 def test_event_to_insert_params_returns_17_tuple():
-    """_event_to_insert_params returns an 18-element tuple (14 base + 3 timing + 1 days_to_expiry)."""
+    """_event_to_insert_params returns 18-element tuple (14 base + 3 timing + 1 days_to_expiry)."""
     from services.feature_writer_service import _event_to_insert_params
 
     event = _make_valid_event()
@@ -312,6 +312,7 @@ class TestBuildExpiryMap:
     def test_futures_yyyymmdd_parsed(self):
         """YYYYMMDD expiry string → correct date in map."""
         from datetime import date
+
         from services.feature_writer_service import _build_expiry_map
 
         settings = self._make_settings_with([self._futures_inst("ESH6", "20260320")])
@@ -323,6 +324,7 @@ class TestBuildExpiryMap:
     def test_futures_yyyymm_last_day_of_month(self):
         """YYYYMM expiry (VX-style) → last day of that month."""
         from datetime import date
+
         from services.feature_writer_service import _build_expiry_map
 
         settings = self._make_settings_with([self._futures_inst("VXJ6", "202604")])
@@ -362,6 +364,7 @@ class TestComputeDaysToExpiry:
     def test_futures_days_before_expiry(self):
         """Futures with 5 days to expiry returns 5."""
         from datetime import date
+
         from services.feature_writer_service import _compute_days_to_expiry
 
         expiry_map = {"ESH6": date(2026, 3, 20)}
@@ -371,6 +374,7 @@ class TestComputeDaysToExpiry:
     def test_past_expiry_clamped_to_zero(self):
         """Bar timestamp after expiry → 0 (clamped)."""
         from datetime import date
+
         from services.feature_writer_service import _compute_days_to_expiry
 
         expiry_map = {"ESH6": date(2026, 3, 20)}
@@ -380,6 +384,7 @@ class TestComputeDaysToExpiry:
     def test_non_futures_returns_zero(self):
         """Symbol not in expiry_map (FX/crypto) → 0."""
         from datetime import date
+
         from services.feature_writer_service import _compute_days_to_expiry
 
         result = _compute_days_to_expiry(
@@ -400,6 +405,7 @@ class TestComputeDaysToExpiry:
 def test_event_to_insert_params_18_with_expiry_map():
     """_event_to_insert_params with expiry_map returns 18-tuple, $18 is int."""
     from datetime import date
+
     from services.feature_writer_service import _event_to_insert_params
 
     event = _make_valid_event()  # symbol="ESH6", ts=datetime(2026,2,18,10,0,0)
@@ -414,6 +420,7 @@ def test_event_to_insert_params_18_with_expiry_map():
 def test_event_to_insert_params_days_zero_for_non_futures():
     """FX/crypto symbol not in expiry_map → $18 is 0."""
     from datetime import UTC, datetime
+
     from services.feature_writer_service import _event_to_insert_params
     from src.intelligence.schemas import (
         I1Indicators,
