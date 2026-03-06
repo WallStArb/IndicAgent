@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T22:04:32.295Z"
+last_updated: "2026-03-06T22:06:42.401Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
   total_phases: 17
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 20
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -77,6 +77,8 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 14-feedback-loop]: perf_weights dict contract: {env_prefix}setup_performance:weights Redis key, adjusted_rank = composite_rank * perf_multiplier, neutral=1.0 for missing setups
 - [Phase 14-feedback-loop]: Rolling 30-day window filtered in Python layer (not SQL) so unit tests can pass resolved_at datetimes without mocking DB
 - [Phase 14-feedback-loop]: Sharpe rank ascending: worst=0, best=n-1; perf_multiplier=0.5+(rank/n); single eligible setup gets 1.0
+- [Phase 14-feedback-loop]: Sort by adjusted_rank ASCENDING (lower = higher priority): tests are authoritative over plan text
+- [Phase 14-feedback-loop]: perf_weights dict contract: adjusted_rank = composite_rank * perf_multiplier, neutral=1.0, ascending sort
 
 ### Pending Todos
 

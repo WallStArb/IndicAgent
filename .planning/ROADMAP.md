@@ -61,7 +61,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking (completed 2026-03-04)
 - [x] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready) (completed 2026-03-05)
-- [ ] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate
+- [x] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate (completed 2026-03-06)
 - [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
 - [x] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime (completed 2026-03-06)
 - [x] **Phase 17: LLM Wiring Fix** — Fix signal_id linkage (signals:aggregated missing UUID) and regime vocabulary mismatch (plugin vocab vs cache keys) — closes LLM-04/LLM-05 production breaks, restores E2E Flow 3 + Flow 4 (completed 2026-03-06)
@@ -311,7 +311,7 @@ Plans:
   2. A setup with fewer than 30 resolved signals in `signal_ledger` has no performance weight applied — the aggregator uses baseline weights for that setup regardless of early win/loss data
   3. The signal aggregator reads setup performance weights at startup and outperforming setups rank higher than underperforming setups in aggregation — verifiable by comparing aggregator selection logs against `setup_performance` table values
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 14-01-PLAN.md — TDD RED: write all failing tests for FEED-01, FEED-02, FEED-03
@@ -416,7 +416,7 @@ Plans:
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
 | 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
-| 14. Feedback Loop | 2/3 | In Progress|  | — |
+| 14. Feedback Loop | 3/3 | Complete   | 2026-03-06 | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
 | 17. LLM Wiring Fix | 2/2 | Complete    | 2026-03-06 | — |
