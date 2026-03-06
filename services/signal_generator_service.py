@@ -41,6 +41,7 @@ from src.core.stream_keys import (
 )
 from src.core.stream_keys import (
     quote_latest,
+    setup_performance_weights_cache,
     signals_aggregated,
 )
 from src.core.stream_utils import ensure_consumer_group_with_reset
@@ -331,9 +332,15 @@ def _build_i7_payload(
 class SignalGeneratorService:
     """Execute I7 setup plugins, aggregate signals, and persist to signal_ledger."""
 
+    # Class-level defaults — overridden per-instance in __init__.
+    # Required by the __new__ test pattern (CLAUDE.md): attributes accessed via
+    # hasattr() on bare __new__ instances must be defined at class level.
+    _perf_weights: dict[str, float] = {}  # noqa: RUF012
+
     def __init__(self, config_file: str | None = None):
         self.running = False
         self.shutdown_requested = False
+        self.shutdown_event = asyncio.Event()
         self.start_time = datetime.now(tz=UTC)
 
         self.config = self._load_config(config_file)
@@ -359,6 +366,10 @@ class SignalGeneratorService:
         # Updated on every IntelligenceEvent arrival; used by _process_bar() to look
         # up the authority TF regime data for regime gating in aggregate().
         self._regime_cache: dict[str, dict[str, dict]] = defaultdict(dict)
+        # Performance weights cache: setup_plugin → perf_multiplier [0.5, 1.5].
+        # Loaded from Redis at startup and refreshed every 60 min by
+        # _perf_weights_refresh_loop(). Empty dict = neutral (all multipliers=1.0).
+        self._perf_weights: dict[str, float] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -497,6 +508,7 @@ class SignalGeneratorService:
         self.logger.info("Stopping Signal Generator Service")
         self.running = False
         self.shutdown_requested = True
+        self.shutdown_event.set()
         if self.redis_client:
             await self.redis_client.aclose()
         if self.db_manager:
@@ -560,7 +572,11 @@ class SignalGeneratorService:
         authority_tf = _REGIME_AUTHORITY_TF.get(timeframe, timeframe)
         regime_data = self._regime_cache.get(symbol, {}).get(authority_tf)
         result = aggregate(
-            raw_signals, trend_regime=trend_regime, features=features, regime_data=regime_data
+            raw_signals,
+            trend_regime=trend_regime,
+            features=features,
+            regime_data=regime_data,
+            perf_weights=self._perf_weights,
         )
 
         # Apply structural trade framing to the winning signal
@@ -842,6 +858,37 @@ class SignalGeneratorService:
                 self.logger.error("Error in health monitor", error=str(e))
                 await asyncio.sleep(5)
 
+    async def _load_perf_weights(self) -> None:
+        """Load perf multiplier dict from Redis. No-op if key missing."""
+        key = setup_performance_weights_cache(self.env_prefix)
+        try:
+            raw = await self.redis_client.get(key)
+            if raw is None:
+                return
+            self._perf_weights = json.loads(raw)
+            self.logger.debug("Perf weights loaded", n_setups=len(self._perf_weights))
+        except Exception as e:
+            self.logger.warning("Failed to load perf weights", error=str(e))
+
+    async def _perf_weights_refresh_loop(self) -> None:
+        """Refresh perf weights from Redis every 60 minutes."""
+        _REFRESH_INTERVAL = 3600
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL)
+                    break
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._load_perf_weights()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("Perf weights refresh error", error=str(e))
+                await asyncio.sleep(30)
+
     async def start(self) -> None:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
         try:
@@ -849,9 +896,12 @@ class SignalGeneratorService:
             await self._connect_database()
             await self._setup_consumer_groups()
             self.running = True
+            # Load perf weights at startup so first bar already has weights
+            await self._load_perf_weights()
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
+                asyncio.create_task(self._perf_weights_refresh_loop()),
             ]
             self.logger.info("Signal Generator Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
