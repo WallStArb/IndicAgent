@@ -134,7 +134,9 @@ class TestSess03ConfirmingFactorGate:
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none"
-        assert result.get("supporting_factors") == ["trend_align"]
+        factors = result.get("supporting_factors", [])
+        assert "trend_align" in factors
+        assert any(f.startswith("session:") for f in factors)
 
     def test_fires_with_volume_spike_only(self):
         frames = make_frames(
@@ -156,7 +158,9 @@ class TestSess03ConfirmingFactorGate:
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none"
-        assert result.get("supporting_factors") == ["rsi_extreme"]
+        factors = result.get("supporting_factors", [])
+        assert "rsi_extreme" in factors
+        assert any(f.startswith("session:") for f in factors)
 
     def test_confidence_scales_with_factors(self):
         plugin = SessionExtremesSetupPlugin()
@@ -270,7 +274,7 @@ class TestSignalFields:
         frames = make_frames(close=5009.0, session_london=1.0, session_ny=0.0)
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none", "Expected signal to fire"
-        assert result.get("regime_context") == "london"
+        assert result.get("regime_context") == "session_extreme_london"
 
     def test_regime_context_ny(self):
         frames = make_frames(
@@ -282,7 +286,65 @@ class TestSignalFields:
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none", "Expected signal to fire"
-        assert result.get("regime_context") == "ny"
+        assert result.get("regime_context") == "session_extreme_ny"
+
+
+# ---------------------------------------------------------------------------
+# Regime vocabulary correctness (LLM score cache key alignment)
+# ---------------------------------------------------------------------------
+
+
+class TestRegimeVocabulary:
+    def test_regime_context_london(self):
+        frames = make_frames(close=5009.0, session_london=1.0, session_ny=0.0)
+        result = SessionExtremesSetupPlugin().compute_full(frames)
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert result.get("regime_context") == "session_extreme_london"
+
+    def test_regime_context_ny(self):
+        frames = make_frames(
+            close=4992.0,
+            session_london=0.0,
+            session_ny=1.0,
+            trend_regime=0.6,
+            rsi_14=30.0,
+        )
+        result = SessionExtremesSetupPlugin().compute_full(frames)
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert result.get("regime_context") == "session_extreme_ny"
+
+    def test_regime_context_overlap_both(self):
+        frames = make_frames(close=5009.0, session_london=1.0, session_ny=1.0)
+        result = SessionExtremesSetupPlugin().compute_full(frames)
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        assert result.get("regime_context") == "session_extreme_both"
+
+    def test_supporting_factors_includes_session_label_london(self):
+        frames = make_frames(close=5009.0, session_london=1.0, session_ny=0.0)
+        result = SessionExtremesSetupPlugin().compute_full(frames)
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        factors = result.get("supporting_factors", [])
+        assert "session:london" in factors
+
+    def test_supporting_factors_includes_session_label_ny(self):
+        frames = make_frames(
+            close=4992.0,
+            session_london=0.0,
+            session_ny=1.0,
+            trend_regime=0.6,
+            rsi_14=30.0,
+        )
+        result = SessionExtremesSetupPlugin().compute_full(frames)
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        factors = result.get("supporting_factors", [])
+        assert "session:ny" in factors
+
+    def test_supporting_factors_includes_session_label_both(self):
+        frames = make_frames(close=5009.0, session_london=1.0, session_ny=1.0)
+        result = SessionExtremesSetupPlugin().compute_full(frames)
+        assert result.get("signal_type") != "none", "Expected signal to fire"
+        factors = result.get("supporting_factors", [])
+        assert "session:both" in factors
 
 
 # ---------------------------------------------------------------------------

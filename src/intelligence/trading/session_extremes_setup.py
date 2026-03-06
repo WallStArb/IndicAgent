@@ -136,6 +136,9 @@ class SessionExtremesSetupPlugin:
         else:
             session_ctx = "ny"
 
+        regime_ctx = f"session_extreme_{session_ctx}"
+        supporting.append(f"session:{session_ctx}")
+
         return {
             "signal_type": signal_type,
             "direction": direction,
@@ -146,7 +149,7 @@ class SessionExtremesSetupPlugin:
             "entry_price": round(entry_price, 2),
             "stop_loss": round(stop_loss, 2),
             "targets": targets,
-            "regime_context": session_ctx,
+            "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
 
