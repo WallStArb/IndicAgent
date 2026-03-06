@@ -203,6 +203,9 @@ export interface SignalData {
   regime_context: string;        // "bullish" | "bearish"
   timeframe: string;             // which TF generated this signal, e.g. "1m"
   timestamp: string;             // ISO timestamp when signal was generated
+  signal_computed_at?: string;   // ISO — when signal_generator_service fired this signal
+  bar_close_ts?: string;         // ISO — when bar closed (pipeline lag start)
+  pipeline_lag_s?: number;       // computed client-side: signal_computed_at - bar_close_ts
 }
 
 // ── I8 AI Narratives ──
