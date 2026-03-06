@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { symbolConfig } from "@/lib/symbol-config";
+import { pipelineLagS } from "@/lib/format";
 import type {
   SymbolData,
   IndicatorData,
@@ -520,6 +521,16 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               regime_context: String(payload.regime_context || ""),
               timeframe: tf,
               timestamp: String(payload.timestamp || ""),
+              signal_computed_at: payload.signal_computed_at
+                ? String(payload.signal_computed_at)
+                : undefined,
+              bar_close_ts: payload.bar_close_ts
+                ? String(payload.bar_close_ts)
+                : undefined,
+              pipeline_lag_s: pipelineLagS(
+                payload.signal_computed_at ? String(payload.signal_computed_at) : undefined,
+                payload.bar_close_ts ? String(payload.bar_close_ts) : undefined,
+              ) ?? undefined,
             }
           : null;
 
