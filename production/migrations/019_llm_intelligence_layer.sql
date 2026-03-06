@@ -19,7 +19,7 @@
 -- ── llm_calls hypertable ──────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS llm_calls (
-    call_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    call_id         UUID NOT NULL DEFAULT gen_random_uuid(),
     called_at       TIMESTAMPTZ NOT NULL,
     call_type       TEXT NOT NULL,          -- 'per_signal' | 'group_synthesis' | 'counterfactual'
     signal_id       UUID,                                       -- nullable; soft ref to signal_ledger(signal_id)
@@ -49,10 +49,11 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     mfe             DOUBLE PRECISION,
     bars_in_trade   INTEGER,
     win             BOOLEAN,
-    outcome_at      TIMESTAMPTZ
+    outcome_at      TIMESTAMPTZ,
+    PRIMARY KEY (call_id, called_at)
 );
 
-SELECT create_hypertable('llm_calls', 'called_at', if_not_exists => TRUE);
+SELECT create_hypertable('llm_calls', 'called_at');
 
 COMMENT ON TABLE llm_calls IS
     'Audit log of every LLM call made by the intelligence layer. '
