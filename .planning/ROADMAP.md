@@ -414,7 +414,7 @@ Plans:
 | 14. Feedback Loop | v1.4 | 0/0 | Not started | — |
 | 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
-| 17. LLM Wiring Fix | 2/2 | Complete   | 2026-03-06 | — |
+| 17. LLM Wiring Fix | 2/2 | Complete    | 2026-03-06 | — |
 
 ## Backlog
 
