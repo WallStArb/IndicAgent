@@ -342,7 +342,7 @@ class IndicatorService:
 
         Optimized: parallel warmup reads using asyncio.gather() instead of sequential loops.
         """
-        warmup_bars = 20  # unique bars target (reduced for faster startup)
+        warmup_bars = 120  # must cover min_bars_for_tf("1m") = 120
         warmup_read_count = warmup_bars * self._WARMUP_READ_MULTIPLIER
 
         async def warmup_stream(symbol: str, timeframe: str) -> tuple[str, str]:

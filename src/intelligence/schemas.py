@@ -154,10 +154,10 @@ class I3Structure(BaseModel):
     - struct_SupportResistance (9 fields)
     - struct_TrendStructure (6 fields)
     - struct_MarketProfile (9 fields)
-    - struct_SessionLevels (14 fields)
+    - struct_SessionLevels (16 fields)
     - struct_AnchoredVWAP (8 fields)
     - struct_FibonacciZones (12 fields)
-    Total: 67 fields
+    Total: 69 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -219,6 +219,8 @@ class I3Structure(BaseModel):
     weekly_s2: float | None = None
     nearest_session_level: float | None = None
     nearest_level_dist_atr: float | None = None
+    asian_session_high: float | None = None
+    asian_session_low: float | None = None
 
     # AnchoredVWAPPlugin outputs
     session_vwap: float | None = None
