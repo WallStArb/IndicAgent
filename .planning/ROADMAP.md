@@ -376,7 +376,11 @@ Plans:
   3. Plugin `regime_context` values are translated to canonical vocabulary (`trending`/`ranging`/`volatile`) before being stored in `llm_calls.regime` — score cache keys match `_apply_score_routing` lookups
   4. `_preferred_models` is populated after at least one score recompute cycle — adaptive routing activates for at least one call_type + regime combination
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — Fix SessionExtremesSetup regime vocabulary (session_extreme_london/ny/both)
+- [ ] 17-02-PLAN.md — Thread signal_id through signals:aggregated stream to llm_calls
 
 ---
 
