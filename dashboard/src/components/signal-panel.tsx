@@ -1,7 +1,7 @@
 "use client";
 
 import type { SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum } from "@/lib/format";
+import { fmtPrice, fmtNum, stalenessRatio, tfToMinutes } from "@/lib/format";
 
 interface SignalPanelProps {
   signal: SignalData | null;
@@ -40,6 +40,11 @@ export function SignalPanel({ signal }: SignalPanelProps) {
   const rr3 = signal.rr_t3 ?? 0;
   const isStructural = signal.framing_method === "structural";
 
+  const tfMinutes = tfToMinutes(signal.timeframe);
+  const staleness = stalenessRatio(signal.timestamp, tfMinutes);
+  const lagS = signal.pipeline_lag_s ?? null;
+  const lagStr = lagS !== null ? `+${lagS < 1 ? lagS.toFixed(2) : lagS.toFixed(1)}s` : null;
+
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const dirDim = isLong ? "var(--green-dim)" : "var(--red-dim)";
 
@@ -61,6 +66,13 @@ export function SignalPanel({ signal }: SignalPanelProps) {
         {timeStr && (
           <span className="text-[0.55rem] font-data text-[var(--text-muted)]">
             {timeStr}
+          </span>
+        )}
+
+        {/* Pipeline lag — only shown when available (live signals only, not backfill) */}
+        {lagStr && (
+          <span className="text-[0.5rem] font-data text-[var(--text-muted)] opacity-60">
+            {lagStr}
           </span>
         )}
 
@@ -145,6 +157,22 @@ export function SignalPanel({ signal }: SignalPanelProps) {
               </span>
             </>
           )}
+        </div>
+      )}
+
+      {/* Staleness ratio — shown only when >= 1.0× (one full bar has elapsed) */}
+      {staleness !== null && (
+        <div className="pl-[3.25rem]">
+          <span
+            className="text-[0.5rem] font-data"
+            style={{
+              // TODO(v1.4-feedback): replace fixed thresholds with p80/p95 from signal_ledger
+              color: staleness >= 2.0 ? "var(--red-dim)" : "#f59e0b",
+              opacity: 0.7,
+            }}
+          >
+            {staleness.toFixed(1)}× stale
+          </span>
         </div>
       )}
     </div>
