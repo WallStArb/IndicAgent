@@ -24,6 +24,39 @@ router = APIRouter()
 
 _NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
 
+_TF_MINUTES: dict[str, int] = {
+    "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440
+}
+
+
+def _signal_entry_stale(stream_name: str, entry_id: str | bytes) -> bool:
+    """Return True if this signal stream entry is older than 2×TF.
+
+    Uses the Redis entry ID's embedded Unix-ms timestamp — no payload parsing.
+    Only applies to signals: streams; other streams always return False.
+    """
+    import time as _time
+    if "signals:" not in stream_name:
+        return False
+    parts = stream_name.split(":")
+    try:
+        agg_idx = parts.index("aggregated")
+        tf = parts[agg_idx - 1]
+    except (ValueError, IndexError):
+        return False
+    tf_minutes = _TF_MINUTES.get(tf)
+    if tf_minutes is None:
+        return False
+    max_age_s = 2 * tf_minutes * 60
+    try:
+        id_str = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
+        entry_unix_ms = int(id_str.split("-")[0])
+    except (ValueError, IndexError):
+        return False
+    age_s = (_time.time() * 1000 - entry_unix_ms) / 1000
+    return age_s > max_age_s
+
+
 # Cached settings — avoids re-parsing env/config on every SSE connection.
 _settings: Settings | None = None
 
@@ -155,6 +188,9 @@ async def sse_events(
                     # xrevrange returns newest-first; reverse for chronological order
                     event_name = _event_name_for_stream(stream_name)
                     for msg_id, fields in reversed(entries):
+                        if _signal_entry_stale(stream_name, msg_id):
+                            last_ids[stream_name] = msg_id  # advance cursor even when skipping
+                            continue
                         last_ids[stream_name] = msg_id
                         try:
                             data_json = json.dumps(
