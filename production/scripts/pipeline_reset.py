@@ -31,20 +31,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import psycopg2
-import psycopg2.extras
 import redis
 
 # Allow running from repo root
 sys.path.insert(0, str(Path(__file__).parents[2]))
-
-from src.config.settings import Settings
 
 # Reuse connect_db and replay logic from historical_backfill
 from production.scripts.historical_backfill import (  # noqa: E402
     connect_db,
     replay_symbol,
 )
+from src.config.settings import Settings
 
 # Tables cleared on every reset (always)
 _ALWAYS_CLEAR = [
@@ -255,6 +252,7 @@ def main() -> None:
     if not args.keep_ohlcv:
         print("\n[3/5] Fetching OHLCV from IBKR...")
         import asyncio
+
         from production.scripts.historical_backfill import (
             _TF_FETCH_CONFIG,
             store_bars,
