@@ -111,6 +111,7 @@ async def get_signals(
     ),
     from_ts: datetime | None = Query(None, alias="from"),
     to_ts: datetime | None = Query(None, alias="to"),
+    timeframe: str | None = Query(None, description="Filter by timeframe, e.g. 5m"),
     limit: int = Query(100, ge=1, le=1000, description="Number of signals to return (max 1000)"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
@@ -141,6 +142,7 @@ async def get_signals(
                 WHERE sl.symbol = $1
                   AND ($3::timestamptz IS NULL OR sl.timestamp >= $3)
                   AND ($4::timestamptz IS NULL OR sl.timestamp <= $4)
+                  AND ($5::text IS NULL OR sl.timeframe = $5)
                 ORDER BY sl.timestamp DESC
                 LIMIT $2
             """
@@ -155,11 +157,12 @@ async def get_signals(
                 WHERE symbol = $1
                   AND ($3::timestamptz IS NULL OR timestamp >= $3)
                   AND ($4::timestamptz IS NULL OR timestamp <= $4)
+                  AND ($5::text IS NULL OR timeframe = $5)
                 ORDER BY timestamp DESC
                 LIMIT $2
             """
 
-        rows = await db_manager.fetch(query, contract, limit, from_ts, to_ts)
+        rows = await db_manager.fetch(query, contract, limit, from_ts, to_ts, timeframe)
 
         signals = [_build_signal_row(row, include_features) for row in rows]
 
