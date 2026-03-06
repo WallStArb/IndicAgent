@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T05:20:01.278Z"
+last_updated: "2026-03-06T15:32:16.504Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
-  total_phases: 16
+  total_phases: 17
   completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 17
+  completed_plans: 16
 ---
 
 # Project State
@@ -69,6 +69,8 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 16-llm-intelligence-layer]: LLM-05 complete: per-regime routing wired at call sites with __all__ fallback
 - [Phase 16-llm-intelligence-layer]: Migration 020 uses idempotent DO block guard on timescaledb_information.hypertables; migrate_data => TRUE for existing rows; 019 source corrected for future deployments
 - [Phase 16-llm-intelligence-layer]: Migration 020 applied to production: llm_calls is now a TimescaleDB hypertable partitioned by called_at with composite PK (call_id, called_at)
+- [Phase 17-llm-wiring-fix]: session_extreme_london/ny/both are the canonical regime strings for SessionExtremesSetup — raw plugin output IS the LLM routing vocabulary, no translation layer
+- [Phase 17-llm-wiring-fix]: supporting_factors in SessionExtremesSetup now carries session:<ctx> label alongside confirming-factor strings; consumers must use membership checks not equality
 
 ### Pending Todos
 
