@@ -19,6 +19,7 @@ import os
 import signal
 import sys
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,9 @@ from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
 from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
-from src.core.stream_keys import signals_aggregated  # noqa: E402
+from src.core.stream_keys import (  # noqa: E402
+    signals_aggregated,  # noqa: E402
+)
 from src.core.stream_utils import ensure_consumer_group_with_reset  # noqa: E402
 from src.observability.metrics import counter, gauge, start_metrics_server  # noqa: E402
 
@@ -181,6 +184,70 @@ def build_narrative_prompt(signal: dict[str, Any]) -> str:
         f"Regime: {signal['regime_context']}\n"
         f"Factors: {signal['supporting_factors']}"
     )
+
+
+def _build_llm_call_payload(
+    call_type: str,
+    signal_data: dict[str, Any] | None,
+    group_name: str,
+    prompt: str,
+    response: str | None,
+    latency_ms: float,
+    succeeded: bool,
+    model_id: str,
+) -> dict[str, str]:
+    """Build the stream payload dict for a single LLM call log entry.
+
+    All values are str — Redis stream messages require string values.
+    signal_id is intentionally "" for per_signal calls (not in aggregated stream).
+    """
+    sd = signal_data or {}
+    return {
+        "call_id":         str(uuid.uuid4()),
+        "called_at":       datetime.now(tz=UTC).isoformat(),
+        "call_type":       call_type,
+        "signal_id":       "",                                          # not in aggregated stream
+        "group_name":      group_name,
+        "symbol":          str(sd.get("symbol", "")),
+        "timeframe":       str(sd.get("timeframe", "")),
+        "model":           model_id,
+        "provider":        model_id.split(":")[0] if model_id else "",
+        "prompt":          prompt,
+        "response":        response or "",
+        "latency_ms":      str(int(latency_ms)),
+        "tokens_est":      str(len((response or "").split())),
+        "succeeded":       "1" if succeeded else "0",
+        "regime":          str(sd.get("regime_context", "")),
+        "session":         "",                                          # not in aggregated stream
+        "entry_price":     str(sd.get("entry_price", "")),
+        "stop_loss":       str(sd.get("stop_loss", "")),
+        "target_price":    str(sd.get("profit_target", "")),
+        "confidence":      str(sd.get("confidence", "")),
+        "cis_score":       "",                                          # not in aggregated stream
+        "entry_zone_low":  "",                                          # not in aggregated stream
+        "entry_zone_high": "",                                          # not in aggregated stream
+        "setup_type":      str(sd.get("setup_plugin", "")),
+    }
+
+
+def _promote_model_in_chain(chain: Any, model_provider_id: str | None) -> None:
+    """Atomically move the given provider to position 0 in chain.providers.
+
+    Uses list replacement (not in-place mutation) to be safe against concurrent
+    reads from _process_loop / _group_synthesis_loop. No-op if model is already
+    first, not found, or model_provider_id is None/empty.
+    """
+    if not model_provider_id:
+        return
+    current = chain.providers
+    if not current:
+        return
+    if current[0].provider_id == model_provider_id:
+        return  # already at position 0
+    target = next((p for p in current if p.provider_id == model_provider_id), None)
+    if target is None:
+        return
+    chain.providers = [target] + [p for p in current if p.provider_id != model_provider_id]
 
 
 # ---------------------------------------------------------------------------

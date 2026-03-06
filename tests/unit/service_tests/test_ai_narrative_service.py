@@ -506,3 +506,119 @@ async def test_i8_not_published_on_low_confidence():
     call_args_list = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
     assert not any("intelligence_i8" in name for name in call_args_list)
     svc.per_signal_chain.generate.assert_not_called()
+
+
+# ---- LLM call payload helper ----
+
+
+def test_build_llm_call_payload_per_signal_fields():
+    """Per-signal payload contains all required string fields."""
+    from services.ai_narrative_service import _build_llm_call_payload
+    sd = {
+        "symbol": "ESH6", "timeframe": "5m", "regime_context": "trending",
+        "setup_plugin": "BosSetup", "confidence": 0.85,
+        "entry_price": "5100.0", "stop_loss": "5090.0", "profit_target": "5120.0",
+    }
+    payload = _build_llm_call_payload(
+        call_type="per_signal",
+        signal_data=sd,
+        group_name="",
+        prompt="Test prompt",
+        response="Test narrative",
+        latency_ms=1250.0,
+        succeeded=True,
+        model_id="ollama:qwen3.5:9b",
+    )
+    assert payload["call_type"] == "per_signal"
+    assert payload["symbol"] == "ESH6"
+    assert payload["timeframe"] == "5m"
+    assert payload["regime"] == "trending"
+    assert payload["setup_type"] == "BosSetup"
+    assert payload["succeeded"] == "1"
+    assert payload["latency_ms"] == "1250"
+    assert payload["provider"] == "ollama"
+    # All values must be str
+    for k, v in payload.items():
+        assert isinstance(v, str), f"Field {k!r} must be str, got {type(v).__name__}"
+
+
+def test_build_llm_call_payload_counterfactual():
+    """Counterfactual: succeeded=False, response empty."""
+    from services.ai_narrative_service import _build_llm_call_payload
+    sd = {"symbol": "NQH6", "timeframe": "5m", "confidence": 0.65}
+    payload = _build_llm_call_payload(
+        call_type="counterfactual",
+        signal_data=sd,
+        group_name="",
+        prompt="Would-have-been prompt",
+        response=None,
+        latency_ms=0.0,
+        succeeded=False,
+        model_id="",
+    )
+    assert payload["call_type"] == "counterfactual"
+    assert payload["response"] == ""
+    assert payload["succeeded"] == "0"
+
+
+def test_build_llm_call_payload_group_synthesis():
+    """Group synthesis: group_name set, symbol/timeframe empty."""
+    from services.ai_narrative_service import _build_llm_call_payload
+    payload = _build_llm_call_payload(
+        call_type="group_synthesis",
+        signal_data=None,
+        group_name="equity",
+        prompt="Group prompt",
+        response="Group narrative",
+        latency_ms=800.0,
+        succeeded=True,
+        model_id="ollama:phi4-mini:3.8b",
+    )
+    assert payload["call_type"] == "group_synthesis"
+    assert payload["group_name"] == "equity"
+    assert payload["symbol"] == ""
+
+
+# ---- Provider chain promotion ----
+
+
+def test_promote_model_in_chain_moves_to_position_0():
+    """Model not at position 0 gets promoted."""
+    from services.ai_narrative_service import _promote_model_in_chain
+    p1 = MagicMock(); p1.provider_id = "ollama:qwen3.5:9b"
+    p2 = MagicMock(); p2.provider_id = "zai:glm-5"
+    chain = MagicMock()
+    chain.providers = [p1, p2]
+    _promote_model_in_chain(chain, "zai:glm-5")
+    assert chain.providers[0].provider_id == "zai:glm-5"
+    assert chain.providers[1].provider_id == "ollama:qwen3.5:9b"
+
+
+def test_promote_model_in_chain_already_first_no_change():
+    """Model at position 0 — chain unchanged."""
+    from services.ai_narrative_service import _promote_model_in_chain
+    p1 = MagicMock(); p1.provider_id = "zai:glm-5"
+    p2 = MagicMock(); p2.provider_id = "ollama:qwen3.5:9b"
+    chain = MagicMock()
+    original = [p1, p2]
+    chain.providers = original
+    _promote_model_in_chain(chain, "zai:glm-5")
+    assert chain.providers is original  # unchanged
+
+
+def test_promote_model_in_chain_unknown_id_no_change():
+    """Unknown provider_id — chain unchanged."""
+    from services.ai_narrative_service import _promote_model_in_chain
+    p1 = MagicMock(); p1.provider_id = "ollama:qwen3.5:9b"
+    chain = MagicMock()
+    chain.providers = [p1]
+    _promote_model_in_chain(chain, "zai:nonexistent")
+    assert chain.providers == [p1]
+
+
+def test_promote_model_in_chain_none_id_no_op():
+    """None provider_id — returns without error."""
+    from services.ai_narrative_service import _promote_model_in_chain
+    chain = MagicMock()
+    chain.providers = []
+    _promote_model_in_chain(chain, None)  # must not raise
