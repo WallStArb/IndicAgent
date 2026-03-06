@@ -49,3 +49,33 @@ def test_preflight_includes_llm_when_flag_set():
     summary = build_preflight_summary(conn, keep_ohlcv=False, clear_llm=True)
 
     assert "llm_calls" in summary
+
+
+def test_clear_redis_streams_deletes_matching_keys():
+    """clear_redis_streams deletes all keys matching the pipeline patterns."""
+    from production.scripts.pipeline_reset import clear_redis_streams
+
+    r = MagicMock()
+    r.scan_iter.side_effect = [
+        [b"development:indicators:ESH6:1m"],
+        [b"development:intelligence:ESH6:1m"],
+        [b"development:signals:ESH6:1m:aggregated"],
+        [b"development:narratives:ESH6:1m"],
+    ]
+    r.delete = MagicMock()
+
+    count = clear_redis_streams(r, env_prefix="development")
+
+    assert r.delete.call_count == 4
+    assert count == 4
+
+
+def test_clear_redis_streams_returns_zero_when_no_keys():
+    """Returns 0 when no matching keys exist."""
+    from production.scripts.pipeline_reset import clear_redis_streams
+
+    r = MagicMock()
+    r.scan_iter.return_value = []
+
+    count = clear_redis_streams(r, env_prefix="development")
+    assert count == 0
