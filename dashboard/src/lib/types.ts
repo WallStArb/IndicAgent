@@ -210,6 +210,11 @@ export interface SignalData {
   market_price_at_signal?: number; // live bid (short) or ask (long) at signal creation
   ask_at_signal?: number;        // live ask at signal creation
   bid_at_signal?: number;        // live bid at signal creation
+  signal_id?: string;            // unique identifier — used to match terminal lifecycle events
+  // Resolved state — set when lifecycle service publishes direction=0 terminal event
+  resolved?: boolean;            // true = signal closed, outcome known
+  outcome?: string;              // 8-class: "never_activated" | "stopped_at_entry" | "stopped_in_trade" | "target_1" | "target_1_2" | "target_full" | "ttl_expired_behind" | "ttl_expired_ahead"
+  exit_price?: number;           // price at which signal was closed
 }
 
 // ── I8 AI Narratives ──
