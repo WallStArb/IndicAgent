@@ -124,3 +124,16 @@ Each task was committed atomically:
 ---
 *Phase: 16-llm-intelligence-layer*
 *Completed: 2026-03-05*
+
+## Self-Check: PASSED
+
+- `16-05-SUMMARY.md` — FOUND
+- `services/indicagent-llm-writer.service` — FOUND
+- `production/systemd/indicagent-llm-writer.service` — FOUND
+- Commit `9062ef5` (Task 1: systemd unit files) — FOUND
+- Commit `e1f39bf` (metadata + docs) — FOUND
+- llm_calls table in TimescaleDB — confirmed via `SELECT COUNT(*)`
+- llm_model_scores table in TimescaleDB — confirmed via `SELECT COUNT(*)`
+- Consumer groups on llm streams — confirmed (`llm_writer` group, 1 consumer)
+- Prometheus :9117 endpoint — confirmed (llm_writer_calls_consumed_total present)
+- 1161 unit tests passing, ruff 0 errors — confirmed
