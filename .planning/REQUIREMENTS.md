@@ -42,9 +42,9 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 
 *Self-improving without manual intervention. Renaissance updated model parameters continuously from outcome data. Our signal aggregator uses static weights. Outcome data is now accumulating in `signal_ledger` — the feedback loop must be closed.*
 
-- [ ] **FEED-01**: A scheduled job (daily, extends weight-updater cadence) computes win rate, avg pnl_r, sample size, and Sharpe per setup from `signal_ledger` resolved signals (rolling 30-day window) and writes to a `setup_performance` table
-- [ ] **FEED-02**: Setup performance weights are only applied after a setup meets the promotion gate: minimum 30 resolved signals with non-null pnl_r (prevents overfitting on small samples — Renaissance "minimum bars before deployment" principle applied)
-- [ ] **FEED-03**: The signal aggregator reads setup performance weights at startup and applies them to setup ranking — outperforming setups get higher rank, underperforming setups get lower rank, with floor weight to prevent full suppression before sufficient evidence
+- [x] **FEED-01**: A scheduled job (daily, extends weight-updater cadence) computes win rate, avg pnl_r, sample size, and Sharpe per setup from `signal_ledger` resolved signals (rolling 30-day window) and writes to a `setup_performance` table
+- [x] **FEED-02**: Setup performance weights are only applied after a setup meets the promotion gate: minimum 30 resolved signals with non-null pnl_r (prevents overfitting on small samples — Renaissance "minimum bars before deployment" principle applied)
+- [x] **FEED-03**: The signal aggregator reads setup performance weights at startup and applies them to setup ranking — outperforming setups get higher rank, underperforming setups get lower rank, with floor weight to prevent full suppression before sufficient evidence
 
 ### Discipline 4: Validated Alpha (ALPHA)
 
@@ -118,9 +118,9 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | DATA-02 | Phase 13 | Complete |
 | DATA-03 | Phase 13 | Complete |
 | DATA-04 | Phase 13 | Complete |
-| FEED-01 | Phase 14 | Pending |
-| FEED-02 | Phase 14 | Pending |
-| FEED-03 | Phase 14 | Pending |
+| FEED-01 | Phase 14 | Complete |
+| FEED-02 | Phase 14 | Complete |
+| FEED-03 | Phase 14 | Complete |
 | ALPHA-01 | Phase 15 | Pending |
 | ALPHA-02 | Phase 15 | Pending |
 | ALPHA-03 | Phase 15 | Pending |

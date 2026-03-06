@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T15:55:41.875Z"
+last_updated: "2026-03-06T22:00:35.055Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
   total_phases: 17
   completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 20
+  completed_plans: 18
 ---
 
 # Project State
@@ -73,6 +73,8 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 17-llm-wiring-fix]: supporting_factors in SessionExtremesSetup now carries session:<ctx> label alongside confirming-factor strings; consumers must use membership checks not equality
 - [Phase 17]: stream xadd fires before insert_signals (hot tier first); xdel compensates on DB failure to avoid orphaned signal_id
 - [Phase 17]: signal_id sourced from winning LedgerEntry (was_selected=True); empty string when no winner
+- [Phase 14-feedback-loop]: Module-level import in RED test causes collection ERROR — correct TDD RED behavior for non-existent modules
+- [Phase 14-feedback-loop]: perf_weights dict contract: {env_prefix}setup_performance:weights Redis key, adjusted_rank = composite_rank * perf_multiplier, neutral=1.0 for missing setups
 
 ### Pending Todos
 
