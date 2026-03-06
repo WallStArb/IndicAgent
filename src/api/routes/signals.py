@@ -69,6 +69,12 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
             else None
         ),
         "feature_tf": row["feature_tf"],
+        "signal_computed_at": (
+            row["signal_computed_at"].isoformat()
+            if row.get("signal_computed_at") is not None
+            and hasattr(row["signal_computed_at"], "isoformat")
+            else None
+        ),
     }
     if include_features:
         # feature_ts NULL → features=None (pre-Phase-2 signals without feature context)
@@ -114,7 +120,7 @@ async def get_signals(
                 SELECT sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
                        sl.setup_plugin, sl.signal_type, sl.direction,
                        sl.entry_price, sl.stop_loss, sl.confidence, sl.status,
-                       sl.feature_ts, sl.feature_tf,
+                       sl.feature_ts, sl.feature_tf, sl.signal_computed_at,
                        f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
                 FROM signal_ledger sl
                 LEFT JOIN intelligence_features f
@@ -132,7 +138,7 @@ async def get_signals(
                 SELECT signal_id, timestamp, symbol, timeframe,
                        setup_plugin, signal_type, direction,
                        entry_price, stop_loss, confidence, status,
-                       feature_ts, feature_tf
+                       feature_ts, feature_tf, signal_computed_at
                 FROM signal_ledger
                 WHERE symbol = $1
                   AND ($3::timestamptz IS NULL OR timestamp >= $3)
