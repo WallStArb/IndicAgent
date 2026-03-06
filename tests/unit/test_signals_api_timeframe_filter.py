@@ -1,11 +1,11 @@
 """Test that /api/signals/{symbol} respects ?timeframe= filter."""
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
-from src.api.main import app
 from src.api.dependencies import get_db_manager
+from src.api.main import app
 
 
 @pytest.mark.unit

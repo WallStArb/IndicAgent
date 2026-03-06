@@ -20,6 +20,61 @@ export function SignalPanel({ signal }: SignalPanelProps) {
     );
   }
 
+  if (signal.resolved) {
+    const badgeLabel = _outcomeLabel(signal.outcome);
+    const badgeColor =
+      signal.outcome?.startsWith("target") ? "var(--green-dim)"
+      : signal.outcome?.startsWith("stopped") ? "var(--red-dim)"
+      : "var(--bg-secondary)";
+    const badgeText =
+      signal.outcome?.startsWith("target") ? "var(--green)"
+      : signal.outcome?.startsWith("stopped") ? "var(--red)"
+      : "var(--text-secondary)";
+
+    return (
+      <div className="px-2 py-1 space-y-0.5 opacity-50">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="zone-label shrink-0 w-10">SIG</span>
+          <span
+            className="inline-flex items-center px-1 py-0 rounded text-[0.5rem] font-bold uppercase tracking-wider"
+            style={{ backgroundColor: "var(--bg-secondary)", color: "var(--text-muted)" }}
+          >
+            {signal.timeframe || "1m"}
+          </span>
+          {signal.timestamp && (
+            <span className="text-[0.55rem] font-data text-[var(--text-muted)]">
+              {new Date(signal.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+            </span>
+          )}
+          <span
+            className="inline-flex items-center px-1.5 py-0 rounded text-[0.5rem] font-bold uppercase tracking-widest"
+            style={{ backgroundColor: badgeColor, color: badgeText }}
+          >
+            {badgeLabel}
+          </span>
+          <span className="text-[0.6rem] text-[var(--text-muted)] font-medium line-through">
+            {_abbreviatePlugin(signal.setup_plugin)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 pl-[3.25rem] flex-wrap">
+          <span className="text-[0.55rem] text-[var(--text-muted)] whitespace-nowrap opacity-60">
+            <span className="opacity-60">E </span>
+            <span className="font-data">{fmtPrice(signal.entry_price)}</span>
+          </span>
+          {signal.exit_price && (
+            <>
+              <span className="opacity-40 text-[0.5rem]">→</span>
+              <span className="text-[0.55rem] text-[var(--text-muted)] whitespace-nowrap opacity-60">
+                <span className="opacity-60">X </span>
+                <span className="font-data">{fmtPrice(signal.exit_price)}</span>
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const isLong = signal.direction === "long";
   const pluginShort = _abbreviatePlugin(signal.setup_plugin);
   const timeLabel = signal.timeframe || "1m";
@@ -177,6 +232,16 @@ export function SignalPanel({ signal }: SignalPanelProps) {
       )}
     </div>
   );
+}
+
+function _outcomeLabel(outcome: string | undefined): string {
+  if (!outcome) return "CLOSED";
+  if (outcome.startsWith("ttl_expired") || outcome === "never_activated") return "EXPIRED";
+  if (outcome.startsWith("stopped")) return "STOPPED";
+  if (outcome === "target_full") return "FULL TARGET";
+  if (outcome === "target_1_2") return "T1+T2 HIT";
+  if (outcome === "target_1") return "T1 HIT";
+  return "CLOSED";
 }
 
 /** Shorten plugin name for compact display.
