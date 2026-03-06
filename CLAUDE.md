@@ -91,6 +91,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
 - Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-tracker :9115, feature-writer :9116
 
 **Backfill:** `.venv/bin/python production/scripts/historical_backfill.py [--fetch-only|--replay-only] [--days N] [--symbols SYM,SYM]`
+**Pipeline Reset:** `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv] [--symbols SYM,SYM]`
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Architecture Overview
@@ -201,7 +202,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1117 passing · **Ruff:** 0 errors ✅
+**Tests:** 1182 passing · **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
 **v1.3 complete** · **v1.4 in progress:** Quant Foundation (Phase 12 Signal Integrity ✅, Data Completeness, Feedback Loop, Validated Alpha) — see `.planning/ROADMAP.md`
 
