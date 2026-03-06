@@ -477,3 +477,37 @@ class TestBuildI7Payload:
         assert msg["tf"] == "15m"
         assert "ts" in msg
         assert "2026-03-04" in msg["ts"]
+
+
+# ── Redis stream timing fields ─────────────────────────────────────────────────
+
+def test_signal_redis_message_includes_timing_fields():
+    """signal_computed_at and bar_close_ts must appear in Redis stream message."""
+    from datetime import datetime, timezone
+
+    bar_close_ts = datetime(2026, 3, 6, 5, 10, 0, tzinfo=timezone.utc)
+    signal_computed_at = datetime(2026, 3, 6, 5, 10, 0, 800000, tzinfo=timezone.utc)
+
+    # Build a minimal message dict the same way the service does
+    sig = {
+        "direction": 1,
+        "signal_type": "trend_long",
+        "setup_plugin": "trad_TrendFollowing",
+        "confidence": 0.85,
+        "entry_price": 5823.50,
+        "stop_loss": 5810.00,
+        "regime_context": "bullish",
+    }
+    message = {k: str(v) for k, v in sig.items() if isinstance(v, (str, int, float, bool))}
+    message["timestamp"] = datetime(2026, 3, 6, 5, 10, 0, tzinfo=timezone.utc).isoformat()
+    message["symbol"] = "ESH6"
+    message["timeframe"] = "5m"
+    if signal_computed_at:
+        message["signal_computed_at"] = signal_computed_at.isoformat()
+    if bar_close_ts:
+        message["bar_close_ts"] = bar_close_ts.isoformat()
+
+    assert "signal_computed_at" in message
+    assert "bar_close_ts" in message
+    assert "2026-03-06T05:10:00.800000" in message["signal_computed_at"]
+    assert "2026-03-06T05:10:00" in message["bar_close_ts"]

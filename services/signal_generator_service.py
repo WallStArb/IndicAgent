@@ -664,6 +664,13 @@ class SignalGeneratorService:
             message["timestamp"] = timestamp.isoformat()
             message["symbol"] = symbol
             message["timeframe"] = timeframe
+            # Thread timing fields to SSE stream (already persisted to DB via signal_ledger)
+            # TODO(v1.4-feedback): derive staleness thresholds from percentile analysis of
+            # signal_ledger once N > 100 signals with resolved outcomes.
+            if signal_computed_at:
+                message["signal_computed_at"] = signal_computed_at.isoformat()
+            if bar_close_ts:
+                message["bar_close_ts"] = bar_close_ts.isoformat()
             await self.redis_client.xadd(stream_name, message, maxlen=200, approximate=True)
 
         # Publish all_ranked to intelligence_i7 enrichment stream (DATA-01)
