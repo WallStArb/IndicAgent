@@ -404,3 +404,84 @@ class TestBuildOutcomePayload:
         result = _build_outcome_payload("sid", "ttl_expired_ahead", 0.5, -0.1, 0.5, 3)
         assert result["outcome_at"]  # non-empty
         assert "T" in result["outcome_at"]  # ISO format sanity check
+
+
+class TestPublishTerminalEvent:
+    """_publish_terminal_event() must xadd correct payload to signals stream."""
+
+    def _make_svc(self):
+        from services.signal_lifecycle_service import SignalLifecycleService
+
+        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc.env_prefix = "development:"
+        svc.redis_client = AsyncMock()
+        svc.redis_client.xadd = AsyncMock(return_value=b"123-0")
+        svc.logger = AsyncMock()
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_xadd_called_with_direction_zero(self):
+        svc = self._make_svc()
+        await svc._publish_terminal_event(
+            signal_id="uuid-a",
+            symbol="ESH6",
+            timeframe="5m",
+            outcome="ttl_expired_behind",
+            exit_price=6750.25,
+            bar_ts="2026-03-06T15:20:00+00:00",
+        )
+        svc.redis_client.xadd.assert_called_once()
+        call_args = svc.redis_client.xadd.call_args
+        payload = call_args[0][1]  # second positional arg = fields dict
+        assert payload["direction"] == "0"
+        assert payload["signal_id"] == "uuid-a"
+        assert payload["outcome"] == "ttl_expired_behind"
+        assert payload["status"] == "ttl_expired_behind"
+        assert payload["symbol"] == "ESH6"
+        assert payload["timeframe"] == "5m"
+
+    @pytest.mark.asyncio
+    async def test_stream_key_uses_env_prefix(self):
+        svc = self._make_svc()
+        await svc._publish_terminal_event(
+            signal_id="uuid-b",
+            symbol="ESH6",
+            timeframe="5m",
+            outcome="stopped_at_entry",
+            exit_price=None,
+            bar_ts="2026-03-06T15:20:00+00:00",
+        )
+        stream_key = svc.redis_client.xadd.call_args[0][0]
+        assert stream_key.startswith("development:")
+        assert "signals:" in stream_key
+        assert "ESH6" in stream_key
+        assert "5m" in stream_key
+
+    @pytest.mark.asyncio
+    async def test_exit_price_empty_string_when_none(self):
+        svc = self._make_svc()
+        await svc._publish_terminal_event(
+            signal_id="uuid-c",
+            symbol="NQH6",
+            timeframe="1m",
+            outcome="never_activated",
+            exit_price=None,
+            bar_ts="2026-03-06T15:20:00+00:00",
+        )
+        payload = svc.redis_client.xadd.call_args[0][1]
+        assert payload["exit_price"] == ""
+
+    @pytest.mark.asyncio
+    async def test_no_xadd_when_redis_none(self):
+        svc = self._make_svc()
+        svc.redis_client = None
+        # Must not raise
+        await svc._publish_terminal_event(
+            signal_id="uuid-d",
+            symbol="ESH6",
+            timeframe="5m",
+            outcome="target_1",
+            exit_price=6700.0,
+            bar_ts="2026-03-06T15:20:00+00:00",
+        )
+        # No assertion needed — no AttributeError = pass

@@ -30,6 +30,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import llm_outcomes_stream as sk_llm_outcomes_stream
 from src.core.stream_keys import market as sk_market
+from src.core.stream_keys import signals_aggregated as sk_signals_aggregated
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.trading.lifecycle_tracker import (
     OUTCOME_THRESHOLD_QUICK_STOP_BARS,
@@ -184,6 +185,43 @@ class SignalLifecycleService:
     def _signal_handler(self, signum: int, frame: Any) -> None:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
+
+    async def _publish_terminal_event(
+        self,
+        signal_id: str,
+        symbol: str,
+        timeframe: str,
+        outcome: str,
+        exit_price: float | None,
+        bar_ts: str,
+    ) -> None:
+        """Publish a terminal lifecycle event to the signal aggregated stream.
+
+        direction=0 is the sentinel meaning "this signal is closed".
+        Published unconditionally — even if a newer signal has already replaced
+        this one on the stream. The dashboard matches by signal_id.
+        """
+        if not self.redis_client:
+            return
+        stream_key = sk_signals_aggregated(self.env_prefix, symbol, timeframe)
+        payload: dict[str, str] = {
+            "direction": "0",
+            "signal_id": signal_id,
+            "status": outcome,
+            "outcome": outcome,
+            "exit_price": str(exit_price) if exit_price is not None else "",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "timestamp": bar_ts,
+        }
+        try:
+            await self.redis_client.xadd(stream_key, payload, maxlen=200, approximate=True)
+        except Exception as e:
+            self.logger.warning(
+                "Failed to publish terminal signal event",
+                signal_id=signal_id,
+                error=str(e),
+            )
 
     async def _evaluate_signals_against_bar(
         self,
