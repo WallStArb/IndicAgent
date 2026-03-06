@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T00:25:17.571Z"
+last_updated: "2026-03-06T05:10:24.806Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
   total_phases: 16
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 15
+  completed_plans: 15
 ---
 
 # Project State
@@ -65,6 +65,9 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 16]: LLM-03 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths via fire-and-forget create_task; emit order (before update_signal_status and before memory cleanup) ensures data capture even on DB failure
 - [Phase 16]: Smoke test success criterion: llm_calls=0 acceptable when markets closed; verified via consumer group + :9117 Prometheus metrics endpoint
 - [Phase 16]: Migration soft FK: signal_id is UUID without FK constraint (signal_ledger has composite PK); soft reference pattern confirmed
+- [Phase 16-llm-intelligence-layer]: Per-regime routing: _preferred_models[call_type][regime] stores best is_significant model per regime independently — no global winner overrides per-regime winners
+- [Phase 16-llm-intelligence-layer]: LLM-05 complete: per-regime routing wired at call sites with __all__ fallback
+- [Phase 16-llm-intelligence-layer]: Migration 020 uses idempotent DO block guard on timescaledb_information.hypertables; migrate_data => TRUE for existing rows; 019 source corrected for future deployments
 
 ### Pending Todos
 
