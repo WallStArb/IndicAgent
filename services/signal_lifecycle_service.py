@@ -28,6 +28,7 @@ import structlog
 from src.config.settings import Settings, get_active_contracts, get_point_value
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import setup_service_logging
+from src.core.stream_keys import llm_outcomes_stream as sk_llm_outcomes_stream
 from src.core.stream_keys import market as sk_market
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.trading.lifecycle_tracker import (
@@ -300,6 +301,22 @@ class SignalLifecycleService:
                         0.0, round((transition.pnl_r or 0.0) * confidence, 4)
                     )
 
+                    # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
+                    if self.redis_client:
+                        asyncio.create_task(self.redis_client.xadd(
+                            sk_llm_outcomes_stream(self.env_prefix),
+                            _build_outcome_payload(
+                                signal_id=sid,
+                                outcome=outcome,
+                                pnl_r=transition.pnl_r,
+                                mae=self._mae.get(sid, current_mae),
+                                mfe=self._mfe.get(sid, current_mfe),
+                                bars_in_trade=bit,
+                            ),
+                            maxlen=200,
+                            approximate=True,
+                        ))
+
                     # Status stays 'regime_suppressed' — never promoted to 'active'
                     await update_signal_status(
                         self.db_manager,
@@ -389,6 +406,22 @@ class SignalLifecycleService:
                 # Compute signal_quality
                 confidence = float(sig.get("confidence") or 1.0)
                 signal_quality = max(0.0, round((transition.pnl_r or 0.0) * confidence, 4))
+
+                # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
+                if self.redis_client:
+                    asyncio.create_task(self.redis_client.xadd(
+                        sk_llm_outcomes_stream(self.env_prefix),
+                        _build_outcome_payload(
+                            signal_id=sid,
+                            outcome=outcome,
+                            pnl_r=transition.pnl_r,
+                            mae=self._mae.get(sid, current_mae),
+                            mfe=self._mfe.get(sid, current_mfe),
+                            bars_in_trade=bit,
+                        ),
+                        maxlen=200,
+                        approximate=True,
+                    ))
 
                 # Clean up memory
                 self._mae.pop(sid, None)
