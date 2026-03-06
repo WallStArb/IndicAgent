@@ -239,7 +239,7 @@ return {
 }
 ```
 
-**Test impact:** `test_regime_context_london` and `test_regime_context_ny` must be updated. `test_complete_output_fields` passes unchanged. `test_fires_with_trend_align_only` must now accept `["trend_align", "session:london"]` as `supporting_factors` (not just `["trend_align"]`).
+**Test impact:** `test_regime_context_london` and `test_regime_context_ny` must be updated. `test_complete_output_fields` passes unchanged. `test_fires_with_trend_align_only` and `test_fires_with_rsi_extreme_only` must use membership checks (e.g. `assert "trend_align" in result.get("supporting_factors", [])`) rather than equality — `supporting_factors` now also contains a `"session:*"` entry and ordering is not guaranteed.
 
 ### Fix B: signal_generator_service._process_bar() (1 function changed)
 
@@ -400,7 +400,7 @@ LIMIT 10;
 -- Confirm session_extreme regime strings are stored (not old "london"/"ny")
 SELECT regime, COUNT(*) AS n
 FROM llm_calls
-WHERE setup_type LIKE 'session_extreme%'
+WHERE regime LIKE 'session_extreme%'
 GROUP BY regime
 ORDER BY n DESC;
 

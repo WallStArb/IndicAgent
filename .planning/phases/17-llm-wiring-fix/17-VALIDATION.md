@@ -42,6 +42,7 @@ created: 2026-03-06
 | narrative-signal-id | 01 | 1 | LLM-04 | unit | `.venv/bin/pytest tests/unit/service_tests/test_ai_narrative_helpers.py -v -k signal_id` | ✅ | ⬜ pending |
 | session-regime-buckets | 02 | 1 | LLM-05 | unit | `.venv/bin/pytest tests/unit/intelligence/trading/test_session_extremes_setup.py -v` | ✅ | ⬜ pending |
 | score-routing-smoke | 02 | 2 | LLM-05 | unit | `.venv/bin/pytest tests/unit/service_tests/test_llm_writer_service.py -v -k routing` | ✅ | ⬜ pending |
+| regime-context-regression | 02 | 1 | LLM-05 | unit | `.venv/bin/pytest tests/unit/intelligence/trading/test_session_extremes_setup.py -v -k "regime_context_london or regime_context_ny"` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
