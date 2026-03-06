@@ -455,7 +455,10 @@ class MarketAnalysisService:
 
         Optimized: parallel reads using asyncio.gather() instead of sequential loops.
         """
-        warmup_count = 150  # read up to 150 raw entries (covers deduplication waste)
+        warmup_count = max(
+            self._min_bars_for_tf(tf)
+            for tf in self.config["service"]["timeframes"]
+        ) + 30  # +30 buffer for dedup waste
 
         async def warmup_stream(symbol: str, timeframe: str) -> None:
             """Warm up a single stream."""
