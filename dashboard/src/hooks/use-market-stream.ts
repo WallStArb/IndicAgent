@@ -499,6 +499,11 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           try { return JSON.parse(String(v)) as string[]; } catch { return []; }
         };
 
+        const _signalComputedAt = payload.signal_computed_at
+          ? String(payload.signal_computed_at) : undefined;
+        const _barCloseTs = payload.bar_close_ts
+          ? String(payload.bar_close_ts) : undefined;
+
         const fullSignal: SignalData | null = dir !== 0
           ? {
               direction: dir > 0 ? "long" : "short",
@@ -521,16 +526,13 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               regime_context: String(payload.regime_context || ""),
               timeframe: tf,
               timestamp: String(payload.timestamp || ""),
-              signal_computed_at: payload.signal_computed_at
-                ? String(payload.signal_computed_at)
-                : undefined,
-              bar_close_ts: payload.bar_close_ts
-                ? String(payload.bar_close_ts)
-                : undefined,
-              pipeline_lag_s: pipelineLagS(
-                payload.signal_computed_at ? String(payload.signal_computed_at) : undefined,
-                payload.bar_close_ts ? String(payload.bar_close_ts) : undefined,
-              ) ?? undefined,
+              signal_computed_at: _signalComputedAt,
+              bar_close_ts: _barCloseTs,
+              pipeline_lag_s: pipelineLagS(_signalComputedAt, _barCloseTs) ?? undefined,
+              bar_close_price: _parseOptFloat(payload.bar_close_price) ?? undefined,
+              market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
+              ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
+              bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
             }
           : null;
 

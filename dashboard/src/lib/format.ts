@@ -68,12 +68,13 @@ export function fmtCompact(value: number | undefined): string {
 
 // ── Signal timing utilities ──
 
+const _TF_MINUTES: Record<string, number> = {
+  "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440,
+};
+
 /** Convert timeframe string to minutes. */
 export function tfToMinutes(tf: string): number {
-  const map: Record<string, number> = {
-    "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440,
-  };
-  return map[tf] ?? 1;
+  return _TF_MINUTES[tf] ?? 1;
 }
 
 /**
