@@ -191,6 +191,10 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
+- **Redis stream booleans**: serialize as `"1"`/`"0"` (not `"true"`/`"false"`), parse with `Number(payload.field) > 0` — matches `vol_expanding`, `bb_squeeze` pattern in `use-market-stream.ts`.
+- **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
+- **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
+- **`format.ts` timing utils**: `fmtTimeHMS(iso)` → `HH:MM:SS` or null (guards invalid dates); `fmtLagSeconds(lagS)` → `"+1.2s"` or null (guards NaN).
 
 ## System Access
 
