@@ -2,6 +2,7 @@
 "use client";
 
 import type { NarrativeData, SignalData } from "@/lib/types";
+import { stalenessRatio, tfToMinutes } from "@/lib/format";
 
 interface NarrativeElevatedProps {
   narrative: NarrativeData | null;
@@ -21,6 +22,8 @@ export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps)
 
   const isBullish = narrative.action_bias === "bullish";
   const accentColor = isBullish ? "var(--green)" : "var(--red)";
+  const tfMinutes = tfToMinutes(narrative.timeframe);
+  const staleness = stalenessRatio(narrative.timestamp, tfMinutes);
 
   return (
     <div
@@ -51,6 +54,17 @@ export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps)
               minute: "2-digit",
               hour12: false,
             })}
+          </span>
+        )}
+        {staleness !== null && (
+          <span
+            className="text-[0.45rem] font-data"
+            style={{
+              color: staleness >= 2.0 ? "var(--red-dim)" : "#f59e0b",
+              opacity: 0.7,
+            }}
+          >
+            {staleness.toFixed(1)}× stale
           </span>
         )}
       </div>
