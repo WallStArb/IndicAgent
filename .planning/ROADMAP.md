@@ -183,7 +183,14 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
   3. The plugin appears in TIER_I2 and `registry.validate_tier()` passes at service startup with no crash
   4. All MomentumAcceleration tests pass (`tests/unit/intelligence/composites/`)
 
-**Plans:** TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — Build validate_alpha.py validation gate (ALPHA-01)
+- [ ] 15-02-PLAN.md — Derivative Oscillator I2 plugin: implement + validate + promote (ALPHA-02)
+- [ ] 15-03-PLAN.md — Candlestick Tier 1 x10 at I5: implement + per-pattern validation (ALPHA-03)
+- [ ] 15-04-PLAN.md — MACD histogram acceleration: additive fields + validation (ALPHA-04)
+- [ ] 15-05-PLAN.md — AC Oscillator I1 plugin: implement + validate + promote (ALPHA-05)
 
 ---
 
@@ -418,7 +425,7 @@ Plans:
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
 | 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
 | 14. Feedback Loop | 5/5 | Complete    | 2026-03-07 | — |
-| 15. Validated Alpha | v1.4 | 0/0 | Not started | — |
+| 15. Validated Alpha | v1.4 | 0/5 | Not started | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
 | 17. LLM Wiring Fix | 2/2 | Complete    | 2026-03-06 | — |
 
