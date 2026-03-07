@@ -1,6 +1,6 @@
 # Composite Intelligence Score (CIS)
 
-**Last Updated:** 2026-03-04
+**Last Updated:** 2026-03-07
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves
@@ -100,7 +100,24 @@ The agreement floor prevents a single very-high-weight bucket from dominating. E
 ## Decision Flow
 
 ```
-16 I7 plugins fire → aggregator receives signals
+17 I7 plugins fire → aggregator receives signals
+        │
+        ▼
+  Regime gate (HMM eligibility filter, slow-clock 5m/15m)
+  Trend plugins     → HMM state 1/2 only
+  Mean-reversion    → HMM state 0 only
+  Suppressed when:  hmm_regime_prob < 0.60 OR hmm_regime_duration < 5 bars
+  Suppressed signals: written to signal_ledger as status='regime_suppressed'
+  (shadow signals — tracked for counterfactual MAE/MFE, gate tuning data)
+        │
+        ▼
+  Performance-weighted ranking (_build_all_ranked)
+  When setup_performance data exists (n≥30 resolved signals per setup):
+    adjusted_rank = perf_multiplier ∈ [0.5, 1.5]  ← Sharpe-normalized
+    tiebreak: SETUP_PRIORITY descending
+  When no perf data yet:
+    adjusted_rank = −SETUP_PRIORITY  ← original priority ordering
+  All fired signals (eligible + suppressed) ranked and stored in all_ranked
         │
         ▼
   CISScorer.score(features, plugin_outputs)
@@ -109,38 +126,30 @@ The agreement floor prevents a single very-high-weight bucket from dominating. E
    │ CIS fires                                │ CIS neutral
    │ |score|>0.35 AND ≥3 buckets agree        │ fallback: priority → majority → HMM tiebreak
    ▼                                          │
-Pick highest-priority signal                  ▼
-matching CIS direction                  Highest-priority signal wins
+Pick best-ranked eligible signal              ▼
+matching CIS direction                  Best-ranked eligible signal wins
   └─ if none match direction:           (no winner if unresolvable conflict)
      force-override direction
      on best available signal
         │
         ▼
-  RR gate (TradeFramer)
-  Must be viable: risk:reward ratio, zone quality
-  └─ fails → signal dropped entirely
-        │
-        ▼
-  Regime gate (HMM eligibility filter)
-  Trend plugins → HMM state 1/2 only
-  Mean-reversion plugins → HMM state 0 only
-  Gate bypassed: hmm_regime_prob < 0.55 or hmm_regime_duration < 3 bars
-        │
-        ▼
   Winner published to signal_ledger + aggregated stream
 ```
 
-**Key distinction:** CIS never drops a signal. It redirects direction. The RR gate and regime gate are the only hard drops.
+**Key distinction:** CIS never drops a signal. It redirects direction. The regime gate is the only hard eligibility filter — suppressed signals are preserved as shadow data, not discarded.
 
 ---
 
 ## Adaptive Weights (Learning Path)
 
-The weights above are **bootstrap weights (version=0)**: manually tuned, fixed, sufficient for early operation.
+There are two distinct adaptive weight systems in the aggregator. They operate at different levels and should not be confused.
+
+### 1. CIS Bucket Weights — what CIS *direction* to trust
+
+The bucket weights above are **bootstrap weights (version=0)**: manually tuned, fixed, sufficient for early operation.
 
 The architecture supports **learned weights** loaded from a `cis_weights` database table. When a row with `version > 0` exists, the scorer loads it at startup. Every `CISResult` carries a `weights_version` field, so all signals in `signal_ledger` are traceable to the exact weight set that produced them.
 
-The learning loop:
 ```
 signal fires (weight version N)
   → signal_lifecycle_service tracks outcome (stop / target / TTL)
@@ -151,6 +160,26 @@ signal fires (weight version N)
 ```
 
 Bootstrap weights get the system producing labeled data. Labeled data trains the next weight version. CIS gradually learns which market conditions precede profitable setups — without any code changes.
+
+### 2. Setup Performance Weights — which *setup plugin* to prefer
+
+Independent of CIS scoring, the aggregator applies a **Sharpe-normalized performance multiplier** to the setup ranking. This governs which plugin wins when multiple eligible signals exist.
+
+```
+setup_performance table (updated nightly by weight-updater job):
+  win_rate, avg_pnl_r, sample_size, sharpe_ratio — rolling 30-day window
+
+perf_multiplier = 0.5 + (sharpe_rank / n_eligible_setups) → range [0.5, 1.5]
+adjusted_rank   = perf_multiplier  (lower = higher priority)
+
+Promotion gate: setup only receives a performance weight when sample_size ≥ 30
+  → below threshold: multiplier = 1.0 (neutral, no boost or suppression)
+  → prevents overfitting on insufficient data
+```
+
+Weights are written to `{env}:setup_performance:weights` in Redis and read by `signal_generator_service` at startup and every 60 minutes. Floor of 0.5 ensures no setup is fully suppressed before sufficient evidence accumulates.
+
+**The two systems compose cleanly:** CIS governs which *direction* has cross-tier confirmation; performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
 
 ---
 

@@ -1,6 +1,6 @@
 # Signal Lifecycle
 
-**Last Updated:** 2026-03-04
+**Last Updated:** 2026-03-07
 
 ## Overview
 
@@ -34,15 +34,19 @@ Signals start with `status = "pending"`.
 ## Signal States
 
 ```
-pending ──► active ──► closed
-    └──────────────────────────► closed (ttl_expired, never_activated)
+pending           ──► active ──► closed
+    └─────────────────────────────────► closed (ttl_expired, never_activated)
+regime_suppressed ──► (virtual active) ──► closed (shadow, status never changes)
 ```
 
 | State | Meaning |
 |-------|---------|
-| `pending` | Signal fired; waiting for price to enter the entry zone |
+| `pending` | Signal fired and regime-eligible; waiting for price to enter entry zone |
 | `active` | Price entered the entry zone; trade is live |
 | `closed` | Trade exited via stop, target, or TTL expiry |
+| `regime_suppressed` | Signal fired but failed the regime gate — not published to the stream. Tracked as a **shadow signal**: the lifecycle service virtually activates it from the signal bar close and records MAE/MFE/outcome without changing its status. This counterfactual data validates and tunes regime gate thresholds empirically. |
+
+`regime_suppressed` signals accumulate as the primary feedback dataset for gate calibration. A regime gate that cannot be validated by its own shadow data has no place in a quant system.
 
 ---
 
@@ -106,7 +110,7 @@ The `signal_ledger` table (migration `015_signal_lifecycle_fields.sql`) carries 
 
 ```sql
 -- Lifecycle state
-status          TEXT DEFAULT 'pending'   -- pending|active|closed
+status          TEXT DEFAULT 'pending'   -- pending|active|closed|regime_suppressed
 activated_at    TIMESTAMPTZ
 closed_at       TIMESTAMPTZ
 bars_in_trade   INTEGER
