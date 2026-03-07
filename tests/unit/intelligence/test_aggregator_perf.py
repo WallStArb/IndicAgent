@@ -267,6 +267,7 @@ class TestBuildAllRankedEndToEnd:
         perf_weights = _compute_perf_multipliers(stats)
         fired = [{"setup_plugin": p, "direction": 1} for p in stats]
         result = _build_all_ranked(fired, perf_weights=perf_weights)
-        assert result[-1]["setup_plugin"] == "trad_LiquiditySweepReclaim", (
-            f"Expected trad_LiquiditySweepReclaim (worst Sharpe) last, got {result[-1]['setup_plugin']}"
+        got = result[-1]["setup_plugin"]
+        assert got == "trad_LiquiditySweepReclaim", (
+            f"Expected trad_LiquiditySweepReclaim (worst Sharpe) last, got {got}"
         )
