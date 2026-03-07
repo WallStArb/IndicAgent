@@ -162,3 +162,46 @@ def test_verify_dataset_fails_when_signal_ledger_empty():
 
     assert ok is False
     assert "EMPTY" in report or "0" in report
+
+
+def test_publish_reset_sentinel_publishes_correct_payload():
+    """publish_reset_sentinel calls xadd with pipeline_reset event and symbol list."""
+    from production.scripts.pipeline_reset import publish_reset_sentinel
+
+    r = MagicMock()
+    symbols = ["ESH6", "NQH6"]
+
+    publish_reset_sentinel(r, env_prefix="development:", symbols=symbols)
+
+    r.xadd.assert_called_once()
+    call_args = r.xadd.call_args
+    stream_key = call_args.args[0]
+    payload = call_args.args[1]
+
+    assert stream_key == "development:system:events"
+    assert payload["event"] == "pipeline_reset"
+    assert "ESH6" in payload["symbols"]
+    assert "NQH6" in payload["symbols"]
+    assert "ts" in payload
+
+
+def test_publish_reset_sentinel_uses_maxlen_50():
+    """xadd is called with maxlen=50 to cap stream size."""
+    from production.scripts.pipeline_reset import publish_reset_sentinel
+
+    r = MagicMock()
+    publish_reset_sentinel(r, env_prefix="", symbols=["ESH6"])
+
+    call_kwargs = r.xadd.call_args.kwargs
+    assert call_kwargs.get("maxlen") == 50
+
+
+def test_publish_reset_sentinel_uses_no_prefix():
+    """Without env prefix, key is just 'system:events'."""
+    from production.scripts.pipeline_reset import publish_reset_sentinel
+
+    r = MagicMock()
+    publish_reset_sentinel(r, env_prefix="", symbols=["ESH6"])
+
+    stream_key = r.xadd.call_args.args[0]
+    assert stream_key == "system:events"

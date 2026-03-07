@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -48,7 +49,11 @@ _ALWAYS_CLEAR = [
     "signal_ledger",
     "intelligence_features",
     "technical_indicators",
+    "setup_performance",  # no symbol column — always truncated in full
 ]
+
+# Tables in _ALWAYS_CLEAR that have no symbol column (always TRUNCATE, never per-symbol DELETE)
+_ALWAYS_TRUNCATE = {"setup_performance"}
 
 # Cleared only without --keep-ohlcv
 _OHLCV_TABLE = "market_data_ohlcv"
@@ -116,8 +121,29 @@ def clear_redis_streams(r: redis.Redis, env_prefix: str) -> int:
     return deleted
 
 
-def truncate_tables(conn: Any, keep_ohlcv: bool, clear_llm: bool) -> list[str]:
-    """TRUNCATE target tables. Returns list of tables cleared."""
+def publish_reset_sentinel(r: redis.Redis, env_prefix: str, symbols: list[str]) -> None:
+    """Publish a pipeline_reset event to system:events so SSE clients auto-clear state."""
+    from src.core.stream_keys import system_events as sk_system_events
+
+    key = sk_system_events(env_prefix)
+    r.xadd(
+        key,
+        {
+            "event": "pipeline_reset",
+            "ts": datetime.now(UTC).isoformat(),
+            "symbols": json.dumps(symbols),
+        },
+        maxlen=50,
+    )
+
+
+def truncate_tables(
+    conn: Any,
+    keep_ohlcv: bool,
+    clear_llm: bool,
+    symbols: list[str] | None = None,
+) -> list[str]:
+    """TRUNCATE target tables (or DELETE by symbol when symbols is given)."""
     tables = list(_ALWAYS_CLEAR)
     if not keep_ohlcv:
         tables.append(_OHLCV_TABLE)
@@ -125,8 +151,18 @@ def truncate_tables(conn: Any, keep_ohlcv: bool, clear_llm: bool) -> list[str]:
         tables.extend(_LLM_TABLES)
 
     with conn.cursor() as cur:
-        for table in tables:
-            cur.execute(f"TRUNCATE {table} CASCADE")  # noqa: S608
+        if symbols:
+            # Targeted per-symbol DELETE to preserve other symbols' data.
+            # Tables in _ALWAYS_TRUNCATE have no symbol column — always truncate in full.
+            placeholders = ",".join(["%s"] * len(symbols))
+            for table in tables:
+                if table in _ALWAYS_TRUNCATE:
+                    cur.execute(f"TRUNCATE {table} CASCADE")  # noqa: S608
+                else:
+                    cur.execute(f"DELETE FROM {table} WHERE symbol = ANY(ARRAY[{placeholders}])", symbols)  # noqa: S608
+        else:
+            for table in tables:
+                cur.execute(f"TRUNCATE {table} CASCADE")  # noqa: S608
     conn.commit()
     return tables
 
@@ -223,6 +259,9 @@ def main() -> None:
             db_conn.close()
             return
 
+    # Resolve target symbols early so they're available for sentinel and all stages
+    target_symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
+
     # --- Stage 1: Stop services ---
     _pause_for_services("stop", _STOP_SERVICES)
 
@@ -233,11 +272,16 @@ def main() -> None:
     n_keys = clear_redis_streams(r, env_prefix)
     print(f"      Deleted {n_keys} stream keys")
 
+    # Publish sentinel so connected SSE clients auto-clear stale state
+    publish_reset_sentinel(r, env_prefix, target_symbols or [c.symbol for c in settings.contracts])
+    print("      Published pipeline_reset sentinel to system:events")
+
     # --- Stage 3: Truncate DB ---
     print("\n[2/5] Truncating DB tables...")
-    cleared = truncate_tables(db_conn, args.keep_ohlcv, args.clear_llm)
+    cleared = truncate_tables(db_conn, args.keep_ohlcv, args.clear_llm, symbols=target_symbols)
+    verb = "DELETED rows for specified symbols in" if target_symbols else "TRUNCATED"
     for t in cleared:
-        print(f"      TRUNCATED {t}")
+        print(f"      {verb} {t}")
 
     # --- Stage 4: Fetch OHLCV ---
     contracts = settings.contracts
