@@ -688,6 +688,54 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       touch();
     });
 
+    // --- Pipeline reset sentinel — clear stale intelligence/signal/narrative state ---
+    es.addEventListener("system_event", (evt) => {
+      const { payload } = JSON.parse(evt.data) as { payload: Record<string, string> };
+      if (payload.event !== "pipeline_reset") return;
+
+      let resetSymbols: string[];
+      try {
+        resetSymbols = (JSON.parse(String(payload.symbols || "[]")) as string[]).map(contractToBase);
+      } catch {
+        resetSymbols = symbols;
+      }
+
+      setSymbolData((prev) => {
+        const next = { ...prev };
+        for (const sym of resetSymbols) {
+          if (!next[sym]) continue;
+          next[sym] = {
+            ...next[sym],
+            indicators: null,
+            structure: null,
+            context: null,
+            patterns: null,
+            smartMoney: null,
+            confluence: null,
+            signal: null,
+            tfSignals: {},
+            signalsByTf: {},
+            indicatorsByTf: {},
+            intelligenceByTf: {},
+          };
+        }
+        return next;
+      });
+
+      setNarratives((prev) => {
+        const next = { ...prev };
+        for (const sym of resetSymbols) {
+          for (const key of Object.keys(next).filter((k) => k.startsWith(`${sym}:`))) {
+            delete next[key];
+          }
+        }
+        return next;
+      });
+
+      setGroupNarratives({});
+      touch();
+    });
+
     return () => {
       es.close();
       esRef.current = null;
