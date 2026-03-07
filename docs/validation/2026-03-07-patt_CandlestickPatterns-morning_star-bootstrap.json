@@ -1,0 +1,15 @@
+{
+  "plugin": "patt_CandlestickPatterns",
+  "field": "morning_star",
+  "run_at": "2026-03-07T19:24:26.383939Z",
+  "days": 90,
+  "verdict": "BOOTSTRAP",
+  "bootstrap_reason": "data_absence_exemption",
+  "bootstrap_note": "Plugin registered before gate pass. Implementation is mathematically correct (unit tests pass). Re-run: python production/scripts/validate_alpha.py --plugin patt_CandlestickPatterns --days 90 --promote after 30+ bars accumulate in intelligence_features.",
+  "promoted": false,
+  "gates": {
+    "n_min_30": null,
+    "pearson_r_positive": null,
+    "pearson_p_lt_05": null
+  }
+}
