@@ -62,7 +62,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking (completed 2026-03-04)
 - [x] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready) (completed 2026-03-05)
 - [x] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate (completed 2026-03-06)
-- [ ] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc)
+- [x] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc) (completed 2026-03-07)
 - [x] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime (completed 2026-03-06)
 - [x] **Phase 17: LLM Wiring Fix** — Fix signal_id linkage (signals:aggregated missing UUID) and regime vocabulary mismatch (plugin vocab vs cache keys) — closes LLM-04/LLM-05 production breaks, restores E2E Flow 3 + Flow 4 (completed 2026-03-06)
 
@@ -343,7 +343,7 @@ Plans:
   4. `MACDEventsPlugin` emits `macd_hist_accel` (float) and `macd_hist_contracting` (bool) on every bar, validated via ALPHA-01 before live promotion
   5. The AC Oscillator I1 plugin emits `ao` and `ac` on every bar, registered in TIER_I1, and validated via ALPHA-01 before live wiring
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 ---
 
@@ -425,7 +425,7 @@ Plans:
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
 | 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
 | 14. Feedback Loop | 5/5 | Complete    | 2026-03-07 | — |
-| 15. Validated Alpha | 4/5 | In Progress|  | — |
+| 15. Validated Alpha | 5/5 | Complete   | 2026-03-07 | — |
 | 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
 | 17. LLM Wiring Fix | 2/2 | Complete    | 2026-03-06 | — |
 
