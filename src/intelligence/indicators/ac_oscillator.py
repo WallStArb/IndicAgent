@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,8 +39,7 @@ class ACOscillatorPlugin:
         ao_val = ao.iloc[-1]
         ac_val = ac.iloc[-1]
 
-        # Guard against NaN from insufficient rolling data
-        if ao_val != ao_val or ac_val != ac_val:  # NaN check without import
+        if math.isnan(ao_val) or math.isnan(ac_val):
             return {}
 
         return {"ao": float(ao_val), "ac": float(ac_val)}

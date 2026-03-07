@@ -11,7 +11,6 @@ import pytest
 
 from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
 
-
 # ---------------------------------------------------------------------------
 # DataFrame helpers — build synthetic 3-bar sequences
 # ---------------------------------------------------------------------------

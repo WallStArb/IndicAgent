@@ -16,11 +16,11 @@ from tests.unit.intelligence.helpers import make_ohlcv
 
 class TestCandlestickPatterns:
     def test_engulfing_bull_detected(self):
-        from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
-
         # Prior bar (p): bearish (o=5010, c=5000); current bar (c): bullish engulfing.
         # min_lookback=3 — prepend a neutral filler bar as pp.
         import pandas as pd
+
+        from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
         df = pd.DataFrame({
             "open":  [5005.0, 5010.0, 4990.0],
             "high":  [5008.0, 5015.0, 5025.0],

@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..plugins import InputSpec
+from ..plugins import InputSpec, PatternPlugin
 from .common import crossover_detect, is_num
 
 # EMA smoothing constants (Constance Brown formula)
@@ -13,7 +13,7 @@ ALPHA_EMA3: float = 2 / (3 + 1)  # = 1/2
 
 
 @dataclass
-class DerivativeOscillatorPlugin:
+class DerivativeOscillatorPlugin(PatternPlugin):
     """Derivative Oscillator (Constance Brown) — triple-smoothed RSI derivative.
 
     Formula:
@@ -28,18 +28,16 @@ class DerivativeOscillatorPlugin:
     """
 
     name: str = "cmp_DerivativeOscillator"
-    outputs: set[str] = field(
-        default_factory=lambda: frozenset({
-            "deriv_osc",
-            "deriv_osc_signal",
-            "deriv_osc_cross_bullish",
-            "deriv_osc_cross_bearish",
-        })
-    )
+    outputs: frozenset[str] = frozenset({
+        "deriv_osc",
+        "deriv_osc_signal",
+        "deriv_osc_cross_bullish",
+        "deriv_osc_cross_bearish",
+    })
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"momentum", "oscillator"}))
-    inputs: list[InputSpec] = field(default_factory=list)
+    capability_tags: frozenset[str] = frozenset({"momentum", "oscillator"})
+    inputs: tuple[InputSpec, ...] = ()
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -59,11 +57,11 @@ class DerivativeOscillatorPlugin:
         state["ema5"] = ema5
 
         # --- EMA3 update (always runs) ---
-        ema3 = state.get("ema3")
-        if ema3 is None:
+        prev_ema3 = state.get("ema3")  # save before update for cross detection
+        if prev_ema3 is None:
             ema3 = ema5  # seed with first ema5 value
         else:
-            ema3 = ALPHA_EMA3 * ema5 + (1 - ALPHA_EMA3) * ema3
+            ema3 = ALPHA_EMA3 * ema5 + (1 - ALPHA_EMA3) * prev_ema3
         state["ema3"] = ema3
 
         # --- SMA9 buffer update (always runs) ---
@@ -81,12 +79,10 @@ class DerivativeOscillatorPlugin:
         deriv_osc = ema3 - signal_line
 
         # --- Cross detection ---
-        prev_ema3 = state.get("prev_ema3")
         prev_signal = state.get("prev_signal")
         bullish, bearish = crossover_detect(prev_ema3, ema3, prev_signal, signal_line)
 
-        # Store previous values for next bar
-        state["prev_ema3"] = ema3
+        # Store signal line for next bar's cross detection
         state["prev_signal"] = signal_line
 
         return {

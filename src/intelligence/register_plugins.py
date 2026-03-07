@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .composites.adx_events import plugin as adx_events_plugin
+from .composites.derivative_oscillator import plugin as deriv_osc_plugin
 from .composites.donchian_position import plugin as donchian_pos_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
 from .composites.macd_events import plugin as macd_events_plugin
@@ -17,6 +18,7 @@ from .context.mtf_volatility import plugin as mtf_vol_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
+from .indicators.ac_oscillator import plugin as ac_osc_plugin
 from .indicators.adx import plugin as adx_plugin
 from .indicators.aroon import plugin as aroon_plugin
 from .indicators.atr import plugin as atr_plugin
@@ -35,7 +37,6 @@ from .indicators.parabolic_sar import plugin as psar_plugin
 from .indicators.roc_ppo import plugin as roc_ppo_plugin
 from .indicators.rsi import plugin as rsi_plugin
 from .indicators.stochastic import plugin as stoch_plugin
-from .indicators.ac_oscillator import plugin as ac_osc_plugin
 from .indicators.stochastic_rsi import plugin as stoch_rsi_plugin
 from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
@@ -129,6 +130,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(momentum_accel_plugin)
     registry.register_pattern(donchian_pos_plugin)
     registry.register_pattern(obv_momentum_plugin)
+    registry.register_pattern(deriv_osc_plugin)
 
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)
@@ -240,6 +242,7 @@ TIER_I2: list[str] = [
     momentum_accel_plugin.name,
     donchian_pos_plugin.name,
     obv_momentum_plugin.name,
+    deriv_osc_plugin.name,
 ]
 
 TIER_I3: list[str] = [

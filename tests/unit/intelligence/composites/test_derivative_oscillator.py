@@ -2,10 +2,7 @@
 """Unit tests for DerivativeOscillatorPlugin (Constance Brown triple-smoothed RSI derivative)."""
 from __future__ import annotations
 
-import pytest
-
 from src.intelligence.composites.derivative_oscillator import DerivativeOscillatorPlugin
-
 
 # ---------------------------------------------------------------------------
 # Helpers
