@@ -35,6 +35,7 @@ from .indicators.parabolic_sar import plugin as psar_plugin
 from .indicators.roc_ppo import plugin as roc_ppo_plugin
 from .indicators.rsi import plugin as rsi_plugin
 from .indicators.stochastic import plugin as stoch_plugin
+from .indicators.ac_oscillator import plugin as ac_osc_plugin
 from .indicators.stochastic_rsi import plugin as stoch_rsi_plugin
 from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
@@ -117,6 +118,7 @@ def register_all_plugins() -> None:
     registry.register_indicator(hv_plugin)
     registry.register_indicator(psar_plugin)
     registry.register_indicator(stoch_rsi_plugin)
+    registry.register_indicator(ac_osc_plugin)
 
     # I2: Composite event plugins — run on I1 features, before I3
     registry.register_pattern(macd_events_plugin)
@@ -226,6 +228,7 @@ TIER_I1: list[str] = [
     hv_plugin.name,
     psar_plugin.name,
     stoch_rsi_plugin.name,
+    ac_osc_plugin.name,
 ]
 
 TIER_I2: list[str] = [
