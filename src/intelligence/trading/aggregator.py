@@ -195,6 +195,18 @@ def aggregate(
     return _aggregate_fallback(active, trend_regime, all_ranked, cis_kwargs)
 
 
+def _sort_by_priority(group: list[dict]) -> list[dict]:
+    # Sort ascending: lower adjusted_rank = higher priority (appears first).
+    # Fallback uses negative SETUP_PRIORITY so higher-priority plugins still sort first.
+    return sorted(
+        group,
+        key=lambda s: s.get(
+            "adjusted_rank",
+            -float(SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0)),
+        ),
+    )
+
+
 def _aggregate_via_cis(
     active: list[dict],
     cis_result: Any,
@@ -207,17 +219,6 @@ def _aggregate_via_cis(
     # Gather signals matching CIS direction, sorted by priority
     matching = [s for s in active if s.get("direction", 0) == cis_direction]
     opposing = [s for s in active if s.get("direction", 0) != cis_direction]
-
-    def _sort_by_priority(group: list[dict]) -> list[dict]:
-        # Sort ascending: lower adjusted_rank = higher priority (appears first).
-        # Fallback uses negative SETUP_PRIORITY so higher-priority plugins still sort first.
-        return sorted(
-            group,
-            key=lambda s: s.get(
-                "adjusted_rank",
-                -float(SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0)),
-            ),
-        )
 
     if matching:
         matching = _sort_by_priority(matching)
@@ -277,17 +278,6 @@ def _aggregate_fallback(
     """Fallback winner-pick: priority / majority / regime tiebreak."""
     longs = [s for s in active if s.get("direction", 0) > 0]
     shorts = [s for s in active if s.get("direction", 0) < 0]
-
-    def _sort_by_priority(group: list[dict]) -> list[dict]:
-        # Sort ascending: lower adjusted_rank = higher priority (appears first).
-        # Fallback uses negative SETUP_PRIORITY so higher-priority plugins still sort first.
-        return sorted(
-            group,
-            key=lambda s: s.get(
-                "adjusted_rank",
-                -float(SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0)),
-            ),
-        )
 
     longs = _sort_by_priority(longs)
     shorts = _sort_by_priority(shorts)
@@ -377,26 +367,49 @@ def _build_all_ranked(
 ) -> list[dict]:
     """Build ranked list of all fired signals (eligible + suppressed).
 
-    perf_weights maps setup_plugin → perf_multiplier [0.5, 1.5].
-    composite_rank is assigned 1-based for every fired plugin via SETUP_PRIORITY
-    descending sort (unknown plugins receive SETUP_PRIORITY.get()=0 and sort after
-    known ones, but still receive a valid 1-based composite_rank from enumerate).
-    adjusted_rank = composite_rank * perf_multiplier (lower = higher priority).
-    Setups absent from perf_weights get multiplier=1.0 (neutral).
-    Sort by adjusted_rank ASCENDING: lowest adjusted_rank wins (appears first).
+    When perf_weights is provided and non-empty:
+      adjusted_rank = perf_multiplier (primary key, ascending: 0.5=best → 1.5=worst).
+      Tiebreak within equal multipliers: SETUP_PRIORITY descending (higher priority wins).
+      Setups absent from perf_weights get multiplier=1.0 (neutral).
+
+    When perf_weights is None or empty:
+      Falls back to SETUP_PRIORITY descending (original behavior).
+      adjusted_rank is set to a negative SETUP_PRIORITY value so ascending sort
+      still puts the highest-priority setup first.
+
+    composite_rank is always assigned 1-based by SETUP_PRIORITY desc for observability.
     """
-    # 1. Sort by SETUP_PRIORITY descending to assign initial composite_rank
+    # 1. Sort by SETUP_PRIORITY descending to assign composite_rank (observability only)
     priority_sorted = sorted(
         fired,
         key=lambda s: SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0),
         reverse=True,
     )
-    # 2. Assign composite_rank 1-based for ALL plugins
     with_ranks = [{**sig, "composite_rank": i + 1} for i, sig in enumerate(priority_sorted)]
-    # 3. Apply perf_multiplier to get adjusted_rank (lower = higher priority)
+
+    # 2. Assign adjusted_rank
     weights = perf_weights or {}
     for sig in with_ranks:
-        multiplier = weights.get(sig.get("setup_plugin", ""), 1.0)
-        sig["adjusted_rank"] = round(sig["composite_rank"] * multiplier, 4)
-    # 4. Sort by adjusted_rank ASCENDING (lower adjusted_rank = higher priority = first)
-    return sorted(with_ranks, key=lambda s: s["adjusted_rank"])
+        plugin = sig.get("setup_plugin", "")
+        priority = SETUP_PRIORITY.get(plugin, 0)
+        if weights:
+            # perf_multiplier is the primary key (ascending: 0.5=best, 1.5=worst).
+            # Tiebreak: negate priority so higher-priority setup sorts earlier under
+            # ascending order (larger int → more negative → smaller tiebreak value).
+            multiplier = weights.get(plugin, 1.0)
+            sig["adjusted_rank"] = round(multiplier, 4)
+            sig["_rank_tiebreak"] = -priority
+        else:
+            # No perf data: sort by SETUP_PRIORITY descending.
+            # Negate so ascending sort puts highest-priority first.
+            sig["adjusted_rank"] = round(-float(priority), 4)
+            sig["_rank_tiebreak"] = 0
+
+    # 3. Sort ascending by (adjusted_rank, _rank_tiebreak)
+    result = sorted(with_ranks, key=lambda s: (s["adjusted_rank"], s["_rank_tiebreak"]))
+
+    # 4. Remove internal tiebreak key before returning
+    for sig in result:
+        sig.pop("_rank_tiebreak", None)
+
+    return result
