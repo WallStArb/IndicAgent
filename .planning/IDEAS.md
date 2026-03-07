@@ -23,13 +23,9 @@ When an idea is ready to flesh out, move it to `analysis/`. When ready to build,
 
 - **Trade Journal Auto-Documentation** — LLM generates daily trade summaries, identifies learning opportunities from losing trades, tracks performance by setup/regime/timeframe. Uses existing signal_ledger data.
 
-- **Days-to-expiry feature** — compute `(expiry_date - bar_timestamp).days` and store in `intelligence_features`. Behavior near contract expiry is different (liquidity shifts, basis widening); useful ML signal.
-
 - **Roll premium/discount feature** — spread between front and back month at roll time. IS the contango/backwardation signal. Informative for CL (storage stress) and equity index (dividend/rate expectations).
 
 - **Continuous contract support in live pipeline** — live services use named contracts (correct for trading). At roll, there's a one-time price gap in stored bars. Could store a parallel continuous-adjusted series for indicator computation, while keeping named contract for signal price levels.
-
-- **MomentumAcceleration plugin (second-derivative analysis)** — new I1 plugin that computes the second derivative of RSI, MACD line, and ROC. Outputs `rsi_accel`, `macd_accel`, `roc_accel`, plus an `inflection_flag` when any crosses zero. Detects momentum exhaustion and trend changes *before* they show in price. RSI decelerating toward 50 is earlier signal than RSI crossing 50. Inflection points map directly onto I5 pattern exhaustion detection. See `docs/plans/2026-02-25-momentum-acceleration-analysis.md`.
 
 - **Cross-asset plugin inputs** — plugins that consume multiple symbols simultaneously (e.g., ES vs VIX correlation, CL vs XLE divergence, SPY vs IWM rotation). Currently all plugins are single-symbol; the DAG and InputSpec would need to support `symbol="*"` or named multi-symbol inputs. Data alignment (temporal join across symbols) is the hard part — bars don't arrive at exactly the same time.
 

@@ -115,19 +115,43 @@ Candidates from Backlog: Dashboard Complete, ML Scoring Model, Auth + External A
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
+Re-prioritized 2026-03-07 after v1.4 ship.
+
+### Tier 1 — Ready now / v1.5 candidates (data exists, no blockers)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| Dashboard Complete | Timeframe matrix wired to live per-TF signal data; signal history view; final audit across all symbol profiles. | — |
-| ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history. | — |
+| Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
 | Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
-| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. | — |
-| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. | — |
-| Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence plugins. | — |
-| Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
-| Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
 | HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
-| Ehlers Elegant Oscillator I1 | 2-bar price diff → RMS normalize → inverse Fisher transform → SuperSmoother IIR. Near-zero-lag cycle oscillator. Medium-high complexity. | `ideas/2nd-derivative-indicator-research.md` |
+| AC Oscillator I1 plugin | Todo exists, fully specced. | — |
+| Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
+| Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
+| Expand I5 candlestick + I7 setup | Add Tier 1 candlestick patterns (engulfing, pin bar, hammer); wire I7 setup from confirmed pattern. | — |
+| Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | — |
+| validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
+
+### Tier 2 — v1.5 or v1.6 (moderate dependencies)
+
+| Item | Notes | Analysis |
+|------|-------|---------|
+| ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
+| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | — |
+| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | — |
+| Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | — |
+| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | — |
+| Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | — |
+| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel. Research-first gate: confirm signal value before building. | `ideas/2nd-derivative-indicator-research.md` |
 | Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
 | Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
-| validate_alpha.py re-runs | Re-run validate_alpha.py --promote for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
+
+### Tier 3 — Longer horizon / separate products
+
+| Item | Notes | Analysis |
+|------|-------|---------|
+| Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence / absorption / imbalance continuation plugins. | — |
+| Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
+| Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
+| Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
+| Broker-agnostic instrument provider | Defer until second broker integration is needed. | — |
+| Redpanda migration | Migrate from DragonflyDB streams to Redpanda before QualAgent; not before v1.5. | `docs/ideas/tech-stack.md` |
