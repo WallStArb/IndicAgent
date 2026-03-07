@@ -5,14 +5,14 @@ TDD RED: These tests fail with ImportError until the module is implemented.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import math
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 # Make the production/scripts directory importable
 SCRIPTS_DIR = Path(__file__).parent.parent.parent.parent / "production" / "scripts"
@@ -20,36 +20,39 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import validate_alpha  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_rows(n: int, signal_value: float = 1.0, close_start: float = 100.0) -> list[tuple]:
+def _make_rows(
+    n: int,
+    signal_value: float = 1.0,
+    close_start: float = 100.0,
+    field: str = "deriv_osc_cross_bullish",
+) -> list[tuple]:
     """
     Build synthetic DB rows: (symbol, timeframe, feature_ts, close, column_jsonb).
 
     Signal fires on every other bar (signal_value on even indices).
     Forward 3-bar returns are positive when signal fires → positive r expected.
     """
+    base_ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
     rows = []
     for i in range(n):
-        import datetime
-
-        ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=5 * i)
-        # Gentle upward drift so forward returns are positive
-        close = close_start * (1.0 + 0.001 * i)
+        ts = base_ts + datetime.timedelta(minutes=5 * i)
+        # Gentle upward drift so forward returns are positive when signal fires
+        close = close_start * (1.0 + 0.002 * i)
         # Signal fires every 2nd bar
         sig = signal_value if i % 2 == 0 else 0.0
-        col_json = {"test_field": sig}
+        col_json = {field: sig}
         rows.append(("ESH6", "5m", ts, close, col_json))
     return rows
 
 
-def _make_passing_rows(n: int = 50) -> list[tuple]:
+def _make_passing_rows(n: int = 50, field: str = "deriv_osc_cross_bullish") -> list[tuple]:
     """Rows that will yield r > 0, p < 0.05, N >= 30 when the field fires 50% of bars."""
-    return _make_rows(n=n, signal_value=1.0)
+    return _make_rows(n=n, signal_value=1.0, field=field)
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +64,7 @@ class TestGateLogic:
     """Gate logic — PASS path."""
 
     def test_gate_logic_pass(self, tmp_path: Path) -> None:
-        """Mock DB returns 50 rows with positive r → gates pass, exit 0."""
+        """Mock DB returns 50 rows with r=0.25, p=0.03 → gates pass, exit 0."""
         rows = _make_passing_rows(n=100)
 
         mock_conn = MagicMock()
@@ -77,7 +80,20 @@ class TestGateLogic:
         with (
             patch("psycopg2.connect", return_value=mock_conn),
             patch("validate_alpha.Settings"),
+            patch("validate_alpha._compute_stats") as mock_stats,
         ):
+            # Mock stats to clearly pass all three gates
+            mock_stats.return_value = {
+                "n_signal_bars": 50,
+                "n_total_bars": 100,
+                "signal_frequency": 0.50,
+                "adf_stat": -4.21,
+                "adf_pvalue": 0.0008,
+                "adf_stationary": True,
+                "pearson_r": 0.25,
+                "pearson_pvalue": 0.03,
+                "false_positive_rate": 0.38,
+            }
             result = validate_alpha.run_validation(
                 plugin="cmp_DerivativeOscillator",
                 days=90,
@@ -147,18 +163,19 @@ class TestGateFailNegativeR:
 
     def test_gate_fails_negative_r(self, tmp_path: Path) -> None:
         """Mock rows where signal fires at peaks (anti-correlated) → r < 0, exit 1."""
-        import datetime
-
         # Build rows where signal fires when close is HIGH and forward return is negative
+        # Use the actual field name that cmp_DerivativeOscillator reports
+        field = "deriv_osc_cross_bullish"
         n = 60
+        base_ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
         rows = []
         for i in range(n):
-            ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=5 * i)
+            ts = base_ts + datetime.timedelta(minutes=5 * i)
             # Zigzag: close goes up then down
             close = 100.0 + 5.0 * math.sin(2 * math.pi * i / 10)
             # Signal fires when price is near peak (sin ≈ 1) → forward return negative
             sig = 1.0 if math.sin(2 * math.pi * i / 10) > 0.8 else 0.0
-            col_json = {"test_field": sig}
+            col_json = {field: sig}
             rows.append(("ESH6", "5m", ts, close, col_json))
 
         mock_conn = MagicMock()
@@ -198,17 +215,17 @@ class TestGateFailHighP:
 
     def test_gate_fails_high_p(self, tmp_path: Path) -> None:
         """Rows where signal fires randomly → r near 0, p large → fail."""
-        import datetime
-
         rng = np.random.default_rng(seed=42)
         n = 60
         rows = []
         closes = 100.0 + np.cumsum(rng.standard_normal(n) * 0.1)
+        field = "deriv_osc_cross_bullish"
+        base_ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
         for i in range(n):
-            ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=5 * i)
+            ts = base_ts + datetime.timedelta(minutes=5 * i)
             # Force signal to always fire — forward returns random → p will be large
             sig = 1.0
-            col_json = {"test_field": sig}
+            col_json = {field: sig}
             rows.append(("ESH6", "5m", ts, float(closes[i]), col_json))
 
         mock_conn = MagicMock()
@@ -261,7 +278,7 @@ class TestPromoteBlockedOnFail:
 
     def test_promote_blocked_on_fail(self, tmp_path: Path) -> None:
         """Failing gates + --promote → register_plugins.py NOT touched, exit 1."""
-        rows = _make_rows(n=20)  # Low N → gates fail
+        rows = _make_rows(n=20, field="deriv_osc_cross_bullish")  # Low N → gates fail
 
         mock_conn = MagicMock()
         mock_cur = MagicMock()
@@ -311,7 +328,7 @@ class TestAutoBackfillTriggered:
         mock_conn.cursor.return_value = mock_cur
         # First fetchone returns N=10 (insufficient), second also 10 (after backfill)
         mock_cur.fetchone.side_effect = [(10,), (10,)]
-        mock_cur.fetchall.return_value = _make_rows(n=10)
+        mock_cur.fetchall.return_value = _make_rows(n=10, field="deriv_osc_cross_bullish")
 
         with (
             patch("psycopg2.connect", return_value=mock_conn),
@@ -329,7 +346,9 @@ class TestAutoBackfillTriggered:
 
         # subprocess.run must have been called with --replay-only in args
         called_args = [str(a) for call_item in mock_sub.call_args_list for a in call_item[0][0]]
-        assert "--replay-only" in called_args, f"Expected --replay-only in subprocess call, got: {called_args}"
+        assert "--replay-only" in called_args, (
+            f"Expected --replay-only in subprocess call, got: {called_args}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +376,19 @@ class TestReportWritten:
         with (
             patch("psycopg2.connect", return_value=mock_conn),
             patch("validate_alpha.Settings"),
+            patch("validate_alpha._compute_stats") as mock_stats,
         ):
+            mock_stats.return_value = {
+                "n_signal_bars": 50,
+                "n_total_bars": 100,
+                "signal_frequency": 0.50,
+                "adf_stat": -4.21,
+                "adf_pvalue": 0.0008,
+                "adf_stationary": True,
+                "pearson_r": 0.25,
+                "pearson_pvalue": 0.03,
+                "false_positive_rate": 0.38,
+            }
             validate_alpha.run_validation(
                 plugin="cmp_DerivativeOscillator",
                 days=90,
@@ -414,8 +445,6 @@ class TestForwardReturnAlignment:
 
         We build a series where close rises predictably after signal fires.
         """
-        import datetime
-
         # Build a synthetic series:
         # close rises 3 bars after signal fires (forward return positive)
         n = 80
@@ -432,10 +461,12 @@ class TestForwardReturnAlignment:
             closes.append(base)
             base = base * (1 + 0.0005)  # gentle drift
 
+        field = "deriv_osc_cross_bullish"
+        base_ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
         rows = []
         for i in range(n):
-            ts = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(minutes=5 * i)
-            col_json = {"test_field": signals[i]}
+            ts = base_ts + datetime.timedelta(minutes=5 * i)
+            col_json = {field: signals[i]}
             rows.append(("ESH6", "5m", ts, closes[i], col_json))
 
         mock_conn = MagicMock()

@@ -42,4 +42,9 @@ exclude = [
   "dashboard/",
 ]
 
+[dependency-groups]
+dev = [
+    "statsmodels>=0.14.6",
+]
+
 
