@@ -37,6 +37,13 @@ export interface IndicatorData {
   sma_50?: number;
   ema_13?: number;
   ema_21?: number;
+  // ADX / Directional
+  adx?: number;
+  plus_di?: number;
+  minus_di?: number;
+  // Supertrend
+  supertrend_dir?: number;   // 1 = bullish, -1 = bearish
+  supertrend_value?: number;
   // Momentum
   rsi?: number;
   macd?: number;
@@ -46,6 +53,10 @@ export interface IndicatorData {
   stoch_d?: number;
   williams_r?: number;
   cci?: number;
+  roc?: number;              // Rate of Change (14-period)
+  // Bill Williams Oscillators
+  ao?: number;               // Awesome Oscillator
+  ac?: number;               // Accelerator Oscillator
   // Volatility
   atr?: number;
   bb_upper?: number;
@@ -166,7 +177,40 @@ export interface SmartMoneyData {
   ssl_touches?: number;
   price_in_premium?: boolean;       // true = price above equilibrium (midpoint of BSL/SSL range)
   premium_position?: number;        // 0.0=full discount, 0.5=equilibrium, 1.0=full premium
+  premium_discount_pct?: number;    // % above(+) or below(-) equilibrium
+  equilibrium_level?: number;       // midpoint of swing range
   pool_count?: number;              // total liquidity pools detected in range
+  // ICT Killzones
+  in_asia_killzone?: boolean;
+  in_london_killzone?: boolean;
+  in_ny_am_killzone?: boolean;
+  in_ny_pm_killzone?: boolean;
+  killzone_name?: "Asia" | "London" | "NY AM" | "NY PM";
+  minutes_in_killzone?: number;
+  minutes_until_next_killzone?: number;
+  // AMD Cycle (Wyckoff: Accumulation / Manipulation / Distribution)
+  amd_phase?: "accumulation" | "manipulation" | "distribution";
+  amd_manipulation_detected?: boolean;
+  amd_distribution_direction?: number;  // -1 bearish | 0 neutral | 1 bullish
+  // Supply / Demand Zones
+  nearest_demand_high?: number;
+  nearest_demand_low?: number;
+  demand_freshness?: number;        // 0-1 (1 = untested)
+  demand_strength?: number;         // 0-1
+  demand_dist_atr?: number;
+  in_demand_zone?: boolean;
+  nearest_supply_high?: number;
+  nearest_supply_low?: number;
+  supply_freshness?: number;
+  supply_strength?: number;
+  supply_dist_atr?: number;
+  in_supply_zone?: boolean;
+  // Breaker Blocks
+  breaker_block_active?: boolean;
+  breaker_block_type?: number;      // -1 bearish | 1 bullish
+  breaker_block_top?: number;
+  breaker_block_bottom?: number;
+  breaker_dist_atr?: number;
 }
 
 // ── I6 Cross-Timeframe Confluence ──

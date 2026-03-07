@@ -7,6 +7,7 @@ import {
   rsiTooltip, macdTooltip, stochTooltip, cciTooltip, williamsRTooltip,
   atrTooltip, bbTooltip, mfiTooltip, obvTooltip, vwapTooltip,
   sma20Tooltip, sma50Tooltip, ema13Tooltip, ema21Tooltip,
+  adxTooltip, diTooltip, supertrendTooltip, rocTooltip, aoTooltip, acTooltip,
 } from "@/lib/indicator-tooltips";
 
 interface IndicatorGridProps {
@@ -15,6 +16,10 @@ interface IndicatorGridProps {
 
 export function IndicatorGrid({ indicators }: IndicatorGridProps) {
   const ind = indicators;
+
+  const stDir = ind?.supertrend_dir;
+  const stCls = stDir != null ? (stDir > 0 ? "text-[var(--green)]" : "text-[var(--red)]") : "text-[var(--text-accent)]";
+  const stLabel = stDir != null ? (stDir > 0 ? "▲" : "▼") : "—";
 
   return (
     <div className="divide-y divide-[var(--border-subtle)]">
@@ -54,9 +59,39 @@ export function IndicatorGrid({ indicators }: IndicatorGridProps) {
           )}
           tooltip={williamsRTooltip(ind?.williams_r)}
         />
+        <M
+          label="ROC"
+          value={ind?.roc != null ? `${ind.roc > 0 ? "+" : ""}${fmtNum(ind.roc, 2)}%` : "—"}
+          cls={dirClass(ind?.roc)}
+          tooltip={rocTooltip(ind?.roc)}
+        />
       </Zone>
 
-      {/* Volatility & Trend */}
+      {/* Trend Strength */}
+      <Zone label="TRND">
+        <M
+          label="ADX"
+          value={fmtNum(ind?.adx, 1)}
+          cls={ind?.adx != null && ind.adx > 25 ? "text-[var(--amber)]" : "text-[var(--text-accent)]"}
+          tooltip={adxTooltip(ind?.adx)}
+        />
+        <M
+          label="+DI/−DI"
+          value={`${fmtNum(ind?.plus_di, 1)}/${fmtNum(ind?.minus_di, 1)}`}
+          cls={ind?.plus_di != null && ind?.minus_di != null
+            ? (ind.plus_di > ind.minus_di ? "text-[var(--green)]" : "text-[var(--red)]")
+            : "text-[var(--text-accent)]"}
+          tooltip={diTooltip(ind?.plus_di, ind?.minus_di)}
+        />
+        <M
+          label="ST"
+          value={stLabel}
+          cls={stCls}
+          tooltip={supertrendTooltip(ind?.supertrend_dir, ind?.supertrend_value)}
+        />
+      </Zone>
+
+      {/* Volatility & MAs */}
       <Zone label="VOL">
         <M label="ATR" value={fmtNum(ind?.atr, 2)} tooltip={atrTooltip()} />
         <M
@@ -104,6 +139,18 @@ export function IndicatorGrid({ indicators }: IndicatorGridProps) {
           value={fmtNum(ind?.vwap, 2)}
           cls="text-[var(--blue)]"
           tooltip={vwapTooltip()}
+        />
+        <M
+          label="AO"
+          value={fmtNum(ind?.ao, 2)}
+          cls={dirClass(ind?.ao)}
+          tooltip={aoTooltip(ind?.ao)}
+        />
+        <M
+          label="AC"
+          value={fmtNum(ind?.ac, 2)}
+          cls={dirClass(ind?.ac)}
+          tooltip={acTooltip(ind?.ac)}
         />
       </Zone>
     </div>

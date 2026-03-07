@@ -3,11 +3,12 @@
 
 import { X } from "lucide-react";
 import type { SymbolData, SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum } from "@/lib/format";
+import { fmtPrice, fmtNum, fmtMinutesHM } from "@/lib/format";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
+  adxTooltip, diTooltip, supertrendTooltip, rocTooltip, aoTooltip, acTooltip,
   trendIntegrityTooltip, supportResistanceTooltip, levelStrengthTooltip,
   volRegimeTooltip, atrPercentileTooltip, volExpandingTooltip,
   trendRegimeTooltip, momentumBiasTooltip,
@@ -16,6 +17,8 @@ import {
   hmmRegimeTooltip, liquidityLevelTooltip,
   ctfScoreTooltip, ctfTfsAlignedTooltip, ctfTrendAlignTooltip,
   ctfStructureAlignTooltip, ctfRegimeAgreementTooltip,
+  killzoneTooltip, amdPhaseTooltip, demandZoneTooltip, supplyZoneTooltip,
+  breakerBlockTooltip, premiumDiscountPctTooltip,
 } from "@/lib/indicator-tooltips";
 
 interface DrillPanelProps {
@@ -223,6 +226,78 @@ export function DrillPanel({ symbol, timeframe, data, signal, onClose }: DrillPa
                   value={smc.ssl_level != null ? `${fmtPrice(smc.ssl_level)} (${fmtNum(smc.ssl_dist_atr, 1)} ATR)` : "—"}
                   tooltip={liquidityLevelTooltip("SSL")}
                 />
+                {/* Breaker Block */}
+                <KV
+                  label="Breaker"
+                  value={smc.breaker_block_active
+                    ? `${(smc.breaker_block_type ?? 0) > 0 ? "bull" : "bear"} ${fmtPrice(smc.breaker_block_bottom)}–${fmtPrice(smc.breaker_block_top)}`
+                    : "none"}
+                  tooltip={breakerBlockTooltip(smc.breaker_block_type, smc.breaker_dist_atr)}
+                />
+                {/* Premium / Discount */}
+                <KV
+                  label="Prem/disc"
+                  value={smc.premium_discount_pct != null
+                    ? `${smc.premium_discount_pct > 0 ? "+" : ""}${smc.premium_discount_pct.toFixed(1)}%`
+                    : "—"}
+                  tooltip={premiumDiscountPctTooltip(smc.premium_discount_pct)}
+                />
+              </Grid>
+            ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
+          </Section>
+
+          {/* Killzones & AMD */}
+          <Section label="Session & Killzones">
+            {smc ? (
+              <Grid>
+                <KV
+                  label="Killzone"
+                  value={smc.killzone_name
+                    ? smc.killzone_name
+                    : smc.minutes_until_next_killzone != null
+                      ? `next ${fmtMinutesHM(smc.minutes_until_next_killzone)}`
+                      : "—"}
+                  tooltip={killzoneTooltip(smc.killzone_name, smc.minutes_until_next_killzone)}
+                />
+                <KV
+                  label="AMD phase"
+                  value={smc.amd_phase ?? "—"}
+                  tooltip={amdPhaseTooltip(smc.amd_phase, smc.amd_manipulation_detected)}
+                />
+              </Grid>
+            ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
+          </Section>
+
+          {/* Supply / Demand Zones */}
+          <Section label="Supply / Demand">
+            {smc ? (
+              <Grid>
+                <KV
+                  label="Demand"
+                  value={smc.nearest_demand_low != null && smc.nearest_demand_high != null
+                    ? `${fmtPrice(smc.nearest_demand_low)}–${fmtPrice(smc.nearest_demand_high)}`
+                    : "none"}
+                  tooltip={demandZoneTooltip(smc.nearest_demand_high, smc.nearest_demand_low, smc.demand_dist_atr)}
+                />
+                <KV
+                  label="In demand"
+                  value={smc.in_demand_zone != null ? (smc.in_demand_zone ? "yes ✓" : "no") : "—"}
+                />
+                <KV label="D-strength" value={smc.demand_strength != null ? fmtNum(smc.demand_strength, 2) : "—"} />
+                <KV label="D-freshness" value={smc.demand_freshness != null ? fmtNum(smc.demand_freshness, 2) : "—"} />
+                <KV
+                  label="Supply"
+                  value={smc.nearest_supply_low != null && smc.nearest_supply_high != null
+                    ? `${fmtPrice(smc.nearest_supply_low)}–${fmtPrice(smc.nearest_supply_high)}`
+                    : "none"}
+                  tooltip={supplyZoneTooltip(smc.nearest_supply_high, smc.nearest_supply_low, smc.supply_dist_atr)}
+                />
+                <KV
+                  label="In supply"
+                  value={smc.in_supply_zone != null ? (smc.in_supply_zone ? "yes ✓" : "no") : "—"}
+                />
+                <KV label="S-strength" value={smc.supply_strength != null ? fmtNum(smc.supply_strength, 2) : "—"} />
+                <KV label="S-freshness" value={smc.supply_freshness != null ? fmtNum(smc.supply_freshness, 2) : "—"} />
               </Grid>
             ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
           </Section>
@@ -298,6 +373,40 @@ export function DrillPanel({ symbol, timeframe, data, signal, onClose }: DrillPa
                   label="EMA 13/21"
                   value={`${fmtPrice(indicators.ema_13)} / ${fmtPrice(indicators.ema_21)}`}
                   tooltip={ema13Tooltip()}
+                />
+                <KV
+                  label="ADX"
+                  value={fmtNum(indicators.adx, 1)}
+                  tooltip={adxTooltip(indicators.adx)}
+                />
+                <KV
+                  label="+DI / −DI"
+                  value={`${fmtNum(indicators.plus_di, 1)} / ${fmtNum(indicators.minus_di, 1)}`}
+                  tooltip={diTooltip(indicators.plus_di, indicators.minus_di)}
+                />
+                <KV
+                  label="Supertrend"
+                  value={indicators.supertrend_dir != null
+                    ? (indicators.supertrend_dir > 0 ? "bullish ▲" : "bearish ▼")
+                    : "—"}
+                  tooltip={supertrendTooltip(indicators.supertrend_dir, indicators.supertrend_value)}
+                />
+                <KV
+                  label="ROC"
+                  value={indicators.roc != null
+                    ? `${indicators.roc > 0 ? "+" : ""}${fmtNum(indicators.roc, 2)}%`
+                    : "—"}
+                  tooltip={rocTooltip(indicators.roc)}
+                />
+                <KV
+                  label="AO"
+                  value={fmtNum(indicators.ao, 2)}
+                  tooltip={aoTooltip(indicators.ao)}
+                />
+                <KV
+                  label="AC"
+                  value={fmtNum(indicators.ac, 2)}
+                  tooltip={acTooltip(indicators.ac)}
                 />
               </Grid>
             ) : <Empty>Awaiting {timeframe} indicators</Empty>}

@@ -1,5 +1,12 @@
 // ── Number formatting for trading data ──
 
+/** Format a minutes count as "Xh Ym" or "Ym" */
+export function fmtMinutesHM(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 /** Format price with appropriate decimal places based on magnitude */
 export function fmtPrice(price: number | undefined): string {
   if (!price) return "—";

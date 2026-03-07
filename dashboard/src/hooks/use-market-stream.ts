@@ -86,6 +86,8 @@ function parseIntelligence(p: Record<string, string>): {
   const i6 = event.i6 ?? {};
 
   const nf = (v: unknown) => (v != null ? Number(v) : 0);
+  // Boolean coercion for Redis-serialized "1"/"0" fields
+  const nb = (v: unknown): boolean | undefined => v != null ? Number(v) > 0 : undefined;
 
   const structure: StructureData = {
     nearest_support: i3.nearest_support ?? undefined,
@@ -173,7 +175,7 @@ function parseIntelligence(p: Record<string, string>): {
     sweep_level: smc.sweep_level ?? undefined,
     sweep_depth_pct: smc.sweep_depth_pct ?? undefined,
     sweep_reclaimed: smc.sweep_reclaimed ?? undefined,
-    cp_detected: smc.cp_detected != null ? nf(smc.cp_detected) > 0 : undefined,
+    cp_detected: nb(smc.cp_detected),
     cp_probability: smc.cp_probability ?? undefined,
     cp_run_length: smc.cp_run_length ?? undefined,
     cp_confirmation: smc.cp_confirmation ?? undefined,
@@ -193,9 +195,42 @@ function parseIntelligence(p: Record<string, string>): {
     ssl_significance: smc.ssl_significance ?? undefined,
     ssl_dist_atr: smc.ssl_dist_atr ?? undefined,
     ssl_touches: smc.ssl_touches ?? undefined,
-    price_in_premium: smc.price_in_premium != null ? nf(smc.price_in_premium) > 0 : undefined,
+    price_in_premium: nb(smc.price_in_premium),
     premium_position: smc.premium_position ?? undefined,
+    premium_discount_pct: smc.premium_discount_pct != null ? nf(smc.premium_discount_pct) : undefined,
+    equilibrium_level: smc.equilibrium_level != null ? nf(smc.equilibrium_level) : undefined,
     pool_count: smc.pool_count ?? undefined,
+    // ICT Killzones
+    in_asia_killzone: nb(smc.in_asia_killzone),
+    in_london_killzone: nb(smc.in_london_killzone),
+    in_ny_am_killzone: nb(smc.in_ny_am_killzone),
+    in_ny_pm_killzone: nb(smc.in_ny_pm_killzone),
+    killzone_name: smc.killzone_name ?? undefined,
+    minutes_in_killzone: smc.minutes_in_killzone != null ? nf(smc.minutes_in_killzone) : undefined,
+    minutes_until_next_killzone: smc.minutes_until_next_killzone != null ? nf(smc.minutes_until_next_killzone) : undefined,
+    // AMD Cycle
+    amd_phase: smc.amd_phase ?? undefined,
+    amd_manipulation_detected: nb(smc.amd_manipulation_detected),
+    amd_distribution_direction: smc.amd_distribution_direction != null ? nf(smc.amd_distribution_direction) : undefined,
+    // Supply / Demand Zones
+    nearest_demand_high: smc.nearest_demand_high != null ? nf(smc.nearest_demand_high) : undefined,
+    nearest_demand_low: smc.nearest_demand_low != null ? nf(smc.nearest_demand_low) : undefined,
+    demand_freshness: smc.demand_freshness != null ? nf(smc.demand_freshness) : undefined,
+    demand_strength: smc.demand_strength != null ? nf(smc.demand_strength) : undefined,
+    demand_dist_atr: smc.demand_dist_atr != null ? nf(smc.demand_dist_atr) : undefined,
+    in_demand_zone: nb(smc.in_demand_zone),
+    nearest_supply_high: smc.nearest_supply_high != null ? nf(smc.nearest_supply_high) : undefined,
+    nearest_supply_low: smc.nearest_supply_low != null ? nf(smc.nearest_supply_low) : undefined,
+    supply_freshness: smc.supply_freshness != null ? nf(smc.supply_freshness) : undefined,
+    supply_strength: smc.supply_strength != null ? nf(smc.supply_strength) : undefined,
+    supply_dist_atr: smc.supply_dist_atr != null ? nf(smc.supply_dist_atr) : undefined,
+    in_supply_zone: nb(smc.in_supply_zone),
+    // Breaker Blocks
+    breaker_block_active: nb(smc.breaker_block_active),
+    breaker_block_type: smc.breaker_block_type != null ? nf(smc.breaker_block_type) : undefined,
+    breaker_block_top: smc.breaker_block_top != null ? nf(smc.breaker_block_top) : undefined,
+    breaker_block_bottom: smc.breaker_block_bottom != null ? nf(smc.breaker_block_bottom) : undefined,
+    breaker_dist_atr: smc.breaker_dist_atr != null ? nf(smc.breaker_dist_atr) : undefined,
   };
 
   const confluence: ConfluenceData = {
@@ -420,6 +455,18 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         obv: n("obv"),
         mfi: n("mfi_14"),
         vwap: n("vwap"),
+        // ADX / Directional
+        adx: n("adx_14"),
+        plus_di: n("plus_di_14"),
+        minus_di: n("minus_di_14"),
+        // Supertrend
+        supertrend_dir: n("supertrend_dir"),
+        supertrend_value: n("supertrend_value"),
+        // Momentum extras
+        roc: n("roc_14"),
+        // Bill Williams
+        ao: n("ao"),
+        ac: n("ac"),
       };
 
       setSymbolData((prev) => {

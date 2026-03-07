@@ -1,5 +1,6 @@
 // dashboard/src/lib/indicator-tooltips.ts
 import type { TooltipContent } from "@/components/tooltip";
+import { fmtMinutesHM } from "@/lib/format";
 
 // ─── I1 Indicator tooltips ────────────────────────────────────────────────────
 
@@ -105,6 +106,60 @@ export function ema21Tooltip(): TooltipContent {
     description: "EMA 21. Fibonacci exponential moving average. Trend confirmation; acts as dynamic support/resistance.",
     context: null,
   };
+}
+
+export function adxTooltip(adx?: number | null): TooltipContent {
+  const description = "Average Directional Index (0–100). Measures trend strength — not direction. Values >25 = trending; <20 = ranging or weak trend.";
+  if (adx == null) return { description, context: null };
+  if (adx > 50) return { description, context: `${adx.toFixed(1)} — Very strong trend. High conviction directional move.` };
+  if (adx > 25) return { description, context: `${adx.toFixed(1)} — Trending market. Trend-following setups favoured.` };
+  return { description, context: `${adx.toFixed(1)} — Weak or no trend. Mean-reversion environment.` };
+}
+
+export function diTooltip(plusDi?: number | null, minusDi?: number | null): TooltipContent {
+  const description = "+DI vs −DI (Directional Indicators). +DI > −DI = bullish directional pressure; −DI > +DI = bearish. Crossovers signal potential trend changes.";
+  if (plusDi == null || minusDi == null) return { description, context: null };
+  const bull = plusDi > minusDi;
+  return {
+    description,
+    context: bull
+      ? `+DI ${plusDi.toFixed(1)} > −DI ${minusDi.toFixed(1)} — Bullish directional bias.`
+      : `−DI ${minusDi.toFixed(1)} > +DI ${plusDi.toFixed(1)} — Bearish directional bias.`,
+  };
+}
+
+export function supertrendTooltip(dir?: number | null, value?: number | null): TooltipContent {
+  const description = "Supertrend. ATR-based ratcheting band that flips only on price crossover. Bullish = price above band; bearish = price below band.";
+  if (dir == null) return { description, context: null };
+  const label = dir > 0 ? "Bullish" : "Bearish";
+  const lvl = value != null ? ` (band at ${value.toFixed(2)})` : "";
+  return { description, context: `${label}${lvl} — price is ${dir > 0 ? "above" : "below"} the supertrend band.` };
+}
+
+export function rocTooltip(value?: number | null): TooltipContent {
+  const description = "Rate of Change (14-period). % price change over 14 bars. Positive = price higher than 14 bars ago; negative = lower.";
+  if (value == null) return { description, context: null };
+  if (Math.abs(value) < 0.1) return { description, context: `${value.toFixed(2)}% — Price largely unchanged over 14 bars.` };
+  return {
+    description,
+    context: value > 0
+      ? `+${value.toFixed(2)}% — Price higher than 14 bars ago. Positive momentum.`
+      : `${value.toFixed(2)}% — Price lower than 14 bars ago. Negative momentum.`,
+  };
+}
+
+export function aoTooltip(value?: number | null): TooltipContent {
+  const description = "Awesome Oscillator. SMA(5) minus SMA(34) of bar midpoints. Positive = bullish momentum; negative = bearish; zero crosses signal momentum shifts.";
+  if (value == null) return { description, context: null };
+  if (value > 0) return { description, context: `${value.toFixed(2)} — Positive. Bullish momentum above zero line.` };
+  return { description, context: `${value.toFixed(2)} — Negative. Bearish momentum below zero line.` };
+}
+
+export function acTooltip(value?: number | null): TooltipContent {
+  const description = "Accelerator Oscillator (AO minus its 5-bar SMA). Leading indicator — turns before AO. Positive and rising = accelerating bullish momentum.";
+  if (value == null) return { description, context: null };
+  if (value > 0) return { description, context: `${value.toFixed(2)} — Positive. Momentum accelerating bullish.` };
+  return { description, context: `${value.toFixed(2)} — Negative. Momentum decelerating or bearish.` };
 }
 
 // ─── I3 Structure tooltips ────────────────────────────────────────────────────
@@ -328,4 +383,60 @@ export function ctfRegimeAgreementTooltip(value?: number | null): TooltipContent
         : `${value.toFixed(2)} — Regimes mixed — market transitioning.`
       : null,
   };
+}
+
+// ─── SMC extended tooltips ────────────────────────────────────────────────────
+
+export function killzoneTooltip(name?: string | null, minutesUntil?: number | null): TooltipContent {
+  const description = "ICT Killzones: high-probability session windows — Asia (00:00–04:00 UTC), London (07:00–10:00), NY AM (13:00–16:00), NY PM (19:00–21:00 UTC).";
+  if (name) {
+    return { description, context: `Currently in ${name} killzone — institutional order flow elevated.` };
+  }
+  if (minutesUntil != null) {
+    return { description, context: `Not in killzone. Next opens in ${fmtMinutesHM(minutesUntil)}.` };
+  }
+  return { description, context: null };
+}
+
+export function amdPhaseTooltip(phase?: string | null, manipDetected?: boolean | null): TooltipContent {
+  const description = "AMD Cycle (Wyckoff). Accumulation = smart money buying; Manipulation = false move to sweep stops; Distribution = smart money selling.";
+  if (!phase) return { description, context: null };
+  const phaseMap: Record<string, string> = {
+    accumulation: "Accumulation — potential base forming; look for long setups after manipulation.",
+    manipulation: "Manipulation — stop hunt underway; wait for direction confirmation.",
+    distribution: "Distribution — smart money offloading; look for short setups.",
+  };
+  const manip = manipDetected ? " Manipulation candle detected." : "";
+  return { description, context: `${phaseMap[phase] ?? phase}${manip}` };
+}
+
+function _zoneTooltip(description: string, high?: number | null, low?: number | null, distAtr?: number | null): TooltipContent {
+  if (high == null || low == null) return { description, context: null };
+  const dist = distAtr != null ? ` (${distAtr.toFixed(1)} ATR away)` : "";
+  return { description, context: `Zone ${low.toFixed(2)}–${high.toFixed(2)}${dist}.` };
+}
+
+export function demandZoneTooltip(high?: number | null, low?: number | null, distAtr?: number | null): TooltipContent {
+  return _zoneTooltip("Demand Zone. Price area where institutional buyers absorbed supply — strong impulse move originated here. Price often returns to re-test.", high, low, distAtr);
+}
+
+export function supplyZoneTooltip(high?: number | null, low?: number | null, distAtr?: number | null): TooltipContent {
+  return _zoneTooltip("Supply Zone. Price area where institutional sellers overwhelmed buyers — strong impulse move down originated here. Price often returns to re-test.", high, low, distAtr);
+}
+
+export function breakerBlockTooltip(type?: number | null, distAtr?: number | null): TooltipContent {
+  const description = "Breaker Block. A mitigated order block that has flipped polarity — now acts as resistance (bearish breaker) or support (bullish breaker).";
+  if (type == null) return { description, context: null };
+  const dir = type > 0 ? "Bullish breaker" : "Bearish breaker";
+  const dist = distAtr != null ? ` (${distAtr.toFixed(1)} ATR away)` : "";
+  return { description, context: `${dir}${dist} — flipped order block, expect reaction.` };
+}
+
+export function premiumDiscountPctTooltip(pct?: number | null): TooltipContent {
+  const description = "Premium / Discount %. Position within the swing range relative to equilibrium (midpoint). Positive = premium (expensive); negative = discount (cheap).";
+  if (pct == null) return { description, context: null };
+  if (pct > 25) return { description, context: `+${pct.toFixed(1)}% — Deep premium. Favour shorts or wait for discount.` };
+  if (pct > 0) return { description, context: `+${pct.toFixed(1)}% — Mild premium. Above equilibrium.` };
+  if (pct < -25) return { description, context: `${pct.toFixed(1)}% — Deep discount. Favour longs or wait for premium.` };
+  return { description, context: `${pct.toFixed(1)}% — Mild discount. Below equilibrium.` };
 }
