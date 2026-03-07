@@ -9,12 +9,12 @@ Writes results to:
   - Redis: {env_prefix}setup_performance:weights (JSON dict of perf_multipliers)
 
 Perf multiplier formula (FEED-03 consumption):
-  sorted by sharpe_ratio descending → rank 0..n-1
-  perf_multiplier = 0.5 + (rank / n_eligible)  → range [0.5, ~1.5]
-  Best performer: rank=n-1 → multiplier approaches 1.5
-  Worst performer: rank=0  → multiplier = 0.5
+  sorted by sharpe_ratio ascending → rank 0..n-1
+  perf_multiplier = 0.5 + ((n - 1 - rank) / n_eligible)  → range [0.5, ~1.5]
+  Best performer: rank=n-1 → multiplier = 0.5 (LOWEST — sorts first in ascending adjusted_rank)
+  Worst performer: rank=0  → multiplier approaches 1.5 (sorts last)
 
-Note: rank=n-1 for BEST because we want best Sharpe → highest multiplier.
+Note: Inverted so best Sharpe gets lowest multiplier, minimising adjusted_rank under ascending sort.
 If n_eligible == 1, perf_multiplier = 1.0 for the sole eligible setup.
 """
 
@@ -115,7 +115,7 @@ def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, float]:
     sorted_plugins = sorted(plugins, key=lambda p: stats[p]["sharpe_ratio"])
     multipliers: dict[str, float] = {}
     for rank, plugin in enumerate(sorted_plugins):
-        multipliers[plugin] = 0.5 + (rank / n)
+        multipliers[plugin] = 0.5 + ((n - 1 - rank) / n)
 
     return multipliers
 
