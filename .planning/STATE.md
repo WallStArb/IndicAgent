@@ -1,13 +1,13 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Quant Foundation
-status: Phase 15 active — validation gate built; DerivOsc implemented (gate deferred); alpha sources 03-05 pending
-last_updated: "2026-03-07T19:29:42.965Z"
-last_activity: "2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred (no live data — not yet registered)"
+milestone: v1.5
+milestone_name: TBD
+status: v1.4 complete — planning next milestone
+last_updated: "2026-03-07T20:04:37.693Z"
+last_activity: "2026-03-07 — v1.4 Quant Foundation milestone archived: 6 phases, 29 plans, 1286 tests, 91 plugins"
 progress:
   total_phases: 17
-  completed_phases: 6
+  completed_phases: 17
   total_plans: 29
   completed_plans: 29
 ---
@@ -16,20 +16,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-04)
+See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
-**Current focus:** v1.4 Quant Foundation — Phase 16: LLM Intelligence Layer (16-04 complete)
+**Current focus:** Planning v1.5 — run `/gsd:new-milestone`
 
 ---
 
 ## Current Position
 
-Phase: Phase 15 IN PROGRESS (4 of 5 plans done: 15-01, 15-02, 15-04, 15-05)
-Plan: 15-03 next (Tier 1 candlestick patterns — implement + validate + promote)
-Status: Phase 15 active — validation gate built; DerivOsc implemented (gate deferred); alpha sources 03-05 pending
-Last activity: 2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred (no live data — not yet registered)
+Phase: None — v1.4 milestone complete
+Status: All phases 12-17 shipped and archived. REQUIREMENTS.md deleted. Archived to .planning/milestones/v1.4-*.
+Last activity: 2026-03-07 — v1.4 Quant Foundation archived: 6 phases, 29 plans, 1286 tests, 91 plugins
 
 ## Accumulated Context
 
@@ -94,10 +93,11 @@ Last activity: 2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Consta
 ### Pending Todos
 
 - 5 O(N²) pattern files still unoptimized (non-blocking, low priority)
-- 25 todos total in .planning/todos/pending/ (see directory for full list)
+- validate_alpha.py re-runs needed for bootstrap-promoted plugins (DerivOsc, AC Osc) after 30+ bars accumulate
+- todos in .planning/todos/pending/ — see directory for full list
 
 ---
 
 ## Ready to Proceed
 
-Roadmap created — 4 phases, 17 requirements. Start with Phase 12: Signal Integrity.
+v1.4 complete. Run `/gsd:new-milestone` to define v1.5.

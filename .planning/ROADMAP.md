@@ -3,10 +3,11 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 0-9 (shipped 2026-02-28)
-- ✅ **v1.1 Code Quality Sprint** — Phase 01 complete (ruff 206 → 0, 6/13 tasks done)
-- ✅ **v1.2 Intelligence Palette Expansion** — Phases 2-6 + Phase 7 + Phase 8 complete (965 tests, I2/I5/I6 expanded)
-- ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 + Signal Lifecycle redesign (shipped 2026-03-04)
-- 🔲 **v1.4 Quant Foundation** — Phases 12-16 (in progress)
+- ✅ **v1.1 Code Quality Sprint** — Phase 01 (shipped 2026-03-01)
+- ✅ **v1.2 Intelligence Palette Expansion** — Phases 02-07 (shipped 2026-03-02)
+- ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 (shipped 2026-03-04)
+- ✅ **v1.4 Quant Foundation** — Phases 12-17 (shipped 2026-03-07)
+- 📋 **v1.5** — TBD (planned)
 
 ## Phases
 
@@ -29,373 +30,55 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 </details>
 
 <details>
-<summary>✅ v1.1 Code Quality Sprint — COMPLETE 2026-03-01</summary>
+<summary>✅ v1.1 Code Quality Sprint — SHIPPED 2026-03-01</summary>
 
-- [x] **Phase 01: Code Quality Sprint** — ruff 206 → 0, 803 tests passing, VX rolled to VXM6
-
-</details>
-
-<details>
-<summary>✅ v1.2 Intelligence Palette Expansion — COMPLETE 2026-03-02</summary>
-
-- [x] Phase 02: I2 Composite Events — 5 plugins (2026-02-27)
-- [x] Phase 03: I5 Chart Patterns — +6 new plugins (2026-02-27)
-- [x] Phase 04: I6 SMC Plugins — +5 new SMC plugins (2026-02-27)
-- [x] Phase 05: I6 Confluence Refactor — recency weighting + I2 events (2026-03-02)
-- [x] Phase 06: I1-I6 Correctness Audit — 35 tests (2026-03-02)
-- [x] Phase 07: Final Verification & Documentation — 965 tests, v5.10.0 (2026-03-02)
+- [x] Phase 01: Code Quality Sprint (1/1 plan) — ruff 206 → 0, 803 tests, service startup 9.2s → 1-2s
 
 </details>
 
 <details>
-<summary>✅ v1.3 Signal Intelligence Expansion — COMPLETE 2026-03-04</summary>
+<summary>✅ v1.2 Intelligence Palette Expansion (Phases 02-07) — SHIPPED 2026-03-02</summary>
 
-- [x] **Phase 08: MomentumAcceleration** — I2 plugin: rsi/macd/roc second-derivative + inflection_flag (complete)
-- [x] **Phase 09: GapAnalysisSetup** — I7 opening gap fade/continuation for ES/NQ (GAP-01, GAP-02, GAP-03) (completed 2026-03-03)
-- [x] **Phase 10: CandlestickPatternSetup** — I7 confluence-gated candlestick setup consuming I5 output (CNDL-01, CNDL-02, CNDL-03) (completed 2026-03-03)
-- [x] **Phase 11: SessionExtremesSetup** — I7 Asian session high/low fade during London/NY (SESS-01, SESS-02, SESS-03) (completed 2026-03-04)
+- [x] Phase 02: I2 Composite Events (5 plugins) — completed 2026-02-27
+- [x] Phase 03: I5 Chart Patterns (+6 new plugins) — completed 2026-02-27
+- [x] Phase 04: I6 SMC Plugins (+5 new SMC plugins) — completed 2026-02-27
+- [x] Phase 05: I6 Confluence Refactor (recency weighting + I2 events) — completed 2026-03-02
+- [x] Phase 06: I1-I6 Correctness Audit (35 tests) — completed 2026-03-02
+- [x] Phase 07: Final Verification & Documentation (965 tests) — completed 2026-03-02
 
 </details>
 
-### v1.4 Quant Foundation
+<details>
+<summary>✅ v1.3 Signal Intelligence Expansion (Phases 08-11) — SHIPPED 2026-03-04</summary>
 
-- [x] **Phase 12: Signal Integrity** — Regime-aware gating on all 12 I7 plugins with shadow signal tracking (completed 2026-03-04)
-- [x] **Phase 13: Data Completeness** — i7/i8 JSONB columns, concurrent stream polling, days-to-expiry (4 plans ready) (completed 2026-03-05)
-- [x] **Phase 14: Feedback Loop** — Setup performance analytics + adaptive aggregator weights + promotion gate (completed 2026-03-06)
-- [x] **Phase 15: Validated Alpha** — Validation script + 4 new alpha sources (DerivOsc, Candlestick Tier 1, MACD Accel, AC Osc) (completed 2026-03-07)
-- [x] **Phase 16: LLM Intelligence Layer** — Full LLM call audit log, outcome back-fill, adaptive model routing per regime (completed 2026-03-06)
-- [x] **Phase 17: LLM Wiring Fix** — Fix signal_id linkage (signals:aggregated missing UUID) and regime vocabulary mismatch (plugin vocab vs cache keys) — closes LLM-04/LLM-05 production breaks, restores E2E Flow 3 + Flow 4 (completed 2026-03-06)
+- [x] Phase 08: MomentumAcceleration (I2) — RSI/MACD/ROC 2nd-derivative + inflection detection — completed 2026-03-02
+- [x] Phase 09: GapAnalysisSetup (I7) — opening gap fade/continuation for ES/NQ — completed 2026-03-03
+- [x] Phase 10: CandlestickPatternSetup (I7) — confluence-gated candlestick setups — completed 2026-03-03
+- [x] Phase 11: SessionExtremesSetup (I7) — Asian session H/L fade during London/NY — completed 2026-03-04
 
-## Phase Details
+Full details: `.planning/milestones/v1.3-phases/`
 
-### Phase 01: Code Quality Sprint ✅
+</details>
 
-**Goal:** Fix all code quality issues identified by ruff, complexity analysis, and manual review
+<details>
+<summary>✅ v1.4 Quant Foundation (Phases 12-17) — SHIPPED 2026-03-07</summary>
 
-**Status:** Complete — 2026-03-01
+- [x] Phase 12: Signal Integrity — regime-aware gating (hmm_regime + prob≥0.60 + duration≥5), shadow signals — completed 2026-03-04
+- [x] Phase 13: Data Completeness — i7/i8 JSONB + days_to_expiry in intelligence_features — completed 2026-03-05
+- [x] Phase 14: Feedback Loop — setup_performance table + adaptive aggregator perf_multiplier — completed 2026-03-07
+- [x] Phase 15: Validated Alpha — validate_alpha.py gate + 4 new alpha sources live — completed 2026-03-07
+- [x] Phase 16: LLM Intelligence Layer — llm_calls hypertable + outcome back-fill + adaptive model routing — completed 2026-03-06
+- [x] Phase 17: LLM Wiring Fix — signal_id UUID through pipeline + regime vocabulary fix — completed 2026-03-06
 
-**Outcome:** ruff 206 → 0 · 803 tests passing · service startup 9.2s → 1-2s
+Full details: `.planning/milestones/v1.4-ROADMAP.md`
 
-**Key changes:**
-- All ruff E/F/W/PLR errors resolved across entire codebase
-- tf_minutes NameError (real runtime bug) fixed in timeframe_builder.py
-- All 6 services migrated to `ensure_consumer_group_with_reset`
-- 3 pattern files O(N²) → O(N), warmup parallelized, 27 clamp() replacements
+</details>
 
----
+### 📋 v1.5 (Planned)
 
-### Phase 02: I2 Composite Events ✅
+To be defined via `/gsd:new-milestone`.
 
-**Goal:** Add 5 composite event plugins that detect crossovers, threshold crosses, and band touches on I1 indicators
-
-**Status:** Complete — 2026-02-27 (planned and implemented pre-v1.0)
-
-**Outcome:**
-- MACDEvents: MACD crossover + negative support test signals
-- RSIEvents: oversold/overbought crosses + extreme reversal detection
-- StochasticEvents: K/D crosses + reversal signals + both oversold/overbought detection
-- ADXEvents: trend confirmation + DI crossover signals
-- VolumeEvents: volume-based event detection
-- All plugins run on I1 output before I3 structure analysis
-
-### Phase 03: I5 Chart Patterns — Add 6 New Plugins ✅
-
-**Goal:** Expand I5 pattern detection with 6 additional chart pattern plugins
-
-**Status:** Complete — 2026-02-27 (part of Intelligence Palette Expansion)
-
-**Outcome:**
-- CupHandle: Detect cup-with-handle continuation patterns
-- FlagPennant: Detect bullish/bearish flag patterns
-- TriangleWedge: Detect triangle and wedge continuation patterns
-- HeadShoulders: Detect head-and-shoulders reversal patterns
-- DoubleTopBottom: Detect double top/bottom reversal patterns
-- CandlestickPatterns: Detect doji, hammer, engulfing, etc.
-- I5 now has 14 total pattern detection plugins
-
-### Phase 04: I6 SMC Plugins — Add 5 New SMC Plugins ✅
-
-**Goal:** Expand I6 Smart Money Concepts with 5 additional SMC plugins
-
-**Status:** Complete — 2026-02-27 (part of Intelligence Palette Expansion)
-
-**Outcome:**
-- ICTKillzones: Detect Asia, London, NY AM/PM killzones with UTC-aware overlap handling
-- AMDCycle: Detect accumulation, manipulation, distribution phases with trend direction
-- BreakerBlocks: Identify bullish/bearish breaker block levels with ATR distance
-- MitigationBlocks: Track order block mitigation status and percentage
-- PremiumDiscount: Calculate premium/discount percentage relative to equilibrium
-- I6 SMC now has 13 total plugins (8 original + 5 new)
-
-### Phase 05: I6 Confluence Refactor ✅
-
-**Goal:** Enhance CrossTimeframeConfluence with recency weighting and I2 event integration
-
-**Status:** Complete — 2026-03-02
-
-**Outcome:**
-- Added `_get_recency_weight`: stale intel weighted by 1/(bars_since+1)
-- Recency weighting applied to trend, structure, and regime scoring
-- Added `_score_i2_events`: 8 bullish (+0.1) + 6 bearish (-0.1) + MACD negative support (+0.15)
-- Added W_I2=0.1 weight, renormalize composite by dividing by 1.1
-- Added 3 SMC cross-TF sub-score outputs: i6_smc_bos_alignment, i6_fvg_tf_alignment (0.0), i6_ob_tf_alignment (0.0)
-- CrossTimeframeConfluence now outputs 10 fields
-- I6 confluence schema and tests updated (16 tests passing)
-
-### Phase 06: I1-I6 Correctness Audit ✅
-
-**Goal:** Verify mathematical correctness of all I1-I6 intelligence plugins
-
-**Status:** Complete — 2026-03-02
-
-**Outcome:**
-- 35 correctness audit tests covering I1 (RSI, ATR, MACD, VWAP, Stochastic), I3 (SwingDetector, GARCH, Bollinger, OBV, SRClustering), I4 (TrendStructure, Kalman, TrendRegime, MomentumContext, BollingerSqueeze), I5 (TrendRegime, MomentumContext), I6 SMC (BOS/CHoCH, FVG, LiquiditySweeps, HMM, LiquidityPools, SupplyDemand)
-- All tests verify incremental computation matches full recomputation
-- Correctness issues fixed: VWAP std non-negative, Kalman uncertainty positive, etc.
-
-### Phase 07: Final Verification & Documentation ✅
-
-**Goal:** Run full test suite, lint, update CLAUDE.md, and complete milestone
-
-**Status:** Complete — 2026-03-02
-
-**Outcome:**
-- Tests: 965 passing (from 803 baseline in v1.0)
-- Ruff: 0 errors
-- CLAUDE.md updated to v5.10.0
-- Plugin counts aligned: 84 total (23 I1, 5 I2, 7 I3, 7 I4, 14 I5, 13 I6 SMC, 1 I6 confluence, 14 I7)
-- MILESTONES.md and ROADMAP.md updated with v1.2 entry
-- All Intelligence Palette Expansion work committed and pushed
-
----
-
-### Phase 08: MomentumAcceleration ✅
-
-**Goal:** Users can observe momentum acceleration signals — the rate of change of RSI, MACD, and ROC — and inflection flags in the live intelligence stream
-
-**Status:** Complete — 2026-03-02
-
-**Requirements:** ACCEL-01, ACCEL-02, ACCEL-03
-
-**Success Criteria** (what must be TRUE):
-  1. Every bar's IntelligenceEvent contains `rsi_accel`, `macd_accel`, `roc_accel` fields with valid float values (not null)
-  2. `inflection_flag` is 1 on any bar where at least one acceleration delta changes sign vs the prior bar, and 0 otherwise
-  3. The plugin appears in TIER_I2 and `registry.validate_tier()` passes at service startup with no crash
-  4. All MomentumAcceleration tests pass (`tests/unit/intelligence/composites/`)
-
-**Plans:** 5 plans
-
-Plans:
-- [ ] 15-01-PLAN.md — Build validate_alpha.py validation gate (ALPHA-01)
-- [ ] 15-02-PLAN.md — Derivative Oscillator I2 plugin: implement + validate + promote (ALPHA-02)
-- [ ] 15-03-PLAN.md — Candlestick Tier 1 x10 at I5: implement + per-pattern validation (ALPHA-03)
-- [ ] 15-04-PLAN.md — MACD histogram acceleration: additive fields + validation (ALPHA-04)
-- [ ] 15-05-PLAN.md — AC Oscillator I1 plugin: implement + validate + promote (ALPHA-05)
-
----
-
-### Phase 09: GapAnalysisSetup
-
-**Goal:** Traders can see opening gap setups — fade or continuation — generated for ES and NQ at market open (9:30 ET), with confidence scores and defined entry/stop/target levels
-
-**Depends on:** Phase 08
-
-**Requirements:** GAP-01, GAP-02, GAP-03
-
-**Success Criteria** (what must be TRUE):
-  1. On a bar where a gap is detected (prior close vs current open), the plugin produces a setup with `direction` (bullish/bearish) and `bias` (fade/continuation) populated
-  2. `confidence`, `entry_type` (at_limit or at_pullback), `stop_price`, and `target_price` are all present and non-null on any fired signal
-  3. Gap classification correctly distinguishes fade vs continuation based on gap size relative to ATR and volume context
-  4. The plugin is registered in TIER_I7 and the full unit test suite passes (`tests/unit/intelligence/`)
-
-**Plans:** 2/2 plans complete
-
-Plans:
-- [ ] 09-01-PLAN.md — Write failing test suite for GapAnalysisSetup (TDD RED phase)
-- [ ] 09-02-PLAN.md — Implement GapAnalysisSetupPlugin and register in TIER_I7
-
----
-
-### Phase 10: CandlestickPatternSetup
-
-**Goal:** Traders can see candlestick-confluence setups that consume existing I5 pattern detections and gate on trend, structure, and volume — no re-detection of raw price patterns in I7
-
-**Depends on:** Phase 09
-
-**Requirements:** CNDL-01, CNDL-02, CNDL-03
-
-**Success Criteria** (what must be TRUE):
-  1. The plugin reads `candlestick_*` fields from the I5 section of IntelligenceEvent and does not access raw OHLCV directly
-  2. A setup signal is only produced when the confluence score meets the configured threshold (trend direction, structure level proximity, and volume confirmation are evaluated)
-  3. Signals include a `confluence_score` field that reflects how many confirming factors were present
-  4. The plugin is registered in TIER_I7 and all unit tests pass (`tests/unit/intelligence/trading/`)
-
-**Plans:** 2/2 plans complete
-
-Plans:
-- [x] 10-01-PLAN.md — Write failing test suite for CandlestickPatternSetup (TDD RED phase)
-- [x] 10-02-PLAN.md — Implement CandlestickPatternSetupPlugin and register in TIER_I7 (16th plugin, 87 total)
-
----
-
-### Phase 11: SessionExtremesSetup
-
-**Goal:** Traders can see fade setups triggered when price approaches Asian session highs or lows during London or NY session windows, confirmed by at least one context factor
-
-**Depends on:** Phase 10
-
-**Requirements:** SESS-01, SESS-02, SESS-03
-
-**Success Criteria** (what must be TRUE):
-  1. The plugin reads `session_high` and `session_low` from I3 SessionLevels output rather than computing its own session extremes
-  2. A setup signal fires only within a London or NY session window (not during the Asian session itself)
-  3. A fade signal is only produced when at least one confirming factor — trend alignment, volume spike, or RSI extreme — is present alongside the session extreme test
-  4. The plugin is registered in TIER_I7 and all unit tests pass (`tests/unit/intelligence/trading/`)
-
-**Plans:** TBD
-
----
-
-### Phase 12: Signal Integrity
-
-**Goal:** All 12 I7 plugins only fire when the market regime supports the setup type — regime-ineligible signals are tracked as shadow signals rather than discarded
-
-**Depends on:** Phase 11
-
-**Requirements:** SIGINT-01, SIGINT-02, SIGINT-03, SIGINT-04, SIGINT-05
-
-**Success Criteria** (what must be TRUE):
-  1. A trend/momentum I7 plugin does not produce an eligible signal when `hmm_regime` is 0 (ranging), and a mean-reversion plugin does not produce an eligible signal when `hmm_regime` is 1 or 2 (trending)
-  2. Any bar where `hmm_regime_prob < 0.60` results in all I7 signals carrying `regime_eligible=False` and `suppression_reason='regime_prob'`, regardless of setup logic outcome
-  3. Any bar where `hmm_regime_duration < 5` results in all I7 signals carrying `regime_eligible=False` and `suppression_reason='regime_duration'`
-  4. Regime authority is sourced from 5m or 15m IntelligenceEvent, not 1m — the gating logic reads from the correct timeframe key
-  5. Regime-suppressed signals appear in `signal_ledger` with `status='regime_suppressed'` and their MAE/MFE/outcome are tracked by `signal_lifecycle_service`, making gate threshold tuning possible from data
-
-**Plans:** 4/4 plans complete
-
-Plans:
-- [x] 12-01-PLAN.md — Write Wave 0 failing tests for all 5 SIGINT requirements (TDD RED phase)
-- [x] 12-02-PLAN.md — Add regime_type class attribute to all 17 I7 plugin dataclasses
-- [x] 12-03-PLAN.md — Refactor aggregator (shadow signal gate) + signal_generator (regime cache + wiring)
-- [x] 12-04-PLAN.md — Extend signal_ledger query + implement shadow signal virtual-activation in lifecycle service
-
----
-
-### Phase 13: Data Completeness
-
-**Goal:** Every bar written to `intelligence_features` contains complete i7, i8, and temporal context — no permanently incomplete training samples
-
-**Depends on:** Phase 12
-
-**Requirements:** DATA-01, DATA-02, DATA-03, DATA-04
-
-**Success Criteria** (what must be TRUE):
-  1. A row in `intelligence_features` contains a non-null `i7` JSONB column populated with which setups fired on that bar, their confidence scores, and direction — verifiable by querying any recent bar
-  2. A row in `intelligence_features` contains a non-null `i8` JSONB column for any bar where an AI narrative was generated, with model name, confidence, and summary fields present
-  3. `feature_writer_service` reads all streams in a single concurrent `xreadgroup` call — lag between a bar completing and its feature row appearing drops to under 2 seconds, verifiable from service metrics
-  4. Every `intelligence_features` row has a `days_to_expiry` integer populated (0 for non-futures, positive integer for futures contracts based on `get_active_contracts()` expiry)
-
-**Plans:** 4/4 plans complete
-
-Plans:
-- [ ] 13-01-PLAN.md — DB migration (i7/i8/days_to_expiry columns) + stream key constructors
-- [ ] 13-02-PLAN.md — signal_generator publishes all_ranked to intelligence_i7 stream
-- [ ] 13-03-PLAN.md — ai_narrative publishes i8 metadata to intelligence_i8 stream
-- [ ] 13-04-PLAN.md — feature_writer subscribes to enrichment streams, UPSERTs i7/i8, writes days_to_expiry
-
----
-
-### Phase 14: Feedback Loop
-
-**Goal:** Setup performance data flows from resolved signal outcomes into the aggregator's ranking weights automatically — no manual intervention required
-
-**Depends on:** Phase 13
-
-**Requirements:** FEED-01, FEED-02, FEED-03
-
-**Success Criteria** (what must be TRUE):
-  1. A `setup_performance` table exists and is populated daily by a scheduled job with win rate, avg pnl_r, sample size, and Sharpe per setup type from the rolling 30-day window of resolved signals
-  2. A setup with fewer than 30 resolved signals in `signal_ledger` has no performance weight applied — the aggregator uses baseline weights for that setup regardless of early win/loss data
-  3. The signal aggregator reads setup performance weights at startup and outperforming setups rank higher than underperforming setups in aggregation — verifiable by comparing aggregator selection logs against `setup_performance` table values
-
-**Plans:** 5/5 plans complete
-
-Plans:
-- [ ] 14-01-PLAN.md — TDD RED: write all failing tests for FEED-01, FEED-02, FEED-03
-- [ ] 14-02-PLAN.md — Implement setup_performance_updater + migration 021 + weight_updater extension (FEED-01, FEED-02)
-- [ ] 14-03-PLAN.md — Aggregator perf multiplier + signal_generator_service Redis refresh (FEED-03)
-- [ ] 14-04-PLAN.md — Fix sort direction inversion in aggregator (FEED-03 gap closure)
-
----
-
-### Phase 15: Validated Alpha
-
-**Goal:** Four new alpha sources (Derivative Oscillator, 10 Candlestick Tier 1 patterns, MACD histogram acceleration, AC Oscillator) are live in production after each passes historical validation — no unvalidated signals fire
-
-**Depends on:** Phase 14
-
-**Requirements:** ALPHA-01, ALPHA-02, ALPHA-03, ALPHA-04, ALPHA-05
-
-**Success Criteria** (what must be TRUE):
-  1. A validation script exists that accepts an indicator or pattern name and produces: ADF stationarity result, correlation with pnl_r, signal frequency, and false-positive rate — runnable against `intelligence_features` + `signal_ledger` history from the command line
-  2. The Derivative Oscillator I2 plugin outputs `deriv_osc`, `deriv_osc_signal`, `deriv_osc_cross_bullish`, and `deriv_osc_cross_bearish` on every bar and has passed the ALPHA-01 validation gate before being wired to the live pipeline
-  3. The CandlestickPatternsPlugin (I5) and CandlestickPatternSetupPlugin (I7) include all 10 new Tier 1 patterns (Three White Soldiers, Three Black Crows, Morning Star, Evening Star, Three Inside Up/Down, Harami Cross, Dark Cloud Cover, Piercing Line), each having passed the ALPHA-01 gate
-  4. `MACDEventsPlugin` emits `macd_hist_accel` (float) and `macd_hist_contracting` (bool) on every bar, validated via ALPHA-01 before live promotion
-  5. The AC Oscillator I1 plugin emits `ao` and `ac` on every bar, registered in TIER_I1, and validated via ALPHA-01 before live wiring
-
-**Plans:** 7/7 plans complete
-
----
-
-### Phase 16: LLM Intelligence Layer
-
-**Goal:** Every LLM call is captured, outcome-linked, and used to adaptively route model selection — no model decision is made without data
-
-**Depends on:** Phase 13
-
-**Requirements:** LLM-01, LLM-02, LLM-03, LLM-04, LLM-05
-
-**Design:** `docs/plans/2026-03-05-llm-intelligence-layer-design.md`
-
-**Success Criteria** (what must be TRUE):
-  1. Every LLM call from `ai_narrative_service` (per-signal, group synthesis, counterfactual) produces a row in `llm_calls` hypertable within 30 seconds, with full prompt, response, model, latency, and signal context captured
-  2. When a signal exits in `signal_lifecycle_service`, the corresponding `llm_calls` rows for that `signal_id` are back-filled with outcome, pnl_r, mae, mfe within 60 seconds — verifiable by querying `llm_calls WHERE signal_id = ? AND outcome IS NOT NULL`
-  3. `llm_model_scores` is recomputed every 15 minutes from rows with non-null outcome, and Redis score cache is updated — verifiable by watching `llm_scores:*` keys in DragonflyDB
-  4. When a model reaches `is_significant=True` (p < 0.05, n_outcomes >= 30), `ai_narrative_service` moves it to position 0 in the provider chain for that call_type + regime combination at next score refresh
-  5. `llm_writer_service` is running as a systemd service (`indicagent-llm-writer`) with Prometheus metrics on its assigned port
-
-**Plans:** 7/7 plans complete
-
-Plans:
-- [ ] 16-01-PLAN.md — Schema foundation: migration 019 + stream key helpers + TDD RED tests
-- [ ] 16-02-PLAN.md — llm_writer_service implementation: batch INSERT, outcome UPDATE, score recompute (GREEN)
-- [ ] 16-03-PLAN.md — ai_narrative_service instrumentation: xadd on all call paths + adaptive routing
-- [ ] 16-04-PLAN.md — signal_lifecycle_service outcome emission: both exit paths to llm_outcomes:stream
-- [ ] 16-05-PLAN.md — Systemd deployment + migration apply + integration smoke test
-
----
-
-### Phase 17: LLM Wiring Fix
-
-**Goal:** Restore two broken production flows identified by the v1.4 audit — signal_id linkage and regime vocabulary — so LLM outcome back-fill and adaptive routing actually work in production
-
-**Gap Closure:** Closes gaps from v1.4-MILESTONE-AUDIT.md
-
-**Requirements:** LLM-04, LLM-05
-
-**Success Criteria** (what must be TRUE):
-  1. `signals:aggregated` stream payload includes `signal_id` UUID assigned at INSERT time — `ai_narrative_service` reads it and writes non-null to `llm_calls.signal_id`
-  2. When a signal exits, `llm_writer_service._UPDATE_OUTCOME_SQL WHERE signal_id = $1::uuid` matches the correct `llm_calls` row — verifiable by querying `llm_calls WHERE signal_id IS NOT NULL AND outcome IS NOT NULL`
-  3. Plugin `regime_context` values are translated to canonical vocabulary (`trending`/`ranging`/`volatile`) before being stored in `llm_calls.regime` — score cache keys match `_apply_score_routing` lookups
-  4. `_preferred_models` is populated after at least one score recompute cycle — adaptive routing activates for at least one call_type + regime combination
-
-**Plans:** 2/2 plans complete
-
-Plans:
-- [ ] 17-01-PLAN.md — Fix SessionExtremesSetup regime vocabulary (session_extreme_london/ny/both)
-- [ ] 17-02-PLAN.md — Thread signal_id through signals:aggregated stream to llm_calls
-
----
+Candidates from Backlog: Dashboard Complete, ML Scoring Model, Auth + External Access, Orderflow Integration.
 
 ## Progress
 
@@ -408,7 +91,7 @@ Plans:
 | 4. Query API | v1.0 | 3/3 | Complete | 2026-02-24 |
 | 5. Live Pipeline | v1.0 | 3/3 | Complete | 2026-02-25 |
 | 6. Dashboard Connected | v1.0 | 4/4 | Complete | 2026-02-28 |
-| 7. Composite Intelligence Score (CIS) | v1.0 | 4/4 | Complete | 2026-02-28 |
+| 7. Composite Intelligence Score | v1.0 | 4/4 | Complete | 2026-02-28 |
 | 8. Integration Fix & Cleanup | v1.0 | 3/3 | Complete | 2026-02-28 |
 | 9. Milestone Verification | v1.0 | 3/3 | Complete | 2026-02-28 |
 | 01. Code Quality Sprint | v1.1 | 1/1 | Complete | 2026-03-01 |
@@ -423,11 +106,11 @@ Plans:
 | 10. CandlestickPatternSetup | v1.3 | 2/2 | Complete | 2026-03-03 |
 | 11. SessionExtremesSetup | v1.3 | — | Complete | 2026-03-04 |
 | 12. Signal Integrity | v1.4 | 4/4 | Complete | 2026-03-04 |
-| 13. Data Completeness | 4/4 | Complete    | 2026-03-05 | — |
-| 14. Feedback Loop | 5/5 | Complete    | 2026-03-07 | — |
-| 15. Validated Alpha | 7/7 | Complete    | 2026-03-07 | — |
-| 16. LLM Intelligence Layer | 7/7 | Complete    | 2026-03-06 | — |
-| 17. LLM Wiring Fix | 2/2 | Complete    | 2026-03-06 | — |
+| 13. Data Completeness | v1.4 | 4/4 | Complete | 2026-03-05 |
+| 14. Feedback Loop | v1.4 | 5/5 | Complete | 2026-03-07 |
+| 15. Validated Alpha | v1.4 | 7/7 | Complete | 2026-03-07 |
+| 16. LLM Intelligence Layer | v1.4 | 7/7 | Complete | 2026-03-06 |
+| 17. LLM Wiring Fix | v1.4 | 2/2 | Complete | 2026-03-06 |
 
 ## Backlog
 
@@ -446,3 +129,5 @@ Items decided but not yet scheduled. Pull into a milestone when ready.
 | HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
 | Ehlers Elegant Oscillator I1 | 2-bar price diff → RMS normalize → inverse Fisher transform → SuperSmoother IIR. Near-zero-lag cycle oscillator. Medium-high complexity. | `ideas/2nd-derivative-indicator-research.md` |
 | Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
+| Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
+| validate_alpha.py re-runs | Re-run validate_alpha.py --promote for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |

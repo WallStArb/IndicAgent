@@ -2,7 +2,7 @@
 
 ## What This Is
 
-IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 62 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store. A live React dashboard displays all tiers in real time via SSE.
+IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 91 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store with complete i7/i8/days_to_expiry enrichment. Signal integrity is enforced via regime-aware gating; setup performance feeds back adaptively into aggregator rankings. A live React dashboard displays all tiers in real time via SSE.
 
 ## Core Value
 
@@ -13,6 +13,27 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 ### Validated
 
 (Shipped and verified in production)
+
+**v1.4 Quant Foundation (2026-03-07):**
+- ✓ Regime-aware I7 gating: hmm_regime type + prob≥0.60 + duration≥5 gates on all 17 setups — v1.4
+- ✓ Shadow signals: regime-suppressed signals tracked in signal_ledger with counterfactual MAE/MFE/outcome — v1.4
+- ✓ `intelligence_features.i7 JSONB` — all_ranked signals per bar, enriched via intelligence_i7 stream — v1.4
+- ✓ `intelligence_features.i8 JSONB` — AI narrative metadata per bar, enriched via intelligence_i8 stream — v1.4
+- ✓ `intelligence_features.days_to_expiry` — futures roll proximity signal at write time — v1.4
+- ✓ `feature_writer_service` concurrent xreadgroup (enrich loop) — eliminates worst-case 9.2s polling lag — v1.4
+- ✓ `setup_performance` table + daily weight-update job + promotion gate (n≥30) — v1.4
+- ✓ Aggregator `perf_multiplier` primary sort key — outperforming setups rank higher automatically — v1.4
+- ✓ `validate_alpha.py` statistical promotion gate (Pearson r>0, p<0.05, N≥30 + ADF) — v1.4
+- ✓ DerivativeOscillatorPlugin (I2) — Constance Brown EMA5→EMA3→SMA9, live — v1.4
+- ✓ 10 Candlestick Tier 1 patterns in I5 + I7 (Three White/Black Soldiers, Morning/Evening Star, Three Inside Up/Down, Harami Cross, Dark Cloud Cover, Piercing Line) — v1.4
+- ✓ `macd_hist_accel` + `macd_hist_contracting` in MACDEventsPlugin — v1.4
+- ✓ ACOscillatorPlugin (I1) — Bill Williams AO + AC — v1.4
+- ✓ `llm_calls` TimescaleDB hypertable — full LLM audit log, partitioned by called_at — v1.4
+- ✓ `llm_writer_service` — batch INSERT, outcome back-fill, 15-min score recompute — v1.4
+- ✓ `llm_model_scores` — per-model win rate/avg_pnl_r/p-value refreshed every 15 min — v1.4
+- ✓ Adaptive LLM model routing per call_type + regime (is_significant gate: n≥30, p<0.05) — v1.4
+- ✓ `signal_id` UUID threaded through signals:aggregated → llm_calls.signal_id; outcome back-fill WHERE clause works — v1.4
+- ✓ SessionExtremesSetup regime vocabulary standardized (session_extreme_london/ny/both) — v1.4
 
 **Pre-v1.0 (existing):**
 - ✓ Real-time IBKR tick ingestion → 1m bar aggregation — existing
@@ -48,19 +69,9 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ### Active
 
-(Current milestone — v1.4 Quant Foundation)
+(Next milestone — v1.5, to be defined)
 
-**Philosophy:** Build to Renaissance Technologies standard. Every decision is grounded in three Jim Simons principles: (1) data first — never lose a training sample; (2) signal validation before scale — discard unless proven; (3) self-improving systems — feedback loops that make the platform smarter without manual intervention.
-
-**Scope:** Four disciplines that elevate the platform from a signal generator to a quant-grade intelligence system.
-
-**Target disciplines:**
-- Signal Integrity (SIGINT): Regime-aware I7 gating — stop generating structurally false signals
-- Data Completeness (DATA): Complete intelligence_features for ML — i7/i8 JSONB, fix polling, days-to-expiry
-- Feedback Loop (FEED): Setup performance analytics → adaptive aggregator weights + promotion gate
-- Validated Alpha (ALPHA): New indicators/patterns with historical validation before promotion to live
-
-See `.planning/REQUIREMENTS.md` for full breakdown.
+See `.planning/ROADMAP.md` Backlog for candidate features.
 
 ### Out of Scope
 
@@ -74,32 +85,26 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 
 ## Context
 
-### Current Milestone: v1.4 Quant Foundation
+### Current State (v1.4 shipped 2026-03-07)
 
-**Goal:** Elevate the platform to Renaissance Technologies standard — regime-aware signal integrity, complete ML training data, self-improving feedback loops, and validated new alpha sources.
+- 91 plugins + 2 aggregation components (I1: 24, I2: 8, I3: 3, I4: 5, I5: 24, SMC: 11+1 confluence, I7: 17 setups + 2 agg)
+- 1,286 unit tests passing · Ruff: 34 errors (E501 line-too-long, non-blocking)
+- 10 active systemd services + weight-updater timer
+- `intelligence_features`: complete feature vectors per bar — i7/i8 JSONB + days_to_expiry live
+- `signal_ledger`: labeled outcome data accumulating (8-class, MAE/MFE, regime status)
+- `setup_performance`: rolling 30-day setup analytics feeding adaptive aggregator weights
+- `llm_calls`: full LLM audit log — 3 call paths captured, outcome back-fill live
+- `validate_alpha.py`: Pearson+ADF statistical gate for all new alpha sources
+- 4 new alpha sources live: DerivOsc (I2), 10 Candlestick Tier 1 (I5/I7), MACD accel (I2), AC Osc (I1)
+- Shadow signals: regime-suppressed counterfactual data accumulating for gate tuning
 
-**Design philosophy:** Jim Simons built Medallion on three principles we're encoding here: (1) never lose a training sample — feature store must be complete before the ML layer can be built; (2) discard unless proven — signals must clear regime, conviction, and stability gates before firing; (3) self-improving systems — outcome data must feed back into signal selection without manual intervention.
-
-**Target disciplines:**
-- Signal Integrity: Per-plugin regime gates (hmm_regime), conviction gate (prob≥0.60), stability gate (duration≥5) across all I7 setups
-- Data Completeness: i7/i8 JSONB in intelligence_features, concurrent feature_writer polling, days-to-expiry column
-- Feedback Loop: Setup performance report + adaptive weights from signal_ledger outcomes + setup promotion gate (n≥30)
-- Validated Alpha: Derivative Oscillator (I2), Candlestick Tier 1 (10 patterns), MACD Hist Accel, AC Oscillator (I1) — each validated on historical data before live promotion
-
----
-
-**v1.3 baseline state (2026-03-04):**
-- 88 plugins + 2 aggregation components (I1: 23, I2: 6, I3: 3, I4: 5, I5: 14, SMC: 11+1 confluence, I7: 12 setups + 2 agg)
-- 1083 unit tests passing, 0 ruff errors
-- 9 active systemd services (incl. signal_lifecycle_service) + weight-updater timer
-- Signal lifecycle: zone-aware activation, MAE/MFE, 8-class outcome — labeled training data accumulating
-- intelligence_features: live per-bar feature vectors accumulating (missing i7/i8 — DATA discipline target)
-
-**Infrastructure:** Ollama (:11434, qwen3:8b default), PostgreSQL/TimescaleDB (:5432), DragonflyDB (:6379), IBKR TWS at 10.0.0.33:7497
+**Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), DragonflyDB (:6379), IBKR TWS at 10.0.0.33:7497
 
 **Known issues:**
 - indicagent-timeframes.service — legacy, import bug (src.data → src.core), non-blocking
-- feature_writer_service still uses sequential stream polling (targeted in DATA discipline)
+- feature_writer_service base loop still uses sequential stream polling (enrich loop is concurrent); pre-existing todo
+
+**Next milestone candidates:** Dashboard Complete (timeframe matrix, signal history), ML Scoring Model (needs ~90 days labeled outcomes), Orderflow Integration, Auth + External Access
 
 ## Key Decisions
 
@@ -116,6 +121,13 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 | at_limit / at_pullback entry types for 4 setups | Better RR than entering at current close | ✓ Good — momentum_breakout, squeeze, trend, mtf_alignment all use structural levels |
 | Signal aggregator selects one winner per bar | Simple and debuggable; may expose multiple signals per bar in v1.1 | ⚠️ Revisit — single winner may miss concurrent high-conviction setups |
 | Auth deferred until external consumer exists | No external consumers; auth adds complexity without benefit today | ✓ Correct deferral |
+| Regime-aware gating on all I7 plugins | Jim Simons: signals that ignore market state are noise — enforce hmm_regime + prob + duration gates | ✓ Good — regime_suppressed shadow signals accumulate counterfactual data for gate tuning |
+| Shadow signals → signal_ledger (not discarded) | Cannot validate gate thresholds without observability into suppressed signals | ✓ Good — counterfactual MAE/MFE/outcome tracked, empirical gate tuning enabled |
+| Validated alpha via validate_alpha.py gate | Renaissance: discard unless statistically proven (Pearson r>0, p<0.05, N≥30) | ✓ Good — bootstrap policy for data-absent correct implementations; re-run after data accumulates |
+| Bootstrap policy for new plugins without live data | Chicken-and-egg: plugin must be registered before data accumulates; verdict=BOOTSTRAP + audit trail | ✓ Good — avoids permanently blocking correct implementations waiting for live data |
+| perf_multiplier as primary aggregator sort key | Flat formula (composite_rank × multiplier) let priority dominate, breaking performance ranking | ✓ Good — multiplier as primary key, SETUP_PRIORITY only as tiebreaker; outperformers rank first |
+| signal_id UUID threaded through signals:aggregated | Without ledger UUID in stream, llm_calls.signal_id=NULL; outcome back-fill WHERE clause matches 0 rows | ✓ Good — xdel compensates on DB failure to avoid orphaned signal_ids |
+| Canonical regime vocabulary for LLM routing | Raw plugin regime_context ('bullish') ≠ score cache keys ('trending') → cache miss on every lookup | ✓ Good — SessionExtremesSetup uses session_extreme_* as vocabulary; others use canonical trending/ranging/volatile |
 
 ## Constraints
 
@@ -124,7 +136,5 @@ See `.planning/REQUIREMENTS.md` for full breakdown.
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-| Build to Renaissance standard | v1.4 philosophy: signal validation before scale, data first, self-improving systems | — Pending |
-
 ---
-*Last updated: 2026-03-04 after v1.4 milestone started*
+*Last updated: 2026-03-07 after v1.4 milestone*
