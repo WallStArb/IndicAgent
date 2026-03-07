@@ -22,8 +22,10 @@ class CandlestickPatternSetupPlugin:
 
     Priority order (lower rank = higher priority):
         0: hammer, shooting_star  (satisfy S/R automatically)
-        1: engulfing_bull, engulfing_bear
-        2: pin_bar_bull, pin_bar_bear  (need at least one additional factor)
+        1: engulfing_bull, engulfing_bear, three_white_soldiers, three_black_crows
+        2: pin_bar_bull, pin_bar_bear, morning_star, evening_star
+        3: three_inside_up/down, dark_cloud_cover, piercing_line
+        4: harami_cross  (direction follows trend)
     """
 
     name: str = "trad_CandlestickPatternSetup"
@@ -75,6 +77,16 @@ class CandlestickPatternSetupPlugin:
         pin_bar_bear = float(features.get("pin_bar_bear", 0.0))
         hammer = float(features.get("hammer_detected", 0.0))
         shooting_star = float(features.get("shooting_star_detected", 0.0))
+        # New Tier 1 patterns (bootstrap-promoted via 15-GAP-02)
+        three_white_soldiers = float(features.get("three_white_soldiers", 0.0))
+        three_black_crows = float(features.get("three_black_crows", 0.0))
+        morning_star = float(features.get("morning_star", 0.0))
+        evening_star = float(features.get("evening_star", 0.0))
+        three_inside_up = float(features.get("three_inside_up", 0.0))
+        three_inside_down = float(features.get("three_inside_down", 0.0))
+        harami_cross = float(features.get("harami_cross", 0.0))
+        dark_cloud_cover = float(features.get("dark_cloud_cover", 0.0))
+        piercing_line = float(features.get("piercing_line", 0.0))
 
         # Collect directional candidates with priority (lower rank = higher priority)
         # Candidate: (priority_rank, direction, pattern_name, base_confidence, sr_auto_satisfied)
@@ -87,10 +99,30 @@ class CandlestickPatternSetupPlugin:
             candidates.append((1, 1, "engulfing", 0.55, False))
         if engulfing_bear > 0.0:
             candidates.append((1, -1, "engulfing", 0.55, False))
+        if three_white_soldiers > 0.0:
+            candidates.append((1, 1, "three_white_soldiers", 0.75, False))
+        if three_black_crows > 0.0:
+            candidates.append((1, -1, "three_black_crows", 0.75, False))
         if pin_bar_bull > 0.0:
             candidates.append((2, 1, "pin_bar", 0.45, False))
         if pin_bar_bear > 0.0:
             candidates.append((2, -1, "pin_bar", 0.45, False))
+        if morning_star > 0.0:
+            candidates.append((2, 1, "morning_star", 0.80, False))
+        if evening_star > 0.0:
+            candidates.append((2, -1, "evening_star", 0.80, False))
+        if three_inside_up > 0.0:
+            candidates.append((3, 1, "three_inside_up", 0.65, False))
+        if three_inside_down > 0.0:
+            candidates.append((3, -1, "three_inside_down", 0.65, False))
+        if dark_cloud_cover > 0.0:
+            candidates.append((3, -1, "dark_cloud_cover", 0.70, False))
+        if piercing_line > 0.0:
+            candidates.append((3, 1, "piercing_line", 0.70, False))
+        if harami_cross > 0.0:
+            # harami_cross has no intrinsic direction — align with trend
+            trend_dir_local = 1 if float(features.get("trend_regime", 0.0)) > 0 else -1
+            candidates.append((4, trend_dir_local, "harami_cross", 0.60, False))
 
         if not candidates:
             return self._no_signal()
