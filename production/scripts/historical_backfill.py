@@ -136,6 +136,14 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     "1d":  (2555, True),
 }
 
+# FX and crypto: IBKR only provides reliable 1m bars; higher TFs are derived via
+# aggregate_bars_from_1m(). Fetch deeper 1m windows so derived TFs have enough
+# history for HMM/GARCH and regime detection.
+#   FX (IDEALPRO/MIDPOINT): up to ~6 months available. 180d → ~1,300 derived 1h bars.
+#   Crypto (PAXOS/AGGTRADES): Paxos data reliable for ~90d. 90d → ~2,160 derived 1h bars.
+_1M_DAYS_FX: int = 180
+_1M_DAYS_CRYPTO: int = 90
+
 
 def run_i1_plugins(
     bar_history: deque,
@@ -546,6 +554,39 @@ def connect_db(settings: Settings) -> Any:
     )
 
 
+_TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
+
+
+def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
+    """Aggregate 1m OHLCV bars to a higher timeframe by flooring to window boundaries."""
+    minutes = _TF_MINUTES[target_tf]
+    windows: dict[datetime, list[dict]] = {}
+    for bar in bars_1m:
+        ts = bar["timestamp"]
+        if minutes < 1440:
+            floored = ts.replace(
+                minute=(ts.minute // minutes) * minutes,
+                second=0, microsecond=0,
+            )
+        else:
+            floored = ts.replace(hour=0, minute=0, second=0, microsecond=0)
+        windows.setdefault(floored, []).append(bar)
+
+    result = []
+    for window_start in sorted(windows):
+        w = windows[window_start]
+        result.append({
+            "timestamp": window_start,
+            "open": w[0]["open"],
+            "high": max(b["high"] for b in w),
+            "low": min(b["low"] for b in w),
+            "close": w[-1]["close"],
+            "volume": sum(b.get("volume", 0) or 0 for b in w),
+            "source": "derived_1m",
+        })
+    return result
+
+
 def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = None) -> list[dict]:
     """Fetch stored OHLCV bars for *symbol* + *timeframe*, ordered oldest-first.
 
@@ -826,6 +867,41 @@ def main() -> None:
                         except Exception as e:
                             print(f"  {instrument.symbol}/{tf}: error — {e}")
                         time.sleep(2)  # IBKR pacing between TF requests
+
+                    # FX and crypto: IBKR only reliably provides 1m bars.
+                    # Re-fetch 1m with deeper window, then derive 5m/15m/1h/1d.
+                    if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
+                        deep_days = _1M_DAYS_FX if instrument.asset_class == AssetClass.FX else _1M_DAYS_CRYPTO
+                        deep_start = (end_dt - timedelta(days=deep_days)).replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+                        try:
+                            deep_bars = asyncio.run(provider.fetch_historical_bars(
+                                symbol=instrument.symbol,
+                                timeframe="1m",
+                                start=deep_start,
+                                end=end_dt,
+                                continuous=False,
+                            ))
+                            deep_dicts = [
+                                {"timestamp": b.timestamp, "open": b.open, "high": b.high,
+                                 "low": b.low, "close": b.close, "volume": b.volume, "source": b.source}
+                                for b in deep_bars
+                            ]
+                            n = store_bars(db_conn, deep_dicts, instrument.symbol, "1m")
+                            print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
+                        except Exception as e:
+                            print(f"  {instrument.symbol}/1m deep fetch error — {e}")
+                        bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
+                        if bars_1m:
+                            for derived_tf in ("5m", "15m", "1h", "1d"):
+                                aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
+                                n = store_bars(db_conn, aggregated, instrument.symbol, derived_tf)
+                                total_bars += n
+                                print(f"  {instrument.symbol}/{derived_tf} (derived from 1m): {n} bars")
+                        else:
+                            print(f"  {instrument.symbol}: no 1m bars — skipping derivation")
+
                 except Exception as e:
                     print(f"  {instrument.symbol}: error — {e}")
                 time.sleep(2)  # IBKR pacing between instruments
