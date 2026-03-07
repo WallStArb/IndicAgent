@@ -1,5 +1,5 @@
 """Tests for stream key helpers."""
-from src.core.stream_keys import narratives_group
+from src.core.stream_keys import narratives_group, system_events
 
 
 def test_narratives_group_no_prefix():
@@ -17,3 +17,11 @@ def test_narratives_group_all_groups():
     for g in groups:
         key = narratives_group("", g)
         assert key == f"narratives:group:{g}"
+
+
+def test_system_events_no_prefix():
+    assert system_events("") == "system:events"
+
+
+def test_system_events_with_env_prefix():
+    assert system_events("development:") == "development:system:events"

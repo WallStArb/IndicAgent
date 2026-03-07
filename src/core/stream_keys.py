@@ -75,6 +75,15 @@ def llm_outcomes_stream(env_prefix: str) -> str:
     return f"{env_prefix}llm_outcomes:stream"
 
 
+def system_events(env_prefix: str) -> str:
+    """Global stream for system-level events (e.g. pipeline_reset sentinel).
+
+    Intentionally excluded from pipeline_reset _REDIS_PATTERNS so it survives
+    the stream clear — reconnecting SSE clients still see the event via snapshot.
+    """
+    return f"{env_prefix}system:events"
+
+
 def llm_scores_cache(env_prefix: str, call_type: str, regime: str) -> str:
     """Redis HSET key for model score blobs keyed by model name."""
     return f"{env_prefix}llm_scores:{call_type}:{regime}"
@@ -97,7 +106,7 @@ def get_stream_maxlen(
         "ticks", "market", "indicators", "intelligence",
         "intelligence_i7", "intelligence_i8",
         "signals", "signals_aggregated", "narratives", "narratives_group",
-        "llm_calls", "llm_outcomes",
+        "llm_calls", "llm_outcomes", "system_events",
     ],
 ) -> int:
     if kind == "ticks":
@@ -126,6 +135,8 @@ def get_stream_maxlen(
         return 500
     if kind == "llm_outcomes":
         return 200
+    if kind == "system_events":
+        return 50
     return 1000
 
 
