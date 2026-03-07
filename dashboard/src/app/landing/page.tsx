@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { symbolConfig } from "@/lib/symbol-config";
+import { LandingNav } from "@/components/landing/landing-nav";
 import { HeroSection } from "@/components/landing/hero-section";
 import { TierShowcase } from "@/components/landing/tier-showcase";
 import { IntelligencePillars } from "@/components/landing/intelligence-pillars";
@@ -121,6 +122,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen">
+      <LandingNav />
       <HeroSection activeSignalCount={filteredSignals.length} />
       <TierShowcase />
       <IntelligencePillars />
