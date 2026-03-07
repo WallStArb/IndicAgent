@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { symbolConfig } from "@/lib/symbol-config";
 import { HeroSection } from "@/components/landing/hero-section";
+import { TierShowcase } from "@/components/landing/tier-showcase";
 import { IntelligencePillars } from "@/components/landing/intelligence-pillars";
 import { SignalFilters, type SignalFilters as SignalFiltersType } from "@/components/landing/signal-filters";
 import SignalCard from "@/components/landing/signal-card";
@@ -12,7 +13,6 @@ import { ArrowRight } from "lucide-react";
 import type { Timeframe, SignalData } from "@/lib/types";
 
 // Asset class groupings — single source of truth for the landing page.
-// Filter, label derivation, and symbol list all derive from this one constant.
 const ASSET_CLASSES = {
   Equity: ["ES", "NQ", "RTY", "YM"],
   Energy: ["CL"],
@@ -33,8 +33,23 @@ function getAssetClass(symbol: string): string {
   return "Other";
 }
 
+// TF-aware staleness windows and long-TF display caps
+const TF_STALENESS_MS: Record<string, number> = {
+  "1m":  15 * 60_000,
+  "5m":  30 * 60_000,
+  "15m": 60 * 60_000,
+  "1h":  4 * 3_600_000,
+  "4h":  8 * 3_600_000,
+  "1d":  24 * 3_600_000,
+};
+const TF_MAX_SHOWN: Record<string, number> = {
+  "1h": 3,
+  "4h": 2,
+  "1d": 1,
+};
+
 export default function LandingPage() {
-  const [activeTf, setActiveTf] = useState<Timeframe>("5m");
+  const [activeTf] = useState<Timeframe>("5m");
   const [filters, setFilters] = useState<SignalFiltersType>({
     confidence: "all",
     cis: "all",
@@ -52,7 +67,8 @@ export default function LandingPage() {
       assetClass: string;
     }> = [];
 
-    const oneHourAgo = Date.now() - 3_600_000;
+    const longTfCounts: Record<string, number> = {};
+    const now = Date.now();
 
     Object.entries(symbolData).forEach(([symbol, data]) => {
       if (!data.signalsByTf) return;
@@ -70,11 +86,19 @@ export default function LandingPage() {
         // CIS filter
         if (filters.cis === "cis-only" && signal.confidence < 0.7) return;
 
-        // Staleness filter
+        // TF-aware staleness filter
         const signalTs = new Date(signal.timestamp).getTime();
-        if (isNaN(signalTs) || signalTs < oneHourAgo) return;
+        const stalenessMs = TF_STALENESS_MS[tf] ?? 3_600_000;
+        if (isNaN(signalTs) || now - signalTs > stalenessMs) return;
 
-        // Asset class filter — single lookup into ASSET_CLASSES
+        // Cap long-TF signals to avoid stale dominance
+        if (TF_MAX_SHOWN[tf] != null) {
+          longTfCounts[tf] = longTfCounts[tf] ?? 0;
+          if (longTfCounts[tf] >= TF_MAX_SHOWN[tf]) return;
+          longTfCounts[tf]++;
+        }
+
+        // Asset class filter
         const assetClass = getAssetClass(symbol);
         if (filters.assetClass !== "all" && assetClass !== filters.assetClass) return;
 
@@ -87,7 +111,6 @@ export default function LandingPage() {
       });
     });
 
-    // Pre-compute timestamps for sort to avoid repeated Date parsing
     return signals
       .map((s) => ({ ...s, ts: new Date(s.signal.timestamp).getTime() }))
       .sort((a, b) => {
@@ -99,6 +122,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen">
       <HeroSection activeSignalCount={filteredSignals.length} />
+      <TierShowcase />
       <IntelligencePillars />
 
       <section className="px-6 py-12">
@@ -117,15 +141,10 @@ export default function LandingPage() {
             </div>
             <Link
               href="/dashboard"
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all duration-200 hover:scale-105"
-              style={{
-                background: "var(--accent-cyan)",
-                color: "#0A0E14",
-                boxShadow: "0 4px 12px rgba(78, 214, 200, 0.3)",
-              }}
+              className="text-sm font-medium flex items-center gap-1 hover:opacity-80 transition-opacity"
+              style={{ color: "var(--accent-cyan)" }}
             >
-              Enter Full Dashboard
-              <ArrowRight size={18} />
+              View all <ArrowRight size={14} />
             </Link>
           </div>
 
@@ -150,38 +169,6 @@ export default function LandingPage() {
               No signals match the current filters.
             </div>
           )}
-        </div>
-      </section>
-
-      <section className="px-6 py-12 border-t">
-        <div className="max-w-5xl mx-auto">
-          <h2
-            className="text-2xl font-semibold mb-6 text-center"
-            style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
-          >
-            Intelligence Pipeline Architecture
-          </h2>
-          <div
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            {[
-              { layer: "Layer 4", title: "AI Intelligence (I8)", detail: "LLM analysis, narrative generation" },
-              { layer: "Layer 3", title: "Pattern Intelligence (I5-I7)", detail: "Pattern detection, confluence, trading signals" },
-              { layer: "Layer 2", title: "Mathematical Intelligence (I1-I4)", detail: "Technical indicators, context classification" },
-              { layer: "Layer 1", title: "Data Foundation", detail: "Tick/bar collection, event-driven bus, typed streams" },
-            ].map(({ layer, title, detail }) => (
-              <div
-                key={layer}
-                className="p-4 rounded-lg border"
-                style={{ background: "var(--surface-card)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>{layer}</div>
-                <div className="text-xs">{title}</div>
-                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{detail}</div>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
     </div>
