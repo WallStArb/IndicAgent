@@ -83,3 +83,4 @@ Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lif
 - **Qwen3 thinking mode**: `content` empty if `num_predict < 500` (thinking tokens consume budget). Use `/no_think` prefix or `num_predict ≥ 500`.
 - **Local Ollama models**: qwen3.5:9b (per-signal), phi4-mini:3.8b (group synthesis) (Docker `:11434`).
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
+- **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.

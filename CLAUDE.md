@@ -86,9 +86,9 @@ Use `context7` MCP for FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
 **Services** (systemd-managed, `Restart=always`):
-- `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-tracker,ai-narrative,feature-writer,api}`
+- `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-lifecycle,ai-narrative,feature-writer,llm-writer,api}`
 - `journalctl -u indicagent-<name> -f` — live logs
-- Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-tracker :9115, feature-writer :9116
+- Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117
 
 **Backfill:** `.venv/bin/python production/scripts/historical_backfill.py [--fetch-only|--replay-only] [--days N] [--symbols SYM,SYM]`
 **Pipeline Reset:** `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv] [--symbols SYM,SYM]`
@@ -124,6 +124,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
+| LLM Writer | `indicagent-llm-writer` | `llm_calls:stream` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
 
 ### Core Runtime Files
@@ -139,8 +140,10 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 ### Stream Keys (env-prefixed: `development:` in dev)
 - `indicators:SYMBOL:TF` — I1 output
 - `intelligence:SYMBOL:TF` — typed IntelligenceEvent (I3→I6 output)
-- `signals:SYMBOL:TF:aggregated` — selected I7 signal
+- `signals:SYMBOL:TF:aggregated` — selected I7 signal (direction=0 = terminal/resolved event)
 - `narratives:SYMBOL:TF` — I8 AI narrative
+- `llm_calls:stream` — every LLM call (success + failure + counterfactual); maxlen=500
+- `llm_outcomes:stream` — signal lifecycle exits with outcome/pnl_r/mae/mfe; maxlen=200
 
 ### Hot/Warm/Cold Tiers
 ```
@@ -195,6 +198,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
 - **`format.ts` timing utils**: `fmtTimeHMS(iso)` → `HH:MM:SS` or null (guards invalid dates); `fmtLagSeconds(lagS)` → `"+1.2s"` or null (guards NaN).
+- **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
 ## System Access
 
@@ -206,9 +210,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1182 passing · **Ruff:** 0 errors ✅
+**Tests:** 1236 passing · **Ruff:** 0 errors ✅
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Phase 12 Signal Integrity ✅, Data Completeness, Feedback Loop, Validated Alpha) — see `.planning/ROADMAP.md`
+**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Phase 12 ✅, Phase 13 ✅, Phase 14 ✅, Phase 15 pending, Phase 16 ✅, Phase 17 ✅) — see `.planning/ROADMAP.md`
 
 ## Key References
 
