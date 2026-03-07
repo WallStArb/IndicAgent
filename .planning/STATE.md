@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
-status: completed
-last_updated: "2026-03-07T09:39:55.208Z"
-last_activity: "2026-03-07 — 15-01 complete: validate_alpha.py statistical gate built (Pearson r>0, p<0.05, N>=30) with auto-backfill, --promote patching, JSON audit trail, 8 tests GREEN"
+status: Phase 15 active — validation gate built; alpha sources 02-05 pending
+last_updated: "2026-03-07T13:22:24.459Z"
+last_activity: "2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred pending live data"
 progress:
   total_phases: 17
   completed_phases: 5
   total_plans: 27
-  completed_plans: 23
+  completed_plans: 24
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 ## Current Position
 
-Phase: Phase 15 IN PROGRESS (1 of 5 plans done: 15-01)
-Plan: 15-01 complete → 15-02 next (Derivative Oscillator I2 — implement + validate + promote)
-Status: Phase 15 active — validation gate built; alpha sources 02-05 pending
-Last activity: 2026-03-07 — 15-01 complete: validate_alpha.py statistical gate built (Pearson r>0, p<0.05, N>=30) with auto-backfill, --promote patching, JSON audit trail, 8 tests GREEN
+Phase: Phase 15 IN PROGRESS (2 of 5 plans done: 15-01, 15-02)
+Plan: 15-02 complete → 15-03 next (Tier 1 candlestick patterns — implement + validate + promote)
+Status: Phase 15 active — validation gate built; DerivOsc implemented (gate deferred); alpha sources 03-05 pending
+Last activity: 2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred (no live data — not yet registered)
 
 ## Accumulated Context
 
@@ -83,6 +83,8 @@ Last activity: 2026-03-07 — 15-01 complete: validate_alpha.py statistical gate
 - [Phase 14-05]: _build_all_ranked() uses perf_multiplier as primary sort key; no-weights fallback uses -SETUP_PRIORITY for consistent ascending sort
 - [Phase 15-01]: Correlation computed over ALL bars (signal=1 and 0) not just signal-fired bars — avoids constant-input NaN in Pearson when binary indicator fires consistently
 - [Phase 15-01]: validate_alpha.py gate: Pearson r>0 + p<0.05 + N>=30 against N-bar forward close-to-close returns; ADF informational only; auto-backfill when data sparse
+- [Phase 15-02]: Validation gate deferred: plugin not registered so no live data; gate re-run after data accumulates via --promote
+- [Phase 15-02]: Only validate_alpha.py --promote may patch register_plugins.py — manual patching forbidden per plan constraint
 
 ### Pending Todos
 
