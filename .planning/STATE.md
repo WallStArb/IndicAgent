@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-07T02:15:15.130Z"
-last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
+last_updated: "2026-03-07T09:39:55.208Z"
+last_activity: "2026-03-07 — 15-01 complete: validate_alpha.py statistical gate built (Pearson r>0, p<0.05, N>=30) with auto-backfill, --promote patching, JSON audit trail, 8 tests GREEN"
 progress:
   total_phases: 17
   completed_phases: 5
-  total_plans: 22
-  completed_plans: 22
+  total_plans: 27
+  completed_plans: 23
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 ## Current Position
 
-Phase: Phase 16 IN PROGRESS (4 of 5 plans done: 16-01, 16-02, 16-03, 16-04)
-Plan: 16-04 complete → 16-05 next (deployment — systemd unit, production wiring)
-Status: Phase 16 active — schema done, writer service done, ai_narrative instrumented, lifecycle emission wired, deployment remaining
-Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN
+Phase: Phase 15 IN PROGRESS (1 of 5 plans done: 15-01)
+Plan: 15-01 complete → 15-02 next (Derivative Oscillator I2 — implement + validate + promote)
+Status: Phase 15 active — validation gate built; alpha sources 02-05 pending
+Last activity: 2026-03-07 — 15-01 complete: validate_alpha.py statistical gate built (Pearson r>0, p<0.05, N>=30) with auto-backfill, --promote patching, JSON audit trail, 8 tests GREEN
 
 ## Accumulated Context
 
@@ -81,6 +81,8 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 14-feedback-loop]: perf_weights dict contract: adjusted_rank = composite_rank * perf_multiplier, neutral=1.0, ascending sort
 - [Phase 14-feedback-loop]: FEED-03 fix: inverted perf_multiplier formula gives best Sharpe lowest multiplier (0.5), ranks first under ascending adjusted_rank sort
 - [Phase 14-05]: _build_all_ranked() uses perf_multiplier as primary sort key; no-weights fallback uses -SETUP_PRIORITY for consistent ascending sort
+- [Phase 15-01]: Correlation computed over ALL bars (signal=1 and 0) not just signal-fired bars — avoids constant-input NaN in Pearson when binary indicator fires consistently
+- [Phase 15-01]: validate_alpha.py gate: Pearson r>0 + p<0.05 + N>=30 against N-bar forward close-to-close returns; ADF informational only; auto-backfill when data sparse
 
 ### Pending Todos
 
