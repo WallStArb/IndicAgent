@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: Phase 15 active — validation gate built; DerivOsc implemented (gate deferred); alpha sources 03-05 pending
-last_updated: "2026-03-07T19:21:25.897Z"
+last_updated: "2026-03-07T19:26:04.457Z"
 last_activity: "2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred (no live data — not yet registered)"
 progress:
   total_phases: 17
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 29
-  completed_plans: 28
+  completed_plans: 29
 ---
 
 # Project State
@@ -89,6 +89,7 @@ Last activity: 2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Consta
 - [Phase 15-04]: macd_hist_accel = float(hist - prev_hist): positive = bullish momentum building; early exhaustion warning before sign flip
 - [Phase 15-04]: macd_hist_contracting = 1 when abs(hist) < abs(prev_hist): magnitude shrinkage, direction-agnostic
 - [Phase 15-GAP-01]: Bootstrap policy: data-absent plugins with correct implementations get verdict=BOOTSTRAP (not FAIL) — resolves the chicken-and-egg sequence violation for ALPHA-02/04/05
+- [Phase 15-validated-alpha]: harami_cross direction computed inline via trend_dir_local to avoid forward-reference; bootstrap policy for data-absent correct implementations
 
 ### Pending Todos
 
