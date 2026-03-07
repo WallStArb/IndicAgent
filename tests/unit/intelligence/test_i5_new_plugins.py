@@ -18,31 +18,33 @@ class TestCandlestickPatterns:
     def test_engulfing_bull_detected(self):
         from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
 
-        # Prior bar: bearish (o=5010, c=5000); current bar: bullish engulfing
-        open_ = np.array([5010.0, 4990.0])
-        close = np.array([5000.0, 5020.0])
-        high = np.array([5015.0, 5025.0])
-        low = np.array([4995.0, 4985.0])
-        vol = np.full(2, 1000.0)
+        # Prior bar (p): bearish (o=5010, c=5000); current bar (c): bullish engulfing.
+        # min_lookback=3 — prepend a neutral filler bar as pp.
         import pandas as pd
-        df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": vol})
+        df = pd.DataFrame({
+            "open":  [5005.0, 5010.0, 4990.0],
+            "high":  [5008.0, 5015.0, 5025.0],
+            "low":   [5001.0, 4995.0, 4985.0],
+            "close": [5006.0, 5000.0, 5020.0],
+            "volume": [1000.0, 1000.0, 1000.0],
+        })
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         assert result.get("engulfing_bull") == 1.0
         assert result.get("engulfing_bear") == 0.0
 
     def test_pin_bar_bull_detected(self):
-        # Two bars needed; only current bar matters for pin bar
-        # Pin bar bull: long lower wick >= 2× body, upper wick <= body
+        # Pin bar bull: long lower wick >= 2× body, upper wick <= body.
+        # min_lookback=3 — prepend a neutral filler bar as pp.
         # open=5005, close=5010, high=5011, low=4980 → body=5, lower_wick=25, upper_wick=1
         import pandas as pd
 
         from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
         df = pd.DataFrame({
-            "open":  [5005.0, 5005.0],
-            "high":  [5011.0, 5011.0],
-            "low":   [4990.0, 4980.0],
-            "close": [5010.0, 5010.0],
-            "volume": [1000.0, 1000.0],
+            "open":  [5005.0, 5005.0, 5005.0],
+            "high":  [5011.0, 5011.0, 5011.0],
+            "low":   [4990.0, 4990.0, 4980.0],
+            "close": [5010.0, 5010.0, 5010.0],
+            "volume": [1000.0, 1000.0, 1000.0],
         })
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         assert result.get("pin_bar_bull") == 1.0
@@ -51,13 +53,14 @@ class TestCandlestickPatterns:
         import pandas as pd
 
         from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
-        # Doji: open ≈ close, range exists
+        # Doji: open ≈ close, range exists.
+        # min_lookback=3 — prepend a neutral filler bar as pp.
         df = pd.DataFrame({
-            "open":  [5000.0, 5000.5],
-            "high":  [5010.0, 5010.0],
-            "low":   [4990.0, 4990.0],
-            "close": [5000.0, 5001.0],
-            "volume": [1000.0, 1000.0],
+            "open":  [5000.0, 5000.0, 5000.5],
+            "high":  [5010.0, 5010.0, 5010.0],
+            "low":   [4990.0, 4990.0, 4990.0],
+            "close": [5001.0, 5000.0, 5001.0],
+            "volume": [1000.0, 1000.0, 1000.0],
         })
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         assert result.get("doji_detected") in (0.0, 1.0)

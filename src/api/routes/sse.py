@@ -197,8 +197,8 @@ async def sse_events(
                     event_name = _event_name_for_stream(stream_name)
                     for msg_id, fields in reversed(entries):
                         last_ids[stream_name] = msg_id  # always advance cursor
-                        if _signal_entry_stale(stream_name, msg_id):
-                            continue
+                        # No staleness filter on snapshot — always send last known
+                        # signal so dashboard shows previous session when markets closed.
                         try:
                             data_json = json.dumps(
                                 {"stream": stream_name, "id": msg_id, "payload": fields}

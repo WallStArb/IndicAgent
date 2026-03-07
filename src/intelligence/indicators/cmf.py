@@ -40,7 +40,8 @@ class CMFPlugin:
         volume = df["volume"].to_numpy(dtype=float)
 
         hl_range = high - low
-        mfm = np.where(hl_range > 0, (2 * close - high - low) / hl_range, 0.0)
+        safe_range = np.where(hl_range > 0, hl_range, 1.0)
+        mfm = np.where(hl_range > 0, (2 * close - high - low) / safe_range, 0.0)
         mfv = mfm * volume
 
         mfv_win = mfv[-self.period:]

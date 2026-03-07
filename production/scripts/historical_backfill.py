@@ -87,13 +87,53 @@ MIN_BARS = 50
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
 
 # Per-TF fetch config: (days_of_history, use_continuous_contract)
-# Named contract for 1m (no rolls in 35 days); continuous back-adjusted for all others.
+#
+# Design rationale (Renaissance framing):
+#   Goal: enough signal outcomes per (TF × regime × plugin) cell to fit stable logistic
+#   regression for CIS weight adaptation. With 17 I7 plugins × ~3 regime types = 51 cells/TF,
+#   we need ~20 outcomes/cell minimum → 1,020 signal outcomes per TF at statistical significance.
+#
+#   Signal fire rate: ~24 symbols × 2 signals/week = ~48 signals/week per TF (conservative).
+#   Binding constraints per TF:
+#     - HMM/GARCH: needs ~500+ bars for stable parameter estimation (1h/1d primary concern)
+#     - Regime cycle coverage: need 2–3 full regime transitions to observe hit+miss per plugin
+#     - CIS calibration: enough signal volume per cell for logistic regression to be meaningful
+#
+# Named contract for 1m (IBKR ~35d limit on front-month futures); continuous back-adjusted for rest.
 _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
-    "1m":  (35,   False),  # named contract — no roll crossings
-    "5m":  (365,  True),   # continuous adjusted — ~4 rolls
-    "15m": (365,  True),   # continuous adjusted — ~4 rolls
-    "1h":  (730,  True),   # continuous adjusted — ~8 rolls
-    "1d":  (1825, True),   # continuous adjusted — ~20 rolls
+    # 1m: named contract (no roll crossings). 14d = 2 full Mon–Fri weekly cycles = ~5,460 bars,
+    #     capturing time-of-day and day-of-week intraday patterns. Still well within IBKR's
+    #     ~35d named-contract recency limit. Signals at this TF resolve in minutes.
+    "1m":  (14,   False),
+
+    # 5m: intraday momentum/mean-reversion signals. ~78 bars/day/symbol. 90 days covers
+    #     3 months of intraday + weekly regime cycles, yielding ~600+ signals — enough to
+    #     populate all 51 regression cells with statistically meaningful outcomes.
+    #     use_continuous=False: IBKR rejects single ContFuture requests > ~30 days of 5m bars;
+    #     chunked named-contract path (_MAX_CHUNK_DAYS=29) handles this correctly.
+    "5m":  (90,   False),
+
+    # 15m: weekly + monthly pattern detection. ~26 bars/day/symbol. 180 days = 6 months
+    #     captures both weekly seasonality and monthly roll-driven regime shifts. Yields
+    #     ~1,150+ signals, giving ~22 outcomes/cell — above the 20/cell minimum.
+    #     use_continuous=False: same reason as 5m — chunked in 59-day windows.
+    "15m": (180,  False),
+
+    # 1h: the HMM/GARCH anchor TF. ~6.5 bars/day/symbol. 365 days = 1 full calendar year:
+    #     captures seasonal cycles (Q1 earnings, summer lull, year-end), yields ~2,379 bars
+    #     (4× the 500-bar HMM floor) and ~2,300+ signals for robust CIS calibration.
+    #     use_continuous=False: same reason as 5m/15m — IBKR ContFuture + ADJUSTED_LAST
+    #     requires endDateTime="" (no chunking possible), so a single 365D request times out
+    #     on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364) sends two
+    #     requests (364d + 1d) — no roll adjustment, but data reliably lands for all exchanges.
+    "1h":  (365,  False),
+
+    # 1d: macro regime coverage. 1 bar/day/symbol. 2555 days = 7 years reaches back to 2019 —
+    #     the last clean pre-distortion baseline before COVID, zero-rate era, QE infinity,
+    #     2022 rate shock, and AI mania. Capturing these distinct macro regimes is essential
+    #     for the HMM to learn what "normal" looks like and gate signals accordingly.
+    #     Yields ~1,764 bars (3.5× HMM floor) and spans 5 full macro regime transitions.
+    "1d":  (2555, True),
 }
 
 
@@ -701,8 +741,10 @@ def main() -> None:
     print("Historical Backfill Pipeline")
     print(f"  Contracts : {[c.symbol for c in contracts]}")
     print(f"  Timeframes: {timeframes}")
-    tf_depths = {tf: (args.days if tf == "1m" else _TF_FETCH_CONFIG[tf][0])
-                 for tf in timeframes if tf in _TF_FETCH_CONFIG}
+    tf_depths = {
+        tf: (args.days if tf == "1m" else _TF_FETCH_CONFIG[tf][0])
+        for tf in timeframes if tf in _TF_FETCH_CONFIG
+    }
     print(f"  TF depths : {tf_depths}")
     if args.fetch_only:
         stage = "fetch-only"
@@ -747,13 +789,15 @@ def main() -> None:
                     for tf in fetch_tfs:
                         fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
                         if tf == "1m":
-                            fetch_days = args.days  # --days overrides 1m depth
+                            fetch_days = args.days
+                        # Skip continuous contracts for short windows (no rolls needed)
+                        if fetch_days <= 14:
+                            use_continuous = False
                         start_dt = (end_dt - timedelta(days=fetch_days)).replace(
                             hour=0, minute=0, second=0, microsecond=0
                         )
                         try:
-                            # Check asset class - only use continuous for futures
-                            use_continuous = (instrument.asset_class == AssetClass.FUTURES)
+                            use_continuous = use_continuous and (instrument.asset_class == AssetClass.FUTURES)
                             ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
                                 symbol=instrument.symbol,
                                 timeframe=tf,

@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.14.0
-Last Updated: 2026-03-05
-Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1117 tests, 0 ruff errors, 24 contracts
+Version: 5.15.0
+Last Updated: 2026-03-07
+Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1236 tests, 0 ruff errors, 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -19,6 +19,7 @@ Renaissance principles that govern this codebase:
 - **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
 - **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
 - **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
+- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Retention policies are for log files and legacy garbage — not intelligence data. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered, and you cannot discover patterns you didn't know to look for at collection time. The only data we drop is confirmed-unused legacy tables with no signal value.
 
 Apply this framing when: designing new features, choosing between approaches, deciding what to log, evaluating model/strategy performance, or questioning whether something is "good enough."
 
@@ -90,14 +91,14 @@ Use `context7` MCP for FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
 - `journalctl -u indicagent-<name> -f` — live logs
 - Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117
 
-**Backfill:** `.venv/bin/python production/scripts/historical_backfill.py [--fetch-only|--replay-only] [--days N] [--symbols SYM,SYM]`
-**Pipeline Reset:** `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv] [--symbols SYM,SYM]`
+**Pipeline Reset** (housekeeping + fetch + replay — single entry point): `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv|--clear-llm] [--symbols SYM,SYM]`
+— TF depths: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous-adj. Pauses at stop/start boundaries and prints sudo commands to run.
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Architecture Overview
 
 ```
-Layer 4: AI Intelligence (I8)              -> LLM analysis, Ollama qwen3:8b
+Layer 4: AI Intelligence (I8)              -> LLM analysis, Ollama qwen3.5:9b
 Layer 3: Pattern Intelligence (I5-I7)      -> Pattern detection, confluence, trading signals
 Layer 2: Mathematical Intelligence (I1-I4) -> Technical indicators, context classification
 Layer 1: Data Foundation                   -> HF collection, aggregation, typed event bus
@@ -154,9 +155,12 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **Real-time pipeline never touches the database directly.**
 
 ### TimescaleDB Tables
-- `market_data_ohlcv` — raw OHLCV (backfill only)
-- `intelligence_features` — full feature vectors per bar (ML training dataset)
-- `signal_ledger` — I7 signals; JOIN via `(symbol, feature_ts, feature_tf)`
+- `market_data_ohlcv` — raw OHLCV (backfill only; keep forever — ground truth)
+- `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever)
+- `signal_ledger` — I7 signals + lifecycle outcomes; JOIN via `(symbol, feature_ts, feature_tf)` (keep forever)
+- `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer_service` (keep forever)
+- `llm_model_scores` — per-model win rate / avg pnl_r / p-value; refreshed every 15 min
+- `setup_performance` — per-setup rolling 30d stats (win_rate, avg_pnl_r, sharpe); drives aggregator `perf_multiplier`; only rows with `sample_size >= 30` are written (FEED-02 gate)
 - Aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 
 ### TimescaleDB Gotchas
@@ -223,3 +227,4 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - `docs/reference/schemas/stream-schemas.md`
 - IBKR TWS: https://interactivebrokers.github.io/tws-api/
 - TimescaleDB: https://docs.timescale.com/
+- DB Maintenance Runbook: `docs/reference/db-maintenance.md` — weekly slow-query review, vacuum health, monthly storage audit; automated weekly ANALYZE via TimescaleDB job 1020 (Sundays 02:00 UTC)

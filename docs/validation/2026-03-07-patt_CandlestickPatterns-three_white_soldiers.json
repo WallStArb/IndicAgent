@@ -1,0 +1,23 @@
+{
+  "plugin": "patt_CandlestickPatterns",
+  "field": "three_white_soldiers",
+  "run_at": "2026-03-07T10:53:01Z",
+  "days": 90,
+  "symbols": [],
+  "n_signal_bars": 0,
+  "n_total_bars": 0,
+  "signal_frequency": 0.0,
+  "adf_stat": null,
+  "adf_pvalue": null,
+  "adf_stationary": null,
+  "pearson_r": null,
+  "pearson_pvalue": null,
+  "false_positive_rate": null,
+  "gates": {
+    "n_min_30": false,
+    "pearson_r_positive": false,
+    "pearson_p_lt_05": false
+  },
+  "verdict": "FAIL",
+  "promoted": false
+}

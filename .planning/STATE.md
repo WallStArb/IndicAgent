@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-03-04)
 
 ## Current Position
 
-Phase: Phase 15 IN PROGRESS (2 of 5 plans done: 15-01, 15-02)
-Plan: 15-02 complete → 15-03 next (Tier 1 candlestick patterns — implement + validate + promote)
+Phase: Phase 15 IN PROGRESS (4 of 5 plans done: 15-01, 15-02, 15-04, 15-05)
+Plan: 15-03 next (Tier 1 candlestick patterns — implement + validate + promote)
 Status: Phase 15 active — validation gate built; DerivOsc implemented (gate deferred); alpha sources 03-05 pending
 Last activity: 2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred (no live data — not yet registered)
 

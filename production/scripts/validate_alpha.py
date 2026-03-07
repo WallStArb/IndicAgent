@@ -140,8 +140,8 @@ def _compute_stats(
     return_parts = []
     signal_fire_count = 0
 
-    for (_symbol, tf), group in df.groupby(["symbol", "timeframe"]):
-        group = group.sort_values("feature_ts").reset_index(drop=True)
+    for (_symbol, tf), group in df.groupby(["symbol", "tf"]):
+        group = group.sort_values("ts").reset_index(drop=True)
         n_bars = _n_bars_for_tf(tf, n_bars_by_tf)
 
         # Forward return: close[t+N]/close[t] - 1, aligned to bar t via shift(-N)
@@ -263,7 +263,7 @@ def _count_qualifying_rows(
         base_sql = f"""
             SELECT COUNT(*)
             FROM intelligence_features
-            WHERE feature_ts >= NOW() - INTERVAL '{days} days'
+            WHERE ts >= NOW() - INTERVAL '{days} days'
             AND {column} ? %s
             AND ({column}->%s) IS NOT NULL
         """
@@ -284,25 +284,25 @@ def _fetch_rows(
     days: int,
     symbol_filter: list[str] | None,
 ) -> list[tuple[Any, ...]]:
-    """Fetch (symbol, timeframe, feature_ts, close, column_jsonb) rows."""
+    """Fetch (symbol, tf, ts, close, column_jsonb) rows."""
     with conn.cursor() as cur:
         base_sql = f"""
-            SELECT symbol, timeframe, feature_ts, close, {column}
+            SELECT symbol, tf, ts, (bar->>'close')::float, {column}
             FROM intelligence_features
-            WHERE feature_ts >= NOW() - INTERVAL '{days} days'
+            WHERE ts >= NOW() - INTERVAL '{days} days'
             AND {column} ? %s
-            ORDER BY symbol, timeframe, feature_ts
+            ORDER BY symbol, tf, ts
         """
         params: list[Any] = [field]
         if symbol_filter:
             placeholders = ", ".join(["%s"] * len(symbol_filter))
             base_sql = f"""
-                SELECT symbol, timeframe, feature_ts, close, {column}
+                SELECT symbol, tf, ts, (bar->>'close')::float, {column}
                 FROM intelligence_features
-                WHERE feature_ts >= NOW() - INTERVAL '{days} days'
+                WHERE ts >= NOW() - INTERVAL '{days} days'
                 AND {column} ? %s
                 AND symbol IN ({placeholders})
-                ORDER BY symbol, timeframe, feature_ts
+                ORDER BY symbol, tf, ts
             """
             params = [field] + symbol_filter
         cur.execute(base_sql, params)
@@ -613,8 +613,8 @@ def run_validation(
         val = col_json.get(effective_field) if col_json else None
         records.append({
             "symbol": sym,
-            "timeframe": tf,
-            "feature_ts": ts,
+            "tf": tf,
+            "ts": ts,
             "close": float(close) if close is not None else None,
             effective_field: float(val) if val is not None else None,
         })
@@ -622,7 +622,7 @@ def run_validation(
 
     df = pd.DataFrame(records)
     if df.empty or effective_field not in df.columns:
-        df = pd.DataFrame(columns=["symbol", "timeframe", "feature_ts", "close", effective_field])
+        df = pd.DataFrame(columns=["symbol", "tf", "ts", "close", effective_field])
 
     # Drop rows where close or field is null
     df = df.dropna(subset=["close", effective_field])

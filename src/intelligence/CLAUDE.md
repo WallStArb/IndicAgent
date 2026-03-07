@@ -23,6 +23,10 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
+**`regime_type` class attribute** (Phase 12, mandatory on all I7 plugins): `"trend"` | `"mean_reversion"` | `"any"`. Used by aggregator regime gate — trend plugins suppressed in ranging regime (hmm_regime=0), mean-reversion plugins suppressed in trending regime (hmm_regime=1/2). New I7 plugins must declare this or `validate_tier()` will not catch the omission but the gate will silently misfire.
+
+**Aggregator `perf_multiplier`** (Phase 14): reads `setup_performance` table at startup and every 15 min. Setups with `sample_size < 30` use multiplier=1.0 (no effect). Outperforming setups rank higher in `all_ranked`. `active` must always be derived from `all_ranked`, not raw `signals` — see gotchas.
+
 ## Plugin Protocol
 
 - Class: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant.
@@ -46,6 +50,8 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 - `LLMChain` tries in order, returns first non-None. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
 - Keys in `.env`: `zai_api_key`, `openrouter_api_key` (empty string → chain skips).
+
+**LLM audit streams** (Phase 16): every call → `llm_calls:stream` (maxlen=500); every signal exit → `llm_outcomes:stream` (maxlen=200). `llm_writer_service` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 
 ## Signal Lifecycle (trading/)
 
@@ -74,9 +80,11 @@ Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lif
 `bars_elapsed = (current_bar_time - signal_timestamp).total_seconds() / tf_seconds` — timestamp-based, not counter-based (fixes old silent TTL bug).
 
 ### DB fields written progressively
-- **At signal fire** (signal_generator_service): `determined_at`, `ask_at_signal`, `bid_at_signal`, `market_price_at_signal`, `entry_zone_low`, `entry_zone_high`, `zone_valid_at_signal`
+- **At signal fire** (signal_generator_service): `determined_at`, `signal_computed_at`, `ask_at_signal`, `bid_at_signal`, `market_price_at_signal`, `entry_zone_low`, `entry_zone_high`, `zone_valid_at_signal`
 - **At activation** (signal_lifecycle_service): `activation_price`, `zone_entry_pct`, `bars_to_activation`
 - **At exit** (signal_lifecycle_service): `mae`, `mfe`, `bars_in_trade`, `outcome`
+- **`bar_close_price` is implicit** — not stored in `signal_ledger`; JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV
+- **`intelligence_features` i7/i8 columns**: `i7` JSONB array = all ranked setups that fired on that bar; `i8` JSONB = LLM narrative metadata (model, confidence, summary). Written by `feature_writer_service` via enrichment streams.
 
 ## Gotchas
 

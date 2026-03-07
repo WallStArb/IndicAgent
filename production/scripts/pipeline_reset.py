@@ -27,7 +27,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +59,7 @@ _LLM_TABLES = ["llm_calls", "llm_model_scores"]
 # Redis key patterns to clear (will be prefixed with env_prefix)
 _REDIS_PATTERNS = ["indicators", "intelligence", "signals", "narratives"]
 
-DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h"]
+DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
 
 _STOP_SERVICES = [
     "indicagent-signal-generator",
@@ -188,8 +188,8 @@ def main() -> None:
                         help="Skip IBKR re-fetch; replay from existing market_data_ohlcv")
     parser.add_argument("--symbols", default=None,
                         help="Comma-separated symbols (default: all active contracts)")
-    parser.add_argument("--days", type=int, default=35,
-                        help="Days of 1m history to fetch (default: 35)")
+    parser.add_argument("--days", type=int, default=14,
+                        help="Days of 1m history to fetch (default: 14; other TFs use _TF_FETCH_CONFIG)")
     parser.add_argument("--clear-llm", action="store_true",
                         help="Also truncate llm_calls and llm_model_scores")
     parser.add_argument("--dry-run", action="store_true",
@@ -278,16 +278,38 @@ def main() -> None:
                         fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
                         if tf == "1m":
                             fetch_days = args.days
-                        bars = asyncio.run(provider.fetch_historical_bars(
-                            instrument=qualified,
-                            end_dt=end_dt,
-                            duration_days=fetch_days,
-                            bar_size=tf,
-                            use_continuous=use_continuous,
-                        ))
-                        if bars:
-                            n = store_bars(db_conn, bars, instrument.symbol, tf)
-                            print(f"  {instrument.symbol}/{tf}: stored {n:,} bars")
+                        if fetch_days <= 14:
+                            use_continuous = False
+                        start_dt = (end_dt - timedelta(days=fetch_days)).replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+                        try:
+                            ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
+                                symbol=instrument.symbol,
+                                timeframe=tf,
+                                start=start_dt,
+                                end=end_dt,
+                                continuous=use_continuous,
+                            ))
+                            bar_dicts = [
+                                {
+                                    "timestamp": b.timestamp,
+                                    "open": b.open,
+                                    "high": b.high,
+                                    "low": b.low,
+                                    "close": b.close,
+                                    "volume": b.volume,
+                                    "source": b.source,
+                                }
+                                for b in ohlcv_bars
+                            ]
+                            if bar_dicts:
+                                n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
+                                label = "continuous-adj" if use_continuous else "named"
+                                print(f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n:,} bars")
+                        except Exception as e:
+                            print(f"  {instrument.symbol}/{tf}: error — {e}")
+                        time.sleep(2)  # IBKR pacing between TF requests
                 except Exception as e:
                     print(f"  {instrument.symbol}: fetch error — {e}")
             asyncio.run(provider.disconnect())

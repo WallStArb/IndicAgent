@@ -12,7 +12,7 @@ All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
 | FX (`CASH`) | `Forex(pair=symbol)` | `MIDPOINT` | `""` |
 | Crypto (`CRYPTO`) | `Contract(secType='CRYPTO', symbol=base, currency='USD')` | `AGGTRADES` | `""` |
 
-- VIX symbol: `"VX"` (not "VIX"). Client IDs: 35+ range.
+- VIX futures: `symbol="VXJ6"`, `base="VIX"` (IBKR CFE internal symbol), `provider_meta={"trading_class": "VX"}`. IBKR returns `localSymbol="VXJ6"`. Client IDs: 35+ range.
 - Some futures need `tradingClass`: `provider_meta={"trading_class": "XYZ"}`.
 - IBKR localSymbol differs for FX/crypto (EUR.USD vs EURUSD) — `_local_to_canonical` dict in `IBKRProvider` handles this; populated in `qualify_instrument`.
 - `qualify_instrument` handles `AssetClass.FUTURES` (Future), `.FX` (Forex), `.CRYPTO` (Contract secType='CRYPTO').

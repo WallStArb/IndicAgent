@@ -132,8 +132,9 @@ class Settings(BaseSettings):
             ),
             # Volatility — April 2026 (J6)
             Instrument(
-                symbol="VXJ6", base="VX", exchange="CFE", expiry="202604",
+                symbol="VXJ6", base="VIX", exchange="CFE", expiry="20260415",
                 name="CBOE VIX Futures", point_value=1000, tick_size=0.05, sector="volatility",
+                provider_meta={"trading_class": "VX"},
             ),
             # Interest Rate Futures — March 2026
             Instrument(

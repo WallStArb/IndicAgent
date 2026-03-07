@@ -17,31 +17,33 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 
 ## System Operations
 ```bash
-# All 8 services are systemd-managed (Restart=always, start on boot)
+# All services are systemd-managed (Restart=always, start on boot)
 sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-tws
 sudo systemctl restart indicagent-indicator
 sudo systemctl restart indicagent-market-analysis
 sudo systemctl restart indicagent-signal-generator
-sudo systemctl restart indicagent-signal-tracker
+sudo systemctl restart indicagent-signal-lifecycle
 sudo systemctl restart indicagent-ai-narrative
 sudo systemctl restart indicagent-feature-writer
+sudo systemctl restart indicagent-llm-writer
 sudo systemctl restart indicagent-api
 
 journalctl -u indicagent-tws -f              # live logs for any service
 
 # Start all services (e.g. after reboot)
 sudo systemctl start indicagent-tws indicagent-indicator indicagent-market-analysis \
-  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative \
-  indicagent-feature-writer indicagent-api
+  indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative \
+  indicagent-feature-writer indicagent-llm-writer indicagent-api
 
 # Health / metrics
 curl http://localhost:9109/metrics   # Indicator Service
 curl http://localhost:9112/metrics   # Signal Generator
 curl http://localhost:9113/metrics   # AI Narrative
 curl http://localhost:9114/metrics   # Market Analysis
-curl http://localhost:9115/metrics   # Signal Tracker
+curl http://localhost:9115/metrics   # Signal Lifecycle
 curl http://localhost:9116/metrics   # Feature Writer
+curl http://localhost:9117/metrics   # LLM Writer
 
 # Grafana & Prometheus (optional — dashboards and alerts)
 cd production && docker compose up -d prometheus grafana
@@ -58,35 +60,37 @@ cd production && docker compose up -d prometheus grafana
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Historical Data Backfill
+## Pipeline Reset (full housekeeping + fetch + replay)
+# pipeline_reset.py is the single entry point — handles everything in order:
+#   1. Truncates signal_ledger, intelligence_features, technical_indicators (+ market_data_ohlcv unless --keep-ohlcv)
+#   2. Clears Redis streams (indicators, intelligence, signals, narratives)
+#   3. Fetches OHLCV from IBKR per-TF: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous
+#   4. Replays I1→I7 pipeline through all stored bars → signal_ledger + intelligence_features
+#   5. Verifies row counts and signal distribution
+# Script pauses at stop/start boundaries and prints the sudo commands for you to run.
 ```bash
-# Full backfill — fetches multi-TF from IBKR then replays intelligence pipeline
-.venv/bin/python production/scripts/historical_backfill.py
-
-# Stage 1 only: IBKR → market_data_ohlcv (requires TWS running at 10.0.0.33:7497)
-# Fetches: 1m(35d named), 5m(1yr continuous-adj), 15m(1yr), 1h(2yr), 1d(5yr)
-.venv/bin/python production/scripts/historical_backfill.py --fetch-only
-
-# Stage 2 only: DB → I1→I7 pipeline → signal_ledger + intelligence_features
-.venv/bin/python production/scripts/historical_backfill.py --replay-only
-
-# Override 1m depth or limit symbols
-.venv/bin/python production/scripts/historical_backfill.py --days 60 --symbols ESH6,NQH6
-```
-
-## Pipeline Reset
-```bash
-# Preview what would be cleared (no changes)
+# Step 1 — preview (no changes made)
 .venv/bin/python production/scripts/pipeline_reset.py --dry-run
 
-# Fast reset — keep OHLCV, re-replay through updated signal logic
-.venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv
-
-# Full reset — re-fetch from IBKR + replay everything
+# Step 2 — full reset (requires TWS connected at 10.0.0.33:7497; expect 30–60 min)
 .venv/bin/python production/scripts/pipeline_reset.py
+# → when prompted to STOP, run:
+sudo systemctl stop indicagent-signal-generator indicagent-signal-lifecycle \
+  indicagent-market-analysis indicagent-feature-writer indicagent-ai-narrative
+# → press Enter, let fetch + replay complete
+# → when prompted to START, run:
+sudo systemctl start indicagent-market-analysis indicagent-feature-writer \
+  indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative
+
+# Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv
+# (use after plugin/signal logic changes, no IBKR connection needed)
+.venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv
 
 # Limit to specific symbols
 .venv/bin/python production/scripts/pipeline_reset.py --keep-ohlcv --symbols ESH6,NQH6
+
+# Also wipe LLM audit log (llm_calls, llm_model_scores)
+.venv/bin/python production/scripts/pipeline_reset.py --clear-llm
 ```
 
 ## Development & Testing

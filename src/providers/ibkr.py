@@ -146,52 +146,36 @@ class IBKRProvider:
                 what_to_show = "TRADES"
             source_tag = "ibkr_named"
 
-        chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
         all_bars: list[OHLCVBar] = []
-        chunk_start = start
-        first_chunk = True
 
-        while chunk_start < end:
-            if not first_chunk:
-                await asyncio.sleep(10)  # IBKR pacing between chunk requests
-            first_chunk = False
-
-            chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
-            window_seconds = int((chunk_end - chunk_start).total_seconds())
-            if window_seconds < 86400:
-                # Sub-day window: use seconds-based duration to avoid fetching a full day
-                duration_str = f"{max(120, window_seconds + 60)} S"
+        if continuous:
+            # ContFuture + ADJUSTED_LAST: IBKR prohibits setting endDateTime.
+            # Fetch in a single request from now backwards by total duration.
+            total_days = max(1, (end - start).days + 1)
+            if total_days > 365:
+                duration_str = f"{round(total_days / 365)} Y"
             else:
-                duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
-
+                duration_str = f"{total_days} D"
             ib_bars = await self._ib.reqHistoricalDataAsync(
                 contract,
-                endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                endDateTime="",  # must be empty for ContFuture
                 durationStr=duration_str,
                 barSizeSetting=_TF_TO_IB[timeframe],
                 whatToShow=what_to_show,
                 useRTH=False,
                 formatDate=1,
             )
-
-            # Debug: log what was returned
-            if first_chunk:
-                logger.info(
-                    "reqHistoricalDataAsync result",
-                    symbol=symbol,
-                    bars_returned=len(ib_bars) if ib_bars else 0,
-                    sec_type=getattr(contract, "secType", ""),
-                    what_to_show=what_to_show,
-                )
-
             for bar in (ib_bars or []):
+                bar_ts = (
+                    bar.date if isinstance(bar.date, datetime)
+                    else datetime.fromisoformat(str(bar.date))
+                )
+                if bar_ts.tzinfo is None:
+                    bar_ts = bar_ts.replace(tzinfo=UTC)
                 all_bars.append(OHLCVBar(
                     symbol=symbol,
                     timeframe=timeframe,
-                    timestamp=(
-                        bar.date if isinstance(bar.date, datetime)
-                        else datetime.fromisoformat(str(bar.date))
-                    ),
+                    timestamp=bar_ts,
                     open=float(bar.open),
                     high=float(bar.high),
                     low=float(bar.low),
@@ -199,10 +183,53 @@ class IBKRProvider:
                     volume=int(bar.volume),
                     source=source_tag,
                 ))
+        else:
+            chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
+            chunk_start = start
+            first_chunk = True
 
-            # Advance by 1 day. For sub-day windows this overshoots past `end`,
-            # which exits the loop on the next iteration check — correct by design.
-            chunk_start = chunk_end + timedelta(days=1)
+            while chunk_start < end:
+                if not first_chunk:
+                    await asyncio.sleep(10)  # IBKR pacing between chunk requests
+                first_chunk = False
+
+                chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
+                window_seconds = int((chunk_end - chunk_start).total_seconds())
+                if window_seconds < 86400:
+                    duration_str = f"{max(120, window_seconds + 60)} S"
+                else:
+                    duration_str = f"{max(1, (chunk_end - chunk_start).days + 1)} D"
+
+                ib_bars = await self._ib.reqHistoricalDataAsync(
+                    contract,
+                    endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                    durationStr=duration_str,
+                    barSizeSetting=_TF_TO_IB[timeframe],
+                    whatToShow=what_to_show,
+                    useRTH=False,
+                    formatDate=1,
+                )
+
+                for bar in (ib_bars or []):
+                    bar_ts = (
+                        bar.date if isinstance(bar.date, datetime)
+                        else datetime.fromisoformat(str(bar.date))
+                    )
+                    if bar_ts.tzinfo is None:
+                        bar_ts = bar_ts.replace(tzinfo=UTC)
+                    all_bars.append(OHLCVBar(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        timestamp=bar_ts,
+                        open=float(bar.open),
+                        high=float(bar.high),
+                        low=float(bar.low),
+                        close=float(bar.close),
+                        volume=int(bar.volume),
+                        source=source_tag,
+                    ))
+
+                chunk_start = chunk_end + timedelta(days=1)
 
         all_bars.sort(key=lambda b: b.timestamp)
         return all_bars
