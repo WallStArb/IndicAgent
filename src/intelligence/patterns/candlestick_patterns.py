@@ -8,11 +8,12 @@ from ..plugins import InputSpec
 
 @dataclass
 class CandlestickPatternsPlugin:
-    """Single and two-bar candlestick pattern detection."""
+    """Single, two-bar, and three-bar candlestick pattern detection."""
 
     name: str = "patt_CandlestickPatterns"
     outputs: frozenset[str] = frozenset(
         {
+            # --- Existing 9 outputs (unchanged) ---
             "engulfing_bull",
             "engulfing_bear",
             "pin_bar_bull",
@@ -22,9 +23,19 @@ class CandlestickPatternsPlugin:
             "inside_bar",
             "outside_bar",
             "doji_detected",
+            # --- 10 new Tier 1 three-bar outputs ---
+            "three_white_soldiers",
+            "three_black_crows",
+            "morning_star",
+            "evening_star",
+            "three_inside_up",
+            "three_inside_down",
+            "harami_cross",
+            "dark_cloud_cover",
+            "piercing_line",
         }
     )
-    min_lookback: int = 2
+    min_lookback: int = 3
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=10),)
@@ -37,14 +48,21 @@ class CandlestickPatternsPlugin:
 
         features = frames.get("features") or {}
 
-        # Current and prior bars
+        # Current, prior, and two-bars-ago
         c = df.iloc[-1]
         p = df.iloc[-2]
+        pp = df.iloc[-3]
 
         c_o, c_h, c_l, c_c = float(c["open"]), float(c["high"]), float(c["low"]), float(c["close"])
         p_o, p_h, p_l, p_c = float(p["open"]), float(p["high"]), float(p["low"]), float(p["close"])
+        pp_o = float(pp["open"])
+        pp_h = float(pp["high"])
+        pp_l = float(pp["low"])
+        pp_c = float(pp["close"])
 
+        # ------------------------------------------------------------------ #
         # Current bar metrics
+        # ------------------------------------------------------------------ #
         c_range = c_h - c_l
         c_body = abs(c_c - c_o)
         c_upper_wick = c_h - max(c_o, c_c)
@@ -53,14 +71,26 @@ class CandlestickPatternsPlugin:
         c_bearish = c_c < c_o
 
         # Prior bar metrics
+        p_range = p_h - p_l
+        p_body = abs(p_c - p_o)
         p_bullish = p_c > p_o
         p_bearish = p_c < p_o
+
+        # Two-bars-ago metrics
+        pp_range = pp_h - pp_l
+        pp_body = abs(pp_c - pp_o)
+        pp_bullish = pp_c > pp_o
+        pp_bearish = pp_c < pp_o
 
         # Body top/bottom for engulfing
         c_body_top = max(c_o, c_c)
         c_body_bot = min(c_o, c_c)
         p_body_top = max(p_o, p_c)
         p_body_bot = min(p_o, p_c)
+
+        # ------------------------------------------------------------------ #
+        # Existing 9 patterns — unchanged logic
+        # ------------------------------------------------------------------ #
 
         # Engulfing bull: current bullish, prior bearish, current engulfs prior
         engulfing_bull = 0.0
@@ -116,7 +146,139 @@ class CandlestickPatternsPlugin:
         if c_range > 0 and c_body / c_range < 0.10:
             doji_detected = 1.0
 
+        # ------------------------------------------------------------------ #
+        # 10 new Tier 1 three-bar patterns
+        # ------------------------------------------------------------------ #
+
+        # --- Three White Soldiers (bullish) ---
+        # 3 consecutive bullish bars; each opens within prior body; each closes near high
+        three_white_soldiers = 0.0
+        if (
+            pp_bullish and p_bullish and c_bullish
+            # Each body > 0.5 * range (strong bars, not dojis)
+            and pp_range > 0 and pp_body > 0.5 * pp_range
+            and p_range > 0 and p_body > 0.5 * p_range
+            and c_range > 0 and c_body > 0.5 * c_range
+            # p opens within pp body
+            and p_o > min(pp_o, pp_c) and p_o < max(pp_o, pp_c)
+            # c opens within p body
+            and c_o > min(p_o, p_c) and c_o < max(p_o, p_c)
+            # Each upper wick < 0.25 * body (closes near high)
+            and (pp_h - pp_c) < 0.25 * pp_body
+            and (p_h - p_c) < 0.25 * p_body
+            and (c_h - c_c) < 0.25 * c_body
+        ):
+            three_white_soldiers = 1.0
+
+        # --- Three Black Crows (bearish) --- mirror of Three White Soldiers
+        three_black_crows = 0.0
+        if (
+            pp_bearish and p_bearish and c_bearish
+            # Each body > 0.5 * range
+            and pp_range > 0 and pp_body > 0.5 * pp_range
+            and p_range > 0 and p_body > 0.5 * p_range
+            and c_range > 0 and c_body > 0.5 * c_range
+            # p opens within pp body (between pp_c and pp_o, bearish so pp_c < pp_o)
+            and p_o < max(pp_o, pp_c) and p_o > min(pp_o, pp_c)
+            # c opens within p body
+            and c_o < max(p_o, p_c) and c_o > min(p_o, p_c)
+            # Each lower wick < 0.25 * body (closes near low)
+            and (pp_c - pp_l) < 0.25 * pp_body
+            and (p_c - p_l) < 0.25 * p_body
+            and (c_c - c_l) < 0.25 * c_body
+        ):
+            three_black_crows = 1.0
+
+        # --- Morning Star (bullish reversal) ---
+        # pp = large bearish; p = small body (star/indecision); c = large bullish above pp midpoint
+        morning_star = 0.0
+        if (
+            pp_bearish
+            and pp_range > 0 and pp_body > 0.6 * pp_range
+            and p_range > 0 and p_body < 0.3 * p_range
+            and c_bullish
+            and c_range > 0 and c_body > 0.6 * c_range
+            and c_c > (pp_o + pp_c) / 2.0
+        ):
+            morning_star = 1.0
+
+        # --- Evening Star (bearish reversal) --- mirror of Morning Star
+        # pp = large bullish; p = small body (star/indecision); c = large bearish below pp midpoint
+        evening_star = 0.0
+        if (
+            pp_bullish
+            and pp_range > 0 and pp_body > 0.6 * pp_range
+            and p_range > 0 and p_body < 0.3 * p_range
+            and c_bearish
+            and c_range > 0 and c_body > 0.6 * c_range
+            and c_c < (pp_o + pp_c) / 2.0
+        ):
+            evening_star = 1.0
+
+        # --- Three Inside Up (bullish continuation of reversal) ---
+        # pp = large bearish; p = bullish harami inside pp; c = bullish close above pp_o
+        three_inside_up = 0.0
+        if (
+            pp_bearish
+            and pp_range > 0 and pp_body > 0.5 * pp_range
+            # p is bullish harami: opens above pp_c, closes below pp_o, and closes higher than opens
+            and p_o > pp_c and p_c < pp_o and p_bullish
+            # c is bullish and closes above pp_o (full reversal confirmed)
+            and c_bullish and c_c > pp_o
+        ):
+            three_inside_up = 1.0
+
+        # --- Three Inside Down (bearish) --- mirror of Three Inside Up
+        # pp = large bullish; p = bearish harami inside pp; c = bearish close below pp_o
+        three_inside_down = 0.0
+        if (
+            pp_bullish
+            and pp_range > 0 and pp_body > 0.5 * pp_range
+            # p is bearish harami: opens below pp_c, closes above pp_o, and closes lower than opens
+            and p_o < pp_c and p_c > pp_o and p_bearish
+            # c is bearish and closes below pp_o
+            and c_bearish and c_c < pp_o
+        ):
+            three_inside_down = 1.0
+
+        # --- Harami Cross (reversal signal) ---
+        # pp = large body (either direction); p = doji entirely inside pp body
+        harami_cross = 0.0
+        pp_body_high = max(pp_o, pp_c)
+        pp_body_low = min(pp_o, pp_c)
+        p_doji_body = abs(p_c - p_o)
+        if (
+            pp_range > 0 and pp_body > 0.6 * pp_range
+            and p_range > 0 and p_doji_body / p_range < 0.10
+            and p_h <= pp_body_high
+            and p_l >= pp_body_low
+        ):
+            harami_cross = 1.0
+
+        # --- Dark Cloud Cover (bearish) ---
+        # pp = bullish; c opens above pp_high; c closes below pp midpoint but above pp_open
+        dark_cloud_cover = 0.0
+        if (
+            pp_bullish
+            and c_o > pp_h
+            and c_c < (pp_o + pp_c) / 2.0
+            and c_c > pp_o
+        ):
+            dark_cloud_cover = 1.0
+
+        # --- Piercing Line (bullish) ---
+        # pp = bearish; c opens below pp_low; c closes above pp midpoint but below pp_open
+        piercing_line = 0.0
+        if (
+            pp_bearish
+            and c_o < pp_l
+            and c_c > (pp_o + pp_c) / 2.0
+            and c_c < pp_o
+        ):
+            piercing_line = 1.0
+
         return {
+            # Existing 9
             "engulfing_bull": engulfing_bull,
             "engulfing_bear": engulfing_bear,
             "pin_bar_bull": pin_bar_bull,
@@ -126,6 +288,16 @@ class CandlestickPatternsPlugin:
             "inside_bar": inside_bar,
             "outside_bar": outside_bar,
             "doji_detected": doji_detected,
+            # 10 new Tier 1 three-bar patterns
+            "three_white_soldiers": three_white_soldiers,
+            "three_black_crows": three_black_crows,
+            "morning_star": morning_star,
+            "evening_star": evening_star,
+            "three_inside_up": three_inside_up,
+            "three_inside_down": three_inside_down,
+            "harami_cross": harami_cross,
+            "dark_cloud_cover": dark_cloud_cover,
+            "piercing_line": piercing_line,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
