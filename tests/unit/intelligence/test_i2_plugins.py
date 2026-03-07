@@ -71,6 +71,54 @@ class TestMACDEvents:
         from src.intelligence.composites.macd_events import MACDEventsPlugin
         assert MACDEventsPlugin().compute_full({}) == {}
 
+    def test_hist_accel_increasing(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        # prev_hist = -0.5, hist = -0.3 → accel = -0.3 - (-0.5) = 0.2
+        features, prev = self._features(hist=-0.3, prev_hist=-0.5)
+        result = MACDEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert abs(result["macd_hist_accel"] - 0.2) < 1e-9
+
+    def test_hist_accel_decreasing(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        # prev_hist = 0.5, hist = 0.3 → accel = 0.3 - 0.5 = -0.2
+        features, prev = self._features(hist=0.3, prev_hist=0.5)
+        result = MACDEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert abs(result["macd_hist_accel"] - (-0.2)) < 1e-9
+
+    def test_hist_accel_no_prev(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        # No prev_features → macd_hist_accel = 0.0
+        features, _ = self._features(hist=1.0)
+        result = MACDEventsPlugin().compute_full({"features": features})
+        assert result["macd_hist_accel"] == 0.0
+
+    def test_hist_contracting_true(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        # abs(0.5) < abs(0.8) → macd_hist_contracting = 1
+        features, prev = self._features(hist=0.5, prev_hist=0.8)
+        result = MACDEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result["macd_hist_contracting"] == 1
+
+    def test_hist_contracting_false(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        # abs(0.8) > abs(0.3) → macd_hist_contracting = 0
+        features, prev = self._features(hist=0.8, prev_hist=0.3)
+        result = MACDEventsPlugin().compute_full({"features": features, "prev_features": prev})
+        assert result["macd_hist_contracting"] == 0
+
+    def test_hist_contracting_no_prev(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        # No prev_features → macd_hist_contracting = 0
+        features, _ = self._features(hist=1.0)
+        result = MACDEventsPlugin().compute_full({"features": features})
+        assert result["macd_hist_contracting"] == 0
+
+    def test_new_fields_in_outputs(self):
+        from src.intelligence.composites.macd_events import MACDEventsPlugin
+        p = MACDEventsPlugin()
+        assert "macd_hist_accel" in p.outputs
+        assert "macd_hist_contracting" in p.outputs
+
 
 class TestRSIEvents:
     def test_rsi_crossed_30_up(self):
