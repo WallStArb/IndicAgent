@@ -15,18 +15,18 @@ interface Node {
 interface Particle {
   x: number;
   y: number;
-  path: number[];      // ordered node indices, e.g. [0, 1, 3, 5]
+  path: number[];      // ordered node indices, e.g. [0, 1, 2, 4, 6, 7]
   pathIndex: number;   // current edge: path[pathIndex] → path[pathIndex+1]
   edgeProgress: number; // 0..1 within the current edge
   speed: number;
 }
 
-// All valid paths through the I1→I3/I4→I5/SMC→I7 pipeline
+// node indices: 0=I1, 1=I2, 2=I3, 3=I4, 4=I5, 5=SMC, 6=I7, 7=I8
 const PATHS: number[][] = [
-  [0, 1, 3, 5], // I1 → I3 → I5 → I7
-  [0, 2, 4, 5], // I1 → I4 → SMC → I7
-  [0, 1, 5],    // I1 → I3 → I7 (direct)
-  [0, 2, 5],    // I1 → I4 → I7 (direct)
+  [0, 1, 2, 4, 6, 7], // I1 → I2 → I3 → I5 → I7 → I8
+  [0, 1, 3, 5, 6, 7], // I1 → I2 → I4 → SMC → I7 → I8
+  [0, 1, 2, 6, 7],    // I1 → I2 → I3 → I7 → I8 (direct)
+  [0, 1, 3, 6, 7],    // I1 → I2 → I4 → I7 → I8 (direct)
 ];
 
 export function PipelineAnimation() {
@@ -50,21 +50,25 @@ export function PipelineAnimation() {
     resize();
     window.addEventListener("resize", resize);
 
+    // I1→I2→(I3/I4)→(I5/SMC)→I7→I8
     const nodes: Node[] = [
-      { x: 0.15, y: 0.5,  label: "I1",  tier: 0, pulse: 0 },
-      { x: 0.38, y: 0.35, label: "I3",  tier: 1, pulse: 0.5 },
-      { x: 0.38, y: 0.65, label: "I4",  tier: 1, pulse: 0.3 },
-      { x: 0.62, y: 0.35, label: "I5",  tier: 2, pulse: 0.7 },
-      { x: 0.62, y: 0.65, label: "SMC", tier: 2, pulse: 0.6 },
-      { x: 0.85, y: 0.5,  label: "I7",  tier: 3, pulse: 0.4 },
+      { x: 0.06, y: 0.50, label: "I1",  tier: 0, pulse: 0.0 },
+      { x: 0.22, y: 0.50, label: "I2",  tier: 1, pulse: 0.4 },
+      { x: 0.38, y: 0.32, label: "I3",  tier: 2, pulse: 0.5 },
+      { x: 0.38, y: 0.68, label: "I4",  tier: 2, pulse: 0.3 },
+      { x: 0.58, y: 0.32, label: "I5",  tier: 3, pulse: 0.7 },
+      { x: 0.58, y: 0.68, label: "SMC", tier: 3, pulse: 0.6 },
+      { x: 0.76, y: 0.50, label: "I7",  tier: 4, pulse: 0.4 },
+      { x: 0.93, y: 0.50, label: "I8",  tier: 5, pulse: 0.2 },
     ];
 
-    // Connections for drawing the graph lines (all valid edges, no out-of-bounds)
     const connections: Array<[number, number]> = [
-      [0, 1], [0, 2],
-      [1, 3], [1, 5],
-      [2, 4], [2, 5],
-      [3, 5], [4, 5],
+      [0, 1],           // I1 → I2
+      [1, 2], [1, 3],   // I2 → I3, I4
+      [2, 4], [2, 6],   // I3 → I5, I7
+      [3, 5], [3, 6],   // I4 → SMC, I7
+      [4, 6], [5, 6],   // I5, SMC → I7
+      [6, 7],           // I7 → I8
     ];
 
     const particles: Particle[] = [];
@@ -137,7 +141,6 @@ export function PipelineAnimation() {
         const p = particles[i];
         p.edgeProgress += p.speed;
 
-        // Advance to next edge when current one completes
         if (p.edgeProgress >= 1) {
           p.pathIndex++;
           if (p.pathIndex >= p.path.length - 1) {
@@ -153,13 +156,11 @@ export function PipelineAnimation() {
         p.x = fromNode.x + (toNode.x - fromNode.x) * p.edgeProgress;
         p.y = fromNode.y + (toNode.y - fromNode.y) * p.edgeProgress;
 
-        // Particle dot
         ctx.fillStyle = `rgba(212, 168, 75, ${0.8 - p.edgeProgress * 0.5})`;
         ctx.beginPath();
         ctx.arc(p.x * w, p.y * h, 3, 0, Math.PI * 2);
         ctx.fill();
 
-        // Trail from current edge start to particle
         ctx.strokeStyle = `rgba(212, 168, 75, ${0.4 - p.edgeProgress * 0.3})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
