@@ -64,3 +64,31 @@ def test_event_name_for_group_narrative_stream():
     from src.api.routes.sse import _event_name_for_stream
     assert _event_name_for_stream("narratives:group:equity") == "narrative_data"
     assert _event_name_for_stream("development:narratives:group:metals") == "narrative_data"
+
+
+def test_build_stream_list_includes_system_events():
+    """Stream list always includes the global system:events stream."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES"], "1m")
+    assert any("system:events" in s for s in streams), \
+        f"No system:events stream in {streams}"
+
+
+def test_build_stream_list_includes_system_events_once():
+    """system:events appears exactly once regardless of symbol count."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES", "NQ", "RTY"], "1m")
+    system_streams = [s for s in streams if "system:events" in s]
+    assert len(system_streams) == 1, f"Expected 1 system:events, got {system_streams}"
+
+
+def test_event_name_for_system_events_stream():
+    """system:events maps to system_event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("system:events") == "system_event"
+
+
+def test_event_name_for_env_prefixed_system_events():
+    """Env-prefixed system:events maps to system_event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("development:system:events") == "system_event"
