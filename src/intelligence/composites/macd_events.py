@@ -10,11 +10,13 @@ from .common import crossover_detect, is_num, track_bars_ago
 @dataclass
 class MACDEventsPlugin:
     name: str = "evt_MACDEvents"
-    outputs: set[str] = field(
+    outputs: frozenset[str] = field(
         default_factory=lambda: frozenset({
             "macd_cross_bullish", "macd_cross_bearish", "macd_cross_bars_ago",
             "macd_hist_positive", "macd_hist_turning_up",
             "macd_negative_support_test",
+            "macd_hist_accel",          # rate of change of MACD histogram
+            "macd_hist_contracting",    # 1 when abs(hist) < abs(prev_hist)
         })
     )
     min_lookback: int = 1
@@ -58,6 +60,13 @@ class MACDEventsPlugin:
         if is_num(prev_hist):
             turning_up = 1 if prev_hist < 0 and hist > prev_hist else 0
         out["macd_hist_turning_up"] = turning_up
+
+        # Histogram acceleration: rate of change of histogram (early exhaustion warning)
+        out["macd_hist_accel"] = float(hist - prev_hist) if is_num(prev_hist) else 0.0
+        # Histogram contracting: 1 when magnitude is shrinking (approaching zero)
+        out["macd_hist_contracting"] = (
+            1 if (is_num(prev_hist) and abs(hist) < abs(prev_hist)) else 0
+        )
 
         # Negative support test: MACD hist negative + price near support
         nearest_support = features.get("nearest_support")
