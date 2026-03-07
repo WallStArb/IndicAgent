@@ -127,6 +127,7 @@ function parseIntelligence(p: Record<string, string>): {
     trend_regime: trendLabel as ContextData["trend_regime"],
     momentum_bias: mb,
     momentum_direction: momDir as ContextData["momentum_direction"],
+    garch_vol_regime: i4.garch_vol_regime != null ? Number(i4.garch_vol_regime) : undefined,
   };
 
   const patterns: PatternData = {

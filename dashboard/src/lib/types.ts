@@ -104,6 +104,8 @@ export interface ContextData {
   // Momentum context
   momentum_bias?: number; // -1 to +1
   momentum_direction?: "bullish" | "bearish" | "neutral";
+  // GARCH vol regime (I4)
+  garch_vol_regime?: number;       // 0=low, 1=normal, 2=high
 }
 
 // ── I5 Pattern Detection ──

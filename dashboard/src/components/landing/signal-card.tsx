@@ -2,6 +2,59 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { SignalData, SymbolData, NarrativeData } from "@/lib/types";
+
+/** Derive compact intelligence context labels from SymbolData. Returns only truthy items. */
+function getIntelCtxTags(data: SymbolData, timeframe: string): string[] {
+  const intel = data.intelligenceByTf?.[timeframe];
+  const ctx = intel?.context;
+  const smc = intel?.smartMoney;
+  const ind = data.indicatorsByTf?.[timeframe];
+  const tags: string[] = [];
+
+  // Regime (HMM preferred, fallback to trend_regime)
+  if (smc?.hmm_regime != null) {
+    const label = smc.hmm_regime === 1 ? "TRENDING ↑" : smc.hmm_regime === 2 ? "TRENDING ↓" : "RANGING";
+    tags.push(label);
+  } else if (ctx?.trend_regime && ctx.trend_regime !== "neutral") {
+    tags.push(ctx.trend_regime.replace("_", " ").toUpperCase());
+  }
+
+  // ADX (only show if meaningful: > 20)
+  if (ind?.adx != null && ind.adx > 20) {
+    const di =
+      ind.plus_di != null && ind.minus_di != null
+        ? ind.plus_di > ind.minus_di ? " ↑" : " ↓"
+        : "";
+    tags.push(`ADX ${Math.round(ind.adx)}${di}`);
+  }
+
+  // Killzone (from SMC tier)
+  const inKillzone =
+    smc?.in_london_killzone || smc?.in_ny_am_killzone ||
+    smc?.in_ny_pm_killzone || smc?.in_asia_killzone;
+  if (inKillzone && smc?.killzone_name) {
+    tags.push(smc.killzone_name.toUpperCase());
+  }
+
+  // AMD phase
+  if (smc?.amd_phase) {
+    const label =
+      smc.amd_phase === "accumulation" ? "ACCUM" :
+      smc.amd_phase === "manipulation" ? "MANIP" : "DIST";
+    tags.push(label);
+  }
+
+  // GARCH vol regime
+  if (ctx?.garch_vol_regime != null && ctx.garch_vol_regime >= 2) {
+    tags.push("VOL ↑");
+  }
+
+  // SMC zone
+  if (smc?.in_demand_zone) tags.push("IN DEMAND");
+  else if (smc?.in_supply_zone) tags.push("IN SUPPLY");
+
+  return tags;
+}
 import { fmtPrice, fmtTimeHMS, fmtLagSeconds } from "@/lib/format";
 import { DrillPanel } from "@/components/drill-panel";
 import { X, Brain } from "lucide-react";
@@ -75,6 +128,11 @@ function SignalCard({
   const barCloseTimeStr = useMemo(() => fmtTimeHMS(signal.bar_close_ts), [signal.bar_close_ts]);
   const computedTimeStr = useMemo(() => fmtTimeHMS(signal.signal_computed_at), [signal.signal_computed_at]);
   const lagStr = useMemo(() => fmtLagSeconds(signal.pipeline_lag_s), [signal.pipeline_lag_s]);
+
+  const intelTags = useMemo(
+    () => getIntelCtxTags(data, signal.timeframe),
+    [data, signal.timeframe]
+  );
 
   const hasT1 = signal.profit_target != null;
   const hasT2 = signal.profit_target_2 != null;
@@ -259,6 +317,34 @@ function SignalCard({
             </div>
           )}
         </div>
+
+        {/* Intelligence context row */}
+        {intelTags.length > 0 && (
+          <div
+            className="py-1 border-b flex flex-wrap gap-1"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            {intelTags.map((tag) => (
+              <span
+                key={tag}
+                className="text-[0.6rem] px-1.5 py-px rounded font-medium leading-none"
+                style={{
+                  background: "var(--bg-elevated)",
+                  color:
+                    tag.includes("DEMAND") || tag.includes("↑")
+                      ? "var(--green)"
+                      : tag.includes("SUPPLY") || tag.includes("↓")
+                        ? "var(--red)"
+                        : tag === "MANIP"
+                          ? "#f59e0b"
+                          : "var(--text-secondary)",
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Footer: signal type tags + narrative */}
         <div className="pt-1.5">
