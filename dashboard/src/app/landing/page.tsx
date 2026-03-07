@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMarketStream } from "@/hooks/use-market-stream";
 import { symbolConfig } from "@/lib/symbol-config";
 import { HeroSection } from "@/components/landing/hero-section";
+import { IntelligencePillars } from "@/components/landing/intelligence-pillars";
 import { SignalFilters, type SignalFilters as SignalFiltersType } from "@/components/landing/signal-filters";
 import SignalCard from "@/components/landing/signal-card";
 import { ArrowRight } from "lucide-react";
@@ -97,7 +98,8 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen">
-      <HeroSection />
+      <HeroSection activeSignalCount={filteredSignals.length} />
+      <IntelligencePillars />
 
       <section className="px-6 py-12">
         <div className="max-w-7xl mx-auto">
