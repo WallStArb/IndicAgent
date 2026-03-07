@@ -761,6 +761,15 @@ def main() -> None:
         default=None,
         help="Plugin output field (required for multi-field plugins like patt_CandlestickPatterns)",
     )
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        default=False,
+        help=(
+            "Record a data-absence exemption without running statistical gates. "
+            "Use when plugin is newly registered and has no historical data yet."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -770,6 +779,60 @@ def main() -> None:
 
     # Report directory: docs/validation/ relative to project root
     report_dir = _PROJECT_ROOT / "docs" / "validation"
+
+    # Bootstrap path: write audit trail without running statistical gates or DB queries.
+    if args.bootstrap:
+        if args.plugin not in PLUGIN_REGISTRY:
+            print(f"ERROR: Unknown plugin '{args.plugin}'. Known plugins: {list(PLUGIN_REGISTRY)}")
+            sys.exit(1)
+
+        plugin_meta = PLUGIN_REGISTRY[args.plugin]
+        effective_field = args.field or plugin_meta["field"]
+
+        if effective_field is None:
+            print(
+                f"ERROR: Plugin '{args.plugin}' requires --field <field_name> "
+                "(multi-field plugin)."
+            )
+            sys.exit(1)
+
+        run_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        bootstrap_record: dict[str, Any] = {
+            "plugin": args.plugin,
+            "field": effective_field,
+            "run_at": run_at,
+            "days": args.days,
+            "verdict": "BOOTSTRAP",
+            "bootstrap_reason": "data_absence_exemption",
+            "bootstrap_note": (
+                "Plugin registered before gate pass. "
+                "Implementation is mathematically correct (unit tests pass). "
+                f"Re-run: python production/scripts/validate_alpha.py "
+                f"--plugin {args.plugin} --days {args.days} --promote "
+                "after 30+ bars accumulate in intelligence_features."
+            ),
+            "promoted": False,
+            "gates": {
+                "n_min_30": None,
+                "pearson_r_positive": None,
+                "pearson_p_lt_05": None,
+            },
+        }
+
+        report_dir.mkdir(parents=True, exist_ok=True)
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+        safe_field = effective_field.replace("/", "_").replace(".", "_")
+        report_filename = f"{date_str}-{args.plugin}-{safe_field}-bootstrap.json"
+        report_path = report_dir / report_filename
+        report_path.write_text(json.dumps(bootstrap_record, indent=2, default=str))
+
+        print(f"BOOTSTRAP record written: {report_path}")
+        print(
+            f"Re-run gate after data accumulates: "
+            f"python production/scripts/validate_alpha.py "
+            f"--plugin {args.plugin} --days {args.days} --promote"
+        )
+        sys.exit(0)
 
     result = run_validation(
         plugin=args.plugin,

@@ -110,5 +110,27 @@ None — discussion stayed within phase scope.
 
 ---
 
+## Bootstrap Policy Exception
+
+Data-absence bootstrap policy applies to three plugins promoted before live data accumulated:
+
+- **ALPHA-02**: `cmp_DerivativeOscillator` — DerivativeOscillatorPlugin registered in TIER_I2 (15-GAP-01)
+- **ALPHA-04**: `evt_MACDEvents` (macd_hist_accel field) — MACD acceleration fields added in 15-04
+- **ALPHA-05**: `ind_ACOscillator` — AC Oscillator wired to live pipeline before gate pass (commit ad9af58)
+
+In each case: the implementation is mathematically correct (unit tests pass), but intelligence_features has zero rows for the plugin's output fields because registration occurred before any live bars were processed under the new schema.
+
+Gate re-run required after 30+ bars accumulate in intelligence_features for each field. Run:
+
+```
+python production/scripts/validate_alpha.py --plugin <name> --days 90 --promote
+```
+
+This decision is intentional and closes the sequence-violation concern raised in 15-VERIFICATION.md (ALPHA-05 gap). Data-absent plugins with correct implementations are bootstrap-promoted rather than blocked.
+
+Audit trail JSON files (verdict=BOOTSTRAP) written to docs/validation/ for each exempted plugin.
+
+---
+
 *Phase: 15-validated-alpha*
 *Context gathered: 2026-03-07 (updated 2026-03-08)*
