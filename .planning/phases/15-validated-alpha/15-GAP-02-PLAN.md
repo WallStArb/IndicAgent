@@ -2,8 +2,8 @@
 phase: 15-validated-alpha
 plan: GAP-02
 type: execute
-wave: 1
-depends_on: []
+wave: 2
+depends_on: ["GAP-01"]
 files_modified:
   - src/intelligence/trading/candlestick_pattern_setup.py
   - tests/unit/intelligence/test_trading_setups.py

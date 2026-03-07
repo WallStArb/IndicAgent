@@ -2,7 +2,7 @@
 
 Version: 5.15.0
 Last Updated: 2026-03-07
-Status: I1-I8 pipeline complete — 88 plugins + 2 aggregation components + feature store + typed intelligence bus, 1236 tests, 0 ruff errors, 24 contracts
+Status: I1-I8 pipeline complete — 91 plugins + 2 aggregation components + feature store + typed intelligence bus, 1286 tests, 34 ruff errors (E501 line-too-long), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -171,7 +171,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Plugin System
 
-88 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+91 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
@@ -214,9 +214,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1236 passing · **Ruff:** 0 errors ✅
+**Tests:** 1286 passing · **Ruff:** 34 errors (E501 line-too-long, non-blocking) ⚠️
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Phase 12 ✅, Phase 13 ✅, Phase 14 ✅, Phase 15 pending, Phase 16 ✅, Phase 17 ✅) — see `.planning/ROADMAP.md`
+**v1.3 complete** · **v1.4 in progress:** Quant Foundation (Phase 12 ✅, Phase 13 ✅, Phase 14 ✅, Phase 15 ✅, Phase 16 ✅, Phase 17 ✅) — see `.planning/ROADMAP.md`
 
 ## Key References
 

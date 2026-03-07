@@ -11,6 +11,7 @@ files_modified:
   - tests/unit/intelligence/test_i7_registration.py
   - tests/unit/intelligence/test_i2_registration.py
   - production/scripts/validate_alpha.py
+  - .planning/phases/15-validated-alpha/15-CONTEXT.md
 autonomous: true
 gap_closure: true
 requirements: [ALPHA-01, ALPHA-02, ALPHA-04, ALPHA-05]
@@ -23,6 +24,7 @@ must_haves:
     - "validate_alpha.py --bootstrap flag produces a BOOTSTRAP record in the JSON report without running the gate hard-block"
     - "Running bootstrap mode for cmp_DerivativeOscillator, ind_ACOscillator, and evt_MACDEvents produces audit-trail JSON files in docs/validation/"
     - "Full unit test suite (1286+) passes with no regressions"
+    - "Bootstrap policy exception is documented in CONTEXT.md for ALPHA-05 (AC Oscillator), ALPHA-02 (DerivativeOscillator), ALPHA-04 (MACD accel)."
   artifacts:
     - path: "src/intelligence/register_plugins.py"
       provides: "cmp_DerivativeOscillator imported + registered + in TIER_I2"
@@ -33,6 +35,9 @@ must_haves:
       provides: "Bootstrap audit trail for ACOscillator (Gap 3 closure)"
     - path: "docs/validation/2026-03-07-evt_MACDEvents-macd_hist_accel-bootstrap.json"
       provides: "Bootstrap audit trail for MACD accel (Gap 4 closure)"
+    - path: ".planning/phases/15-validated-alpha/15-CONTEXT.md"
+      provides: "Bootstrap policy exception note for ALPHA-02, ALPHA-04, ALPHA-05"
+      contains: "Bootstrap Policy Exception"
   key_links:
     - from: "src/intelligence/composites/derivative_oscillator.py"
       to: "TIER_I2 in register_plugins.py"
@@ -49,7 +54,7 @@ Apply the bootstrap promotion policy to DerivativeOscillatorPlugin (TIER_I2) and
 
 Purpose: The chicken-and-egg problem (gate needs data, data needs registration) is resolved by formalising the bootstrap exception: plugins with correct implementations but zero live data are promoted with a documented data-absence exemption. This mirrors the AC Oscillator precedent from 15-05 (commit ad9af58). validate_alpha.py gains a `--bootstrap` flag that writes an audit trail JSON with `verdict=BOOTSTRAP` without running hard gates.
 
-Output: DerivativeOscillatorPlugin live in TIER_I2 (9 I2 plugins total), three bootstrap audit JSON files covering Gaps 1/3/4, all 1286+ tests still passing.
+Output: DerivativeOscillatorPlugin live in TIER_I2 (9 I2 plugins total), three bootstrap audit JSON files covering Gaps 1/3/4, bootstrap policy exception documented in CONTEXT.md, all 1286+ tests still passing.
 </objective>
 
 <execution_context>
@@ -165,8 +170,8 @@ validate_alpha.py --bootstrap flag behaviour (to implement):
 </task>
 
 <task type="auto">
-  <name>Task 2: Add --bootstrap flag to validate_alpha.py and run audit-trail records for Gaps 1, 3, 4</name>
-  <files>production/scripts/validate_alpha.py, docs/validation/</files>
+  <name>Task 2: Add --bootstrap flag to validate_alpha.py, run audit-trail records for Gaps 1/3/4, and document bootstrap policy exception in CONTEXT.md</name>
+  <files>production/scripts/validate_alpha.py, docs/validation/, .planning/phases/15-validated-alpha/15-CONTEXT.md</files>
   <action>
     Add --bootstrap flag to the argparse block in production/scripts/validate_alpha.py:
     ```python
@@ -220,6 +225,27 @@ validate_alpha.py --bootstrap flag behaviour (to implement):
     Each command must exit 0 and write a JSON file to docs/validation/.
 
     NOTE: validate_alpha.py uses a DB connection for normal gate runs. The --bootstrap path must NOT attempt a DB connection (exit before any psycopg2.connect call). This allows the bootstrap commands to run even when TimescaleDB is unreachable.
+
+    ALSO: Append a `## Bootstrap Policy Exception` section to `.planning/phases/15-validated-alpha/15-CONTEXT.md`:
+
+    ```markdown
+    ## Bootstrap Policy Exception
+
+    Data-absence bootstrap policy applies to three plugins promoted before live data accumulated:
+
+    - **ALPHA-02**: `cmp_DerivativeOscillator` — DerivativeOscillatorPlugin registered in TIER_I2 (15-GAP-01)
+    - **ALPHA-04**: `evt_MACDEvents` (macd_hist_accel field) — MACD acceleration fields added in 15-04
+    - **ALPHA-05**: `ind_ACOscillator` — AC Oscillator wired to live pipeline before gate pass (commit ad9af58)
+
+    In each case: the implementation is mathematically correct (unit tests pass), but intelligence_features has zero rows for the plugin's output fields because registration occurred before any live bars were processed under the new schema.
+
+    Gate re-run required after 30+ bars accumulate in intelligence_features for each field. Run:
+    ```
+    python production/scripts/validate_alpha.py --plugin <name> --days 90 --promote
+    ```
+
+    This decision is intentional and closes the sequence-violation concern raised in 15-VERIFICATION.md (ALPHA-05 gap). Data-absent plugins with correct implementations are bootstrap-promoted rather than blocked.
+    ```
   </action>
   <verify>
     <automated>
@@ -232,6 +258,7 @@ validate_alpha.py --bootstrap flag behaviour (to implement):
     - Each file has: plugin, field, run_at, days, verdict, bootstrap_reason, bootstrap_note, promoted=false, gates with null values
     - All three commands exit 0
     - No DB connection attempted during bootstrap run
+    - `## Bootstrap Policy Exception` section appended to 15-CONTEXT.md covering ALPHA-02, ALPHA-04, ALPHA-05
   </done>
 </task>
 
@@ -242,8 +269,7 @@ validate_alpha.py --bootstrap flag behaviour (to implement):
     Run the full unit test suite to confirm no regressions from TIER_I2 registration change.
     Then run ruff on modified files.
 
-    Expected: 1292+ tests passing (1286 baseline + 0 new tests in this plan — count tests updated in Task 1).
-    The increase from 1286 comes from no new test files — just count assertion updates. Baseline was 1286.
+    Expected: 1286+ tests passing (confirmed baseline via .venv/bin/pytest tests/unit/ -q). No new failures.
   </action>
   <verify>
     <automated>.venv/bin/pytest tests/unit/ -x -q 2>&1 | tail -5</automated>
@@ -261,6 +287,7 @@ validate_alpha.py --bootstrap flag behaviour (to implement):
 .venv/bin/python production/scripts/validate_alpha.py --help | grep bootstrap
 ls docs/validation/*bootstrap*.json
 python -c "from src.intelligence.register_plugins import TIER_I2; print(len(TIER_I2), 'cmp_DerivativeOscillator' in TIER_I2)"
+grep "Bootstrap Policy Exception" .planning/phases/15-validated-alpha/15-CONTEXT.md
 </verification>
 
 <success_criteria>
@@ -271,6 +298,7 @@ python -c "from src.intelligence.register_plugins import TIER_I2; print(len(TIER
 - Three bootstrap JSON files in docs/validation/ with verdict=BOOTSTRAP
 - Full unit suite passes with no regressions
 - --bootstrap flag documented in validate_alpha.py --help
+- Bootstrap policy exception documented in 15-CONTEXT.md covering ALPHA-02, ALPHA-04, ALPHA-05
 </success_criteria>
 
 <output>
