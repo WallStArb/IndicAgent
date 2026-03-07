@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
 status: completed
-last_updated: "2026-03-06T22:06:42.401Z"
+last_updated: "2026-03-07T01:16:55.454Z"
 last_activity: "2026-03-06 — 16-04 complete: signal_lifecycle_service emits to llm_outcomes:stream on both exit paths, _build_outcome_payload helper, 5 new tests GREEN"
 progress:
   total_phases: 17
   completed_phases: 5
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 21
+  completed_plans: 21
 ---
 
 # Project State
@@ -79,6 +79,7 @@ Last activity: 2026-03-06 — 16-04 complete: signal_lifecycle_service emits to 
 - [Phase 14-feedback-loop]: Sharpe rank ascending: worst=0, best=n-1; perf_multiplier=0.5+(rank/n); single eligible setup gets 1.0
 - [Phase 14-feedback-loop]: Sort by adjusted_rank ASCENDING (lower = higher priority): tests are authoritative over plan text
 - [Phase 14-feedback-loop]: perf_weights dict contract: adjusted_rank = composite_rank * perf_multiplier, neutral=1.0, ascending sort
+- [Phase 14-feedback-loop]: FEED-03 fix: inverted perf_multiplier formula gives best Sharpe lowest multiplier (0.5), ranks first under ascending adjusted_rank sort
 
 ### Pending Todos
 
