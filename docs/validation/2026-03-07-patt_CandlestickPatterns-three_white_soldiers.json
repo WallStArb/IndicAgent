@@ -1,7 +1,7 @@
 {
   "plugin": "patt_CandlestickPatterns",
   "field": "three_white_soldiers",
-  "run_at": "2026-03-07T10:53:01Z",
+  "run_at": "2026-03-07T16:17:37Z",
   "days": 90,
   "symbols": [],
   "n_signal_bars": 0,
