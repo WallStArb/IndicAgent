@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.intelligence.setup_performance_updater import _compute_perf_multipliers
 from src.intelligence.trading.aggregator import SETUP_PRIORITY, _build_all_ranked, aggregate
 
 # ---------------------------------------------------------------------------
@@ -102,20 +103,20 @@ class TestBuildAllRankedPerfMultiplier:
 
         Setup: MeanReversion (priority=1, lowest) vs LiquiditySweepReclaim (priority=5, highest).
         Without perf_weights: LiquiditySweepReclaim ranks first.
-        With perf_weights giving MeanReversion multiplier=0.5 and LiquiditySweepReclaim=1.5:
-          adjusted_rank: MeanReversion = 1*0.5 = 0.5, LiquiditySweepReclaim = 2*1.5 = 3.0
-          Sort ascending → MeanReversion ranks first (lower adjusted_rank = higher priority).
-
-        RED: fails with TypeError because perf_weights kwarg does not exist yet.
+        With MeanReversion having the best Sharpe and LiquiditySweepReclaim the worst,
+        _compute_perf_multipliers gives MeanReversion multiplier=0.5 and LSR multiplier=1.5.
+        MeanReversion should rank first despite lower SETUP_PRIORITY.
         """
         fired = [
             _signal("trad_MeanReversion", 1),
             _signal("trad_LiquiditySweepReclaim", 1),
         ]
-        perf_weights = {
-            "trad_MeanReversion": 0.5,
-            "trad_LiquiditySweepReclaim": 1.5,
-        }
+        perf_weights = _compute_perf_multipliers(
+            {
+                "trad_MeanReversion": {"sharpe_ratio": 3.0},
+                "trad_LiquiditySweepReclaim": {"sharpe_ratio": 0.2},
+            }
+        )
         result = _build_all_ranked(fired, perf_weights=perf_weights)
         # MeanReversion should rank first despite lower SETUP_PRIORITY
         assert result[0]["setup_plugin"] == "trad_MeanReversion"
@@ -212,3 +213,60 @@ class TestAggregatePerfWeightsKwarg:
         # Should return an AggregatedResult regardless of perf_weights
         assert result is not None
         assert hasattr(result, "selected_signal")
+
+
+# ---------------------------------------------------------------------------
+# End-to-end integration: _compute_perf_multipliers() → _build_all_ranked()
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAllRankedEndToEnd:
+    @pytest.mark.unit
+    def test_e2e_best_sharpe_ranks_first_all_five_setups(self):
+        """Best-Sharpe setup ranks first regardless of its SETUP_PRIORITY position.
+
+        trad_MeanReversion (SETUP_PRIORITY=1, LOWEST) has BEST Sharpe (3.0).
+        trad_LiquiditySweepReclaim (SETUP_PRIORITY=5, HIGHEST) has WORST Sharpe (-0.5).
+
+        With the old formula (adjusted_rank = composite_rank * perf_multiplier):
+          MeanReversion: composite_rank=5, multiplier=0.5 → adjusted_rank=2.5
+          LSR: composite_rank=1, multiplier=1.5 → adjusted_rank=1.5
+          LSR wins — WRONG.
+
+        With the fixed formula (adjusted_rank = perf_multiplier as primary key):
+          MeanReversion: multiplier=0.5 → ranks first — CORRECT.
+        """
+        stats = {
+            "trad_MeanReversion": {"sharpe_ratio": 3.0},        # best → multiplier=0.5
+            "trad_SqueezeExpansion": {"sharpe_ratio": 1.5},
+            "trad_TrendFollowing": {"sharpe_ratio": 1.0},
+            "trad_MTFAlignment": {"sharpe_ratio": 0.5},
+            "trad_LiquiditySweepReclaim": {"sharpe_ratio": -0.5},  # worst → multiplier≈1.5
+        }
+        perf_weights = _compute_perf_multipliers(stats)
+        fired = [{"setup_plugin": p, "direction": 1} for p in stats]
+        result = _build_all_ranked(fired, perf_weights=perf_weights)
+        assert result[0]["setup_plugin"] == "trad_MeanReversion", (
+            f"Expected trad_MeanReversion (best Sharpe) first, got {result[0]['setup_plugin']}"
+        )
+
+    @pytest.mark.unit
+    def test_e2e_worst_sharpe_ranks_last_regardless_of_setup_priority(self):
+        """Worst-Sharpe setup ranks last even if it has the highest SETUP_PRIORITY.
+
+        trad_LiquiditySweepReclaim (SETUP_PRIORITY=5, HIGHEST) has WORST Sharpe (-0.5).
+        It must appear last in the ranked result when perf_weights are present.
+        """
+        stats = {
+            "trad_MeanReversion": {"sharpe_ratio": 3.0},
+            "trad_SqueezeExpansion": {"sharpe_ratio": 1.5},
+            "trad_TrendFollowing": {"sharpe_ratio": 1.0},
+            "trad_MTFAlignment": {"sharpe_ratio": 0.5},
+            "trad_LiquiditySweepReclaim": {"sharpe_ratio": -0.5},  # worst
+        }
+        perf_weights = _compute_perf_multipliers(stats)
+        fired = [{"setup_plugin": p, "direction": 1} for p in stats]
+        result = _build_all_ranked(fired, perf_weights=perf_weights)
+        assert result[-1]["setup_plugin"] == "trad_LiquiditySweepReclaim", (
+            f"Expected trad_LiquiditySweepReclaim (worst Sharpe) last, got {result[-1]['setup_plugin']}"
+        )
