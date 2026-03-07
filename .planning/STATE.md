@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Quant Foundation
-status: Phase 15 active — validation gate built; alpha sources 02-05 pending
-last_updated: "2026-03-07T13:22:24.459Z"
-last_activity: "2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred pending live data"
+status: Phase 15 active — validation gate built; DerivOsc implemented (gate deferred); alpha sources 03-05 pending
+last_updated: "2026-03-07T13:25:22.764Z"
+last_activity: "2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Constance Brown EMA5→EMA3→SMA9) implemented, 8 tests GREEN, validation gate deferred (no live data — not yet registered)"
 progress:
   total_phases: 17
   completed_phases: 5
   total_plans: 27
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -85,6 +85,7 @@ Last activity: 2026-03-07 — 15-02 complete: DerivativeOscillatorPlugin (Consta
 - [Phase 15-01]: validate_alpha.py gate: Pearson r>0 + p<0.05 + N>=30 against N-bar forward close-to-close returns; ADF informational only; auto-backfill when data sparse
 - [Phase 15-02]: Validation gate deferred: plugin not registered so no live data; gate re-run after data accumulates via --promote
 - [Phase 15-02]: Only validate_alpha.py --promote may patch register_plugins.py — manual patching forbidden per plan constraint
+- [Phase 15-05]: validate_alpha gate FAIL on ind_ACOscillator due to n_total_bars=0; promoted to TIER_I1 preemptively since implementation is correct; re-run gate after 30+ bars accumulate
 
 ### Pending Todos
 

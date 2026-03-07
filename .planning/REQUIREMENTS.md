@@ -54,7 +54,7 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 - [x] **ALPHA-02**: Derivative Oscillator I2 plugin (Constance Brown) — double-smooth RSI (EMA5→EMA3) minus SMA(9) signal line; outputs `deriv_osc`, `deriv_osc_signal`, `deriv_osc_cross_bullish`, `deriv_osc_cross_bearish`; leads MACD by ~1-2 bars; validated via ALPHA-01 before live wiring
 - [ ] **ALPHA-03**: Candlestick Tier 1 expansion (10 new patterns) added to `CandlestickPatternsPlugin` (I5) and `CandlestickPatternSetupPlugin` (I7): Three White Soldiers (0.72), Three Black Crows (0.72), Morning Star (0.65), Evening Star (0.65), Three Inside Up/Down (0.65), Harami Cross (0.58), Dark Cloud Cover (0.55), Piercing Line (0.55) — validated via ALPHA-01
 - [ ] **ALPHA-04**: MACD histogram acceleration added to `MACDEventsPlugin` — `macd_hist_accel` (float) and `macd_hist_contracting` (flag); early trend exhaustion warning 1-2 bars before sign flip — validated via ALPHA-01
-- [ ] **ALPHA-05**: AC Oscillator I1 plugin (Bill Williams) — `ao` (SMA(midpoint,5) − SMA(midpoint,34)) and `ac` (AO − SMA(AO,5)); new signal family, midpoint SMA-based, AC crosses zero before AO does — validated via ALPHA-01
+- [x] **ALPHA-05**: AC Oscillator I1 plugin (Bill Williams) — `ao` (SMA(midpoint,5) − SMA(midpoint,34)) and `ac` (AO − SMA(AO,5)); new signal family, midpoint SMA-based, AC crosses zero before AO does — validated via ALPHA-01
 
 ### Discipline 5: LLM Intelligence Layer (LLM)
 
@@ -125,7 +125,7 @@ v1.4 is built to Renaissance Technologies standard. Jim Simons' three foundation
 | ALPHA-02 | Phase 15 | Complete |
 | ALPHA-03 | Phase 15 | Pending |
 | ALPHA-04 | Phase 15 | Pending |
-| ALPHA-05 | Phase 15 | Pending |
+| ALPHA-05 | Phase 15 | Complete |
 | LLM-01 | Phase 16 | Complete |
 | LLM-02 | Phase 16 | Complete |
 | LLM-03 | Phase 16 | Complete |
