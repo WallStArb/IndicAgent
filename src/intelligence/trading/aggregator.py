@@ -151,21 +151,14 @@ def aggregate(
         scorer = CISScorer()
         cis_result = scorer.score(features, plugin_outputs)
 
-    # Filter for active eligible signals only (eligible + fired + non-none)
-    active = [
-        s
-        for s in signals
-        if s.get("direction") != 0
-        and s.get("signal_type") != "none"
-        and s.get("regime_eligible", True)
-    ]
-
-    # Build all_ranked from ALL fired signals (eligible + suppressed as shadow entries)
+    # Build all_ranked from ALL fired signals (eligible + suppressed as shadow entries).
+    # active is derived from all_ranked so signals carry adjusted_rank for winner selection.
     all_fired = [
         s for s in signals
         if s.get("direction") != 0 and s.get("signal_type") != "none"
     ]
     all_ranked = _build_all_ranked(all_fired, perf_weights=perf_weights)
+    active = [s for s in all_ranked if s.get("regime_eligible", True)]
 
     # Attach CIS metadata to result (even if no signal)
     cis_kwargs: dict[str, Any] = {}
@@ -196,15 +189,9 @@ def aggregate(
 
 
 def _sort_by_priority(group: list[dict]) -> list[dict]:
-    # Sort ascending: lower adjusted_rank = higher priority (appears first).
-    # Fallback uses negative SETUP_PRIORITY so higher-priority plugins still sort first.
-    return sorted(
-        group,
-        key=lambda s: s.get(
-            "adjusted_rank",
-            -float(SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0)),
-        ),
-    )
+    # Sort ascending by adjusted_rank (always set by _build_all_ranked before this is called).
+    # Stable sort preserves the tiebreak order established in _build_all_ranked.
+    return sorted(group, key=lambda s: s["adjusted_rank"])
 
 
 def _aggregate_via_cis(
@@ -391,25 +378,20 @@ def _build_all_ranked(
     weights = perf_weights or {}
     for sig in with_ranks:
         plugin = sig.get("setup_plugin", "")
-        priority = SETUP_PRIORITY.get(plugin, 0)
         if weights:
             # perf_multiplier is the primary key (ascending: 0.5=best, 1.5=worst).
-            # Tiebreak: negate priority so higher-priority setup sorts earlier under
-            # ascending order (larger int → more negative → smaller tiebreak value).
             multiplier = weights.get(plugin, 1.0)
             sig["adjusted_rank"] = round(multiplier, 4)
-            sig["_rank_tiebreak"] = -priority
         else:
             # No perf data: sort by SETUP_PRIORITY descending.
             # Negate so ascending sort puts highest-priority first.
-            sig["adjusted_rank"] = round(-float(priority), 4)
-            sig["_rank_tiebreak"] = 0
+            sig["adjusted_rank"] = round(-SETUP_PRIORITY.get(plugin, 0), 4)
 
-    # 3. Sort ascending by (adjusted_rank, _rank_tiebreak)
-    result = sorted(with_ranks, key=lambda s: (s["adjusted_rank"], s["_rank_tiebreak"]))
-
-    # 4. Remove internal tiebreak key before returning
-    for sig in result:
-        sig.pop("_rank_tiebreak", None)
-
-    return result
+    # 3. Sort ascending by (adjusted_rank, -priority) — tiebreak preserves SETUP_PRIORITY order.
+    return sorted(
+        with_ranks,
+        key=lambda s: (
+            s["adjusted_rank"],
+            -SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0) if weights else 0,
+        ),
+    )
