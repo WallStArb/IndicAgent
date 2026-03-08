@@ -79,6 +79,23 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
           </span>
         </div>
 
+        {/* Tagline — above headline so it's the first thing read */}
+        <div className="flex items-center gap-4 mb-6" style={{ maxWidth: "640px" }}>
+          <div className="h-px w-8" style={{ background: "var(--border-bright)" }} />
+          <span
+            style={{
+              fontFamily: "var(--font-jetbrains)",
+              fontSize: "0.62rem",
+              letterSpacing: "0.12em",
+              color: "var(--accent-amber)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ticks → indicators → structure → signals → AI narrative
+          </span>
+          <div className="h-px flex-1" style={{ background: "var(--border-bright)" }} />
+        </div>
+
         {/* Headline */}
         <h1
           style={{
@@ -98,23 +115,6 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
           Intelligence
         </h1>
 
-        {/* Tagline rule */}
-        <div className="flex items-center gap-4 mt-8 mb-6" style={{ maxWidth: "600px" }}>
-          <div className="h-px flex-1" style={{ background: "var(--border-bright)" }} />
-          <span
-            style={{
-              fontFamily: "var(--font-jetbrains)",
-              fontSize: "0.62rem",
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              color: "var(--accent-amber)",
-            }}
-          >
-            Systematic · Stream-Native · Data-First
-          </span>
-          <div className="h-px w-6" style={{ background: "var(--border-bright)" }} />
-        </div>
-
         {/* Body copy */}
         <p
           style={{
@@ -125,9 +125,9 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
             color: "var(--text-secondary)",
           }}
         >
-          An 8-tier, DAG-ordered pipeline running 91 intelligence plugins across 24 instruments.
-          Every signal is regime-aware, CIS-validated, lifecycle-tracked, and outcome-recorded —
-          feeding a self-improving loop where data, not intuition, drives decisions.
+          Raw market data flows in across 24 instruments. 91 intelligence plugins transform it —
+          tier by tier — into regime-aware signals, CIS-validated setups, and AI-enriched narrative.
+          Every output measured. Every outcome recorded. The system learns from both.
         </p>
 
         {/* Stats */}
