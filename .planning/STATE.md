@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 18-07-PLAN.md
-last_updated: "2026-03-08T16:37:52.819Z"
+stopped_at: Completed 18-06-PLAN.md
+last_updated: "2026-03-08T16:38:43.608Z"
 last_activity: "2026-03-08 — 18-05: LLM provider configurable timeout complete"
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 11
-  completed_plans: 5
+  completed_phases: 1
+  total_plans: 14
+  completed_plans: 7
   percent: 33
 ---
 
@@ -60,6 +60,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 18 P03 | 420 | 5 tasks | 6 files |
 | Phase 18 P05 | 1 min | 1 task | 1 file |
 | Phase 18-financial-math-safety P07 | 10 | 1 tasks | 2 files |
+| Phase 18 P06 | 170 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 18]: ATR multipliers and regime thresholds as named constants with Renaissance framing — Renaissance principle: explicit structural levels over hidden constants. Makes magic numbers discoverable and explainable.
 - [Phase 18-05]: All LLM providers expose timeout: float | None = None in __init__ defaulting to _default_llm_timeout() — consistent pattern across OpenRouterProvider, AnthropicProvider, ZAIProvider, OllamaProvider
 - [Phase 18-financial-math-safety]: Two async helpers (_update_plugin_state, _save_plugin_state) activate orphaned lock infrastructure in I1 indicator service — state read and write wrapped with per-key asyncio.Lock()
+- [Phase 18]: _run_tier converted to async nested function to enable async with lock inside synchronous-style pipeline flow
+- [Phase 18]: Lock wraps both plugin state read (setdefault) and write-back (_state reassignment) as atomic unit
 
 ### Pending Todos
 
@@ -88,6 +91,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-08T16:37:52.817Z
-Stopped at: Completed 18-07-PLAN.md
+Last session: 2026-03-08T16:38:35.668Z
+Stopped at: Completed 18-06-PLAN.md
 Resume file: None
