@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.15.0
-Last Updated: 2026-03-07
-Status: I1-I8 pipeline complete — 91 plugins + 2 aggregation components + feature store + typed intelligence bus, 1304 tests, 34 ruff errors (E501 line-too-long), 24 contracts
+Version: 5.17.0
+Last Updated: 2026-03-08
+Status: I1-I8 pipeline complete — 91 plugins + 2 aggregation components + feature store + typed intelligence bus, 1308 tests, 62 ruff errors (E501 line-too-long), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -33,6 +33,7 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 |-------|----------|-------------|
 | **Ideas** | `.planning/IDEAS.md` | Rough bullet captures |
 | **Ideas (detailed)** | `docs/ideas/*.md` | Context, trade-offs, open questions |
+| **Ideas catalog** | `docs/ideas/IDEAS-INDEX.md` | **Primary lookup** for all research ideas, status, priority, search tags |
 | **TradeAgent vision** | `docs/ideas/tradeagent-vision.md` | Autonomous trading app (separate repo): agents, broker-agnostic execution, learning, HITL, guardrails, dashboards. Consumes IndicAgent + QualAgent signals. |
 | **QualAgent vision** | `docs/ideas/qualagent-vision.md` | Standalone qualitative intelligence platform (separate repo): macro regime, COT, prediction markets, news NLP, sentiment, QualScore, quantamental feedback loop. Build deferred. |
 | **DerivAgent vision** | `docs/ideas/derivagent-vision.md` | Derivatives intelligence + autonomous options execution platform (separate repo, name confirmed): vol surface, GEX, VANNA/CHARM, VRP, skew, term structure + agentic strategy selection, multi-leg execution, Greeks management, lifecycle, learning loop. Build deferred. |
@@ -46,6 +47,8 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 | **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements |
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases (GSD-managed) |
 | **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans |
+
+> **NOTE:** `.planning/IDEAS.md` is not defunct — it feeds GSD planning discovery. Both `.planning/IDEAS.md` and `docs/ideas/IDEAS-INDEX.md` should be kept in sync. When planning, check both sources.
 
 Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features. GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
 
@@ -119,7 +122,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
-| Indicator Service | `indicagent-indicator` | I1: 23 indicators → `indicators:SYMBOL:TF` | :9109 |
+| Indicator Service | `indicagent-indicator` | I1: 24 indicators → `indicators:SYMBOL:TF` | :9109 |
 | Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; needs ~50 live 1m bars (~50 min) warmup after restart before signals fire | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
@@ -180,29 +183,44 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
 
+
 ### Key Rules
+
+**Core Patterns**
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
-- **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
-- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils`. Gotcha: `xgroup_create(..., "$")` silently fails when group exists → stale position → processes old backlog. Fix in `except`: call `xgroup_setid(stream, group, "$")` to force-reset.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests are CI-clean; integration requires live infra.
+- **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
+
+**Stream & Consumer Groups**
+- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils`. Gotcha: `xgroup_create(..., "$")` silently fails when group exists → stale position → processes old backlog. Fix in `except`: call `xgroup_setid(stream, group, "$")` to force-reset.
+- **Redis stream booleans**: serialize as `"1"`/`"0"` (not `"true"`/`"false"`), parse with `Number(payload.field) > 0` — matches `vol_expanding`, `bb_squeeze` pattern in `use-market-stream.ts`.
+
+**Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, `await` Redis close, idempotent consumer groups.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
+- **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
+- **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise service silently fails mid-test with a misleading error.
+- **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
+
+**Data & Database**
+- **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
+- **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
+
+**Signal Logic**
+- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
+- **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
+
+**External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
 - **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series. No `--config`/`--flagfile` flag — pass all settings as CLI args only.
 - **Redis CLI**: `redis-cli` not installed — test/debug with `.venv/bin/python -c "import redis; print(redis.Redis().ping())"` or `redis.Redis().xlen(key)`.
-- **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks don't restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
-- **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
-- **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in the test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise the service silently fails mid-test with a misleading error.
-- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
-- **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
-- **Redis stream booleans**: serialize as `"1"`/`"0"` (not `"true"`/`"false"`), parse with `Number(payload.field) > 0` — matches `vol_expanding`, `bb_squeeze` pattern in `use-market-stream.ts`.
+
+**Dashboard**
 - **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
-- **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
 - **`format.ts` timing utils**: `fmtTimeHMS(iso)` → `HH:MM:SS` or null (guards invalid dates); `fmtLagSeconds(lagS)` → `"+1.2s"` or null (guards NaN).
-- **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
 ## System Access
 
@@ -214,7 +232,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1304 passing · **Ruff:** 34 errors (E501 line-too-long, non-blocking) ⚠️
+**Tests:** 1308 passing · **Ruff:** 62 errors (mostly E501 line-too-long, non-blocking) ⚠️
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
 **v1.4 complete** (shipped 2026-03-07) — pipeline_reset sentinel (commits 3ed656a–81c9621), backfill + lifecycle stream events all shipped — see `.planning/ROADMAP.md`
 

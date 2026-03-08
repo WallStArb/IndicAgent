@@ -1,12 +1,12 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (88 total + 2 aggregation)
+## Plugin Tiers (91 total + 2 aggregation)
 
-### I1 Technical Indicators (23) — incremental `compute_next()`
+### I1 Technical Indicators (24) — incremental `compute_next()`
 Trend, Momentum, Volatility, Volume. Full list: `TIER_I1` in `register_plugins.py`.
 
-### I2 Composite Events (6) — on I1 features, before I3
-MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration.
+### I2 Composite Events (9) — on I1 features, before I3
+MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration, DonchianPosition, OBVMomentum, DerivativeOscillator.
 Defined in `composites/`. Shared utilities in `composites/common.py`: `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`.
 
 ### I3 Structure (7) · I4 Context (7)
