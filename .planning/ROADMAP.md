@@ -226,7 +226,7 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 15. Validated Alpha | v1.4 | 7/7 | Complete | 2026-03-07 |
 | 16. LLM Intelligence Layer | v1.4 | 7/7 | Complete | 2026-03-06 |
 | 17. LLM Wiring Fix | v1.4 | 2/2 | Complete | 2026-03-06 |
-| 18. Financial Math Safety | 7/7 | Complete    | 2026-03-08 | - |
+| 18. Financial Math Safety | v1.5 | 7/7 | Complete | 2026-03-08 |
 | 19. Financial Math Characterization | v1.5 | 0/3 | Not started | - |
 | 20. Circuit Breaker Integration | v1.5 | 0/4 | Not started | - |
 | 21. Efficiency Optimizations | v1.5 | 0/4 | Not started | - |

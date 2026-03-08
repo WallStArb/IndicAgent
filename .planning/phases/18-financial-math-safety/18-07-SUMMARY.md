@@ -9,10 +9,8 @@ requires:
   - phase: 18-financial-math-safety
     provides: lock infrastructure (_i1_plugin_states_locks, _get_state_lock) already wired in __init__
 provides:
-  - Per-key asyncio.Lock() acquired on every I1 plugin state read and write
-  - _update_plugin_state async helper with lock protection
-  - _save_plugin_state async helper with lock protection
-  - _run_i1_plugins converted to async (lock-protected state access)
+  - Per-key asyncio.Lock() acquired across the full read-compute-write sequence in _run_i1_plugins
+  - _run_i1_plugins converted to async with inline lock protecting state access
 affects: [indicator_service, I1 plugin execution, concurrent bar processing]
 
 # Tech tracking
@@ -20,7 +18,7 @@ tech-stack:
   added: []
   patterns:
     - "async with self._get_state_lock(key) wraps both read (setdefault) and write ([key]=) operations"
-    - "Two-helper pattern: _update_plugin_state returns state before compute, _save_plugin_state writes back after"
+    - "Inline lock pattern: async with self._get_state_lock(state_key) wraps setdefault read, compute_full, and state write-back as a single atomic section"
 
 key-files:
   created: []
@@ -29,8 +27,8 @@ key-files:
     - tests/unit/service_tests/test_indicator_service.py
 
 key-decisions:
-  - "Two separate async helpers (_update_plugin_state, _save_plugin_state) instead of a single context-manager — cleaner than a nested async with spanning a sync compute_full() call"
-  - "Tests updated with run_until_complete/_AsyncMock — sync test callers were broken by the async conversion (Rule 1 auto-fix)"
+  - "Single inline async with block (not split helpers) — keeps lock held across the full read-compute-write sequence, preventing TOCTOU races if compute_full ever gains an await"
+  - "Tests converted to async def + @pytest.mark.asyncio — consistent with project pattern in test_market_analysis_service.py"
 
 patterns-established:
   - "Per-key lock pattern: _get_state_lock(key) → async with → state access. Same pattern applies to any future plugin state in market_analysis_service if concurrency is needed."

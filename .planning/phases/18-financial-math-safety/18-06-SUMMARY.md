@@ -57,14 +57,14 @@ $ grep -n "async with.*_get_state_lock\|async def _run_tier\|async def _run_anal
 316:        tiered = await self._run_analysis_pipeline(symbol, timeframe, frames)
 ```
 
-**Tests:** 1308 passing (up from 1308 — test count unchanged, 6 tests converted to async)
+**Tests:** 1308 passing (test count unchanged; 6 tests converted to async)
 **Ruff:** E501 only (pre-existing, non-blocking)
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 1 - Bug] Updated 6 test methods to async/await**
+**1. [Auto-fix] Updated 6 test methods to async/await (tests must use async def for async helpers)**
 - **Found during:** Task 1 verification
 - **Issue:** Tests calling `svc._run_analysis_pipeline(...)` synchronously produced "coroutine was never awaited" warnings and test failures after the function became async
 - **Fix:** Added `@pytest.mark.asyncio` and `async def` to 6 test methods; updated all `svc._run_analysis_pipeline(...)` calls to `await`; converted inner helper `run()` in `test_state_accumulates_across_bars_same_symbol` to `async def`
