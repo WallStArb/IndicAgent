@@ -1,78 +1,125 @@
-import { GitBranch, BarChart3, RefreshCcw, Layers } from "lucide-react";
-
 const pillars = [
   {
-    Icon: Layers,
-    title: "DAG-Ordered Pipeline",
-    subtitle: "91 plugins · I1→I8 · No polling",
-    body: "Every plugin declares its inputs. The engine runs topological sort at startup — execution order is a property of the dependency graph, not a convention. Raw OHLCV feeds I1 indicators, which feed I3 structure and I4 regime models (GARCH, Kalman, HMM), which feed I5 patterns and I6 Smart Money Concepts, which converge in I7 setup generation and I8 AI narrative. Each tier builds on the tier below. Cycles hard-crash at startup — silent corruption is impossible.",
+    num: "01",
+    title: "Dependency-Ordered Execution",
+    tag: "DAG · Topological sort · No polling",
+    body: "Every plugin declares its inputs. The engine runs Kahn's topological sort at startup — execution order is a mathematical property of the dependency graph, not a convention anyone maintains. Cycles hard-crash at startup. Silent corruption is impossible. Adding a plugin means declaring its dependencies; ordering is inferred.",
   },
   {
-    Icon: BarChart3,
-    title: "Composite Intelligence Score",
-    subtitle: "6-bucket gate · Cross-tier confirmation required",
-    body: "When 5–8 setup plugins fire simultaneously on the same bar, CIS decides which signal to publish — and whether to publish at all. Six evidence buckets (Trend, Momentum, Structure, Pattern, Institutional, Regime) must converge: score must exceed ±0.35 AND at least 3 of 6 buckets must agree on direction. One strong bucket cannot override the rest. The result: high-noise bars produce no signal rather than a wrong one.",
+    num: "02",
+    title: "Regimented Signal Validation",
+    tag: "CIS · 6-bucket convergence gate · Evidence required",
+    body: "When 5–8 setup plugins fire on the same bar, CIS decides what gets published — and whether anything does. Six buckets (Trend, Momentum, Structure, Pattern, Institutional, Regime) must converge: score > ±0.35 AND 3 of 6 must agree on direction. One dominant bucket cannot override the rest. Discipline enforced by the architecture, not by policy.",
   },
   {
-    Icon: RefreshCcw,
-    title: "Self-Improving Feedback Loop",
-    subtitle: "Outcome-traced weights · No manual retuning",
-    body: "Every signal is tagged with the CIS weight version that produced it. Every outcome — stop hit, target reached, TTL expired — is written to the feature store alongside that version tag. When outcome data is sufficient, weights update and CIS improves without code changes. The system learns which market conditions precede profitable setups. Bootstrap weights run the system on day one; labeled outcome data trains the next version.",
+    num: "03",
+    title: "Data as Ground Truth",
+    tag: "Feature store · Outcome tracing · Self-improving",
+    body: "Every signal is tagged with the weight version that produced it. Every outcome — stop hit, target reached, TTL expired — is written back to the feature store with the full signal vector. Nothing is dropped. When outcome data is sufficient, weights update from evidence. The pipeline captures what it produces and learns from what it captured.",
   },
   {
-    Icon: GitBranch,
-    title: "Microservices Over Streams",
-    subtitle: "No service calls another · The bus is the contract",
-    body: "Each pipeline stage is a separate process that reads from and writes to Redis streams. No direct service-to-service HTTP calls exist in the pipeline. Restarting the analysis service to deploy a new plugin has zero effect on the signal lifecycle service tracking open trades. A new consumer — a Slack alert, an execution system, an ML scorer — subscribes to the existing intelligence stream without any change to the producers. Extension is additive.",
+    num: "04",
+    title: "Canonical Typed Vocabulary",
+    tag: "IntelligenceEvent schema · Stream-native · API-first",
+    body: "Every output at every tier is encoded into a versioned IntelligenceEvent schema and published to the stream bus. Producers publish. Consumers subscribe. No service calls another directly. A new consumer — alert engine, execution system, ML scorer — subscribes to the existing stream without changing the producers. The bus is the API. Extension is additive.",
   },
 ];
 
 export function IntelligencePillars() {
   return (
-    <section className="px-6 py-12">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-8">
-          <h2
-            className="text-2xl font-semibold mb-2"
-            style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
-          >
-            What Makes This Different
-          </h2>
-          <p className="text-sm max-w-xl mx-auto" style={{ color: "var(--text-secondary)" }}>
-            Most market intelligence systems are monolithic pipelines. IndicAgent is built around three architectural principles that solve the hard problems directly.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {pillars.map(({ Icon, title, subtitle, body }) => (
-            <div
-              key={title}
-              className="p-5 rounded-lg border flex flex-col gap-3"
+    <section
+      className="px-6 py-14 border-t"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <div className="max-w-7xl mx-auto">
+        {/* Section header */}
+        <div className="flex items-end gap-6 mb-12">
+          <div>
+            <p
+              className="mb-1"
               style={{
-                background: "var(--surface-card)",
-                borderColor: "var(--border-subtle)",
+                fontFamily: "var(--font-jetbrains)",
+                fontSize: "0.6rem",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "var(--accent-amber)",
               }}
             >
-              <div className="flex items-start gap-3">
-                <div
-                  className="p-2 rounded-md shrink-0 mt-0.5"
-                  style={{ background: "rgba(78, 214, 200, 0.1)" }}
+              Architecture
+            </p>
+            <h2
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "clamp(1.6rem, 3vw, 2.2rem)",
+                fontWeight: 800,
+                letterSpacing: "-0.03em",
+                textTransform: "uppercase",
+                color: "var(--text-primary)",
+                lineHeight: 1,
+              }}
+            >
+              Engineering Principles
+            </h2>
+          </div>
+          <div className="flex-1 h-px mb-1" style={{ background: "var(--border-subtle)" }} />
+        </div>
+
+        {/* Principles — rule-separated list */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-0">
+          {pillars.map(({ num, title, tag, body }, i) => (
+            <div
+              key={num}
+              className="py-8 border-t flex flex-col gap-3"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
+              <div className="flex items-start gap-5">
+                {/* Large ghost number */}
+                <span
+                  className="shrink-0 select-none"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: "2.8rem",
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    letterSpacing: "-0.04em",
+                    color: i % 2 === 0 ? "var(--accent-cyan)" : "var(--accent-amber)",
+                    opacity: 0.18,
+                  }}
                 >
-                  <Icon size={16} style={{ color: "var(--accent-cyan)" }} />
-                </div>
-                <div>
+                  {num}
+                </span>
+                <div className="flex-1 min-w-0">
                   <h3
-                    className="text-sm font-semibold leading-snug"
-                    style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)" }}
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      letterSpacing: "-0.01em",
+                      color: "var(--text-primary)",
+                      lineHeight: 1.2,
+                    }}
                   >
                     {title}
                   </h3>
-                  <p className="text-xs mt-0.5" style={{ color: "var(--accent-cyan)", opacity: 0.75 }}>
-                    {subtitle}
+                  <p
+                    className="mt-1"
+                    style={{
+                      fontFamily: "var(--font-jetbrains)",
+                      fontSize: "0.6rem",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: i % 2 === 0 ? "var(--accent-cyan)" : "var(--accent-amber)",
+                      opacity: 0.8,
+                    }}
+                  >
+                    {tag}
                   </p>
                 </div>
               </div>
-              <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              <p
+                className="text-xs leading-relaxed"
+                style={{ color: "var(--text-secondary)", paddingLeft: "4.5rem" }}
+              >
                 {body}
               </p>
             </div>

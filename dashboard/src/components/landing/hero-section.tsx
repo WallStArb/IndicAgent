@@ -1,75 +1,195 @@
 "use client";
 
 import Link from "next/link";
-import { PipelineAnimation } from "./pipeline-animation";
 import { ArrowRight } from "lucide-react";
 
 interface HeroSectionProps {
   activeSignalCount: number;
 }
 
+const STATS = [
+  { value: "91", label: "Plugins" },
+  { value: "I1→I8", label: "Intelligence Tiers" },
+  { value: "24", label: "Instruments" },
+  { value: "6", label: "Timeframes" },
+  { value: "<10ms", label: "Latency" },
+];
+
 export function HeroSection({ activeSignalCount }: HeroSectionProps) {
   return (
     <section
-      className="relative flex flex-col items-center justify-center px-6 py-20 overflow-hidden"
-      style={{
-        minHeight: "55vh",
-        background: "var(--landing-bg-gradient)",
-      }}
+      className="relative"
+      style={{ minHeight: "68vh", background: "#080b11" }}
     >
-      {/* Pipeline animation — the architecture, visualized */}
-      <div className="absolute inset-0" style={{ opacity: 0.6 }}>
-        <PipelineAnimation />
+      {/* Background layers — clipped independently so text can overflow freely */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Dot-grid texture */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: "radial-gradient(circle, rgba(78,214,200,0.07) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+          }}
+        />
+        {/* Gradient mesh */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse 55% 45% at 5% 15%, rgba(78,214,200,0.09) 0%, transparent 65%), " +
+              "radial-gradient(ellipse 45% 50% at 95% 85%, rgba(212,168,75,0.07) 0%, transparent 60%)",
+          }}
+        />
+        {/* Bottom fade */}
+        <div
+          className="absolute bottom-0 left-0 right-0 h-32"
+          style={{ background: "linear-gradient(to bottom, transparent, #080b11)" }}
+        />
       </div>
 
-      {/* Content overlay */}
-      <div className="relative z-10 max-w-3xl mx-auto text-center space-y-5">
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium"
-          style={{
-            background: "rgba(78, 214, 200, 0.08)",
-            border: "1px solid rgba(78, 214, 200, 0.2)",
-            color: "var(--accent-cyan)",
-          }}
-        >
-          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "var(--accent-cyan)" }} />
-          {activeSignalCount > 0 ? `${activeSignalCount} signals live` : "Pipeline live"}
+      <div className="relative z-10 max-w-7xl mx-auto px-6 pt-16 pb-20">
+        {/* Status bar */}
+        <div className="flex items-center gap-3 mb-14">
+          <span
+            className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0"
+            style={{ background: "var(--accent-cyan)" }}
+          />
+          <span
+            style={{
+              fontFamily: "var(--font-jetbrains)",
+              fontSize: "0.62rem",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--accent-cyan)",
+            }}
+          >
+            {activeSignalCount > 0 ? `${activeSignalCount} signals live` : "pipeline live"}
+          </span>
+          <div className="flex-1 h-px" style={{ background: "var(--border-subtle)" }} />
+          <span
+            style={{
+              fontFamily: "var(--font-jetbrains)",
+              fontSize: "0.62rem",
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "var(--text-muted)",
+            }}
+          >
+            I1 → I8 · 91 PLUGINS · 24 INSTRUMENTS
+          </span>
         </div>
 
         {/* Headline */}
-        <div className="space-y-4">
-          <h1
-            className="text-5xl md:text-6xl font-bold leading-tight"
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: "clamp(3rem, 6.5vw, 6.5rem)",
+            fontWeight: 800,
+            lineHeight: 0.92,
+            letterSpacing: "-0.035em",
+            color: "var(--text-primary)",
+            textTransform: "uppercase",
+          }}
+        >
+          Agentic
+          <br />
+          <span style={{ color: "var(--accent-cyan)" }}>Market</span>
+          <br />
+          Intelligence
+        </h1>
+
+        {/* Tagline rule */}
+        <div className="flex items-center gap-4 mt-8 mb-6" style={{ maxWidth: "600px" }}>
+          <div className="h-px flex-1" style={{ background: "var(--border-bright)" }} />
+          <span
             style={{
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-display)",
+              fontFamily: "var(--font-jetbrains)",
+              fontSize: "0.62rem",
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              color: "var(--accent-amber)",
             }}
           >
-            Market Intelligence
-            <br />
-            <span style={{ color: "var(--accent-cyan)" }}>Built Like a Quant Fund</span>
-          </h1>
-          <p
-            className="text-base md:text-lg leading-relaxed max-w-2xl mx-auto"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Event-driven microservices. DAG-ordered 8-tier pipeline. 91 plugins from raw indicators
-            to AI narrative. Regime-aware signal selection that improves from its own outcome data.
-          </p>
+            Systematic · Stream-Native · Data-First
+          </span>
+          <div className="h-px w-6" style={{ background: "var(--border-bright)" }} />
+        </div>
+
+        {/* Body copy */}
+        <p
+          style={{
+            maxWidth: "520px",
+            fontFamily: "var(--font-outfit)",
+            fontSize: "1rem",
+            lineHeight: 1.75,
+            color: "var(--text-secondary)",
+          }}
+        >
+          An 8-tier, DAG-ordered pipeline running 91 intelligence plugins across 24 instruments.
+          Every signal is regime-aware, CIS-validated, lifecycle-tracked, and outcome-recorded —
+          feeding a self-improving loop where data, not intuition, drives decisions.
+        </p>
+
+        {/* Stats */}
+        <div className="flex flex-wrap gap-8 mt-10 mb-10">
+          {STATS.map(({ value, label }) => (
+            <div key={label} className="flex flex-col gap-1">
+              <span
+                style={{
+                  fontFamily: "var(--font-jetbrains)",
+                  fontSize: "1.75rem",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  letterSpacing: "-0.04em",
+                  lineHeight: 1,
+                }}
+              >
+                {value}
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-outfit)",
+                  fontSize: "0.6rem",
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                }}
+              >
+                {label}
+              </span>
+            </div>
+          ))}
         </div>
 
         {/* CTA */}
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 px-8 py-3 rounded-lg font-semibold text-base transition-all duration-200 hover:scale-105"
+          className="inline-flex items-center gap-3 group"
           style={{
-            background: "var(--accent-cyan)",
-            color: "#0A0E14",
-            boxShadow: "0 4px 20px rgba(78, 214, 200, 0.35)",
+            fontFamily: "var(--font-display)",
+            fontSize: "0.85rem",
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "var(--accent-cyan)",
+            transition: "opacity 0.2s",
           }}
         >
           Open Dashboard
-          <ArrowRight size={18} />
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "2.2rem",
+              height: "2.2rem",
+              borderRadius: "50%",
+              border: "1.5px solid var(--accent-cyan)",
+              flexShrink: 0,
+            }}
+          >
+            <ArrowRight size={14} />
+          </span>
         </Link>
       </div>
     </section>

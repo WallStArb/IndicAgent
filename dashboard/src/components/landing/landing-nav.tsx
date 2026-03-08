@@ -60,11 +60,16 @@ export function LandingNav() {
         </span>
         <Link
           href="/dashboard"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all hover:scale-105"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all hover:opacity-90"
           style={{
+            fontFamily: "var(--font-display)",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
             background: "var(--accent-cyan)",
-            color: "#0A0E14",
-            boxShadow: "0 2px 10px rgba(78, 214, 200, 0.3)",
+            color: "#080b11",
+            borderRadius: "4px",
+            fontSize: "0.65rem",
+            fontWeight: 700,
           }}
         >
           Dashboard →

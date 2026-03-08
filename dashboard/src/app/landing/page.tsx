@@ -7,6 +7,7 @@ import { symbolConfig } from "@/lib/symbol-config";
 import { LandingNav } from "@/components/landing/landing-nav";
 import { HeroSection } from "@/components/landing/hero-section";
 import { TierShowcase } from "@/components/landing/tier-showcase";
+import { PlatformHighlights } from "@/components/landing/platform-highlights";
 import { IntelligencePillars } from "@/components/landing/intelligence-pillars";
 import { SignalFilters, type SignalFilters as SignalFiltersType } from "@/components/landing/signal-filters";
 import SignalCard from "@/components/landing/signal-card";
@@ -125,6 +126,7 @@ export default function LandingPage() {
       <LandingNav />
       <HeroSection activeSignalCount={filteredSignals.length} />
       <TierShowcase />
+      <PlatformHighlights />
       <IntelligencePillars />
 
       <section className="px-6 py-12">
