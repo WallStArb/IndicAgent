@@ -87,12 +87,16 @@ Full details: `.planning/milestones/v1.4-ROADMAP.md`
   4. Settings class exposes ibkr_timeout_sec (default 20.0s) and llm_timeout_sec (default 60.0s)
   5. IBKR provider and all LLM providers use configurable timeouts from Settings
   6. market_analysis_service, indicator_service, and ai_narrative_service have per-key asyncio.Lock() for shared state access
-**Plans**: 3 plans (2 waves)
+**Plans**: 7 plans (2 waves)
 
 Plans:
 - [ ] 18-01: Epsilon tolerance and magic number documentation
 - [ ] 18-02: Configurable timeouts in Settings class
 - [ ] 18-03: Timeout usage and concurrency locks in services
+- [ ] 18-04: Configurable LLM provider timeouts
+- [ ] 18-05: LLM provider configurable timeout (per-provider)
+- [ ] 18-06: AI narrative service concurrency lock
+- [x] 18-07: Phase 18 verification (completed 2026-03-08)
 
 #### Phase 19: Financial Math Characterization
 **Goal**: Characterization tests for RSI zero-loss behavior, trade_framer ATR fallback, and concurrent lock behavior
@@ -119,7 +123,7 @@ Plans:
   3. All LLM providers use PluginCircuitBreaker for generate() calls
   4. IBKR provider uses PluginCircuitBreaker for connection failures
   5. Circuit breaker metrics exposed on Prometheus endpoint
-**Plans**: TBD
+**Plans**: 4 plans (1 wave)
 
 Plans:
 - [ ] 20-01: retry_utils.py implementation
@@ -136,7 +140,7 @@ Plans:
   2. market_analysis_service tracks buffer length, only invalidates DataFrame cache when capacity exceeded
   3. CIS scorer uses numpy vectorization for bucket score computation
   4. Plugin call metrics use modulo sampling (record every N calls, not every call)
-**Plans**: TBD
+**Plans**: 4 plans (1 wave)
 
 Plans:
 - [ ] 21-01: Buffer management in indicator_service
@@ -222,7 +226,7 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 15. Validated Alpha | v1.4 | 7/7 | Complete | 2026-03-07 |
 | 16. LLM Intelligence Layer | v1.4 | 7/7 | Complete | 2026-03-06 |
 | 17. LLM Wiring Fix | v1.4 | 2/2 | Complete | 2026-03-06 |
-| 18. Financial Math Safety | 7/7 | Complete   | 2026-03-08 | - |
+| 18. Financial Math Safety | 7/7 | Complete    | 2026-03-08 | - |
 | 19. Financial Math Characterization | v1.5 | 0/3 | Not started | - |
 | 20. Circuit Breaker Integration | v1.5 | 0/4 | Not started | - |
 | 21. Efficiency Optimizations | v1.5 | 0/4 | Not started | - |
