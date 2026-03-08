@@ -44,16 +44,24 @@ class TrendRegimePlugin:
             sma50 = float(np.mean(close[-self.sma_slow :]))
 
         # MA alignment scoring
-        if price > sma20 > sma50:
-            ma_signal = 2.0  # Strong bullish
+        if price > sma20 and price > sma50:
+            # Price above both SMAs - check MA alignment
+            if sma20 > sma50:
+                ma_signal = 2.0  # Strong bullish (trending up, price above both)
+            else:
+                ma_signal = 1.0  # Weak bullish (price above both but SMAs not aligned upward)
+        elif price < sma20 and price < sma50:
+            # Price below both SMAs - check MA alignment
+            if sma20 < sma50:
+                ma_signal = -2.0  # Strong bearish (trending down, price below both)
+            else:
+                ma_signal = -1.0  # Weak bearish (price below both but SMAs not aligned downward)
         elif price > sma20:
-            ma_signal = 1.0  # Weak bullish
-        elif price < sma20 < sma50:
-            ma_signal = -2.0  # Strong bearish
+            ma_signal = 1.0  # Weak bullish (price above sma20 only)
         elif price < sma20:
-            ma_signal = -1.0  # Weak bearish
+            ma_signal = -1.0  # Weak bearish (price below sma20 only)
         else:
-            ma_signal = 0.0  # Neutral
+            ma_signal = 0.0  # Neutral (price at sma20)
 
         # Normalise MA signal to [-1, 1] for blending
         ma_norm = ma_signal / 2.0
