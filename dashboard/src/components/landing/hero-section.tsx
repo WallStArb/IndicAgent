@@ -91,7 +91,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
               whiteSpace: "nowrap",
             }}
           >
-            ticks → indicators → structure → signals → AI narrative
+            Instrument everything · Signal with evidence · Learn from every outcome
           </span>
           <div className="h-px flex-1" style={{ background: "var(--border-bright)" }} />
         </div>
@@ -125,9 +125,10 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
             color: "var(--text-secondary)",
           }}
         >
-          Raw market data flows in across 24 instruments. 91 intelligence plugins transform it —
-          tier by tier — into regime-aware signals, CIS-validated setups, and AI-enriched narrative.
-          Every output measured. Every outcome recorded. The system learns from both.
+          Ninety-one intelligence plugins process every bar — tier by tier — from raw indicators
+          to regime models to Smart Money Concepts to AI narrative. Every signal is gated by
+          six-bucket evidence convergence. Every outcome is recorded and fed back.
+          The system doesn&apos;t need to be told what works. It learns from what it produces.
         </p>
 
         {/* Stats */}
