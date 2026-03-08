@@ -81,6 +81,9 @@ class RSIPlugin:
             s["avg_gain"] = (s["avg_gain"] * (p - 1) + gain) / p
             s["avg_loss"] = (s["avg_loss"] * (p - 1) + loss) / p
             s["prev_close"] = close
+            # Zero-loss guard (Renaissance: data quality over model complexity)
+            # When avg_loss == 0 (no downward moves), RSI returns 100.0 (maximum momentum)
+            # This is mathematically correct: if no loss ever occurred, price only went up
             if s["avg_loss"] == 0:
                 out[key] = 100.0
             else:
