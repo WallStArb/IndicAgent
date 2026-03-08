@@ -13,6 +13,24 @@ from __future__ import annotations
 
 import json
 import urllib.request
+
+
+def _extract_message_content(choices: list[dict]) -> str | None:
+    """Extract content from LLM response, supporting both content and reasoning fields.
+
+    Args:
+        choices: List of choice objects from LLM API response
+
+    Returns:
+        String content if found, None if extraction fails or no choices available
+    """
+    if not choices:
+        return None
+    msg = choices[0].get("message")
+    if not msg or not isinstance(msg, dict):
+        return None
+    content = msg.get("content") or msg.get("reasoning") or ""
+    return content.strip() or None
 from asyncio import to_thread
 from typing import Protocol, runtime_checkable
 
@@ -89,9 +107,7 @@ class OpenRouterProvider:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = json.loads(resp.read())
             choices = result.get("choices") or []
-            if not choices:
-                return None
-            return choices[0].get("message", {}).get("content", "").strip() or None
+            return _extract_message_content(choices)
 
         try:
             return await to_thread(_call)
@@ -213,9 +229,7 @@ class ZAIProvider:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = json.loads(resp.read())
             choices = result.get("choices") or []
-            if not choices:
-                return None
-            return choices[0].get("message", {}).get("content", "").strip() or None
+            return _extract_message_content(choices)
 
         try:
             return await to_thread(_call)

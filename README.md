@@ -305,6 +305,70 @@ The weights above are **bootstrap weights (version 0)**: fixed, manually tuned, 
 
 Bootstrap weights get the system running, outcome data trains the next version, and CIS gradually learns which market conditions precede profitable setups.
 
+#### CIS in Action: A Concrete Example
+
+Here's a step-by-step example of how CIS aggregates evidence across the pipeline to make a signal decision:
+
+**Scenario:** 2026-03-08 09:35:00 EST, ES futures 1m bar closes
+
+**Raw intelligence on this bar:**
+```
+Trend bucket inputs:
+  - trend_regime: +0.60 (bullish trending)
+  - kalman_slope: +0.002 (upward)
+  - smc_trend_direction: +1 (bullish)
+  - ctf_trend_alignment: +0.30 (5m/15m/1h agree bullish)
+
+Momentum bucket inputs:
+  - rsi_14: 62 (above 50 = bullish)
+  - macd_histogram_12_26_9: +0.15 (bullish crossover)
+  - roc_14: +0.42 (positive momentum)
+
+Structure bucket inputs:
+  - bos_detected: 1 (break of structure confirmed)
+  - bos_direction: +1 (bullish)
+
+Pattern bucket inputs:
+  - dt_db_pattern: 2 (double bottom = bullish reversal)
+
+Institutional bucket inputs:
+  - in_demand_zone: 1 (price at key demand level)
+  - fvg_open_count: 3 (3 fair value gaps open bullish)
+
+Regime bucket inputs:
+  - hmm_prob_trending_up: 0.75 (75% confidence up trend)
+  - hmm_prob_trending_down: 0.05 (only 5% down trend)
+```
+
+**CIS Calculation (weighted sum):**
+```
+trend:      0.35×(+0.60) + 0.20×(+1.0) + 0.10×(+0.30) + 0.10×(+0.30) = +0.55
+momentum:   0.30×(RSI: +0.24) + 0.25×(+1.0) + 0.20×(+1.0) + 0.15×(+0.0) = +0.79
+structure:   0.30×(+0.50) + 0.25×(+1.0) = +0.40
+pattern:     0.40×(+1.0) = +0.40
+institutional: 0.25×(OB×1.0) + 0.15×(+1.0) + 0.20×(+1.0) + 0.20×(+0.0) = +0.65
+regime:     0.35×(0.75-0.05) + 0.20×(+1.0) + 0.20×(+1.0) = +0.70
+
+CIS = 0.20×0.55 + 0.20×0.79 + 0.15×0.40 + 0.05×0.40 + 0.25×0.65 + 0.15×0.70
+    = +0.61
+```
+
+**Decision:**
+- `|CIS| = 0.61` → exceeds 0.35 threshold
+- 6 buckets agree (trend, momentum, structure, institutional, regime) → meets ≥3 minimum
+- **CIS fires: LONG (+1)**
+
+**What CIS does with the I7 signals:**
+Suppose on this same bar, these I7 setups fire:
+- `trad_MeanReversion`: SHORT (-1), confidence 0.45
+- `trad_TrendFollowing`: LONG (+1), confidence 0.60
+- `trad_LiquiditySweepReclaim`: LONG (+1), confidence 0.35
+- `trad_SqueezeExpansion`: LONG (+1), confidence 0.50
+
+CIS selects the highest-priority LONG signal matching its direction (`trad_TrendFollowing` wins on priority), then boosts its confidence by 0.05 for each agreeing signal. The SHORT `trad_MeanReversion` is recorded in `all_ranked` but not selected (shows counterfactual for ML training).
+
+**Key insight:** CIS makes its decision *before* looking at I7 setups — it reads the entire lower-tier intelligence (I1–I6) and forms an independent directional opinion. I7 setups then get "plugged into" that direction when they match.
+
 ### Data Path: Hot / Warm / Cold
 
 ```
@@ -329,6 +393,8 @@ COLD  TimescaleDB + pgvector
 ---
 
 ## Quick Start
+
+> **Note:** Historical backfill (`production/scripts/historical_backfill.py --replay-only`) currently generates signals but does **not** run CIS scoring. For full CIS gating in backtests, the `features=` kwarg must be passed to `aggregate()` — see [Issue in planning](.planning/IDEAS.md) for details. Live signals (`signal_generator_service`) do have full CIS scoring enabled.
 
 **Prerequisites:** Python 3.13, Node 20+ (for dashboard), Docker (for DB and Redis). I8 AI narratives use a 3-tier LLM chain: set `ZAI_API_KEY` in `.env` for the primary provider (GLM-5), `OPENROUTER_API_KEY` for the fallback, or install Ollama locally as the offline option.
 

@@ -6,7 +6,12 @@ services:
     image: timescale/timescaledb:latest-pg15
     container_name: timescaledb
     restart: unless-stopped
-    command: ["postgres", "-c", "max_locks_per_transaction=16384"]
+    command: [
+      "postgres",
+      "-c", "max_locks_per_transaction=16384",
+      "-c", "wal_buffers=8192",
+      "-c", "log_min_duration_statement=1000"
+    ]
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres

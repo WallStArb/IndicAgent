@@ -394,13 +394,18 @@ class AINarrativeService:
                 "ollama_base_url": "http://localhost:11434",
                 "ollama_timeout_sec": 60.0,
                 "per_signal": [
-                    {"type": "zai",        "model": "glm-5"},
+                    # {"type": "zai",        "model": "glm-5"},  # Commented out: insufficient balance
+                    {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},
+                    {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},
+                    {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama",     "model": "qwen3.5:9b"},
                 ],
                 "group": [
-                    {"type": "zai",        "model": "glm-5"},
+                    # {"type": "zai",        "model": "glm-5"},  # Commented out: insufficient balance
+                    {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},
+                    {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama",     "model": "phi4-mini:3.8b"},

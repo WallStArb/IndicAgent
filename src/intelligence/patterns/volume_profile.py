@@ -73,11 +73,30 @@ class VolumeProfilePlugin:
 
         # HVN: top 20% by volume
         nonzero_vols = vol_hist[vol_hist > 0]
+
+        # Guard against empty volume data (e.g., market open with no range)
+        if len(nonzero_vols) == 0:
+            return {}
+
         vol_threshold_high = np.quantile(nonzero_vols, _HVN_THRESHOLD)
         vol_threshold_low = np.quantile(nonzero_vols, _LVN_THRESHOLD)
 
-        hvn_prices = bucket_prices[vol_hist >= vol_threshold_high]
-        lvn_prices = bucket_prices[vol_hist <= vol_threshold_low]
+        # Use np.where() to get valid indices instead of boolean indexing
+        hvn_mask = vol_hist >= vol_threshold_high
+        lvn_mask = vol_hist <= vol_threshold_low
+
+        # Only use masks for indexing if they contain True values
+        # Keep as numpy arrays for calculations (convert to float at end)
+        hvn_prices = np.array([])
+        lvn_prices = np.array([])
+        if hvn_mask.any():
+            hvn_prices = bucket_prices[hvn_mask]
+        if lvn_mask.any():
+            lvn_prices = bucket_prices[lvn_mask]
+
+        # Return early if no valid price indices (empty masks)
+        if not hvn_mask.any() and not lvn_mask.any():
+            return {}
 
         nearest_hvn = None
         nearest_hvn_dist = None

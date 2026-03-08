@@ -330,13 +330,13 @@ class I5Patterns(BaseModel):
     - patt_HeadShoulders (5 fields)
     - TrendConfluence (4 fields)
     - patt_TriangleWedge (6 fields)
-    - patt_CandlestickPatterns (9 fields)
+    - patt_CandlestickPatterns (19 fields)
     - patt_FlagPennant (4 fields)
     - patt_CupHandle (3 fields)
     - patt_MeasuredMove (4 fields)
     - patt_VolumeProfile (4 fields)
     - patt_KeyLevelReaction (2 fields)
-    Total: 61 fields
+    Total: 70 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -395,7 +395,7 @@ class I5Patterns(BaseModel):
     tri_breakout_bias: float | None = None    # -1/0/1
     tri_confidence: float | None = None
 
-    # CandlestickPatternsPlugin outputs
+    # CandlestickPatternsPlugin outputs (19 total fields)
     engulfing_bull: float | None = None
     engulfing_bear: float | None = None
     pin_bar_bull: float | None = None
@@ -405,6 +405,16 @@ class I5Patterns(BaseModel):
     inside_bar: float | None = None
     outside_bar: float | None = None
     doji_detected: float | None = None
+    # 10 new three-bar candlestick patterns (added 2026-03-08)
+    three_white_soldiers: float | None = None
+    three_black_crows: float | None = None
+    morning_star: float | None = None
+    evening_star: float | None = None
+    three_inside_up: float | None = None
+    three_inside_down: float | None = None
+    harami_cross: float | None = None
+    dark_cloud_cover: float | None = None
+    piercing_line: float | None = None
 
     # FlagPennantPlugin outputs
     flag_pattern: float | None = None

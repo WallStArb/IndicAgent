@@ -6,12 +6,14 @@ Stage 1 (--fetch-only): Fetches multi-timeframe OHLCV bars from IBKR and stores
 them in market_data_ohlcv. Short timeframes use named contracts; longer timeframes
 use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span rolls.
 
-    Timeframe  History   Contract
-    1m         35 days   Named (ESH6) — no rolls
-    5m         1 year    Continuous adjusted — ~4 rolls
-    15m        1 year    Continuous adjusted — ~4 rolls
-    1h         2 years   Continuous adjusted — ~8 rolls
-    1d         5 years   Continuous adjusted — ~20 rolls
+    Timeframe  Default depth  Notes
+    1m         14 days        Named contract, no rolls
+    5m         90 days        Named contract (chunked, IBKR limit)
+    15m        180 days       Continuous adjusted
+    1h         365 days       Continuous adjusted
+    1d         2555 days      Continuous adjusted (7yr)
+
+    Use --days N to cap ALL timeframes at N days (e.g. --days 2 for a gap-fill).
 
 Stage 2 (--replay-only): Reads each timeframe's native stored bars and replays
 them through the full I1→I3→I4→I5→SMC→I6→I7 pipeline to populate
@@ -24,7 +26,17 @@ Usage:
     python production/scripts/historical_backfill.py --fetch-only
     python production/scripts/historical_backfill.py --replay-only
     python production/scripts/historical_backfill.py --symbols ESH6,NQH6
-    python production/scripts/historical_backfill.py --days 60   # override 1m depth only
+
+    # Gap-fill: fetch last 2 days across ALL TFs (not just 1m), then replay only those 2 days:
+    python production/scripts/historical_backfill.py --fetch-only --symbols EURUSD,BTCUSD --days 2
+    python production/scripts/historical_backfill.py --replay-only --symbols EURUSD,BTCUSD --days 2
+
+    python production/scripts/historical_backfill.py --replay-only --clean  # delete old signals before replay
+
+--days behaviour:
+    When provided, caps ALL timeframe fetch depths at that value (not just 1m).
+    Also limits the replay stage to bars within that window.
+    Omit --days for full-history replay or default per-TF fetch depths.
 """
 from __future__ import annotations
 
@@ -753,8 +765,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Historical Backfill — fetch IBKR bars + replay intelligence pipeline"
     )
-    parser.add_argument("--days", type=int, default=35,
-                        help="Days of 1m history to fetch (default: 35).")
+    parser.add_argument("--days", type=int, default=None,
+                        help="Max days to fetch for ALL timeframes (default: per-TF config defaults).")
     parser.add_argument("--symbols", default=None,
                         help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all active)")
     parser.add_argument("--timeframes", default="1m,5m,15m,1h,1d",
@@ -765,6 +777,8 @@ def main() -> None:
                         help="Only fetch from IBKR → DB, skip intelligence replay")
     parser.add_argument("--replay-only", action="store_true",
                         help="Only replay DB → signal_ledger, skip IBKR fetch")
+    parser.add_argument("--clean", action="store_true",
+                        help="Delete existing signals before replay (use with --replay-only to avoid duplicates)")
     args = parser.parse_args()
 
     settings = Settings()
@@ -783,7 +797,7 @@ def main() -> None:
     print(f"  Contracts : {[c.symbol for c in contracts]}")
     print(f"  Timeframes: {timeframes}")
     tf_depths = {
-        tf: (args.days if tf == "1m" else _TF_FETCH_CONFIG[tf][0])
+        tf: (min(_TF_FETCH_CONFIG[tf][0], args.days) if args.days else _TF_FETCH_CONFIG[tf][0])
         for tf in timeframes if tf in _TF_FETCH_CONFIG
     }
     print(f"  TF depths : {tf_depths}")
@@ -817,7 +831,7 @@ def main() -> None:
             end_dt = datetime.now(tz=UTC)
             total_bars = 0
             # Fetch each requested TF using its configured depth and contract type.
-            # 1m uses --days override; others use _TF_FETCH_CONFIG defaults.
+            # --days caps ALL TF fetch depths when provided; otherwise use _TF_FETCH_CONFIG defaults.
             fetch_tfs = [tf for tf in timeframes if tf in _TF_FETCH_CONFIG]
             print(f"  Fetching TFs: {fetch_tfs}")
             print()
@@ -830,8 +844,8 @@ def main() -> None:
                     fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
                     for tf in fetch_tfs:
                         fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
-                        if tf == "1m":
-                            fetch_days = args.days
+                        if args.days:
+                            fetch_days = min(fetch_days, args.days)
                         # Skip continuous contracts for short windows (no rolls needed)
                         if fetch_days <= 14:
                             use_continuous = False
@@ -918,11 +932,44 @@ def main() -> None:
     # --------------- Stage 2: Intelligence Replay ---------------
     if not args.fetch_only:
         print("=== Stage 2: Intelligence Replay ===")
-        since_dt = (datetime.now(tz=UTC) - timedelta(days=args.days)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) if args.replay_only else None
-        if since_dt:
+        # When --days is provided, limit replay to that window.
+        # Full-history replay (default, no --days) uses since_dt=None to read all DB bars.
+        if args.days:
+            since_dt = datetime.now(timezone.utc) - timedelta(days=args.days)
             print(f"  Replaying bars since: {since_dt.date()} ({args.days}d)")
+        else:
+            since_dt = None
+
+        # Clean up old signals for replayed symbols if --clean flag is set
+        if args.clean:
+            print("  Cleaning up old signals for replayed symbols...")
+            with db_conn.cursor() as cur:
+                # Delete signals AND intelligence_features for the symbols we're about to replay
+                # This allows re-running backfill on specific symbols cleanly
+                symbol_values = [c.symbol for c in contracts]
+
+                # Delete matching intelligence_features rows FIRST
+                # Must do this before deleting signal_ledger so subquery finds rows
+                cur.execute("""
+                    DELETE FROM intelligence_features
+                    WHERE (ts, symbol, tf) IN (
+                        SELECT feature_ts, symbol, feature_tf
+                        FROM signal_ledger
+                        WHERE symbol = ANY(%s)
+                    );
+                """, (symbol_values,))
+                deleted_features = cur.rowcount
+
+                # Delete from signal_ledger (no CASCADE - no FKs exist)
+                cur.execute("""
+                    DELETE FROM signal_ledger
+                    WHERE symbol = ANY(%s);
+                """, (symbol_values,))
+                deleted_signals = cur.rowcount
+
+                db_conn.commit()
+                print(f"  Deleted {deleted_signals:,} signals + {deleted_features:,} intelligence feature rows")
+
         grand_total = 0
         for contract in contracts:
             print(f"\n{contract.symbol}:")

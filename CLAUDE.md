@@ -96,6 +96,11 @@ Use `context7` MCP for FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
 
 **Pipeline Reset** (housekeeping + fetch + replay — single entry point): `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv|--clear-llm] [--symbols SYM,SYM]`
 — TF depths: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous-adj. Pauses at stop/start boundaries and prints sudo commands to run.
+**Gap-fill** (fetch + replay only missing days — no full reseed): `--days N` caps ALL TF fetch depths at N days and limits replay to the same window. Safe: `ON CONFLICT DO NOTHING` on both `intelligence_features` and `signal_ledger`.
+```bash
+.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM,SYM --days 2
+.venv/bin/python production/scripts/historical_backfill.py --replay-only --symbols SYM,SYM --days 2
+```
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Architecture Overview
