@@ -26,11 +26,11 @@ Requirements for production hardening — financial safety, concurrency protecti
 
 - [ ] **API-01**: Settings class exposes ibkr_timeout_sec (default 20.0s)
 - [ ] **API-02**: Settings class exposes llm_timeout_sec (default 60.0s)
-- [ ] **API-03**: IBKR provider uses configurable timeout from Settings
-- [ ] **API-04**: All LLM providers use configurable timeout from Settings
-- [ ] **API-05**: market_analysis_service has per-key asyncio.Lock() for _plugin_states access
-- [ ] **API-06**: indicator_service has per-key asyncio.Lock() for _i1_plugin_states access
-- [ ] **API-07**: ai_narrative_service has asyncio.Lock() for _latest_signals access
+- [x] **API-03**: IBKR provider uses configurable timeout from Settings
+- [x] **API-04**: All LLM providers use configurable timeout from Settings
+- [x] **API-05**: market_analysis_service has per-key asyncio.Lock() for _plugin_states access
+- [x] **API-06**: indicator_service has per-key asyncio.Lock() for _i1_plugin_states access
+- [x] **API-07**: ai_narrative_service has asyncio.Lock() for _latest_signals access
 - [ ] **API-08**: Characterization test for lock acquisition and release
 - [ ] **API-09**: IBKR provider uses PluginCircuitBreaker for connection failures
 
@@ -87,11 +87,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIN-08 | Phase 19 | Pending |
 | API-01 | Phase 18 | Pending |
 | API-02 | Phase 18 | Pending |
-| API-03 | Phase 18 | Pending |
-| API-04 | Phase 18 | Pending |
-| API-05 | Phase 18 | Pending |
-| API-06 | Phase 18 | Pending |
-| API-07 | Phase 18 | Pending |
+| API-03 | Phase 18 | Complete |
+| API-04 | Phase 18 | Complete |
+| API-05 | Phase 18 | Complete |
+| API-06 | Phase 18 | Complete |
+| API-07 | Phase 18 | Complete |
 | API-08 | Phase 19 | Pending |
 | API-09 | Phase 20 | Pending |
 | CB-01 | Phase 20 | Pending |
