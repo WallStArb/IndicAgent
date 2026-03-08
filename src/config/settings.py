@@ -50,6 +50,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ib_port", "IBKR_PORT", "IB_PORT"),
     )
     ib_client_id: int = Field(default=35, validation_alias="IB_CLIENT_ID")
+    ib_timeout_sec: float = Field(
+        default=20.0,
+        validation_alias=AliasChoices("ib_timeout_sec", "IBKR_TIMEOUT_SEC", "IB_TIMEOUT_SEC"),
+        description="Timeout in seconds for IBKR API operations (connect, requests)",
+    )
 
     # High-frequency daemon
     hf_async_publish: bool = Field(default=True, validation_alias="HF_ASYNC_PUBLISH")
