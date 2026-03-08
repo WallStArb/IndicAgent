@@ -60,7 +60,7 @@ export function LandingNav() {
         </span>
         <Link
           href="/dashboard"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all hover:opacity-90"
+          className="flex items-center gap-1.5 px-3 py-1.5 transition-all hover:opacity-90"
           style={{
             fontFamily: "var(--font-display)",
             letterSpacing: "0.06em",

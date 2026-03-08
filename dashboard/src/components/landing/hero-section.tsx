@@ -7,10 +7,13 @@ interface HeroSectionProps {
   activeSignalCount: number;
 }
 
+const PLUGIN_COUNT = "91";
+const INSTRUMENT_COUNT = "24";
+
 const STATS = [
-  { value: "91", label: "Plugins" },
+  { value: PLUGIN_COUNT, label: "Plugins" },
   { value: "I1→I8", label: "Intelligence Tiers" },
-  { value: "24", label: "Instruments" },
+  { value: INSTRUMENT_COUNT, label: "Instruments" },
   { value: "6", label: "Timeframes" },
   { value: "<10ms", label: "Latency" },
 ];
@@ -75,7 +78,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
               color: "var(--text-muted)",
             }}
           >
-            I1 → I8 · 91 PLUGINS · 24 INSTRUMENTS
+            I1 → I8 · {PLUGIN_COUNT} PLUGINS · {INSTRUMENT_COUNT} INSTRUMENTS
           </span>
         </div>
 
@@ -125,7 +128,7 @@ export function HeroSection({ activeSignalCount }: HeroSectionProps) {
             color: "var(--text-secondary)",
           }}
         >
-          Ninety-one intelligence plugins process every bar — tier by tier — from raw indicators
+          Ninety-one intelligence plugins process every bar, tier by tier, from raw indicators
           to regime models to Smart Money Concepts to AI narrative. Every signal is gated by
           six-bucket evidence convergence. Every outcome is recorded and fed back.
           The system doesn&apos;t need to be told what works. It learns from what it produces.

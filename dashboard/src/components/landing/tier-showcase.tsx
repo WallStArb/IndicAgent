@@ -36,7 +36,7 @@ const LAYERS = [
     items: [
       "I5: RSI divergence, squeeze, chart pattern completion (14)",
       "I6: BOS/CHoCH, FVG, order blocks, killzones, AMD cycles (14)",
-      "I7: 17 setup plugins — trend, mean-rev, SMC, session extremes",
+      "I7: 17 setup plugins: trend, mean-rev, SMC, session extremes",
       "CIS: 6-bucket convergence gate · score ±0.35 · 3/6 buckets required",
     ],
     example: "BOS confirmed · unfilled FVG 5235–5238 · CIS +0.71 · CHoCHReversal fired",
