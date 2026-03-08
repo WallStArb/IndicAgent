@@ -304,6 +304,8 @@ class AINarrativeService:
 
         # In-memory cache: "SYMBOL:TF" → latest parsed signal dict (any direction)
         self._latest_signals: dict[str, dict] = {}
+        # Lock for concurrent access to _latest_signals
+        self._latest_signals_lock = asyncio.Lock()
 
         # Per-regime preferred models: {call_type: {regime: model_provider_id}}
         # Populated by _apply_score_routing; used at call time for regime-aware promotion.
@@ -496,7 +498,8 @@ class AINarrativeService:
 
             # Always cache latest signal for group synthesis (regardless of per-signal filter)
             cache_key_mem = f"{symbol}:{timeframe}"
-            self._latest_signals[cache_key_mem] = signal_data
+            async with self._latest_signals_lock:
+                self._latest_signals[cache_key_mem] = signal_data
 
             # Gate: per-signal narrative only for eligible TFs and high-confidence signals
             if timeframe not in _NARRATIVE_ELIGIBLE_TFS:
@@ -768,7 +771,8 @@ class AINarrativeService:
         for sym in group_symbols:
             for tf in _GROUP_SYNTHESIS_TFS:
                 key = f"{sym}:{tf}"
-                sig = self._latest_signals.get(key)
+                async with self._latest_signals_lock:
+                    sig = self._latest_signals.get(key)
                 if sig and sig.get("direction", 0) != 0:
                     current_signals[key] = sig
 

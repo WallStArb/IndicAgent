@@ -376,6 +376,7 @@ def test_stream_map_populated_after_setup():
 def _make_service_new():
     """Build AINarrativeService via __new__ (bypass __init__ to avoid LLM chain setup)."""
     from services.ai_narrative_service import AINarrativeService
+    import asyncio
 
     svc = AINarrativeService.__new__(AINarrativeService)
     svc.logger = MagicMock()
@@ -386,6 +387,7 @@ def _make_service_new():
     svc.consumer_name = "narrative_test"
     svc._stream_map = {}
     svc._latest_signals = {}
+    svc._latest_signals_lock = asyncio.Lock()  # required per CLAUDE.md __new__ pattern
     svc._preferred_models = {}  # required per CLAUDE.md __new__ pattern
 
     # Metrics stubs
