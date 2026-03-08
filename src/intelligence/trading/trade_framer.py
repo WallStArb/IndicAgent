@@ -172,21 +172,21 @@ def _resolve_zone_bounds(
         else:
             low = _fval(features, "nearest_supply_low")
             high = _fval(features, "nearest_supply_high")
-        if 0 < low < high:
+        if EPSILON_TOLERANCE < low < high:
             return low, high
 
     # FVG fill — use FVG bottom/top
     if st.startswith("fvg"):
         fvg_bottom = _fval(features, "fvg_bottom")
         fvg_top = _fval(features, "fvg_top")
-        if 0 < fvg_bottom < fvg_top:
+        if EPSILON_TOLERANCE < fvg_bottom < fvg_top:
             return fvg_bottom, fvg_top
 
     # Order block entries — use OB bottom/top
     if st.startswith("choch") or "ob" in st:
         ob_bottom = _fval(features, "ob_bottom")
         ob_top = _fval(features, "ob_top")
-        if 0 < ob_bottom < ob_top:
+        if EPSILON_TOLERANCE < ob_bottom < ob_top:
             return ob_bottom, ob_top
 
     # Sweep/reclaim — tight zone ± 0.5×ATR around entry
@@ -211,42 +211,42 @@ def _resolve_entry(
         if direction == 1:
             # Long: enter at demand zone proximal (zone high)
             zone_high = _fval(features, "nearest_demand_high")
-            if zone_high > 0:
+            if zone_high > EPSILON_TOLERANCE:
                 return zone_high, "zone_proximal"
         else:
             # Short: enter at supply zone proximal (zone low)
             zone_low = _fval(features, "nearest_supply_low")
-            if zone_low > 0:
+            if zone_low > EPSILON_TOLERANCE:
                 return zone_low, "zone_proximal"
 
     # momentum_breakout → at_limit at broken structure level (swing_high/low)
     if st.startswith("momentum_breakout"):
         if direction == 1:
             level = _fval(features, "swing_high")
-            if level > 0 and level <= entry_price:  # limit below current price for long
+            if level > EPSILON_TOLERANCE and level <= entry_price:  # limit below current price for long
                 return level, "at_limit"
         else:
             level = _fval(features, "swing_low")
-            if level > 0 and level >= entry_price:  # limit above current price for short
+            if level > EPSILON_TOLERANCE and level >= entry_price:  # limit above current price for short
                 return level, "at_limit"
 
     # squeeze_expansion → at_limit at bb_middle (squeeze centre)
     if st.startswith("squeeze_expansion") or st.startswith("squeeze"):
         bb_middle = _fval(features, "bb_middle")
-        if bb_middle > 0:
+        if bb_middle > EPSILON_TOLERANCE:
             return bb_middle, "at_limit"
 
     # trend → at_pullback at nearest_support/resistance
     if st.startswith("trend_"):
         if direction == 1:
             level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
-            if level > 0 and level < entry_price:  # pullback below current for long
+            if level > EPSILON_TOLERANCE and level < entry_price:  # pullback below current for long
                 return level, "at_pullback"
         else:
             level = (
                 _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
             )
-            if level > 0 and level > entry_price:  # pullback above current for short
+            if level > EPSILON_TOLERANCE and level > entry_price:  # pullback above current for short
                 return level, "at_pullback"
 
     # mtf_alignment → at_pullback using nearest_support/resistance as CTF level proxy
@@ -254,13 +254,13 @@ def _resolve_entry(
     if st.startswith("mtf_alignment"):
         if direction == 1:
             level = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
-            if level > 0 and level < entry_price:
+            if level > EPSILON_TOLERANCE and level < entry_price:
                 return level, "at_pullback"
         else:
             level = (
                 _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
             )
-            if level > 0 and level > entry_price:
+            if level > EPSILON_TOLERANCE and level > entry_price:
                 return level, "at_pullback"
 
     return entry_price, "at_close"
@@ -273,35 +273,35 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     # Priority 1: in demand zone
     in_demand = _fval(features, "in_demand_zone")
     nearest_demand_low = _fval(features, "nearest_demand_low")
-    if in_demand == 1.0 and nearest_demand_low > 0:
+    if in_demand == 1.0 and nearest_demand_low > EPSILON_TOLERANCE:
         stop = nearest_demand_low - atr * ATR_STOP_DEMAND_MULTIPLIER
-        if stop < entry:
+        if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "demand_zone"
 
     # Priority 2: sweep detected
     sweep_detected = _fval(features, "sweep_detected")
     sweep_level = _fval(features, "sweep_level")
-    if sweep_detected == 1.0 and sweep_level > 0:
+    if sweep_detected == 1.0 and sweep_level > EPSILON_TOLERANCE:
         stop = sweep_level - atr * ATR_STOP_SWEEP_MULTIPLIER
-        if stop < entry:
+        if stop < entry - EPSILON_TOLERANCE:
             return min(stop, min_stop), "sweep_level"
 
     # Priority 3: order block bottom
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
-    if ob_type == 1.0 and ob_bottom > 0 and ob_bottom < entry:
+    if ob_type == 1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
         stop = ob_bottom - atr * ATR_STOP_OB_MULTIPLIER
         return min(stop, min_stop), "ob_bottom"
 
     # Priority 4: swing low
     swing_low = _fval(features, "swing_low")
-    if swing_low > 0 and swing_low < entry:
+    if swing_low > EPSILON_TOLERANCE and swing_low < entry:
         stop = swing_low - atr * ATR_STOP_SWING_MULTIPLIER
         return min(stop, min_stop), "swing_low"
 
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
-    if sr_support > 0 and sr_support < entry:
+    if sr_support > EPSILON_TOLERANCE and sr_support < entry:
         stop = sr_support - atr * ATR_STOP_SR_MULTIPLIER
         return min(stop, min_stop), "sr_support"
 
@@ -316,29 +316,29 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     # Priority 1: in supply zone
     in_supply = _fval(features, "in_supply_zone")
     nearest_supply_high = _fval(features, "nearest_supply_high")
-    if in_supply == 1.0 and nearest_supply_high > 0:
+    if in_supply == 1.0 and nearest_supply_high > EPSILON_TOLERANCE:
         stop = nearest_supply_high + atr * ATR_STOP_DEMAND_MULTIPLIER
-        if stop > entry:
+        if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "supply_zone"
 
     # Priority 2: sweep detected
     sweep_detected = _fval(features, "sweep_detected")
     sweep_level = _fval(features, "sweep_level")
-    if sweep_detected == 1.0 and sweep_level > 0:
+    if sweep_detected == 1.0 and sweep_level > EPSILON_TOLERANCE:
         stop = sweep_level + atr * ATR_STOP_SWEEP_MULTIPLIER
-        if stop > entry:
+        if stop > entry + EPSILON_TOLERANCE:
             return max(stop, max_stop), "sweep_level"
 
     # Priority 3: order block top
     ob_type = _fval(features, "ob_type")
     ob_top = _fval(features, "ob_top")
-    if ob_type == -1.0 and ob_top > 0 and ob_top > entry:
+    if ob_type == -1.0 and ob_top > EPSILON_TOLERANCE and ob_top > entry:
         stop = ob_top + atr * ATR_STOP_OB_MULTIPLIER
         return max(stop, max_stop), "ob_top"
 
     # Priority 4: swing high
     swing_high = _fval(features, "swing_high")
-    if swing_high > 0 and swing_high > entry:
+    if swing_high > EPSILON_TOLERANCE and swing_high > entry:
         stop = swing_high + atr * ATR_STOP_SWING_MULTIPLIER
         return max(stop, max_stop), "swing_high"
 
@@ -346,7 +346,7 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     sr_resistance = _fval(
         features, "sr_nearest_resistance"
     ) or _fval(features, "nearest_resistance")
-    if sr_resistance > 0 and sr_resistance > entry:
+    if sr_resistance > EPSILON_TOLERANCE and sr_resistance > entry:
         stop = sr_resistance + atr * ATR_STOP_SR_MULTIPLIER
         return max(stop, max_stop), "sr_resistance"
 
@@ -359,7 +359,7 @@ def _collect_targets_long(
 ) -> list[TradeTarget]:
     """Collect and rank candidate target levels above entry for longs."""
     risk = abs(entry - stop)
-    if risk <= 0:
+    if risk <= EPSILON_TOLERANCE:
         return []
 
     min_level = entry + atr * ATR_TARGET_MIN_MULTIPLIER
@@ -371,28 +371,28 @@ def _collect_targets_long(
     nearest_resistance = _fval(
         features, "nearest_resistance"
     ) or _fval(features, "sr_nearest_resistance")
-    if nearest_resistance > 0:
+    if nearest_resistance > EPSILON_TOLERANCE:
         candidates.append((nearest_resistance, f"S/R {nearest_resistance:.2f}", "sr"))
 
     # BSL level (if significant)
     bsl_level = _fval(features, "bsl_level")
     bsl_significance = _fval(features, "bsl_significance")
-    if bsl_level > 0 and bsl_significance >= 0.5:
+    if bsl_level > EPSILON_TOLERANCE and bsl_significance >= 0.5:
         candidates.append((bsl_level, f"BSL (sig={bsl_significance:.2f}) {bsl_level:.2f}", "bsl"))
 
     # VWAP bands (stored as extras in i1)
     vwap_upper_1 = _fval(features, "vwap_upper_1")
-    if vwap_upper_1 > 0:
+    if vwap_upper_1 > EPSILON_TOLERANCE:
         candidates.append((vwap_upper_1, f"VWAP+1σ {vwap_upper_1:.2f}", "vwap_1sigma"))
 
     vwap_upper_2 = _fval(features, "vwap_upper_2")
-    if vwap_upper_2 > 0:
+    if vwap_upper_2 > EPSILON_TOLERANCE:
         candidates.append((vwap_upper_2, f"VWAP+2σ {vwap_upper_2:.2f}", "vwap_2sigma"))
 
     # FVG top (bullish FVG: type==1)
     fvg_type = _fval(features, "fvg_type")
     fvg_top = _fval(features, "fvg_top")
-    if fvg_type == 1.0 and fvg_top > 0:
+    if fvg_type == 1.0 and fvg_top > EPSILON_TOLERANCE:
         candidates.append((fvg_top, f"FVG top {fvg_top:.2f}", "fvg"))
 
     # OB top (bullish OB: type==1)
@@ -403,7 +403,7 @@ def _collect_targets_long(
 
     # Kalman upper
     kalman_upper = _fval(features, "kalman_upper")
-    if kalman_upper > 0:
+    if kalman_upper > EPSILON_TOLERANCE:
         candidates.append((kalman_upper, f"Kalman upper {kalman_upper:.2f}", "kalman"))
 
     # Demand zone high (if above entry — targeting into supply)
@@ -438,7 +438,7 @@ def _collect_targets_short(
 ) -> list[TradeTarget]:
     """Collect and rank candidate target levels below entry for shorts."""
     risk = abs(stop - entry)
-    if risk <= 0:
+    if risk <= EPSILON_TOLERANCE:
         return []
 
     min_level = entry - atr * ATR_TARGET_MAX_MULTIPLIER
@@ -448,46 +448,46 @@ def _collect_targets_short(
 
     # S/R support
     nearest_support = _fval(features, "nearest_support") or _fval(features, "sr_nearest_support")
-    if nearest_support > 0:
+    if nearest_support > EPSILON_TOLERANCE:
         candidates.append((nearest_support, f"S/R {nearest_support:.2f}", "sr"))
 
     # SSL level (if significant)
     ssl_level = _fval(features, "ssl_level")
     ssl_significance = _fval(features, "ssl_significance")
-    if ssl_level > 0 and ssl_significance >= 0.5:
+    if ssl_level > EPSILON_TOLERANCE and ssl_significance >= 0.5:
         candidates.append((ssl_level, f"SSL (sig={ssl_significance:.2f}) {ssl_level:.2f}", "ssl"))
 
     # VWAP bands
     vwap_lower_1 = _fval(features, "vwap_lower_1")
-    if vwap_lower_1 > 0:
+    if vwap_lower_1 > EPSILON_TOLERANCE:
         candidates.append((vwap_lower_1, f"VWAP-1σ {vwap_lower_1:.2f}", "vwap_1sigma"))
 
     vwap_lower_2 = _fval(features, "vwap_lower_2")
-    if vwap_lower_2 > 0:
+    if vwap_lower_2 > EPSILON_TOLERANCE:
         candidates.append((vwap_lower_2, f"VWAP-2σ {vwap_lower_2:.2f}", "vwap_2sigma"))
 
     # FVG bottom (bearish FVG: type==-1)
     fvg_type = _fval(features, "fvg_type")
     fvg_bottom = _fval(features, "fvg_bottom")
-    if fvg_type == -1.0 and fvg_bottom > 0:
+    if fvg_type == -1.0 and fvg_bottom > EPSILON_TOLERANCE:
         candidates.append((fvg_bottom, f"FVG bottom {fvg_bottom:.2f}", "fvg"))
 
     # OB bottom (bearish OB: type==-1)
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
-    if ob_type == -1.0 and ob_bottom > 0 and ob_bottom < entry:
+    if ob_type == -1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
         candidates.append(
             (ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob")
         )
 
     # Kalman lower
     kalman_lower = _fval(features, "kalman_lower")
-    if kalman_lower > 0:
+    if kalman_lower > EPSILON_TOLERANCE:
         candidates.append((kalman_lower, f"Kalman lower {kalman_lower:.2f}", "kalman"))
 
     # Supply zone low (if below entry)
     nearest_supply_low = _fval(features, "nearest_supply_low")
-    if 0 < nearest_supply_low < entry:
+    if EPSILON_TOLERANCE < nearest_supply_low < entry:
         candidates.append(
             (
                 nearest_supply_low,
@@ -595,7 +595,7 @@ def frame_trade(
     -------
     TradeFrame with stop, targets, RR values, and viability flag.
     """
-    if atr <= 0:
+    if atr <= EPSILON_TOLERANCE:
         atr = abs(entry) * ATR_EMERGENCY_FALLBACK_PCT  # 0.1% of price as emergency fallback
 
     # Resolve entry with setup-specific offset
@@ -615,7 +615,7 @@ def frame_trade(
     )
 
     risk = abs(resolved_entry - stop)
-    if risk <= 0:
+    if risk <= EPSILON_TOLERANCE:
         return _reject_frame(
             "zero_risk: stop == entry",
             resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
@@ -639,7 +639,7 @@ def frame_trade(
     # If close has already passed T1 in the signal direction, the trade is unreachable:
     # price would need to reverse N points just to enter, having already exceeded the target.
     close_price = _fval(features, "close_price")
-    if close_price > 0 and entry_type == "at_pullback":
+    if close_price > EPSILON_TOLERANCE and entry_type == "at_pullback":
         t1_price = targets[0].price
         price_past_t1 = (
             (direction == -1 and close_price < t1_price)  # short: close below T1
