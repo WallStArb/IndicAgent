@@ -21,6 +21,12 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+def _default_llm_timeout() -> float:
+    """Get default LLM timeout from Settings."""
+    from src.config.settings import Settings
+    return Settings().llm_timeout_sec
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """Minimal protocol every LLM backend must satisfy."""
@@ -164,12 +170,12 @@ class ZAIProvider:
         model: str = "glm-5",
         api_key: str = "",
         base_url: str = "https://api.z.ai/api/paas/v4",
-        timeout: float = 30.0,
+        timeout: float | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
+        self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"zai:{model}"
 
     async def generate(
