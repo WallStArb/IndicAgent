@@ -84,7 +84,21 @@ _START_SERVICES = [
 
 
 def _row_count(conn: Any, table: str) -> int:
-    """Return current row count for *table*."""
+    """Return row count for *table*.
+
+    Uses fast stats estimate for large hypertables (market_data_ohlcv has 10k+
+    chunks; COUNT(*) locks every chunk and hits max_locks_per_transaction).
+    Falls back to exact COUNT(*) for small tables.
+    """
+    _APPROX_TABLES = {"market_data_ohlcv"}
+    if table in _APPROX_TABLES:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT reltuples::bigint FROM pg_class WHERE relname = %s",
+                (table,),
+            )
+            row = cur.fetchone()
+            return row[0] if row and row[0] > 0 else 0
     with conn.cursor() as cur:
         cur.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
         row = cur.fetchone()
