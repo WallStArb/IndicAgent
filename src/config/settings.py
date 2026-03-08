@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     zai_timeout_sec: float = Field(default=30.0, validation_alias="ZAI_TIMEOUT_SEC")
 
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    llm_timeout_sec: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
+        description="Timeout in seconds for LLM provider API calls",
+    )
 
     # Computed contracts list
     contracts: list[Instrument] = Field(default_factory=list)
