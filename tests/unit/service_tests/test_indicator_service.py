@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import pytest
 import redis.asyncio as redis
 
 
@@ -69,9 +70,9 @@ def test_parse_indicators_message_splits_ohlcv_and_features():
     assert "timestamp" not in features
 
 
-def test_stream_map_populated_after_setup():
+@pytest.mark.asyncio
+async def test_stream_map_populated_after_setup():
     """_stream_map must contain (symbol, timeframe) for every stream name after setup."""
-    import asyncio
     from unittest.mock import AsyncMock
 
     from services.indicator_service import IndicatorService
@@ -84,7 +85,7 @@ def test_stream_map_populated_after_setup():
     )
     svc.redis_client.xgroup_setid = AsyncMock()
 
-    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
+    await svc._setup_consumer_groups()
 
     expected = len(svc.config["service"]["timeframes"]) * len(svc.config["service"]["symbols"])
     assert len(svc._stream_map) == expected
@@ -157,10 +158,10 @@ def test_bar_append_invalidates_df_cache():
     assert svc._df_cache[key] is None
 
 
-def test_process_single_bar_returns_true_on_success():
+@pytest.mark.asyncio
+async def test_process_single_bar_returns_true_on_success():
     """_process_single_bar must return True when bar is processed successfully."""
-    import asyncio
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from services.indicator_service import IndicatorService
@@ -180,16 +181,13 @@ def test_process_single_bar_returns_true_on_success():
 
     with patch.object(svc, "_run_i1_plugins", new=AsyncMock(return_value={"rsi_14": 58.3})):
         # Pre-fill history so min_bars is met
-        from datetime import timedelta
         for i in range(130):
             ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
             svc.bar_history["ES:1m"][ts.isoformat()] = {
                 "timestamp": ts, "open": 5300.0, "high": 5305.0,
                 "low": 5299.0, "close": 5303.0, "volume": 1000,
             }
-        result = asyncio.get_event_loop().run_until_complete(
-            svc._process_single_bar("ES", "1m", fields, "market:ES:1m", b"1-0")
-        )
+        result = await svc._process_single_bar("ES", "1m", fields, "market:ES:1m", b"1-0")
     assert result is True
 
 
@@ -204,7 +202,8 @@ class TestIndicatorServicePluginOptimizations:
         for name in I1_PLUGINS:
             assert name in svc._i1_plugin_cache, f"_i1_plugin_cache missing: {name}"
 
-    def test_i1_state_keyed_per_symbol_timeframe(self):
+    @pytest.mark.asyncio
+    async def test_i1_state_keyed_per_symbol_timeframe(self):
         """I1 plugin state must be namespaced per (plugin, symbol, timeframe)."""
         from collections import OrderedDict
         from datetime import datetime, timedelta
@@ -230,11 +229,9 @@ class TestIndicatorServicePluginOptimizations:
         df = pd.DataFrame(list(svc.bar_history["ES:1m"].values()))
         frames = {"main": df}
 
-        import asyncio as _asyncio
-
         # Run for ES, then NQ
-        _asyncio.get_event_loop().run_until_complete(svc._run_i1_plugins(frames, "ES", "1m"))
-        _asyncio.get_event_loop().run_until_complete(svc._run_i1_plugins(frames, "NQ", "1m"))
+        await svc._run_i1_plugins(frames, "ES", "1m")
+        await svc._run_i1_plugins(frames, "NQ", "1m")
 
         # Each plugin should have separate state dicts for ES vs NQ
         pname = I1_PLUGINS[0]  # check first I1 plugin
@@ -245,9 +242,9 @@ class TestIndicatorServicePluginOptimizations:
         assert nq_state is not None
         assert es_state is not nq_state
 
-    def test_i1_success_metrics_sampled(self):
+    @pytest.mark.asyncio
+    async def test_i1_success_metrics_sampled(self):
         """I1 success metrics sampled at _METRICS_SAMPLE_RATE, errors always recorded."""
-        import asyncio as _asyncio
         from collections import OrderedDict
         from datetime import datetime, timedelta
         from unittest.mock import patch
@@ -272,9 +269,7 @@ class TestIndicatorServicePluginOptimizations:
             "services.indicator_service.record_plugin_execution"
         ) as mock_record:
             for _ in range(10):
-                _asyncio.get_event_loop().run_until_complete(
-                    svc._run_i1_plugins(frames, "ES", "1m")
-                )
+                await svc._run_i1_plugins(frames, "ES", "1m")
 
         # args: (plugin_name, symbol, timeframe, elapsed, status, tier) — index 4 = status
         success_calls = [c for c in mock_record.call_args_list if c.args[4] == "success"]

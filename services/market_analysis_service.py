@@ -142,14 +142,8 @@ class MarketAnalysisService:
         self.logger = structlog.get_logger(__name__)
 
     def _get_state_lock(self, key: tuple[str, str, str]) -> asyncio.Lock:
-        """Get or create a lock for given state key.
-
-        Locks are created on-demand and reused for the same (plugin, symbol, timeframe)
-        combination to protect concurrent access to plugin state.
-        """
-        if key not in self._plugin_states_locks:
-            self._plugin_states_locks[key] = asyncio.Lock()
-        return self._plugin_states_locks[key]
+        """Get or create a lock for given state key."""
+        return self._plugin_states_locks.setdefault(key, asyncio.Lock())
 
     def _load_config(self, config_file: str | None, settings: Settings) -> dict[str, Any]:
         default_config: dict[str, Any] = {

@@ -220,34 +220,8 @@ class IndicatorService:
         return min_bars_for_tf(timeframe)
 
     def _get_state_lock(self, key: tuple[str, str, str]) -> asyncio.Lock:
-        """Get or create a lock for given state key.
-
-        Locks are created on-demand and reused for the same (plugin, symbol, timeframe)
-        combination to protect concurrent access to plugin state.
-        """
-        if key not in self._i1_plugin_states_locks:
-            self._i1_plugin_states_locks[key] = asyncio.Lock()
-        return self._i1_plugin_states_locks[key]
-
-    async def _update_plugin_state(
-        self, plugin_name: str, symbol: str, timeframe: str
-    ) -> dict:
-        """Get or create plugin state with per-key lock protection.
-
-        Returns the state dict for use in compute_full(). After computation,
-        call _save_plugin_state() to write back the state.
-        """
-        state_key = (plugin_name, symbol, timeframe)
-        async with self._get_state_lock(state_key):
-            return self._i1_plugin_states.setdefault(state_key, {})
-
-    async def _save_plugin_state(
-        self, plugin_name: str, symbol: str, timeframe: str, state: dict
-    ) -> None:
-        """Save plugin state with per-key lock protection."""
-        state_key = (plugin_name, symbol, timeframe)
-        async with self._get_state_lock(state_key):
-            self._i1_plugin_states[state_key] = state
+        """Get or create a lock for given state key."""
+        return self._i1_plugin_states_locks.setdefault(key, asyncio.Lock())
 
     def _get_df(self, key: str) -> "pd.DataFrame":
         if self._df_cache.get(key) is None:
@@ -263,9 +237,11 @@ class IndicatorService:
             t0 = time.time()
             try:
                 p = self._i1_plugin_cache[plugin_name]
-                p._state = await self._update_plugin_state(plugin_name, symbol, timeframe)
-                result = p.compute_full(frames)
-                await self._save_plugin_state(plugin_name, symbol, timeframe, p._state)
+                state_key = (plugin_name, symbol, timeframe)
+                async with self._get_state_lock(state_key):
+                    p._state = self._i1_plugin_states.setdefault(state_key, {})
+                    result = p.compute_full(frames)
+                    self._i1_plugin_states[state_key] = p._state
                 features.update(result)
             except Exception as e:
                 self.logger.warning("I1 plugin failed", plugin=plugin_name, error=str(e))
