@@ -69,9 +69,24 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ### Active
 
-(Next milestone — v1.5, to be defined)
+**v1.5 Production Hardening (2026-03-08):**
 
-See `.planning/ROADMAP.md` Backlog for candidate features.
+Financial safety, concurrency safety, external API resilience, and efficiency improvements:
+
+- [ ] Epsilon tolerance on floating-point comparisons (trade_framer.py, cis_scorer.py)
+- [ ] Document magic numbers as named constants (ATR multipliers, regime thresholds)
+- [ ] Configurable timeouts for IBKR/LLM providers in Settings
+- [ ] asyncio.Lock() for shared state access (market_analysis_service, indicator_service, ai_narrative_service)
+- [ ] PluginCircuitBreaker integration for IBKR and LLM providers
+- [ ] retry_utils.py with exponential backoff and jitter
+- [ ] Characterization tests for division safety, floating precision, concurrent access
+- [ ] Plugin state cache persistence optimization
+- [ ] CIS scorer vectorization
+- [ ] Plugin call metrics sampling
+
+---
+
+**v1.4 Quant Foundation (2026-03-07):**
 
 ### Out of Scope
 
@@ -137,4 +152,4 @@ See `.planning/ROADMAP.md` Backlog for candidate features.
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-03-07 after v1.4 milestone*
+*Last updated: 2026-03-08 after v1.5 milestone definition*

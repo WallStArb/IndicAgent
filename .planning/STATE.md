@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.5
-milestone_name: TBD
-status: v1.4 complete — planning next milestone
-last_updated: "2026-03-07T20:04:37.693Z"
-last_activity: "2026-03-07 — v1.4 Quant Foundation milestone archived: 6 phases, 29 plans, 1286 tests, 91 plugins"
+milestone_name: Production Hardening
+status: defining requirements
+last_updated: "2026-03-08T12:00:00.000Z"
+last_activity: "2026-03-08 — v1.5 Production Hardening milestone started"
 progress:
   total_phases: 17
   completed_phases: 17
@@ -26,9 +26,10 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 
 ## Current Position
 
-Phase: None — v1.4 milestone complete
-Status: All phases 12-17 shipped and archived. REQUIREMENTS.md deleted. Archived to .planning/milestones/v1.4-*.
-Last activity: 2026-03-07 — v1.4 Quant Foundation archived: 6 phases, 29 plans, 1286 tests, 91 plugins
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-08 — Milestone v1.5 started
 
 ## Accumulated Context
 
