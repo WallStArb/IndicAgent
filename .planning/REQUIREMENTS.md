@@ -11,12 +11,12 @@ Requirements for production hardening — financial safety, concurrency protecti
 
 **P0 — Epsilon tolerance prevents floating-point comparison edge cases.**
 
-- [ ] **FIN-01**: System uses epsilon tolerance (1e-9) for all floating-point comparisons in trade_framer.py
-- [ ] **FIN-02**: CIS scorer uses epsilon tolerance for slope/MACD/ROC direction comparisons
-- [ ] **FIN-03**: All magic numbers documented as named constants with inline comments
-- [ ] **FIN-04**: ATR multipliers documented (0.25, 0.30, 0.20, 0.25, 0.50, 2.0, 0.001)
-- [ ] **FIN-05**: Regime thresholds documented (0.35, 3, 0.1)
-- [ ] **FIN-06**: RSI zero-loss guard behavior documented in rsi.py
+- [x] **FIN-01**: System uses epsilon tolerance (1e-9) for all floating-point comparisons in trade_framer.py
+- [x] **FIN-02**: CIS scorer uses epsilon tolerance for slope/MACD/ROC direction comparisons
+- [x] **FIN-03**: All magic numbers documented as named constants with inline comments
+- [x] **FIN-04**: ATR multipliers documented (0.25, 0.30, 0.20, 0.25, 0.50, 2.0, 0.001)
+- [x] **FIN-05**: Regime thresholds documented (0.35, 3, 0.1)
+- [x] **FIN-06**: RSI zero-loss guard behavior documented in rsi.py
 - [ ] **FIN-07**: Characterization test for RSI zero-loss behavior (returns 100.0)
 - [ ] **FIN-08**: Characterization test for trade_framer zero ATR emergency fallback
 
@@ -77,12 +77,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FIN-01 | Phase 18 | Pending |
-| FIN-02 | Phase 18 | Pending |
-| FIN-03 | Phase 18 | Pending |
-| FIN-04 | Phase 18 | Pending |
-| FIN-05 | Phase 18 | Pending |
-| FIN-06 | Phase 18 | Pending |
+| FIN-01 | Phase 18 | Complete |
+| FIN-02 | Phase 18 | Complete |
+| FIN-03 | Phase 18 | Complete |
+| FIN-04 | Phase 18 | Complete |
+| FIN-05 | Phase 18 | Complete |
+| FIN-06 | Phase 18 | Complete |
 | FIN-07 | Phase 19 | Pending |
 | FIN-08 | Phase 19 | Pending |
 | API-01 | Phase 18 | Pending |

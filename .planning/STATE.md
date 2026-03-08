@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
-status: planning
-stopped_at: Completed 18-02-PLAN.md
-last_updated: "2026-03-08T14:17:17.173Z"
-last_activity: 2026-03-08 — Roadmap created for v1.5 Production Hardening
+status: executing
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-03-08T14:21:55.772Z"
+last_activity: "2026-03-08 — 18-02: Configurable timeouts (IBKR/LLM) complete"
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 33
 ---
 
@@ -56,6 +56,7 @@ Progress: [███░░░░░░░] 33%
 
 *Updated after v1.4 completion*
 | Phase 18-financial-math-safety P02 | 88 | 2 tasks | 1 files |
+| Phase 18 P01 | 4 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ Recent decisions affecting current work:
 - Phase 13 (v1.4): Shadow signals tracked in signal_ledger for empirical gate tuning
 - Phase 16 (v1.4): perf_multiplier as primary aggregator sort key
 - Phase 18 (v1.5): Renaissance framing — safety first, efficiency second for algorithmic improvements
+- [Phase 18]: EPSILON_TOLERANCE = 1e-9 for all floating-point comparisons across trading layer — Renaissance principle: instrument everything. Prevents precision issues in financial calculations.
+- [Phase 18]: ATR multipliers and regime thresholds as named constants with Renaissance framing — Renaissance principle: explicit structural levels over hidden constants. Makes magic numbers discoverable and explainable.
 
 ### Pending Todos
 
@@ -80,6 +83,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-08T14:17:17.172Z
-Stopped at: Completed 18-02-PLAN.md
+Last session: 2026-03-08T14:21:55.770Z
+Stopped at: Completed 18-01-PLAN.md
 Resume file: None
