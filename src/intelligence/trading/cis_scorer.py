@@ -3,6 +3,10 @@
 CISScorer aggregates 6 intelligence buckets into a single directional score
 in [-1.0, +1.0]. Fires when abs(CIS) > 0.35 AND buckets_agreeing >= 3.
 
+Renaissance principles applied:
+- Segment relentlessly: regime thresholds explicitly documented
+- Instrument everything: epsilon tolerance for floating-point direction comparisons
+
 At Phase B (bootstrap), weights are fixed from BOOTSTRAP_WEIGHTS (version=0).
 Phase C will load learned weights from the cis_weights table.
 """
@@ -17,6 +21,14 @@ from src.intelligence.utils import clamp
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+# Epsilon tolerance for floating-point comparisons (Renaissance: instrument everything)
+EPSILON_TOLERANCE = 1e-9  # Tolerance for direction comparisons (slope, MACD, ROC)
+
+# Regime thresholds (Renaissance: segment relentlessly)
+CIS_FIRE_THRESHOLD = 0.35  # abs(CIS) > 0.35 required for signal fire
+BUCKET_AGREE_MIN = 3  # Minimum buckets agreeing with CIS direction
+BUCKET_NOISE_FLOOR = 0.1  # Minimum |bucket_score| to count as agreeing
 
 BUCKET_NAMES: tuple[str, ...] = (
     "trend",
@@ -73,10 +85,6 @@ class CISScorer:
         Version tag propagated to CISResult. Use 0 for bootstrap.
     """
 
-    CIS_THRESHOLD = 0.35
-    AGREE_MIN = 3
-    BUCKET_NOISE = 0.1  # minimum |bucket_score| * direction to count as "agreeing"
-
     def __init__(
         self,
         weights: dict[str, float] | None = None,
@@ -123,7 +131,7 @@ class CISScorer:
 
         # Determine fire direction
         direction = 0
-        if abs(cis_score) > self.CIS_THRESHOLD:
+        if abs(cis_score) > CIS_FIRE_THRESHOLD:
             direction = 1 if cis_score > 0 else -1
 
         # Count agreeing buckets: bucket agrees if it pushes in the same direction
@@ -134,11 +142,11 @@ class CISScorer:
         agreeing = sum(
             1
             for b in BUCKET_NAMES
-            if bucket_scores[b] * cis_sign > self.BUCKET_NOISE
+            if bucket_scores[b] * cis_sign > BUCKET_NOISE_FLOOR
         )
 
         # Require minimum agreement even if threshold was met
-        if agreeing < self.AGREE_MIN:
+        if agreeing < BUCKET_AGREE_MIN:
             direction = 0
 
         return CISResult(
@@ -195,7 +203,7 @@ class CISScorer:
           - trend_confluence_score 0.10 (I6 confluence)
         """
         slope = self._fval(f, "kalman_slope")
-        slope_dir = 1.0 if slope > 0 else (-1.0 if slope < 0 else 0.0)
+        slope_dir = 1.0 if slope > EPSILON_TOLERANCE else (-1.0 if slope < -EPSILON_TOLERANCE else 0.0)
 
         score = (
             0.35 * clamp(self._fval(f, "trend_regime"))
@@ -220,10 +228,10 @@ class CISScorer:
         rsi_dir = (rsi - 50.0) / 50.0  # maps [0,100] → [-1,+1]
 
         macd = self._fval(f, "macd_histogram_12_26_9")
-        macd_dir = 1.0 if macd > 0 else (-1.0 if macd < 0 else 0.0)
+        macd_dir = 1.0 if macd > EPSILON_TOLERANCE else (-1.0 if macd < -EPSILON_TOLERANCE else 0.0)
 
         roc = self._fval(f, "roc_14")
-        roc_dir = 1.0 if roc > 0 else (-1.0 if roc < 0 else 0.0)
+        roc_dir = 1.0 if roc > EPSILON_TOLERANCE else (-1.0 if roc < -EPSILON_TOLERANCE else 0.0)
 
         d, c = self._plug(po, "trad_DivergenceStack")
 
