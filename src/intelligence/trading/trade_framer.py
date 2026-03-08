@@ -4,6 +4,11 @@ Resolves stop placement and profit targets from structural levels in the
 features dict, rather than using raw ATR multiples. Enforces a minimum
 RR gate before publishing a signal.
 
+Renaissance principles applied:
+- Instrument everything: epsilon tolerance for all floating-point comparisons
+- Segment relentlessly: explicit structural levels over hidden constants
+- Degrade gracefully: emergency ATR fallback prevents crash
+
 Entry offset logic by setup_type:
   - sweep_reclaim_*, liquidity_hunt_*  → at_reclaim (current close)
   - supply_demand_*                    → zone_proximal (proximal edge)
@@ -39,6 +44,39 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+EPSILON_TOLERANCE = 1e-9  # Tolerance for floating-point comparisons (Renaissance: instrument everything)
+
+# ATR multipliers for stop placement (Renaissance: explicit structural levels over hidden constants)
+ATR_STOP_DEMAND_MULTIPLIER = 0.25  # Demand zone: nearest_demand_low - ATR×0.25
+ATR_STOP_SWEEP_MULTIPLIER = 0.30   # Sweep detected: sweep_level - ATR×0.30
+ATR_STOP_OB_MULTIPLIER = 0.20       # Order block: ob_bottom/top ± ATR×0.20
+ATR_STOP_SWING_MULTIPLIER = 0.25    # Swing: swing_low/high ± ATR×0.25
+ATR_STOP_SR_MULTIPLIER = 0.50       # S/R: nearest_support/resistance ± ATR×0.50
+ATR_STOP_FALLBACK_MULTIPLIER = 2.0   # Fallback: entry ± ATR×2.0
+
+# ATR multipliers for zone and target bounds
+ATR_ZONE_SWEEP_MULTIPLIER = 0.5      # Sweep/reclaim zone: entry ± ATR×0.5
+ATR_ZONE_LOW_MULTIPLIER = 1.0          # Zone lower bound: entry - ATR×1.0
+ATR_ZONE_HIGH_MULTIPLIER = 0.5         # Zone upper bound: entry + ATR×0.5
+ATR_TARGET_MIN_MULTIPLIER = 0.5       # Minimum target distance: entry ± ATR×0.5
+ATR_TARGET_MAX_MULTIPLIER = 8.0       # Maximum target distance: entry ± ATR×8.0
+
+# ATR target multipliers for fallback (RR-based)
+ATR_FALLBACK_T1_MULTIPLIER = 2.0      # T1: risk × 2.0
+ATR_FALLBACK_T2_MULTIPLIER = 3.5      # T2: risk × 3.5
+ATR_FALLBACK_T3_MULTIPLIER = 5.5      # T3: risk × 5.5
+
+# Emergency ATR fallback (Renaissance: degrade gracefully)
+ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
+
+# RR and stop distance constants (Renaissance: minimum viable thresholds)
+MIN_STOP_ATR_MULTIPLIER = 1.0  # Minimum stop distance: at least 1×ATR from entry
+MIN_RR_T1 = 1.5  # Minimum reward-to-risk for T1: signals below this are rejected
 
 
 @dataclass
@@ -153,10 +191,10 @@ def _resolve_zone_bounds(
 
     # Sweep/reclaim — tight zone ± 0.5×ATR around entry
     if st.startswith("sweep") or st.startswith("liquidity_hunt"):
-        return entry - atr * 0.5, entry + atr * 0.5
+        return entry - atr * ATR_ZONE_SWEEP_MULTIPLIER, entry + atr * ATR_ZONE_SWEEP_MULTIPLIER
 
     # ATR fallback — standard ±ATR band
-    return entry - atr * 1.0, entry + atr * 0.5
+    return entry - atr * ATR_ZONE_LOW_MULTIPLIER, entry + atr * ATR_ZONE_HIGH_MULTIPLIER
 
 
 def _resolve_entry(
@@ -228,9 +266,6 @@ def _resolve_entry(
     return entry_price, "at_close"
 
 
-MIN_STOP_ATR_MULTIPLIER = 1.0  # stop must be at least this many ATRs from entry
-
-
 def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
     """Stop placement hierarchy for long trades."""
     min_stop = entry - atr * MIN_STOP_ATR_MULTIPLIER
@@ -239,7 +274,7 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     in_demand = _fval(features, "in_demand_zone")
     nearest_demand_low = _fval(features, "nearest_demand_low")
     if in_demand == 1.0 and nearest_demand_low > 0:
-        stop = nearest_demand_low - atr * 0.25
+        stop = nearest_demand_low - atr * ATR_STOP_DEMAND_MULTIPLIER
         if stop < entry:
             return min(stop, min_stop), "demand_zone"
 
@@ -247,7 +282,7 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     sweep_detected = _fval(features, "sweep_detected")
     sweep_level = _fval(features, "sweep_level")
     if sweep_detected == 1.0 and sweep_level > 0:
-        stop = sweep_level - atr * 0.30
+        stop = sweep_level - atr * ATR_STOP_SWEEP_MULTIPLIER
         if stop < entry:
             return min(stop, min_stop), "sweep_level"
 
@@ -255,23 +290,23 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
     if ob_type == 1.0 and ob_bottom > 0 and ob_bottom < entry:
-        stop = ob_bottom - atr * 0.20
+        stop = ob_bottom - atr * ATR_STOP_OB_MULTIPLIER
         return min(stop, min_stop), "ob_bottom"
 
     # Priority 4: swing low
     swing_low = _fval(features, "swing_low")
     if swing_low > 0 and swing_low < entry:
-        stop = swing_low - atr * 0.25
+        stop = swing_low - atr * ATR_STOP_SWING_MULTIPLIER
         return min(stop, min_stop), "swing_low"
 
     # Priority 5: S/R nearest support
     sr_support = _fval(features, "sr_nearest_support") or _fval(features, "nearest_support")
     if sr_support > 0 and sr_support < entry:
-        stop = sr_support - atr * 0.50
+        stop = sr_support - atr * ATR_STOP_SR_MULTIPLIER
         return min(stop, min_stop), "sr_support"
 
     # Fallback: ATR×2.0
-    return entry - atr * 2.0, "atr"
+    return entry - atr * ATR_STOP_FALLBACK_MULTIPLIER, "atr"
 
 
 def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
@@ -282,7 +317,7 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     in_supply = _fval(features, "in_supply_zone")
     nearest_supply_high = _fval(features, "nearest_supply_high")
     if in_supply == 1.0 and nearest_supply_high > 0:
-        stop = nearest_supply_high + atr * 0.25
+        stop = nearest_supply_high + atr * ATR_STOP_DEMAND_MULTIPLIER
         if stop > entry:
             return max(stop, max_stop), "supply_zone"
 
@@ -290,7 +325,7 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     sweep_detected = _fval(features, "sweep_detected")
     sweep_level = _fval(features, "sweep_level")
     if sweep_detected == 1.0 and sweep_level > 0:
-        stop = sweep_level + atr * 0.30
+        stop = sweep_level + atr * ATR_STOP_SWEEP_MULTIPLIER
         if stop > entry:
             return max(stop, max_stop), "sweep_level"
 
@@ -298,13 +333,13 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
     ob_type = _fval(features, "ob_type")
     ob_top = _fval(features, "ob_top")
     if ob_type == -1.0 and ob_top > 0 and ob_top > entry:
-        stop = ob_top + atr * 0.20
+        stop = ob_top + atr * ATR_STOP_OB_MULTIPLIER
         return max(stop, max_stop), "ob_top"
 
     # Priority 4: swing high
     swing_high = _fval(features, "swing_high")
     if swing_high > 0 and swing_high > entry:
-        stop = swing_high + atr * 0.25
+        stop = swing_high + atr * ATR_STOP_SWING_MULTIPLIER
         return max(stop, max_stop), "swing_high"
 
     # Priority 5: S/R nearest resistance
@@ -312,11 +347,11 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
         features, "sr_nearest_resistance"
     ) or _fval(features, "nearest_resistance")
     if sr_resistance > 0 and sr_resistance > entry:
-        stop = sr_resistance + atr * 0.50
+        stop = sr_resistance + atr * ATR_STOP_SR_MULTIPLIER
         return max(stop, max_stop), "sr_resistance"
 
     # Fallback: ATR×2.0
-    return entry + atr * 2.0, "atr"
+    return entry + atr * ATR_STOP_FALLBACK_MULTIPLIER, "atr"
 
 
 def _collect_targets_long(
@@ -327,8 +362,8 @@ def _collect_targets_long(
     if risk <= 0:
         return []
 
-    min_level = entry + atr * 0.5
-    max_level = entry + atr * 8.0
+    min_level = entry + atr * ATR_TARGET_MIN_MULTIPLIER
+    max_level = entry + atr * ATR_TARGET_MAX_MULTIPLIER
 
     candidates: list[tuple[float, str, str]] = []  # (price, label, level_type)
 
@@ -406,8 +441,8 @@ def _collect_targets_short(
     if risk <= 0:
         return []
 
-    min_level = entry - atr * 8.0
-    max_level = entry - atr * 0.5
+    min_level = entry - atr * ATR_TARGET_MAX_MULTIPLIER
+    max_level = entry - atr * ATR_TARGET_MIN_MULTIPLIER
 
     candidates: list[tuple[float, str, str]] = []
 
@@ -514,27 +549,24 @@ def _pick_targets(
     sign = 1 if direction == 1 else -1
     return [
         TradeTarget(
-            price=round(entry + sign * risk * 2.0, 2),
+            price=round(entry + sign * risk * ATR_FALLBACK_T1_MULTIPLIER, 2),
             label="ATR T1",
             level_type="atr",
-            rr=2.0,
+            rr=ATR_FALLBACK_T1_MULTIPLIER,
         ),
         TradeTarget(
-            price=round(entry + sign * risk * 3.5, 2),
+            price=round(entry + sign * risk * ATR_FALLBACK_T2_MULTIPLIER, 2),
             label="ATR T2",
             level_type="atr",
-            rr=3.5,
+            rr=ATR_FALLBACK_T2_MULTIPLIER,
         ),
         TradeTarget(
-            price=round(entry + sign * risk * 5.5, 2),
+            price=round(entry + sign * risk * ATR_FALLBACK_T3_MULTIPLIER, 2),
             label="ATR T3",
             level_type="atr",
-            rr=5.5,
+            rr=ATR_FALLBACK_T3_MULTIPLIER,
         ),
     ], False
-
-
-MIN_RR_T1 = 1.5
 
 
 def frame_trade(
@@ -564,7 +596,7 @@ def frame_trade(
     TradeFrame with stop, targets, RR values, and viability flag.
     """
     if atr <= 0:
-        atr = abs(entry) * 0.001  # 0.1% of price as emergency fallback
+        atr = abs(entry) * ATR_EMERGENCY_FALLBACK_PCT  # 0.1% of price as emergency fallback
 
     # Resolve entry with setup-specific offset
     resolved_entry, entry_type = _resolve_entry(setup_type, direction, entry, features)
