@@ -178,7 +178,7 @@ def test_process_single_bar_returns_true_on_success():
         b"low": b"5299.0", b"close": b"5303.0", b"volume": b"1000",
     }
 
-    with patch.object(svc, "_run_i1_plugins", return_value={"rsi_14": 58.3}):
+    with patch.object(svc, "_run_i1_plugins", new=AsyncMock(return_value={"rsi_14": 58.3})):
         # Pre-fill history so min_bars is met
         from datetime import timedelta
         for i in range(130):
@@ -230,9 +230,11 @@ class TestIndicatorServicePluginOptimizations:
         df = pd.DataFrame(list(svc.bar_history["ES:1m"].values()))
         frames = {"main": df}
 
+        import asyncio as _asyncio
+
         # Run for ES, then NQ
-        svc._run_i1_plugins(frames, "ES", "1m")
-        svc._run_i1_plugins(frames, "NQ", "1m")
+        _asyncio.get_event_loop().run_until_complete(svc._run_i1_plugins(frames, "ES", "1m"))
+        _asyncio.get_event_loop().run_until_complete(svc._run_i1_plugins(frames, "NQ", "1m"))
 
         # Each plugin should have separate state dicts for ES vs NQ
         pname = I1_PLUGINS[0]  # check first I1 plugin
@@ -245,6 +247,7 @@ class TestIndicatorServicePluginOptimizations:
 
     def test_i1_success_metrics_sampled(self):
         """I1 success metrics sampled at _METRICS_SAMPLE_RATE, errors always recorded."""
+        import asyncio as _asyncio
         from collections import OrderedDict
         from datetime import datetime, timedelta
         from unittest.mock import patch
@@ -269,7 +272,9 @@ class TestIndicatorServicePluginOptimizations:
             "services.indicator_service.record_plugin_execution"
         ) as mock_record:
             for _ in range(10):
-                svc._run_i1_plugins(frames, "ES", "1m")
+                _asyncio.get_event_loop().run_until_complete(
+                    svc._run_i1_plugins(frames, "ES", "1m")
+                )
 
         # args: (plugin_name, symbol, timeframe, elapsed, status, tier) — index 4 = status
         success_calls = [c for c in mock_record.call_args_list if c.args[4] == "success"]

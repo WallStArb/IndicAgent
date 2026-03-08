@@ -229,12 +229,32 @@ class IndicatorService:
             self._i1_plugin_states_locks[key] = asyncio.Lock()
         return self._i1_plugin_states_locks[key]
 
+    async def _update_plugin_state(
+        self, plugin_name: str, symbol: str, timeframe: str
+    ) -> dict:
+        """Get or create plugin state with per-key lock protection.
+
+        Returns the state dict for use in compute_full(). After computation,
+        call _save_plugin_state() to write back the state.
+        """
+        state_key = (plugin_name, symbol, timeframe)
+        async with self._get_state_lock(state_key):
+            return self._i1_plugin_states.setdefault(state_key, {})
+
+    async def _save_plugin_state(
+        self, plugin_name: str, symbol: str, timeframe: str, state: dict
+    ) -> None:
+        """Save plugin state with per-key lock protection."""
+        state_key = (plugin_name, symbol, timeframe)
+        async with self._get_state_lock(state_key):
+            self._i1_plugin_states[state_key] = state
+
     def _get_df(self, key: str) -> "pd.DataFrame":
         if self._df_cache.get(key) is None:
             self._df_cache[key] = pd.DataFrame(list(self.bar_history[key].values()))
         return self._df_cache[key]
 
-    def _run_i1_plugins(
+    async def _run_i1_plugins(
         self, frames: dict[str, Any], symbol: str, timeframe: str
     ) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
@@ -243,10 +263,9 @@ class IndicatorService:
             t0 = time.time()
             try:
                 p = self._i1_plugin_cache[plugin_name]
-                state_key = (plugin_name, symbol, timeframe)
-                p._state = self._i1_plugin_states.setdefault(state_key, {})
+                p._state = await self._update_plugin_state(plugin_name, symbol, timeframe)
                 result = p.compute_full(frames)
-                self._i1_plugin_states[state_key] = p._state
+                await self._save_plugin_state(plugin_name, symbol, timeframe, p._state)
                 features.update(result)
             except Exception as e:
                 self.logger.warning("I1 plugin failed", plugin=plugin_name, error=str(e))
@@ -303,7 +322,7 @@ class IndicatorService:
 
             frames = {"main": self._get_df(key)}
 
-            features = self._run_i1_plugins(frames, symbol, timeframe)
+            features = await self._run_i1_plugins(frames, symbol, timeframe)
 
             msg = build_i1_message(
                 bar_data, features, bar_ts, symbol, timeframe,
