@@ -52,10 +52,12 @@ class OpenRouterProvider:
         model: str,
         api_key: str,
         base_url: str = "https://openrouter.ai/api/v1",
+        timeout: float | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"openrouter:{model}"
 
     async def generate(
@@ -108,10 +110,12 @@ class AnthropicProvider:
         model: str,
         api_key: str,
         base_url: str = "https://api.anthropic.com",
+        timeout: float | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"anthropic:{model}"
 
     async def generate(
@@ -227,9 +231,11 @@ class OllamaProvider:
         self,
         model: str,
         base_url: str = "http://localhost:11434",
+        timeout: float | None = None,
     ) -> None:
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout or _default_llm_timeout()
         self.provider_id = f"ollama:{model}"
 
     async def generate(
