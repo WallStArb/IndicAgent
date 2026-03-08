@@ -148,6 +148,8 @@ class IndicatorService:
             n: registry.get_indicator(n) for n in I1_PLUGINS
         }
         self._i1_plugin_states: dict[tuple[str, str, str], dict] = {}
+        # Per-key locks for concurrent access protection
+        self._i1_plugin_states_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
         self._i1_call_counts: dict[tuple[str, str], int] = defaultdict(int)
 
         self.redis_client: redis.Redis | None = None
@@ -216,6 +218,16 @@ class IndicatorService:
 
     def _min_bars_for_tf(self, timeframe: str) -> int:
         return min_bars_for_tf(timeframe)
+
+    def _get_state_lock(self, key: tuple[str, str, str]) -> asyncio.Lock:
+        """Get or create a lock for given state key.
+
+        Locks are created on-demand and reused for the same (plugin, symbol, timeframe)
+        combination to protect concurrent access to plugin state.
+        """
+        if key not in self._i1_plugin_states_locks:
+            self._i1_plugin_states_locks[key] = asyncio.Lock()
+        return self._i1_plugin_states_locks[key]
 
     def _get_df(self, key: str) -> "pd.DataFrame":
         if self._df_cache.get(key) is None:
