@@ -15,7 +15,8 @@ def test_market_analysis_service_imports():
     assert hasattr(svc, "_run_analysis_pipeline")
 
 
-def test_run_analysis_pipeline_requires_features():
+@pytest.mark.asyncio
+async def test_run_analysis_pipeline_requires_features():
     """Pipeline must return a dict when called with minimal frames."""
     from services.market_analysis_service import MarketAnalysisService
 
@@ -27,7 +28,7 @@ def test_run_analysis_pipeline_requires_features():
         "features": {},
     }
 
-    result = svc._run_analysis_pipeline("ES", "1m", frames)
+    result = await svc._run_analysis_pipeline("ES", "1m", frames)
     assert isinstance(result, dict)
 
 
@@ -382,7 +383,8 @@ class TestPluginCache:
         for name in all_names:
             assert name in svc._plugin_cache, f"_plugin_cache missing: {name}"
 
-    def test_run_tier_does_not_call_registry_get_pattern(self):
+    @pytest.mark.asyncio
+    async def test_run_tier_does_not_call_registry_get_pattern(self):
         """_run_tier must use _plugin_cache — NOT call registry.get_pattern() on each bar."""
         from unittest.mock import patch
 
@@ -401,7 +403,7 @@ class TestPluginCache:
         }
 
         with patch.object(registry, "get_pattern") as mock_get:
-            svc._run_analysis_pipeline("ES", "1m", frames)
+            await svc._run_analysis_pipeline("ES", "1m", frames)
 
         mock_get.assert_not_called()
 
@@ -409,7 +411,8 @@ class TestPluginCache:
 class TestPluginStateIsolation:
     """Plugin _state must be namespaced per (plugin, symbol, timeframe)."""
 
-    def test_state_is_keyed_per_symbol(self):
+    @pytest.mark.asyncio
+    async def test_state_is_keyed_per_symbol(self):
         """Running the same plugin for ES and NQ must produce independent state dicts."""
         import pandas as pd
 
@@ -429,9 +432,9 @@ class TestPluginStateIsolation:
             }
 
         # Run ES:1m — rsi accel = 5.0
-        svc._run_analysis_pipeline("ES", "1m", make_frames(50.0, 55.0))
+        await svc._run_analysis_pipeline("ES", "1m", make_frames(50.0, 55.0))
         # Run NQ:1m — rsi accel = -3.0
-        svc._run_analysis_pipeline("NQ", "1m", make_frames(60.0, 57.0))
+        await svc._run_analysis_pipeline("NQ", "1m", make_frames(60.0, 57.0))
 
         pname = "evt_MomentumAcceleration"
         es_state = svc._plugin_states.get((pname, "ES", "1m"), {})
@@ -443,7 +446,8 @@ class TestPluginStateIsolation:
         assert es_state.get("prev_rsi_accel") == pytest.approx(5.0, abs=0.01)
         assert nq_state.get("prev_rsi_accel") == pytest.approx(-3.0, abs=0.01)
 
-    def test_state_accumulates_across_bars_same_symbol(self):
+    @pytest.mark.asyncio
+    async def test_state_accumulates_across_bars_same_symbol(self):
         """Calling the same symbol twice must accumulate state in the same dict."""
         import pandas as pd
 
@@ -452,20 +456,20 @@ class TestPluginStateIsolation:
         svc = MarketAnalysisService()
         pname = "evt_MomentumAcceleration"
 
-        def run(rsi_prev, rsi_curr):
+        async def run(rsi_prev, rsi_curr):
             df = pd.DataFrame(
                 [{"open": 100.0, "high": 101.0, "low": 99.0,
                   "close": 100.5, "volume": 500}] * 30
             )
-            svc._run_analysis_pipeline("ES", "1m", {
+            await svc._run_analysis_pipeline("ES", "1m", {
                 "main": df,
                 "features": {"rsi_14": rsi_curr, "macd_12_26_9": 0.5, "roc_14": 0.3},
                 "prev_features": {"rsi_14": rsi_prev, "macd_12_26_9": 0.4, "roc_14": 0.2},
             })
             return svc._plugin_states.get((pname, "ES", "1m"), {}).copy()
 
-        state_after_bar1 = run(50.0, 55.0)   # accel = +5.0
-        state_after_bar2 = run(55.0, 53.0)   # accel = -2.0
+        state_after_bar1 = await run(50.0, 55.0)   # accel = +5.0
+        state_after_bar2 = await run(55.0, 53.0)   # accel = -2.0
 
         assert state_after_bar1.get("prev_rsi_accel") == pytest.approx(5.0, abs=0.01)
         assert state_after_bar2.get("prev_rsi_accel") == pytest.approx(-2.0, abs=0.01)
@@ -474,7 +478,8 @@ class TestPluginStateIsolation:
 class TestPrometheusSampling:
     """record_plugin_execution is called at sampled rate for successes, always for errors."""
 
-    def test_success_metrics_sampled_at_rate_10(self):
+    @pytest.mark.asyncio
+    async def test_success_metrics_sampled_at_rate_10(self):
         """Success metrics recorded only every 10th call, not every call."""
         from unittest.mock import patch
 
@@ -493,7 +498,7 @@ class TestPrometheusSampling:
             "services.market_analysis_service.record_plugin_execution"
         ) as mock_record:
             for _ in range(10):
-                svc._run_analysis_pipeline("ES", "1m", frames)
+                await svc._run_analysis_pipeline("ES", "1m", frames)
 
         # With 48 plugins × 10 calls = 480 total success invocations
         # At rate=10, we expect 48 recorded (every 10th)
@@ -510,7 +515,8 @@ class TestPrometheusSampling:
         # Exactly 1-in-10 should be recorded
         assert len(success_calls) == len(svc._plugin_cache) * 1  # 1 per plugin at call 10
 
-    def test_error_metrics_always_recorded(self):
+    @pytest.mark.asyncio
+    async def test_error_metrics_always_recorded(self):
         """Error metrics are recorded on every failure — never sampled."""
         from unittest.mock import MagicMock, patch
 
@@ -536,7 +542,7 @@ class TestPrometheusSampling:
             "services.market_analysis_service.record_plugin_execution"
         ) as mock_record:
             for _ in range(5):
-                svc._run_analysis_pipeline("ES", "1m", frames)
+                await svc._run_analysis_pipeline("ES", "1m", frames)
 
         error_calls = [
             c for c in mock_record.call_args_list

@@ -191,10 +191,10 @@ class MarketAnalysisService:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
 
-    def _run_analysis_pipeline(
+    async def _run_analysis_pipeline(
         self, symbol: str, timeframe: str, frames: dict[str, Any]
     ) -> dict[str, Any]:
-        """Run I3→I4→I5→SMC→I6 synchronously.
+        """Run I3→I4→I5→SMC→I6 with async-safe per-key state locking.
 
         Returns tiered dict with keys: i3, i4, i5, smc, i6, flat.
         - i3/i4/i5/smc/i6 — per-tier result dicts for IntelligenceEvent construction
@@ -203,15 +203,16 @@ class MarketAnalysisService:
         features: dict[str, Any] = dict(frames.get("features", {}))
         frames["features"] = features
 
-        def _run_tier(plugins: list[str], tier: str, results: dict[str, Any]) -> None:
+        async def _run_tier(plugins: list[str], tier: str, results: dict[str, Any]) -> None:
             for pname in plugins:
                 t0 = time.time()
                 try:
                     p = self._plugin_cache[pname]
                     state_key = (pname, symbol, timeframe)
-                    p._state = self._plugin_states.setdefault(state_key, {})
-                    out = p.compute_full(frames)
-                    self._plugin_states[state_key] = p._state  # capture full reassignments
+                    async with self._get_state_lock(state_key):
+                        p._state = self._plugin_states.setdefault(state_key, {})
+                        out = p.compute_full(frames)
+                        self._plugin_states[state_key] = p._state  # capture full reassignments
                     results.update(out)
                 except Exception as exc:
                     self.logger.warning(
@@ -229,30 +230,30 @@ class MarketAnalysisService:
 
         # I2: Composite indicator events (crossovers, extremes) — runs on I1 features
         i2_results: dict[str, Any] = {}
-        _run_tier(TIER_I2, "I2", i2_results)
+        await _run_tier(TIER_I2, "I2", i2_results)
         features.update(i2_results)
 
         i3_results: dict[str, Any] = {}
-        _run_tier(TIER_I3, "I3", i3_results)
+        await _run_tier(TIER_I3, "I3", i3_results)
         features.update(i3_results)
 
         i4_results: dict[str, Any] = {}
-        _run_tier(TIER_I4, "I4", i4_results)
+        await _run_tier(TIER_I4, "I4", i4_results)
         features.update(i4_results)
 
         i5_results: dict[str, Any] = {}
-        _run_tier(TIER_I5, "I5", i5_results)
+        await _run_tier(TIER_I5, "I5", i5_results)
         features.update(i5_results)
 
         smc_results: dict[str, Any] = {}
-        _run_tier(TIER_SMC, "SMC", smc_results)
+        await _run_tier(TIER_SMC, "SMC", smc_results)
         # Rename SMC's trend_direction to avoid collision with I3's trend_direction in flat dict
         if "trend_direction" in smc_results:
             smc_results["smc_trend_direction"] = smc_results.pop("trend_direction")
         features.update(smc_results)
 
         i6_results: dict[str, Any] = {}
-        _run_tier(TIER_I6, "I6", i6_results)
+        await _run_tier(TIER_I6, "I6", i6_results)
 
         flat = {**i2_results, **i3_results, **i4_results, **i5_results, **smc_results, **i6_results}
         self.intelligence_cache[symbol][timeframe] = flat
@@ -312,7 +313,7 @@ class MarketAnalysisService:
             frames["prev_features"] = self._prev_i1_features[prev_key]
         self._prev_i1_features[prev_key] = dict(i1_features)
 
-        tiered = self._run_analysis_pipeline(symbol, timeframe, frames)
+        tiered = await self._run_analysis_pipeline(symbol, timeframe, frames)
         self.calculations_total.inc()
         return tiered
 
