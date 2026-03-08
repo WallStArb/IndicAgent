@@ -57,7 +57,6 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] Phase 11: SessionExtremesSetup (I7) — Asian session H/L fade during London/NY — completed 2026-03-04
 
 Full details: `.planning/milestones/v1.3-phases/`
-
 </details>
 
 <details>
@@ -71,7 +70,6 @@ Full details: `.planning/milestones/v1.3-phases/`
 - [x] Phase 17: LLM Wiring Fix — signal_id UUID through pipeline + regime vocabulary fix — completed 2026-03-06
 
 Full details: `.planning/milestones/v1.4-ROADMAP.md`
-
 </details>
 
 ### 🚧 v1.5 Production Hardening (Planned)
@@ -89,15 +87,12 @@ Full details: `.planning/milestones/v1.4-ROADMAP.md`
   4. Settings class exposes ibkr_timeout_sec (default 20.0s) and llm_timeout_sec (default 60.0s)
   5. IBKR provider and all LLM providers use configurable timeouts from Settings
   6. market_analysis_service, indicator_service, and ai_narrative_service have per-key asyncio.Lock() for shared state access
-**Plans**: TBD
+**Plans**: 3 plans (2 waves)
 
 Plans:
-- [ ] 18-01: Epsilon tolerance implementation in trade_framer.py
-- [ ] 18-02: Epsilon tolerance implementation in CIS scorer
-- [ ] 18-03: Magic number documentation (ATR multipliers, regime thresholds, RSI behavior)
-- [ ] 18-04: Configurable timeouts in Settings class
-- [ ] 18-05: Timeout usage in IBKR and LLM providers
-- [ ] 18-06: asyncio.Lock() integration in services
+- [ ] 18-01: Epsilon tolerance and magic number documentation
+- [ ] 18-02: Configurable timeouts in Settings class
+- [ ] 18-03: Timeout usage and concurrency locks in services
 
 #### Phase 19: Financial Math Characterization
 **Goal**: Characterization tests for RSI zero-loss behavior, trade_framer ATR fallback, and concurrent lock behavior
@@ -227,7 +222,7 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 15. Validated Alpha | v1.4 | 7/7 | Complete | 2026-03-07 |
 | 16. LLM Intelligence Layer | v1.4 | 7/7 | Complete | 2026-03-06 |
 | 17. LLM Wiring Fix | v1.4 | 2/2 | Complete | 2026-03-06 |
-| 18. Financial Math Safety | v1.5 | 0/6 | Not started | - |
+| 18. Financial Math Safety | v1.5 | 0/3 | Not started | - |
 | 19. Financial Math Characterization | v1.5 | 0/3 | Not started | - |
 | 20. Circuit Breaker Integration | v1.5 | 0/4 | Not started | - |
 | 21. Efficiency Optimizations | v1.5 | 0/4 | Not started | - |
