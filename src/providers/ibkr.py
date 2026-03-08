@@ -18,6 +18,7 @@ nest_asyncio.apply()
 
 from src.core.models import AssetClass, Instrument  # noqa: E402
 from src.providers.base import OHLCVBar, Tick  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +51,19 @@ class IBKRProvider:
 
     name = "ibkr"
 
-    def __init__(self, host: str, port: int, client_id: int, tick_queue_size: int = 5000):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        client_id: int,
+        tick_queue_size: int = 5000,
+        settings: Settings | None = None,
+    ):
         self._host = host
         self._port = port
         self._client_id = client_id
         self._tick_queue_size = tick_queue_size
+        self._settings = settings or Settings()
         self._ib: IB | None = None
         self._tick_queue: asyncio.Queue[Tick] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -69,7 +78,7 @@ class IBKRProvider:
                 host=self._host,
                 port=self._port,
                 clientId=self._client_id,
-                timeout=20,
+                timeout=self._settings.ib_timeout_sec,
                 readonly=False,
             )
             connected = self._ib.isConnected()
@@ -283,11 +292,15 @@ class IBKRProvider:
             )
             return False
 
-    async def get_quote(self, symbol: str, timeout_sec: float = 5.0) -> dict | None:
+    async def get_quote(
+        self, symbol: str, timeout_sec: float | None = None
+    ) -> dict | None:
         """Request a one-off snapshot quote for a pre-qualified symbol.
 
         Sleeps for timeout_sec to allow IBKR to fill the snapshot, then returns
         a dict with bid, ask, last (and optionally lastSize), or None if no data arrived.
+
+        If not provided, uses Settings.ib_timeout_sec as default.
         """
         if not self._ib:
             return None
@@ -298,8 +311,9 @@ class IBKRProvider:
         sec_type = getattr(contract, "secType", "")
         tick_list = _FUT_TICK_LIST if sec_type == "FUT" else ""
         ticker = self._ib.reqMktData(contract, genericTickList=tick_list, snapshot=True)
+        actual_timeout = timeout_sec or self._settings.ib_timeout_sec
         try:
-            await asyncio.sleep(timeout_sec)
+            await asyncio.sleep(actual_timeout)
             bid = getattr(ticker, "bid", None)
             ask = getattr(ticker, "ask", None)
             last = getattr(ticker, "last", None) or getattr(ticker, "close", None)
