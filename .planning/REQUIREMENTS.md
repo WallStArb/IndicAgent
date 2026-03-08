@@ -106,8 +106,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 **Coverage:**
 - v1.5 requirements: 28 total
 - Mapped to phases: 28
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
-*Last updated: 2026-03-08 after initial definition*
+*Last updated: 2026-03-08 after roadmap creation*

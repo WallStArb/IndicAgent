@@ -7,7 +7,7 @@
 - ✅ **v1.2 Intelligence Palette Expansion** — Phases 02-07 (shipped 2026-03-02)
 - ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 (shipped 2026-03-04)
 - ✅ **v1.4 Quant Foundation** — Phases 12-17 (shipped 2026-03-07)
-- 📋 **v1.5** — TBD (planned)
+- 🚧 **v1.5 Production Hardening** — Phases 18-21 (planned)
 
 ## Phases
 
@@ -74,13 +74,129 @@ Full details: `.planning/milestones/v1.4-ROADMAP.md`
 
 </details>
 
-### 📋 v1.5 (Planned)
+### 🚧 v1.5 Production Hardening (Planned)
 
-To be defined via `/gsd:new-milestone`.
+**Milestone Goal:** Financial safety, concurrency protection, API resilience, and efficiency improvements for robust production operation.
 
-Candidates from Backlog: Dashboard Complete, ML Scoring Model, Auth + External Access, Orderflow Integration.
+#### Phase 18: Financial Math Safety
+**Goal**: Epsilon tolerance, magic number documentation, and characterization tests for mathematical correctness
+**Depends on**: Phase 17
+**Requirements**: FIN-01, FIN-02, FIN-03, FIN-04, FIN-05, FIN-06, API-01, API-02, API-03, API-04, API-05, API-06, API-07
+**Success Criteria** (what must be TRUE):
+  1. trade_framer.py uses epsilon tolerance (1e-9) for all floating-point comparisons
+  2. CIS scorer uses epsilon tolerance for slope/MACD/ROC direction comparisons
+  3. All magic numbers documented as named constants with inline comments
+  4. Settings class exposes ibkr_timeout_sec (default 20.0s) and llm_timeout_sec (default 60.0s)
+  5. IBKR provider and all LLM providers use configurable timeouts from Settings
+  6. market_analysis_service, indicator_service, and ai_narrative_service have per-key asyncio.Lock() for shared state access
+**Plans**: TBD
+
+Plans:
+- [ ] 18-01: Epsilon tolerance implementation in trade_framer.py
+- [ ] 18-02: Epsilon tolerance implementation in CIS scorer
+- [ ] 18-03: Magic number documentation (ATR multipliers, regime thresholds, RSI behavior)
+- [ ] 18-04: Configurable timeouts in Settings class
+- [ ] 18-05: Timeout usage in IBKR and LLM providers
+- [ ] 18-06: asyncio.Lock() integration in services
+
+#### Phase 19: Financial Math Characterization
+**Goal**: Characterization tests for RSI zero-loss behavior, trade_framer ATR fallback, and concurrent lock behavior
+**Depends on**: Phase 18
+**Requirements**: FIN-07, FIN-08, API-08
+**Success Criteria** (what must be TRUE):
+  1. Characterization test verifies RSI zero-loss behavior returns 100.0
+  2. Characterization test verifies trade_framer zero ATR emergency fallback
+  3. Characterization test verifies lock acquisition and release in concurrent access scenarios
+**Plans**: TBD
+
+Plans:
+- [ ] 19-01: RSI zero-loss characterization test
+- [ ] 19-02: trade_framer ATR fallback characterization test
+- [ ] 19-03: Concurrent lock behavior characterization test
+
+#### Phase 20: Circuit Breaker Integration
+**Goal**: retry_utils.py with exponential backoff/jitter, circuit breaker integration for IBKR and LLM providers
+**Depends on**: Phase 19
+**Requirements**: CB-01, CB-02, CB-03, CB-04, API-09
+**Success Criteria** (what must be TRUE):
+  1. retry_utils.py created with exponential_backoff_with_jitter() function
+  2. retry_with_backoff() async wrapper with configurable max_attempts
+  3. All LLM providers use PluginCircuitBreaker for generate() calls
+  4. IBKR provider uses PluginCircuitBreaker for connection failures
+  5. Circuit breaker metrics exposed on Prometheus endpoint
+**Plans**: TBD
+
+Plans:
+- [ ] 20-01: retry_utils.py implementation
+- [ ] 20-02: Circuit breaker integration for LLM providers
+- [ ] 20-03: Circuit breaker integration for IBKR provider
+- [ ] 20-04: Circuit breaker metrics exposure
+
+#### Phase 21: Efficiency Optimizations
+**Goal**: Buffer management, CIS scorer vectorization, plugin call metrics sampling
+**Depends on**: Phase 20
+**Requirements**: EFF-01, EFF-02, EFF-03, EFF-04
+**Success Criteria** (what must be TRUE):
+  1. indicator_service tracks buffer length, only invalidates DataFrame cache when capacity exceeded
+  2. market_analysis_service tracks buffer length, only invalidates DataFrame cache when capacity exceeded
+  3. CIS scorer uses numpy vectorization for bucket score computation
+  4. Plugin call metrics use modulo sampling (record every N calls, not every call)
+**Plans**: TBD
+
+Plans:
+- [ ] 21-01: Buffer management in indicator_service
+- [ ] 21-02: Buffer management in market_analysis_service
+- [ ] 21-03: CIS scorer vectorization
+- [ ] 21-04: Plugin call metrics sampling optimization
+
+## Backlog
+
+Items decided but not yet scheduled. Pull into a milestone when ready.
+Re-prioritized 2026-03-08 after v1.5 planning.
+
+### Tier 1 — Ready now / v1.6 candidates (data exists, no blockers)
+
+| Item | Notes | Analysis |
+|------|-------|---------|
+| Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
+| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
+| HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
+| AC Oscillator I1 plugin | Todo exists, fully specced. | — |
+| Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
+| Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
+| Expand I5 candlestick + I7 setup | Add Tier 1 candlestick patterns (engulfing, pin bar, hammer); wire I7 setup from confirmed pattern. | — |
+| Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | — |
+| validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
+
+### Tier 2 — v1.6 or v1.7 (moderate dependencies)
+
+| Item | Notes | Analysis |
+|------|-------|---------|
+| ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
+| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | — |
+| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | — |
+| Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | — |
+| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | — |
+| Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | — |
+| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel. Research-first gate: confirm signal value before building. | `ideas/2nd-derivative-indicator-research.md` |
+| Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
+| Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
+
+### Tier 3 — Longer horizon / separate products
+
+| Item | Notes | Analysis |
+|------|-------|---------|
+| Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence / absorption / imbalance continuation plugins. | — |
+| Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
+| Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
+| Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
+| Broker-agnostic instrument provider | Defer until second broker integration is needed. | — |
+| Redpanda migration | Migrate from DragonflyDB streams to Redpanda before QualAgent; not before v1.5. | `docs/ideas/tech-stack.md` |
 
 ## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 21
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -111,47 +227,7 @@ Candidates from Backlog: Dashboard Complete, ML Scoring Model, Auth + External A
 | 15. Validated Alpha | v1.4 | 7/7 | Complete | 2026-03-07 |
 | 16. LLM Intelligence Layer | v1.4 | 7/7 | Complete | 2026-03-06 |
 | 17. LLM Wiring Fix | v1.4 | 2/2 | Complete | 2026-03-06 |
-
-## Backlog
-
-Items decided but not yet scheduled. Pull into a milestone when ready.
-Re-prioritized 2026-03-07 after v1.4 ship.
-
-### Tier 1 — Ready now / v1.5 candidates (data exists, no blockers)
-
-| Item | Notes | Analysis |
-|------|-------|---------|
-| Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
-| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
-| HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
-| AC Oscillator I1 plugin | Todo exists, fully specced. | — |
-| Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
-| Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
-| Expand I5 candlestick + I7 setup | Add Tier 1 candlestick patterns (engulfing, pin bar, hammer); wire I7 setup from confirmed pattern. | — |
-| Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | — |
-| validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
-
-### Tier 2 — v1.5 or v1.6 (moderate dependencies)
-
-| Item | Notes | Analysis |
-|------|-------|---------|
-| ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
-| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | — |
-| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | — |
-| Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | — |
-| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | — |
-| Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | — |
-| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel. Research-first gate: confirm signal value before building. | `ideas/2nd-derivative-indicator-research.md` |
-| Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
-| Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
-
-### Tier 3 — Longer horizon / separate products
-
-| Item | Notes | Analysis |
-|------|-------|---------|
-| Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence / absorption / imbalance continuation plugins. | — |
-| Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
-| Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
-| Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
-| Broker-agnostic instrument provider | Defer until second broker integration is needed. | — |
-| Redpanda migration | Migrate from DragonflyDB streams to Redpanda before QualAgent; not before v1.5. | `docs/ideas/tech-stack.md` |
+| 18. Financial Math Safety | v1.5 | 0/6 | Not started | - |
+| 19. Financial Math Characterization | v1.5 | 0/3 | Not started | - |
+| 20. Circuit Breaker Integration | v1.5 | 0/4 | Not started | - |
+| 21. Efficiency Optimizations | v1.5 | 0/4 | Not started | - |
