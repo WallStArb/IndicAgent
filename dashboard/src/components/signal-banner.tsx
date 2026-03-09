@@ -2,7 +2,7 @@
 "use client";
 
 import type { SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum } from "@/lib/format";
+import { fmtPrice, fmtNum, fmtTimeHMS } from "@/lib/format";
 import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 
 interface SignalBannerProps {
@@ -45,6 +45,14 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
       <span className="text-[0.5rem] text-[var(--text-muted)] font-data">
         {fmtPrice(signal.entry_price)} → {fmtPrice(signal.stop_loss)}
       </span>
+      {(fmtTimeHMS(signal.signal_computed_at) ?? fmtTimeHMS(signal.bar_close_ts)) && (
+        <span className="text-[0.45rem] font-data text-[var(--text-muted)] opacity-60">
+          {fmtTimeHMS(signal.signal_computed_at) ?? fmtTimeHMS(signal.bar_close_ts)}
+          {signal.market_price_at_signal != null && (
+            <span className="ml-0.5">@ {fmtPrice(signal.market_price_at_signal)}</span>
+          )}
+        </span>
+      )}
       <ChevronRight size={8} className="ml-auto text-[var(--text-muted)]" />
     </button>
   );

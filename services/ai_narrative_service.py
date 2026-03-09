@@ -200,7 +200,8 @@ _STRUCTURAL_LABELS: dict[str, str] = {
 
 def get_structural_label(setup_plugin: str) -> str:
     """Map setup plugin name to a short structural label for the signal bar."""
-    return _STRUCTURAL_LABELS.get(setup_plugin, setup_plugin.upper()[:16])
+    bare = setup_plugin.split("_", 1)[-1] if "_" in setup_plugin else setup_plugin
+    return _STRUCTURAL_LABELS.get(bare, bare.upper()[:16])
 
 
 def build_action_tag(signal: dict[str, Any]) -> str:
