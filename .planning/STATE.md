@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 20-02-PLAN.md
-last_updated: "2026-03-09T00:37:11.684Z"
+stopped_at: Completed 20-04-PLAN.md
+last_updated: "2026-03-09T00:43:57.878Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
   percent: 36
 ---
 
@@ -68,6 +68,7 @@ Progress: [████░░░░░░] 36%
 | Phase 20-circuit-breaker-integration P01 | 2 | 2 tasks | 2 files |
 | Phase 20 P03 | 122 | 3 tasks | 1 files |
 | Phase 20 P02 | 4 | 2 tasks | 2 files |
+| Phase 20 P04 | 303 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase 20]: [Phase 20-03]: failure_window=120s, recovery_timeout=180s — IBKR reconnects ~1 min, 3 min recovery buffer
 - [Phase 20]: _call_llm_with_circuit_breaker accepts sync call_fn not coroutine — each retry gets fresh to_thread invocation, preventing coroutine reuse errors
 - [Phase 20-02]: Module-level _llm_circuit_breaker shared across all LLM providers, keyed by provider_id — failure history persists across chain iterations
+- [Phase 20-04]: Circuit breaker state transitions use state snapshots (previous_state captured before operation) to detect actual changes at metric recording time
 
 ### Pending Todos
 
@@ -111,6 +113,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T00:37:11.682Z
-Stopped at: Completed 20-02-PLAN.md
+Last session: 2026-03-09T00:43:57.876Z
+Stopped at: Completed 20-04-PLAN.md
 Resume file: None
