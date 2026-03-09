@@ -18,7 +18,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 - [x] **FIN-05**: Regime thresholds documented (0.35, 3, 0.1)
 - [x] **FIN-06**: RSI zero-loss guard behavior documented in rsi.py
 - [ ] **FIN-07**: Characterization test for RSI zero-loss behavior (returns 100.0)
-- [ ] **FIN-08**: Characterization test for trade_framer zero ATR emergency fallback
+- [x] **FIN-08**: Characterization test for trade_framer zero ATR emergency fallback
 
 ### API Resilience & Concurrency (API)
 
@@ -84,7 +84,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIN-05 | Phase 18 | Complete |
 | FIN-06 | Phase 18 | Complete |
 | FIN-07 | Phase 19 | Pending |
-| FIN-08 | Phase 19 | Pending |
+| FIN-08 | Phase 19 | Complete |
 | API-01 | Phase 18 | Pending |
 | API-02 | Phase 18 | Pending |
 | API-03 | Phase 18 | Complete |
