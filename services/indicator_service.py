@@ -292,13 +292,10 @@ class IndicatorService:
             history = self.bar_history[key]
             history[bar_ts.isoformat()] = bar_data
 
-            # Only invalidate cache when oldest bar is evicted (capacity exceeded)
-            cache_invalidated = False
-            while len(history) > self._bar_history_max:
+            # Only invalidate cache when oldest bar is evicted (capacity exceeded).
+            # Bars arrive one at a time so at most one entry is ever evicted per call.
+            if len(history) > self._bar_history_max:
                 history.popitem(last=False)
-                cache_invalidated = True
-
-            if cache_invalidated:
                 self._df_cache[key] = None
 
             min_bars = self._min_bars_for_tf(timeframe)

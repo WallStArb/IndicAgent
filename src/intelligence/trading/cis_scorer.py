@@ -94,6 +94,8 @@ class CISScorer:
     ) -> None:
         self._weights = weights if weights is not None else BOOTSTRAP_WEIGHTS
         self._weights_version = weights_version
+        # Pre-compute weights array once — self._weights is immutable after init
+        self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
 
     # ------------------------------------------------------------------
     # Public API
@@ -128,12 +130,10 @@ class CISScorer:
             "regime": self._regime(features, plugin_outputs),
         }
 
-        # Vectorized aggregation using numpy.dot for weighted sum and
-        # vectorized comparison for agreement counting. Maintains exact
-        # numerical equivalence with scalar implementation.
-        weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
+        # Vectorized aggregation: weights_array is pre-computed at init (static),
+        # scores_array is per-call. np.dot gives the weighted sum in one pass.
         scores_array = np.array([bucket_scores[b] for b in BUCKET_NAMES])
-        cis_raw = float(np.dot(weights_array, scores_array))
+        cis_raw = float(np.dot(self._weights_array, scores_array))
         cis_score = clamp(cis_raw)
 
         # Determine fire direction
