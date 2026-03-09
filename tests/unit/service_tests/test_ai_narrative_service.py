@@ -59,9 +59,14 @@ async def test_process_message_publishes_narrative():
     """Valid bullish signal → chain called → narrative published to stream + hash."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
     fake_narrative = "ES is establishing a trend-following setup at 5102.50."
-    svc.per_signal_chain.generate = AsyncMock(return_value=fake_narrative)
-    svc.per_signal_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.short_chain.generate = AsyncMock(return_value=fake_narrative)
+    svc.short_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.deep_chain.generate = AsyncMock(return_value=fake_narrative)
+    svc.deep_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.per_signal_chain.generate = svc.short_chain.generate
+    svc.per_signal_chain.last_provider_id = svc.short_chain.last_provider_id
 
     fields = {
         b"direction": b"1",
@@ -81,6 +86,7 @@ async def test_process_message_publishes_narrative():
     await svc._process_single_message(
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
+    await asyncio.sleep(0.1)  # let background narrative tasks complete
 
     # Stream publish — narratives xadd plus i8 xadd (>= 1 total)
     assert svc.redis_client.xadd.call_count >= 1
@@ -107,8 +113,13 @@ async def test_process_message_handles_ollama_failure():
     """Chain returns None → narrative not published, but LLM call record IS emitted."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
-    svc.per_signal_chain.generate = AsyncMock(return_value=None)
-    svc.per_signal_chain.last_provider_id = "ollama:qwen3.5:9b"
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
+    svc.short_chain.generate = AsyncMock(return_value=None)
+    svc.short_chain.last_provider_id = "ollama:qwen3.5:9b"
+    svc.deep_chain.generate = AsyncMock(return_value=None)
+    svc.deep_chain.last_provider_id = "ollama:qwen3.5:9b"
+    svc.per_signal_chain.generate = svc.short_chain.generate
+    svc.per_signal_chain.last_provider_id = svc.short_chain.last_provider_id
 
     fields = {
         b"direction": b"1",
@@ -130,7 +141,7 @@ async def test_process_message_handles_ollama_failure():
     )
 
     # LLM call record emitted to llm_calls:stream (fire-and-forget)
-    await asyncio.sleep(0)  # let create_task run
+    await asyncio.sleep(0.1)  # let background narrative tasks complete
     xadd_streams = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
     assert any("llm_calls" in s for s in xadd_streams), "Expected llm_calls:stream emit"
     # Narrative stream must NOT be published
@@ -203,8 +214,12 @@ async def test_process_message_allows_5m_high_confidence():
     """5m signal with confidence > 0.70 proceeds to LLM chain."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
-    svc.per_signal_chain.generate = AsyncMock(return_value="ES bullish setup forming.")
-    svc.per_signal_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
+    svc.short_chain.generate = AsyncMock(return_value="ES bullish setup forming.")
+    svc.short_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.deep_chain.generate = AsyncMock(return_value="ES bullish setup forming.")
+    svc.deep_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.per_signal_chain.generate = svc.short_chain.generate
 
     fields = {
         b"direction": b"1",
@@ -224,7 +239,8 @@ async def test_process_message_allows_5m_high_confidence():
     await svc._process_single_message(
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
-    svc.per_signal_chain.generate.assert_called_once()
+    await asyncio.sleep(0.05)  # let background tasks run
+    svc.short_chain.generate.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -399,9 +415,14 @@ def _make_service_new():
     svc._total_narratives = 0
     svc._error_count = 0
 
-    # LLM chain mock
-    svc.per_signal_chain = MagicMock()
-    svc.per_signal_chain.last_provider_id = "zai"
+    # LLM chain mocks — short_chain and deep_chain are the active chains post-22-03
+    svc.short_chain = MagicMock()
+    svc.short_chain.generate = AsyncMock(return_value=None)
+    svc.short_chain.last_provider_id = "zai"
+    svc.deep_chain = MagicMock()
+    svc.deep_chain.generate = AsyncMock(return_value=None)
+    svc.deep_chain.last_provider_id = "zai"
+    svc.per_signal_chain = svc.short_chain  # backward-compat alias
     svc._per_signal_timeout = 30.0
 
     # Redis mock
@@ -409,6 +430,7 @@ def _make_service_new():
     svc.redis_client.xadd = AsyncMock()
     svc.redis_client.hset = AsyncMock()
     svc.redis_client.expire = AsyncMock()
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
 
     return svc
 
@@ -441,6 +463,7 @@ async def test_i8_publish_called_when_narrative_generated():
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+    await asyncio.sleep(0.1)  # let background narrative tasks complete
 
     # xadd called at least twice: narratives + i8
     assert svc.redis_client.xadd.call_count >= 2
@@ -457,9 +480,11 @@ async def test_i8_not_published_when_narrative_empty():
     """No i8 xadd when Ollama/LLM returns empty string."""
     svc = _make_service_new()
     svc.per_signal_chain.generate = AsyncMock(return_value=None)
+    svc.deep_chain.generate = AsyncMock(return_value=None)
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+    await asyncio.sleep(0.1)  # let background tasks complete (they should not publish)
 
     call_args_list = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
     assert not any("intelligence_i8" in name for name in call_args_list)
@@ -473,6 +498,7 @@ async def test_i8_payload_shape():
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+    await asyncio.sleep(0.1)  # let background narrative tasks complete
 
     # Find the i8 xadd call
     i8_call = None
@@ -499,6 +525,7 @@ async def test_i8_summary_truncated_at_280_chars():
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+    await asyncio.sleep(0.1)  # let background narrative tasks complete
 
     i8_call = None
     for c in svc.redis_client.xadd.call_args_list:
@@ -720,25 +747,27 @@ def test_preferred_models_initialized():
 async def test_promote_uses_regime_from_signal():
     """Per-signal call site promotes regime-specific model before chain.generate()."""
     svc = _make_service_new()
-    svc._preferred_models = {"per_signal": {"trend_up": "model_A"}}
+    # narrative_short is the call_type used post-22-03 (per_signal was legacy)
+    svc._preferred_models = {"narrative_short": {"trend_up": "model_A"}}
 
-    # Give per_signal_chain real providers so _promote_model_in_chain can find model_A
+    # Give short_chain real providers so _promote_model_in_chain can find model_A
     p1 = MagicMock()
     p1.provider_id = "default_model"
     p2 = MagicMock()
     p2.provider_id = "model_A"
-    svc.per_signal_chain.providers = [p1, p2]
-    svc.per_signal_chain.generate = AsyncMock(return_value="Promoted narrative.")
-    svc.per_signal_chain.last_provider_id = "model_A"
+    svc.short_chain.providers = [p1, p2]
+    svc.short_chain.generate = AsyncMock(return_value="Promoted narrative.")
+    svc.short_chain.last_provider_id = "model_A"
 
     fields = _make_signal_fields_i8(confidence=0.85)
     # Override regime_context to match our preferred model key
     fields[b"regime_context"] = b"trend_up"
 
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+    await asyncio.sleep(0.05)  # let background task run
 
     # model_A should now be at position 0 after promotion
-    assert svc.per_signal_chain.providers[0].provider_id == "model_A"
+    assert svc.short_chain.providers[0].provider_id == "model_A"
 
 
 # ---- SYSTEM_PROMPT voice and chain separation (plan 22-02) ----

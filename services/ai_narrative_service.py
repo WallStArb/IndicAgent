@@ -32,6 +32,7 @@ import structlog  # noqa: E402
 
 from src.config.settings import Settings, get_active_contracts  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
+from src.core.stream_keys import intelligence as sk_intelligence  # noqa: E402
 from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
     llm_calls_stream,
@@ -730,6 +731,122 @@ class AINarrativeService:
     # Per-message processing
     # ------------------------------------------------------------------
 
+    async def _run_narrative_call(
+        self,
+        signal_data: dict[str, Any],
+        symbol: str,
+        timeframe: str,
+        call_type: str,
+        prompt: str,
+        chain: Any,
+    ) -> None:
+        """Execute a single tier LLM call end-to-end: call chain, publish to llm_calls and narratives streams.
+
+        Each tier (narrative_short, narrative_deep) runs independently as a background task.
+        narrative_short additionally updates the backward-compat latest hash and increments metrics.
+        """
+        try:
+            regime_key = signal_data.get("regime_context", "")
+            preferred = (
+                self._preferred_models.get(call_type, {}).get(regime_key)
+                or self._preferred_models.get(call_type, {}).get("__all__")
+            )
+            if preferred:
+                _promote_model_in_chain(chain, preferred)
+
+            t0 = time.time()
+            narrative_text = await chain.generate(
+                prompt,
+                SYSTEM_PROMPT,
+                max_tokens=500,
+                timeout=self._per_signal_timeout,
+            )
+            latency_ms = (time.time() - t0) * 1000
+
+            # Emit LLM call record to llm_calls:stream
+            if self.redis_client:
+                call_payload = _build_llm_call_payload(
+                    call_type=call_type,
+                    signal_data=signal_data,
+                    group_name="",
+                    prompt=prompt,
+                    response=narrative_text,
+                    latency_ms=latency_ms,
+                    succeeded=narrative_text is not None,
+                    model_id=chain.last_provider_id or "",
+                )
+                await self.redis_client.xadd(
+                    llm_calls_stream(self.env_prefix),
+                    call_payload,
+                    maxlen=500,
+                    approximate=True,
+                )
+
+            if not narrative_text:
+                self.narratives_skipped_total.inc()
+                self.logger.warning(
+                    "LLM returned no narrative",
+                    symbol=symbol, timeframe=timeframe, call_type=call_type,
+                )
+                return
+
+            # Publish to narratives stream with narrative_type discriminator
+            narrative_type = call_type.replace("narrative_", "")  # "short" or "deep"
+            stream_out = sk_narratives(self.env_prefix, symbol, timeframe)
+            narrative_msg = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "timestamp": signal_data["timestamp"],
+                "narrative": narrative_text,
+                "narrative_type": narrative_type,
+                "action_bias": signal_data["direction_label"].lower(),
+                "confidence": str(signal_data["confidence"]),
+                "model": chain.last_provider_id or "unknown",
+                "latency_ms": str(int(latency_ms)),
+            }
+            if self.redis_client:
+                await self.redis_client.xadd(
+                    stream_out, narrative_msg, maxlen=100, approximate=True
+                )
+
+            # narrative_short: backward-compat latest hash + metrics + i8 enrichment
+            if call_type == "narrative_short":
+                if self.redis_client:
+                    cache_key = f"{self.env_prefix}narrative:{symbol}:{timeframe}:latest"
+                    await self.redis_client.hset(cache_key, mapping=narrative_msg)
+                    await self.redis_client.expire(cache_key, 90)
+                    i8_stream = sk_intelligence_i8(self.env_prefix, symbol, timeframe)
+                    i8_msg = {
+                        "ts": signal_data["timestamp"],
+                        "symbol": symbol,
+                        "tf": timeframe,
+                        "model": chain.last_provider_id or "unknown",
+                        "confidence": str(signal_data["confidence"]),
+                        "summary": narrative_text[:280],
+                        "generated_at": datetime.now(tz=UTC).isoformat(),
+                    }
+                    await self.redis_client.xadd(
+                        i8_stream, i8_msg, maxlen=200, approximate=True
+                    )
+                self.narratives_generated_total.inc()
+                self._total_narratives += 1
+                self.ollama_latency_ms.set(latency_ms)
+                self.logger.info(
+                    "Narrative published",
+                    symbol=symbol, timeframe=timeframe,
+                    bias=signal_data["direction_label"],
+                    latency_ms=round(latency_ms, 1),
+                )
+
+        except Exception as e:
+            self.logger.error(
+                "Error in _run_narrative_call",
+                symbol=symbol, timeframe=timeframe,
+                call_type=call_type, error=str(e),
+            )
+            self.error_count_total.inc()
+            self._error_count += 1
+
     async def _process_single_message(
         self,
         symbol: str,
@@ -786,93 +903,33 @@ class AINarrativeService:
                     ))
                 return True
 
-            prompt = build_narrative_prompt(signal_data)
-            # Regime-aware model promotion: use per-regime preferred model if available
-            regime_key = signal_data.get("regime_context", "")
-            preferred = (
-                self._preferred_models.get("per_signal", {}).get(regime_key)
-                or self._preferred_models.get("per_signal", {}).get("__all__")
-            )
-            if preferred:
-                _promote_model_in_chain(self.per_signal_chain, preferred)
-            t0 = time.time()
-            narrative_text = await self.per_signal_chain.generate(
-                prompt,
-                SYSTEM_PROMPT,
-                max_tokens=500,
-                timeout=self._per_signal_timeout,
-            )
-            latency_ms = (time.time() - t0) * 1000
-            self.ollama_latency_ms.set(latency_ms)
-
-            # Emit LLM call record — fire-and-forget, no latency impact
+            # Fetch intelligence context for richer prompts
+            intel_ctx: dict[str, Any] = {}
             if self.redis_client:
-                ps_payload = _build_llm_call_payload(
-                    call_type="per_signal",
-                    signal_data=signal_data,
-                    group_name="",
-                    prompt=prompt,
-                    response=narrative_text,
-                    latency_ms=latency_ms,
-                    succeeded=narrative_text is not None,
-                    model_id=self.per_signal_chain.last_provider_id or "",
-                )
-                asyncio.create_task(self.redis_client.xadd(
-                    llm_calls_stream(self.env_prefix),
-                    ps_payload,
-                    maxlen=500,
-                    approximate=True,
-                ))
-
-            if narrative_text:
-                stream_out = sk_narratives(self.env_prefix, symbol, timeframe)
-                narrative_msg = {
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "timestamp": signal_data["timestamp"],
-                    "narrative": narrative_text,
-                    "action_bias": signal_data["direction_label"].lower(),
-                    "confidence": str(signal_data["confidence"]),
-                    "model": self.per_signal_chain.last_provider_id or "unknown",
-                    "latency_ms": str(int(latency_ms)),
-                }
-                await self.redis_client.xadd(
-                    stream_out, narrative_msg, maxlen=100, approximate=True
-                )
-                cache_key = f"{self.env_prefix}narrative:{symbol}:{timeframe}:latest"
-                await self.redis_client.hset(cache_key, mapping=narrative_msg)
-                await self.redis_client.expire(cache_key, 90)
-                self.narratives_generated_total.inc()
-                self._total_narratives += 1
-                # Publish i8 metadata to enrichment stream (DATA-02)
-                if self.redis_client:
-                    i8_stream = sk_intelligence_i8(self.env_prefix, symbol, timeframe)
-                    i8_msg = {
-                        "ts": signal_data["timestamp"],
-                        "symbol": symbol,
-                        "tf": timeframe,
-                        "model": self.per_signal_chain.last_provider_id or "unknown",
-                        "confidence": str(signal_data["confidence"]),
-                        "summary": narrative_text[:280],
-                        "generated_at": datetime.now(tz=UTC).isoformat(),
+                intel_stream = sk_intelligence(self.env_prefix, symbol, timeframe)
+                raw_entries = await self.redis_client.xrevrange(intel_stream, count=1)
+                if raw_entries:
+                    _msg_id, raw_fields = raw_entries[0]
+                    intel_ctx = {
+                        (k.decode() if isinstance(k, bytes) else k): (
+                            v.decode() if isinstance(v, bytes) else v
+                        )
+                        for k, v in raw_fields.items()
                     }
-                    await self.redis_client.xadd(
-                        i8_stream, i8_msg, maxlen=200, approximate=True
-                    )
-                self.logger.info(
-                    "Narrative published",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    bias=signal_data["direction_label"],
-                    latency_ms=round(latency_ms, 1),
-                )
-            else:
-                self.narratives_skipped_total.inc()
-                self.logger.warning(
-                    "Ollama returned no narrative",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                )
+
+            # Build tier-specific prompts using intelligence context
+            short_ctx = extract_short_context(signal_data, intel_ctx)
+            deep_ctx = extract_deep_context(signal_data, intel_ctx)
+            short_prompt = build_short_prompt(signal_data, short_ctx)
+            deep_prompt = build_deep_prompt(signal_data, deep_ctx)
+
+            # Fire both tier tasks concurrently — neither blocks the processing loop
+            asyncio.create_task(self._run_narrative_call(
+                signal_data, symbol, timeframe, "narrative_short", short_prompt, self.short_chain,
+            ))
+            asyncio.create_task(self._run_narrative_call(
+                signal_data, symbol, timeframe, "narrative_deep", deep_prompt, self.deep_chain,
+            ))
             return True
 
         except Exception as e:
