@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 22-06-PLAN.md
-last_updated: "2026-03-09T12:34:36.780Z"
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-03-09T12:34:56.835Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 5
@@ -75,6 +75,7 @@ Progress: [████░░░░░░] 36%
 | Phase 21 P04 | 223 | 3 tasks | 3 files |
 | Phase 22-i8-narrative-three-tier-redesign P04 | 2 | 1 tasks | 2 files |
 | Phase 22-i8-narrative-three-tier-redesign P06 | 462 | 1 tasks | 1 files |
+| Phase 22-i8-narrative-three-tier-redesign P01 | 8 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 22-04]: spread-merge SSE pattern: {existing, ...newFields} merges short and deep into same state key enabling independent async arrivals
 - [Phase 22]: narrative_short and narrative_deep start identical to per_signal (6 providers each); routing diverges independently as llm_model_scores accumulates
 - [Phase 22]: _build_chains() uses direct key access for narrative_short/narrative_deep — KeyError on missing config is intentional, forces explicit config hygiene
+- [Phase 22-i8-narrative-three-tier-redesign]: Confidence thresholds for build_action_tag: >=0.75=DIRECT, 0.50-0.74=WAIT, <0.50=MONITOR — confidence-gated execution instruction for PM clarity
+- [Phase 22-i8-narrative-three-tier-redesign]: extract_deep_context superset guarantee: calls extract_short_context then ctx.update() — all short keys always present in deep
 
 ### Pending Todos
 
@@ -129,6 +132,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T12:34:36.777Z
-Stopped at: Completed 22-06-PLAN.md
+Last session: 2026-03-09T12:34:56.833Z
+Stopped at: Completed 22-01-PLAN.md
 Resume file: None
