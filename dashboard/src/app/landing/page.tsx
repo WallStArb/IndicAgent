@@ -59,7 +59,10 @@ export default function LandingPage() {
     assetClass: "all",
   });
 
-  const { symbolData, narratives } = useMarketStream(activeTf, allSymbols);
+  const { symbolData, narratives, signalsHistory } = useMarketStream(activeTf, allSymbols);
+
+  // No-op callback for signal selection - managed internally by DrillPanel/RecentSignals
+  const handleSignalSelect = () => {};
 
   const filteredSignals = useMemo(() => {
     const signals: Array<{
@@ -165,6 +168,8 @@ export default function LandingPage() {
                   data={symbolData[item.symbol]}
                   assetClass={item.assetClass}
                   narrative={narratives[`${item.symbol}:${item.signal.timeframe}`] ?? null}
+                  signalsHistory={signalsHistory[item.symbol] || []}
+                  onSignalSelect={handleSignalSelect}
                 />
               ))}
             </div>

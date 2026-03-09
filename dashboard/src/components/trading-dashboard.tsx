@@ -9,7 +9,6 @@ import { ContextPanel } from "./context-panel";
 import { PatternPanel } from "./pattern-panel";
 import { SmartMoneyPanel } from "./smart-money-panel";
 import { ConfluencePanel } from "./confluence-panel";
-import { SignalPanel } from "./signal-panel";
 import { NarrativePanel } from "./narrative-panel";
 import { PriceHero } from "./price-hero";
 import { RegimeAmbiance } from "./regime-ambiance";
@@ -17,12 +16,13 @@ import { SignalBanner } from "./signal-banner";
 import { NarrativeElevated } from "./narrative-elevated";
 import { TimeframeMatrix } from "./timeframe-matrix";
 import { DrillPanel } from "./drill-panel";
-import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData } from "@/lib/types";
+import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData, SignalData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 
 export default function TradingDashboard() {
   const [mounted, setMounted] = useState(false);
   const [timeframe, setTimeframe] = useState<Timeframe>("5m");
+  const [selectedDrillSignal, setSelectedDrillSignal] = useState<SignalData | null>(null);
   const [activeProfile, setActiveProfile] = useState(
     symbolConfig.getActiveProfile()
   );
@@ -33,7 +33,7 @@ export default function TradingDashboard() {
     [activeProfile, profiles]
   );
 
-  const { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives } = useMarketStream(
+  const { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives, signalsHistory } = useMarketStream(
     timeframe,
     symbols
   );
@@ -118,7 +118,15 @@ export default function TradingDashboard() {
             const symNarratives = Object.fromEntries(
               Object.entries(narratives).filter(([, n]) => n.symbol === sym)
             );
-            return <SymbolCard key={sym} data={data} narratives={symNarratives} globalTf={timeframe} />;
+            return <SymbolCard
+            key={sym}
+            data={data}
+            narratives={symNarratives}
+            globalTf={timeframe}
+            selectedDrillSignal={selectedDrillSignal}
+            signalsHistory={signalsHistory}
+            setSelectedDrillSignal={setSelectedDrillSignal}
+          />;
           })}
         </div>
       </main>
@@ -151,10 +159,16 @@ function SymbolCard({
   data,
   narratives,
   globalTf,
+  selectedDrillSignal,
+  signalsHistory,
+  setSelectedDrillSignal,
 }: {
   data: SymbolData;
   narratives: Record<string, NarrativeData>;
   globalTf: Timeframe;
+  selectedDrillSignal: SignalData | null;
+  signalsHistory: Record<string, SignalData[]>;
+  setSelectedDrillSignal: (signal: SignalData | null) => void;
 }) {
   const [isDrilling, setIsDrilling] = useState(false);
   // activeTf: per-card TF override; resets to global when globalTf changes
@@ -292,9 +306,6 @@ function SymbolCard({
         <div className="border-t border-[var(--border-subtle)]">
           <ConfluencePanel confluence={confluence} />
         </div>
-        <div className="border-t border-[var(--border-subtle)]">
-          <SignalPanel signal={activeSignal} />
-        </div>
       </RegimeAmbiance>
 
       {isDrilling && (
@@ -302,8 +313,13 @@ function SymbolCard({
           symbol={data.symbol}
           timeframe={activeTf}
           data={data}
-          signal={activeSignal}
-          onClose={() => setIsDrilling(false)}
+          signal={selectedDrillSignal}
+          signalsHistory={signalsHistory[data.symbol] || []}
+          onSignalSelect={setSelectedDrillSignal}
+          onClose={() => {
+            setIsDrilling(false);
+            setSelectedDrillSignal(null);
+          }}
         />
       )}
     </div>

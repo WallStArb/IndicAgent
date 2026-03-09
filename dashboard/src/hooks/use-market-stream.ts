@@ -253,7 +253,11 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
   const [lastUpdate, setLastUpdate] = useState(0);
   const [narratives, setNarratives] = useState<Record<string, NarrativeData>>({});
   const [groupNarratives, setGroupNarratives] = useState<Record<string, GroupNarrativeData>>({});
+  const [signalsHistory, setSignalsHistory] = useState<Record<string, SignalData[]>>({});
   const esRef = useRef<EventSource | null>(null);
+
+  // Bar-count limits per timeframe for recent signals display
+  const BAR_COUNTS: Record<string, number> = { "1m": 15, "5m": 10, "15m": 10, "1h": 10, "4h": 10, "1d": 10 };
 
   // Stable identity for the symbols list
   const symbolsCsv = symbols.join(",");
@@ -581,69 +585,84 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       // Standard signal birth (direction != 0)
       let fullSignal: SignalData | null = null;
       if (dir !== 0) {
-        fullSignal = {
-          direction: dir > 0 ? "long" : "short",
-          signal_type: String(payload.signal_type || ""),
-          setup_plugin: String(payload.setup_plugin || ""),
-          confidence: parseFloat(String(payload.confidence || "0")),
-          entry_price: parseFloat(String(payload.entry_price || "0")),
-          entry_type: String(payload.entry_type || "at_close"),
-          stop_loss: parseFloat(String(payload.stop_loss || "0")),
-          stop_type: String(payload.stop_type || "atr"),
-          profit_target: _parseOptFloat(payload.profit_target),
-          profit_target_2: _parseOptFloat(payload.profit_target_2),
-          profit_target_3: _parseOptFloat(payload.profit_target_3),
-          target_labels: _parseLabels(payload.target_labels),
-          rr_t1: _parseOptFloat(payload.rr_t1) ?? undefined,
-          rr_t2: _parseOptFloat(payload.rr_t2) ?? undefined,
-          rr_t3: _parseOptFloat(payload.rr_t3) ?? undefined,
-          framing_method: String(payload.framing_method || "atr_fallback"),
-          risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
-          regime_context: String(payload.regime_context || ""),
-          timeframe: tf,
-          timestamp: String(payload.timestamp || ""),
-          signal_computed_at: _signalComputedAt,
-          bar_close_ts: _barCloseTs,
-          pipeline_lag_s: pipelineLagS(_signalComputedAt, _barCloseTs) ?? undefined,
-          bar_close_price: _parseOptFloat(payload.bar_close_price) ?? undefined,
-          market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
-          ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
-          bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
-          entry_zone_low: _parseOptFloat(payload.entry_zone_low) ?? undefined,
-          entry_zone_high: _parseOptFloat(payload.entry_zone_high) ?? undefined,
-          zone_valid_at_signal: payload.zone_valid_at_signal != null ? Number(payload.zone_valid_at_signal) > 0 : undefined,
-          signal_id: String(payload.signal_id || ""),
-        };
-      }
+        setSymbolData((prev) => {
+          const old = prev[sym];
+          if (!old) return prev;
 
-      setSymbolData((prev) => {
-        const old = prev[sym];
-        if (!old) return prev;
+          // Renaissance: Capture exact intelligence context when signal fires
+          const intelSnapshot = old.intelligenceByTf[tf] ?? null;
 
-        // Lightweight matrix entry
-        const tfSignal: PerTfSignal = {
-          direction: dir > 0 ? "long" : dir < 0 ? "short" : null,
-          confidence: parseFloat(String(payload.confidence || "0")),
-          updatedAt: Date.now(),
-        };
+          fullSignal = {
+            symbol: sym,
+            direction: dir > 0 ? "long" : "short",
+            signal_type: String(payload.signal_type || ""),
+            setup_plugin: String(payload.setup_plugin || ""),
+            confidence: parseFloat(String(payload.confidence || "0")),
+            entry_price: parseFloat(String(payload.entry_price || "0")),
+            entry_type: String(payload.entry_type || "at_close"),
+            stop_loss: parseFloat(String(payload.stop_loss || "0")),
+            stop_type: String(payload.stop_type || "atr"),
+            profit_target: _parseOptFloat(payload.profit_target),
+            profit_target_2: _parseOptFloat(payload.profit_target_2),
+            profit_target_3: _parseOptFloat(payload.profit_target_3),
+            target_labels: _parseLabels(payload.target_labels),
+            rr_t1: _parseOptFloat(payload.rr_t1) ?? undefined,
+            rr_t2: _parseOptFloat(payload.rr_t2) ?? undefined,
+            rr_t3: _parseOptFloat(payload.rr_t3) ?? undefined,
+            framing_method: String(payload.framing_method || "atr_fallback"),
+            risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
+            regime_context: String(payload.regime_context || ""),
+            timeframe: tf,
+            timestamp: String(payload.timestamp || ""),
+            signal_computed_at: _signalComputedAt,
+            bar_close_ts: _barCloseTs,
+            pipeline_lag_s: pipelineLagS(_signalComputedAt, _barCloseTs) ?? undefined,
+            bar_close_price: _parseOptFloat(payload.bar_close_price) ?? undefined,
+            market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
+            ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
+            bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
+            entry_zone_low: _parseOptFloat(payload.entry_zone_low) ?? undefined,
+            entry_zone_high: _parseOptFloat(payload.entry_zone_high) ?? undefined,
+            zone_valid_at_signal: payload.zone_valid_at_signal != null ? Number(payload.zone_valid_at_signal) > 0 : undefined,
+            signal_id: String(payload.signal_id || ""),
+            intelligence_snapshot: intelSnapshot,
+          };
 
-        // Card-level signal: only update for the selected global timeframe.
-        // Per-TF signals (signalsByTf) are always stored for all TFs.
-        const isSelectedTf = tf === timeframe;
-        const signal = isSelectedTf ? (fullSignal ?? old.signal) : old.signal;
+          // Lightweight matrix entry
+          const tfSignal: PerTfSignal = {
+            direction: dir > 0 ? "long" : dir < 0 ? "short" : null,
+            confidence: parseFloat(String(payload.confidence || "0")),
+            updatedAt: Date.now(),
+          };
 
-        return {
-          ...prev,
-          [sym]: {
-            ...old,
-            signal,
-            tfSignals: { ...old.tfSignals, [tf]: tfSignal },
-            signalsByTf: { ...old.signalsByTf, [tf]: fullSignal },
-            lastUpdate: Date.now(),
-          },
-        };
-      });
+          // Card-level signal: only update for the selected global timeframe.
+          // Per-TF signals (signalsByTf) are always stored for all TFs.
+          const isSelectedTf = tf === timeframe;
+          const signal = isSelectedTf ? (fullSignal ?? old.signal) : old.signal;
+
+          return {
+            ...prev,
+            [sym]: {
+              ...old,
+              signal,
+              tfSignals: { ...old.tfSignals, [tf]: tfSignal },
+              signalsByTf: { ...old.signalsByTf, [tf]: fullSignal },
+              lastUpdate: Date.now(),
+            },
+          };
+        });
+
+        // Accumulate to history (limit by bar count) - guard: only if signal was actually created
+        if (!fullSignal) return;
+        setSignalsHistory((prev) => {
+          const symHistory = prev[sym] || [];
+          const tfHistory = symHistory.filter(s => s.timeframe === tf);
+          const limit = BAR_COUNTS[tf] ?? 10;
+          const newHistory = [fullSignal!, ...tfHistory].slice(0, limit);
+          return { ...prev, [sym]: newHistory };
+        });
       touch();
+}// --- AI narrative data (I8) — per-symbol and group ---
     });
 
     // --- AI narrative data (I8) — per-symbol and group ---
@@ -758,5 +777,5 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     };
   }, [timeframe, symbolsCsv, touch]);
 
-  return { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives };
+  return { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives, signalsHistory };
 }
