@@ -781,3 +781,101 @@ def test_service_short_chain_is_separate_from_deep_chain():
     assert svc.short_chain is not svc.deep_chain, (
         "short_chain and deep_chain must be separate instances"
     )
+
+
+# ---- Plan 22-03: Concurrent narrative tier calls ----
+
+
+def _make_service_concurrent():
+    """Build AINarrativeService via __new__ with attrs needed for concurrent narrative tests."""
+    from services.ai_narrative_service import AINarrativeService
+
+    svc = AINarrativeService.__new__(AINarrativeService)
+    svc.logger = MagicMock()
+    svc.running = False
+    svc.shutdown_requested = False
+    svc.env_prefix = "development:"
+    svc.consumer_group = "ai_narrative"
+    svc.consumer_name = "narrative_test"
+    svc._stream_map = {}
+    svc._latest_signals = {}
+    svc._latest_signals_lock = asyncio.Lock()
+    svc._preferred_models = {}
+
+    # Metrics stubs
+    svc.narratives_generated_total = MagicMock()
+    svc.narratives_skipped_total = MagicMock()
+    svc.ollama_latency_ms = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc.group_narratives_generated = MagicMock()
+    svc._total_narratives = 0
+    svc._error_count = 0
+
+    # short_chain and deep_chain as AsyncMock chains
+    svc.short_chain = MagicMock()
+    svc.short_chain.generate = AsyncMock(return_value="Test narrative.")
+    svc.short_chain.last_provider_id = "openrouter:test-short"
+
+    svc.deep_chain = MagicMock()
+    svc.deep_chain.generate = AsyncMock(return_value="Test narrative.")
+    svc.deep_chain.last_provider_id = "openrouter:test-deep"
+
+    svc.per_signal_chain = svc.short_chain  # backward compat alias
+    svc._per_signal_timeout = 30.0
+
+    # Redis mock — xrevrange returns [] (no intel context), xadd captures call_type
+    svc.redis_client = AsyncMock()
+    svc.redis_client.xrevrange = AsyncMock(return_value=[])
+    svc.redis_client.xadd = AsyncMock()
+    svc.redis_client.hset = AsyncMock()
+    svc.redis_client.expire = AsyncMock()
+
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_process_message_fires_two_narrative_tasks():
+    """_process_single_message fires two concurrent asyncio tasks: narrative_short + narrative_deep."""
+    svc = _make_service_concurrent()
+
+    published_call_types = []
+
+    async def _capture_xadd(stream, data, **kwargs):
+        call_type = data.get("call_type")
+        if call_type:
+            published_call_types.append(call_type)
+
+    svc.redis_client.xadd.side_effect = _capture_xadd
+
+    fields = {
+        b"direction": b"1",
+        b"symbol": b"ESH6",
+        b"timeframe": b"5m",
+        b"timestamp": b"2026-03-09T10:05:00+00:00",
+        b"confidence": b"0.80",
+        b"confluence_score": b"0.75",
+        b"setup_plugin": b"trad_TrendFollowing",
+        b"signal_type": b"trend_following_long",
+        b"entry_price": b"5100.0",
+        b"stop_loss": b"5080.0",
+        b"profit_target": b"5140.0",
+        b"risk_reward_ratio": b"2.0",
+        b"regime_context": b"trend_up",
+        b"supporting_factors": b"rsi_aligned",
+    }
+
+    result = await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
+    await asyncio.sleep(0.1)  # let background tasks complete
+
+    assert result is True
+    assert "narrative_short" in published_call_types, (
+        f"narrative_short not found in published_call_types: {published_call_types}"
+    )
+    assert "narrative_deep" in published_call_types, (
+        f"narrative_deep not found in published_call_types: {published_call_types}"
+    )
+
+
+def test_narrative_stream_message_has_type_field():
+    """narratives stream messages include narrative_type field ('short' or 'deep')."""
+    pass  # stub — deferred per CONTEXT.md
