@@ -271,10 +271,15 @@ export interface SignalData {
 export interface NarrativeData {
   symbol: string;
   timeframe: string;
-  narrative: string;             // AI-generated text (Redis key: "narrative")
   action_bias: string;           // "bullish" | "bearish"
+  action_tag: string;            // "[BULLISH RECLAIM]" etc. — deterministic from signal
+  narrative_short?: string;      // 2-sentence Context+Execution (~500ms)
+  narrative_deep?: string;       // 3-sentence confluence story (~5-8s)
   timestamp: string;
   receivedAt: number;            // Date.now() when received — for staleness tracking
+  signal_id?: string;            // correlates short + deep events for same signal
+  // Keep for backward compat during transition
+  narrative?: string;
 }
 
 export interface GroupNarrativeData {

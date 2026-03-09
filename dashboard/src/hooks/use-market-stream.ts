@@ -650,6 +650,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     es.addEventListener("narrative_data", (evt) => {
       const { stream, payload } = JSON.parse(evt.data);
       const streamStr = stream as string;
+      const narrativeType: string = payload.narrative_type ?? "short";
 
       if (streamStr.includes(":group:")) {
         // Group synthesis narrative: stream = "narratives:group:equity"
@@ -668,22 +669,37 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         }));
       } else {
         // Per-symbol narrative: stream = "narratives:ESH6:5m"
+        // Short and deep merge into the same key so both are available simultaneously
         const sym = contractToBase(payload.symbol || "");
         if (!sym || !payload.narrative) return;
         const parts = streamStr.split(":");
         const tf = parts[parts.length - 1] || timeframe;
         const key = `${sym}:${tf}`;
-        setNarratives((prev) => ({
-          ...prev,
-          [key]: {
+        setNarratives((prev) => {
+          const existing = prev[key] ?? {
             symbol: sym,
             timeframe: tf,
-            narrative: String(payload.narrative),
-            action_bias: String(payload.action_bias || ""),
-            timestamp: String(payload.timestamp || ""),
-            receivedAt: Date.now(),
-          },
-        }));
+            action_bias: "",
+            action_tag: "",
+            timestamp: "",
+            receivedAt: 0,
+          };
+          return {
+            ...prev,
+            [key]: {
+              ...existing,
+              action_bias: String(payload.action_bias ?? existing.action_bias),
+              action_tag: String(payload.action_tag ?? existing.action_tag),
+              timestamp: String(payload.timestamp ?? existing.timestamp),
+              signal_id: String(payload.signal_id ?? existing.signal_id ?? ""),
+              receivedAt: Date.now(),
+              ...(narrativeType === "short"
+                ? { narrative_short: String(payload.narrative), narrative: String(payload.narrative) }
+                : { narrative_deep: String(payload.narrative) }
+              ),
+            },
+          };
+        });
       }
       touch();
     });
