@@ -24,6 +24,13 @@ from src.config.settings import Settings  # noqa: E402
 from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
 from src.core.retry_utils import retry_with_backoff
 
+# Circuit breaker metrics
+from src.observability.metrics import (
+    CIRCUIT_BREAKER_FAILURES_TOTAL,
+    CIRCUIT_BREAKER_SUCCESSES_TOTAL,
+    CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
+)
+
 logger = logging.getLogger(__name__)
 
 # Map our timeframe strings to ib_insync barSizeSetting values
@@ -65,13 +72,14 @@ _ibkr_circuit_breaker = PluginCircuitBreaker(
 async def _connect_with_circuit_breaker(
     host: str, port: int, client_id: int, timeout: float
 ) -> "IB | None":
-    """Connect to IBKR with circuit breaker tracking."""
+    """Connect to IBKR with circuit breaker tracking and metrics."""
     from datetime import datetime  # noqa: PLC0415
 
     from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
 
     provider_id = "ibkr:connection"
     plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
+    previous_state = plugin_state.state
 
     async def _try_connect() -> "IB":
         """Single connection attempt."""
@@ -97,10 +105,21 @@ async def _connect_with_circuit_breaker(
             jitter_factor=0.5,
         )
 
-        # Record success
+        # Record success metrics
+        CIRCUIT_BREAKER_SUCCESSES_TOTAL.labels(plugin_name=provider_id).inc()
+
+        # Record success in circuit breaker
         plugin_state.success_count += 1
         plugin_state.last_success_time = datetime.now()
         plugin_state.total_calls += 1
+
+        # Record state transition if recovered from non-closed state
+        if plugin_state.state != previous_state and previous_state != CircuitState.CLOSED:
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
+                plugin_name=provider_id,
+                from_state=previous_state.name.lower(),
+                to_state="closed",
+            ).inc()
 
         logger.info(
             "IBKR connected",
@@ -109,10 +128,24 @@ async def _connect_with_circuit_breaker(
         return ib_instance
 
     except Exception as exc:
-        # Record failure
+        # Record failure metrics
+        CIRCUIT_BREAKER_FAILURES_TOTAL.labels(
+            plugin_name=provider_id,
+            error_type=type(exc).__name__,
+        ).inc()
+
+        # Record failure in circuit breaker
         plugin_state.failure_count += 1
         plugin_state.last_failure_time = datetime.now()
         plugin_state.total_calls += 1
+
+        # Record state transition if tripped to OPEN
+        if plugin_state.state == CircuitState.OPEN and previous_state != CircuitState.OPEN:
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
+                plugin_name=provider_id,
+                from_state=previous_state.name.lower(),
+                to_state="open",
+            ).inc()
 
         logger.error(
             "IBKR connect failed",
@@ -131,7 +164,23 @@ def _is_circuit_breaker_open() -> bool:
 
 async def reset_circuit_breaker() -> bool:
     """Force reset IBKR circuit breaker state."""
-    return await _ibkr_circuit_breaker.force_reset_plugin("ibkr:connection")
+    from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
+
+    provider_id = "ibkr:connection"
+    plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
+    previous_state = plugin_state.state
+
+    result = await _ibkr_circuit_breaker.force_reset_plugin(provider_id)
+
+    # Record manual reset transition
+    if result and previous_state != CircuitState.CLOSED:
+        CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
+            plugin_name=provider_id,
+            from_state=previous_state.name.lower(),
+            to_state="closed",
+        ).inc()
+
+    return result
 
 
 class IBKRProvider:
