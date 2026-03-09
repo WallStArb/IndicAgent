@@ -122,6 +122,29 @@ CIRCUIT_BREAKER_STATE = Gauge(
     ["plugin_name"],
 )
 
+# Circuit breaker additional metrics
+CIRCUIT_BREAKER_FAILURES_TOTAL = Counter(
+    "circuit_breaker_failures_total",
+    "Total circuit breaker failures",
+    ["plugin_name", "error_type"],
+)
+CIRCUIT_BREAKER_SUCCESSES_TOTAL = Counter(
+    "circuit_breaker_successes_total",
+    "Total circuit breaker successes",
+    ["plugin_name"],
+)
+CIRCUIT_BREAKER_TRANSITIONS_TOTAL = Counter(
+    "circuit_breaker_state_transitions_total",
+    "Total circuit breaker state transitions",
+    ["plugin_name", "from_state", "to_state"],
+)
+CIRCUIT_BREAKER_OPEN_SECONDS = Histogram(
+    "circuit_breaker_open_duration_seconds",
+    "Time spent in OPEN state per recovery cycle",
+    ["plugin_name"],
+    buckets=[1.0, 5.0, 10.0, 60.0, 300.0, 600.0, 1800.0],
+)
+
 # Event-driven processing metrics
 REDIS_STREAM_EVENT_TOTAL = Counter(
     "redis_stream_events_total",
