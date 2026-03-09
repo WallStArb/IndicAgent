@@ -1,6 +1,7 @@
 // dashboard/src/components/narrative-elevated.tsx
 "use client";
 
+import { useState } from "react";
 import type { NarrativeData, SignalData } from "@/lib/types";
 import { stalenessRatio, tfToMinutes } from "@/lib/format";
 
@@ -13,6 +14,8 @@ const FRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 const CONFIDENCE_THRESHOLD = 0.75;
 
 export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps) {
+  const [expanded, setExpanded] = useState(false);
+
   if (!narrative || !signal) return null;
 
   const isFresh = Date.now() - narrative.receivedAt < FRESH_THRESHOLD_MS;
@@ -24,6 +27,9 @@ export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps)
   const accentColor = isBullish ? "var(--green)" : "var(--red)";
   const tfMinutes = tfToMinutes(narrative.timeframe);
   const staleness = stalenessRatio(narrative.timestamp, tfMinutes);
+  const actionTag = narrative.action_tag ?? "";
+  const shortText = narrative.narrative_short ?? narrative.narrative ?? null;
+  const deepText = narrative.narrative_deep ?? null;
 
   return (
     <div
@@ -69,10 +75,38 @@ export function NarrativeElevated({ narrative, signal }: NarrativeElevatedProps)
         )}
       </div>
 
-      {/* Narrative prose */}
-      <p className="text-[0.65rem] text-[var(--text-secondary)] leading-relaxed m-0">
-        {narrative.narrative}
-      </p>
+      {/* Action tag badge */}
+      {actionTag && (
+        <div className="text-xs font-mono text-amber-400">{actionTag}</div>
+      )}
+
+      {/* Short narrative */}
+      {shortText ? (
+        <p className="text-[0.65rem] text-[var(--text-secondary)] leading-relaxed m-0">
+          {shortText}
+        </p>
+      ) : (
+        <div className="h-8 bg-white/5 rounded animate-pulse" />
+      )}
+
+      {/* Expand toggle + deep narrative */}
+      {shortText && (
+        <button
+          className="text-xs text-white/40 hover:text-white/60 mt-1 block text-left"
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? "▲ Hide analysis" : "▼ Full analysis"}
+        </button>
+      )}
+      {expanded && (
+        deepText ? (
+          <p className="text-[0.65rem] leading-relaxed mt-1 text-white/80 italic m-0">
+            {deepText}
+          </p>
+        ) : (
+          <div className="h-12 bg-white/5 rounded animate-pulse mt-1" />
+        )
+      )}
     </div>
   );
 }
