@@ -7,7 +7,7 @@
 - ✅ **v1.2 Intelligence Palette Expansion** — Phases 02-07 (shipped 2026-03-02)
 - ✅ **v1.3 Signal Intelligence Expansion** — Phases 08-11 (shipped 2026-03-04)
 - ✅ **v1.4 Quant Foundation** — Phases 12-17 (shipped 2026-03-07)
-- 🚧 **v1.5 Production Hardening** — Phases 18-21 (planned)
+- 🚧 **v1.5 Production Hardening** — Phases 18-22 (planned)
 
 ## Phases
 
@@ -148,6 +148,35 @@ Plans:
 - [ ] 21-03: CIS scorer vectorization
 - [ ] 21-04: Plugin call metrics sampling optimization
 
+#### Phase 22: I8 Narrative Three-Tier Redesign
+**Goal**: Replace single thin narrative call with three-tier system: deterministic signal bar (instant), short narrative (~500ms), deep narrative (~5-8s); two concurrent async tasks publishing independently to narratives stream; dashboard renders signal bar immediately, short on arrival, deep on expand
+**Depends on**: Phase 21
+**Requirements**: I8-01, I8-02, I8-03, I8-04, I8-05, I8-06, I8-07, I8-08, I8-09, I8-10
+**Success Criteria** (what must be TRUE):
+  1. `extract_short_context()` and `extract_deep_context()` pure functions extract intelligence context from Redis stream
+  2. `build_short_prompt()` and `build_deep_prompt()` build tier-specific prompts with confidence-gated instructions
+  3. `fire_narrative_tiers()` fires two concurrent async LLM tasks without blocking each other
+  4. narratives stream carries `narrative_type` field (`short`/`deep`) for consumer routing
+  5. Dashboard renders deterministic signal bar immediately from signal data (no LLM wait)
+  6. Dashboard renders short narrative on arrival with `narrative_type === "short"` filter
+  7. Dashboard expand/collapse reveals deep narrative with `narrative_type === "deep"` filter
+  8. `llm_writer_service` persists both narrative types to `llm_calls` hypertable
+  9. All changes covered by TDD unit tests (pure functions + async task isolation)
+  10. Old `build_narrative_prompt()` single-call path retired
+**Plans**: TBD (see docs/plans/2026-03-09-i8-narrative-implementation.md)
+
+Plans:
+- [ ] 22-01: Intelligence context extraction pure functions + tests
+- [ ] 22-02: Tier prompt builders + action tag + structural label
+- [ ] 22-03: Concurrent tier firing in ai_narrative_service
+- [ ] 22-04: narratives stream schema update (narrative_type field)
+- [ ] 22-05: Dashboard signal bar + short narrative wiring
+- [ ] 22-06: Dashboard deep narrative expand/collapse
+- [ ] 22-07: llm_writer_service dual-type persistence
+- [ ] 22-08: Integration + smoke test
+- [ ] 22-09: Retire old single-call path + cleanup
+- [ ] 22-10: Phase 22 verification
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -157,7 +186,6 @@ Re-prioritized 2026-03-08 after v1.5 planning.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| I8 Narrative Two-Tier Redesign | GLM-4.7 short (1s, always visible) + GLM-5 deep (5-8s, expand). Enriched intelligence context from stream. Dashboard expand/collapse. 10-task TDD plan written. | `docs/plans/2026-03-08-i8-narrative-implementation.md` |
 | Signal Generator DB Warmup | Seed bar_history from intelligence_features on startup — eliminates 50-min warmup after restart. | `.planning/todos/pending/2026-03-09-seed-signal-generator-bar-history-from-db-on-startup.md` |
 | Renaissance Gaps (CIS + Signal Quality) | T0: fix CIS scoring in backfill + populate constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
 | Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
