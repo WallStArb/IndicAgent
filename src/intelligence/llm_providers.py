@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from asyncio import to_thread
+from collections.abc import Callable
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 import structlog
 
 # Circuit breaker and retry
-from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
+from src.core.plugin_circuit_breaker import CircuitBreakerConfig, CircuitState, PluginCircuitBreaker
 from src.core.retry_utils import retry_with_backoff
 
 # Circuit breaker metrics
@@ -46,7 +49,7 @@ _llm_circuit_breaker = PluginCircuitBreaker(
 
 async def _call_llm_with_circuit_breaker(
     provider_id: str,
-    call_fn: "collections.abc.Callable",
+    call_fn: Callable,
 ) -> str | None:
     """Call LLM provider with circuit breaker tracking and retry backoff.
 
@@ -63,11 +66,6 @@ async def _call_llm_with_circuit_breaker(
         Each retry attempt invokes call_fn fresh (not a pre-built coroutine).
         Circuit breaker state (success_count, failure_count) tracks health.
     """
-    from asyncio import to_thread
-    from datetime import datetime
-
-    from src.core.plugin_circuit_breaker import CircuitState
-
     plugin_state = _llm_circuit_breaker.plugin_states[provider_id]
     previous_state = plugin_state.state
 
@@ -80,6 +78,7 @@ async def _call_llm_with_circuit_breaker(
             max_attempts=3,
             base_delay=1.0,
             max_delay=10.0,
+            retry_on=(ConnectionError, TimeoutError, BrokenPipeError),
         )
         # Record success metrics
         CIRCUIT_BREAKER_SUCCESSES_TOTAL.labels(plugin_name=provider_id).inc()
@@ -127,6 +126,19 @@ async def _call_llm_with_circuit_breaker(
         return None
 
 
+def _strip_thinking_tags(text: str) -> str:
+    """Remove <think>...</think> blocks from LLM output.
+
+    Some reasoning models (DeepSeek, GLM, Qwen when /no_think is ignored) emit
+    their chain-of-thought wrapped in <think> tags inside the content field.
+    Strip those blocks and return only the final answer.
+    """
+    import re
+    # Remove <think>...</think> blocks (possibly multiline, possibly multiple)
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return cleaned.strip()
+
+
 def _extract_message_content(choices: list[dict]) -> str | None:
     """Extract content from LLM response, supporting both content and reasoning fields.
 
@@ -141,8 +153,10 @@ def _extract_message_content(choices: list[dict]) -> str | None:
     msg = choices[0].get("message")
     if not msg or not isinstance(msg, dict):
         return None
-    content = msg.get("content") or msg.get("reasoning") or ""
-    return content.strip() or None
+    # Prefer content over reasoning — reasoning is raw thinking, content is the answer
+    content = msg.get("content") or ""
+    cleaned = _strip_thinking_tags(content)
+    return cleaned or None
 
 
 def _default_llm_timeout() -> float:
@@ -371,7 +385,8 @@ class OllamaProvider:
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = json.loads(resp.read())
-            return result.get("message", {}).get("content", "").strip() or None
+            raw = result.get("message", {}).get("content", "").strip()
+            return _strip_thinking_tags(raw) or None
 
         return await _call_llm_with_circuit_breaker(self.provider_id, _call)
 
