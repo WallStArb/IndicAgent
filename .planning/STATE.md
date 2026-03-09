@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-03-09T08:26:07.481Z"
+stopped_at: Completed 21-04-PLAN.md
+last_updated: "2026-03-09T08:27:24.478Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
   percent: 36
 ---
 
@@ -72,6 +72,7 @@ Progress: [████░░░░░░] 36%
 | Phase 21-efficiency-optimizations P01 | 2 | 2 tasks | 2 files |
 | Phase 21-efficiency-optimizations P03 | 103 | 3 tasks | 2 files |
 | Phase 21-efficiency-optimizations P02 | 147 | 2 tasks | 2 files |
+| Phase 21 P04 | 223 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,8 @@ Recent decisions affecting current work:
 - [Phase 21-efficiency-optimizations]: np.dot(weights_array, scores_array) replaces scalar sum() for CIS weighted aggregation — identical numerical result, leverages compiled BLAS
 - [Phase 21-efficiency-optimizations]: CIS vectorization scoped to aggregation layer only — bucket methods (_trend, _momentum, etc.) left as-is to preserve readability
 - [Phase 21-efficiency-optimizations]: Overflow detection uses len_before == history.maxlen (deque semantics): cache invalidated only when deque was at capacity before append
+- [Phase 21]: PLUGIN_METRICS_SAMPLE_RATE=10 documented with explicit modulo pattern and rationale
+- [Phase 21]: Error path records every call without sampling — safety invariant pinned by tests
 
 ### Pending Todos
 
@@ -120,6 +123,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T08:26:07.479Z
-Stopped at: Completed 21-02-PLAN.md
+Last session: 2026-03-09T08:27:24.476Z
+Stopped at: Completed 21-04-PLAN.md
 Resume file: None
