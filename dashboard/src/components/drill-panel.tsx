@@ -3,7 +3,7 @@
 
 import { X } from "lucide-react";
 import type { SymbolData, SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum, fmtMinutesHM } from "@/lib/format";
+import { fmtPrice, fmtNum, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
@@ -26,11 +26,112 @@ interface DrillPanelProps {
   timeframe: string;
   data: SymbolData;
   signal: SignalData | null;
+  signalsHistory: SignalData[];
+  onSignalSelect: (signal: SignalData) => void;
   onClose: () => void;
 }
 
-export function DrillPanel({ symbol, timeframe, data, signal, onClose }: DrillPanelProps) {
-  const intel = data.intelligenceByTf[timeframe] ?? null;
+/** Compact 2-row signal card for RecentSignals sidebar hero */
+function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData; isSelected: boolean; onClick: () => void }) {
+  const isLong = signal.direction === "long";
+  const pluginShort = _abbreviatePlugin(signal.setup_plugin);
+
+  const timeStr = fmtTimeHMS(signal.signal_computed_at);
+  const barCloseIso = signal.bar_close_ts;
+  const ttsS = pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null);
+  const ttsStr = fmtLagSeconds(ttsS);
+
+  const t1 = signal.profit_target ?? null;
+  const rr1 = signal.rr_t1 ?? signal.risk_reward_ratio ?? 0;
+
+  const dirColor = isLong ? "var(--green)" : "var(--red)";
+  const dirDim = isLong ? "var(--green-dim)" : "var(--red-dim)";
+
+  return (
+    <div
+      onClick={onClick}
+      className={`p-2 rounded cursor-pointer transition-all ${
+        isSelected ? "ring-1 ring-[var(--accent-cyan)]" : ""
+      } ${signal.resolved ? "opacity-50" : ""}`}
+      style={{ background: "var(--bg-elevated)" }}
+    >
+      {/* Row 1: time, direction, plugin, confidence, lag */}
+      <div className="text-xs flex items-center gap-2">
+        <span className="font-data">{timeStr}</span>
+        <span
+          className="inline-flex items-center px-1 py-0 rounded text-[0.55rem] font-bold uppercase tracking-widest"
+          style={{ backgroundColor: dirDim, color: dirColor }}
+        >
+          {isLong ? "LONG" : "SHORT"}
+        </span>
+        <span className="text-[var(--text-muted)]">{pluginShort}</span>
+        <span className="font-data" style={{ color: dirColor }}>{fmtNum(signal.confidence * 100, 0)}%</span>
+        {ttsStr && <span className="opacity-50">{ttsStr}</span>}
+      </div>
+      {/* Row 2: entry, SL, T1 + RR */}
+      <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
+        <span>E {fmtPrice(signal.entry_price)}</span>
+        <span>·</span>
+        <span>SL {fmtPrice(signal.stop_loss)}</span>
+        {t1 !== null && (
+          <>
+            <span>·</span>
+            <span>T1 {fmtPrice(t1)}</span>
+            {rr1 > 0 && <span className="font-data">{fmtNum(rr1, 1)}R</span>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Recent Signals sidebar hero — shows last N signals for current symbol/TF */
+function RecentSignals({ symbol, timeframe, signalsHistory, selectedSignal, onSignalSelect }: {
+  symbol: string;
+  timeframe: string;
+  signalsHistory: SignalData[];
+  selectedSignal: SignalData | null;
+  onSignalSelect: (signal: SignalData) => void;
+}) {
+  // Filter signals for this symbol and timeframe
+  const recentSignals = signalsHistory.filter(s => s.symbol === symbol && s.timeframe === timeframe);
+  const hasSignals = recentSignals.length > 0;
+
+  return (
+    <div className="border-b border-[var(--border-subtle)]">
+      <h3 className="text-[0.55rem] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-2 px-4 pt-3">
+        Recent Signals ({recentSignals.length})
+      </h3>
+      {hasSignals ? (
+        <div className="px-4 pb-3 flex flex-col gap-2">
+          {recentSignals.map((signal) => (
+            <RecentSignalCard
+              key={signal.signal_id || `${signal.timestamp}-${signal.entry_price}`}
+              signal={signal}
+              isSelected={selectedSignal?.signal_id === signal.signal_id}
+              onClick={() => onSignalSelect(signal)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="px-4 pb-3">
+          <Empty>No recent signals for {symbol}:{timeframe}</Empty>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Shorten plugin name for compact display */
+function _abbreviatePlugin(name: string): string {
+  const bare = name.replace(/^(ind_|patt_|ctx_|smc_|trad_)/, "");
+  if (bare.length <= 8) return bare;
+  return bare.slice(0, 6);
+}
+
+export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, onSignalSelect, onClose }: DrillPanelProps) {
+  // Renaissance: Use intelligence snapshot from signal when available (historical context), otherwise use current data
+  const intel = signal?.intelligence_snapshot ?? (data.intelligenceByTf[timeframe] ?? null);
   const structure = intel?.structure ?? null;
   const context = intel?.context ?? null;
   const patterns = intel?.patterns ?? null;
@@ -75,7 +176,16 @@ export function DrillPanel({ symbol, timeframe, data, signal, onClose }: DrillPa
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto p-0 flex flex-col gap-3">
+          {/* Recent Signals Hero */}
+          <RecentSignals
+            symbol={symbol}
+            timeframe={timeframe}
+            signalsHistory={signalsHistory}
+            selectedSignal={signal}
+            onSignalSelect={onSignalSelect}
+          />
+
           {/* I7 Signal */}
           <Section label="I7 Signal">
             {signal ? (

@@ -66,6 +66,8 @@ interface SignalCardProps {
   data: SymbolData;
   assetClass: string;
   narrative: NarrativeData | null;
+  signalsHistory: SignalData[];
+  onSignalSelect: (signal: SignalData) => void;
   onExpand?: () => void;
 }
 
@@ -117,6 +119,8 @@ function SignalCard({
   data,
   assetClass,
   narrative,
+  signalsHistory,
+  onSignalSelect,
   onExpand,
 }: SignalCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -416,6 +420,8 @@ function SignalCard({
                 timeframe={signal.timeframe}
                 data={data}
                 signal={signal}
+                signalsHistory={signalsHistory}
+                onSignalSelect={onSignalSelect}
                 onClose={() => setIsExpanded(false)}
               />
             </div>

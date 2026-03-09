@@ -229,6 +229,7 @@ export interface ConfluenceData {
 // ── I7 Trading Signals ──
 
 export interface SignalData {
+  symbol: string;               // Symbol this signal belongs to (needed for history tracking)
   direction: "long" | "short";
   signal_type: string;           // e.g., "trend_long", "mean_rev_short"
   setup_plugin: string;          // e.g., "ind_TrendFollowing"
@@ -260,6 +261,7 @@ export interface SignalData {
   entry_zone_high?: number;      // distal edge of entry zone
   zone_valid_at_signal?: boolean; // true = market was inside entry zone when signal fired
   signal_id?: string;            // unique identifier — used to match terminal lifecycle events
+  intelligence_snapshot?: IntelligenceTfData; // Exact I3/I4/I5/SMC context when signal fired (Renaissance: don't lose historical context)
   // Resolved state — set when lifecycle service publishes direction=0 terminal event
   resolved?: boolean;            // true = signal closed, outcome known
   outcome?: string;              // 8-class: "never_activated" | "stopped_at_entry" | "stopped_in_trade" | "target_1" | "target_1_2" | "target_full" | "ttl_expired_behind" | "ttl_expired_ahead"
