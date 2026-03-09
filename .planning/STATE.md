@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 22-03-PLAN.md
-last_updated: "2026-03-09T17:16:41.321Z"
+stopped_at: Completed 22-07-PLAN.md (Phase 22 complete)
+last_updated: "2026-03-09T19:34:41.425Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 25
-  completed_plans: 24
+  completed_plans: 25
   percent: 36
 ---
 
@@ -79,6 +79,7 @@ Progress: [████░░░░░░] 36%
 | Phase 22-i8-narrative-three-tier-redesign P02 | 10 | 1 tasks | 2 files |
 | Phase 22-i8-narrative-three-tier-redesign P05 | 30 | 2 tasks | 1 files |
 | Phase 22-i8-narrative-three-tier-redesign P03 | 15 | 1 tasks | 2 files |
+| Phase 22-i8-narrative-three-tier-redesign P07 | 15 | 4 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,7 @@ Recent decisions affecting current work:
 - [Phase 22-05]: Expand button only rendered when shortText is present — prevents orphaned toggle when no narrative has arrived
 - [Phase 22]: narrative_short and narrative_deep fire as independent asyncio.create_task() calls, neither blocking the processing loop
 - [Phase 22]: xrevrange(count=1) fetches intel context before prompt building; empty list degrades gracefully to empty dict
+- [Phase 22-07]: per_signal config key preserved in default_config — documents historical fallback chain; only functional routing code removed
 
 ### Pending Todos
 
@@ -141,6 +143,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T17:16:41.319Z
-Stopped at: Completed 22-03-PLAN.md
+Last session: 2026-03-09T19:34:41.423Z
+Stopped at: Completed 22-07-PLAN.md (Phase 22 complete)
 Resume file: None
