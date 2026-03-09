@@ -4,6 +4,7 @@ title: Seed signal generator bar history from DB on startup
 area: general
 files:
   - services/signal_generator_service.py
+  - services/ai_narrative_service.py
 ---
 
 ## Problem
@@ -21,5 +22,6 @@ Key considerations:
 - Reconstruct the dict format expected by `bar_history` from the JSONB feature columns
 - Must run before `xreadgroup` loop starts, not block the event loop (run as async startup task)
 - Consumer group should still start at `$` (current position) — backfill is for warmup only, not reprocessing
+- **ai_narrative_service** has the same problem: needs recent signal/intelligence context to generate meaningful narratives on startup. Seed from `narratives` Redis stream history or `intelligence_features` so it doesn't produce cold-start garbage on first bars after restart.
 - Also consider seeding `indicator_service` bar_history from `market_data_ohlcv` for the same reason (separate todo candidate)
 - See `CONCERNS.md` line 38: "Stateful plugins (GARCH, Kalman) lose warm-up state" — separate concern, this todo is specifically about the 50-bar minimum for signal firing
