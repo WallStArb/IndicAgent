@@ -193,6 +193,227 @@ def build_narrative_prompt(signal: dict[str, Any]) -> str:
     )
 
 
+_STRUCTURAL_LABELS: dict[str, str] = {
+    "LiquiditySweepReclaim": "SWEEP RECLAIM",
+    "LiquidityHunt": "LIQUIDITY HUNT",
+    "FVGFill": "FVG FILL",
+    "CHoCHReversal": "REVERSAL",
+    "SupplyDemandSetup": "S/D RECLAIM",
+    "TrendFollowing": "TREND CONTINUATION",
+    "MeanReversion": "MEAN REVERSION",
+    "MTFAlignment": "MTF ALIGNMENT",
+    "SqueezeExpansion": "SQUEEZE BREAK",
+    "MomentumBreakout": "BREAKOUT",
+    "VWAPDeviation": "VWAP RECLAIM",
+    "PatternCompletion": "PATTERN COMPLETE",
+    "DivergenceStack": "DIVERGENCE",
+    "RegimeTransition": "REGIME SHIFT",
+    "GapAnalysisSetup": "GAP SETUP",
+    "CandlestickPatternSetup": "CANDLE PATTERN",
+    "SessionExtremesSetup": "SESSION EXTREME",
+}
+
+
+def get_structural_label(setup_plugin: str) -> str:
+    """Map setup plugin name to a short structural label for the signal bar."""
+    return _STRUCTURAL_LABELS.get(setup_plugin, setup_plugin.upper()[:16])
+
+
+def build_action_tag(signal: dict[str, Any]) -> str:
+    """Build deterministic action tag from signal direction and confidence.
+
+    >=75%: [BULLISH LABEL] / [BEARISH LABEL]
+    50-74%: [WAIT -- BULLISH] / [WAIT -- BEARISH]
+    <50%: [MONITOR]
+    """
+    confidence = float(signal.get("confidence", 0))
+    direction = int(signal.get("direction", 0))
+    label = get_structural_label(str(signal.get("setup_plugin", "")))
+
+    if confidence < 0.50:
+        return "[MONITOR]"
+
+    direction_word = "BULLISH" if direction > 0 else "BEARISH"
+
+    if confidence >= 0.75:
+        return f"[{direction_word} {label}]"
+    else:
+        return f"[WAIT \u2014 {direction_word}]"
+
+
+def extract_short_context(signal: dict[str, Any], intel: dict[str, Any]) -> dict[str, Any]:
+    """Pre-digest intelligence data for the short narrative prompt.
+
+    Only the conclusion-level fields: regime label, top structural event,
+    confluence count, entry/stop/target, confidence, killzone.
+    """
+    hmm = intel.get("hmm_regime")
+    hmm_prob = intel.get("hmm_regime_prob")
+    regime_labels = {"0": "ranging", "1": "trending-up", "2": "trending-down"}
+    regime_label = regime_labels.get(str(hmm), "unknown") if hmm is not None else None
+
+    killzone = None
+    if intel.get("in_london_killzone") == "1":
+        killzone = "London"
+    elif intel.get("in_ny_killzone") == "1" or intel.get("in_ny_am_killzone") == "1":
+        killzone = "NY"
+    elif intel.get("in_asia_killzone") == "1":
+        killzone = "Asia"
+    elif intel.get("killzone_name"):
+        killzone = str(intel["killzone_name"]).title()
+
+    confluence_score = intel.get("confluence_score") or intel.get("trend_confluence_score")
+
+    return {
+        "symbol": signal.get("symbol"),
+        "timeframe": signal.get("timeframe"),
+        "direction_label": signal.get("direction_label"),
+        "confidence": float(signal.get("confidence", 0)),
+        "setup_plugin": signal.get("setup_plugin"),
+        "entry": signal.get("entry_price"),
+        "stop": signal.get("stop_loss"),
+        "target_1": signal.get("profit_target"),
+        "rr": signal.get("risk_reward_ratio"),
+        "hmm_regime": str(hmm) if hmm is not None else None,
+        "hmm_regime_label": regime_label,
+        "hmm_regime_prob": str(hmm_prob) if hmm_prob is not None else None,
+        "killzone": killzone,
+        "confluence_score": str(confluence_score) if confluence_score else None,
+        "structural_label": get_structural_label(str(signal.get("setup_plugin", ""))),
+    }
+
+
+def extract_deep_context(signal: dict[str, Any], intel: dict[str, Any]) -> dict[str, Any]:
+    """Full intelligence context for the deep narrative prompt.
+
+    Superset of extract_short_context plus: FVG bounds, OB levels,
+    S/D zone levels, all targets, HMM probabilities, supporting factors.
+    """
+    ctx = extract_short_context(signal, intel)
+    ctx.update(
+        {
+            "fvg_bottom": intel.get("fvg_bottom"),
+            "fvg_top": intel.get("fvg_top"),
+            "ob_bottom": intel.get("ob_bottom"),
+            "ob_top": intel.get("ob_top"),
+            "nearest_demand_low": intel.get("nearest_demand_low"),
+            "nearest_demand_high": intel.get("nearest_demand_high"),
+            "nearest_supply_low": intel.get("nearest_supply_low"),
+            "nearest_supply_high": intel.get("nearest_supply_high"),
+            "supporting_factors": signal.get("supporting_factors", ""),
+            "regime_context": signal.get("regime_context"),
+        }
+    )
+    return ctx
+
+
+def build_short_prompt(signal: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """Build the short narrative user prompt (2-sentence Context+Execution)."""
+    confidence = ctx["confidence"]
+    confidence_pct = f"{confidence:.0%}"
+
+    if confidence >= 0.75:
+        execution_instruction = (
+            f"Sentence 2 (Execution \u2014 DIRECT): State the exact entry price and stop. "
+            f"This is high-conviction \u2014 tell the PM to act now at {ctx['entry']} "
+            f"with stop at {ctx['stop']}."
+        )
+    elif confidence >= 0.50:
+        execution_instruction = (
+            f"Sentence 2 (Execution \u2014 CONDITIONAL): Name the exact condition the PM "
+            f"must wait for before entering. Entry {ctx['entry']}, stop {ctx['stop']}."
+        )
+    else:
+        execution_instruction = (
+            "Sentence 2 (Monitor): Name what level or condition would confirm this "
+            "setup before acting. Frame as \'watch\' not \'enter\'."
+        )
+
+    regime_line = ""
+    if ctx.get("hmm_regime_label") and ctx.get("hmm_regime_prob"):
+        regime_line = (
+            f"Regime: {ctx['hmm_regime_label']} "
+            f"(HMM state {ctx['hmm_regime']}, prob {float(ctx['hmm_regime_prob']):.0%})\n"
+        )
+
+    killzone_line = (
+        f"Killzone: {ctx['killzone']} open active\n" if ctx.get("killzone") else ""
+    )
+    confluence_line = (
+        f"Confluence: {ctx['confluence_score']}\n" if ctx.get("confluence_score") else ""
+    )
+
+    return (
+        f"/no_think\n\n"
+        f"Symbol: {ctx['symbol']} {ctx['timeframe']} \u2014 {ctx['direction_label']} "
+        f"(confidence {confidence_pct})\n"
+        f"Structure: {ctx['structural_label']}\n"
+        f"{regime_line}"
+        f"{killzone_line}"
+        f"{confluence_line}"
+        f"Entry: {ctx['entry']} | Stop: {ctx['stop']} | T1: {ctx['target_1']} (R:R {ctx['rr']})\n\n"
+        f"Write exactly 2 sentences:\n"
+        f"Sentence 1 (Context \u2014 STRUCTURAL): What is the market doing right now and why "
+        f"does this level matter structurally? Use high-signal terminology. "
+        f"Explain this is a structural event, not a random bounce.\n"
+        f"{execution_instruction}"
+    )
+
+
+def build_deep_prompt(signal: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """Build the deep narrative user prompt (3-sentence confluence story)."""
+    confidence = ctx["confidence"]
+    confidence_pct = f"{confidence:.0%}"
+
+    fvg_line = ""
+    if ctx.get("fvg_bottom") and ctx.get("fvg_top"):
+        fvg_line = f"FVG: {ctx['fvg_bottom']}\u2013{ctx['fvg_top']}\n"
+
+    ob_line = ""
+    if ctx.get("ob_bottom") and ctx.get("ob_top"):
+        ob_line = f"Order Block: {ctx['ob_bottom']}\u2013{ctx['ob_top']}\n"
+
+    sd_line = ""
+    if ctx.get("nearest_demand_low") and ctx.get("nearest_demand_high"):
+        sd_line = f"Demand Zone: {ctx['nearest_demand_low']}\u2013{ctx['nearest_demand_high']}\n"
+    elif ctx.get("nearest_supply_low") and ctx.get("nearest_supply_high"):
+        sd_line = f"Supply Zone: {ctx['nearest_supply_low']}\u2013{ctx['nearest_supply_high']}\n"
+
+    regime_line = ""
+    if ctx.get("hmm_regime_label") and ctx.get("hmm_regime_prob"):
+        regime_line = (
+            f"Regime: {ctx['hmm_regime_label']} "
+            f"(HMM state {ctx['hmm_regime']}, prob {float(ctx['hmm_regime_prob']):.0%})\n"
+        )
+
+    factors_line = (
+        f"Supporting factors: {ctx['supporting_factors']}\n"
+        if ctx.get("supporting_factors")
+        else ""
+    )
+
+    return (
+        f"/no_think\n\n"
+        f"Symbol: {ctx['symbol']} {ctx['timeframe']} \u2014 {ctx['direction_label']} "
+        f"(confidence {confidence_pct})\n"
+        f"Structure: {ctx['structural_label']}\n"
+        f"{regime_line}"
+        f"{fvg_line}"
+        f"{ob_line}"
+        f"{sd_line}"
+        f"Entry: {ctx['entry']} | Stop: {ctx['stop']} | T1: {ctx['target_1']} (R:R {ctx['rr']})\n"
+        f"{factors_line}"
+        f"\n"
+        f"Write exactly 3 sentences:\n"
+        f"Sentence 1 (Confluence): Name every source aligning \u2014 which timeframes, "
+        f"what SMC structure, what HMM state, what zone. Be specific with level names.\n"
+        f"Sentence 2 (Key Levels): Entry rationale (not just the price \u2014 why THIS level). "
+        f"Stop placement logic. T1 target significance.\n"
+        f"Sentence 3 (Guidance + Invalidation): Confidence-weighted sizing or timing "
+        f"guidance. Always end with what would invalidate this thesis."
+    )
+
+
 def _build_llm_call_payload(
     call_type: str,
     signal_data: dict[str, Any] | None,
