@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 20-01-PLAN.md
-last_updated: "2026-03-09T00:31:58Z"
-last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter"
+stopped_at: Completed 20-03-PLAN.md
+last_updated: "2026-03-09T00:35:51.907Z"
+last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 18
-  completed_plans: 11
+  completed_plans: 12
   percent: 36
 ---
 
@@ -66,6 +66,7 @@ Progress: [████░░░░░░] 36%
 | Phase 19-financial-math-characterization P03 | 2 | 1 tasks | 1 files |
 | Phase 19-financial-math-characterization P01 | 4 | 1 tasks | 2 files |
 | Phase 20-circuit-breaker-integration P01 | 2 | 2 tasks | 2 files |
+| Phase 20 P03 | 122 | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,9 @@ Recent decisions affecting current work:
 - [Phase 20-01]: jitter_factor=0.5 default (±50%) spread — wide enough to prevent thundering herd on concurrent retries
 - [Phase 20-01]: retry_with_backoff() re-raises on final attempt directly (not via last_exception capture) to preserve full exception traceback
 - [Phase 20-01]: retry_on=(Exception,) default catches all; callers narrow for precision; no retry_tracker callback — instrumentation delegated to circuit breaker state counts
+- [Phase 20]: Module-level _ibkr_circuit_breaker singleton tracks connection health — IBKR has one connection, one breaker
+- [Phase 20]: [Phase 20-03]: retry_with_backoff base_delay=2.0s, max_delay=15.0s for IBKR — longer than default to match TWS reconnect timing
+- [Phase 20]: [Phase 20-03]: failure_window=120s, recovery_timeout=180s — IBKR reconnects ~1 min, 3 min recovery buffer
 
 ### Pending Todos
 
@@ -104,6 +108,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T00:31:58Z
-Stopped at: Completed 20-01-PLAN.md
+Last session: 2026-03-09T00:35:51.905Z
+Stopped at: Completed 20-03-PLAN.md
 Resume file: None

@@ -32,7 +32,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 - [x] **API-06**: indicator_service has per-key asyncio.Lock() for _i1_plugin_states access
 - [x] **API-07**: ai_narrative_service has asyncio.Lock() for _latest_signals access
 - [x] **API-08**: Characterization test for lock acquisition and release
-- [ ] **API-09**: IBKR provider uses PluginCircuitBreaker for connection failures
+- [x] **API-09**: IBKR provider uses PluginCircuitBreaker for connection failures
 
 ### Circuit Breakers (CB)
 
@@ -41,7 +41,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 - [x] **CB-01**: retry_utils.py created with exponential_backoff_with_jitter()
 - [x] **CB-02**: retry_with_backoff() async wrapper with configurable max_attempts
 - [ ] **CB-03**: All LLM providers use PluginCircuitBreaker for generate() calls
-- [ ] **CB-04**: Circuit breaker metrics exposed on Prometheus endpoint
+- [x] **CB-04**: Circuit breaker metrics exposed on Prometheus endpoint
 
 ### Efficiency Optimizations (EFF)
 
@@ -93,11 +93,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-06 | Phase 18 | Complete |
 | API-07 | Phase 18 | Complete |
 | API-08 | Phase 19 | Complete |
-| API-09 | Phase 20 | Pending |
+| API-09 | Phase 20 | Complete |
 | CB-01 | Phase 20 | Complete |
 | CB-02 | Phase 20 | Complete |
 | CB-03 | Phase 20 | Pending |
-| CB-04 | Phase 20 | Pending |
+| CB-04 | Phase 20 | Complete |
 | EFF-01 | Phase 21 | Pending |
 | EFF-02 | Phase 21 | Pending |
 | EFF-03 | Phase 21 | Pending |
