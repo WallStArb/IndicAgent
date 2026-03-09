@@ -143,7 +143,7 @@ Plans:
 **Plans**: 4 plans (1 wave)
 
 Plans:
-- [ ] 21-01: Buffer management in indicator_service
+- [x] 21-01: Buffer management in indicator_service (completed 2026-03-09)
 - [ ] 21-02: Buffer management in market_analysis_service
 - [ ] 21-03: CIS scorer vectorization
 - [ ] 21-04: Plugin call metrics sampling optimization

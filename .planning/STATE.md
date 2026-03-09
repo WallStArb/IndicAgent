@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 21-03-PLAN.md
-last_updated: "2026-03-09T08:25:38.851Z"
-last_activity: "2026-03-09 — 21-01: indicator_service DataFrame cache only invalidated on buffer eviction"
+stopped_at: Completed 21-02-PLAN.md
+last_updated: "2026-03-09T08:26:07.481Z"
+last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
   percent: 36
 ---
 
@@ -69,7 +69,9 @@ Progress: [████░░░░░░] 36%
 | Phase 20 P03 | 122 | 3 tasks | 1 files |
 | Phase 20 P02 | 4 | 2 tasks | 2 files |
 | Phase 20 P04 | 303 | 3 tasks | 3 files |
+| Phase 21-efficiency-optimizations P01 | 2 | 2 tasks | 2 files |
 | Phase 21-efficiency-optimizations P03 | 103 | 3 tasks | 2 files |
+| Phase 21-efficiency-optimizations P02 | 147 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -101,8 +103,10 @@ Recent decisions affecting current work:
 - [Phase 20]: _call_llm_with_circuit_breaker accepts sync call_fn not coroutine — each retry gets fresh to_thread invocation, preventing coroutine reuse errors
 - [Phase 20-02]: Module-level _llm_circuit_breaker shared across all LLM providers, keyed by provider_id — failure history persists across chain iterations
 - [Phase 20-04]: Circuit breaker state transitions use state snapshots (previous_state captured before operation) to detect actual changes at metric recording time
+- [Phase 21-01]: cache_invalidated flag pattern — set inside while/popitem() loop, conditionally invalidates _df_cache only when buffer eviction occurs
 - [Phase 21-efficiency-optimizations]: np.dot(weights_array, scores_array) replaces scalar sum() for CIS weighted aggregation — identical numerical result, leverages compiled BLAS
 - [Phase 21-efficiency-optimizations]: CIS vectorization scoped to aggregation layer only — bucket methods (_trend, _momentum, etc.) left as-is to preserve readability
+- [Phase 21-efficiency-optimizations]: Overflow detection uses len_before == history.maxlen (deque semantics): cache invalidated only when deque was at capacity before append
 
 ### Pending Todos
 
@@ -116,6 +120,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T08:25:38.850Z
-Stopped at: Completed 21-03-PLAN.md
+Last session: 2026-03-09T08:26:07.479Z
+Stopped at: Completed 21-02-PLAN.md
 Resume file: None
