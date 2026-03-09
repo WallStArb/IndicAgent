@@ -40,7 +40,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 
 - [x] **CB-01**: retry_utils.py created with exponential_backoff_with_jitter()
 - [x] **CB-02**: retry_with_backoff() async wrapper with configurable max_attempts
-- [ ] **CB-03**: All LLM providers use PluginCircuitBreaker for generate() calls
+- [x] **CB-03**: All LLM providers use PluginCircuitBreaker for generate() calls
 - [x] **CB-04**: Circuit breaker metrics exposed on Prometheus endpoint
 
 ### Efficiency Optimizations (EFF)
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-09 | Phase 20 | Complete |
 | CB-01 | Phase 20 | Complete |
 | CB-02 | Phase 20 | Complete |
-| CB-03 | Phase 20 | Pending |
+| CB-03 | Phase 20 | Complete |
 | CB-04 | Phase 20 | Complete |
 | EFF-01 | Phase 21 | Pending |
 | EFF-02 | Phase 21 | Pending |
