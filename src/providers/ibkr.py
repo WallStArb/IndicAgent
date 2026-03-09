@@ -20,6 +20,10 @@ from src.core.models import AssetClass, Instrument  # noqa: E402
 from src.providers.base import OHLCVBar, Tick  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 
+# Circuit breaker and retry
+from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
+from src.core.retry_utils import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 # Map our timeframe strings to ib_insync barSizeSetting values
@@ -44,6 +48,90 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
     "4h":  364,
     "1d":  364,
 }
+
+# Circuit breaker for IBKR connection attempts
+_ibkr_circuit_breaker = PluginCircuitBreaker(
+    config=CircuitBreakerConfig(
+        failure_threshold=3,
+        recovery_timeout=180,  # 3 minutes (IBKR reconnection typically faster)
+        success_threshold=2,
+        max_half_open_calls=2,
+        failure_window=120,  # Track failures over 2 minutes
+        performance_threshold_ms=20000.0,  # 20s default timeout
+    )
+)
+
+
+async def _connect_with_circuit_breaker(
+    host: str, port: int, client_id: int, timeout: float
+) -> "IB | None":
+    """Connect to IBKR with circuit breaker tracking."""
+    from datetime import datetime  # noqa: PLC0415
+
+    from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
+
+    provider_id = "ibkr:connection"
+    plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
+
+    async def _try_connect() -> "IB":
+        """Single connection attempt."""
+        ib_instance = IB()
+        await ib_instance.connectAsync(
+            host=host,
+            port=port,
+            clientId=client_id,
+            timeout=timeout,
+            readonly=False,
+        )
+        if not ib_instance.isConnected():
+            raise ConnectionError("IBKR connection established but not connected")
+        return ib_instance
+
+    try:
+        # Use retry_with_backoff for exponential backoff + jitter
+        ib_instance = await retry_with_backoff(
+            _try_connect,
+            max_attempts=3,
+            base_delay=2.0,  # Longer base for IBKR
+            max_delay=15.0,
+            jitter_factor=0.5,
+        )
+
+        # Record success
+        plugin_state.success_count += 1
+        plugin_state.last_success_time = datetime.now()
+        plugin_state.total_calls += 1
+
+        logger.info(
+            "IBKR connected",
+            extra={"host": host, "port": port, "client_id": client_id},
+        )
+        return ib_instance
+
+    except Exception as exc:
+        # Record failure
+        plugin_state.failure_count += 1
+        plugin_state.last_failure_time = datetime.now()
+        plugin_state.total_calls += 1
+
+        logger.error(
+            "IBKR connect failed",
+            extra={"host": host, "port": port, "client_id": client_id, "error": str(exc)},
+        )
+        return None
+
+
+def _is_circuit_breaker_open() -> bool:
+    """Check if IBKR circuit breaker is OPEN."""
+    from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
+
+    state = _ibkr_circuit_breaker.plugin_states["ibkr:connection"].state
+    return state == CircuitState.OPEN
+
+
+async def reset_circuit_breaker() -> bool:
+    """Force reset IBKR circuit breaker state."""
+    return await _ibkr_circuit_breaker.force_reset_plugin("ibkr:connection")
 
 
 class IBKRProvider:
