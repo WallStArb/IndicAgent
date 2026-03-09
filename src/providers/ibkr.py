@@ -387,7 +387,17 @@ class IBKRProvider:
         a dict with bid, ask, last (and optionally lastSize), or None if no data arrived.
 
         If not provided, uses Settings.ib_timeout_sec as default.
+
+        Returns None if circuit breaker is OPEN or quote fails.
         """
+        # Check circuit breaker state
+        if _is_circuit_breaker_open():
+            logger.warning(
+                "IBKR circuit breaker OPEN, skipping quote request",
+                extra={"symbol": symbol},
+            )
+            return None
+
         if not self._ib:
             return None
         contract = self._qualified_contracts.get(symbol)
