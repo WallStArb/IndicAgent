@@ -14,6 +14,79 @@ from __future__ import annotations
 import json
 import urllib.request
 
+# Circuit breaker and retry
+from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
+from src.core.retry_utils import retry_with_backoff
+
+# Circuit breaker for LLM provider calls — shared across all providers.
+# Uses a 5-minute recovery timeout and 3 consecutive failures threshold.
+_llm_circuit_breaker = PluginCircuitBreaker(
+    config=CircuitBreakerConfig(
+        failure_threshold=3,
+        recovery_timeout=300,  # 5 minutes
+        success_threshold=2,
+        max_half_open_calls=3,
+        failure_window=60,
+        performance_threshold_ms=60000.0,  # 60s default timeout
+    )
+)
+
+
+async def _call_llm_with_circuit_breaker(
+    provider_id: str,
+    call_fn: "collections.abc.Callable[[], str | None]",
+) -> "str | None":
+    """Call LLM provider with circuit breaker tracking and retry backoff.
+
+    Args:
+        provider_id: Unique provider identifier (e.g., "zai:glm-5")
+        call_fn: Synchronous callable that performs the LLM HTTP call.
+            Called once per attempt by retry_with_backoff via to_thread.
+
+    Returns:
+        LLM response string or None on failure.
+
+    Note:
+        retry_with_backoff wraps call_fn with exponential backoff.
+        Each retry attempt invokes call_fn fresh (not a pre-built coroutine).
+        Circuit breaker state (success_count, failure_count) tracks health.
+    """
+    from asyncio import to_thread
+    from collections.abc import Callable
+    from datetime import datetime
+
+    plugin_state = _llm_circuit_breaker.plugin_states[provider_id]
+
+    async def _run() -> "str | None":
+        return await to_thread(call_fn)
+
+    try:
+        result = await retry_with_backoff(
+            _run,
+            max_attempts=3,
+            base_delay=1.0,
+            max_delay=10.0,
+        )
+        # Record success in circuit breaker
+        plugin_state.success_count += 1
+        plugin_state.last_success_time = datetime.now()
+        plugin_state.total_calls += 1
+        return result
+
+    except Exception as exc:
+        # Record failure in circuit breaker
+        plugin_state.failure_count += 1
+        plugin_state.last_failure_time = datetime.now()
+        plugin_state.total_calls += 1
+
+        import structlog as _structlog
+        _structlog.get_logger(__name__).warning(
+            "LLM provider call failed",
+            provider=provider_id,
+            error=str(exc),
+        )
+        return None
+
 
 def _extract_message_content(choices: list[dict]) -> str | None:
     """Extract content from LLM response, supporting both content and reasoning fields.
