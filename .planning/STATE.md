@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 19-03-PLAN.md
-last_updated: "2026-03-09T00:20:39.037Z"
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-03-09T00:20:47.399Z"
 last_activity: "2026-03-08 — 18-05: LLM provider configurable timeout complete"
 progress:
   total_phases: 4
@@ -85,6 +85,8 @@ Recent decisions affecting current work:
 - [Phase 18]: Stop directional checks use entry ± EPSILON_TOLERANCE to prevent degenerate stops at exactly entry price
 - [Phase 19-02]: Characterization tests for zero-ATR emergency fallback in frame_trade() pin ATR_EMERGENCY_FALLBACK_PCT == 0.001 and verify stop = entry - (entry*0.001*2.0)
 - [Phase 19-03]: Use __new__ pattern to bypass __init__ and set only the lock dict needed for isolated asyncio.Lock testing
+- [Phase 19-financial-math-characterization]: RSI characterization: seed _state directly to isolate compute_next — avoids full dataset dependency in unit tests
+- [Phase 19-financial-math-characterization]: RSI characterization Test 3: assert directional ordering (rsi2 < rsi1) rather than exact floats — pins behavioral invariant robustly
 
 ### Pending Todos
 
@@ -98,6 +100,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T00:20:30.259Z
-Stopped at: Completed 19-03-PLAN.md
+Last session: 2026-03-09T00:20:47.398Z
+Stopped at: Completed 19-01-PLAN.md
 Resume file: None

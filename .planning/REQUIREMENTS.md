@@ -17,7 +17,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 - [x] **FIN-04**: ATR multipliers documented (0.25, 0.30, 0.20, 0.25, 0.50, 2.0, 0.001)
 - [x] **FIN-05**: Regime thresholds documented (0.35, 3, 0.1)
 - [x] **FIN-06**: RSI zero-loss guard behavior documented in rsi.py
-- [ ] **FIN-07**: Characterization test for RSI zero-loss behavior (returns 100.0)
+- [x] **FIN-07**: Characterization test for RSI zero-loss behavior (returns 100.0)
 - [x] **FIN-08**: Characterization test for trade_framer zero ATR emergency fallback
 
 ### API Resilience & Concurrency (API)
@@ -31,7 +31,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 - [x] **API-05**: market_analysis_service has per-key asyncio.Lock() for _plugin_states access
 - [x] **API-06**: indicator_service has per-key asyncio.Lock() for _i1_plugin_states access
 - [x] **API-07**: ai_narrative_service has asyncio.Lock() for _latest_signals access
-- [ ] **API-08**: Characterization test for lock acquisition and release
+- [x] **API-08**: Characterization test for lock acquisition and release
 - [ ] **API-09**: IBKR provider uses PluginCircuitBreaker for connection failures
 
 ### Circuit Breakers (CB)
@@ -83,7 +83,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIN-04 | Phase 18 | Complete |
 | FIN-05 | Phase 18 | Complete |
 | FIN-06 | Phase 18 | Complete |
-| FIN-07 | Phase 19 | Pending |
+| FIN-07 | Phase 19 | Complete |
 | FIN-08 | Phase 19 | Complete |
 | API-01 | Phase 18 | Pending |
 | API-02 | Phase 18 | Pending |
@@ -92,7 +92,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-05 | Phase 18 | Complete |
 | API-06 | Phase 18 | Complete |
 | API-07 | Phase 18 | Complete |
-| API-08 | Phase 19 | Pending |
+| API-08 | Phase 19 | Complete |
 | API-09 | Phase 20 | Pending |
 | CB-01 | Phase 20 | Pending |
 | CB-02 | Phase 20 | Pending |
