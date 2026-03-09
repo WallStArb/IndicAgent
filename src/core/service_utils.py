@@ -15,6 +15,20 @@ import structlog
 
 # Fraction of successful plugin executions to record as Prometheus metrics.
 # 1-in-10 reduces write pressure on the hot path; errors are always recorded.
+#
+# Usage pattern (modulo sampling):
+#   call_count += 1
+#   if call_count % PLUGIN_METRICS_SAMPLE_RATE == 0:
+#       record_plugin_execution(...)
+#
+# This samples 1-in-N successful calls, reducing Prometheus write pressure
+# by (1 - 1/N). With rate=10, 90% reduction in write operations.
+#
+# Rationale:
+# - Plugin executions occur on every bar for every symbol/timeframe combination.
+# - Prometheus write operations have non-zero overhead on the hot path.
+# - 1-in-10 sampling provides 90% reduction with minimal observability loss.
+# - Errors are always recorded (no sampling) for safety and full audit coverage.
 PLUGIN_METRICS_SAMPLE_RATE: int = 10
 
 # Minimum unique bars required before publishing per timeframe.
