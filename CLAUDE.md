@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Version: 5.17.0
-Last Updated: 2026-03-08
+Version: 5.18.0
+Last Updated: 2026-03-09
 Status: I1-I8 pipeline complete — 91 plugins + 2 aggregation components + feature store + typed intelligence bus, 1308 tests, 62 ruff errors (E501 line-too-long), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
@@ -42,13 +42,15 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 | **AegisAgent vision** | `docs/ideas/aegisagent-vision.md` | Independent risk management product (name confirmed): VaR, drawdown enforcement, margin monitoring, stress testing, pre-trade check protocol, emergency halt. Override authority over all execution products. Required before real capital deployed at scale. |
 | **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning: Redpanda vs DragonflyDB, pgvector, TimescaleDB consolidation strategy, migration timing, decision log. Living document — update when stack decisions are made. |
 | **Renaissance framing** | `docs/ideas/renaissance-framing.md` | Philosophical and architectural framing of the entire product family through the Jim Simons / Medallion lens: all 10 principles mapped to platform decisions, the VRP as primary edge, unified model over siloed strategies, learning machine, compounding insight. |
-| **Analysis** | `docs/plans/*.md` | Design docs, architecture decisions, brainstorming outputs |
+| **Analysis** | `docs/plans/*.md` | Design docs and implementation plans — output of the brainstorming + writing-plans skill chain |
 | **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features |
 | **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements |
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases (GSD-managed) |
 | **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans |
 
 > **NOTE:** `.planning/IDEAS.md` is not defunct — it feeds GSD planning discovery. Both `.planning/IDEAS.md` and `docs/ideas/IDEAS-INDEX.md` should be kept in sync. When planning, check both sources.
+
+> **Document graduation rule:** `docs/ideas/` is for research and open questions — things not yet ready to build. `docs/plans/` is the output of the brainstorming + writing-plans skill chain. Once an implementation plan lands in `docs/plans/`, add it to the ROADMAP Backlog immediately — that's the trigger to not lose it. `/gsd:plan-phase` then uses the `docs/plans/` doc as research context when creating the phase PLAN.md files.
 
 Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features. GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
 
@@ -62,7 +64,7 @@ Before committing: `/simplify` then `/coderabbit:code-review`.
 
 ### Feature Development (any new plugin, service, or significant change)
 **Mandatory skill chain — do not skip steps:**
-1. `brainstorming` — design approval → save to `docs/plans/YYYY-MM-DD-<topic>-design.md`
+1. `brainstorming` — design approval → `docs/plans/YYYY-MM-DD-<topic>-design.md`
 2. `writing-plans` — TDD implementation plan
 3. `executing-plans` — task-by-task with review checkpoints
 4. `verification-before-completion` — full test suite + lint
@@ -237,15 +239,15 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1308 passing · **Ruff:** 62 errors (mostly E501 line-too-long, non-blocking) ⚠️
+**Tests:** 1318 passing · **Ruff:** 74 errors (mostly E501 line-too-long, non-blocking; 9 fixable with --fix) ⚠️
 **Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.4 complete** (shipped 2026-03-07) — pipeline_reset sentinel (commits 3ed656a–81c9621), backfill + lifecycle stream events all shipped — see `.planning/ROADMAP.md`
+**v1.5 in-progress** — phases 18 (financial math safety) + 19 (characterization tests) complete; phases 20-21 not started — see `.planning/ROADMAP.md`
 
 ## Key References
 
 - `.planning/ROADMAP.md` — phases, backlog
 - `.planning/IDEAS.md` — rough captures
-- `docs/plans/` — design docs and architecture decisions
+- `docs/plans/` — design docs and implementation plans (brainstorm + writing-plans output)
 - `docs/concepts/intelligence-tiers.md`
 - `docs/reference/schemas/stream-schemas.md`
 - IBKR TWS: https://interactivebrokers.github.io/tws-api/

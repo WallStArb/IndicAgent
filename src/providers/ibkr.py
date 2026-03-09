@@ -16,20 +16,24 @@ from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
 
 nest_asyncio.apply()
 
-from src.core.models import AssetClass, Instrument  # noqa: E402
-from src.providers.base import OHLCVBar, Tick  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
+from src.core.models import AssetClass, Instrument  # noqa: E402
 
 # Circuit breaker and retry
-from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
-from src.core.retry_utils import retry_with_backoff
+from src.core.plugin_circuit_breaker import (  # noqa: E402
+    CircuitBreakerConfig,
+    CircuitState,
+    PluginCircuitBreaker,
+)
+from src.core.retry_utils import retry_with_backoff  # noqa: E402
 
 # Circuit breaker metrics
-from src.observability.metrics import (
+from src.observability.metrics import (  # noqa: E402
     CIRCUIT_BREAKER_FAILURES_TOTAL,
     CIRCUIT_BREAKER_SUCCESSES_TOTAL,
     CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
 )
+from src.providers.base import OHLCVBar, Tick  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +75,13 @@ _ibkr_circuit_breaker = PluginCircuitBreaker(
 
 async def _connect_with_circuit_breaker(
     host: str, port: int, client_id: int, timeout: float
-) -> "IB | None":
+) -> IB | None:
     """Connect to IBKR with circuit breaker tracking and metrics."""
-    from datetime import datetime  # noqa: PLC0415
-
-    from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
-
     provider_id = "ibkr:connection"
     plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
     previous_state = plugin_state.state
 
-    async def _try_connect() -> "IB":
+    async def _try_connect() -> IB:
         """Single connection attempt."""
         ib_instance = IB()
         await ib_instance.connectAsync(
@@ -156,15 +156,12 @@ async def _connect_with_circuit_breaker(
 
 def _is_circuit_breaker_open() -> bool:
     """Check if IBKR circuit breaker is OPEN."""
-    from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
-
     state = _ibkr_circuit_breaker.plugin_states["ibkr:connection"].state
     return state == CircuitState.OPEN
 
 
 async def reset_circuit_breaker() -> bool:
     """Force reset IBKR circuit breaker state."""
-    from src.core.plugin_circuit_breaker import CircuitState  # noqa: PLC0415
 
     provider_id = "ibkr:connection"
     plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]

@@ -157,6 +157,9 @@ Re-prioritized 2026-03-08 after v1.5 planning.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
+| I8 Narrative Two-Tier Redesign | GLM-4.7 short (1s, always visible) + GLM-5 deep (5-8s, expand). Enriched intelligence context from stream. Dashboard expand/collapse. 10-task TDD plan written. | `docs/plans/2026-03-08-i8-narrative-implementation.md` |
+| Signal Generator DB Warmup | Seed bar_history from intelligence_features on startup — eliminates 50-min warmup after restart. | `.planning/todos/pending/2026-03-09-seed-signal-generator-bar-history-from-db-on-startup.md` |
+| Renaissance Gaps (CIS + Signal Quality) | T0: fix CIS scoring in backfill + populate constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
 | Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
 | Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
 | HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |

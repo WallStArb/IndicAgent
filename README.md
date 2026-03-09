@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** 1.4.0-dev | **Status:** v1.4 in progress | 90 plugins · 24 instruments
+**Version:** 1.5.0-dev | **Status:** v1.5 in progress | 91 plugins · 24 instruments
 
 > **TLDR:** IndicAgent is a real-time market intelligence platform built on a shared, durable event bus. Every tick, every signal, and every intelligence output flows through that bus. An 8-tier pipeline (I1-I8) runs 90 plugins in a dependency-ordered DAG where each tier builds on the outputs of the tier below: raw indicators and market structure feed into adaptive statistical models (HMM, GARCH, Kalman, BOCPD) and Smart Money Concepts, which feed into cross-timeframe confluence scoring and AI narrative synthesis. Every output is encoded into a canonical typed schema, published to the bus, and persisted to a feature store, creating a learning loop where signal outcomes feed back into model weights without manual retuning. New data domains and product layers (qualitative data, derivatives, execution, portfolio, risk) attach as independent services that subscribe to existing streams and publish their own, with no changes to anything already running.
 
@@ -135,7 +135,7 @@ The typed `IntelligenceEvent` schema on `intelligence:SYMBOL:TF` already contain
 |--------|--------|
 | **Data in** | IBKR TWS: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **EURUSD**, **GBPUSD**, **USDJPY**, **USDCHF** (spot FX); **BTCUSD**, **ETHUSD**, **SOLUSD** (spot crypto). 24 instruments, 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives, group narratives); TimescaleDB feature store |
-| **Intelligence** | 90 plugins: I1 (23), I2 (8), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
+| **Intelligence** | 91 plugins: I1 (24), I2 (9), I3 (7), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer, weight updater; I8 AI narratives (per-signal + group synthesis); Dashboard operational |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB/Redis, TimescaleDB, Next.js 16.1 / React 19.2, Ollama |
 | **Deployment** | 10 systemd services over streams; SSE for dashboard; metrics on :9109/:9112/:9113/:9114/:9115/:9116 |
 
@@ -229,7 +229,7 @@ I1–I8 are the tiers inside layers 2–4. Lower tiers feed into higher ones.
 
 | Tier | Name | Purpose | Status |
 |------|------|---------|--------|
-| **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, etc. (23 plugins) | Operational |
+| **I1** | Raw indicators | RSI, MACD, SMA, EMA, ATR, BB, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, etc. (24 plugins) | Operational |
 | **I2** | Composite events | MACD crossovers, RSI events, Stochastic events, ADX events, Volume events, MomentumAcceleration (2nd-derivative RSI/MACD/ROC acceleration + inflection detection), DonchianPosition, OBVMomentum (8 plugins) | Operational |
 | **I3** | Market structure | Swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones (7 plugins) | Operational |
 | **I4** | Context | Volatility/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility (7 plugins) | Operational |
@@ -506,14 +506,14 @@ python tests/run_all_tests.py --unit-only
 
 ### Current Status
 
-**v1.4 Quant Foundation in progress.**
+**v1.5 Production Hardening in progress.**
 
-- **I1–I8 pipeline:** Fully operational. 90 plugins (I1:23, I2:8, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17), 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
-- **v1.3 delivered:** Phase 08 (MomentumAcceleration I2), Phase 09 (GapAnalysisSetup I7), Phase 10 (CandlestickPatternSetup I7), Phase 11 (SessionExtremesSetup I7) + Signal Lifecycle redesign (zone-aware lifecycle, 8-class outcome, MAE/MFE tracking).
-- **v1.4 in progress:** Phase 12 Signal Integrity ✅ (regime gating, shadow signals); Phase 16 LLM Intelligence Layer ✅ (per-regime routing, LLM call + outcome persistence, `llm_calls` hypertable); Phase 13 Data Completeness, Phase 14 Feedback Loop, Phase 15 Validated Alpha — next.
+- **I1–I8 pipeline:** Fully operational. 91 plugins (I1:24, I2:9, I3:7, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17) + 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
+- **v1.4 delivered:** Signal integrity, data completeness, feedback loop, financial math safety, circuit breaker integration, LLM intelligence layer, dashboard, signal lifecycle.
+- **v1.5 in progress:** Phase 18 Financial Math Safety ✅, Phase 19 Characterization Tests ✅, Phase 20 Circuit Breaker Integration ✅ — Phase 21 Efficiency Optimizations next.
 - **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards, pipeline lag and staleness ratio per signal.
 - **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; per-regime model routing.
-- **Next:** v1.4 (see [Roadmap](.planning/ROADMAP.md)).
+- **Next:** Phase 21 Efficiency Optimizations (see [Roadmap](.planning/ROADMAP.md)).
 
 More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md).
 
@@ -530,4 +530,4 @@ More detail: See [STATUS.md](docs/STATUS.md) and [Roadmap](.planning/ROADMAP.md)
 
 ---
 
-**Version:** 1.4.0-dev | **Status:** v1.4 in progress | 90 plugins · 24 instruments | **Next:** Phase 13 Data Completeness
+**Version:** 1.5.0-dev | **Status:** v1.5 in progress | 91 plugins · 24 instruments | **Next:** Phase 21 Efficiency Optimizations
