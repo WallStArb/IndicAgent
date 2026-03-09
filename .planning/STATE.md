@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 21-04-PLAN.md
-last_updated: "2026-03-09T08:30:55.022Z"
+stopped_at: Completed 22-04-PLAN.md
+last_updated: "2026-03-09T12:28:21.439Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 25
+  completed_plans: 19
   percent: 36
 ---
 
@@ -73,6 +73,7 @@ Progress: [████░░░░░░] 36%
 | Phase 21-efficiency-optimizations P03 | 103 | 3 tasks | 2 files |
 | Phase 21-efficiency-optimizations P02 | 147 | 2 tasks | 2 files |
 | Phase 21 P04 | 223 | 3 tasks | 3 files |
+| Phase 22-i8-narrative-three-tier-redesign P04 | 2 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,8 @@ Recent decisions affecting current work:
 - [Phase 21-efficiency-optimizations]: Overflow detection uses len_before == history.maxlen (deque semantics): cache invalidated only when deque was at capacity before append
 - [Phase 21]: PLUGIN_METRICS_SAMPLE_RATE=10 documented with explicit modulo pattern and rationale
 - [Phase 21]: Error path records every call without sampling — safety invariant pinned by tests
+- [Phase 22-04]: narrative backward-compat: narrative?: string kept optional in NarrativeData — set as alias when narrative_type=short, allows gradual migration in components
+- [Phase 22-04]: spread-merge SSE pattern: {existing, ...newFields} merges short and deep into same state key enabling independent async arrivals
 
 ### Pending Todos
 
@@ -123,6 +126,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T08:27:24.476Z
-Stopped at: Completed 21-04-PLAN.md
+Last session: 2026-03-09T12:28:21.438Z
+Stopped at: Completed 22-04-PLAN.md
 Resume file: None
