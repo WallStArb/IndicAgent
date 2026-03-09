@@ -47,7 +47,7 @@ Requirements for production hardening — financial safety, concurrency protecti
 
 **P3-P4 — Performance improvements for high-throughput services.**
 
-- [ ] **EFF-01**: indicator_service tracks buffer length, only invalidates DataFrame cache when capacity exceeded
+- [x] **EFF-01**: indicator_service tracks buffer length, only invalidates DataFrame cache when capacity exceeded
 - [x] **EFF-02**: market_analysis_service tracks buffer length, only invalidates DataFrame cache when capacity exceeded
 - [x] **EFF-03**: CIS scorer uses numpy vectorization for bucket score computation
 - [x] **EFF-04**: Plugin call metrics use modulo sampling (record every N calls, not every call)
@@ -98,7 +98,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CB-02 | Phase 20 | Complete |
 | CB-03 | Phase 20 | Complete |
 | CB-04 | Phase 20 | Complete |
-| EFF-01 | Phase 21 | Pending |
+| EFF-01 | Phase 21 | Complete |
 | EFF-02 | Phase 21 | Complete |
 | EFF-03 | Phase 21 | Complete |
 | EFF-04 | Phase 21 | Complete |

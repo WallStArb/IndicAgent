@@ -39,7 +39,7 @@ Renaissance principle applied: the signal bar states facts the system already co
 |------|--------|---------|----------------|
 | Signal bar | Deterministic from signal stream | Instant | Yes |
 | Short narrative | `narrative_short` LLM call | ~500ms | Yes |
-| Deep narrative | `narrative_deep` LLM call | ~5-8s | On expand |
+| Deep narrative | `narrative_deep` LLM call | ~5-8s | On expand (fires concurrently at signal time; displayed when PM expands) |
 
 ### Data Enrichment
 
@@ -66,11 +66,11 @@ At signal time, narrative service does one `XREVRANGE` lookup on `intelligence:S
 Two async calls fire concurrently from the same pre-fetched context:
 
 ```python
-short_task = asyncio.create_task(chain_short.generate(short_prompt, system_prompt))
-deep_task  = asyncio.create_task(chain_deep.generate(deep_prompt, system_prompt))
+short_task = asyncio.create_task(chain_short.generate(short_prompt, system_prompt, max_tokens=120, timeout=15.0))
+deep_task  = asyncio.create_task(chain_deep.generate(deep_prompt, system_prompt, max_tokens=400, timeout=30.0))
 ```
 
-Both use `LLMChain` with standard OpenRouter provider order. No model hardcoding. `_apply_score_routing()` optimizes each call type independently based on `llm_model_scores` outcome data — `narrative_short` learns which fast models hit sub-500ms with quality, `narrative_deep` learns which models produce better confluence stories.
+Both use `LLMChain` with standard OpenRouter provider order as the baseline. No model hardcoding. `_apply_score_routing()` can re-order providers independently per call type based on `llm_model_scores` outcome data — once a model reaches significance (p<0.05, n≥30) it moves to position 0 for that `call_type + regime` combination. In practice: `narrative_short` learns which fast models hit sub-500ms with quality; `narrative_deep` learns which models produce better confluence stories. Before significance is reached, standard provider order applies.
 
 Both stored in `llm_calls` with `call_type = "narrative_short"` / `"narrative_deep"`. Both scored by `llm_writer_service` for the learning loop.
 
@@ -133,7 +133,18 @@ Entry X  |  Stop Y  |  T1 Z  R:R N.N
 - `[WAIT — BULLISH]` / `[WAIT — BEARISH]` — confidence 50–75%, conditional
 - `[MONITOR]` — confidence <50%, observational
 
-Structural label (RECLAIM, FVG FILL, BOS, SWEEP, REVERSAL, PATTERN) derived from `setup_plugin`.
+Structural label derived from `setup_plugin` using this mapping (prefix match, case-insensitive):
+
+| setup_plugin prefix | Label |
+|---------------------|-------|
+| `sweep_`, `liquidity_hunt_` | `SWEEP` |
+| `fvg_` | `FVG FILL` |
+| `choch_`, `bos_` | `BOS` |
+| `supply_demand_`, `ob_` | `RECLAIM` |
+| `divergence_`, `mean_reversion_` | `REVERSAL` |
+| everything else | `PATTERN` |
+
+Matching is `setup_plugin.lower().split("_", 1)[0] + "_"` prefix check. Fallback is `PATTERN`.
 
 ---
 
@@ -142,11 +153,11 @@ Structural label (RECLAIM, FVG FILL, BOS, SWEEP, REVERSAL, PATTERN) derived from
 ```
 ┌─────────────────────────────────────────────────────┐
 │ [BULLISH RECLAIM]  GC · 5m                          │
-│ Entry 5108.7  |  Stop 5100.47  |  T1 5143.84  4.27× │  ← instant
+│ Entry 5108.7  |  Stop 5100.47  |  T1 5143.84  4.27× │  ← instant (exact signal price)
 ├─────────────────────────────────────────────────────┤
 │ Gold testing a 3-TF confluent order block after a   │  ← short, ~500ms
 │ liquidity sweep cleared stops below 5095. Enter at  │
-│ 5108–5112 on any 1m reclaim — stop invalidates      │
+│ 5108–5112 on any 1m reclaim — stop invalidates      │  ← LLM may express entry as a zone around the exact price
 │ below 5100.                                         │
 ├─────────────────────────────────────────────────────┤
 │ ▼ Full analysis                                     │  ← collapsed by default
