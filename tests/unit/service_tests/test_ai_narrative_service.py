@@ -736,3 +736,45 @@ async def test_promote_uses_regime_from_signal():
 
     # model_A should now be at position 0 after promotion
     assert svc.per_signal_chain.providers[0].provider_id == "model_A"
+
+
+# ---- SYSTEM_PROMPT voice and chain separation (plan 22-02) ----
+
+
+def test_system_prompt_prohibits_passive_voice_phrases():
+    """SYSTEM_PROMPT must not contain any banned passive-voice/hedging phrases."""
+    from services.ai_narrative_service import SYSTEM_PROMPT
+
+    banned = ["capitalize", "execute long", "protect the position", "suggests", "price momentum"]
+    for phrase in banned:
+        assert phrase not in SYSTEM_PROMPT.lower(), (
+            f"Banned phrase {phrase!r} found in SYSTEM_PROMPT"
+        )
+
+
+def test_system_prompt_establishes_analyst_voice():
+    """SYSTEM_PROMPT must establish a senior trading desk analyst voice."""
+    from services.ai_narrative_service import SYSTEM_PROMPT
+
+    prompt_lower = SYSTEM_PROMPT.lower()
+    assert "trading desk" in prompt_lower or "analyst" in prompt_lower, (
+        "SYSTEM_PROMPT must reference 'trading desk' or 'analyst'"
+    )
+    assert "passive voice" in prompt_lower or "precise" in prompt_lower, (
+        "SYSTEM_PROMPT must reference 'passive voice' or 'precise'"
+    )
+
+
+def test_service_has_short_chain():
+    """_build_chains() must create both short_chain and deep_chain attributes."""
+    svc = _make_service()
+    assert hasattr(svc, "short_chain"), "short_chain attribute missing after _build_chains()"
+    assert hasattr(svc, "deep_chain"), "deep_chain attribute missing after _build_chains()"
+
+
+def test_service_short_chain_is_separate_from_deep_chain():
+    """short_chain and deep_chain must be distinct LLMChain instances."""
+    svc = _make_service()
+    assert svc.short_chain is not svc.deep_chain, (
+        "short_chain and deep_chain must be separate instances"
+    )
