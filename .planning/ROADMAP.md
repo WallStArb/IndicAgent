@@ -106,12 +106,12 @@ Plans:
   1. Characterization test verifies RSI zero-loss behavior returns 100.0
   2. Characterization test verifies trade_framer zero ATR emergency fallback
   3. Characterization test verifies lock acquisition and release in concurrent access scenarios
-**Plans**: TBD
+**Plans**: 3 plans (1 wave)
 
 Plans:
-- [ ] 19-01: RSI zero-loss characterization test
-- [ ] 19-02: trade_framer ATR fallback characterization test
-- [ ] 19-03: Concurrent lock behavior characterization test
+- [ ] 19-01-PLAN.md — RSI zero-loss guard: verify avg_loss==0 returns 100.0
+- [ ] 19-02-PLAN.md — trade_framer zero-ATR emergency fallback: verify 0.1% price substitution
+- [ ] 19-03-PLAN.md — concurrent lock: verify per-key idempotency, isolation, blocking, and release
 
 #### Phase 20: Circuit Breaker Integration
 **Goal**: retry_utils.py with exponential backoff/jitter, circuit breaker integration for IBKR and LLM providers
