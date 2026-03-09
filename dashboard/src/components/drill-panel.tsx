@@ -482,6 +482,11 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
       })
     : "—";
+  const sigTimeStr = signal.signal_computed_at
+    ? new Date(signal.signal_computed_at).toLocaleTimeString([], {
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      })
+    : null;
 
   const labels = signal.target_labels ?? [];
   const t1 = signal.profit_target ?? null;
@@ -522,6 +527,14 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         <span className="text-[0.6rem] text-[var(--text-secondary)]">{signal.signal_type.replace(/_/g, " ")}</span>
         <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>{(signal.confidence * 100).toFixed(0)}%</span>
         <span className="text-[0.55rem] text-[var(--text-muted)]">{signal.timeframe} · {timeStr}</span>
+        {sigTimeStr && (
+          <span className="text-[0.5rem] font-data text-[var(--text-muted)] opacity-70">
+            sig {sigTimeStr}
+            {signal.market_price_at_signal != null && (
+              <span className="ml-0.5 opacity-80">@ {fmtPrice(signal.market_price_at_signal)}</span>
+            )}
+          </span>
+        )}
       </div>
 
       {/* Entry / Stop */}

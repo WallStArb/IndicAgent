@@ -204,8 +204,8 @@ export function SignalPanel({ signal }: SignalPanelProps) {
 
       {/* Price context: bar close / market at signal / entry zone */}
       <div className="pl-[3.25rem] space-y-0.5">
-        {/* Row: BAR @ price  →  SIG @ price */}
-        {(signal.bar_close_price != null || signal.market_price_at_signal != null) && (
+        {/* Row: BAR price  →  SIG HH:MM:SS [@ tick_price] */}
+        {(signal.bar_close_price != null || computedStr != null) && (
           <div className="flex items-center gap-1.5 flex-wrap">
             {signal.bar_close_price != null && (
               <span className="text-[0.5rem] font-data text-[var(--text-muted)]">
@@ -213,19 +213,19 @@ export function SignalPanel({ signal }: SignalPanelProps) {
                 <span>{fmtPrice(signal.bar_close_price)}</span>
               </span>
             )}
-            {signal.bar_close_price != null && signal.market_price_at_signal != null && (
+            {signal.bar_close_price != null && computedStr != null && (
               <span className="opacity-30 text-[0.45rem]">→</span>
             )}
-            {signal.market_price_at_signal != null && (
+            {computedStr != null && (
               <span className="text-[0.5rem] font-data" style={{ color: "var(--text-secondary)" }}>
                 <span className="opacity-50">SIG </span>
-                {computedStr && (
+                <span>{computedStr}</span>
+                {signal.market_price_at_signal != null && (
                   <>
-                    <span>{computedStr}</span>
                     <span className="opacity-40 mx-0.5">@</span>
+                    <span>{fmtPrice(signal.market_price_at_signal)}</span>
                   </>
                 )}
-                <span>{fmtPrice(signal.market_price_at_signal)}</span>
               </span>
             )}
           </div>
