@@ -4,7 +4,6 @@ from services.ai_narrative_service import (
     _build_llm_call_payload,
     build_action_tag,
     build_deep_prompt,
-    build_narrative_prompt,
     build_short_prompt,
     extract_deep_context,
     extract_short_context,
@@ -62,16 +61,8 @@ def test_parse_aggregated_signal_skips_zero_direction():
     assert result is None
 
 
-def test_build_narrative_prompt_contains_key_fields():
-    """Prompt contains entry price, stop, symbol, supporting factors, and /no_think prefix."""
-    signal = parse_aggregated_signal(_make_fields(direction=1))
-    prompt = build_narrative_prompt(signal)
-    assert "ESH6" in prompt
-    assert "5102.50" in prompt
-    assert "5094.00" in prompt
-    assert "BOS confirmed" in prompt
-    assert "/no_think" in prompt
-    assert "Bullish" in prompt
+# test_build_narrative_prompt_contains_key_fields retired in phase 22 (three-tier redesign)
+# build_narrative_prompt() removed — use build_short_prompt() / build_deep_prompt() instead
 
 
 def test_parse_aggregated_signal_includes_signal_id():

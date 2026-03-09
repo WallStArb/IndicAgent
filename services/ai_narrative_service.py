@@ -174,24 +174,7 @@ def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None
     }
 
 
-def build_narrative_prompt(signal: dict[str, Any]) -> str:
-    """Build the Ollama user message from a parsed signal dict."""
-    confidence_pct = f"{signal['confidence']:.0%}"
-    target_str = (
-        f"{signal['profit_target']} (R:R {signal['risk_reward_ratio']})"
-        if signal.get("profit_target") and signal.get("risk_reward_ratio")
-        else signal.get("profit_target") or "not specified"
-    )
-    return (
-        f"/no_think\n\n"
-        f"Symbol: {signal['symbol']}, Timeframe: {signal['timeframe']}\n"
-        f"Setup: {signal['setup_plugin']} — {signal['direction_label']}"
-        f" (confidence {confidence_pct})\n"
-        f"Entry: {signal['entry_price']} | Stop: {signal['stop_loss']}"
-        f" | Target: {target_str}\n"
-        f"Regime: {signal['regime_context']}\n"
-        f"Factors: {signal['supporting_factors']}"
-    )
+# build_narrative_prompt() retired in phase 22 (three-tier redesign) — use build_short_prompt() / build_deep_prompt()
 
 
 _STRUCTURAL_LABELS: dict[str, str] = {
@@ -585,7 +568,6 @@ class AINarrativeService:
 
         self.short_chain = LLMChain([_make_provider(s) for s in pcfg["narrative_short"]])
         self.deep_chain  = LLMChain([_make_provider(s) for s in pcfg["narrative_deep"]])
-        self.per_signal_chain = self.short_chain  # alias for backward compat
         self.group_chain = LLMChain([_make_provider(s) for s in pcfg["group"]])
 
         self._per_signal_timeout = float(pcfg["openrouter_timeout_sec"])
@@ -884,7 +866,7 @@ class AINarrativeService:
                 )
                 # Counterfactual: log that we would have called, but didn't
                 if self.redis_client:
-                    cf_prompt = build_narrative_prompt(signal_data)
+                    cf_prompt = build_short_prompt(signal_data, extract_short_context(signal_data, {}))
                     cf_payload = _build_llm_call_payload(
                         call_type="counterfactual",
                         signal_data=signal_data,

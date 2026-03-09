@@ -27,7 +27,8 @@ def _make_service():
 def test_service_initializes_with_default_config():
     """Service creates expected attributes from default config."""
     svc = _make_service()
-    assert hasattr(svc, "per_signal_chain")
+    assert hasattr(svc, "short_chain")
+    assert hasattr(svc, "deep_chain")
     assert hasattr(svc, "group_chain")
     assert svc._per_signal_timeout == 30.0   # OpenRouter timeout
     assert "ESH6" in svc.config["service"]["symbols"]
@@ -39,7 +40,7 @@ async def test_process_message_skips_zero_direction():
     """direction=0 → no LLM call, message acked anyway."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
-    svc.per_signal_chain.generate = AsyncMock()
+    svc.short_chain.generate = AsyncMock()
 
     fields = {
         b"direction": b"0",
@@ -50,7 +51,7 @@ async def test_process_message_skips_zero_direction():
     await svc._process_single_message(
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
-    svc.per_signal_chain.generate.assert_not_called()
+    svc.short_chain.generate.assert_not_called()
     svc.redis_client.xack.assert_not_called()
 
 
@@ -65,8 +66,6 @@ async def test_process_message_publishes_narrative():
     svc.short_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
     svc.deep_chain.generate = AsyncMock(return_value=fake_narrative)
     svc.deep_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
-    svc.per_signal_chain.generate = svc.short_chain.generate
-    svc.per_signal_chain.last_provider_id = svc.short_chain.last_provider_id
 
     fields = {
         b"direction": b"1",
@@ -118,8 +117,6 @@ async def test_process_message_handles_ollama_failure():
     svc.short_chain.last_provider_id = "ollama:qwen3.5:9b"
     svc.deep_chain.generate = AsyncMock(return_value=None)
     svc.deep_chain.last_provider_id = "ollama:qwen3.5:9b"
-    svc.per_signal_chain.generate = svc.short_chain.generate
-    svc.per_signal_chain.last_provider_id = svc.short_chain.last_provider_id
 
     fields = {
         b"direction": b"1",
@@ -156,7 +153,7 @@ async def test_process_message_skips_1m_timeframe():
     """1m signals are always skipped — never worth per-signal LLM cost."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
-    svc.per_signal_chain.generate = AsyncMock()
+    svc.short_chain.generate = AsyncMock()
 
     fields = {
         b"direction": b"1",
@@ -176,7 +173,7 @@ async def test_process_message_skips_1m_timeframe():
     await svc._process_single_message(
         "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
     )
-    svc.per_signal_chain.generate.assert_not_called()
+    svc.short_chain.generate.assert_not_called()
     svc.redis_client.xack.assert_not_called()
 
 
@@ -185,7 +182,7 @@ async def test_process_message_skips_low_confidence():
     """Confidence ≤ 0.70 is skipped even on an eligible timeframe."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
-    svc.per_signal_chain.generate = AsyncMock()
+    svc.short_chain.generate = AsyncMock()
 
     fields = {
         b"direction": b"1",
@@ -205,7 +202,7 @@ async def test_process_message_skips_low_confidence():
     await svc._process_single_message(
         "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
     )
-    svc.per_signal_chain.generate.assert_not_called()
+    svc.short_chain.generate.assert_not_called()
     svc.redis_client.xack.assert_not_called()
 
 
@@ -219,7 +216,6 @@ async def test_process_message_allows_5m_high_confidence():
     svc.short_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
     svc.deep_chain.generate = AsyncMock(return_value="ES bullish setup forming.")
     svc.deep_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
-    svc.per_signal_chain.generate = svc.short_chain.generate
 
     fields = {
         b"direction": b"1",
@@ -249,8 +245,8 @@ async def test_process_message_acks_on_redis_publish_failure():
     svc = _make_service()
     svc.redis_client = AsyncMock()
     svc.redis_client.xadd.side_effect = Exception("Redis write failed")
-    svc.per_signal_chain.generate = AsyncMock(return_value="Some narrative.")
-    svc.per_signal_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+    svc.short_chain.generate = AsyncMock(return_value="Some narrative.")
+    svc.short_chain.last_provider_id = "openrouter:meta-llama/llama-3.3-70b-instruct:free"
 
     fields = {
         b"direction": b"1",
@@ -280,7 +276,7 @@ async def test_latest_signals_cache_updated_for_any_signal():
     """_latest_signals is updated even for 1m/low-confidence signals (group loop needs them)."""
     svc = _make_service()
     svc.redis_client = AsyncMock()
-    svc.per_signal_chain.generate = AsyncMock()
+    svc.short_chain.generate = AsyncMock()
 
     fields = {
         b"direction": b"1",
@@ -422,7 +418,6 @@ def _make_service_new():
     svc.deep_chain = MagicMock()
     svc.deep_chain.generate = AsyncMock(return_value=None)
     svc.deep_chain.last_provider_id = "zai"
-    svc.per_signal_chain = svc.short_chain  # backward-compat alias
     svc._per_signal_timeout = 30.0
 
     # Redis mock
@@ -459,7 +454,7 @@ def _make_signal_fields_i8(confidence: float = 0.80, direction: int = 1) -> dict
 async def test_i8_publish_called_when_narrative_generated():
     """xadd called for both narratives and i8 streams when narrative succeeds."""
     svc = _make_service_new()
-    svc.per_signal_chain.generate = AsyncMock(return_value="Bullish trend setup, entry at 5100.")
+    svc.short_chain.generate = AsyncMock(return_value="Bullish trend setup, entry at 5100.")
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
@@ -479,7 +474,7 @@ async def test_i8_publish_called_when_narrative_generated():
 async def test_i8_not_published_when_narrative_empty():
     """No i8 xadd when Ollama/LLM returns empty string."""
     svc = _make_service_new()
-    svc.per_signal_chain.generate = AsyncMock(return_value=None)
+    svc.short_chain.generate = AsyncMock(return_value=None)
     svc.deep_chain.generate = AsyncMock(return_value=None)
 
     fields = _make_signal_fields_i8(confidence=0.85)
@@ -494,7 +489,7 @@ async def test_i8_not_published_when_narrative_empty():
 async def test_i8_payload_shape():
     """i8 xadd message has required keys: ts, symbol, tf, model, confidence, summary, generated_at."""  # noqa: E501
     svc = _make_service_new()
-    svc.per_signal_chain.generate = AsyncMock(return_value="Short narrative for test.")
+    svc.short_chain.generate = AsyncMock(return_value="Short narrative for test.")
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
@@ -521,7 +516,7 @@ async def test_i8_summary_truncated_at_280_chars():
     """Summary in i8 payload is capped at 280 characters."""
     svc = _make_service_new()
     long_narrative = "A" * 500
-    svc.per_signal_chain.generate = AsyncMock(return_value=long_narrative)
+    svc.short_chain.generate = AsyncMock(return_value=long_narrative)
 
     fields = _make_signal_fields_i8(confidence=0.85)
     await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
@@ -540,7 +535,7 @@ async def test_i8_summary_truncated_at_280_chars():
 async def test_i8_not_published_on_low_confidence():
     """confidence <= 0.70 -> skipped before narrative generation, no i8 xadd."""
     svc = _make_service_new()
-    svc.per_signal_chain.generate = AsyncMock(return_value="Should not be called")
+    svc.short_chain.generate = AsyncMock(return_value="Should not be called")
 
     fields = _make_signal_fields_i8(confidence=0.65)
     result = await svc._process_single_message("ESH6", "5m", fields, "stream", b"1-0")
@@ -548,7 +543,7 @@ async def test_i8_not_published_on_low_confidence():
     assert result is True
     call_args_list = [str(c.args[0]) for c in svc.redis_client.xadd.call_args_list]
     assert not any("intelligence_i8" in name for name in call_args_list)
-    svc.per_signal_chain.generate.assert_not_called()
+    svc.short_chain.generate.assert_not_called()
 
 
 # ---- LLM call payload helper ----
@@ -688,7 +683,6 @@ def _make_svc_routing():
     svc.short_chain.providers = []
     svc.deep_chain = MagicMock()
     svc.deep_chain.providers = []
-    svc.per_signal_chain = svc.short_chain  # alias — matches production pattern
     svc.group_chain = MagicMock()
     svc.group_chain.providers = []
     svc.logger = MagicMock()
@@ -849,7 +843,6 @@ def _make_service_concurrent():
     svc.deep_chain.generate = AsyncMock(return_value="Test narrative.")
     svc.deep_chain.last_provider_id = "openrouter:test-deep"
 
-    svc.per_signal_chain = svc.short_chain  # backward compat alias
     svc._per_signal_timeout = 30.0
 
     # Redis mock — xrevrange returns [] (no intel context), xadd captures call_type
