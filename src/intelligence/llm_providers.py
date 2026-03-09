@@ -21,6 +21,13 @@ import structlog
 from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
 from src.core.retry_utils import retry_with_backoff
 
+# Circuit breaker metrics
+from src.observability.metrics import (
+    CIRCUIT_BREAKER_FAILURES_TOTAL,
+    CIRCUIT_BREAKER_SUCCESSES_TOTAL,
+    CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
+)
+
 logger = structlog.get_logger(__name__)
 
 # Circuit breaker for LLM provider calls — shared across all providers.
@@ -59,7 +66,10 @@ async def _call_llm_with_circuit_breaker(
     from asyncio import to_thread
     from datetime import datetime
 
+    from src.core.plugin_circuit_breaker import CircuitState
+
     plugin_state = _llm_circuit_breaker.plugin_states[provider_id]
+    previous_state = plugin_state.state
 
     async def _run() -> str | None:
         return await to_thread(call_fn)
@@ -71,17 +81,43 @@ async def _call_llm_with_circuit_breaker(
             base_delay=1.0,
             max_delay=10.0,
         )
+        # Record success metrics
+        CIRCUIT_BREAKER_SUCCESSES_TOTAL.labels(plugin_name=provider_id).inc()
+
         # Record success in circuit breaker
         plugin_state.success_count += 1
         plugin_state.last_success_time = datetime.now()
         plugin_state.total_calls += 1
+
+        # Record state transition if recovered from non-closed state
+        if plugin_state.state != previous_state and previous_state != CircuitState.CLOSED:
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
+                plugin_name=provider_id,
+                from_state=previous_state.name.lower(),
+                to_state="closed",
+            ).inc()
+
         return result
 
     except Exception as exc:
+        # Record failure metrics
+        CIRCUIT_BREAKER_FAILURES_TOTAL.labels(
+            plugin_name=provider_id,
+            error_type=type(exc).__name__,
+        ).inc()
+
         # Record failure in circuit breaker
         plugin_state.failure_count += 1
         plugin_state.last_failure_time = datetime.now()
         plugin_state.total_calls += 1
+
+        # Record state transition if tripped to OPEN
+        if plugin_state.state == CircuitState.OPEN and previous_state != CircuitState.OPEN:
+            CIRCUIT_BREAKER_TRANSITIONS_TOTAL.labels(
+                plugin_name=provider_id,
+                from_state=previous_state.name.lower(),
+                to_state="open",
+            ).inc()
 
         logger.warning(
             "LLM provider call failed",
