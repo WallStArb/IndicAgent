@@ -286,11 +286,20 @@ class IndicatorService:
                 return True
 
             # authoritative bar: update history (dedup by timestamp, O(1))
+            # Optimization: Only invalidate DataFrame cache when buffer capacity is
+            # exceeded. Appending to OrderedDict does not invalidate the cached
+            # DataFrame — the new bar will be included on the next cache rebuild.
             history = self.bar_history[key]
             history[bar_ts.isoformat()] = bar_data
+
+            # Only invalidate cache when oldest bar is evicted (capacity exceeded)
+            cache_invalidated = False
             while len(history) > self._bar_history_max:
                 history.popitem(last=False)
-            self._df_cache[key] = None
+                cache_invalidated = True
+
+            if cache_invalidated:
+                self._df_cache[key] = None
 
             min_bars = self._min_bars_for_tf(timeframe)
             if len(self.bar_history[key]) < min_bars:
