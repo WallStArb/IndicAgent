@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from src.intelligence.utils import clamp
 
 # ---------------------------------------------------------------------------
@@ -126,7 +128,12 @@ class CISScorer:
             "regime": self._regime(features, plugin_outputs),
         }
 
-        cis_raw = sum(self._weights[b] * bucket_scores[b] for b in BUCKET_NAMES)
+        # Vectorized aggregation using numpy.dot for weighted sum and
+        # vectorized comparison for agreement counting. Maintains exact
+        # numerical equivalence with scalar implementation.
+        weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
+        scores_array = np.array([bucket_scores[b] for b in BUCKET_NAMES])
+        cis_raw = float(np.dot(weights_array, scores_array))
         cis_score = clamp(cis_raw)
 
         # Determine fire direction
@@ -139,11 +146,8 @@ class CISScorer:
         # Use the sign of cis_score (not the magnitude) so a bucket score of 0.28
         # with cis_score=0.3 correctly reads as 0.28 * 1.0 = 0.28 > 0.1 = agreeing.
         cis_sign = 1.0 if cis_score >= 0 else -1.0
-        agreeing = sum(
-            1
-            for b in BUCKET_NAMES
-            if bucket_scores[b] * cis_sign > BUCKET_NOISE_FLOOR
-        )
+        bucket_array = scores_array * cis_sign  # Apply cis_sign to all buckets
+        agreeing = int(np.sum(bucket_array > BUCKET_NOISE_FLOOR))
 
         # Require minimum agreement even if threshold was met
         if agreeing < BUCKET_AGREE_MIN:
