@@ -327,8 +327,18 @@ class MarketAnalysisService:
             bar_data["timestamp"] = bar_ts
 
             key = f"{symbol}:{timeframe}"
-            self.bar_history[key].append(bar_data)
-            self._df_cache[key] = None
+            history = self.bar_history[key]
+
+            # Optimization: Only invalidate cache when deque maxlen overflow occurs.
+            # Appending within capacity does not invalidate the cached DataFrame.
+            # Overflow happens when deque is already at maxlen before append —
+            # the deque then silently removes the oldest bar and adds the new one.
+            len_before = len(history)
+            history.append(bar_data)
+            cache_invalidated = len_before == history.maxlen  # True if overflow occurred
+
+            if cache_invalidated:
+                self._df_cache[key] = None
 
             calc_start = time.time()
             tiered = await self._calculate_intelligence(
