@@ -155,27 +155,24 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. `extract_short_context()` and `extract_deep_context()` pure functions extract intelligence context from Redis stream
   2. `build_short_prompt()` and `build_deep_prompt()` build tier-specific prompts with confidence-gated instructions
-  3. `fire_narrative_tiers()` fires two concurrent async LLM tasks without blocking each other
+  3. Two concurrent asyncio.create_task() calls fire narrative_short and narrative_deep without blocking each other
   4. narratives stream carries `narrative_type` field (`short`/`deep`) for consumer routing
-  5. Dashboard renders deterministic signal bar immediately from signal data (no LLM wait)
+  5. Dashboard renders action_tag badge immediately from signal data (no LLM wait)
   6. Dashboard renders short narrative on arrival with `narrative_type === "short"` filter
   7. Dashboard expand/collapse reveals deep narrative with `narrative_type === "deep"` filter
   8. `llm_writer_service` persists both narrative types to `llm_calls` hypertable
   9. All changes covered by TDD unit tests (pure functions + async task isolation)
   10. Old `build_narrative_prompt()` single-call path retired
-**Plans**: TBD (see docs/plans/2026-03-09-i8-narrative-implementation.md)
+**Plans**: 7 plans (3 waves)
 
 Plans:
-- [ ] 22-01: Intelligence context extraction pure functions + tests
-- [ ] 22-02: Tier prompt builders + action tag + structural label
-- [ ] 22-03: Concurrent tier firing in ai_narrative_service
-- [ ] 22-04: narratives stream schema update (narrative_type field)
-- [ ] 22-05: Dashboard signal bar + short narrative wiring
-- [ ] 22-06: Dashboard deep narrative expand/collapse
-- [ ] 22-07: llm_writer_service dual-type persistence
-- [ ] 22-08: Integration + smoke test
-- [ ] 22-09: Retire old single-call path + cleanup
-- [ ] 22-10: Phase 22 verification
+- [ ] 22-01-PLAN.md — Intelligence context extraction pure functions + 16 tests (Wave 1)
+- [ ] 22-02-PLAN.md — SYSTEM_PROMPT voice update + short/deep chain separation (Wave 1)
+- [ ] 22-03-PLAN.md — Concurrent calls + intelligence fetch in _process_single_message (Wave 2)
+- [ ] 22-04-PLAN.md — NarrativeData types + SSE handler narrative_type routing (Wave 1)
+- [ ] 22-05-PLAN.md — Narrative panel UI: action_tag badge + expand/collapse deep (Wave 2)
+- [ ] 22-06-PLAN.md — narrative_short / narrative_deep provider config entries (Wave 1)
+- [ ] 22-07-PLAN.md — Integration verification + retire old per_signal path (Wave 3)
 
 ## Backlog
 
@@ -226,7 +223,7 @@ Re-prioritized 2026-03-08 after v1.5 planning.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 21
+Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 21 → 22
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -261,3 +258,4 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 19. Financial Math Characterization | 3/3 | Complete    | 2026-03-09 | - |
 | 20. Circuit Breaker Integration | 4/4 | Complete    | 2026-03-09 | - |
 | 21. Efficiency Optimizations | 4/4 | Complete    | 2026-03-09 | - |
+| 22. I8 Narrative Three-Tier Redesign | v1.5 | 0/7 | In Progress | — |
