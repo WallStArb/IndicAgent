@@ -657,8 +657,11 @@ def _make_svc_routing():
     svc.redis_client = AsyncMock()
     svc._preferred_models = {}  # new attribute — must be set manually per CLAUDE.md pattern
     # Mock chains
-    svc.per_signal_chain = MagicMock()
-    svc.per_signal_chain.providers = []
+    svc.short_chain = MagicMock()
+    svc.short_chain.providers = []
+    svc.deep_chain = MagicMock()
+    svc.deep_chain.providers = []
+    svc.per_signal_chain = svc.short_chain  # alias — matches production pattern
     svc.group_chain = MagicMock()
     svc.group_chain.providers = []
     svc.logger = MagicMock()
@@ -671,19 +674,19 @@ async def test_apply_score_routing_per_regime():
     svc = _make_svc_routing()
 
     async def fake_hgetall(key):
-        if "trending" in key and "per_signal" in key:
+        if "trending" in key and "narrative_short" in key:
             return {b"model_A": json.dumps({"is_significant": True, "avg_pnl_r": 2.0}).encode()}
-        if "ranging" in key and "per_signal" in key:
+        if "ranging" in key and "narrative_short" in key:
             return {b"model_B": json.dumps({"is_significant": True, "avg_pnl_r": 1.5}).encode()}
         return {}
 
     svc.redis_client.hgetall = fake_hgetall
     await svc._apply_score_routing()
 
-    assert svc._preferred_models.get("per_signal", {}).get("trending") == "model_A"
-    assert svc._preferred_models.get("per_signal", {}).get("ranging") == "model_B"
+    assert svc._preferred_models.get("narrative_short", {}).get("trending") == "model_A"
+    assert svc._preferred_models.get("narrative_short", {}).get("ranging") == "model_B"
     # volatile has no significant model — should not be in dict
-    assert "volatile" not in svc._preferred_models.get("per_signal", {})
+    assert "volatile" not in svc._preferred_models.get("narrative_short", {})
 
 
 @pytest.mark.asyncio
@@ -692,7 +695,7 @@ async def test_apply_score_routing_falls_back_without_significant():
     svc = _make_svc_routing()
 
     async def fake_hgetall(key):
-        if "trending" in key and "per_signal" in key:
+        if "trending" in key and "narrative_short" in key:
             # Not significant
             return {b"model_X": json.dumps({"is_significant": False, "avg_pnl_r": 5.0}).encode()}
         return {}
@@ -700,7 +703,7 @@ async def test_apply_score_routing_falls_back_without_significant():
     svc.redis_client.hgetall = fake_hgetall
     await svc._apply_score_routing()
 
-    assert "trending" not in svc._preferred_models.get("per_signal", {})
+    assert "trending" not in svc._preferred_models.get("narrative_short", {})
 
 
 def test_preferred_models_initialized():

@@ -47,10 +47,13 @@ from src.observability.metrics import counter, gauge, start_metrics_server  # no
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = (
-    "You are a professional futures trading analyst. "
-    "Respond with ONLY a concise 2-3 sentence trading narrative — no analysis steps, "
-    "no numbered sections, no reasoning process, no headers, no preamble. "
-    "Be specific about price levels and directional bias. No disclaimers."
+    "You are a senior trading desk analyst briefing a portfolio manager. "
+    "Write with precision and economy — every word must earn its place. "
+    "Never use passive voice. "
+    "State conclusions directly — the system computed these signals with statistical confidence. "
+    "Do not restate the setup name or direction label — the PM already sees those. "
+    "Avoid generic trading clichés and vague risk-to-reward phrasing. "
+    "Your job: explain WHY this structure matters right now and WHAT to do about it."
 )
 
 # Per-signal narrative gating
@@ -358,7 +361,9 @@ class AINarrativeService:
                 return OpenRouterProvider(spec["model"], api_key=or_key, base_url=or_url)
             return OllamaProvider(spec["model"], base_url=ol_url)
 
-        self.per_signal_chain = LLMChain([_make_provider(s) for s in pcfg["per_signal"]])
+        self.short_chain = LLMChain([_make_provider(s) for s in pcfg["narrative_short"]])
+        self.deep_chain  = LLMChain([_make_provider(s) for s in pcfg["narrative_deep"]])
+        self.per_signal_chain = self.short_chain  # alias for backward compat
         self.group_chain = LLMChain([_make_provider(s) for s in pcfg["group"]])
 
         self._per_signal_timeout = float(pcfg["openrouter_timeout_sec"])
@@ -410,6 +415,22 @@ class AINarrativeService:
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama",     "model": "phi4-mini:3.8b"},
+                ],
+                "narrative_short": [
+                    {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},
+                    {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},
+                    {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
+                    {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
+                    {"type": "ollama",     "model": "qwen3.5:9b"},
+                ],
+                "narrative_deep": [
+                    {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},
+                    {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},
+                    {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
+                    {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
+                    {"type": "ollama",     "model": "qwen3.5:9b"},
                 ],
             },
             "logging": {
@@ -729,7 +750,8 @@ class AINarrativeService:
             return
         new_preferred: dict[str, dict[str, str]] = {}
         for call_type, _chain in [
-            ("per_signal", self.per_signal_chain),
+            ("narrative_short", self.short_chain),
+            ("narrative_deep",  self.deep_chain),
             ("group_synthesis", self.group_chain),
         ]:
             regime_winners: dict[str, str] = {}
