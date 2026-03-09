@@ -160,24 +160,22 @@ class IBKRProvider:
 
     async def connect(self) -> bool:
         """Connect to TWS/Gateway. Returns True on success."""
-        try:
-            self._ib = IB()
-            await self._ib.connectAsync(
-                host=self._host,
-                port=self._port,
-                clientId=self._client_id,
-                timeout=self._settings.ib_timeout_sec,
-                readonly=False,
+        # Check circuit breaker state first
+        if _is_circuit_breaker_open():
+            logger.warning(
+                "IBKR circuit breaker OPEN, skipping connection attempt",
+                extra={"host": self._host, "port": self._port},
             )
-            connected = self._ib.isConnected()
-            if connected:
-                logger.info(
-                    "IBKRProvider connected", extra={"host": self._host, "port": self._port}
-                )
-            return connected
-        except Exception as e:
-            logger.error("IBKRProvider connect failed", extra={"error": str(e)})
             return False
+
+        # Use circuit breaker for connection attempt
+        self._ib = await _connect_with_circuit_breaker(
+            host=self._host,
+            port=self._port,
+            client_id=self._client_id,
+            timeout=self._settings.ib_timeout_sec,
+        )
+        return self._ib is not None
 
     async def disconnect(self) -> None:
         """Disconnect from TWS."""
