@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 22-05-PLAN.md
-last_updated: "2026-03-09T17:12:05.773Z"
+stopped_at: Completed 22-03-PLAN.md
+last_updated: "2026-03-09T17:16:41.321Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 25
-  completed_plans: 23
+  completed_plans: 24
   percent: 36
 ---
 
@@ -78,6 +78,7 @@ Progress: [████░░░░░░] 36%
 | Phase 22-i8-narrative-three-tier-redesign P01 | 8 | 1 tasks | 2 files |
 | Phase 22-i8-narrative-three-tier-redesign P02 | 10 | 1 tasks | 2 files |
 | Phase 22-i8-narrative-three-tier-redesign P05 | 30 | 2 tasks | 1 files |
+| Phase 22-i8-narrative-three-tier-redesign P03 | 15 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Recent decisions affecting current work:
 - [Phase 22]: _apply_score_routing loop uses narrative_short/narrative_deep replacing legacy per_signal; score cache keys aligned with new three-tier call types
 - [Phase 22-05]: action_tag badge uses text-xs font-mono text-amber-400 — amber mono distinguishes machine-generated instruction from narrative prose
 - [Phase 22-05]: Expand button only rendered when shortText is present — prevents orphaned toggle when no narrative has arrived
+- [Phase 22]: narrative_short and narrative_deep fire as independent asyncio.create_task() calls, neither blocking the processing loop
+- [Phase 22]: xrevrange(count=1) fetches intel context before prompt building; empty list degrades gracefully to empty dict
 
 ### Pending Todos
 
@@ -138,6 +141,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T17:12:05.771Z
-Stopped at: Completed 22-05-PLAN.md
+Last session: 2026-03-09T17:16:41.319Z
+Stopped at: Completed 22-03-PLAN.md
 Resume file: None
