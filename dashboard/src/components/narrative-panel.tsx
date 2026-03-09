@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { NarrativeData, GroupNarrativeData } from "@/lib/types";
 import { stalenessRatio, tfToMinutes } from "@/lib/format";
 
@@ -114,6 +114,12 @@ function NarrativeCard({ data }: { data: NarrativeData }) {
   const isBullish = data.action_bias === "bullish";
   const accentColor = isBullish ? "var(--green)" : "var(--red)";
 
+  const actionTag = data.action_tag ?? "";
+  const shortText = data.narrative_short ?? data.narrative ?? null;
+  const deepText = data.narrative_deep ?? null;
+
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div
       className="flex flex-col gap-1 px-3 py-2"
@@ -157,9 +163,33 @@ function NarrativeCard({ data }: { data: NarrativeData }) {
           )}
         </div>
       </div>
-      <p className="text-[0.6rem] text-[var(--text-secondary)] italic leading-relaxed line-clamp-5 m-0">
-        {data.narrative}
-      </p>
+      {actionTag && (
+        <div className="text-xs font-mono text-amber-400 mb-1">{actionTag}</div>
+      )}
+      {shortText ? (
+        <p className="text-[0.6rem] text-[var(--text-secondary)] italic leading-relaxed m-0">
+          {shortText}
+        </p>
+      ) : (
+        <div className="h-8 bg-white/5 rounded animate-pulse" />
+      )}
+      {shortText && (
+        <button
+          className="text-xs text-white/40 hover:text-white/60 mt-2 block text-left"
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? "▲ Hide analysis" : "▼ Full analysis"}
+        </button>
+      )}
+      {expanded && (
+        deepText ? (
+          <p className="text-[0.6rem] leading-relaxed mt-2 text-white/80 italic m-0">
+            {deepText}
+          </p>
+        ) : (
+          <div className="h-12 bg-white/5 rounded animate-pulse mt-2" />
+        )
+      )}
     </div>
   );
 }
