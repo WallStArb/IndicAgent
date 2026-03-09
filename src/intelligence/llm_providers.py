@@ -13,10 +13,15 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from typing import Protocol, runtime_checkable
+
+import structlog
 
 # Circuit breaker and retry
 from src.core.plugin_circuit_breaker import CircuitBreakerConfig, PluginCircuitBreaker
 from src.core.retry_utils import retry_with_backoff
+
+logger = structlog.get_logger(__name__)
 
 # Circuit breaker for LLM provider calls — shared across all providers.
 # Uses a 5-minute recovery timeout and 3 consecutive failures threshold.
@@ -34,8 +39,8 @@ _llm_circuit_breaker = PluginCircuitBreaker(
 
 async def _call_llm_with_circuit_breaker(
     provider_id: str,
-    call_fn: "collections.abc.Callable[[], str | None]",
-) -> "str | None":
+    call_fn: "collections.abc.Callable",
+) -> str | None:
     """Call LLM provider with circuit breaker tracking and retry backoff.
 
     Args:
@@ -52,12 +57,11 @@ async def _call_llm_with_circuit_breaker(
         Circuit breaker state (success_count, failure_count) tracks health.
     """
     from asyncio import to_thread
-    from collections.abc import Callable
     from datetime import datetime
 
     plugin_state = _llm_circuit_breaker.plugin_states[provider_id]
 
-    async def _run() -> "str | None":
+    async def _run() -> str | None:
         return await to_thread(call_fn)
 
     try:
@@ -79,8 +83,7 @@ async def _call_llm_with_circuit_breaker(
         plugin_state.last_failure_time = datetime.now()
         plugin_state.total_calls += 1
 
-        import structlog as _structlog
-        _structlog.get_logger(__name__).warning(
+        logger.warning(
             "LLM provider call failed",
             provider=provider_id,
             error=str(exc),
@@ -104,12 +107,6 @@ def _extract_message_content(choices: list[dict]) -> str | None:
         return None
     content = msg.get("content") or msg.get("reasoning") or ""
     return content.strip() or None
-from asyncio import to_thread
-from typing import Protocol, runtime_checkable
-
-import structlog
-
-logger = structlog.get_logger(__name__)
 
 
 def _default_llm_timeout() -> float:
@@ -182,11 +179,7 @@ class OpenRouterProvider:
             choices = result.get("choices") or []
             return _extract_message_content(choices)
 
-        try:
-            return await to_thread(_call)
-        except Exception as exc:
-            logger.warning("OpenRouter call failed", model=self.model, error=str(exc))
-            return None
+        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
 
 
 class AnthropicProvider:
@@ -240,11 +233,7 @@ class AnthropicProvider:
                 return None
             return content_block[0].get("text", "").strip() or None
 
-        try:
-            return await to_thread(_call)
-        except Exception as exc:
-            logger.warning("Anthropic call failed", model=self.model, error=str(exc))
-            return None
+        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
 
 
 class ZAIProvider:
@@ -304,11 +293,7 @@ class ZAIProvider:
             choices = result.get("choices") or []
             return _extract_message_content(choices)
 
-        try:
-            return await to_thread(_call)
-        except Exception as exc:
-            logger.warning("ZAI call failed", model=self.model, error=str(exc))
-            return None
+        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
 
 
 class OllamaProvider:
@@ -352,11 +337,7 @@ class OllamaProvider:
                 result = json.loads(resp.read())
             return result.get("message", {}).get("content", "").strip() or None
 
-        try:
-            return await to_thread(_call)
-        except Exception as exc:
-            logger.warning("Ollama call failed", model=self.model, error=str(exc))
-            return None
+        return await _call_llm_with_circuit_breaker(self.provider_id, _call)
 
 
 class LLMChain:
