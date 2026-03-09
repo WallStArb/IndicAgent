@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Production Hardening
 status: executing
-stopped_at: Completed 19-01-PLAN.md
-last_updated: "2026-03-09T00:23:14.831Z"
-last_activity: "2026-03-08 — 18-05: LLM provider configurable timeout complete"
+stopped_at: Completed 20-01-PLAN.md
+last_updated: "2026-03-09T00:31:58Z"
+last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 18
-  completed_plans: 10
-  percent: 33
+  completed_plans: 11
+  percent: 36
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 
 ## Current Position
 
-Phase: 18 of 21 (Financial Math Safety)
-Plan: 5 of 7 in current phase
+Phase: 20 of 21 (Circuit Breaker Integration)
+Plan: 1 of 4 in current phase (20-01 complete)
 Status: In Progress
-Last activity: 2026-03-08 — 18-05: LLM provider configurable timeout complete
+Last activity: 2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 36%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 19-financial-math-characterization P02 | 3 | 1 tasks | 1 files |
 | Phase 19-financial-math-characterization P03 | 2 | 1 tasks | 1 files |
 | Phase 19-financial-math-characterization P01 | 4 | 1 tasks | 2 files |
+| Phase 20-circuit-breaker-integration P01 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 19-03]: Use __new__ pattern to bypass __init__ and set only the lock dict needed for isolated asyncio.Lock testing
 - [Phase 19-financial-math-characterization]: RSI characterization: seed _state directly to isolate compute_next — avoids full dataset dependency in unit tests
 - [Phase 19-financial-math-characterization]: RSI characterization Test 3: assert directional ordering (rsi2 < rsi1) rather than exact floats — pins behavioral invariant robustly
+- [Phase 20-01]: jitter_factor=0.5 default (±50%) spread — wide enough to prevent thundering herd on concurrent retries
+- [Phase 20-01]: retry_with_backoff() re-raises on final attempt directly (not via last_exception capture) to preserve full exception traceback
+- [Phase 20-01]: retry_on=(Exception,) default catches all; callers narrow for precision; no retry_tracker callback — instrumentation delegated to circuit breaker state counts
 
 ### Pending Todos
 
@@ -100,6 +104,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-09T00:20:47.398Z
-Stopped at: Completed 19-01-PLAN.md
+Last session: 2026-03-09T00:31:58Z
+Stopped at: Completed 20-01-PLAN.md
 Resume file: None
