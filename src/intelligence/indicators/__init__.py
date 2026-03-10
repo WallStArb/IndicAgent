@@ -1,0 +1,1 @@
+"""Indicator plugin implementations."""

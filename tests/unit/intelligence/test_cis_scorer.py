@@ -1,0 +1,309 @@
+"""Tests for CISScorer — 6-bucket weighted directional scorer (Phase 7 CIS)."""
+
+from __future__ import annotations
+
+import pytest
+
+from src.intelligence.trading.cis_scorer import (
+    BOOTSTRAP_WEIGHTS,
+    BUCKET_NAMES,
+    CISScorer,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _bullish_features() -> dict:
+    """Return a features dict that should produce a clearly bullish CIS."""
+    return {
+        # Trend bucket drivers
+        "trend_regime": 0.8,
+        "kalman_slope": 0.5,
+        "smc_trend_direction": 1,
+        "ctf_trend_alignment": 0.8,
+        "trend_confluence_score": 0.7,
+        # Momentum bucket drivers
+        "rsi_14": 70.0,
+        "macd_hist_12_26_9": 0.5,
+        "roc_14": 2.0,
+        "momentum_bias": 0.6,
+        # Structure bucket drivers
+        "swing_pattern": 0.7,
+        "bos_detected": 1.0,
+        "bos_direction": 1,
+        "choch_detected": 0.0,
+        "choch_direction": 0,
+        # Pattern bucket (leave mostly neutral)
+        "dt_db_pattern": 0.0,
+        "dt_db_confidence": 0.0,
+        "hs_pattern": 0.0,
+        "hs_confidence": 0.0,
+        "tri_breakout_bias": 0.0,
+        "tri_confidence": 0.0,
+        # Institutional bucket drivers
+        "ob_type": 1,
+        "ob_strength": 0.8,
+        "fvg_type": 1,
+        "fvg_open_count": 2,
+        "in_demand_zone": 1.0,
+        "in_supply_zone": 0.0,
+        # Regime bucket drivers
+        "hmm_prob_trending_up": 0.7,
+        "hmm_prob_trending_down": 0.1,
+        "cp_probability": 0.2,
+        "ctf_regime_agreement": 0.6,
+        "vol_regime": 0.2,
+    }
+
+
+def _bearish_features() -> dict:
+    """Return a features dict that should produce a clearly bearish CIS."""
+    f = _bullish_features()
+    f.update({
+        "trend_regime": -0.8,
+        "kalman_slope": -0.5,
+        "smc_trend_direction": -1,
+        "ctf_trend_alignment": -0.8,
+        "trend_confluence_score": -0.7,
+        "rsi_14": 30.0,
+        "macd_hist_12_26_9": -0.5,
+        "roc_14": -2.0,
+        "momentum_bias": -0.6,
+        "bos_direction": -1,
+        "ob_type": -1,
+        "fvg_type": -1,
+        "in_demand_zone": 0.0,
+        "in_supply_zone": 1.0,
+        "hmm_prob_trending_up": 0.1,
+        "hmm_prob_trending_down": 0.7,
+    })
+    return f
+
+
+def _neutral_features() -> dict:
+    """Return a features dict near zero (no clear direction)."""
+    return {k: 0.0 for k in _bullish_features()}
+
+
+# ---------------------------------------------------------------------------
+# Bucket scoring tests
+# ---------------------------------------------------------------------------
+
+
+class TestTrendBucket:
+    @pytest.mark.unit
+    def test_trend_bucket_bullish(self):
+        """Strong bullish trend inputs -> trend bucket score > 0.3."""
+        features = {
+            "trend_regime": 0.8,
+            "kalman_slope": 0.5,
+            "smc_trend_direction": 1,
+            "ctf_trend_alignment": 0.8,
+            "trend_confluence_score": 0.7,
+        }
+        scorer = CISScorer()
+        result = scorer.score(features, {})
+        assert result.bucket_scores["trend"] > 0.3
+
+    @pytest.mark.unit
+    def test_trend_bucket_bearish(self):
+        """Strong bearish trend inputs -> trend bucket score < -0.3."""
+        features = {
+            "trend_regime": -0.8,
+            "kalman_slope": -0.5,
+            "smc_trend_direction": -1,
+            "ctf_trend_alignment": -0.8,
+            "trend_confluence_score": -0.7,
+        }
+        scorer = CISScorer()
+        result = scorer.score(features, {})
+        assert result.bucket_scores["trend"] < -0.3
+
+
+# ---------------------------------------------------------------------------
+# Fire / no-fire conditions
+# ---------------------------------------------------------------------------
+
+
+class TestCISFireConditions:
+    @pytest.mark.unit
+    def test_cis_fires_on_three_agreeing_buckets(self):
+        """Strong bullish features -> CIS fires (direction=1, |score|>0.35, agreeing>=3)."""
+        scorer = CISScorer()
+        result = scorer.score(_bullish_features(), {})
+        assert result.direction == 1
+        assert abs(result.cis_score) > 0.35
+        assert result.buckets_agreeing >= 3
+
+    @pytest.mark.unit
+    def test_cis_no_fire_below_threshold(self):
+        """All bucket scores near zero -> CIS does not fire (direction=0)."""
+        scorer = CISScorer()
+        result = scorer.score(_neutral_features(), {})
+        assert result.direction == 0
+
+    @pytest.mark.unit
+    def test_cis_fires_bearish(self):
+        """Strong bearish features -> CIS fires with direction=-1."""
+        scorer = CISScorer()
+        result = scorer.score(_bearish_features(), {})
+        assert result.direction == -1
+        assert result.cis_score < -0.35
+
+
+# ---------------------------------------------------------------------------
+# Mathematical invariants
+# ---------------------------------------------------------------------------
+
+
+class TestCISInvariants:
+    @pytest.mark.unit
+    def test_bucket_scores_sum_to_cis(self):
+        """CIS score = weighted sum of bucket scores (before clamping)."""
+        scorer = CISScorer()
+        features = _bullish_features()
+        result = scorer.score(features, {})
+        expected_raw = sum(
+            BOOTSTRAP_WEIGHTS[b] * result.bucket_scores[b] for b in BUCKET_NAMES
+        )
+        # Allow small rounding tolerance
+        assert abs(result.cis_score - round(max(-1.0, min(1.0, expected_raw)), 4)) < 1e-6
+
+    @pytest.mark.unit
+    def test_cis_score_clamped_to_minus_one_plus_one(self):
+        """Extreme feature inputs -> cis_score always in [-1.0, +1.0]."""
+        extreme = {k: 999.9 for k in _bullish_features()}
+        scorer = CISScorer()
+        result = scorer.score(extreme, {})
+        assert -1.0 <= result.cis_score <= 1.0
+
+    @pytest.mark.unit
+    def test_bucket_names_complete(self):
+        """BUCKET_NAMES contains exactly the 6 expected names."""
+        assert set(BUCKET_NAMES) == {"trend", "momentum", "structure", "pattern",
+                                      "institutional", "regime"}
+
+    @pytest.mark.unit
+    def test_bootstrap_weights_sum_to_one(self):
+        """BOOTSTRAP_WEIGHTS must sum to exactly 1.0."""
+        total = sum(BOOTSTRAP_WEIGHTS.values())
+        assert abs(total - 1.0) < 1e-9
+
+    @pytest.mark.unit
+    def test_result_has_all_bucket_keys(self):
+        """CISResult.bucket_scores has an entry for every BUCKET_NAME."""
+        scorer = CISScorer()
+        result = scorer.score({}, {})
+        assert set(result.bucket_scores.keys()) == set(BUCKET_NAMES)
+
+    @pytest.mark.unit
+    def test_weights_version_is_zero_for_bootstrap(self):
+        """Default scorer uses bootstrap weights (version=0)."""
+        scorer = CISScorer()
+        result = scorer.score({}, {})
+        assert result.weights_version == 0
+
+
+# ---------------------------------------------------------------------------
+# Plugin output integration
+# ---------------------------------------------------------------------------
+
+
+class TestCISPluginOutputs:
+    @pytest.mark.unit
+    def test_cis_uses_plugin_output_for_divergence_stack(self):
+        """DivergenceStack plugin direction/confidence contributes to momentum bucket."""
+        features = {
+            "rsi_14": 50.0,  # neutral RSI
+            "macd_hist_12_26_9": 0.0,  # neutral MACD
+            "roc_14": 0.0,  # neutral ROC
+            "momentum_bias": 0.0,  # neutral bias
+        }
+        plugin_outputs_bullish = {
+            "trad_DivergenceStack": {"direction": 1, "confidence": 0.8},
+        }
+        plugin_outputs_bearish = {
+            "trad_DivergenceStack": {"direction": -1, "confidence": 0.8},
+        }
+
+        scorer = CISScorer()
+        result_bullish = scorer.score(features, plugin_outputs_bullish)
+        result_bearish = scorer.score(features, plugin_outputs_bearish)
+
+        # Momentum bucket should differ between bullish and bearish plugin outputs
+        assert result_bullish.bucket_scores["momentum"] > result_bearish.bucket_scores["momentum"]
+
+    @pytest.mark.unit
+    def test_unknown_plugin_names_ignored(self):
+        """Unknown plugin names in plugin_outputs don't crash scorer."""
+        scorer = CISScorer()
+        plugin_outputs = {
+            "unknown_plugin": {"direction": 1, "confidence": 0.9},
+        }
+        result = scorer.score({}, plugin_outputs)
+        assert result is not None
+
+    @pytest.mark.unit
+    def test_missing_plugin_defaults_to_zero_contribution(self):
+        """When plugin not in plugin_outputs, its contribution is zero."""
+        features = {
+            "rsi_14": 50.0,
+            "macd_hist_12_26_9": 0.0,
+            "roc_14": 0.0,
+            "momentum_bias": 0.0,
+        }
+        scorer = CISScorer()
+        result_no_plugin = scorer.score(features, {})
+        result_with_neutral = scorer.score(
+            features, {"trad_DivergenceStack": {"direction": 0, "confidence": 0.0}}
+        )
+        assert result_no_plugin.bucket_scores["momentum"] == pytest.approx(
+            result_with_neutral.bucket_scores["momentum"], abs=1e-4
+        )
+
+
+# ---------------------------------------------------------------------------
+# Custom weights
+# ---------------------------------------------------------------------------
+
+
+class TestCISCustomWeights:
+    @pytest.mark.unit
+    def test_custom_weights_version_stored(self):
+        """Custom weights_version is propagated to CISResult."""
+        custom_weights = dict(BOOTSTRAP_WEIGHTS)
+        scorer = CISScorer(weights=custom_weights, weights_version=42)
+        result = scorer.score({}, {})
+        assert result.weights_version == 42
+
+    @pytest.mark.unit
+    def test_missing_features_default_to_zero(self):
+        """Empty features dict does not crash; all buckets default to zero."""
+        scorer = CISScorer()
+        result = scorer.score({}, {})
+        assert result is not None
+        for b in BUCKET_NAMES:
+            assert result.bucket_scores[b] == pytest.approx(0.0, abs=0.01)
+
+
+def test_cis_result_has_constituent_contributions():
+    scorer = CISScorer()
+    features = {"rsi_14": 65.0, "trend_regime": 0.8}
+    result = scorer.score(features, {})
+    assert hasattr(result, "constituent_contributions")
+    assert isinstance(result.constituent_contributions, dict)
+    assert "momentum" in result.constituent_contributions
+    assert "trend" in result.constituent_contributions
+    # Each bucket entry is a dict of signal → contribution float
+    assert isinstance(result.constituent_contributions["momentum"], dict)
+
+
+def test_constituent_contributions_values_are_floats():
+    scorer = CISScorer()
+    features = {"rsi_14": 30.0, "macd_histogram_12_26_9": -0.5}
+    result = scorer.score(features, {})
+    for bucket, contribs in result.constituent_contributions.items():
+        for signal, val in contribs.items():
+            assert isinstance(val, float), f"{bucket}.{signal} is not float"

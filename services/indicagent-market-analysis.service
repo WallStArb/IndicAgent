@@ -1,0 +1,21 @@
+[Unit]
+Description=IndicAgent Market Analysis Service — I1 to I3-I7 intelligence
+After=network-online.target indicagent-indicator.service
+Wants=indicagent-indicator.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/market_analysis_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-market-analysis
+
+[Install]
+WantedBy=multi-user.target
