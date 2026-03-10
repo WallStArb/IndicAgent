@@ -3,8 +3,10 @@ created: 2026-03-06T00:00:00.000Z
 title: Expand second-derivative indicator coverage (I2/I3)
 area: intelligence
 files:
+  - docs/plans/2026-03-10-second-derivative-indicators-design.md
+  - docs/plans/2026-03-10-second-derivative-indicators-plan.md
   - src/intelligence/composites/
-  - src/intelligence/indicators/
+  - src/intelligence/structure/swing_momentum.py
   - src/intelligence/register_plugins.py
   - tests/unit/intelligence/composites/
 ---
