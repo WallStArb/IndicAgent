@@ -1,13 +1,13 @@
 ---
 phase: 24-second-derivative-acceleration
-verified: 2026-03-10T14:00:00Z
+verified: 2026-03-10T15:30:00Z
 status: passed
 score: 12/12 must-haves verified
 re_verification:
-  previous_status: gaps_found
-  previous_score: 11/12
+  previous_status: passed
+  previous_score: 12/12
   gaps_closed:
-    - "hma_20 output flows into features dict and is consumed by MomentumAcceleration — HMAPlugin now registered in TIER_I1 via register_indicator() at register_plugins.py:127; hma_plugin.name ('HMA') appended to TIER_I1 list at line 242; TIER_I1 confirmed 25 plugins at runtime"
+    - "All gaps from initial verification already closed (HMAPlugin registration completed in plan 24-06)"
   gaps_remaining: []
   regressions: []
 human_verification:
@@ -19,9 +19,9 @@ human_verification:
 # Phase 24: Second-Derivative Acceleration Verification Report
 
 **Phase Goal:** Add second-derivative (acceleration) intelligence to I2/I3 tiers — early inflection detection, exhaustion guards, and 17 new ML features per bar. Add HMA I1 indicator; extend MomentumAcceleration (+rsi_curvature, macd_hist_slope, price_accel, hma_slope, hma_accel); add ExhaustionScore and AccelerationRegime I2 plugins; add SwingMomentum I3 plugin; wire exhaustion awareness into LiquiditySweepReclaim/LiquidityHunt (boost) and MomentumBreakout/TrendFollowing (guard).
-**Verified:** 2026-03-10T14:00:00Z
+**Verified:** 2026-03-10T15:30:00Z
 **Status:** PASSED
-**Re-verification:** Yes — after gap closure (plan 24-06)
+**Re-verification:** Yes — regression check after gap closure confirmed
 
 ---
 
@@ -32,7 +32,7 @@ human_verification:
 | #  | Truth                                                                              | Status      | Evidence                                                                                       |
 |----|------------------------------------------------------------------------------------|-------------|-----------------------------------------------------------------------------------------------|
 | 1  | HMAPlugin exists with correct WMA-of-WMA formula, outputs frozenset{"hma_20"}, min_lookback=20 | VERIFIED | `src/intelligence/indicators/hma.py` — full implementation, plugin singleton, all 6 unit tests GREEN |
-| 2  | hma_20 output flows into live features dict and is consumed by MomentumAcceleration | VERIFIED | HMAPlugin now imported at register_plugins.py:33, registered via `registry.register_indicator(hma_plugin)` at line 127, listed in TIER_I1 at line 242 — TIER_I1 = 25 plugins at runtime |
+| 2  | hma_20 output flows into live features dict and is consumed by MomentumAcceleration | VERIFIED | HMAPlugin imported at register_plugins.py:33, registered via `registry.register_indicator(hma_plugin)` at line 127, "HMA" in TIER_I1 at line 242 — TIER_I1 = 25 plugins at runtime |
 | 3  | MomentumAcceleration emits 9 outputs: 4 original + rsi_curvature, macd_hist_slope, price_accel, hma_slope, hma_accel | VERIFIED | `momentum_accel.py` outputs frozenset has all 9 keys; 23 unit tests GREEN |
 | 4  | rsi_curvature reads OLD prev_rsi_accel before state write (no off-by-one)           | VERIFIED | Reads `prev_rsi_accel` from state before state write — confirmed by passing test_rsi_curvature_computed_on_second_bar |
 | 5  | macd_hist_slope uses `_state["prev_macd_hist"]` not prev_features                   | VERIFIED | test_macd_hist_slope_reads_state_not_prev_features PASSED |
@@ -41,7 +41,7 @@ human_verification:
 | 8  | AccelerationRegime uses 4-vote sign-voting (rsi_curvature, macd_hist_slope, price_accel, hma_accel) | VERIFIED | 4 votes including hma_accel; tests for max/min agreement pass |
 | 9  | SwingMomentum returns {} until 6 confirmed extremes; struct_energy formula correct  | VERIFIED | Warmup gate + formula tests PASSED (7/7) |
 | 10 | SwingMomentum is self-contained (no SwingDetector dependency)                      | VERIFIED | No import of swing_detector in swing_momentum.py |
-| 11 | ExhaustionScore (TIER_I2), AccelerationRegime (TIER_I2), SwingMomentum (TIER_I3) registered in register_plugins.py | VERIFIED | Lines 255-264 of register_plugins.py; all 3 imports, 3 register_pattern() calls, correct TIER lists |
+| 11 | ExhaustionScore (TIER_I2), AccelerationRegime (TIER_I2), SwingMomentum (TIER_I3) registered in register_plugins.py | VERIFIED | Lines 255-267 of register_plugins.py; all 3 imports, 3 register_pattern() calls, correct TIER lists |
 | 12 | LiquiditySweepReclaim and LiquidityHunt boost confidence +0.10 when exhaustion_score > 0.6 in sweep direction; MomentumBreakout and TrendFollowing penalize when score > 0.7 AND bars >= 3 | VERIFIED | All 4 plugins import from exhaustion_utils.py (apply_exhaustion_boost / apply_exhaustion_guard); 9 i7 exhaustion wiring tests GREEN |
 
 **Score:** 12/12 truths verified
@@ -72,9 +72,9 @@ human_verification:
 |-------------------------------------|-------------------------------------------------|-----------------------------------------|---------|--------------------------------------------------------------------------|
 | `src/intelligence/indicators/hma.py` | Live features dict                             | register_plugins.py TIER_I1             | WIRED   | register_indicator(hma_plugin) line 127; TIER_I1 includes "HMA" line 242; TIER_I1=25 at runtime |
 | `momentum_accel.py`                 | `features["hma_20"]`                            | features.get("hma_20") with is_num guard | WIRED   | Code reads hma_20 correctly; now non-zero as HMA is in TIER_I1            |
-| `exhaustion_score.py`               | `register_plugins.py`                           | import + TIER_I2 append                 | WIRED   | Import present; TIER_I2 contains cmp_ExhaustionScore                     |
-| `acceleration_regime.py`            | `register_plugins.py`                           | import + TIER_I2 append                 | WIRED   | Import present; TIER_I2 contains cmp_AccelerationRegime                  |
-| `swing_momentum.py`                 | `register_plugins.py`                           | import + TIER_I3 append                 | WIRED   | Import present; TIER_I3 contains swing_momentum plugin                   |
+| `exhaustion_score.py`               | `register_plugins.py`                           | import + TIER_I2 append                 | WIRED   | Import present; TIER_I2 contains "cmp_ExhaustionScore"                   |
+| `acceleration_regime.py`            | `register_plugins.py`                           | import + TIER_I2 append                 | WIRED   | Import present; TIER_I2 contains "cmp_AccelerationRegime"               |
+| `swing_momentum.py`                 | `register_plugins.py`                           | import + TIER_I3 append                 | WIRED   | Import present; TIER_I3 contains "struct_SwingMomentum"                  |
 | `liquidity_sweep_reclaim.py`        | `exhaustion_utils.apply_exhaustion_boost`       | direct import                           | WIRED   | apply_exhaustion_boost called with direction argument                     |
 | `liquidity_hunt.py`                 | `exhaustion_utils.apply_exhaustion_boost`       | direct import                           | WIRED   | apply_exhaustion_boost called with direction argument                     |
 | `momentum_breakout.py`              | `exhaustion_utils.apply_exhaustion_guard`       | direct import                           | WIRED   | apply_exhaustion_guard called; returns penalty or unchanged confidence    |
@@ -84,7 +84,7 @@ human_verification:
 
 ### Requirements Coverage
 
-No requirement IDs declared in any plan (`requirements: []` across all 6 plans). No REQUIREMENTS.md in scope for this phase.
+No requirement IDs declared in any plan (`requirements: []` across all 7 plans). No REQUIREMENTS.md in scope for this phase.
 
 ---
 
@@ -111,11 +111,21 @@ No stub patterns. No TODO/FIXME comments in new files. No empty implementations.
 
 ### Re-Verification Summary
 
-The single gap from the initial verification has been fully resolved:
+**Regression check complete:** All 12 truths from the previous verification remain verified. No regressions detected.
 
-**Gap closed:** HMAPlugin was fully implemented in `src/intelligence/indicators/hma.py` but had never been imported or registered in `register_plugins.py`. Plan 24-06 addressed this with a surgical fix: added the import at line 33, the `registry.register_indicator(hma_plugin)` call at line 127, and `hma_plugin.name` in the TIER_I1 list at line 242. TIER_I1 runtime count is now 25 (was 24). All 1482 unit tests continue to pass.
+**Confirmed fixes (from previous gap closure):**
+- HMAPlugin fully implemented in `src/intelligence/indicators/hma.py`
+- HMAPlugin imported at register_plugins.py:33
+- HMAPlugin registered via `registry.register_indicator(hma_plugin)` at line 127
+- HMAPlugin name ("HMA") in TIER_I1 list at line 242
+- TIER_I1 runtime count confirmed at 25 plugins (was 24 before gap closure)
 
-**No regressions detected:** All previously-verified truths (exhaustion boost/guard wiring in all 4 I7 plugins, ExhaustionScore/AccelerationRegime/SwingMomentum registration, MomentumAcceleration 9-output extension) remain intact.
+**All automated checks pass:**
+- 1482 unit tests passed (0 failed)
+- Phase 24 targeted tests: 64 passed (41 phase-specific + 23 momentum_accel)
+- All exhaustion boost/guard wiring intact in 4 I7 plugins
+- ExhaustionScore/AccelerationRegime/SwingMomentum registration confirmed
+- MomentumAcceleration 9-output extension verified
 
 **Phase goal achieved:** Second-derivative (acceleration) intelligence is fully implemented and wired. 12/12 must-haves verified. The only remaining item is live-service verification of hma_20 flowing through the indicator pipeline (requires human + running services).
 
@@ -123,10 +133,10 @@ The single gap from the initial verification has been fully resolved:
 
 ## Test Results
 
-**Full unit suite:** 1482 passed, 0 failed (51.67s)
+**Full unit suite:** 1482 passed, 0 failed (50.56s)
 
 **Phase 24 targeted tests:** 64 passed (41 phase-specific + 23 momentum_accel)
-- `test_hma.py`: 6/6 (includes re-verification confirming HMA registered in TIER_I1)
+- `test_hma.py`: 6/6 (includes verification confirming HMA registered in TIER_I1)
 - `test_exhaustion_score.py`: 10/10
 - `test_acceleration_regime.py`: 9/9
 - `test_swing_momentum.py`: 7/7
@@ -137,5 +147,5 @@ The single gap from the initial verification has been fully resolved:
 
 ---
 
-*Verified: 2026-03-10T14:00:00Z*
+*Verified: 2026-03-10T15:30:00Z*
 *Verifier: Claude (gsd-verifier)*
