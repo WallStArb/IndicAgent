@@ -1,5 +1,22 @@
 # Milestones
 
+## v1.5 Production Hardening (Shipped: 2026-03-10)
+
+**Phases completed:** 5 phases (18-22), 25 plans
+**Timeline:** 2026-03-07 → 2026-03-09 (2 days)
+**Tests:** 1,318 passing · **Ruff:** 74 errors (E501 line-too-long, non-blocking)
+**Plugins:** 91 + 2 aggregation · **LOC:** ~62,600 Python · **Files changed:** 134
+
+**Key accomplishments:**
+- Epsilon tolerance (1e-9) for all floating-point comparisons in trade_framer + CIS scorer; all ATR multipliers, regime thresholds, and magic numbers documented as named constants (Phase 18)
+- Configurable IBKR/LLM timeouts in Settings; per-key asyncio.Lock() concurrency protection across market_analysis_service, indicator_service, and ai_narrative_service (Phase 18)
+- Characterization tests pinning RSI zero-loss behavior (100.0), zero-ATR emergency fallback, and concurrent lock isolation (Phase 19)
+- retry_utils.py with exponential backoff + jitter; PluginCircuitBreaker wired to all 4 LLM providers and IBKR provider; circuit breaker Prometheus metrics on all state transitions (Phase 20)
+- DataFrame cache invalidated only on buffer capacity exceeded (indicator + market_analysis); CIS scorer numpy/BLAS vectorization; plugin call metrics modulo sampling (PLUGIN_METRICS_SAMPLE_RATE=10) (Phase 21)
+- Three-tier I8 narrative redesign: action_tag (deterministic, instant), narrative_short (~500ms), narrative_deep (~5-8s) — concurrent asyncio tasks, independent SSE routing, dashboard progressive disclosure; old single-call path retired (Phase 22)
+
+---
+
 ## v1.4 Quant Foundation (Shipped: 2026-03-07)
 
 **Phases completed:** 6 phases (12-17), 29 plans

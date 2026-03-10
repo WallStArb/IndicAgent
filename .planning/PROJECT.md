@@ -67,22 +67,21 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ CIS weight updater systemd timer (daily 02:00, Persistent=true) — v1.0
 - ✓ Backfill SQL updated for CIS columns — v1.0
 
-### Active
-
-**v1.5 Production Hardening (2026-03-08):**
-
-Financial safety, concurrency safety, external API resilience, and efficiency improvements:
-
-- [ ] Epsilon tolerance on floating-point comparisons (trade_framer.py, cis_scorer.py)
-- [ ] Document magic numbers as named constants (ATR multipliers, regime thresholds)
-- [ ] Configurable timeouts for IBKR/LLM providers in Settings
-- [ ] asyncio.Lock() for shared state access (market_analysis_service, indicator_service, ai_narrative_service)
-- [ ] PluginCircuitBreaker integration for IBKR and LLM providers
-- [ ] retry_utils.py with exponential backoff and jitter
-- [ ] Characterization tests for division safety, floating precision, concurrent access
-- [ ] Plugin state cache persistence optimization
-- [ ] CIS scorer vectorization
-- [ ] Plugin call metrics sampling
+**v1.5 Production Hardening (2026-03-10):**
+- ✓ Epsilon tolerance (1e-9) for all float comparisons in trade_framer.py and CIS scorer — v1.5
+- ✓ All ATR multipliers, regime thresholds, RSI zero-loss guard documented as named constants — v1.5
+- ✓ Configurable ibkr_timeout_sec / llm_timeout_sec in Settings; all providers use Settings values — v1.5
+- ✓ per-key asyncio.Lock() in market_analysis_service, indicator_service, ai_narrative_service — v1.5
+- ✓ PluginCircuitBreaker for all 4 LLM providers and IBKR provider — v1.5
+- ✓ retry_utils.py: exponential_backoff_with_jitter() + retry_with_backoff() async wrapper — v1.5
+- ✓ Characterization tests: RSI zero-loss (100.0), zero-ATR fallback, concurrent lock isolation — v1.5
+- ✓ DataFrame cache invalidated only on buffer overflow (indicator + market_analysis services) — v1.5
+- ✓ CIS scorer: numpy/BLAS vectorized weighted aggregation — v1.5
+- ✓ Plugin call metrics: modulo sampling (PLUGIN_METRICS_SAMPLE_RATE=10), errors always recorded — v1.5
+- ✓ Three-tier I8 narrative: action_tag (instant) + narrative_short (~500ms) + narrative_deep (~5-8s) — v1.5
+- ✓ Concurrent asyncio tasks for narrative_short / narrative_deep; independent SSE routing — v1.5
+- ✓ Dashboard progressive disclosure: action_tag badge → short narrative → expandable deep — v1.5
+- ✓ Old single-call per_signal path retired cleanly — v1.5
 
 ---
 
@@ -100,26 +99,28 @@ Financial safety, concurrency safety, external API resilience, and efficiency im
 
 ## Context
 
-### Current State (v1.4 shipped 2026-03-07)
+### Current State (v1.5 shipped 2026-03-10)
 
 - 91 plugins + 2 aggregation components (I1: 24, I2: 8, I3: 3, I4: 5, I5: 24, SMC: 11+1 confluence, I7: 17 setups + 2 agg)
-- 1,286 unit tests passing · Ruff: 34 errors (E501 line-too-long, non-blocking)
+- 1,318 unit tests passing · Ruff: 74 errors (E501 line-too-long, non-blocking)
 - 10 active systemd services + weight-updater timer
 - `intelligence_features`: complete feature vectors per bar — i7/i8 JSONB + days_to_expiry live
 - `signal_ledger`: labeled outcome data accumulating (8-class, MAE/MFE, regime status)
 - `setup_performance`: rolling 30-day setup analytics feeding adaptive aggregator weights
-- `llm_calls`: full LLM audit log — 3 call paths captured, outcome back-fill live
-- `validate_alpha.py`: Pearson+ADF statistical gate for all new alpha sources
-- 4 new alpha sources live: DerivOsc (I2), 10 Candlestick Tier 1 (I5/I7), MACD accel (I2), AC Osc (I1)
-- Shadow signals: regime-suppressed counterfactual data accumulating for gate tuning
+- `llm_calls`: full LLM audit log — narrative_short + narrative_deep paths captured, outcome back-fill live
+- `llm_model_scores`: per-model win rate/avg_pnl_r/p-value refreshed every 15 min
+- Three-tier I8: action_tag (instant) + narrative_short (~500ms) + narrative_deep (~5-8s) running live
+- Production hardening: epsilon tolerance, configurable timeouts, asyncio locks, circuit breakers, retry utils all live
 
 **Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), DragonflyDB (:6379), IBKR TWS at 10.0.0.33:7497
 
-**Known issues:**
+**Known issues / tech debt:**
 - indicagent-timeframes.service — legacy, import bug (src.data → src.core), non-blocking
 - feature_writer_service base loop still uses sequential stream polling (enrich loop is concurrent); pre-existing todo
+- ai_narrative_service._per_signal_timeout bypasses Settings.llm_timeout_sec at runtime (v1.5 tech debt, AI-01/AI-02 partial)
+- signal_generator: plugins fire every bar a condition is true (no onset detection); 4h/1d TFs missing from market_analysis + signal_generator — research todo active
 
-**Next milestone candidates:** Dashboard Complete (timeframe matrix, signal history), ML Scoring Model (needs ~90 days labeled outcomes), Orderflow Integration, Auth + External Access
+**Next milestone candidates:** Dashboard Complete (I7 all_ranked panel, signal history), Signal Generator Onset Detection + 4h/1d TF coverage, ML Scoring Model (needs ~90 days labeled outcomes), Auth + External Access
 
 ## Key Decisions
 
@@ -143,6 +144,11 @@ Financial safety, concurrency safety, external API resilience, and efficiency im
 | perf_multiplier as primary aggregator sort key | Flat formula (composite_rank × multiplier) let priority dominate, breaking performance ranking | ✓ Good — multiplier as primary key, SETUP_PRIORITY only as tiebreaker; outperformers rank first |
 | signal_id UUID threaded through signals:aggregated | Without ledger UUID in stream, llm_calls.signal_id=NULL; outcome back-fill WHERE clause matches 0 rows | ✓ Good — xdel compensates on DB failure to avoid orphaned signal_ids |
 | Canonical regime vocabulary for LLM routing | Raw plugin regime_context ('bullish') ≠ score cache keys ('trending') → cache miss on every lookup | ✓ Good — SessionExtremesSetup uses session_extreme_* as vocabulary; others use canonical trending/ranging/volatile |
+| EPSILON_TOLERANCE = 1e-9 for all float comparisons | Financial math: floating-point equality is unreliable; explicit epsilon tolerance prevents degenerate stops and direction misclassification | ✓ Good — trade_framer + CIS scorer + RSI guard all use named constant |
+| per-key asyncio.Lock() for shared plugin state | Shared state dicts accessed from concurrent tasks; per-key granularity allows parallelism across symbols while protecting individual state | ✓ Good — market_analysis, indicator, ai_narrative all hardened |
+| Module-level circuit breaker singletons (IBKR + LLM) | Failure history must persist across chain iterations; module scope is natural singleton for one connection (IBKR) or provider pool (LLM) | ✓ Good — state transitions emit Prometheus metrics |
+| Three-tier I8 narrative: action_tag + short + deep | Single blocking LLM call per signal left dashboard waiting; tier separation delivers instant tag, fast short, deferred deep independently | ✓ Good — concurrent asyncio.create_task() fires both without blocking processing loop |
+| narrative_short/narrative_deep as independent stream messages | Routing in dashboard and llm_writer_service based on narrative_type field; no coupling between tier arrivals | ✓ Good — spread-merge SSE pattern handles async arrival; backward-compat via narrative alias |
 
 ## Constraints
 
@@ -152,4 +158,4 @@ Financial safety, concurrency safety, external API resilience, and efficiency im
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-03-08 after v1.5 milestone definition*
+*Last updated: 2026-03-10 after v1.5 milestone*
