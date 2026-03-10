@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Signal Quality
 status: executing
-stopped_at: Completed 23-03-PLAN.md (InputSpec cleanup + 4h/1d documentation)
-last_updated: "2026-03-10T06:53:17.716Z"
+stopped_at: Completed 24-01-PLAN.md (Phase 24 Wave 0 RED test stubs)
+last_updated: "2026-03-10T12:27:09.400Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 8
+  completed_plans: 4
   percent: 36
 ---
 
@@ -83,6 +83,7 @@ Progress: [████░░░░░░] 36%
 | Phase 23-signal-generator-gate P01 | 2 | 1 tasks | 1 files |
 | Phase 23-signal-generator-gate P02 | 4 | 2 tasks | 1 files |
 | Phase 23-signal-generator-gate P03 | 157 | 2 tasks | 19 files |
+| Phase 24-second-derivative-acceleration P01 | 445 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,8 @@ Recent decisions affecting current work:
 - [Phase 23-02]: Resolution listener uses xread (not xreadgroup) — read-only observation of own stream, no consumer group needed
 - [Phase 23-03]: InputSpec.timeframe='.*' confirms dead-code nature: field defined but never enforced; '.*' makes intent explicit
 - [Phase 23-03]: 4h/1d exclusion documented in both service configs as day-trading scope boundary
+- [Phase 24-01]: macd_hist_slope reads macd_histogram_12_26_9 (not macd_12_26_9) — histogram reveals slope of momentum, not signal line
+- [Phase 24-01]: I7 boost/guard tests use diff-confidence-delta pattern (baseline vs with-exhaustion call) to pin exact +0.1/-0.15 values
 
 ### Pending Todos
 
@@ -157,6 +160,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T06:48:30.429Z
-Stopped at: Completed 23-03-PLAN.md (InputSpec cleanup + 4h/1d documentation)
+Last session: 2026-03-10T12:27:09.398Z
+Stopped at: Completed 24-01-PLAN.md (Phase 24 Wave 0 RED test stubs)
 Resume file: None
