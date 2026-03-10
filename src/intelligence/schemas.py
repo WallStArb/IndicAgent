@@ -157,7 +157,8 @@ class I3Structure(BaseModel):
     - struct_SessionLevels (16 fields)
     - struct_AnchoredVWAP (8 fields)
     - struct_FibonacciZones (12 fields)
-    Total: 69 fields
+    - struct_SwingMomentum (6 fields)
+    Total: 75 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -245,6 +246,14 @@ class I3Structure(BaseModel):
     nearest_fib_dist_atr: float | None = None
     fib_cluster_strength: float | None = None
     in_fib_discount_zone: float | None = None
+
+    # SwingMomentumPlugin outputs
+    swing_amplitude_ratio: float | None = None
+    swing_amplitude_expanding: int | None = None
+    swing_velocity_bars: float | None = None
+    swing_velocity_trend: Literal["accelerating", "decelerating", "stable"] | None = None
+    struct_energy: float | None = None
+    struct_accel_bias: Literal[-1, 0, 1] | None = None
 
 
 class I4Context(BaseModel):
