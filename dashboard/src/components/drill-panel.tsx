@@ -105,13 +105,27 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
       } ${signal.resolved ? "opacity-60" : ""}`}
       style={{ background: "var(--bg-elevated)" }}
     >
-      {/* Row 1: bar close → signal time + TTS, direction, plugin, confidence, outcome */}
+      {/* Row 1: bar close @ price → signal time @ price + TTS, direction, plugin, confidence, outcome */}
       <div className="text-xs flex items-center gap-2 flex-wrap">
         {(barCloseStr || signalTimeStr) && (
-          <span className="font-data flex items-center gap-0.5">
-            {barCloseStr && <span>{barCloseStr}</span>}
-            {barCloseStr && signalTimeStr && <span className="opacity-30">→</span>}
-            {signalTimeStr && <span style={{ color: "var(--text-secondary)" }}>{signalTimeStr}</span>}
+          <span className="font-data flex items-center gap-0.5 text-[0.55rem]">
+            {barCloseStr && (
+              <span className="opacity-60">
+                {barCloseStr}
+                {signal.bar_close_price != null && (
+                  <span className="ml-0.5">@ {fmtPrice(signal.bar_close_price)}</span>
+                )}
+              </span>
+            )}
+            {barCloseStr && signalTimeStr && <span className="opacity-30 mx-0.5">→</span>}
+            {signalTimeStr && (
+              <span style={{ color: "var(--text-secondary)" }}>
+                {signalTimeStr}
+                {signal.market_price_at_signal != null && (
+                  <span className="ml-0.5 opacity-80">@ {fmtPrice(signal.market_price_at_signal)}</span>
+                )}
+              </span>
+            )}
             {ttsStr && <span className="opacity-50 ml-0.5">{ttsStr}</span>}
           </span>
         )}
@@ -125,12 +139,15 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
         <span className="font-data" style={{ color: dirColor }}>{fmtNum(signal.confidence * 100, 0)}%</span>
         {outcomeBadge}
       </div>
-      {/* Row 2: entry, SL, T1 + RR */}
+      {/* Row 2: entry target, SL, T1 + RR */}
       <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
         <Tooltip tooltip={entryTooltip()}>
-          <span>E</span>
+          <span className="opacity-60">E</span>
         </Tooltip>
         <span>{fmtPrice(signal.entry_price)}</span>
+        {signal.entry_type && signal.entry_type !== "at_close" && (
+          <span className="opacity-40">({signal.entry_type.replace(/_/g, " ")})</span>
+        )}
         <span>·</span>
         <Tooltip tooltip={slTooltip()}>
           <span>SL</span>
@@ -148,13 +165,19 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
         )}
       </div>
 
-      {/* Entry Zone (if available) */}
+      {/* Entry Zone — wait for price to trade into this range */}
       {signal.entry_zone_low != null && signal.entry_zone_high != null && (
-        <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
+        <div className="text-[0.55rem] flex items-center gap-1.5 mt-0.5">
           <Tooltip tooltip={zoneTooltip()}>
-            <span className="opacity-50">ZONE</span>
+            <span style={{ color: "var(--accent-cyan)", opacity: 0.8 }}>WAIT →</span>
           </Tooltip>
           <span>{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
+          {signal.zone_valid_at_signal === true && (
+            <span style={{ color: "var(--green)", opacity: 0.7 }}>✓ in zone</span>
+          )}
+          {signal.zone_valid_at_signal === false && (
+            <span className="opacity-40">not yet</span>
+          )}
         </div>
       )}
 
@@ -762,10 +785,28 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         )}
       </div>
 
-      {/* Entry / Stop */}
+      {/* Bar close + signal price context */}
+      <Grid>
+        {signal.bar_close_price != null && (
+          <KV
+            label="Bar close"
+            tooltip="Close price of the bar that triggered this signal — what the analysis is based on"
+            value={fmtPrice(signal.bar_close_price)}
+          />
+        )}
+        {signal.market_price_at_signal != null && (
+          <KV
+            label="Signal price"
+            tooltip="Live market price (bid/ask) at the moment this signal was computed"
+            value={fmtPrice(signal.market_price_at_signal)}
+          />
+        )}
+      </Grid>
+
+      {/* Entry target / Stop */}
       <Grid>
         <KV
-          label="Entry"
+          label="Entry target"
           value={`${fmtPrice(signal.entry_price)}${signal.entry_type ? ` (${entryTypeLabel[signal.entry_type] ?? signal.entry_type})` : ""}`}
         />
         <KV
@@ -774,18 +815,18 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         />
       </Grid>
 
-      {/* Entry Zone */}
+      {/* Entry Zone — wait for price to trade into this range before executing */}
       {signal.entry_zone_low != null && signal.entry_zone_high != null && (
         <Grid>
           <KV
-            label="Zone"
+            label="Wait → enter zone"
             tooltip={zoneTooltip()}
             value={fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}
           />
           {signal.zone_valid_at_signal != null && (
             <KV
-              label="Zone valid"
-              value={signal.zone_valid_at_signal ? "yes ✓" : "no"}
+              label="In zone at signal"
+              value={signal.zone_valid_at_signal ? "yes ✓" : "not yet"}
             />
           )}
         </Grid>
