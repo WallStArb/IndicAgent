@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Signal Quality
 status: executing
-stopped_at: Completed 24-03-PLAN.md (ExhaustionScore + AccelerationRegime I2 plugins)
-last_updated: "2026-03-10T12:38:14.297Z"
+stopped_at: Completed 24-05-PLAN.md (plugin registration + I7 exhaustion wiring)
+last_updated: "2026-03-10T12:43:54.059Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 36
 ---
 
@@ -87,6 +87,7 @@ Progress: [████░░░░░░] 36%
 | Phase 24-second-derivative-acceleration P02 | 3 | 2 tasks | 2 files |
 | Phase 24-second-derivative-acceleration P04 | 4 | 1 tasks | 1 files |
 | Phase 24-second-derivative-acceleration P03 | 199 | 2 tasks | 2 files |
+| Phase 24-second-derivative-acceleration P05 | 3 | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,8 @@ Recent decisions affecting current work:
 - [Phase 24]: ExhaustionScore RSI-gated logic: bull/bear counts only increment when RSI is in respective extreme zone — prevents spurious scores when RSI=75 but secondary conditions contradict
 - [Phase 24]: AccelerationRegime inflection priority: peak/trough checked before building/waning — test authority overrides plan spec for branch order
 - [Phase 24]: 4-vote AccelerationRegime: hma_accel added as 4th vote per test file; accel_agreement = max(pos,neg)/4 giving 0.5 for 2/2 split
+- [Phase 24-05]: Exhaustion boost is directional: bull exhaustion only boosts long sweeps, bear only boosts short — wrong-direction exhaustion ignored
+- [Phase 24-05]: MomentumBreakout guard applies penalty without suppression; TrendFollowing adds _no_signal() when confidence < confidence_threshold (0.4) after guard
 
 ### Pending Todos
 
@@ -170,6 +173,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T12:38:14.295Z
-Stopped at: Completed 24-03-PLAN.md (ExhaustionScore + AccelerationRegime I2 plugins)
+Last session: 2026-03-10T12:43:54.058Z
+Stopped at: Completed 24-05-PLAN.md (plugin registration + I7 exhaustion wiring)
 Resume file: None
