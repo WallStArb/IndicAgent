@@ -136,6 +136,7 @@ Recent decisions affecting current work:
 From .planning/todos/pending/:
 - 2026-03-06-dashboard-intelligence-field-gaps.md — Largely complete, minor remaining work
 - 2026-02-24-fix-sequential-stream-polling-in-feature-writer-service.md — Pre-existing
+- 2026-03-10-research-and-fix-signal-generator-condition-vs-event-firing-and-direction-flip-gate.md — NEW: 4 findings: (1) plugins fire every bar a condition is true, not on onset; (2) no cross-bar memory/cooldown in signal_generator_service; (3) I7 InputSpec timeframe="1m" is dead code; (4) 4h/1d missing from market_analysis and signal_generator. Needs research before implementation.
 
 ### Blockers/Concerns
 
