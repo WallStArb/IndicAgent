@@ -556,3 +556,95 @@ def test_build_ledger_entries_winning_entry_has_signal_id():
     assert winning.signal_id != ""
     assert re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
                     winning.signal_id)
+
+
+# ── Signal gate ───────────────────────────────────────────────────────────────
+
+
+def test_gate_first_signal_always_publishes():
+    """No gate entry for (symbol, tf) → _check_gate returns False (publish allowed)."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._signal_gate = {}
+    ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+    # No gate entry — first signal should always be allowed (not gated)
+    result = svc._check_gate("ESH6", "1m", 1, ts)
+    assert result is False  # False = not gated = publish allowed
+
+
+def test_gate_cooldown_suppresses_within_window():
+    """Gate entry exists, bars_since=1 < MIN_BARS=3 for 1m → gate suppresses (True)."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._signal_gate = {}
+    base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+    # Seed gate: signal fired at base_ts
+    svc._signal_gate[("ESH6", "1m")] = {
+        "direction": 1,
+        "bar_ts": base_ts,
+        "signal_id": "abc",
+        "resolved": False,
+    }
+    # 1 bar later (60s = 1 bar on 1m) → bars_since=1 < MIN_BARS=3 → gated
+    new_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=UTC)
+    result = svc._check_gate("ESH6", "1m", 1, new_ts)
+    assert result is True  # True = gated = suppress
+
+
+def test_gate_cooldown_allows_after_window():
+    """Gate entry exists, bars_since=4 >= MIN_BARS=3 for 1m → gate allows (False)."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._signal_gate = {}
+    base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+    svc._signal_gate[("ESH6", "1m")] = {
+        "direction": 1,
+        "bar_ts": base_ts,
+        "signal_id": "abc",
+        "resolved": False,
+    }
+    # 4 bars later (240s = 4 bars on 1m) → bars_since=4 >= MIN_BARS=3 → allowed
+    new_ts = datetime(2026, 3, 10, 10, 4, 0, tzinfo=UTC)
+    result = svc._check_gate("ESH6", "1m", 1, new_ts)
+    assert result is False  # False = not gated = publish allowed
+
+
+def test_gate_flip_suppressed_while_unresolved():
+    """Gate has direction=+1, resolved=False, new direction=-1 → gate suppresses (True)."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._signal_gate = {}
+    base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+    svc._signal_gate[("ESH6", "1m")] = {
+        "direction": 1,
+        "bar_ts": base_ts,
+        "signal_id": "abc",
+        "resolved": False,
+    }
+    # Direction flip attempt before resolution — well past cooldown window
+    new_ts = datetime(2026, 3, 10, 10, 10, 0, tzinfo=UTC)
+    result = svc._check_gate("ESH6", "1m", -1, new_ts)
+    assert result is True  # True = gated = suppress flip
+
+
+def test_gate_flip_allowed_after_resolution():
+    """Gate has direction=+1, resolved=True, new direction=-1 → gate allows (False)."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._signal_gate = {}
+    base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+    svc._signal_gate[("ESH6", "1m")] = {
+        "direction": 1,
+        "bar_ts": base_ts,
+        "signal_id": "abc",
+        "resolved": True,  # prior signal was resolved
+    }
+    # Direction flip after resolution — well past cooldown window
+    new_ts = datetime(2026, 3, 10, 10, 10, 0, tzinfo=UTC)
+    result = svc._check_gate("ESH6", "1m", -1, new_ts)
+    assert result is False  # False = not gated = flip allowed
