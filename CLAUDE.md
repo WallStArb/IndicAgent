@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.18.0
-Last Updated: 2026-03-09
-Status: I1-I8 pipeline complete — 91 plugins + 2 aggregation components + feature store + typed intelligence bus, 1308 tests, 62 ruff errors (E501 line-too-long), 24 contracts
+Version: 5.19.0
+Last Updated: 2026-03-10
+Status: I1-I8 pipeline complete — 95 plugins + 2 aggregation components + feature store + typed intelligence bus, 1485 passing, 106 ruff errors (E501 line-too-long, 24 fixable with --fix), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -239,9 +239,20 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1430 passing · **Ruff:** 104 errors (mostly E501 line-too-long, non-blocking; 21 fixable with --fix) ⚠️
-**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate
-**v1.5 SHIPPED** · **v1.6 in-progress** — phase 23 (signal generator gate) complete — see `.planning/ROADMAP.md`
+**Tests:** 1485 passing · **Ruff:** 106 errors (mostly E501 line-too-long, non-blocking; 24 fixable with --fix) ⚠️
+**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence
+**v1.5 SHIPPED 2026-03-10** · **v1.6 SHIPPED 2026-03-10** — see `.planning/ROADMAP.md`
+
+## Roadmap Position
+
+- v1.0 SHIPPED 2026-02-28 — milestone archived (`de075f7`), tagged `v1.0`
+- v1.1 SHIPPED 2026-03-01 — milestone archived, tagged `v1.1`
+- v1.2 SHIPPED 2026-03-02 — milestone archived, tagged `v1.2`
+- v1.3 SHIPPED 2026-03-04 — milestone archived, tagged `v1.3`
+- v1.4 SHIPPED 2026-03-07 — milestone archived (`de075f7`), tagged `v1.4`
+- v1.5 SHIPPED 2026-03-07 — milestone archived (`c927b3e`), tagged `v1.5`
+- v1.6 SHIPPED 2026-03-10 — milestone archived, tagged `v1.6`
+- Next: `/gsd:new-milestone` to define v1.7
 
 ## Key References
 
