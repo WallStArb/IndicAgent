@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Signal Quality
 status: executing
-stopped_at: Completed 23-02-PLAN.md (GREEN gate implementation)
-last_updated: "2026-03-10T06:43:55.010Z"
+stopped_at: Completed 23-03-PLAN.md (InputSpec cleanup + 4h/1d documentation)
+last_updated: "2026-03-10T06:48:30.431Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 36
 ---
 
@@ -82,6 +82,7 @@ Progress: [████░░░░░░] 36%
 | Phase 22-i8-narrative-three-tier-redesign P07 | 15 | 4 tasks | 1 files |
 | Phase 23-signal-generator-gate P01 | 2 | 1 tasks | 1 files |
 | Phase 23-signal-generator-gate P02 | 4 | 2 tasks | 1 files |
+| Phase 23-signal-generator-gate P03 | 157 | 2 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -136,6 +137,8 @@ Recent decisions affecting current work:
 - [Phase 23-02]: E501 on _update_gate signature accepted as pre-existing non-blocking type — consistent with 74-error E501 baseline
 - [Phase 23-02]: Gate check placed after RR filter so gating sees final framed signal, not raw aggregator output
 - [Phase 23-02]: Resolution listener uses xread (not xreadgroup) — read-only observation of own stream, no consumer group needed
+- [Phase 23-03]: InputSpec.timeframe='.*' confirms dead-code nature: field defined but never enforced; '.*' makes intent explicit
+- [Phase 23-03]: 4h/1d exclusion documented in both service configs as day-trading scope boundary
 
 ### Pending Todos
 
@@ -150,6 +153,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T06:43:55.008Z
-Stopped at: Completed 23-02-PLAN.md (GREEN gate implementation)
+Last session: 2026-03-10T06:48:30.429Z
+Stopped at: Completed 23-03-PLAN.md (InputSpec cleanup + 4h/1d documentation)
 Resume file: None

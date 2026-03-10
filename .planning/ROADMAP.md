@@ -87,7 +87,7 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 
 ## v1.6 Signal Quality
 
-- [ ] **Phase 23: Signal Generator Gate** — condition-vs-event onset detection, direction flip suppression, cross-bar signal memory, InputSpec cleanup
+- [x] **Phase 23: Signal Generator Gate** — condition-vs-event onset detection, direction flip suppression, cross-bar signal memory, InputSpec cleanup (completed 2026-03-10)
 
 ### Phase 23: Signal Generator Gate
 
@@ -95,7 +95,7 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 
 **Depends on:** Phase 22
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 23-01-PLAN.md — Wave 0 test stubs (RED) for gate cooldown, flip suppression, flip-after-resolution
