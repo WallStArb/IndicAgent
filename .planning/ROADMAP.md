@@ -98,34 +98,38 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
-Re-prioritized 2026-03-08 after v1.5 planning.
+Re-prioritized 2026-03-10 after v1.6 shipped.
 
-### Tier 1 — Ready now / v1.6 candidates (data exists, no blockers)
+### Tier 1 — Ready now / v1.7 candidates (data exists, no blockers)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
 | Signal Generator DB Warmup | Seed bar_history from intelligence_features on startup — eliminates 50-min warmup after restart. | `.planning/todos/pending/2026-03-09-seed-signal-generator-bar-history-from-db-on-startup.md` |
-| Renaissance Gaps (CIS + Signal Quality) | T0: fix CIS scoring in backfill + populate constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
-| Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
-| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
+| CIS Backfill Fix (BUG) | `aggregate()` never receives `features=` kwarg in backfill — backfilled signals have NULL CIS fields. High impact on ML training dataset. | `.planning/todos/pending/2026-03-08-enable-cis-scoring-in-historical-backfill.md` |
+| Renaissance Gaps (Signal Quality) | T0: constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
+| Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; signal banner polish; AI narrative panel readability. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
+| Expand I5 candlestick + I7 setup | 18 patterns spec'd (Tier 1: Harami, Dark Cloud, Three Soldiers/Crows, Morning/Evening Star). Research doc complete. | `docs/ideas/candlestick-pattern-expansion-research.md` |
+| LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | AC Oscillator I1 plugin | Todo exists, fully specced. | — |
 | Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
 | Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
-| Expand I5 candlestick + I7 setup | Add Tier 1 candlestick patterns (engulfing, pin bar, hammer); wire I7 setup from confirmed pattern. | — |
-| Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | — |
+| Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | `.planning/todos/pending/2026-03-06-audit-and-remove-dead-database-tables.md` |
 | validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
+| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
 
-### Tier 2 — v1.6 or v1.7 (moderate dependencies)
+### Tier 2 — v1.7 or v1.8 (moderate dependencies)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
+| I6 Confluence Expansion | Cross-TF + cross-asset confluence (ES/NQ/RTY alignment, VIX regime, sector rotation). Design complete. Needs new IBKR subs. | `docs/ideas/i6-confluence-expansion.md` |
+| Intelligence Stack Latency | Parallel plugin workers within tiers (2-7× speedup potential). Thread-safety audit required. | `docs/ideas/intelligence-stack-latency-reduction.md` |
 | ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
-| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | — |
-| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | — |
-| Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | — |
-| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | — |
-| Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | — |
-| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel. Research-first gate: confirm signal value before building. | `ideas/2nd-derivative-indicator-research.md` |
+| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | `.planning/todos/pending/2026-03-04-add-gap-fill-service.md` |
+| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | `.planning/todos/pending/2026-03-04-add-roll-premium-discount-feature.md` |
+| Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | `.planning/todos/pending/2026-02-27-add-multi-timeframe-sr-awareness-to-signal-plugins.md` |
+| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
+| Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | `.planning/todos/pending/2026-02-28-offload-plugin-pipeline-to-thread-pool.md` |
+| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
 | Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
 | Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
 
@@ -138,12 +142,12 @@ Re-prioritized 2026-03-08 after v1.5 planning.
 | Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
 | Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
 | Broker-agnostic instrument provider | Defer until second broker integration is needed. | — |
-| Redpanda migration | Migrate from DragonflyDB streams to Redpanda before QualAgent; not before v1.5. | `docs/ideas/tech-stack.md` |
+| Redpanda migration | Migrate from DragonflyDB streams to Redpanda before QualAgent; not before v1.8+. | `docs/ideas/tech-stack.md` |
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 21 → 22
+Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). Next: v1.7 phases (TBD via `/gsd:new-milestone`).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
