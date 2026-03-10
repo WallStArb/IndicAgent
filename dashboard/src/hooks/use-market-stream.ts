@@ -89,6 +89,7 @@ function parseIntelligence(p: Record<string, string>): {
   // Boolean coercion for Redis-serialized "1"/"0" fields
   const nb = (v: unknown): boolean | undefined => v != null ? Number(v) > 0 : undefined;
 
+  const td = i3.trend_direction != null ? Number(i3.trend_direction) : null;
   const structure: StructureData = {
     nearest_support: i3.nearest_support ?? undefined,
     nearest_resistance: i3.nearest_resistance ?? undefined,
@@ -96,6 +97,7 @@ function parseIntelligence(p: Record<string, string>): {
     resistance_strength: i3.resistance_strength ?? undefined,
     trend_integrity: i3.structure_integrity ?? undefined,
     swing_score: i3.trend_strength ?? undefined,
+    swing_trend: td != null ? (td > 0 ? "uptrend" : td < 0 ? "downtrend" : "ranging") : undefined,
   };
 
   // Map numeric vol_regime to label

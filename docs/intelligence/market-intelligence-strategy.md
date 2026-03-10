@@ -1,8 +1,10 @@
 # Market Intelligence Strategy & Agent Framework
 
-**Version:** 2.2.0  
-**Last Updated:** 2026-02-12  
-**Status:** Historical Strategy Reference — I1-I8 are now operational (57 plugins). See `docs/STATUS.md` for current state.
+**Version:** 2.3.0
+**Last Updated:** 2026-03-10
+**Status:** Historical reference — ALL phases in this document are shipped. I1-I8 pipeline operational with 95 plugins + 2 aggregation. For current state see `CLAUDE.md`. For ML/agent strategy see `docs/ideas/ml-learning-machine.md` and `docs/intelligence/ai-intelligence-architecture.md`.
+
+> **Note:** This document was the original strategy roadmap. Every phase described below (Pattern Detection, Multi-TF Integration, SMC, I8 AI Narrative, CIS, Signal Lifecycle) has been built and is running in production as of v1.6. It is preserved as historical context. The active next layer is MLAgent — see `docs/ideas/ml-learning-machine.md`.
 
 ##  Intelligence Platform Vision
 

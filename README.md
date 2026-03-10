@@ -264,6 +264,63 @@ CIS loads updated weights at next startup
 
 **Why this is more than performance tracking:** Standard performance tracking answers "what won." The CIS loop answers "which conditions at signal time predicted winning" — a much harder and more valuable question. By storing the full I1–I6 feature vector in `intelligence_features` and joining it to signal outcomes, the system can discover non-obvious predictors: not just "high trend regime" but "high trend regime AND FVG freshness above threshold AND HMM steady for ≥ 5 bars." This is the signal discovery process that institutional quantitative funds run continuously. IndicAgent is built to run it automatically.
 
+### Machine Learning Intelligence Layer (MLAgent)
+
+The CIS learning loop closes the feedback cycle at the weight level. MLAgent closes it at the model level — replacing hand-tuned CIS weights with IC-derived weights derived from what the data actually says, then replacing those with a full ensemble trained on labeled signal outcomes.
+
+**Three compounding layers:**
+
+```
+Layer 1: Discovery         — automated IC analysis finds which features actually predict outcomes
+Layer 2: Scoring           — per-regime × per-setup LightGBM ensemble scores every signal
+Layer 3: Feedback Loop     — outcomes retrain the model; drift triggers automatic retraining
+```
+
+Each layer ships independently and is useful on its own. The full system never stops learning.
+
+**Five-agent architecture (LangGraph Supervisor):**
+
+| Agent | Role | Type |
+|-------|------|------|
+| **Orchestrator** | Routes work, decides retrain/promote/escalate based on monitoring signals | Deterministic |
+| **Data Quality Agent** | Validates training data before any model runs | Deterministic |
+| **Discovery Agent** | Runs IC analysis (alphalens), tsfresh feature extraction, regime-conditional IC, cross-asset lag correlation | LLM-guided |
+| **Training Agent** | Builds LightGBM ensemble per segment (regime × setup × TF), time-series CV, shadow mode gate | Deterministic |
+| **Monitoring Agent** | Evidently drift detection (KS/PSI/Wasserstein), CUSUM degradation, circuit breaker | Event-driven |
+
+**Key design principle:** Only the Discovery Agent and Narrative Agent use LLMs. The Orchestrator, Training Agent, and Monitoring Agent are fully deterministic. Production decisions — retrain yes/no, promote yes/no — cannot be non-deterministic.
+
+**Shadow mode gate:** No model affects signal selection until `p < 0.05` with sufficient N. Borderline p-values pause the graph and require human approval via LangGraph `interrupt()` — a dashboard alert card presents the full model comparison, and a 4-hour timeout defaults to reject-and-maintain-status-quo. Every HITL decision is logged with approver, timestamp, and reasoning.
+
+**Segmented ensemble:** Sub-models are trained per `HMM regime × setup type × timeframe`. A global model that works everywhere is weaker than a regime-specific model that works in the conditions it was designed for. The meta-model combines sub-model outputs.
+
+**What it produces:** A `win_prob` score and SHAP feature attribution for every signal — persisted to `signal_ledger`. The top 5 SHAP contributors show *why* the model scored this signal, not just that it did.
+
+**ML & agent tech stack:**
+
+| Package | Purpose | Phase |
+|---------|---------|-------|
+| `langgraph` | Agent orchestration — Supervisor state machine, HITL `interrupt()`, typed `StateGraph` for all agent handoffs | Already in stack |
+| `langchain` | Tool definitions, LLM wrappers, provider abstractions for Discovery + Narrative agents | Already in stack |
+| `langfuse` (self-hosted) | Agent observability — traces every agent step, tool call, LLM invocation. OTEL bridge → existing Grafana. | 1 |
+| `guardrails-ai` | Validates Discovery + Narrative agent LLM outputs against Pydantic schemas before persistence | 1 |
+| `scipy` + `alphalens-reloaded` | Information coefficient analysis — IC, ICIR, decay, turnover per feature per regime | 1 |
+| `tsfresh` | Extracts 700+ statistical features automatically from any time series — lets data reveal predictors we didn't hand-engineer | 1 |
+| `evidently` | Drift detection: KS/PSI/Wasserstein per feature; self-hosted HTML reports | 1 |
+| `polars` | Rust dataframes — 10-100× faster than pandas for batch feature matrix construction | 1 |
+| `lightgbm` | The model — tabular data champion, handles categoricals, fast training | 2 |
+| `shap` | TreeSHAP explainability — why did the model score this signal? | 2 |
+| `optuna` | Bayesian hyperparameter optimisation | 2 |
+| `statsmodels` | CUSUM changepoint detection, time-series statistics | 2 |
+| `mlflow` (self-hosted) | Model registry, experiment tracking, artifact versioning | 2 |
+| `river` | Online/incremental learning — model adapts continuously between retrains | 3 |
+
+**What we explicitly chose not to add:** PyTorch/TensorFlow (overkill for tabular signal scoring — tree ensembles dominate tabular benchmarks), Feast (TimescaleDB IS the feature store), Weights & Biases (cloud/paid — MLflow is the open standard), Ray/Dask (overkill for current data volume).
+
+**New database tables:** `ml_models` (versioned model artifacts + MLflow run ID), `ml_signal_scores` (win_prob + SHAP per signal), `feature_ic_scores` (IC/ICIR per feature per regime — drives adaptive CIS weight updates), `ml_discovery_runs` (weekly discovery run metadata), `ml_agent_hitl_queue` (pending decisions with 4h timeout policy).
+
+→ [MLAgent Design](docs/ideas/ml-learning-machine.md)
+
 ### The LLM chain (agentic fallback)
 
 The AI narrative chain is designed for resilience:
