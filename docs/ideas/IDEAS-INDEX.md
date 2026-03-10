@@ -49,6 +49,7 @@ Each idea is a `.md` file in this directory. This index tracks:
 | 19 | `2nd-derivative-indicator-research.md` | 2nd Derivative Indicator Research (ExhaustionScore, AccelerationRegime, SwingMomentum, HMA) | shipped | — | v1.6 (shipped 2026-03-10) | 2026-03-10 |
 | 20 | `candlestick-pattern-expansion-research.md` | Candlestick Pattern Expansion Research — 18 patterns spec'd | design | medium | v1.7 | 2026-03-10 |
 | 21 | `jim-simons-renaissance-principles.md` | Jim Simons Renaissance Principles — 10 principles reference | reference | — | — | — |
+| 22 | `ml-learning-machine.md` | MLAgent — Renaissance-Style Learning Machine: discovery engine, adaptive CIS, segmented ensemble, feedback loop | design | high | v1.8+ | 2026-03-10 |
 
 ---
 
@@ -97,6 +98,7 @@ Each idea is a `.md` file in this directory. This index tracks:
 
 | Date | Action | Details |
 |-------|--------|---------|
+| 2026-03-10 | Created `ml-learning-machine.md` | MLAgent Renaissance learning machine — discovery engine, adaptive CIS, segmented ensemble, 3-phase rollout |
 | 2026-03-10 | Marked shipped | `momentum-acceleration-second-derivative.md`, `2nd-derivative-indicator-research.md` — shipped in v1.6 Phase 24 |
 | 2026-03-10 | Archived | `intelligence-redo-brainstorm.md` — v1.2 shipped 2026-03-02 |
 | 2026-03-10 | Updated milestones | `i6-confluence-expansion.md` → v1.7+; `candlestick-pattern-expansion-research.md` → design/v1.7; `intelligence-stack-latency-reduction.md` → v1.7+ |
