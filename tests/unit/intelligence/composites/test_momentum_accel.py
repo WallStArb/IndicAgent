@@ -175,3 +175,178 @@ def test_plugin_registered_in_tier_i2():
     from src.intelligence.composites.momentum_accel import plugin
     from src.intelligence.register_plugins import TIER_I2
     assert plugin.name in TIER_I2
+
+
+# ─── Phase 24 RED stubs: new outputs (rsi_curvature, macd_hist_slope,
+#     price_accel, hma_slope, hma_accel) ─────────────────────────────────────
+#
+# These tests MUST FAIL until Plan 02 implements the new outputs.
+
+
+def make_frames_extended(
+    rsi=None, macd_hist=None, atr=None, hma_20_val=None,
+    prev_rsi_accel=None, prev_macd_hist=None, prev_hma_20_val=None,
+    close_prices=None,
+) -> dict:
+    """Build frames dict for extended MomentumAccelPlugin tests.
+
+    State-based outputs (macd_hist_slope, hma_slope, hma_accel) are driven
+    by the plugin's internal _state, not by prev_features.  We inject state
+    values directly on the plugin instance in tests that need prior-bar state.
+    """
+    features: dict = {}
+    prev: dict = {}
+    if rsi is not None:
+        features["rsi_14"] = rsi
+    if macd_hist is not None:
+        features["macd_histogram_12_26_9"] = macd_hist
+    if atr is not None:
+        features["atr_14"] = atr
+    if hma_20_val is not None:
+        features["hma_20"] = hma_20_val
+    if prev_rsi_accel is not None:
+        prev["rsi_accel"] = prev_rsi_accel
+    if prev_macd_hist is not None:
+        prev["macd_histogram_12_26_9"] = prev_macd_hist
+    if prev_hma_20_val is not None:
+        prev["hma_20"] = prev_hma_20_val
+
+    main_df = None
+    if close_prices is not None:
+        import numpy as np
+        import pandas as pd
+        c = np.array(close_prices, dtype=float)
+        spread = np.abs(c) * 0.002
+        main_df = pd.DataFrame({
+            "open": c, "high": c + spread, "low": c - spread, "close": c,
+            "volume": np.ones(len(c)) * 1000.0,
+        })
+
+    return {"features": features, "prev_features": prev, "main": main_df}
+
+
+# ── new outputs in frozenset ──────────────────────────────────────────────────
+
+
+def test_new_output_keys_in_plugin_outputs():
+    """All new output keys must appear in plugin.outputs frozenset."""
+    plugin = MomentumAccelPlugin()
+    for key in ("rsi_curvature", "macd_hist_slope", "price_accel", "hma_slope", "hma_accel"):
+        assert key in plugin.outputs, f"Missing output key: {key}"
+
+
+# ── rsi_curvature ─────────────────────────────────────────────────────────────
+
+
+def test_rsi_curvature_zero_on_first_bar():
+    """No prev_rsi_accel in state → rsi_curvature must be 0.0."""
+    plugin = MomentumAccelPlugin()
+    result = plugin.compute_next(make_frames_extended(rsi=55.0))
+    assert result["rsi_curvature"] == 0.0
+
+
+def test_rsi_curvature_computed_on_second_bar():
+    """rsi_curvature = accel[bar2] - accel[bar1].
+
+    Bar1: rsi goes 50→55, accel=+5.
+    Bar2: rsi goes 55→57, accel=+2. curvature = 2 - 5 = -3.
+    """
+    plugin = MomentumAccelPlugin()
+    # bar 1 — sets prev_rsi_accel = +5 in state (via rsi_accel path)
+    plugin.compute_next(make_frames(rsi=55.0, macd=0.0, roc=0.0,
+                                    prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0))
+    # bar 2 — rsi_accel = 57-55 = +2; curvature = 2 - 5 = -3
+    result = plugin.compute_next(make_frames(rsi=57.0, macd=0.0, roc=0.0,
+                                             prev_rsi=55.0, prev_macd=0.0, prev_roc=0.0))
+    assert result["rsi_curvature"] == pytest.approx(-3.0)
+
+
+# ── macd_hist_slope ───────────────────────────────────────────────────────────
+
+
+def test_macd_hist_slope_zero_on_first_bar():
+    """No prior macd_histogram value in state → macd_hist_slope = 0.0."""
+    plugin = MomentumAccelPlugin()
+    result = plugin.compute_next(make_frames_extended(macd_hist=0.5))
+    assert result["macd_hist_slope"] == 0.0
+
+
+def test_macd_hist_slope_reads_state_not_prev_features():
+    """macd_hist_slope = current_histogram - state['prev_macd_hist'].
+
+    Inject state directly: prev=0.3, current=0.2 → slope = -0.1.
+    """
+    plugin = MomentumAccelPlugin()
+    plugin._state["prev_macd_hist"] = 0.3
+    result = plugin.compute_next(make_frames_extended(macd_hist=0.2))
+    assert result["macd_hist_slope"] == pytest.approx(-0.1)
+
+
+# ── price_accel ───────────────────────────────────────────────────────────────
+
+
+def test_price_accel_zero_when_atr_missing():
+    """price_accel must be 0.0 when atr_14 is absent from features."""
+    plugin = MomentumAccelPlugin()
+    closes = [5000.0, 5001.0, 5003.0, 5006.0, 5010.0]
+    result = plugin.compute_next(make_frames_extended(close_prices=closes))
+    assert result["price_accel"] == 0.0
+
+
+def test_price_accel_computed_correctly():
+    """price_accel = (velocity_now - velocity_prev) / atr.
+
+    closes=[5000,5001,5003,5006,5010], atr=8.
+    velocity_prev = 5003-5001=2, velocity_now = 5010-5006=4.
+    price_accel = (4-2)/8 = 0.25.
+    """
+    plugin = MomentumAccelPlugin()
+    closes = [5000.0, 5001.0, 5003.0, 5006.0, 5010.0]
+    result = plugin.compute_next(make_frames_extended(atr=8.0, close_prices=closes))
+    assert result["price_accel"] == pytest.approx(0.25)
+
+
+# ── hma_slope ────────────────────────────────────────────────────────────────
+
+
+def test_hma_slope_zero_on_first_bar():
+    """No hma_20 in features → hma_slope = 0.0."""
+    plugin = MomentumAccelPlugin()
+    result = plugin.compute_next(make_frames_extended())
+    assert result["hma_slope"] == 0.0
+
+
+def test_hma_slope_state_tracked():
+    """hma_slope = hma_20[t] - hma_20[t-1] (state-based, not from prev_features).
+
+    Bar 1: hma_20=100 → slope stored = 0 (no prior).
+    Bar 2: hma_20=103 → slope = 103 - 100 = 3.
+    """
+    plugin = MomentumAccelPlugin()
+    plugin.compute_next(make_frames_extended(hma_20_val=100.0))
+    result = plugin.compute_next(make_frames_extended(hma_20_val=103.0))
+    assert result["hma_slope"] == pytest.approx(3.0)
+
+
+# ── hma_accel ────────────────────────────────────────────────────────────────
+
+
+def test_hma_accel_zero_on_first_bar():
+    """No prior hma_slope in state → hma_accel = 0.0."""
+    plugin = MomentumAccelPlugin()
+    result = plugin.compute_next(make_frames_extended(hma_20_val=100.0))
+    assert result["hma_accel"] == 0.0
+
+
+def test_hma_accel_computed_on_second_slope_bar():
+    """hma_accel = hma_slope[t] - hma_slope[t-1].
+
+    Bar 1: hma_20=100 → slope=0 (first bar, no accel).
+    Bar 2: hma_20=103 → slope=3, accel=3-0=3.
+    Bar 3: hma_20=104 → slope=1, accel=1-3=-2.
+    """
+    plugin = MomentumAccelPlugin()
+    plugin.compute_next(make_frames_extended(hma_20_val=100.0))
+    plugin.compute_next(make_frames_extended(hma_20_val=103.0))
+    result = plugin.compute_next(make_frames_extended(hma_20_val=104.0))
+    assert result["hma_accel"] == pytest.approx(-2.0)
