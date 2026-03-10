@@ -27,7 +27,7 @@ class SupplyDemandSetupPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "zones", "smc"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     _state: dict = field(default_factory=dict)
 

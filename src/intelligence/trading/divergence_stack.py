@@ -32,7 +32,7 @@ class DivergenceStackPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "momentum", "divergence"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     divergence_threshold: float = 0.3
     atr_stop_multiplier: float = 1.5

@@ -32,7 +32,9 @@ class FVGFillPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "fvg", "institutional"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
+    # timeframe=".*" — InputSpec.timeframe is not enforced by the registry or service;
+    # signal_generator_service passes current-TF OHLCV regardless. ".*" makes intent clear.
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "mean_reversion"
     atr_stop_multiplier: float = 1.5
     atr_target_multipliers: tuple = (2.0, 3.5, 5.0)
