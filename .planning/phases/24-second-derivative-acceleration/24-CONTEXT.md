@@ -10,8 +10,11 @@
 
 ## Scope Summary
 
-**I2 changes (3):**
-1. Extend `MomentumAcceleration` — add `rsi_curvature`, `macd_hist_slope`, `price_accel` outputs
+**I1 changes (1):**
+0. New `HMA` indicator — Hull Moving Average (n=20): WMA(2×WMA(n/2) − WMA(n), sqrt(n)); output `hma_20`. Add to `moving_averages.py` or new `hma.py`. ~30 lines. Prerequisite for HMA slope/accel below.
+
+**I2 changes (4):**
+1. Extend `MomentumAcceleration` — add `rsi_curvature`, `macd_hist_slope`, `price_accel`, `hma_slope`, `hma_accel` outputs (`hma_slope = hma_20[t] - hma_20[t-1]`, `hma_accel = hma_slope[t] - hma_slope[t-1]`)
 2. New `ExhaustionScore` plugin (`cmp_ExhaustionScore`) — detects extreme + decelerating conditions; outputs `exhaustion_score`, `exhaustion_side`, `exhaustion_bars`
 3. New `AccelerationRegime` plugin (`cmp_AccelerationRegime`) — synthesizes acceleration signals into `accel_regime` (building/peak/waning/trough/neutral), `accel_score`, `accel_agreement`
 
@@ -22,11 +25,15 @@
 - `LiquiditySweepReclaim` + `LiquidityHunt` — exhaustion_score boost (confirms stop-run entry)
 - `MomentumBreakout` + `TrendFollowing` — exhaustion guard penalty (suppresses chasing exhausted moves)
 
-**ML impact:** 15 new features per bar per symbol per TF land in `intelligence_features` automatically.
+**ML impact:** 17 new features per bar per symbol per TF land in `intelligence_features` automatically.
+
+**Closes todos:** `2026-03-04-add-hma-i1-plugin.md`, `2026-03-06-expand-second-derivative-indicators.md`
 
 ## Key Files
 
-- `src/intelligence/composites/momentum_accel.py` — extend
+- `src/intelligence/indicators/moving_averages.py` — add HMA
+- `src/intelligence/register_plugins.py` — register HMA + 3 new plugins
+- `src/intelligence/composites/momentum_accel.py` — extend (+5 outputs total)
 - `src/intelligence/composites/exhaustion_score.py` — new
 - `src/intelligence/composites/acceleration_regime.py` — new
 - `src/intelligence/structure/swing_momentum.py` — new
@@ -34,4 +41,3 @@
 - `src/intelligence/trading/liquidity_hunt.py` — wire
 - `src/intelligence/trading/momentum_breakout.py` — wire
 - `src/intelligence/trading/trend_following.py` — wire
-- `src/intelligence/register_plugins.py` — register 3 new plugins
