@@ -108,14 +108,16 @@ Plans:
 
 **Depends on:** Phase 23
 
-**Plans:** 6/6 plans complete
+**Plans:** 7/7 plans complete
 
 Plans:
-- [ ] 24-01-PLAN.md — Wave 0 TDD stubs (RED): extend test_momentum_accel, create test_exhaustion_score, test_acceleration_regime, test_swing_momentum, test_hma, test_i7_exhaustion_wiring
-- [ ] 24-02-PLAN.md — Wave 1: HMA I1 plugin + extend MomentumAcceleration (+5 outputs, tuple inputs)
-- [ ] 24-03-PLAN.md — Wave 2a: ExhaustionScore + AccelerationRegime I2 plugins
-- [ ] 24-04-PLAN.md — Wave 2b: SwingMomentum I3 plugin (parallel with 24-03)
-- [ ] 24-05-PLAN.md — Wave 3: register_plugins.py registration + I7 exhaustion wiring (4 setups)
+- [x] 24-01-PLAN.md — Wave 0 TDD stubs (RED): extend test_momentum_accel, create test_exhaustion_score, test_acceleration_regime, test_swing_momentum, test_hma, test_i7_exhaustion_wiring
+- [x] 24-02-PLAN.md — Wave 1: HMA I1 plugin + extend MomentumAcceleration (+5 outputs, tuple inputs)
+- [x] 24-03-PLAN.md — Wave 2a: ExhaustionScore + AccelerationRegime I2 plugins
+- [x] 24-04-PLAN.md — Wave 2b: SwingMomentum I3 plugin (parallel with 24-03)
+- [x] 24-05-PLAN.md — Wave 3: register_plugins.py registration + I7 exhaustion wiring (4 setups)
+- [x] 24-06-PLAN.md — Gap closure: HMAPlugin registration in TIER_I1
+- [x] 24-07-PLAN.md — Gap closure: I3Structure schema missing SwingMomentum fields
 
 ## Backlog
 
@@ -201,4 +203,5 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 20. Circuit Breaker Integration | v1.5 | 4/4 | Complete | 2026-03-09 |
 | 21. Efficiency Optimizations | v1.5 | 4/4 | Complete | 2026-03-09 |
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
-| 24. Second-Derivative Acceleration | 6/6 | Complete    | 2026-03-10 | — |
+| 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
+| 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
