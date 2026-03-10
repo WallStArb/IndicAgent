@@ -95,7 +95,7 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 
 **Depends on:** Phase 22
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 23-01-PLAN.md — Wave 0 test stubs (RED) for gate cooldown, flip suppression, flip-after-resolution
