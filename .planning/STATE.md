@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Signal Quality
 status: executing
-stopped_at: Completed 24-05-PLAN.md (plugin registration + I7 exhaustion wiring)
-last_updated: "2026-03-10T12:43:54.059Z"
+stopped_at: Completed 24-06-PLAN.md (register HMAPlugin in TIER_I1)
+last_updated: "2026-03-10T13:15:23.371Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 2
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 9
+  completed_plans: 9
   percent: 36
 ---
 
@@ -88,6 +88,7 @@ Progress: [████░░░░░░] 36%
 | Phase 24-second-derivative-acceleration P04 | 4 | 1 tasks | 1 files |
 | Phase 24-second-derivative-acceleration P03 | 199 | 2 tasks | 2 files |
 | Phase 24-second-derivative-acceleration P05 | 3 | 3 tasks | 7 files |
+| Phase 24-second-derivative-acceleration P06 | 10 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,8 @@ Recent decisions affecting current work:
 - [Phase 24]: 4-vote AccelerationRegime: hma_accel added as 4th vote per test file; accel_agreement = max(pos,neg)/4 giving 0.5 for 2/2 split
 - [Phase 24-05]: Exhaustion boost is directional: bull exhaustion only boosts long sweeps, bear only boosts short — wrong-direction exhaustion ignored
 - [Phase 24-05]: MomentumBreakout guard applies penalty without suppression; TrendFollowing adds _no_signal() when confidence < confidence_threshold (0.4) after guard
+- [Phase 24-06]: HMAPlugin registered as 25th I1 indicator — gap was silently zeroing hma_slope and hma_accel
+- [Phase 24-06]: pandas import removed from hma.py — only numpy was ever used
 
 ### Pending Todos
 
@@ -173,6 +176,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T12:43:54.058Z
-Stopped at: Completed 24-05-PLAN.md (plugin registration + I7 exhaustion wiring)
+Last session: 2026-03-10T13:15:23.369Z
+Stopped at: Completed 24-06-PLAN.md (register HMAPlugin in TIER_I1)
 Resume file: None
