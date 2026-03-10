@@ -102,6 +102,21 @@ Plans:
 - [ ] 23-02-PLAN.md — Signal gate implementation: _check_gate, _update_gate, resolution listener
 - [ ] 23-03-PLAN.md — InputSpec timeframe cleanup (17 plugins) + 4h/1d exclusion comments
 
+### Phase 24: second-derivative-acceleration
+
+**Goal:** Add second-derivative (acceleration) intelligence to I2/I3 tiers — early inflection detection, exhaustion guards, and 17 new ML features per bar. Add HMA I1 indicator; extend MomentumAcceleration (+rsi_curvature, macd_hist_slope, price_accel, hma_slope, hma_accel); add ExhaustionScore and AccelerationRegime I2 plugins; add SwingMomentum I3 plugin; wire exhaustion awareness into LiquiditySweepReclaim/LiquidityHunt (boost) and MomentumBreakout/TrendFollowing (guard).
+
+**Depends on:** Phase 23
+
+**Plans:** 5 plans
+
+Plans:
+- [ ] 24-01-PLAN.md — Wave 0 TDD stubs (RED): extend test_momentum_accel, create test_exhaustion_score, test_acceleration_regime, test_swing_momentum, test_hma, test_i7_exhaustion_wiring
+- [ ] 24-02-PLAN.md — Wave 1: HMA I1 plugin + extend MomentumAcceleration (+5 outputs, tuple inputs)
+- [ ] 24-03-PLAN.md — Wave 2a: ExhaustionScore + AccelerationRegime I2 plugins
+- [ ] 24-04-PLAN.md — Wave 2b: SwingMomentum I3 plugin (parallel with 24-03)
+- [ ] 24-05-PLAN.md — Wave 3: register_plugins.py registration + I7 exhaustion wiring (4 setups)
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -115,7 +130,6 @@ Re-prioritized 2026-03-08 after v1.5 planning.
 | Renaissance Gaps (CIS + Signal Quality) | T0: fix CIS scoring in backfill + populate constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
 | Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; final audit across all symbol profiles. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
 | Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
-| HMA I1 indicator | Hull Moving Average (WMA of 2×WMA(n/2) − WMA(n), sqrt(n)). ~20 lines. Once added, HMA 2nd derivative is trivial via MomentumAcceleration pattern. | `ideas/2nd-derivative-indicator-research.md` |
 | AC Oscillator I1 plugin | Todo exists, fully specced. | — |
 | Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
 | Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
@@ -187,12 +201,4 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 20. Circuit Breaker Integration | v1.5 | 4/4 | Complete | 2026-03-09 |
 | 21. Efficiency Optimizations | v1.5 | 4/4 | Complete | 2026-03-09 |
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
-
-### Phase 24: second-derivative-acceleration
-
-**Goal:** Add second-derivative (acceleration) intelligence to I2/I3 tiers — early inflection detection, exhaustion guards, and 15 new ML features per bar. Extend MomentumAcceleration (+rsi_curvature, macd_hist_slope, price_accel), add ExhaustionScore and AccelerationRegime I2 plugins, add SwingMomentum I3 plugin, wire exhaustion awareness into LiquiditySweepReclaim/LiquidityHunt (boost) and MomentumBreakout/TrendFollowing (guard).
-**Depends on:** Phase 23
-**Plans:** TBD (run /gsd:plan-phase 24)
-
-Plans:
-- [ ] TBD (run /gsd:plan-phase 24 to break down)
+| 24. Second-Derivative Acceleration | v1.6 | 0/5 | In Progress | — |
