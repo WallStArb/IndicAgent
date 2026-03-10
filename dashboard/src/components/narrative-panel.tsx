@@ -99,8 +99,8 @@ export function NarrativePanel({
 function NarrativeCard({ data }: { data: NarrativeData }) {
   const isStale = Date.now() - data.receivedAt > STALE_AFTER_MS;
   const tfMinutes = tfToMinutes(data.timeframe);
-  const timestamp = deriveBarCloseIso(data.bar_close_ts, data.timestamp, data.timeframe) || data.timestamp;
-  const staleness = stalenessRatio(timestamp, tfMinutes);
+  const timestamp = deriveBarCloseIso(data.bar_close_ts, data.timestamp, data.timeframe) ?? data.timestamp;
+  const staleness = timestamp ? stalenessRatio(timestamp, tfMinutes) : null;
   const barTimeStr = timestamp
     ? new Date(timestamp).toLocaleTimeString([], {
         hour: "2-digit", minute: "2-digit", hour12: false,
