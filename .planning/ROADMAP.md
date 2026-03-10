@@ -187,3 +187,12 @@ Phases execute in numeric order: 0-17 (v1.4 complete) → 18 → 19 → 20 → 2
 | 20. Circuit Breaker Integration | v1.5 | 4/4 | Complete | 2026-03-09 |
 | 21. Efficiency Optimizations | v1.5 | 4/4 | Complete | 2026-03-09 |
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
+
+### Phase 24: second-derivative-acceleration
+
+**Goal:** Add second-derivative (acceleration) intelligence to I2/I3 tiers — early inflection detection, exhaustion guards, and 15 new ML features per bar. Extend MomentumAcceleration (+rsi_curvature, macd_hist_slope, price_accel), add ExhaustionScore and AccelerationRegime I2 plugins, add SwingMomentum I3 plugin, wire exhaustion awareness into LiquiditySweepReclaim/LiquidityHunt (boost) and MomentumBreakout/TrendFollowing (guard).
+**Depends on:** Phase 23
+**Plans:** TBD (run /gsd:plan-phase 24)
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 24 to break down)

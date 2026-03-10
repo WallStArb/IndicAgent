@@ -86,6 +86,10 @@ Progress: [████░░░░░░] 36%
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 24 added: second-derivative-acceleration — ExhaustionScore/AccelerationRegime I2 + SwingMomentum I3 + exhaustion wiring into 4 I7 setups
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
