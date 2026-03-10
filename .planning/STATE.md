@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Signal Quality
 status: executing
-stopped_at: Completed 24-01-PLAN.md (Phase 24 Wave 0 RED test stubs)
-last_updated: "2026-03-10T12:27:09.400Z"
+stopped_at: Completed 24-02-PLAN.md (HMA plugin + MomentumAccel 5 new outputs)
+last_updated: "2026-03-10T12:32:41.601Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 4
+  completed_plans: 5
   percent: 36
 ---
 
@@ -84,6 +84,7 @@ Progress: [████░░░░░░] 36%
 | Phase 23-signal-generator-gate P02 | 4 | 2 tasks | 1 files |
 | Phase 23-signal-generator-gate P03 | 157 | 2 tasks | 19 files |
 | Phase 24-second-derivative-acceleration P01 | 445 | 3 tasks | 6 files |
+| Phase 24-second-derivative-acceleration P02 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,8 @@ Recent decisions affecting current work:
 - [Phase 23-03]: 4h/1d exclusion documented in both service configs as day-trading scope boundary
 - [Phase 24-01]: macd_hist_slope reads macd_histogram_12_26_9 (not macd_12_26_9) — histogram reveals slope of momentum, not signal line
 - [Phase 24-01]: I7 boost/guard tests use diff-confidence-delta pattern (baseline vs with-exhaustion call) to pin exact +0.1/-0.15 values
+- [Phase 24-02]: HMA diff_buffer seeded from last sqrt_n historical bars in compute_full — enables valid HMA output on first batch call without incremental accumulation
+- [Phase 24-02]: price_accel uses 4-value close window: velocity_prev=close[-3]-close[-4], velocity_now=close[-1]-close[-2]; test authority overrides plan interface comment
 
 ### Pending Todos
 
@@ -160,6 +163,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T12:27:09.398Z
-Stopped at: Completed 24-01-PLAN.md (Phase 24 Wave 0 RED test stubs)
+Last session: 2026-03-10T12:32:41.599Z
+Stopped at: Completed 24-02-PLAN.md (HMA plugin + MomentumAccel 5 new outputs)
 Resume file: None
