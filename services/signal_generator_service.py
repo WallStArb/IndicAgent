@@ -62,6 +62,13 @@ from src.observability.metrics import (
 # I7 plugin names — imported from register_plugins (single source of truth)
 I7_PLUGINS = TIER_I7
 
+# Minimum bars between published signals per timeframe. Prevents condition
+# re-fires (same setup firing every bar while condition persists).
+# Day-trading focus: 1m=3 bars (3 min cooldown), higher TFs=2 bars.
+MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
+# Seconds per bar for each configured timeframe — used in cooldown calculation.
+TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.
 # If the authority TF stream is not subscribed, cache entry is absent → gate skipped.
@@ -370,6 +377,10 @@ class SignalGeneratorService:
         # Loaded from Redis at startup and refreshed every 60 min by
         # _perf_weights_refresh_loop(). Empty dict = neutral (all multipliers=1.0).
         self._perf_weights: dict[str, float] = {}
+        # Gate dict: tracks last published signal per (symbol, timeframe) to prevent
+        # condition re-fires (cooldown) and direction flips before prior signal resolves.
+        # In-memory only — resets on service restart (first signal post-restart publishes).
+        self._signal_gate: dict[tuple[str, str], dict] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -453,6 +464,41 @@ class SignalGeneratorService:
             level=self.config["logging"].get("level", "INFO"),
             backup_count=self.config["logging"].get("backup_count", 5),
         )
+
+    def _check_gate(self, symbol: str, tf: str, direction: int, timestamp: datetime) -> bool:
+        """Return True (suppress signal) if gate blocks this signal, False (allow) otherwise.
+
+        Suppresses if:
+        1. Cooldown: bars since last published signal < MIN_BARS_BETWEEN_SIGNALS[tf]
+        2. Flip-while-unresolved: direction changed AND prior signal not resolved
+        Returns False (allow) if no prior gate entry exists (first signal always publishes).
+        """
+        gate = self._signal_gate.get((symbol, tf))
+        if gate is None:
+            return False  # No prior signal — always allow
+
+        tf_secs = TF_SECONDS.get(tf, 60)
+        min_bars = MIN_BARS_BETWEEN_SIGNALS.get(tf, 2)
+        bars_since = (timestamp - gate["bar_ts"]).total_seconds() / tf_secs
+
+        # Cooldown: same or different direction — suppress if too soon
+        if bars_since < min_bars:
+            return True
+
+        # Direction flip while prior signal is still live — suppress
+        if direction != gate["direction"] and not gate["resolved"]:
+            return True
+
+        return False
+
+    def _update_gate(self, symbol: str, tf: str, direction: int, timestamp: datetime, signal_id: str) -> None:
+        """Record gate state after a signal is successfully published to the stream."""
+        self._signal_gate[(symbol, tf)] = {
+            "direction": direction,
+            "bar_ts": timestamp,
+            "signal_id": signal_id,
+            "resolved": False,
+        }
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
         self.logger.info("Received shutdown signal", signal=signum)
