@@ -434,6 +434,9 @@ class SignalGeneratorService:
             },
             "service": {
                 "symbols": get_active_contracts(_settings),
+                # 4h and 1d intentionally excluded: day-trading focus. 4h bars close 4×/day,
+                # 1d once/day — signal latency too high for intraday entries. Extend in a future
+                # phase if swing-trading scope is added.
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "min_history_bars": 50,
                 "processing_interval": 0.1,
