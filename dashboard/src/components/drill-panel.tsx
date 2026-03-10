@@ -4,6 +4,10 @@
 import { X } from "lucide-react";
 import type { SymbolData, SignalData } from "@/lib/types";
 import { fmtPrice, fmtNum, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
+import { useMemo } from "react";
+
+/** Timeframe offset to seconds: add to bar open ts to get actual close time */
+const TF_OFFSETS: Record<string, number> = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
@@ -31,13 +35,33 @@ interface DrillPanelProps {
   onClose: () => void;
 }
 
-/** Compact 2-row signal card for RecentSignals sidebar hero */
+/** Derive bar close ISO: use bar_close_ts if available, else add tf offset to bar open ts */
+function _deriveBarCloseIso(
+  barCloseTs: string | undefined,
+  barOpenTs: string | undefined,
+  tf: string
+): string | undefined {
+  if (barCloseTs) return barCloseTs;
+  const base = barOpenTs;
+  if (!base) return undefined;
+  const offset = TF_OFFSETS[tf] ?? 0;
+  if (offset === 0) return base;
+  const d = new Date(base);
+  if (isNaN(d.getTime())) return undefined;
+  return new Date(d.getTime() + offset * 1000).toISOString();
+}
+
+/** Compact 3-row signal card for RecentSignals sidebar hero */
 function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData; isSelected: boolean; onClick: () => void }) {
   const isLong = signal.direction === "long";
   const pluginShort = _abbreviatePlugin(signal.setup_plugin);
 
-  const timeStr = fmtTimeHMS(signal.signal_computed_at);
-  const barCloseIso = signal.bar_close_ts;
+  const barCloseIso = useMemo(
+    () => _deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe),
+    [signal.bar_close_ts, signal.timestamp, signal.timeframe]
+  );
+  const signalTimeStr = fmtTimeHMS(signal.signal_computed_at);
+  const barCloseStr = fmtTimeHMS(barCloseIso);
   const ttsS = pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null);
   const ttsStr = fmtLagSeconds(ttsS);
 
@@ -47,17 +71,49 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const dirDim = isLong ? "var(--green-dim)" : "var(--red-dim)";
 
+  // Outcome styling for resolved signals
+  const outcomeBadge = signal.resolved ? (
+    <span
+      className="inline-flex items-center px-1 py-0 rounded text-[0.5rem] font-bold uppercase tracking-wider ml-auto"
+      style={{
+        backgroundColor:
+          signal.outcome?.startsWith("target") ? "var(--green-dim)"
+          : signal.outcome?.startsWith("stopped") ? "var(--red-dim)"
+          : "var(--bg-secondary)",
+        color:
+          signal.outcome?.startsWith("target") ? "var(--green)"
+          : signal.outcome?.startsWith("stopped") ? "var(--red)"
+          : "var(--text-muted)",
+      }}
+    >
+      {_outcomeLabel(signal.outcome)}
+    </span>
+  ) : null;
+
+  const pnlR = signal.pnl_r != null ? (
+    <span className="font-data" style={{ color: signal.pnl_r > 0 ? "var(--green)" : "var(--red)" }}>
+      {signal.pnl_r > 0 ? "+" : ""}{fmtNum(signal.pnl_r, 1)}R
+    </span>
+  ) : null;
+
   return (
     <div
       onClick={onClick}
       className={`p-2 rounded cursor-pointer transition-all ${
         isSelected ? "ring-1 ring-[var(--accent-cyan)]" : ""
-      } ${signal.resolved ? "opacity-50" : ""}`}
+      } ${signal.resolved ? "opacity-60" : ""}`}
       style={{ background: "var(--bg-elevated)" }}
     >
-      {/* Row 1: time, direction, plugin, confidence, lag */}
-      <div className="text-xs flex items-center gap-2">
-        <span className="font-data">{timeStr}</span>
+      {/* Row 1: bar close → signal time + TTS, direction, plugin, confidence, outcome */}
+      <div className="text-xs flex items-center gap-2 flex-wrap">
+        {(barCloseStr || signalTimeStr) && (
+          <span className="font-data flex items-center gap-0.5">
+            {barCloseStr && <span>{barCloseStr}</span>}
+            {barCloseStr && signalTimeStr && <span className="opacity-30">→</span>}
+            {signalTimeStr && <span style={{ color: "var(--text-secondary)" }}>{signalTimeStr}</span>}
+            {ttsStr && <span className="opacity-50 ml-0.5">{ttsStr}</span>}
+          </span>
+        )}
         <span
           className="inline-flex items-center px-1 py-0 rounded text-[0.55rem] font-bold uppercase tracking-widest"
           style={{ backgroundColor: dirDim, color: dirColor }}
@@ -66,7 +122,7 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
         </span>
         <span className="text-[var(--text-muted)]">{pluginShort}</span>
         <span className="font-data" style={{ color: dirColor }}>{fmtNum(signal.confidence * 100, 0)}%</span>
-        {ttsStr && <span className="opacity-50">{ttsStr}</span>}
+        {outcomeBadge}
       </div>
       {/* Row 2: entry, SL, T1 + RR */}
       <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
@@ -81,6 +137,13 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
           </>
         )}
       </div>
+      {/* Row 3: exit price + PnL (only for resolved) */}
+      {signal.resolved && signal.exit_price && (
+        <div className="text-[0.55rem] flex items-center gap-2 mt-0.5 text-[var(--text-muted)] opacity-70">
+          <span>X {fmtPrice(signal.exit_price)}</span>
+          {pnlR && <span className="ml-auto">{pnlR}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -93,14 +156,47 @@ function RecentSignals({ symbol, timeframe, signalsHistory, selectedSignal, onSi
   selectedSignal: SignalData | null;
   onSignalSelect: (signal: SignalData) => void;
 }) {
-  // Filter signals for this symbol and timeframe
-  const recentSignals = signalsHistory.filter(s => s.symbol === symbol && s.timeframe === timeframe);
+  // Timeframe to milliseconds for retention calculation
+  const tfToMs: Record<string, number> = {
+    "1m": 60_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "1h": 3_600_000,
+    "4h": 14_400_000,
+    "1d": 86_400_000,
+  };
+
+  // Dynamic retention: 15x bar length (e.g., 1m = 15 min, 1h = 15 hours)
+  const retentionMs = (tfToMs[timeframe] ?? 60_000) * 15;
+  const cutoffTime = Date.now() - retentionMs;
+  const maxSignals = 20; // Hard cap to prevent overwhelming list
+
+  // Filter signals for this symbol (all TFs) and retention window
+  // Don't filter by timeframe in Recent Signals - show all history for the symbol
+  const recentSignals = signalsHistory
+    .filter(s => {
+      // Check if signal has valid timestamp
+      const timestamp = s.bar_close_ts || s.timestamp;
+      if (!timestamp || timestamp === "") return false;
+
+      // Check if within retention window
+      const signalTime = new Date(timestamp).getTime();
+      return signalTime > cutoffTime;
+    })
+    .sort((a, b) => {
+      // Sort by timestamp descending (most recent first)
+      const timeA = new Date(a.bar_close_ts ?? a.timestamp).getTime();
+      const timeB = new Date(b.bar_close_ts ?? b.timestamp).getTime();
+      return timeB - timeA;
+    })
+    .slice(0, maxSignals); // Take top 20
+
   const hasSignals = recentSignals.length > 0;
 
   return (
     <div className="border-b border-[var(--border-subtle)]">
       <h3 className="text-[0.55rem] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-2 px-4 pt-3">
-        Recent Signals ({recentSignals.length})
+        Recent Signals ({recentSignals.length}) — {timeframe}
       </h3>
       {hasSignals ? (
         <div className="px-4 pb-3 flex flex-col gap-2">
@@ -127,6 +223,19 @@ function _abbreviatePlugin(name: string): string {
   const bare = name.replace(/^(ind_|patt_|ctx_|smc_|trad_)/, "");
   if (bare.length <= 8) return bare;
   return bare.slice(0, 6);
+}
+
+/** Shorten outcome label for badge display */
+function _outcomeLabel(outcome: string | null | undefined): string {
+  if (!outcome) return "—";
+  if (outcome.startsWith("target_1")) return "T1";
+  if (outcome.startsWith("target_1_2")) return "T1+T2";
+  if (outcome.startsWith("target_full")) return "FULL";
+  if (outcome === "stopped_at_entry") return "STP@ENT";
+  if (outcome === "stopped_in_trade") return "STOPPED";
+  if (outcome === "never_activated") return "N/A";
+  if (outcome?.startsWith("ttl_expired")) return "TTL";
+  return outcome.substring(0, 8);
 }
 
 export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, onSignalSelect, onClose }: DrillPanelProps) {
@@ -190,6 +299,8 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           <Section label="I7 Signal">
             {signal ? (
               <SignalDetail signal={signal} />
+            ) : timeframe === "1m" ? (
+              <Empty>No active 1m signal</Empty>
             ) : (
               <Empty>No signal for {timeframe} — signals are generated on 1m</Empty>
             )}
