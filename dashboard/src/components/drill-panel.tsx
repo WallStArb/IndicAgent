@@ -3,7 +3,7 @@
 
 import { X } from "lucide-react";
 import type { SymbolData, SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
+import { fmtPrice, fmtNum, fmtPriceRange, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import { useMemo } from "react";
@@ -22,6 +22,22 @@ import {
   killzoneTooltip, amdPhaseTooltip, demandZoneTooltip, supplyZoneTooltip,
   breakerBlockTooltip, premiumDiscountPctTooltip,
 } from "@/lib/indicator-tooltips";
+import {
+  barTimeTooltip,
+  sigTimeTooltip,
+  timestampTooltip,
+  barClosePriceTooltip,
+  marketPriceTooltip,
+  ttsTooltip,
+  entryTooltip,
+  slTooltip,
+  t1Tooltip,
+  t2Tooltip,
+  t3Tooltip,
+  rrTooltip,
+  zoneTooltip,
+  exitTooltip,
+} from "@/lib/signal-tooltips";
 
 interface DrillPanelProps {
   symbol: string;
@@ -111,21 +127,44 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
       </div>
       {/* Row 2: entry, SL, T1 + RR */}
       <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
-        <span>E {fmtPrice(signal.entry_price)}</span>
+        <Tooltip tooltip={entryTooltip()}>
+          <span>E</span>
+        </Tooltip>
+        <span>{fmtPrice(signal.entry_price)}</span>
         <span>·</span>
-        <span>SL {fmtPrice(signal.stop_loss)}</span>
+        <Tooltip tooltip={slTooltip()}>
+          <span>SL</span>
+        </Tooltip>
+        <span>{fmtPrice(signal.stop_loss)}</span>
         {t1 !== null && (
           <>
             <span>·</span>
-            <span>T1 {fmtPrice(t1)}</span>
-            {rr1 > 0 && <span className="font-data">{fmtNum(rr1, 1)}R</span>}
+            <Tooltip tooltip={t1Tooltip()}>
+              <span>T1</span>
+            </Tooltip>
+            <span>{fmtPrice(t1)}</span>
+            {rr1 > 0 && <Tooltip tooltip={rrTooltip()}><span className="font-data">{fmtNum(rr1, 1)}R</span></Tooltip>}
           </>
         )}
       </div>
+
+      {/* Entry Zone (if available) */}
+      {signal.entry_zone_low != null && signal.entry_zone_high != null && (
+        <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
+          <Tooltip tooltip={zoneTooltip()}>
+            <span className="opacity-50">ZONE</span>
+          </Tooltip>
+          <span>{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
+        </div>
+      )}
+
       {/* Row 3: exit price + PnL (only for resolved) */}
       {signal.resolved && signal.exit_price && (
         <div className="text-[0.55rem] flex items-center gap-2 mt-0.5 text-[var(--text-muted)] opacity-70">
-          <span>X {fmtPrice(signal.exit_price)}</span>
+          <Tooltip tooltip={exitTooltip()}>
+            <span>X</span>
+          </Tooltip>
+          <span>{fmtPrice(signal.exit_price)}</span>
           {pnlR && <span className="ml-auto">{pnlR}</span>}
         </div>
       )}
@@ -727,7 +766,11 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         </span>
         <span className="text-[0.6rem] text-[var(--text-secondary)]">{signal.signal_type.replace(/_/g, " ")}</span>
         <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>{(signal.confidence * 100).toFixed(0)}%</span>
-        <span className="text-[0.55rem] text-[var(--text-muted)]">{signal.timeframe} · {timeStr}</span>
+        <span className="text-[0.55rem] text-[var(--text-muted)]">
+          <Tooltip tooltip={timestampTooltip()}>
+            <span>{signal.timeframe} · {timeStr}</span>
+          </Tooltip>
+        </span>
         {sigTimeStr && (
           <span className="text-[0.5rem] font-data text-[var(--text-muted)] opacity-70">
             sig {sigTimeStr}
@@ -749,6 +792,23 @@ function SignalDetail({ signal }: { signal: SignalData }) {
           value={`${fmtPrice(signal.stop_loss)}${signal.stop_type ? ` (${stopTypeLabel[signal.stop_type] ?? signal.stop_type})` : ""}`}
         />
       </Grid>
+
+      {/* Entry Zone */}
+      {signal.entry_zone_low != null && signal.entry_zone_high != null && (
+        <Grid>
+          <KV
+            label="Zone"
+            tooltip={zoneTooltip()}
+            value={fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}
+          />
+          {signal.zone_valid_at_signal != null && (
+            <KV
+              label="Zone valid"
+              value={signal.zone_valid_at_signal ? "yes ✓" : "no"}
+            />
+          )}
+        </Grid>
+      )}
 
       {/* Targets */}
       {t1 !== null && (

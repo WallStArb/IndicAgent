@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { NarrativeData, GroupNarrativeData } from "@/lib/types";
-import { stalenessRatio, tfToMinutes } from "@/lib/format";
+import { stalenessRatio, tfToMinutes, deriveBarCloseIso } from "@/lib/format";
 
 /** Map base symbol → asset group name (matches backend ASSET_GROUPS). */
 const SYMBOL_TO_GROUP: Record<string, string> = {
@@ -99,13 +99,14 @@ export function NarrativePanel({
 function NarrativeCard({ data }: { data: NarrativeData }) {
   const isStale = Date.now() - data.receivedAt > STALE_AFTER_MS;
   const tfMinutes = tfToMinutes(data.timeframe);
-  const staleness = stalenessRatio(data.timestamp, tfMinutes);
-  const barTimeStr = data.timestamp
-    ? new Date(data.timestamp).toLocaleTimeString([], {
+  const timestamp = deriveBarCloseIso(data.bar_close_ts, data.timestamp, data.timeframe) || data.timestamp;
+  const staleness = stalenessRatio(timestamp, tfMinutes);
+  const barTimeStr = timestamp
+    ? new Date(timestamp).toLocaleTimeString([], {
         hour: "2-digit", minute: "2-digit", hour12: false,
       })
     : null;
-  const barDate = data.timestamp ? new Date(data.timestamp) : null;
+  const barDate = timestamp ? new Date(timestamp) : null;
   const isToday = barDate ? barDate.toDateString() === new Date().toDateString() : true;
   const barDateStr =
     barDate && !isToday

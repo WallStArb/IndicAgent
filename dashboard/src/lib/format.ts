@@ -24,6 +24,13 @@ export function fmtNum(
   return value.toFixed(decimals);
 }
 
+/** Format price range as "low–high" with dash separator.
+ * Returns "—" if either value is undefined/null. */
+export function fmtPriceRange(low: number | undefined, high: number | undefined): string {
+  if (low == null || high == null) return "—";
+  return `${fmtPrice(low)}–${fmtPrice(high)}`;
+}
+
 /** Format percentage change with sign */
 export function fmtPct(value: number | undefined): string {
   if (value === undefined || isNaN(value)) return "—";

@@ -42,6 +42,8 @@ created: 2026-03-10
 | 23-01-02 | 01 | 1 | gate-cooldown | unit | `.venv/bin/pytest tests/unit/service_tests/test_signal_generator_service.py -v -k "cooldown"` | ❌ W0 | ⬜ pending |
 | 23-01-03 | 01 | 1 | gate-flip-suppressed | unit | `.venv/bin/pytest tests/unit/service_tests/test_signal_generator_service.py -v -k "flip"` | ❌ W0 | ⬜ pending |
 | 23-01-04 | 01 | 1 | gate-flip-allowed | unit | `.venv/bin/pytest tests/unit/service_tests/test_signal_generator_service.py -v -k "resolution"` | ❌ W0 | ⬜ pending |
+| 23-02-01 | 02 | 2 | gate-cooldown, gate-flip-suppressed, gate-flip-allowed | unit | `.venv/bin/pytest tests/unit/service_tests/test_signal_generator_service.py -v -k "gate"` | ✅ | ⬜ pending |
+| 23-02-02 | 02 | 2 | gate-init (integration) | unit | `.venv/bin/pytest tests/unit/service_tests/test_signal_generator_service.py -v` | ✅ | ⬜ pending |
 | 23-03-01 | 03 | 3 | inputspec-cleanup | unit | `.venv/bin/pytest tests/unit/ -v -k "inputspec or i7"` | ✅ | ⬜ pending |
 | 23-03-02 | 03 | 3 | 4h-1d-exclusion | grep | `grep -c "4h and 1d intentionally excluded" services/market_analysis_service.py && grep -c "4h and 1d intentionally excluded" services/signal_generator_service.py` | ✅ | ⬜ pending |
 

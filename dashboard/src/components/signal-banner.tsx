@@ -2,10 +2,21 @@
 "use client";
 
 import type { SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
+import { fmtPrice, fmtPriceRange, fmtNum, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
 import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
+import { Tooltip } from "@/components/tooltip";
+import {
+  barTimeTooltip,
+  sigTimeTooltip,
+  ttsTooltip,
+  barClosePriceTooltip,
+  marketPriceTooltip,
+  entryTooltip,
+  slTooltip,
+  zoneTooltip,
+} from "@/lib/signal-tooltips";
 
 interface SignalBannerProps {
   signal: SignalData | null;
@@ -56,17 +67,53 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
       <span className="text-[0.55rem] font-data font-bold" style={{ color }}>
         {fmtNum(signal.confidence * 100, 0)}%
       </span>
-      <span className="text-[0.5rem] text-[var(--text-muted)] font-data">
-        {fmtPrice(signal.entry_price)} → {fmtPrice(signal.stop_loss)}
+      <span className="text-[0.5rem] text-[var(--text-muted)] font-data flex items-center gap-1">
+        <Tooltip tooltip={entryTooltip()}>
+          <span>E</span>
+        </Tooltip>
+        <span>{fmtPrice(signal.entry_price)}</span>
+        {signal.entry_zone_low != null && signal.entry_zone_high != null && (
+          <>
+            <Tooltip tooltip={zoneTooltip()}>
+              <span className="opacity-50 ml-0.5">ZONE</span>
+            </Tooltip>
+            <span className="opacity-50">{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
+          </>
+        )}
+        <span className="opacity-30">|</span>
+        <Tooltip tooltip={slTooltip()}>
+          <span>SL</span>
+        </Tooltip>
+        <span>{fmtPrice(signal.stop_loss)}</span>
       </span>
-      {(barCloseStr || signalTimeStr) && (
-        <span className="text-[0.45rem] font-data text-[var(--text-muted)] opacity-60 flex items-center gap-0.5">
+      {(barCloseStr || signalTimeStr || signal.bar_close_price != null || signal.market_price_at_signal != null) && (
+        <span className="text-[0.45rem] font-data text-[var(--text-muted)] opacity-70 flex items-center gap-1 flex-wrap">
+          {barCloseStr && (
+            <Tooltip tooltip={barTimeTooltip()}>
+              <span className="opacity-50">BAR</span>
+            </Tooltip>
+          )}
           {barCloseStr && <span>{barCloseStr}</span>}
-          {barCloseStr && signalTimeStr && <span className="opacity-30">→</span>}
+          {signal.bar_close_price != null && (
+            <Tooltip tooltip={barClosePriceTooltip()}>
+              <span>@ {fmtPrice(signal.bar_close_price)}</span>
+            </Tooltip>
+          )}
+          {ttsStr && (
+            <Tooltip tooltip={ttsTooltip()}>
+              <span>{ttsStr}</span>
+            </Tooltip>
+          )}
+          {signalTimeStr && (
+            <Tooltip tooltip={sigTimeTooltip()}>
+              <span className="opacity-50">SIG</span>
+            </Tooltip>
+          )}
           {signalTimeStr && <span style={{ color: "var(--text-secondary)" }}>{signalTimeStr}</span>}
-          {ttsStr && <span className="opacity-50 ml-0.5">{ttsStr}</span>}
           {signal.market_price_at_signal != null && (
-            <span className="ml-0.5">@ {fmtPrice(signal.market_price_at_signal)}</span>
+            <Tooltip tooltip={marketPriceTooltip()}>
+              <span>@ {fmtPrice(signal.market_price_at_signal)}</span>
+            </Tooltip>
           )}
         </span>
       )}

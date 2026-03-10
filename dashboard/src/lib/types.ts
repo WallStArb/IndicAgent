@@ -266,6 +266,7 @@ export interface SignalData {
   resolved?: boolean;            // true = signal closed, outcome known
   outcome?: string;              // 8-class: "never_activated" | "stopped_at_entry" | "stopped_in_trade" | "target_1" | "target_1_2" | "target_full" | "ttl_expired_behind" | "ttl_expired_ahead"
   exit_price?: number;           // price at which signal was closed
+  pnl_r?: number;                // profit/loss in R-multiples (e.g., 2.5R = 2.5x profit)
 }
 
 // ── I8 AI Narratives ──
@@ -278,6 +279,7 @@ export interface NarrativeData {
   narrative_short?: string;      // 2-sentence Context+Execution (~500ms)
   narrative_deep?: string;       // 3-sentence confluence story (~5-8s)
   timestamp: string;
+  bar_close_ts?: string;         // ISO — bar close time when narrative was generated
   receivedAt: number;            // Date.now() when received — for staleness tracking
   signal_id?: string;            // correlates short + deep events for same signal
   // Keep for backward compat during transition
