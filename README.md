@@ -335,10 +335,10 @@ In each case: subscribe to the streams you need, publish what you produce. Risk 
 |--------|--------|
 | **Data in** | IBKR TWS: **ES**, **NQ**, **RTY**, **YM** (equity indices); **CL** (energy); **GC**, **SI**, **HG**, **PL** (metals); **ZN**, **ZF**, **ZB**, **ZT** (rates); **VX** (volatility); **ZS**, **ZC**, **ZW** (agriculture); **EURUSD**, **GBPUSD**, **USDJPY**, **USDCHF** (spot FX); **BTCUSD**, **ETHUSD**, **SOLUSD** (spot crypto). 24 instruments, 100–500+ ticks/sec |
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); TimescaleDB feature store |
-| **Intelligence** | 96 plugins: I1 (25), I2 (11), I3 (8), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer; I8 LLM narrative chain |
+| **Intelligence** | 96 plugins: I1 (26), I2 (11), I3 (8), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer; I8 LLM narrative chain |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB (Redis-compatible), Redpanda (Kafka-compatible), TimescaleDB, Prometheus, Grafana, Next.js 16.1 / React 19.2 |
 | **Deployment** | 10 systemd services; FastAPI + SSE consumer layer; Prometheus metrics per service |
-| **Tests** | 1430 passing (unit + integration) |
+| **Tests** | 1485 passing (unit + integration) |
 
 ### Supported Instruments (24)
 
