@@ -30,6 +30,7 @@ from .indicators.chandelier import plugin as chandelier_plugin
 from .indicators.cmf import plugin as cmf_plugin
 from .indicators.donchian import plugin as donchian_plugin
 from .indicators.historical_volatility import plugin as hv_plugin
+from .indicators.hma import plugin as hma_plugin
 from .indicators.keltner import plugin as keltner_plugin
 from .indicators.macd import plugin as macd_plugin
 from .indicators.mfi import plugin as mfi_plugin
@@ -123,6 +124,7 @@ def register_all_plugins() -> None:
     registry.register_indicator(psar_plugin)
     registry.register_indicator(stoch_rsi_plugin)
     registry.register_indicator(ac_osc_plugin)
+    registry.register_indicator(hma_plugin)
 
     # I2: Composite event plugins — run on I1 features, before I3
     registry.register_pattern(macd_events_plugin)
@@ -237,6 +239,7 @@ TIER_I1: list[str] = [
     psar_plugin.name,
     stoch_rsi_plugin.name,
     ac_osc_plugin.name,
+    hma_plugin.name,  # 'HMA'
 ]
 
 TIER_I2: list[str] = [
