@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 24-second-derivative-acceleration
 source: 24-01-SUMMARY.md, 24-02-SUMMARY.md, 24-03-SUMMARY.md, 24-04-SUMMARY.md, 24-05-SUMMARY.md, 24-06-SUMMARY.md
 started: 2026-03-10T12:50:00Z
-updated: 2026-03-10T12:57:00Z
+updated: 2026-03-10T13:00:00Z
 ---
 
 ## Current Test
@@ -51,7 +51,17 @@ skipped: 0
   reason: "User reported: market_analysis_service running but not consuming - 0 consumers in group, 0 new intelligence_features rows in 50 minutes since restart. Latest intelligence_features row from 2026-03-09, service restarted 2026-03-10 09:47:51."
   severity: blocker
   test: 5
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "I3Structure Pydantic schema missing 6 field declarations for SwingMomentum outputs: swing_amplitude_ratio, swing_amplitude_expanding, swing_velocity_bars, swing_velocity_trend, struct_energy, struct_accel_bias. Schema has extra='forbid', so every IntelligenceEvent validation fails and gets dropped (market_analysis_service.py line 453)."
+  artifacts:
+    - path: "src/intelligence/schemas.py"
+      line: "149-240"
+      issue: "I3Structure class needs 6 new field declarations for SwingMomentum plugin outputs"
+  missing:
+    - "Add to I3Structure class: swing_amplitude_ratio: float | None = None"
+    - "Add to I3Structure class: swing_amplitude_expanding: int | None = None"
+    - "Add to I3Structure class: swing_velocity_bars: float | None = None"
+    - "Add to I3Structure class: swing_velocity_trend: Literal[\"accelerating\", \"decelerating\", \"stable\"] | None = None"
+    - "Add to I3Structure class: struct_energy: float | None = None"
+    - "Add to I3Structure class: struct_accel_bias: Literal[-1, 0, 1] | None = None"
+    - "Update docstring on line 152 to reflect 8 I3 plugins (was 7) and 75 fields (was 69)"
+  debug_session: ".planning/debug/resolved/market-analysis-not-consuming.md"
