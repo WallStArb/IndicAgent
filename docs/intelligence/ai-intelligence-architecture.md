@@ -1,14 +1,14 @@
 # AI Intelligence Architecture
 
-**Version:** 3.0.0
-**Last Updated:** 2026-03-02
-**Status:** Operational — I1–I8 pipeline complete (84 plugins + 2 aggregation). LLM stack: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline fallback). See `docs/STATUS.md` for full current state.
+**Version:** 3.1.0
+**Last Updated:** 2026-03-10
+**Status:** Operational — I1–I8 pipeline complete (95 plugins + 2 aggregation). LLM stack: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline fallback). MLAgent learning machine in design (v1.8+). See `CLAUDE.md` for full current state.
 
 ## Executive Summary
 
 Comprehensive technical architecture for AI intelligence systems within IndicAgent. Provides sophisticated, modular foundation for market intelligence extraction that integrates seamlessly with existing infrastructure. The I8 AI Narrative layer uses a **3-tier LLM inference chain** — highest-quality cloud inference first, broad-model cloud fallback second, and always-available local inference as the last resort.
 
-**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are operational (84 plugins). See `docs/STATUS.md` for current state.
+**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are operational (95 plugins). See `CLAUDE.md` for current state.
 
 ## 3-Tier LLM Inference Chain (I8)
 
@@ -34,7 +34,7 @@ Tier 3 (Offline)   — Ollama (local)
                      or API access. Adds latency but guarantees narrative generation.
                      Endpoint: http://localhost:11434
                      Env: OLLAMA_BASE_URL, OLLAMA_TIMEOUT_SEC
-                     Per-signal: qwen3:8b  |  Group synthesis: phi4-mini:3.8b
+                     Per-signal: qwen3.5:9b  |  Group synthesis: phi4-mini:3.8b
 ```
 
 ### Provider Chain Setup
@@ -46,7 +46,7 @@ chain = LLMChain([
     ZAIProvider(model=settings.zai_model, api_key=settings.zai_api_key),
     OpenRouterProvider(model="meta-llama/llama-3.3-70b-instruct:free",
                        api_key=settings.openrouter_api_key),
-    OllamaProvider(model="qwen3:8b", base_url=settings.ollama_base_url),
+    OllamaProvider(model="qwen3.5:9b", base_url=settings.ollama_base_url),
 ])
 text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
 # chain.last_provider_id — which provider succeeded (e.g. "zai:glm-5")
@@ -304,22 +304,75 @@ class IntelligenceValidator:
         return all(validations)
 ```
 
-## Current Status (as of v5.10.0)
+## Current Status (as of v1.6)
 
-**All phases complete.** I1–I8 pipeline operational with 84 plugins + 2 aggregation components.
+**All I1–I8 phases complete.** 95 plugins + 2 aggregation components operational. MLAgent learning machine in design (v1.8+).
 
 | Layer | Status |
 |-------|--------|
-| I1 Technical Indicators (23) | ✅ Running — incremental `compute_next()` |
-| I2 Composite Events (5) | ✅ Running — MACD/RSI/Stochastic/ADX/Volume events |
-| I3 Market Structure (7) | ✅ Running — swing, S/R, trend, VWAP, Fibonacci |
-| I4 Context / Regime (7) | ✅ Running — GARCH, Kalman, MTF volatility |
-| I5 Patterns (14) | ✅ Running — chart patterns, divergence, squeeze |
-| I6 SMC + Confluence (14) | ✅ Running — BOS/CHoCH, FVG, order blocks, cross-TF |
-| I7 Trading Setups (14+2) | ✅ Running — 14 setup plugins + signal aggregator + CIS |
-| I8 AI Narrative (1) | ✅ Running — ZAI GLM-5 → OpenRouter → Ollama chain |
+| I1 Technical Indicators (25) | ✅ Running — incremental `compute_next()` |
+| I2 Composite Events (11) | ✅ Running — MACD/RSI/Stoch/ADX/Volume events + MomentumAcceleration/DerivativeOscillator/ExhaustionScore/AccelerationRegime |
+| I3 Market Structure (8) | ✅ Running — swing, S/R, trend, VWAP, Fibonacci, MarketProfile, SessionLevels, SwingMomentum |
+| I4 Context / Regime (7) | ✅ Running — GARCH, Kalman, HMM, BOCPD, MTFVolatility |
+| I5 Patterns (14) | ✅ Running — chart patterns, divergence, squeeze, VolumeProfile, KeyLevelReaction |
+| I6 SMC + Confluence (14) | ✅ Running — BOS/CHoCH, FVG, order blocks, ICT killzones, AMD, breakers, cross-TF confluence |
+| I7 Trading Setups (17+2) | ✅ Running — 17 setup plugins + CIS aggregator + TradeFramer |
+| I8 AI Narrative (1) | ✅ Running — ZAI GLM-5 → OpenRouter → Ollama (qwen3.5:9b) chain |
+| **ML Layer (MLAgent)** | 🔬 Design complete — v1.8+ build target |
 
 **See** `.planning/ROADMAP.md` for the next milestone backlog.
+
+## ML Intelligence Layer (MLAgent — v1.8+)
+
+The I1–I8 pipeline produces labeled training data: every signal outcome (8-class taxonomy: never_activated, stopped_at_entry, stopped_in_trade, target_1, target_1_2, target_full, ttl_expired_ahead, ttl_expired_behind) is recorded in `signal_ledger` alongside the full `intelligence_features` vector captured at signal time. MLAgent is the system that closes the loop from that labeled data back to improved signal selection.
+
+### Five-Agent Architecture
+
+A deterministic **LangGraph Supervisor** coordinates domain-specific agents:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  ML Orchestrator (LangGraph Supervisor — deterministic)  │
+│  Reads: drift scores, model status, shadow mode results  │
+│  Routes to: domain agents · Decides: retrain/promote/HITL│
+└──────────────────────────────────────────────────────────┘
+     │           │           │           │           │
+     ▼           ▼           ▼           ▼           ▼
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐ ┌─────────┐
+│  Data   │ │Discovery│ │Training │ │Monitor │ │Narrative│
+│ Quality │ │  (LLM)  │ │  (det.) │ │  (det.)│ │  (LLM)  │
+└─────────┘ └─────────┘ └─────────┘ └────────┘ └─────────┘
+```
+
+Only Discovery and Narrative agents use LLMs. All production decisions are deterministic.
+
+### Key Properties
+
+- **Segmented ensemble:** LightGBM sub-models per `HMM regime × setup type × timeframe` — a model that works in the conditions it was designed for beats a global model every time
+- **Shadow mode gate:** `p < 0.05` with sufficient N required before any model affects signal selection. Borderline p-values trigger HITL via LangGraph `interrupt()`.
+- **IC-driven feature discovery:** tsfresh extracts 700+ features automatically; alphalens computes IC/ICIR per feature per regime — lets data reveal predictors rather than hand-engineering them
+- **Drift detection:** Evidently (KS/PSI/Wasserstein) + CUSUM per feature; auto-retrain on drift, circuit breaker on degradation
+- **SHAP explainability:** Every scored signal carries top-5 SHAP contributors — why this model scored this signal
+
+### Agent Tech Stack
+
+| Package | Purpose |
+|---------|---------|
+| `langgraph` | Agent orchestration — Supervisor state machine, HITL `interrupt()`, typed `StateGraph` for all agent handoffs |
+| `langchain` | Tool definitions, LLM wrappers, provider abstractions |
+| `langfuse` (self-hosted) | Agent observability — all agent steps, LLM calls, tool invocations traced; OTEL → Grafana |
+| `guardrails-ai` | LLM output validation — Discovery + Narrative outputs validated against Pydantic schemas |
+| `mlflow` (self-hosted) | Model registry, experiment tracking, artifact versioning |
+| `alphalens-reloaded` | IC, ICIR, decay, turnover per feature per regime |
+| `tsfresh` | 700+ auto-generated time series features |
+| `evidently` | Drift detection + ML monitoring reports |
+| `polars` | Batch feature matrix construction (10-100× faster than pandas) |
+| `lightgbm` | Tabular ensemble model |
+| `shap` | TreeSHAP explainability |
+| `optuna` | Bayesian hyperparameter search |
+| `river` | Online/incremental learning (Phase 3) |
+
+**Full design:** `docs/ideas/ml-learning-machine.md`
 
 ---
 

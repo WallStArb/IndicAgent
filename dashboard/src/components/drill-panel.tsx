@@ -180,35 +180,16 @@ function RecentSignals({ symbol, timeframe, signalsHistory, selectedSignal, onSi
   selectedSignal: SignalData | null;
   onSignalSelect: (signal: SignalData) => void;
 }) {
-  // Timeframe to milliseconds for retention calculation
-  const tfToMs: Record<string, number> = {
-    "1m": 60_000,
-    "5m": 300_000,
-    "15m": 900_000,
-    "1h": 3_600_000,
-    "4h": 14_400_000,
-    "1d": 86_400_000,
-  };
-
-  // Show last 5 signals within 15× their own bar length (1m=15min, 5m=75min, etc.)
-  const maxSignals = 5;
-
+  // Show last 5 signals from history (sorted oldest→newest for natural timeline)
   const recentSignals = signalsHistory
-    .filter(s => {
-      const timestamp = s.bar_close_ts || s.timestamp;
-      if (!timestamp || timestamp === "") return false;
-      // Each signal evaluated against its own TF's retention window
-      const signalTfMs = tfToMs[s.timeframe] ?? tfToMs[timeframe] ?? 60_000;
-      const cutoff = Date.now() - signalTfMs * 15;
-      return new Date(timestamp).getTime() > cutoff;
-    })
+    .filter(s => !!(s.bar_close_ts || s.timestamp))
     .sort((a, b) => {
       const timeA = new Date(a.bar_close_ts ?? a.timestamp).getTime();
       const timeB = new Date(b.bar_close_ts ?? b.timestamp).getTime();
-      return timeB - timeA; // most recent first to get the right 5
+      return timeB - timeA;
     })
-    .slice(0, maxSignals)
-    .reverse(); // oldest at top → newest at bottom = natural timeline
+    .slice(0, 5)
+    .reverse();
 
   const hasSignals = recentSignals.length > 0;
 

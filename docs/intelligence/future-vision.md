@@ -1,7 +1,8 @@
 # Future Vision — IndicAgent AI Agent Network
 
-> Long-term strategic direction for Phases 6+. Concepts prioritized by value and feasibility.
+> Long-term strategic direction. Concepts prioritized by value and feasibility.
 > Source: `docs/plans/ai-agents-innovative-concepts-and-ideas-2025-08-11.md`
+> **Updated 2026-03-10:** Items marked ✅ are shipped. MLAgent (learning machine) is the active next layer — see `docs/ideas/ml-learning-machine.md` for the full design.
 
 ---
 
@@ -15,19 +16,11 @@ Transform IndicAgent into an **AI-powered market intelligence system** through s
 
 ## Near-Term POCs (Phase 6+, High Value / Low Risk)
 
-### 1. Pattern Insight Narratives (I8 extension)
-Convert detected patterns into concise human-readable intelligence with rationale and confidence.
-- Explain *why* a pattern matters now, in context (not just "RSI divergence detected")
-- Summarize key contributing factors + confidence
-- Provide invalidation levels and next-step guidance
-- Consumes IntelligenceEvent; publishes `insight.v1` to `{env}:insight:{symbol}:{tf}`
+### 1. ✅ Pattern Insight Narratives (I8) — SHIPPED
+Per-signal AI narrative via I8 `ai_narrative_service`. ZAI GLM-5 → OpenRouter → Ollama chain generates structured market analysis for every signal above confidence 0.7 on 5m/15m/1h. Group synthesis across 6 asset groups also live.
 
-### 2. Confluence Evaluator and Ranker (I6/I8)
-Score and rank multi-signal setups; surface the strongest evidence.
-- Aggregate multiple signals into a single weighted confluence score
-- Highlight strongest supporting evidence AND disagreements
-- Calibrate confidence using historical outcome accuracy
-- Reduces false positives; improves signal prioritization
+### 2. ✅ Confluence Evaluator and Ranker (I6/I7 CIS) — SHIPPED
+CIS (Composite Intelligence Score) aggregates evidence from all 6 tiers into a directional score with a 6-bucket weighted architecture. `all_ranked` output exposes the full ranked list of setup plugins with adjusted scores. Signal lifecycle tracks 8-class outcomes; `setup_performance` table feeds a `perf_multiplier` back into the CIS ranker.
 
 ### 3. Counterfactual Insight Generator (I8)
 "What would need to be true to validate or invalidate this setup?"
@@ -46,6 +39,25 @@ Explain pipeline anomalies and recommend next actions.
 - Identify likely root causes from observability signals
 - Reduce time-to-diagnosis for on-call issues
 - Consumes metrics; emits ops-focused insights
+
+---
+
+## MLAgent — Learning Machine (v1.8+)
+
+The learning machine layer is the next major intelligence milestone. Full design: `docs/ideas/ml-learning-machine.md`.
+
+Three compounding layers:
+- **Discovery** — IC analysis (alphalens-reloaded + tsfresh 700+ features) finds what the data actually predicts
+- **Scoring** — LightGBM ensemble per `HMM regime × setup × TF` scores every signal with `win_prob` + SHAP
+- **Feedback Loop** — outcomes retrain the model; Evidently drift detection triggers auto-retraining
+
+**Five-agent LangGraph architecture:** Orchestrator (deterministic supervisor), Data Quality Agent, Discovery Agent (LLM-guided IC analysis), Training Agent (deterministic LightGBM), Monitoring Agent (Evidently + CUSUM). Production decisions are deterministic; LLMs only in Discovery and Narrative roles.
+
+**Shadow mode gate:** `p < 0.05` with sufficient N. HITL via LangGraph `interrupt()` for borderline decisions.
+
+**Observability:** LangFuse (self-hosted) traces every agent step and LLM call. OTEL bridge feeds existing Grafana. MLflow (self-hosted) for model registry and artifact versioning.
+
+This is the concrete implementation of the "Interagent Learning & Memory Architecture" described below.
 
 ---
 
@@ -81,7 +93,7 @@ Pattern Agent → Context Agent → Risk Agent → Confluence Agent → Research
 
 ---
 
-## Interagent Learning & Memory Architecture
+## Interagent Learning & Memory Architecture (aligns with MLAgent Phase 3)
 
 ### Shared Evidence Bus
 ```
