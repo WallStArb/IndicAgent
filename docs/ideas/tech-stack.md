@@ -1,7 +1,7 @@
 # Platform Tech Stack — Decisions, Reasoning, and Migration Path
 
 **Created:** 2026-03-04  
-**Last Updated:** 2026-03-04  
+**Last Updated:** 2026-03-10  
 **Status:** Vision — active decisions + future planning  
 **Related:** `docs/ideas/platform-architecture.md`
 
@@ -510,10 +510,65 @@ Start with Redpanda only. Add DragonflyDB when a trigger is real.
 
 ---
 
+## ML Agent Stack (MLAgent — v1.8+)
+
+See full design: `docs/ideas/ml-learning-machine.md`
+
+### Agent Infrastructure
+
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Orchestration | LangGraph (already in stack) | Supervisor + domain agent state machines |
+| Agent observability | **LangFuse** (self-hosted Docker) | Traces every agent step, LLM call, tool invocation. OpenTelemetry bridge → existing Grafana. |
+| LLM output validation | **guardrails-ai** | Validates Discovery Agent + Narrative Agent outputs against Pydantic schemas before persistence |
+| Model registry | **MLflow** (self-hosted Docker) | Experiment tracking, model versioning, artifact storage. Replaces hand-rolled filesystem approach. |
+| HITL | LangGraph `interrupt()` + dashboard UI | Pauses graph at decision points, waits for human approval with 4h timeout |
+
+### ML / Statistics
+
+| Package | Purpose | Phase |
+|---------|---------|-------|
+| `scipy` | IC analysis, KS drift test, significance | 1 |
+| `alphalens-reloaded` | Quant-standard IC/factor analysis (IC, ICIR, decay, turnover) | 1 |
+| `evidently` | Drift detection + ML monitoring reports. Self-hosted. | 1 |
+| `tsfresh` | Auto time series feature extraction — 700+ features from any series | 1 |
+| `polars` | Rust dataframes, 10-100× faster than pandas for batch feature matrix jobs | 1 |
+| `lightgbm` | The model — tabular data champion, fast, handles categoricals | 2 |
+| `shap` | TreeSHAP explainability — why did the model score this signal? | 2 |
+| `optuna` | Hyperparameter optimisation — Bayesian search | 2 |
+| `statsmodels` | CUSUM changepoint detection, time series stats | 2 |
+| `river` | Online/incremental learning — model adapts continuously without full retrain | 3 |
+
+### What NOT to add
+- **PyTorch/TensorFlow** — overkill for tabular signal scoring; tree ensembles dominate tabular benchmarks
+- **Ray/Dask** — overkill for our data volume; polars + pandas is sufficient
+- **Feast** — TimescaleDB IS our feature store; no additional feature store needed
+- **Weights & Biases** — paid cloud; MLflow is the open source standard
+- **Temporal** — institutional-scale workflow orchestration; LangGraph is sufficient until multi-product scale
+
+### Inter-Agent Communication (ML topics)
+Over DragonflyDB streams now → Redpanda topics after migration:
+```
+ml.discovery.completed    → Orchestrator routes to Training Agent
+ml.drift.detected         → Orchestrator evaluates retrain
+ml.model.shadow_ready     → Orchestrator begins shadow evaluation
+ml.model.promoted         → signal_generator reloads CIS weights
+ml.hitl.response          → Orchestrator resumes paused graph
+```
+
+---
+
 ## Decision log
 
 | Date | Decision | Reasoning |
 |------|---------|-----------|
+| 2026-03-10 | LangFuse over LangSmith for agent observability | Self-hosted, open source, full data ownership. LangSmith is cloud/paid. Renaissance demands no vendor lock-in on intelligence data. |
+| 2026-03-10 | LightGBM over XGBoost | Faster training, better on smaller datasets, handles categoricals natively. Both are good; LightGBM wins on our scale. |
+| 2026-03-10 | guardrails-ai for LLM output validation | Pydantic schemas already in stack; guardrails-ai adds runtime enforcement on LLM agent outputs. Prevents hallucinated feature names, invalid decisions reaching the DB. |
+| 2026-03-10 | tsfresh for feature discovery | Automatically extracts 700+ statistical features from time series. Feeds IC analysis — lets the data tell us what matters rather than hand-engineering features. Very Renaissance. |
+| 2026-03-10 | alphalens-reloaded for IC analysis | Quant-standard tool for factor evaluation. IC, ICIR, decay, turnover. Purpose-built for our use case. Replaces hand-rolling scipy.pearsonr loops. |
+| 2026-03-10 | Deterministic Orchestrator, LLM only in Discovery + Narrative agents | Production decisions (retrain Y/N, promote Y/N) cannot be non-deterministic. LLM creativity belongs in research/interpretation, not in rules that govern live capital. |
+| 2026-03-10 | HITL via LangGraph interrupt() + dashboard | Pause-and-wait for borderline decisions. Default-safe action on timeout (reject promotion, maintain status quo). Full audit trail. |
 | 2026-03-04 | Redpanda replaces all DragonflyDB streams (migrate before QualAgent) | Durable replay, consumer offsets, schema registry, cross-product stream contracts. Now is the lowest-friction migration window — one product, 8 services, no established cross-product contracts yet. |
 | 2026-03-04 | DragonflyDB dropped from initial target stack | Remaining use (`price:SYMBOL:latest` hash) replaced with in-process state in signal_generator. Start simple: Redpanda + PostgreSQL. Add DragonflyDB when a specific trigger is real (tick SaaS fan-out, DerivAgent options chain, or scale fan-out bottleneck). |
 | 2026-03-04 | Redpanda for BOTH hot and warm tiers | The hot/warm distinction is conceptual, not infrastructural. Both benefit from durability and replay. Single streaming system is simpler to operate. |
