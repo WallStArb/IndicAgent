@@ -9,7 +9,25 @@ files:
   - tests/unit/intelligence/composites/
 ---
 
-## Context
+## Status (2026-03-10) — Design + Plan Complete
+
+**Ready to build.** Research session completed, scope narrowed to highest-alpha items.
+
+- **Design doc:** `docs/plans/2026-03-10-second-derivative-indicators-design.md`
+- **Implementation plan:** `docs/plans/2026-03-10-second-derivative-indicators-plan.md`
+
+Planned scope (~4d, 5 chunks):
+1. Extend `MomentumAcceleration` → `rsi_curvature`, `macd_hist_slope`, `price_accel`
+2. New `ExhaustionScore` I2 plugin (3-condition danger score 0–1)
+3. New `AccelerationRegime` I2 plugin (`building`/`peak`/`waning`/`trough`)
+4. New `SwingMomentum` I3 plugin (structural amplitude + velocity)
+5. Wire exhaustion guard into `MomentumBreakout`/`TrendFollowing`; boost into `LiquiditySweepReclaim`/`LiquidityHunt`
+
+To execute: start fresh session, reference the plan doc, use `superpowers:subagent-driven-development`.
+
+---
+
+## Original Context
 
 `MomentumAcceleration` (I2) already computes second derivatives of RSI, MACD, and ROC. The same approach has clear value applied to volume and volatility series. Before building, run a correlation/predictive analysis against `signal_ledger` outcomes to confirm which outputs have statistically meaningful edge before adding pipeline weight.
 
