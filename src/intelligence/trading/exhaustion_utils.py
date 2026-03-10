@@ -23,8 +23,8 @@ def apply_exhaustion_boost(
     ----------
     features:   frames["features"] dict
     direction:  +1 long, -1 short
-    confidence: current confidence score (mutated copy returned)
-    supporting: supporting factors list (mutated copy returned)
+    confidence: current confidence score (updated value returned)
+    supporting: supporting factors list (mutated in-place, also returned)
     """
     exhaustion_score = float(features.get("exhaustion_score", 0.0))
     exhaustion_side = features.get("exhaustion_side", "none")
@@ -47,8 +47,8 @@ def apply_exhaustion_guard(
     Parameters
     ----------
     features:   frames["features"] dict
-    confidence: current confidence score (mutated copy returned)
-    supporting: supporting factors list (mutated copy returned)
+    confidence: current confidence score (updated value returned)
+    supporting: supporting factors list (mutated in-place, also returned)
     """
     exhaustion_score = float(features.get("exhaustion_score", 0.0))
     exhaustion_bars = float(features.get("exhaustion_bars", 0.0))
