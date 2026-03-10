@@ -85,6 +85,23 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 
 </details>
 
+## v1.6 Signal Quality
+
+- [ ] **Phase 23: Signal Generator Gate** — condition-vs-event onset detection, direction flip suppression, cross-bar signal memory, InputSpec cleanup
+
+### Phase 23: Signal Generator Gate
+
+**Goal:** Fix signal generator to emit onset events (not persistent condition fires), add cross-bar memory with direction flip suppression, clean up dead InputSpec timeframe declarations, and make an explicit decision on 4h/1d processing scope.
+
+**Depends on:** Phase 22
+
+**Plans:** 3 plans
+
+Plans:
+- [ ] 23-01-PLAN.md — Wave 0 test stubs (RED) for gate cooldown, flip suppression, flip-after-resolution
+- [ ] 23-02-PLAN.md — Signal gate implementation: _check_gate, _update_gate, resolution listener
+- [ ] 23-03-PLAN.md — InputSpec timeframe cleanup (17 plugins) + 4h/1d exclusion comments
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
