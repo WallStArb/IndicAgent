@@ -19,20 +19,13 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils import clamp, is_num
 
 # Confirmation window: bar i is a swing high/low if it is the max/min across
 # [i-N … i+N] inclusive.
 _CONFIRM_N: int = 3
 _MAX_EXTREMES: int = 6  # keep the most recent 6 confirmed extremes
 _REFERENCE_BARS: int = 20  # typical bars per swing for speed_factor scaling
-
-
-def _is_num(x: Any) -> bool:
-    return isinstance(x, int | float) and not (isinstance(x, float) and np.isnan(x))
-
-
-def _clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))
 
 
 @dataclass
@@ -71,30 +64,13 @@ class SwingMomentumPlugin:
 
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
-        close = df["close"].to_numpy(dtype=float)
         n_bars = len(high)
 
-        # --- ATR-14 (raw, no pandas dependency) -----------------------
-        atr = self._atr14(high, low, close)
+        # --- ATR-14: use pre-computed value from I1 pipeline -----------
+        atr = float(frames.get("features", {}).get("atr_14") or 0.0)
 
-        # --- Incremental extreme detection ----------------------------
-        # Initialise state on first call.
-        if "extremes" not in self._state:
-            self._state["extremes"] = []   # list of (price, bar_index, "high"|"low")
-            self._state["bar_count"] = 0
-
-        # The frame is a fixed-length sliding window.  Each call we scan
-        # for newly confirmable extremes — bars that now have N bars after
-        # them within the window (i.e. bar at index len(df)-N-1 in the
-        # current frame).
-        #
-        # Because compute_full rebuilds from the current df window on
-        # every bar, we rebuild extremes from scratch from the full frame
-        # each call (simpler, correct for non-incremental plugin).
+        # --- Extreme detection (full-frame rebuild each call) ----------
         extremes = self._detect_extremes(high, low, n_bars)
-
-        self._state["extremes"] = extremes
-        self._state["bar_count"] = n_bars
 
         # --- Warmup gate ----------------------------------------------
         if len(extremes) < 6:
@@ -135,10 +111,10 @@ class SwingMomentumPlugin:
             velocity_trend = "stable"
 
         # --- struct_energy -------------------------------------------
-        speed_factor = _clamp(
+        speed_factor = clamp(
             _REFERENCE_BARS / max(swing_velocity_bars, 1.0), 0.1, 3.0
         )
-        struct_energy = _clamp(amplitude_ratio * speed_factor / 3.0, 0.0, 1.0)
+        struct_energy = clamp(amplitude_ratio * speed_factor / 3.0, 0.0, 1.0)
 
         # --- struct_accel_bias ----------------------------------------
         struct_accel_bias = self._compute_accel_bias(last6)
@@ -202,7 +178,7 @@ class SwingMomentumPlugin:
         last6: list[tuple[float, int, str]], atr: float
     ) -> list[float]:
         """Amplitude of each of the 3 swings spanned by the 6 extremes."""
-        divisor = atr if (_is_num(atr) and atr > 0.0) else 1.0
+        divisor = atr if (is_num(atr) and atr > 0.0) else 1.0
         amps = []
         for i in range(len(last6) - 1):
             amp = abs(last6[i][0] - last6[i + 1][0]) / divisor
@@ -244,23 +220,6 @@ class SwingMomentumPlugin:
         if lower_highs and lower_lows:
             return -1
         return 0
-
-    @staticmethod
-    def _atr14(
-        high: np.ndarray, low: np.ndarray, close: np.ndarray
-    ) -> float:
-        """Compute simple 14-period ATR from the last 15 bars of the frame."""
-        if len(high) < 2:
-            return 0.0
-        # True range for each bar (excluding first bar where prev_close unavailable)
-        prev_close = close[:-1]
-        h = high[1:]
-        l = low[1:]
-        tr = np.maximum(h - l, np.maximum(np.abs(h - prev_close), np.abs(l - prev_close)))
-        # Use last 14 TRs.
-        tr14 = tr[-14:] if len(tr) >= 14 else tr
-        return float(np.mean(tr14)) if len(tr14) > 0 else 0.0
-
 
 # ------------------------------------------------------------------
 # Module-level helpers

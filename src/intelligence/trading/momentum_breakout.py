@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .exhaustion_utils import apply_exhaustion_guard
 
 
 @dataclass
@@ -153,12 +154,7 @@ class MomentumBreakoutPlugin:
         elif direction == -1 and in_demand == 1.0:
             confidence -= 0.12 * demand_str
             supporting.append("penalty_demand_zone_friction")
-        # Exhaustion guard — suppress chasing exhausted moves
-        exhaustion_score = float(features.get("exhaustion_score", 0.0))
-        exhaustion_bars = float(features.get("exhaustion_bars", 0.0))
-        if exhaustion_score > 0.7 and exhaustion_bars >= 3:
-            confidence -= 0.15
-            supporting.append("exhaustion_guard_penalty")
+        confidence, supporting = apply_exhaustion_guard(features, confidence, supporting)
         confidence = round(min(0.95, max(0.10, confidence)), 4)
 
         signal_type = "momentum_breakout_long" if direction == 1 else "momentum_breakout_short"

@@ -50,20 +50,16 @@ class AccelerationRegimePlugin:
                 return -1
             return 0
 
-        v_rsi = _vote(rsi_curvature)
-        v_macd = _vote(macd_hist_slope)
-        v_price = _vote(price_accel)
-        v_hma = _vote(hma_accel)
-
-        raw_sum = v_rsi + v_macd + v_price + v_hma
+        votes = [_vote(rsi_curvature), _vote(macd_hist_slope), _vote(price_accel), _vote(hma_accel)]
         n_votes = 4  # always 4 inputs — zero is a valid abstention
 
+        raw_sum = sum(votes)
         accel_score = round(raw_sum / n_votes, 4)
 
         # Agreement = max(pos_votes, neg_votes) / total
         # e.g. 4/4→1.0, 3/4→0.75, 2/4→0.5, 1/4→0.25, 0/0→0.0
-        pos_count = sum(1 for v in (v_rsi, v_macd, v_price, v_hma) if v > 0)
-        neg_count = sum(1 for v in (v_rsi, v_macd, v_price, v_hma) if v < 0)
+        pos_count = sum(1 for v in votes if v > 0)
+        neg_count = sum(1 for v in votes if v < 0)
         accel_agreement = round(max(pos_count, neg_count) / n_votes, 4)
 
         # Regime — inflection events (peak/trough) take priority over

@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .exhaustion_utils import apply_exhaustion_boost
 
 
 @dataclass
@@ -109,15 +110,7 @@ class LiquiditySweepReclaimPlugin:
                 confidence += min(0.10, sig * 0.12)
                 supporting.append(f"named_bsl_level_{sig:.2f}")
 
-        # Exhaustion boost — decelerating momentum into sweep confirms stop-run setup
-        exhaustion_score = float(features.get("exhaustion_score", 0.0))
-        exhaustion_side = features.get("exhaustion_side", "none")
-        if exhaustion_score > 0.6 and (
-            (direction == 1 and exhaustion_side == "bull") or
-            (direction == -1 and exhaustion_side == "bear")
-        ):
-            confidence += 0.10
-            supporting.append("exhaustion_sweep_boost")
+        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = round(min(0.95, max(0.10, confidence)), 4)
 
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
