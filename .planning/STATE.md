@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Signal Quality
 status: executing
-stopped_at: Completed 24-04-PLAN.md (SwingMomentum I3 plugin)
-last_updated: "2026-03-10T12:36:54.216Z"
+stopped_at: Completed 24-03-PLAN.md (ExhaustionScore + AccelerationRegime I2 plugins)
+last_updated: "2026-03-10T12:38:14.297Z"
 last_activity: "2026-03-09 — 20-01: retry_utils.py with exponential backoff and jitter complete"
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 36
 ---
 
@@ -86,6 +86,7 @@ Progress: [████░░░░░░] 36%
 | Phase 24-second-derivative-acceleration P01 | 445 | 3 tasks | 6 files |
 | Phase 24-second-derivative-acceleration P02 | 3 | 2 tasks | 2 files |
 | Phase 24-second-derivative-acceleration P04 | 4 | 1 tasks | 1 files |
+| Phase 24-second-derivative-acceleration P03 | 199 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,9 @@ Recent decisions affecting current work:
 - [Phase 24-02]: price_accel uses 4-value close window: velocity_prev=close[-3]-close[-4], velocity_now=close[-1]-close[-2]; test authority overrides plan interface comment
 - [Phase 24-04]: Full-frame rebuild of extremes on compute_full — simpler than incremental tracking, correct for non-incremental plugin
 - [Phase 24-04]: _dedup_extremes() ensures alternating H/L sequence: stronger extreme kept when consecutive same-type appear
+- [Phase 24]: ExhaustionScore RSI-gated logic: bull/bear counts only increment when RSI is in respective extreme zone — prevents spurious scores when RSI=75 but secondary conditions contradict
+- [Phase 24]: AccelerationRegime inflection priority: peak/trough checked before building/waning — test authority overrides plan spec for branch order
+- [Phase 24]: 4-vote AccelerationRegime: hma_accel added as 4th vote per test file; accel_agreement = max(pos,neg)/4 giving 0.5 for 2/2 split
 
 ### Pending Todos
 
@@ -166,6 +170,6 @@ None currently blocking v1.5 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T12:36:54.214Z
-Stopped at: Completed 24-04-PLAN.md (SwingMomentum I3 plugin)
+Last session: 2026-03-10T12:38:14.295Z
+Stopped at: Completed 24-03-PLAN.md (ExhaustionScore + AccelerationRegime I2 plugins)
 Resume file: None
