@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
@@ -30,6 +31,7 @@ from src.core.retry_utils import retry_with_backoff  # noqa: E402
 # Circuit breaker metrics
 from src.observability.metrics import (  # noqa: E402
     CIRCUIT_BREAKER_FAILURES_TOTAL,
+    CIRCUIT_BREAKER_OPEN_SECONDS,
     CIRCUIT_BREAKER_SUCCESSES_TOTAL,
     CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
 )
@@ -71,6 +73,9 @@ _ibkr_circuit_breaker = PluginCircuitBreaker(
         performance_threshold_ms=20000.0,  # 20s default timeout
     )
 )
+
+# Track when IBKR circuit breaker entered OPEN — used to observe duration on recovery.
+_ibkr_open_since: float | None = None
 
 
 async def _connect_with_circuit_breaker(
@@ -120,6 +125,13 @@ async def _connect_with_circuit_breaker(
                 from_state=previous_state.name.lower(),
                 to_state="closed",
             ).inc()
+            # Observe how long the circuit was OPEN before recovery
+            global _ibkr_open_since
+            if _ibkr_open_since is not None:
+                CIRCUIT_BREAKER_OPEN_SECONDS.labels(plugin_name=provider_id).observe(
+                    time.monotonic() - _ibkr_open_since
+                )
+                _ibkr_open_since = None
 
         logger.info(
             "IBKR connected",
@@ -146,6 +158,9 @@ async def _connect_with_circuit_breaker(
                 from_state=previous_state.name.lower(),
                 to_state="open",
             ).inc()
+            # Start timing how long the circuit stays OPEN
+            global _ibkr_open_since
+            _ibkr_open_since = time.monotonic()
 
         logger.error(
             "IBKR connect failed",

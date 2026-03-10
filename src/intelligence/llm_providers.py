@@ -27,6 +27,7 @@ from src.core.retry_utils import retry_with_backoff
 # Circuit breaker metrics
 from src.observability.metrics import (
     CIRCUIT_BREAKER_FAILURES_TOTAL,
+    CIRCUIT_BREAKER_OPEN_SECONDS,
     CIRCUIT_BREAKER_SUCCESSES_TOTAL,
     CIRCUIT_BREAKER_TRANSITIONS_TOTAL,
 )
@@ -45,6 +46,9 @@ _llm_circuit_breaker = PluginCircuitBreaker(
         performance_threshold_ms=60000.0,  # 60s default timeout
     )
 )
+
+# Track when each LLM provider's circuit breaker entered OPEN — keyed by provider_id.
+_llm_open_since: dict[str, float] = {}
 
 
 async def _call_llm_with_circuit_breaker(
@@ -95,6 +99,11 @@ async def _call_llm_with_circuit_breaker(
                 from_state=previous_state.name.lower(),
                 to_state="closed",
             ).inc()
+            # Observe how long this provider's circuit was OPEN before recovery
+            if provider_id in _llm_open_since:
+                CIRCUIT_BREAKER_OPEN_SECONDS.labels(plugin_name=provider_id).observe(
+                    time.monotonic() - _llm_open_since.pop(provider_id)
+                )
 
         return result
 
@@ -117,6 +126,8 @@ async def _call_llm_with_circuit_breaker(
                 from_state=previous_state.name.lower(),
                 to_state="open",
             ).inc()
+            # Start timing how long this provider's circuit stays OPEN
+            _llm_open_since[provider_id] = time.monotonic()
 
         logger.warning(
             "LLM provider call failed",

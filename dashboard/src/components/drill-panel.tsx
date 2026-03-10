@@ -4,11 +4,9 @@
 import { X } from "lucide-react";
 import type { SymbolData, SignalData } from "@/lib/types";
 import { fmtPrice, fmtNum, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
-import { useMemo } from "react";
-
-/** Timeframe offset to seconds: add to bar open ts to get actual close time */
-const TF_OFFSETS: Record<string, number> = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
+import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
+import { useMemo } from "react";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -35,35 +33,22 @@ interface DrillPanelProps {
   onClose: () => void;
 }
 
-/** Derive bar close ISO: use bar_close_ts if available, else add tf offset to bar open ts */
-function _deriveBarCloseIso(
-  barCloseTs: string | undefined,
-  barOpenTs: string | undefined,
-  tf: string
-): string | undefined {
-  if (barCloseTs) return barCloseTs;
-  const base = barOpenTs;
-  if (!base) return undefined;
-  const offset = TF_OFFSETS[tf] ?? 0;
-  if (offset === 0) return base;
-  const d = new Date(base);
-  if (isNaN(d.getTime())) return undefined;
-  return new Date(d.getTime() + offset * 1000).toISOString();
-}
-
 /** Compact 3-row signal card for RecentSignals sidebar hero */
 function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData; isSelected: boolean; onClick: () => void }) {
   const isLong = signal.direction === "long";
   const pluginShort = _abbreviatePlugin(signal.setup_plugin);
 
   const barCloseIso = useMemo(
-    () => _deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe),
+    () => deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe),
     [signal.bar_close_ts, signal.timestamp, signal.timeframe]
   );
   const signalTimeStr = fmtTimeHMS(signal.signal_computed_at);
   const barCloseStr = fmtTimeHMS(barCloseIso);
-  const ttsS = pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null);
-  const ttsStr = fmtLagSeconds(ttsS);
+  const ttsS = useMemo(
+    () => pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null),
+    [signal.signal_computed_at, barCloseIso, signal.pipeline_lag_s]
+  );
+  const ttsStr = useMemo(() => fmtLagSeconds(ttsS), [ttsS]);
 
   const t1 = signal.profit_target ?? null;
   const rr1 = signal.rr_t1 ?? signal.risk_reward_ratio ?? 0;
@@ -166,30 +151,25 @@ function RecentSignals({ symbol, timeframe, signalsHistory, selectedSignal, onSi
     "1d": 86_400_000,
   };
 
-  // Dynamic retention: 15x bar length (e.g., 1m = 15 min, 1h = 15 hours)
-  const retentionMs = (tfToMs[timeframe] ?? 60_000) * 15;
-  const cutoffTime = Date.now() - retentionMs;
-  const maxSignals = 20; // Hard cap to prevent overwhelming list
+  // Show last 5 signals within 15× their own bar length (1m=15min, 5m=75min, etc.)
+  const maxSignals = 5;
 
-  // Filter signals for this symbol (all TFs) and retention window
-  // Don't filter by timeframe in Recent Signals - show all history for the symbol
   const recentSignals = signalsHistory
     .filter(s => {
-      // Check if signal has valid timestamp
       const timestamp = s.bar_close_ts || s.timestamp;
       if (!timestamp || timestamp === "") return false;
-
-      // Check if within retention window
-      const signalTime = new Date(timestamp).getTime();
-      return signalTime > cutoffTime;
+      // Each signal evaluated against its own TF's retention window
+      const signalTfMs = tfToMs[s.timeframe] ?? tfToMs[timeframe] ?? 60_000;
+      const cutoff = Date.now() - signalTfMs * 15;
+      return new Date(timestamp).getTime() > cutoff;
     })
     .sort((a, b) => {
-      // Sort by timestamp descending (most recent first)
       const timeA = new Date(a.bar_close_ts ?? a.timestamp).getTime();
       const timeB = new Date(b.bar_close_ts ?? b.timestamp).getTime();
-      return timeB - timeA;
+      return timeB - timeA; // most recent first to get the right 5
     })
-    .slice(0, maxSignals); // Take top 20
+    .slice(0, maxSignals)
+    .reverse(); // oldest at top → newest at bottom = natural timeline
 
   const hasSignals = recentSignals.length > 0;
 

@@ -2,8 +2,10 @@
 "use client";
 
 import type { SignalData } from "@/lib/types";
-import { fmtPrice, fmtNum, fmtTimeHMS } from "@/lib/format";
+import { fmtPrice, fmtNum, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
 import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
+import { useMemo } from "react";
+import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 
 interface SignalBannerProps {
   signal: SignalData | null;
@@ -13,12 +15,24 @@ interface SignalBannerProps {
 const HIGH_CONFIDENCE_THRESHOLD = 0.75;
 
 export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
-  if (!signal || signal.confidence < HIGH_CONFIDENCE_THRESHOLD) return null;
-
-  const isLong = signal.direction === "long";
+  const isLong = signal?.direction === "long";
   const color = isLong ? "var(--green)" : "var(--red)";
   const dimColor = isLong ? "var(--green-dim)" : "var(--red-dim)";
   const Icon = isLong ? TrendingUp : TrendingDown;
+
+  const barCloseIso = useMemo(
+    () => signal ? deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe) : undefined,
+    [signal?.bar_close_ts, signal?.timestamp, signal?.timeframe]
+  );
+  const signalTimeStr = useMemo(() => fmtTimeHMS(signal?.signal_computed_at), [signal?.signal_computed_at]);
+  const barCloseStr = useMemo(() => fmtTimeHMS(barCloseIso), [barCloseIso]);
+  const ttsS = useMemo(
+    () => signal ? (pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null)) : null,
+    [signal?.signal_computed_at, barCloseIso, signal?.pipeline_lag_s]
+  );
+  const ttsStr = useMemo(() => fmtLagSeconds(ttsS), [ttsS]);
+
+  if (!signal || signal.confidence < HIGH_CONFIDENCE_THRESHOLD) return null;
 
   return (
     <button
@@ -45,9 +59,12 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
       <span className="text-[0.5rem] text-[var(--text-muted)] font-data">
         {fmtPrice(signal.entry_price)} → {fmtPrice(signal.stop_loss)}
       </span>
-      {(fmtTimeHMS(signal.signal_computed_at) ?? fmtTimeHMS(signal.bar_close_ts)) && (
-        <span className="text-[0.45rem] font-data text-[var(--text-muted)] opacity-60">
-          {fmtTimeHMS(signal.signal_computed_at) ?? fmtTimeHMS(signal.bar_close_ts)}
+      {(barCloseStr || signalTimeStr) && (
+        <span className="text-[0.45rem] font-data text-[var(--text-muted)] opacity-60 flex items-center gap-0.5">
+          {barCloseStr && <span>{barCloseStr}</span>}
+          {barCloseStr && signalTimeStr && <span className="opacity-30">→</span>}
+          {signalTimeStr && <span style={{ color: "var(--text-secondary)" }}>{signalTimeStr}</span>}
+          {ttsStr && <span className="opacity-50 ml-0.5">{ttsStr}</span>}
           {signal.market_price_at_signal != null && (
             <span className="ml-0.5">@ {fmtPrice(signal.market_price_at_signal)}</span>
           )}

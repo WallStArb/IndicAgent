@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { SignalData, SymbolData, NarrativeData } from "@/lib/types";
+import { fmtPrice, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
+import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 
 /** Derive compact intelligence context labels from SymbolData. Returns only truthy items. */
 function getIntelCtxTags(data: SymbolData, timeframe: string): string[] {
@@ -55,7 +57,6 @@ function getIntelCtxTags(data: SymbolData, timeframe: string): string[] {
 
   return tags;
 }
-import { fmtPrice, fmtTimeHMS, fmtLagSeconds } from "@/lib/format";
 import { DrillPanel } from "@/components/drill-panel";
 import { X, Brain } from "lucide-react";
 
@@ -129,9 +130,17 @@ function SignalCard({
   const isHighConfidence = signal.confidence >= 0.75;
   const { absolute, relative, isStale } = useFormattedTimestamp(signal.timestamp);
 
-  const barCloseTimeStr = useMemo(() => fmtTimeHMS(signal.bar_close_ts), [signal.bar_close_ts]);
+  const barCloseIso = useMemo(
+    () => deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe),
+    [signal.bar_close_ts, signal.timestamp, signal.timeframe]
+  );
+  const barCloseTimeStr = useMemo(() => fmtTimeHMS(barCloseIso), [barCloseIso]);
   const computedTimeStr = useMemo(() => fmtTimeHMS(signal.signal_computed_at), [signal.signal_computed_at]);
-  const lagStr = useMemo(() => fmtLagSeconds(signal.pipeline_lag_s), [signal.pipeline_lag_s]);
+  const ttsS = useMemo(
+    () => pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null),
+    [signal.signal_computed_at, barCloseIso, signal.pipeline_lag_s]
+  );
+  const lagStr = useMemo(() => fmtLagSeconds(ttsS), [ttsS]);
 
   const intelTags = useMemo(
     () => getIntelCtxTags(data, signal.timeframe),
@@ -189,7 +198,7 @@ function SignalCard({
                 <> · <span style={{ color: "var(--text-secondary)" }}>{relative}</span></>
               )}
               {/* Price context: bar close / market at signal / entry zone */}
-              {(signal.bar_close_ts || signal.bar_close_price != null || signal.market_price_at_signal != null) && (
+              {(barCloseIso || signal.bar_close_price != null || signal.market_price_at_signal != null) && (
                 <div className="text-[0.65rem] mt-0.5 space-y-0.5 opacity-80 font-data tabular-nums">
                   {/* BAR: time @ price  +lag→  SIG: time @ price */}
                   <div className="flex items-center gap-1 flex-wrap">
@@ -198,7 +207,7 @@ function SignalCard({
                     {signal.bar_close_price != null && (
                       <span style={{ color: "var(--text-secondary)" }}>@ {signal.bar_close_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</span>
                     )}
-                    {computedTimeStr && lagStr && (
+                    {(barCloseTimeStr || computedTimeStr) && lagStr && (
                       <>
                         <span className="opacity-40">{lagStr}</span>
                         <span className="opacity-30">→</span>
@@ -207,7 +216,7 @@ function SignalCard({
                     {computedTimeStr && (
                       <>
                         <span className="opacity-50">SIG</span>
-                        <span>{computedTimeStr}</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{computedTimeStr}</span>
                       </>
                     )}
                     {signal.market_price_at_signal != null && (

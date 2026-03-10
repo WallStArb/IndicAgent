@@ -260,32 +260,36 @@ function SymbolCard({
       <NarrativeElevated narrative={narrative} signal={activeSignal} />
 
       {/* L1: Cross-TF matrix — clicking a TF switches card view, not sidebar */}
-      <TimeframeMatrix
-        tfSignals={data.tfSignals}
-        confluence={confluence}
-        activeTf={activeTf}
-        onSelectTf={(tf) => setActiveTf(tf)}
-      />
-
-      {/* Bar time / lag indicator */}
-      {barTime && (
-        <div className="flex items-center gap-1.5 px-2 py-0.5 border-b border-[var(--border-subtle)]">
-          <span className="text-[0.55rem] text-[var(--text-muted)] uppercase tracking-wider">
-            {activeTf} bar
-          </span>
-          <span
-            className="text-[0.55rem] font-data"
-            style={{ color: barIsStale ? "var(--red)" : "var(--text-muted)" }}
-          >
-            {new Date(barTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-          </span>
-          {barIsStale && (
-            <span className="text-[0.5rem] text-[var(--red)] opacity-75">
-              {barAgeMs !== null ? `${Math.round(barAgeMs / 60000)}m ago` : "stale"}
+      <div className="flex items-center justify-between px-2 py-0.5 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
+        {/* Bar time / lag indicator on left */}
+        {barTime && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[0.55rem] text-[var(--text-muted)] uppercase tracking-wider">
+              {activeTf} bar
             </span>
-          )}
-        </div>
-      )}
+            <span
+              className="text-[0.55rem] font-data"
+              style={{ color: barIsStale ? "var(--red)" : "var(--text-muted)" }}
+            >
+              {new Date(barTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+            </span>
+            {barIsStale && (
+              <span className="text-[0.5rem] text-[var(--red)] opacity-75">
+                {barAgeMs !== null ? `${Math.round(barAgeMs / 60000)}m ago` : "stale"}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Timeframe pills on right */}
+        <TimeframeMatrix
+          tfSignals={data.tfSignals}
+          confluence={confluence}
+          activeTf={activeTf}
+          onSelectTf={(tf) => setActiveTf(tf)}
+          onDrillDown={() => setIsDrilling(true)}
+        />
+      </div>
 
       {/* L0: Regime ambiance wraps the tier stack */}
       <RegimeAmbiance context={context}>

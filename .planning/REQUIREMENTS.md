@@ -24,8 +24,8 @@ Requirements for production hardening — financial safety, concurrency protecti
 
 **P0-P1 — External API timeouts and shared state protection.**
 
-- [ ] **API-01**: Settings class exposes ibkr_timeout_sec (default 20.0s)
-- [ ] **API-02**: Settings class exposes llm_timeout_sec (default 60.0s)
+- [x] **API-01**: Settings class exposes ibkr_timeout_sec (default 20.0s)
+- [x] **API-02**: Settings class exposes llm_timeout_sec (default 60.0s)
 - [x] **API-03**: IBKR provider uses configurable timeout from Settings
 - [x] **API-04**: All LLM providers use configurable timeout from Settings
 - [x] **API-05**: market_analysis_service has per-key asyncio.Lock() for _plugin_states access
@@ -85,8 +85,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FIN-06 | Phase 18 | Complete |
 | FIN-07 | Phase 19 | Complete |
 | FIN-08 | Phase 19 | Complete |
-| API-01 | Phase 18 | Pending |
-| API-02 | Phase 18 | Pending |
+| API-01 | Phase 18 | Complete |
+| API-02 | Phase 18 | Complete |
 | API-03 | Phase 18 | Complete |
 | API-04 | Phase 18 | Complete |
 | API-05 | Phase 18 | Complete |

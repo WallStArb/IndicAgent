@@ -571,8 +571,8 @@ class AINarrativeService:
         self.deep_chain  = LLMChain([_make_provider(s) for s in pcfg["narrative_deep"]])
         self.group_chain = LLMChain([_make_provider(s) for s in pcfg["group"]])
 
-        self._per_signal_timeout = float(pcfg["openrouter_timeout_sec"])
-        self._group_timeout = float(pcfg["openrouter_timeout_sec"])
+        self._per_signal_timeout = Settings().llm_timeout_sec
+        self._group_timeout = Settings().llm_timeout_sec
 
     # ------------------------------------------------------------------
     # Configuration
