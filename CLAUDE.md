@@ -239,9 +239,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1318 passing · **Ruff:** 74 errors (mostly E501 line-too-long, non-blocking; 9 fixable with --fix) ⚠️
-**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator
-**v1.5 in-progress** — phases 18 (financial math safety) + 19 (characterization tests) complete; phases 20-21 not started — see `.planning/ROADMAP.md`
+**Tests:** 1430 passing · **Ruff:** 104 errors (mostly E501 line-too-long, non-blocking; 21 fixable with --fix) ⚠️
+**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate
+**v1.5 SHIPPED** · **v1.6 in-progress** — phase 23 (signal generator gate) complete — see `.planning/ROADMAP.md`
 
 ## Key References
 
