@@ -1,0 +1,1 @@
+"""Indicator calculation domain mixins."""

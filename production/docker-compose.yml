@@ -1,0 +1,105 @@
+# IndicAgent Infrastructure
+# TimescaleDB + DragonflyDB + Ollama
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: timescaledb
+    restart: unless-stopped
+    command: [
+      "postgres",
+      "-c", "max_locks_per_transaction=16384",
+      "-c", "wal_buffers=8192",
+      "-c", "log_min_duration_statement=1000"
+    ]
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=indicagent
+      - TIMESCALEDB_TELEMETRY=off
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./:/workspace:rw
+
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: dragonfly
+    restart: unless-stopped
+    command:
+      - "--dir"
+      - "/data"
+      - "--dbfilename"
+      - "dump"
+      - "--snapshot_cron"
+      - "*/5 * * * *"
+      - "--tcp_keepalive"
+      - "300"
+    ports:
+      - "6379:6379"
+    volumes:
+      - dragonfly-data:/data
+
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "992"
+      - "44"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  # Prometheus: scrapes IndicAgent service /metrics (ports 9109, 9112–9116 on host)
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: indicagent-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Grafana: dashboards and alerts; add Prometheus (and optionally PostgreSQL) as data sources
+  # Port 3001 to avoid conflict with IndicAgent dashboard (Next.js on 3000)
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: indicagent-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+
+volumes:
+  timescale-data:
+  dragonfly-data:
+  ollama-data:
+  prometheus-data:
+  grafana-data:
+
+
+

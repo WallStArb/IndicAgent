@@ -1,0 +1,94 @@
+"""Tests for SSE stream builder helper functions."""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+
+
+
+def test_event_name_for_narrative_stream():
+    """narratives: prefix maps to narrative_data event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("narratives:ESH6:5m") == "narrative_data"
+
+
+def test_event_name_for_aggregated_signal_stream():
+    """signals:...:aggregated maps to signal_data event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("signals:ESH6:5m:aggregated") == "signal_data"
+
+
+def test_event_name_for_env_prefixed_narrative():
+    """env-prefixed narratives stream maps correctly."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("dev:narratives:ESH6:5m") == "narrative_data"
+
+
+def test_event_name_for_env_prefixed_aggregated_signal():
+    """env-prefixed aggregated signal stream maps correctly."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("dev:signals:NQH6:15m:aggregated") == "signal_data"
+
+
+def test_build_stream_list_includes_narratives():
+    """Stream list includes narratives stream for each symbol."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES"], "5m")
+    assert any("narratives:" in s for s in streams), f"No narratives stream in {streams}"
+
+
+def test_build_stream_list_uses_aggregated_not_raw():
+    """Stream list uses signals:aggregated, not raw signals stream."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES"], "5m")
+    # Should have aggregated
+    assert any("signals:" in s and ":aggregated" in s for s in streams), \
+        f"No aggregated signals stream in {streams}"
+    # Should NOT have raw (non-aggregated) signals stream
+    raw_signals = [s for s in streams if "signals:" in s and not s.endswith(":aggregated")]
+    assert len(raw_signals) == 0, f"Found raw (non-aggregated) signals stream: {raw_signals}"
+
+
+def test_build_stream_list_includes_group_narrative_streams():
+    """SSE stream list always includes 6 group narrative streams."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES"], "1m")
+    group_streams = [s for s in streams if ":group:" in s]
+    assert len(group_streams) == 6
+    groups = {s.split(":")[-1] for s in group_streams}
+    assert groups == {"equity", "energy", "metals", "rates", "fx_crypto", "ag"}
+
+
+def test_event_name_for_group_narrative_stream():
+    """narratives:group:* maps to narrative_data event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("narratives:group:equity") == "narrative_data"
+    assert _event_name_for_stream("development:narratives:group:metals") == "narrative_data"
+
+
+def test_build_stream_list_includes_system_events():
+    """Stream list always includes the global system:events stream."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES"], "1m")
+    assert any("system:events" in s for s in streams), \
+        f"No system:events stream in {streams}"
+
+
+def test_build_stream_list_includes_system_events_once():
+    """system:events appears exactly once regardless of symbol count."""
+    from src.api.routes.sse import _build_stream_list
+    streams = _build_stream_list(["ES", "NQ", "RTY"], "1m")
+    system_streams = [s for s in streams if "system:events" in s]
+    assert len(system_streams) == 1, f"Expected 1 system:events, got {system_streams}"
+
+
+def test_event_name_for_system_events_stream():
+    """system:events maps to system_event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("system:events") == "system_event"
+
+
+def test_event_name_for_env_prefixed_system_events():
+    """Env-prefixed system:events maps to system_event."""
+    from src.api.routes.sse import _event_name_for_stream
+    assert _event_name_for_stream("development:system:events") == "system_event"

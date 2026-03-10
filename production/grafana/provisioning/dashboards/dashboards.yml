@@ -1,0 +1,12 @@
+# Provision IndicAgent dashboards from JSON files
+apiVersion: 1
+
+providers:
+  - name: "IndicAgent"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

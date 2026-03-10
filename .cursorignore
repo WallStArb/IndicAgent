@@ -1,0 +1,77 @@
+# Large directories that slow down Cursor
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+venv_313/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+
+# Large data files
+*.csv
+*.json
+*.sqlite
+*.db
+*.sql
+data/
+datasets/
+logs/
+*.log
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Large documentation files (keep only essential)
+docs/analysis/
+docs/roadmap/
+*.md.bak
+
+# Test files (optional - uncomment if tests slow things down)
+# tests/
+# test_*.py
+# *_test.py 
+
+# Allow SQL for production schemas/migrations (override global *.sql)
+!production/migrations/**/*.sql
+!production/schemas/**/*.sql

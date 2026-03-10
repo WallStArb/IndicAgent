@@ -1,0 +1,112 @@
+"use client";
+
+import type { SymbolData } from "@/lib/types";
+import { fmtPrice } from "@/lib/format";
+
+interface PriceHeroProps {
+  data: SymbolData;
+  activeTf: string;
+}
+
+function clampRatio(value: number, lo: number, hi: number): number | null {
+  if (hi <= lo) return null;
+  return Math.min(1, Math.max(0, (value - lo) / (hi - lo)));
+}
+
+function fmtTime(ts: string | number | undefined): string {
+  if (!ts) return "";
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch {
+    return "";
+  }
+}
+
+/** Compact inline range bar — dot showing price position within session envelope */
+function InlineRangeBar({ ratio }: { ratio: number | null }) {
+  return (
+    <div className="relative flex-1 h-1 rounded-full bg-[var(--border-subtle)] overflow-visible">
+      {ratio === null ? (
+        <div className="absolute inset-0 rounded-full bg-[var(--border-default)] opacity-40" />
+      ) : (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[var(--text-accent)] shadow-sm"
+          style={{ left: `calc(${ratio * 100}% - 3px)` }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function PriceHero({ data, activeTf }: PriceHeroProps) {
+  const { tick, bar, session } = data;
+  const indicators = data.indicatorsByTf[activeTf] ?? null;
+
+  const isEmpty = tick.price === 0 || tick.lastUpdate === 0;
+  const price = isEmpty ? 0 : tick.price;
+  const bid = isEmpty ? 0 : tick.bid;
+  const ask = isEmpty ? 0 : tick.ask;
+
+  const sessionRatio =
+    isEmpty || session.high <= session.low
+      ? null
+      : clampRatio(price, session.low, session.high);
+
+  // "as of" — show when data was last received in the browser (Date.now()), not the server bar
+  // timestamp, which can lag by minutes during low-liquidity periods.
+  const displayTime = data.lastUpdate > 0 ? fmtTime(data.lastUpdate) : (fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp));
+
+  return (
+    <div className="px-3 pt-1.5 pb-2 space-y-1.5">
+      {/* Line 1: Price + Bid / Ask / spread + timestamp */}
+      <div className="flex items-baseline gap-3 font-data text-[0.6rem]">
+        <span
+          key={data.tickFlash ?? "base"}
+          className={`text-xl font-semibold leading-none tracking-tight text-[var(--text-primary)] ${
+            data.tickFlash === "up"
+              ? "price-flash-up"
+              : data.tickFlash === "down"
+                ? "price-flash-down"
+                : ""
+          }`}
+        >
+          {price > 0 ? fmtPrice(price) : "—"}
+        </span>
+        <span>
+          <span className="text-[var(--text-muted)]">Bid </span>
+          <span className="text-[var(--red)] tabular-nums">
+            {isEmpty || bid === 0 ? "—" : fmtPrice(bid)}
+          </span>
+        </span>
+        <span>
+          <span className="text-[var(--text-muted)]">Ask </span>
+          <span className="text-[var(--green)] tabular-nums">
+            {isEmpty || ask === 0 ? "—" : fmtPrice(ask)}
+          </span>
+        </span>
+        {!isEmpty && bid > 0 && ask > 0 && (
+          <span className="text-[var(--text-muted)] tabular-nums">
+            spd {fmtPrice(ask - bid)}
+          </span>
+        )}
+        {displayTime && (
+          <span className="ml-auto text-[0.5rem] text-[var(--text-muted)] opacity-70">
+            as of {displayTime}
+          </span>
+        )}
+      </div>
+
+      {/* Line 2: Session O/H/L + compact inline range bar */}
+      {session.high > 0 && (
+        <div className="flex items-center gap-2 font-data text-[0.5rem] text-[var(--text-muted)]">
+          <span>O&nbsp;{fmtPrice(session.open)}</span>
+          <span className="text-[var(--green)]">H&nbsp;{fmtPrice(session.high)}</span>
+          <span className="text-[var(--red)]">L&nbsp;{fmtPrice(session.low)}</span>
+          <InlineRangeBar ratio={sessionRatio} />
+        </div>
+      )}
+    </div>
+  );
+}

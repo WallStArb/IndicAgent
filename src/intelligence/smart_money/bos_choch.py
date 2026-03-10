@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from ..plugins import InputSpec
+from ._swing_utils import find_swing_highs, find_swing_lows
+
+
+@dataclass
+class BOSCHoCHPlugin:
+    """Break of Structure (BOS) and Change of Character (CHoCH).
+
+    BOS: price closes beyond a swing high (bullish) or swing low (bearish).
+    CHoCH: first BOS in the opposite direction of the prevailing trend,
+    signaling a potential reversal.
+    """
+
+    name: str = "smc_BOSCHoCH"
+    outputs: set[str] = frozenset(
+        {
+            "bos_detected",
+            "bos_direction",
+            "bos_level",
+            "choch_detected",
+            "choch_direction",
+            "trend_direction",
+        }
+    )
+    min_lookback: int = 60
+    supports_incremental: bool = False
+    capability_tags: set[str] = frozenset({"smart_money"})
+    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
+    neighbor: int = 5
+    _state: dict = field(default_factory=dict)
+
+    def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+        df = frames.get("main")
+        if df is None or len(df) < self.min_lookback:
+            return {}
+
+        high = df["high"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
+        close = df["close"].to_numpy(dtype=float)
+
+        swing_highs = find_swing_highs(high, self.neighbor)
+        swing_lows = find_swing_lows(low, self.neighbor)
+
+        if len(swing_highs) < 2 or len(swing_lows) < 2:
+            return {
+                "bos_detected": 0.0,
+                "bos_direction": 0.0,
+                "bos_level": 0.0,
+                "choch_detected": 0.0,
+                "choch_direction": 0.0,
+                "trend_direction": 0.0,
+            }
+
+        # Determine prevailing trend from swing structure
+        trend = self._determine_trend(high, low, swing_highs, swing_lows)
+
+        # Check for BOS: recent close beyond swing levels
+        last_sh_price = float(high[swing_highs[-1]])
+        last_sl_price = float(low[swing_lows[-1]])
+        last_sh_idx = swing_highs[-1]
+        last_sl_idx = swing_lows[-1]
+
+        bos_detected = 0.0
+        bos_direction = 0.0
+        bos_level = 0.0
+
+        # Check bars AFTER the most recent swing for breaks
+        check_from = max(last_sh_idx, last_sl_idx) + 1
+        for i in range(check_from, len(close)):
+            if close[i] > last_sh_price:
+                bos_detected = 1.0
+                bos_direction = 1.0  # Bullish
+                bos_level = last_sh_price
+                break
+            if close[i] < last_sl_price:
+                bos_detected = 1.0
+                bos_direction = -1.0  # Bearish
+                bos_level = last_sl_price
+                break
+
+        # CHoCH: BOS in opposite direction to prevailing trend
+        choch_detected = 0.0
+        choch_direction = 0.0
+        if bos_detected == 1.0 and trend != 0.0:
+            if bos_direction != trend:
+                choch_detected = 1.0
+                choch_direction = bos_direction
+
+        return {
+            "bos_detected": bos_detected,
+            "bos_direction": bos_direction,
+            "bos_level": bos_level,
+            "choch_detected": choch_detected,
+            "choch_direction": choch_direction,
+            "trend_direction": trend,
+        }
+
+    def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
+        return self.compute_full(windows)
+
+    @staticmethod
+    def _determine_trend(
+        high: np.ndarray,
+        low: np.ndarray,
+        swing_highs: list[int],
+        swing_lows: list[int],
+    ) -> float:
+        """Determine trend from last 2 swing highs and 2 swing lows."""
+        hh = 0.0
+        if len(swing_highs) >= 2:
+            hh = 1.0 if high[swing_highs[-1]] > high[swing_highs[-2]] else -1.0
+
+        hl = 0.0
+        if len(swing_lows) >= 2:
+            hl = 1.0 if low[swing_lows[-1]] > low[swing_lows[-2]] else -1.0
+
+        if hh == 1.0 and hl == 1.0:
+            return 1.0  # Uptrend
+        elif hh == -1.0 and hl == -1.0:
+            return -1.0  # Downtrend
+        return 0.0  # Neutral
+
+
+plugin = BOSCHoCHPlugin()

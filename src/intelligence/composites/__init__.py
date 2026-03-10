@@ -1,0 +1,1 @@
+"""Composite indicator plugins."""

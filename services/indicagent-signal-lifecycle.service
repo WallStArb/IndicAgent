@@ -1,0 +1,21 @@
+[Unit]
+Description=IndicAgent Signal Lifecycle Service
+After=network-online.target indicagent-signal-generator.service
+Wants=indicagent-signal-generator.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_lifecycle_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-signal-lifecycle
+
+[Install]
+WantedBy=multi-user.target

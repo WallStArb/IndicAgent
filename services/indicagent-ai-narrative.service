@@ -1,0 +1,22 @@
+[Unit]
+Description=IndicAgent AI Narrative Service — I8 narratives
+After=network-online.target indicagent-market-analysis.service
+Wants=indicagent-market-analysis.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ai_narrative_service.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=75
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-ai-narrative
+
+[Install]
+WantedBy=multi-user.target
