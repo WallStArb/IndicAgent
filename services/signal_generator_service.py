@@ -500,6 +500,67 @@ class SignalGeneratorService:
             "resolved": False,
         }
 
+    async def _resolution_listener_loop(self) -> None:
+        """Monitor own output streams for direction=0 lifecycle exit events.
+
+        Signal lifecycle service publishes direction=0 to signals:SYMBOL:TF:aggregated
+        when a signal exits (any outcome). When we see direction=0, mark the gate for
+        that (symbol, tf) as resolved — allowing direction flips on the next bar.
+        Uses xread with last_ids starting at "$" so only new events are processed.
+        """
+        if not self.redis_client:
+            return
+
+        symbols = self.config["service"]["symbols"]
+        timeframes = self.config["service"]["timeframes"]
+        streams = [
+            signals_aggregated(self.env_prefix, sym, tf)
+            for sym in symbols
+            for tf in timeframes
+        ]
+        # Start from $ (newest) — only care about future resolution events
+        last_ids: dict[str, str] = {s: "$" for s in streams}
+
+        while not self.shutdown_requested:
+            try:
+                messages = await self.redis_client.xread(last_ids, count=50, block=1000)
+                if not messages:
+                    continue
+                for stream_bytes, msgs in messages:
+                    stream_name = (
+                        stream_bytes.decode()
+                        if isinstance(stream_bytes, bytes)
+                        else stream_bytes
+                    )
+                    last_ids[stream_name] = msgs[-1][0]  # advance cursor
+                    for _msg_id, fields in msgs:
+                        direction_raw = fields.get(b"direction") or fields.get("direction")
+                        if direction_raw is None:
+                            continue
+                        direction_val = (
+                            int(direction_raw.decode())
+                            if isinstance(direction_raw, bytes)
+                            else int(direction_raw)
+                        )
+                        if direction_val != 0:
+                            continue
+                        # direction=0 → lifecycle exit; mark gate resolved
+                        sym_raw = fields.get(b"symbol") or fields.get("symbol", b"")
+                        tf_raw = fields.get(b"timeframe") or fields.get("timeframe", b"")
+                        sym = sym_raw.decode() if isinstance(sym_raw, bytes) else sym_raw
+                        tf = tf_raw.decode() if isinstance(tf_raw, bytes) else tf_raw
+                        if (sym, tf) in self._signal_gate:
+                            self._signal_gate[(sym, tf)]["resolved"] = True
+                            self.logger.debug(
+                                "Gate resolved",
+                                symbol=sym,
+                                timeframe=tf,
+                            )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("Resolution listener error", error=str(e))
+
     def _signal_handler(self, signum: int, frame: Any) -> None:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
@@ -690,6 +751,28 @@ class SignalGeneratorService:
             determined_at=determined_at,
         )
 
+        # ── Signal gate: suppress condition re-fires and direction flips ─────────────
+        # Prevents same setup re-publishing every bar the condition persists (onset-only).
+        # Also blocks direction flip until prior signal resolves (direction=0 exit event).
+        if result.selected_signal:
+            _direction = int(result.selected_signal.get("direction", 0))
+            if self._check_gate(symbol, timeframe, _direction, timestamp):
+                self.logger.debug(
+                    "Signal gated",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    direction=_direction,
+                    gate=self._signal_gate.get((symbol, timeframe)),
+                )
+                result = AggregatedResult(
+                    selected_signal=None,
+                    all_ranked=result.all_ranked,
+                    resolution_method="gate_suppressed",
+                    num_signals_fired=result.num_signals_fired,
+                    num_agreeing=result.num_agreeing,
+                    num_conflicting=result.num_conflicting,
+                )
+
         # STREAM PUBLISH FIRST (hot tier — consistent with platform architecture)
         stream_name = None
         stream_entry_id = None
@@ -752,6 +835,12 @@ class SignalGeneratorService:
             stream_entry_id = await self.redis_client.xadd(
                 stream_name, message, maxlen=200, approximate=True
             )
+            # Update gate: record that this signal was published.
+            # Guard required: gate suppression above may have set selected_signal=None.
+            if stream_entry_id and result.selected_signal:
+                _sig_id = message.get("signal_id", "")
+                _pub_direction = int(result.selected_signal.get("direction", 0))
+                self._update_gate(symbol, timeframe, _pub_direction, timestamp, _sig_id)
 
         # DB INSERT SECOND (cold tier)
         if entries and self.db_manager:
@@ -948,6 +1037,7 @@ class SignalGeneratorService:
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
                 asyncio.create_task(self._perf_weights_refresh_loop()),
+                asyncio.create_task(self._resolution_listener_loop()),
             ]
             self.logger.info("Signal Generator Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
