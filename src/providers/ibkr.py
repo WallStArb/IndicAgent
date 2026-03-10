@@ -82,6 +82,7 @@ async def _connect_with_circuit_breaker(
     host: str, port: int, client_id: int, timeout: float
 ) -> IB | None:
     """Connect to IBKR with circuit breaker tracking and metrics."""
+    global _ibkr_open_since
     provider_id = "ibkr:connection"
     plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
     previous_state = plugin_state.state
@@ -126,7 +127,6 @@ async def _connect_with_circuit_breaker(
                 to_state="closed",
             ).inc()
             # Observe how long the circuit was OPEN before recovery
-            global _ibkr_open_since
             if _ibkr_open_since is not None:
                 CIRCUIT_BREAKER_OPEN_SECONDS.labels(plugin_name=provider_id).observe(
                     time.monotonic() - _ibkr_open_since
@@ -159,7 +159,6 @@ async def _connect_with_circuit_breaker(
                 to_state="open",
             ).inc()
             # Start timing how long the circuit stays OPEN
-            global _ibkr_open_since
             _ibkr_open_since = time.monotonic()
 
         logger.error(

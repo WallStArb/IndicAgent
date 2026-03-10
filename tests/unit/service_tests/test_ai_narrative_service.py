@@ -20,6 +20,7 @@ def _make_service():
     ):
         mock_settings.return_value.env_name = ""
         mock_settings.return_value.openrouter_api_key = ""
+        mock_settings.return_value.llm_timeout_sec = 60.0
         from services.ai_narrative_service import AINarrativeService
         return AINarrativeService()
 
@@ -30,7 +31,7 @@ def test_service_initializes_with_default_config():
     assert hasattr(svc, "short_chain")
     assert hasattr(svc, "deep_chain")
     assert hasattr(svc, "group_chain")
-    assert svc._per_signal_timeout == 30.0   # OpenRouter timeout
+    assert svc._per_signal_timeout == 60.0   # Settings.llm_timeout_sec default
     assert "ESH6" in svc.config["service"]["symbols"]
     assert svc.env_prefix == ""
 
