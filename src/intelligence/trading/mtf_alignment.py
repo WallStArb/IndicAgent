@@ -27,7 +27,7 @@ class MTFAlignmentPlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "multi_timeframe"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     ctf_score_threshold: float = 0.7
     min_timeframes_aligned: int = 2

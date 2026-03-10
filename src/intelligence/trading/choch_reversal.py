@@ -31,7 +31,7 @@ class CHoCHReversalPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "structure", "regime"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     atr_stop_multiplier: float = 1.5
     atr_target_multipliers: tuple = (2.0, 3.5, 5.0)

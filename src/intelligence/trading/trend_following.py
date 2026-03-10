@@ -26,7 +26,7 @@ class TrendFollowingPlugin:
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "trend"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     regime_threshold: float = 0.5
     confidence_threshold: float = 0.4

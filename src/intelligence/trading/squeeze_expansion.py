@@ -28,7 +28,7 @@ class SqueezeExpansionPlugin:
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "squeeze", "volatility"})
-    inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
+    inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     volume_expansion_threshold: float = 1.3
     _state: dict = field(default_factory=dict)
