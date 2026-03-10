@@ -4,7 +4,7 @@
 def test_tier_i2_constant_exists():
     from src.intelligence.register_plugins import TIER_I2
 
-    assert len(TIER_I2) == 9  # was 6; +DonchianPosition +OBVMomentum +DerivativeOscillator
+    assert len(TIER_I2) == 11  # was 9; +ExhaustionScore +AccelerationRegime
 
 
 def test_tier_i2_all_registered():

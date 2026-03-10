@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from .composites.acceleration_regime import plugin as accel_regime_plugin
 from .composites.adx_events import plugin as adx_events_plugin
 from .composites.derivative_oscillator import plugin as deriv_osc_plugin
 from .composites.donchian_position import plugin as donchian_pos_plugin
+from .composites.exhaustion_score import plugin as exhaustion_score_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
 from .composites.macd_events import plugin as macd_events_plugin
 from .composites.momentum_accel import plugin as momentum_accel_plugin
@@ -75,6 +77,7 @@ from .structure.market_profile import plugin as market_profile_plugin
 from .structure.session_levels import plugin as session_levels_plugin
 from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
+from .structure.swing_momentum import plugin as swing_momentum_plugin
 from .structure.trend_structure import plugin as trend_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
@@ -131,6 +134,8 @@ def register_all_plugins() -> None:
     registry.register_pattern(donchian_pos_plugin)
     registry.register_pattern(obv_momentum_plugin)
     registry.register_pattern(deriv_osc_plugin)
+    registry.register_pattern(exhaustion_score_plugin)
+    registry.register_pattern(accel_regime_plugin)
 
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)
@@ -145,6 +150,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(session_levels_plugin)
     registry.register_pattern(anchored_vwap_plugin)
     registry.register_pattern(fib_zones_plugin)
+    registry.register_pattern(swing_momentum_plugin)
 
     registry.register_pattern(vol_regime_plugin)
     registry.register_pattern(trend_regime_plugin)
@@ -243,6 +249,8 @@ TIER_I2: list[str] = [
     donchian_pos_plugin.name,
     obv_momentum_plugin.name,
     deriv_osc_plugin.name,
+    exhaustion_score_plugin.name,   # "cmp_ExhaustionScore"
+    accel_regime_plugin.name,       # "cmp_AccelerationRegime"
 ]
 
 TIER_I3: list[str] = [
@@ -253,6 +261,7 @@ TIER_I3: list[str] = [
     session_levels_plugin.name,
     anchored_vwap_plugin.name,
     fib_zones_plugin.name,
+    swing_momentum_plugin.name,     # "struct_SwingMomentum"
 ]
 
 TIER_I4: list[str] = [
