@@ -27,7 +27,7 @@ import structlog
 
 from src.config.settings import Settings, get_active_contracts, get_point_value
 from src.core.database_manager import DatabaseManager
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import TF_SECONDS, setup_service_logging
 from src.core.stream_keys import llm_outcomes_stream as sk_llm_outcomes_stream
 from src.core.stream_keys import market as sk_market
 from src.core.stream_keys import signals_aggregated as sk_signals_aggregated
@@ -38,8 +38,6 @@ from src.intelligence.trading.lifecycle_tracker import (
 )
 from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
 from src.observability.metrics import counter, gauge, start_metrics_server
-
-TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
 
 
 def _bars_elapsed(signal_timestamp: datetime, current_bar_time: datetime, timeframe: str) -> int:

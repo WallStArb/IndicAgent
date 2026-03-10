@@ -35,7 +35,7 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import TF_SECONDS, setup_service_logging
 from src.core.stream_keys import (
     intelligence_i7 as sk_intelligence_i7,
 )
@@ -66,8 +66,7 @@ I7_PLUGINS = TIER_I7
 # re-fires (same setup firing every bar while condition persists).
 # Day-trading focus: 1m=3 bars (3 min cooldown), higher TFs=2 bars.
 MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
-# Seconds per bar for each configured timeframe — used in cooldown calculation.
-TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+# TF_SECONDS imported from src.core.service_utils (shared with signal_lifecycle_service)
 
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.
@@ -537,7 +536,7 @@ class SignalGeneratorService:
                     )
                     last_ids[stream_name] = msgs[-1][0]  # advance cursor
                     for _msg_id, fields in msgs:
-                        direction_raw = fields.get(b"direction") or fields.get("direction")
+                        direction_raw = fields.get(b"direction") or fields.get("direction", b"")
                         if direction_raw is None:
                             continue
                         direction_val = (
@@ -563,6 +562,7 @@ class SignalGeneratorService:
                 break
             except Exception as e:
                 self.logger.warning("Resolution listener error", error=str(e))
+                await asyncio.sleep(1)
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
         self.logger.info("Received shutdown signal", signal=signum)
@@ -774,6 +774,9 @@ class SignalGeneratorService:
                     num_signals_fired=result.num_signals_fired,
                     num_agreeing=result.num_agreeing,
                     num_conflicting=result.num_conflicting,
+                    cis_score=result.cis_score,
+                    bucket_scores=result.bucket_scores,
+                    weights_version=result.weights_version,
                 )
 
         # STREAM PUBLISH FIRST (hot tier — consistent with platform architecture)

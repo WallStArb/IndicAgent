@@ -49,6 +49,10 @@ def min_bars_for_tf(timeframe: str, default: int = 26) -> int:
     return _MIN_BARS_FOR_TF.get(timeframe, default)
 
 
+# Seconds per bar for each configured timeframe.
+# Used for cooldown / elapsed-bar calculations across services.
+TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+
 # Seconds from period start to period close per timeframe.
 # 1m is omitted: for 1m bars ts IS the close time, no offset needed.
 # For all higher TFs ts is the period start; close = ts + duration.
