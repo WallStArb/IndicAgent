@@ -107,15 +107,16 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 | Signal Generator DB Warmup | Seed bar_history from intelligence_features on startup — eliminates 50-min warmup after restart. | `.planning/todos/pending/2026-03-09-seed-signal-generator-bar-history-from-db-on-startup.md` |
 | CIS Backfill Fix (BUG) | `aggregate()` never receives `features=` kwarg in backfill — backfilled signals have NULL CIS fields. High impact on ML training dataset. | `.planning/todos/pending/2026-03-08-enable-cis-scoring-in-historical-backfill.md` |
 | Renaissance Gaps (Signal Quality) | T0: constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
-| Dashboard Complete | I7 all_ranked panel (new SSE route); signal history view; signal banner polish; AI narrative panel readability. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` |
+| Dashboard Complete | I7 all_ranked panel (new SSE route); drill panel signal history from DB on open; dashboard audit across all symbol profiles + TFs; I-tier tooltips; signal banner polish. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md`, `.planning/todos/pending/2026-03-11-drill-panel-signal-history-from-db.md`, `.planning/todos/pending/2026-02-27-add-tooltips-to-intelligence-level-indicators.md` |
 | Expand I5 candlestick + I7 setup | 18 patterns spec'd (Tier 1: Harami, Dark Cloud, Three Soldiers/Crows, Morning/Evening Star). Research doc complete. | `docs/ideas/candlestick-pattern-expansion-research.md` |
+| VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | AC Oscillator I1 plugin | Todo exists, fully specced. | — |
 | Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
 | Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
 | Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | `.planning/todos/pending/2026-03-06-audit-and-remove-dead-database-tables.md` |
 | validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
-| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. | — |
+| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. SSE fan-out: one Redis reader → broadcast to N clients (not N independent pollers). `next build` + nginx for prod dashboard. | — |
 
 ### Tier 2 — v1.7 or v1.8 (moderate dependencies)
 
@@ -126,10 +127,12 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 | ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
 | Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | `.planning/todos/pending/2026-03-04-add-gap-fill-service.md` |
 | Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | `.planning/todos/pending/2026-03-04-add-roll-premium-discount-feature.md` |
+| Volume Profile POC/VAH/VAL | Session volume profile as S/R anchors — I1 plugin. POC = magnetic price level, VAH/VAL = range boundaries for breakout/rejection setups. | `.planning/todos/pending/2026-02-27-add-volume-profile-poc-vah-val-as-sr-anchors.md` |
 | Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | `.planning/todos/pending/2026-02-27-add-multi-timeframe-sr-awareness-to-signal-plugins.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
 | Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | `.planning/todos/pending/2026-02-28-offload-plugin-pipeline-to-thread-pool.md` |
 | Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
+| API keyset pagination | Large features export endpoint has no pagination — blocks on full table scan. Keyset pagination on `intelligence_features`. | `.planning/todos/pending/2026-02-24-add-keyset-pagination-to-features-export-and-rest-endpoint.md` |
 | Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
 | Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
 
