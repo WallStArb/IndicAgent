@@ -1,269 +1,256 @@
-# IndicAgent Hybrid Intelligence Platform Architecture
+# IndicAgent Intelligence Platform Architecture
 
-**Version:** 7.0.0
-**Last Updated:** 2026-02-14
-**Status:** I1-I6 Production Ready, I3/I4/I6 Smart Money Partial, 31 Plugins
+**Version:** 8.0.0
+**Last Updated:** 2026-03-11
+**Status:** I1-I8 production complete — 95 plugins + 2 aggregation components, 1497 passing tests
 
 ## Executive Summary
 
-IndicAgent is a **sophisticated market intelligence platform** that transforms raw market data into actionable intelligence through a hybrid service-plugin architecture. The platform combines the performance of direct service computation with the flexibility of plugin-based intelligence processing, enabling both high-performance mathematical processing and configurable intelligence pipeline composition.
+IndicAgent is a real-time market intelligence platform that transforms raw IBKR market data into actionable trading intelligence through a layered plugin-native architecture. The full I1-I8 pipeline is production-complete: 95 plugins across 7 intelligence tiers, 2 aggregation components, 9 systemd services, and a typed event bus persisted to TimescaleDB.
 
-**Architecture Philosophy:** Hybrid intelligence extraction combining direct service performance with plugin flexibility, preserving 141x performance gains while enabling configurable intelligence expansion.
+**Architecture Philosophy:** Service-hosted plugin pipeline with a strict hot/warm/cold data tiering model. The real-time pipeline never touches the database directly — all cold persistence is decoupled through the feature_writer_service.
 
 ---
 
-## Hybrid Intelligence Platform Overview
-
-### Hybrid Service-Plugin Architecture
-
-**Foundation Infrastructure (Layers 1-7):**
-High-performance data processing foundation that handles live market data collection, processing, and distribution.
-
-**Hybrid Intelligence Engine:**
-Strategic integration of plugins INTO existing services, combining direct high-performance computation with configurable plugin-based processing.
+## Architecture Layers
 
 ```
-FOUNDATION (Operational) → HYBRID ENGINE (Service+Plugin) → INTELLIGENCE (Output)
-     ↓                           ↓                               ↓
-Data Collection            Hybrid Processing               Multi-Tier Intelligence
-Event Processing           Direct: I1 Performance         I1: Direct Calculation
-Multi-Timeframe           Plugin: I2-I4 Flexibility      I2-I4: Plugin Processing
-Indicator Calculation     Pure Plugin: I5-I7             I5-I7: Plugin Services
-Storage & Distribution    Future AI: I8                  I8: AI Services
+Layer 4: AI Intelligence (I8)              → LLM analysis, local Ollama (qwen3.5:9b / phi4-mini:3.8b)
+Layer 3: Pattern Intelligence (I5-I7)      → Pattern detection, confluence, trading signals
+Layer 2: Mathematical Intelligence (I1-I4) → Technical indicators, second-derivative events, market structure, regime context
+Layer 1: Data Foundation                   → IBKR TWS collection, DragonflyDB streams, TimescaleDB
+```
+
+**Full pipeline:**
+```
+IBKR TWS → indicator_service (I1+I2) → market_analysis_service (I3→I4→I5→SMC→I6) →
+  signal_generator_service (I7) → signal_ledger + intelligence_features →
+  feature_writer_service → TimescaleDB → SSE → Dashboard
 ```
 
 ---
 
-## Foundation Infrastructure
+## Layer 1: Data Foundation
 
-### Data Foundation Layer (Layer 1)
-**Status:** OPERATIONAL
+### IBKR TWS Daemon (`indicagent-tws`)
+- Collects tick and OHLCV bar data from Interactive Brokers TWS at `10.0.0.33:7497`
+- All ib_insync logic isolated to `src/providers/ibkr.py` — no imports outside this file
+- Multi-timeframe aggregation: 1m → 5m → 15m → 1h → 1d
+- 24 active contracts defined in `src/config/settings.py` via `get_active_contracts()`
 
-The foundation provides enterprise-grade market data processing:
+### DragonflyDB (Hot Tier)
+- Hosts all Redis Streams for real-time pipeline communication
+- Sub-millisecond latency for inter-service messaging
+- No Redis modules (TS.*, RediSearch unavailable) — time-series handled by TimescaleDB
+- Stream keys constructed exclusively via `src/core/stream_keys.py` with `env_prefix`
 
-- **High-Frequency Data Collection** - IBKR integration with ES/NQ/RTY futures collection (500+ ticks/sec)
-- **Multi-Timeframe Aggregation** - Service-based timeframe building: 1m → 5m → 15m → 1h → 4h → 1d
-- **Stream Distribution** - Redis Streams publishing with 3,200+ ops/sec throughput
-- **Time-Series Storage** - PostgreSQL/TimescaleDB persistence with hypertable optimization
-- **Real-Time Processing** - Sub-second data ingestion and distribution pipeline
-
-**Current Implementation Status:**
--  **High-Frequency Collection:** `production/daemons/high_frequency_tws_daemon.py` - Operational
--  **Timeframe Building:** `services/timeframe_builder_service.py` - Operational
--  **Indicator Processing:** `services/indicators_processor_service.py` - Operational with plugin imports
--  **Data Storage:** PostgreSQL/TimescaleDB with hypertables - Operational
--  **Stream Distribution:** Redis Streams with consumer groups - Operational
-
-**Performance Metrics:**
-- 500+ ticks/sec data collection
-- <10ms indicator calculation latency
-- 3,200+ Redis operations/sec throughput
-- Multi-timeframe aggregation (1m through 1d)
-
-**Reference:** [Layered Architecture](layered-architecture.md) - Complete infrastructure details
+### TimescaleDB (Cold Tier)
+- Populated only by `feature_writer_service` (real-time) and `historical_backfill.py` (backfill)
+- Real-time pipeline services never write to the database directly
+- PostgreSQL/TimescaleDB Docker on :5432, database `indicagent`
 
 ---
 
-## Plugin-Native Intelligence Framework
+## Layer 2: Mathematical Intelligence (I1–I4)
 
-### Plugin-Native Intelligence Framework
-**Status:** Framework Components Implemented, Integration In Progress
+Both I1 and I2 are processed by `indicagent-indicator`. I3 and I4 are processed by `indicagent-market-analysis`.
 
-#### Current Plugin Infrastructure
-- **Plugin Registry:** `src/intelligence/plugins.py` - IndicatorPlugin and PatternPlugin protocols
-- **Indicator Plugins:** 12 implemented plugins with real incremental compute_next() (RSI, MACD, SMA/EMA, Bollinger Bands, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP)
-- **Pattern Plugins:** 4 I5 pattern plugins in `src/intelligence/patterns/` (RSI divergence, Bollinger squeeze, volume divergence, confluence)
-- **Structure Plugins:** 3 I3 structure plugins in `src/intelligence/structure/` (swing detector, support/resistance, trend structure)
-- **Context Plugins:** 3 I4 context plugins in `src/intelligence/context/` (volatility regime, trend regime, momentum context)
-- **DAG Execution:** `src/intelligence/dag.py` - Dependency resolution and execution graphs
-- **Plugin Registration:** `src/intelligence/register_plugins.py` - Centralized plugin registration (33 total: 16 I1 + 3 I3 + 3 I4 + 4 I5 + 6 I6 + 1 CTF)
+### I1 — 25 Technical Indicator Plugins
+RSI, MA/EMA, MACompare, MACD, ATR, BollingerBands, Stochastic, CCI, WilliamsR, MFI, OBV, VWAP, Supertrend, ADX/DMI, Keltner, Donchian, ROC/PPO, Aroon, ChandelierExit, CMF, HistoricalVolatility, PSAR, StochRSI, ACOscillator, HMA
 
-#### LangGraph Workflow Engine
-- **Event Processing:** `src/intelligence/langgraph_event_processor.py` - LangGraph workflow integration with Redis Streams
-- **Core Framework:** `src/intelligence/langgraph_integration.py` - Event-driven intelligence orchestration
-- **Configuration:** `src/config/settings.py` - Centralized Settings class for all configuration
+### I2 — 10 Second-Derivative / Event Plugins
+MACD Events, RSI Events, Stoch Events, ADX Events, Volume Events, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore
 
-#### Stream-Native Processing
-- **Intelligence Models:** `src/core/stream_models.py` - Intelligence-aware message processing
-- **Unified Processor:** `src/core/unified_market_processor.py` - Primary runtime processor (ingestion -> indicators -> persistence -> publishing)
-- **Stream Factory:** `src/core/redis_streams_factory.py` - Factory + context manager for stream connections
+Output stream: `{env}:indicators:{symbol}:{tf}`
 
-#### Implementation Status
+### I3 — 8 Market Structure Plugins
+Swing, SR, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibZones, SwingMomentum
 
-**Operational Components:**
-- **Plugin Framework:** 33 registered plugins (16 indicators + 17 patterns/structure/context/smart_money) with real incremental compute_next()
-- **I1 Indicators:** 12 plugins with state-based incremental calculations (141x performance boost)
-- **I3 Market Structure:** 3 plugins -- swing detector (HH/HL/LH/LL), support/resistance (pivot clustering), trend structure
-- **I4 Context:** 3 plugins -- volatility regime, trend regime, momentum context
-- **I5 Patterns:** 4 plugins -- RSI divergence, Bollinger squeeze, volume divergence, multi-indicator confluence
-- **LangGraph Workflows:** Event-driven processing with circuit breakers and monitoring
-- **Stream Models:** Intelligence-aware message processing via unified_market_processor.py
-- **Test Coverage:** 110 unit tests passing, 0 ruff errors
+### I4 — 7 Context / Regime Plugins
+VolRegime, TrendRegime, MomentumCtx, GARCHVol, KalmanTrend, SessionCtx, MTFVol
 
-**Not Yet Implemented:**
-- I6 Confluence & Risk -- multi-factor scoring combining I3+I4+I5
-- I7 Trading Outputs -- setups and signals
-- I8 AI Intelligence -- LLM synthesis
-
-**Reference:** [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Complete plugin framework details
+I3 and I4 are processed inline within `indicagent-market-analysis` before I5/SMC/I6.
 
 ---
 
-## AI Intelligence Framework (Layer 4)
+## Layer 3: Pattern Intelligence (I5–I7)
 
-### AI Intelligence Architecture
-**Status:**  Planned - Framework Ready for Implementation
+I5 and SMC run within `indicagent-market-analysis`. I6 produces the typed `IntelligenceEvent`. I7 runs in `indicagent-signal-generator`.
 
-The AI intelligence layer will provide sophisticated market intelligence synthesis through LLM-powered processing:
+### I5 — 14 Pattern Plugins
+RSIDivergence, BollingerSqueeze, VolDivergence, Confluence, TrendConfluence, DoubleTB, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction
 
-#### Planned AI Capabilities
-- **Pattern Interpretation** - AI-powered technical pattern analysis and explanation
-- **Market Narratives** - Human-readable market intelligence synthesis
-- **Sentiment Analysis** - News and market sentiment interpretation
-- **Cross-Asset Analysis** - Multi-asset relationship and correlation insights
+### SMC — 13 Smart Money Concept Plugins
+BOS/CHoCH, FVG, OrderBlocks, LiquiditySweeps, BOCPD, HMM, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
 
-#### AI Integration Framework (Ready for Implementation)
-- **OpenRouter Integration** - Multi-model LLM access with cost optimization (planned)
-- **Plugin Architecture** - AI plugins will use same framework as mathematical indicators
-- **LangGraph Integration** - Event-driven AI processing via LangGraph workflows
+### I6 — 1 Cross-Timeframe Confluence Plugin
+CrossTimeframeConfluence (CTF scorer) — combines I3+I4+I5+SMC into the typed `IntelligenceEvent` published to `{env}:intelligence:{symbol}:{tf}`
 
-**Current Status:** Infrastructure ready, AI plugins not yet implemented
+Output stream: `{env}:intelligence:{symbol}:{tf}`
 
-#### Configuration-Driven AI Processing
-- **YAML-Based AI Configuration** - Runtime AI pipeline composition
-- **Cost Control Configuration** - Monthly budgets, batch sizes, cooldown periods
-- **Trigger-Based Processing** - Event-driven and scheduled AI processing
-- **Multi-Model Support** - Plugin-based access to different LLM providers
+### I7 — 17 Setup Plugins + 2 Aggregation Components
+**Setup plugins:** TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysis, CandlestickPatternSetup, SessionExtremes
 
-**Reference:** [Enhanced Intelligence Architecture](enhanced-intelligence-architecture.md) - AI plugin specifications
+**Aggregation components:**
+- `CISScorer` — Composite Intelligence Score; weights individual setup scores; writes to `signal_ledger` only when `sample_size >= 30` via FEED-02 gate
+- `SignalAggregator` — selects winner from `all_ranked`; active signal always derived from `all_ranked` (not raw `signals`) so `perf_weights` affect winner selection
+
+Output stream: `{env}:signals:{symbol}:{tf}:aggregated`
+Cold persistence: `signal_ledger` table
 
 ---
 
-## Plugin-Native Data Flow Architecture
+## Layer 4: AI Intelligence (I8)
 
-### End-to-End Plugin-Based Intelligence Processing
+### AI Narrative Service (`indicagent-ai-narrative`, :9113)
+- Consumes `{env}:intelligence:{symbol}:{tf}` events
+- Calls local Ollama Docker (:11434) — AMD Phoenix1 iGPU, 16.3 GiB shared VRAM
+  - **qwen3.5:9b** — per-signal narrative synthesis
+  - **phi4-mini:3.8b** — group synthesis across multiple signals
+- Output stream: `{env}:narratives:{symbol}:{tf}`
 
-```
-1. Market Data → IBKR TWS → high_frequency_tws_daemon
-                    ↓
-2. Plugin Integration → indicator_service / market_analysis_service → Plugin-Based I1-I6 Intelligence
-                    ↓
-3. Configuration Engine → YAML Pipeline Orchestrator → Dynamic Plugin Composition
-                    ↓
-4. Stream-Native Processing → Plugin Stream Transformations → I5-I7 Pattern Intelligence
-                    ↓
-5. AI Plugin Processing → Cost-Controlled AI Plugins → I8 AI Intelligence
-                    ↓
-6. Event Sourcing → Intelligence Event Store → Complete Audit Trail
-                    ↓
-7. Distribution → Redis Streams → External Intelligence Consumers
-```
-
-### Plugin-Native Stream Architecture
-```yaml
-# Foundation streams (operational)
-market_data: "market:{symbol}:{timeframe}"           # OHLCV data
-indicators: "indicators:{symbol}:{timeframe}"        # I1-I4 intelligence
-
-# Plugin-based intelligence streams
-features: "features:{symbol}:{timeframe}"            # I1 plugin outputs
-composite: "composite:{symbol}:{timeframe}"          # I2-I4 plugin outputs
-patterns: "patterns:{symbol}:{timeframe}"            # I5-I7 plugin outputs
-insights: "insights:{symbol}:{timeframe}"            # I8 AI plugin outputs
-
-# Configuration and event streams
-intelligence_events: "events:intelligence"          # Intelligence event sourcing
-plugin_metrics: "metrics:plugins"                   # Plugin performance monitoring
-```
-
-**Reference:** [Stream Schemas](stream-schemas.md) - Complete data format specifications
+### LLM Writer Service (`indicagent-llm-writer`, :9117)
+- Reads `{env}:llm_calls:stream` (maxlen=500) — every LLM call (success, failure, counterfactual)
+- Reads `{env}:llm_outcomes:stream` (maxlen=200) — signal lifecycle exits with outcome/pnl_r/mae/mfe
+- Persists to `llm_calls` hypertable (full audit log per call)
+- Back-fills outcome fields on `llm_calls` rows when lifecycle exits arrive
+- Maintains `llm_model_scores` table: per-model win_rate, avg_pnl_r, p-value; refreshed every 15 min
 
 ---
 
-## Current Development Status
+## Services
 
-### Operational Components (Production Ready)
-- **Foundation Infrastructure** - Complete data collection + aggregation pipeline
-- **Service Architecture** - Production-ready services (indicator processor, timeframe builder, enhanced indicators)
-- **Plugin Framework** - 31 registered plugins with IndicatorPlugin and PatternPlugin protocols
-- **DAG Execution Engine** - Topological sorting and dependency resolution operational
-- **LangGraph Workflows** - Event-driven processing with circuit breakers and state management
-- **I1 Indicators** - 12 plugins with real incremental compute_next() (141x performance boost)
-- **I3 Market Structure** - 3 plugins: swing detector, support/resistance, trend structure
-- **I4 Context** - 3 plugins: volatility regime, trend regime, momentum context
-- **I5 Patterns** - 4 plugins: RSI divergence, Bollinger squeeze, volume divergence, confluence
+All services are systemd-managed with `Restart=always`.
 
-### Next Development Priorities
-- **I6 Confluence & Risk** - Multi-factor scoring combining I3+I4+I5 outputs
-- **Multi-Timeframe Confluence** - Cross-timeframe validation (1m->5m->15m->1h)
+| Service Unit | Purpose | Metrics Port |
+|---|---|---|
+| `indicagent-tws` | IBKR tick + bar collection, multi-TF aggregation | — |
+| `indicagent-indicator` | I1+I2 → `indicators:SYMBOL:TF` | :9109 |
+| `indicagent-market-analysis` | I3→I4→I5→SMC→I6 → `intelligence:SYMBOL:TF` | :9114 |
+| `indicagent-signal-generator` | I7 → `signals:SYMBOL:TF:aggregated` + `signal_ledger` | :9112 |
+| `indicagent-signal-lifecycle` | Zone-aware lifecycle, MAE/MFE tracking, 8-class outcome | :9115 |
+| `indicagent-ai-narrative` | I8 LLM → `narratives:SYMBOL:TF` | :9113 |
+| `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
+| `indicagent-llm-writer` | `llm_calls:stream` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
+| `indicagent-api` | FastAPI + SSE on :8000 | — |
 
-### Ready for Future Implementation
-- **I7 Trading Outputs** - Validated setups and actionable intelligence signals
-- **I8 AI Intelligence** - OpenRouter LLM framework with cost-controlled processing
-- **Advanced Orchestration** - Horizontal scaling for individual plugins with monitoring
+### Signal Lifecycle Service
+`indicagent-signal-lifecycle` replaced the legacy `indicagent-signal-tracker`. It reads live 1m bars and evaluates all pending/active signals per bar with zone-aware activation logic.
 
----
+**8-class outcome taxonomy:**
+- `never_activated` — signal expired without reaching entry zone
+- `stopped_at_entry` — stopped out while in entry zone (before full activation)
+- `stopped_in_trade` — stopped out after activation
+- `target_1` — first partial target hit
+- `target_1_2` — both partial targets hit
+- `target_full` — full target hit
+- `ttl_expired_ahead` — TTL expired with price ahead of entry
+- `ttl_expired_behind` — TTL expired with price behind entry
 
-## Plugin-Native Competitive Advantages
+**MAE/MFE** tracked in-memory per signal_id and written to `signal_ledger` on exit.
 
-### Technical Excellence
-- **Configuration-Driven Intelligence** - Dynamic plugin composition through YAML configuration
-- **Stream-Native Processing** - Pure functional stream transformations with real-time processing
-- **Plugin-Based Scalability** - Individual intelligence plugins scale independently
-- **Intelligence Event Sourcing** - Complete audit trail with lineage tracking and replay capabilities
+### Signal Generator Warmup
+After restart, `indicagent-signal-generator` requires approximately 50 live 1m bars (~50 minutes) before signals fire. The consumer group is not rewound on restart — warmup proceeds naturally as bars accumulate.
 
-### Intelligence Sophistication
-- **Multi-Modal Intelligence** - Unified framework supporting mathematical, pattern, AI, and alternative intelligence
-- **Dynamic Plugin Orchestration** - Runtime intelligence pipeline reconfiguration without system disruption
-- **Cost-Controlled AI Processing** - Intelligent batching and resource management for AI plugins
-- **Intelligence Transparency** - Complete visibility into intelligence generation process
-
-### Platform Integration
-- **Plugin Marketplace Ready** - Framework supports custom intelligence plugin development
-- **No-Code Intelligence Pipelines** - YAML-based intelligence composition without programming
-- **Horizontal Plugin Scaling** - Independent scaling of intelligence components
-- **Real-Time Reconfiguration** - Dynamic intelligence pipeline updates without downtime
+### Feature Writer Service
+Dedicated persistence decoupler: reads from Redis streams in batch, writes to `intelligence_features` hypertable. The real-time pipeline (indicator, market analysis, signal generator services) never writes to TimescaleDB directly.
 
 ---
 
-## Plugin-Native Success Metrics
+## Stream Architecture
 
-### Performance Targets
-- **Plugin Processing Latency** - <10ms per intelligence calculation
-- **Configuration Deployment** - <30 seconds from YAML to production
-- **Intelligence Event Sourcing** - <5ms append latency with complete audit trail
-- **System Uptime** - >99.9% with plugin-level health monitoring
+All stream keys are constructed via `src/core/stream_keys.py` with environment prefix (`development:` in dev, no prefix in production).
 
-### Plugin Architecture Quality
-- **Dynamic Reconfiguration** - Runtime pipeline updates without service disruption
-- **Plugin Composition Flexibility** - Support for custom intelligence workflows through configuration
-- **Resource Efficiency** - Intelligent plugin scaling based on demand
-- **Cost-Controlled AI Processing** - Intelligent batching maintains <$0.01 per insight
+| Stream | Producer | Consumer(s) |
+|---|---|---|
+| `{env}:market:{symbol}:{tf}` | indicagent-tws | indicator_service, signal_lifecycle_service |
+| `{env}:ticks:{symbol}:live` | indicagent-tws | — |
+| `{env}:indicators:{symbol}:{tf}` | indicagent-indicator | indicagent-market-analysis |
+| `{env}:intelligence:{symbol}:{tf}` | indicagent-market-analysis | indicagent-signal-generator, indicagent-ai-narrative, indicagent-feature-writer |
+| `{env}:signals:{symbol}:{tf}:aggregated` | indicagent-signal-generator | indicagent-api (SSE) |
+| `{env}:narratives:{symbol}:{tf}` | indicagent-ai-narrative | indicagent-api (SSE) |
+| `{env}:llm_calls:stream` | indicagent-ai-narrative | indicagent-llm-writer |
+| `{env}:llm_outcomes:stream` | indicagent-signal-lifecycle | indicagent-llm-writer |
 
-### Development Efficiency
-- **Time-to-Market** - New intelligence capabilities deployable through configuration
-- **Plugin Development** - Custom intelligence plugins without framework changes
-- **Intelligence Transparency** - Complete audit trail enables debugging and optimization
-- **Horizontal Scaling** - Individual plugin components scale independently
+**Consumer group gotcha:** `xgroup_create(..., "$")` silently fails when the group already exists — use `ensure_consumer_group_with_reset()` from `src/core/stream_utils`, which calls `xgroup_setid(stream, group, "$")` in the except block to force-reset position.
+
+---
+
+## Hot / Warm / Cold Data Tiers
+
+| Tier | Storage | Latency | Role |
+|---|---|---|---|
+| Hot | DragonflyDB Streams | sub-ms | Inter-service message bus |
+| Warm | Service in-memory state | <10ms | Plugin state, bar history, lifecycle tracking |
+| Cold | TimescaleDB | batch, async | ML training dataset, audit log, scoring |
+
+The real-time pipeline never touches TimescaleDB directly. All cold writes go through `feature_writer_service` (features) or `llm_writer_service` (LLM audit).
+
+---
+
+## TimescaleDB Tables
+
+| Table | Purpose | Retention |
+|---|---|---|
+| `market_data_ohlcv` | Raw OHLCV; populated by backfill only; ground truth | Forever |
+| `intelligence_features` | Full feature vectors per bar including I7/I8 JSONB; ML training dataset | Forever |
+| `signal_ledger` | I7 signals + lifecycle outcomes (8-class); JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` | Forever |
+| `llm_calls` | Full LLM audit log per call; outcome back-filled by llm_writer_service | Forever |
+| `llm_model_scores` | Per-model win_rate, avg_pnl_r, p-value; refreshed every 15 min | Rolling |
+| `setup_performance` | Per-setup rolling 30d stats (win_rate, avg_pnl_r, sharpe); drives `perf_multiplier` in aggregator; only rows with `sample_size >= 30` written (FEED-02 gate) | Rolling |
+
+Aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
+
+---
+
+## Typed Intelligence Bus
+
+`IntelligenceEvent` in `src/intelligence/schemas.py` is the canonical typed event published to `{env}:intelligence:{symbol}:{tf}`. It carries tiered JSONB payloads:
+
+| Field | Content |
+|---|---|
+| `i1` | Raw indicator values from all 25 I1 plugins |
+| `i2` | Second-derivative events from all 10 I2 plugins |
+| `i3` | Market structure from all 8 I3 plugins |
+| `i4` | Regime context from all 7 I4 plugins |
+| `i5` | Pattern signals from all 14 I5 plugins |
+| `smc` | Smart money signals from all 13 SMC plugins |
+| `i6` | Cross-timeframe confluence score (CTF) |
+
+The full event is persisted as a single row in `intelligence_features` by `feature_writer_service`.
+
+---
+
+## Plugin System
+
+**Total: 95 plugins + 2 aggregation components** across tiers I1–I7.
+
+Plugin tier membership is defined in `src/intelligence/register_plugins.py` (`TIER_I1`…`TIER_I7`) — single source of truth. `registry.validate_tier()` hard-crashes at startup on any missing plugin name.
+
+Plugin state is managed per `(plugin_name, symbol, timeframe)` tuple in service-level dicts (`_plugin_states`, `_i1_plugin_states`). State is swapped onto `p._state` before `compute_full()` and written back after — this write-back is load-bearing for stateful plugins (GARCH, HMM) that fully reassign `_state`.
+
+See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and Ollama provider chain.
+
+---
+
+## Key Files
+
+| File | Purpose |
+|---|---|
+| `src/intelligence/schemas.py` | `IntelligenceEvent` — canonical typed bus schema |
+| `src/core/stream_keys.py` | All Redis stream key construction (env-prefixed) |
+| `src/config/settings.py` | `Settings`, `get_active_contracts()`, `Instrument` definitions |
+| `src/intelligence/register_plugins.py` | `TIER_I1`…`TIER_I7` tier lists — single source of truth |
+| `src/core/database_manager.py` | PostgreSQL/TimescaleDB with connection pooling |
+| `src/core/service_utils.py` | `setup_service_logging()`, `min_bars_for_tf()`, `PLUGIN_METRICS_SAMPLE_RATE` |
+| `src/providers/ibkr.py` | All ib_insync logic — no imports outside this file |
 
 ---
 
 ## Related Documentation
 
-### Enhanced Plugin-Native Architecture
-- [Enhanced Intelligence Architecture](enhanced-intelligence-architecture.md) - Complete plugin-native specifications
-- [Layered Architecture](layered-architecture.md) - Foundation infrastructure details
-- [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Plugin framework implementation
-- [Intelligence Tiers](../concepts/intelligence-tiers.md) - I1-I8 intelligence specifications
-
-### Implementation Guides
-- [Development Roadmap](../development-roadmap.md) - Plugin integration phases and timeline
-- [Platform Status](../STATUS.md) - Current state, priorities, and completed phases
-- [Stream Schemas](stream-schemas.md) - Data format and event specifications
-
-### Configuration & Setup
-- [Market Data Intelligence Configuration](../configuration/market-data-intelligence-configuration.md) - Data sources and processing
-
----
-
-**Enhanced Architecture Philosophy:** *Leverage existing sophisticated plugin infrastructure with configuration-driven intelligence pipeline composition, enabling rapid deployment of custom intelligence capabilities while maintaining production-grade performance and reliability.*
+- `docs/concepts/intelligence-tiers.md` — I1-I8 intelligence tier specifications
+- `docs/reference/schemas/stream-schemas.md` — Stream data formats
+- `docs/reference/db-maintenance.md` — DB maintenance runbook
+- `src/intelligence/CLAUDE.md` — Plugin protocol and LLM provider chain
+- `.planning/ROADMAP.md` — Current milestone phases and backlog
