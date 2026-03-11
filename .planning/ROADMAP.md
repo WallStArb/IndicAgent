@@ -9,7 +9,7 @@
 - ✅ **v1.4 Quant Foundation** — Phases 12-17 (shipped 2026-03-07)
 - ✅ **v1.5 Production Hardening** — Phases 18-22 (shipped 2026-03-10)
 - ✅ **v1.6 Signal Quality** — Phases 23-24 (shipped 2026-03-10)
-- 🚧 **v1.7 Data Integrity** — Phases 25-26 (in progress)
+- 🚧 **v1.7 Data Integrity** — Phases 25-27 (in progress)
 
 ## Phases
 
@@ -98,10 +98,11 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 
 ### 🚧 v1.7 Data Integrity (In Progress)
 
-**Milestone Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts.
+**Milestone Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts. Also close the signal lifecycle loop so the dashboard reflects signal outcomes in real time.
 
 - [ ] **Phase 25: CIS Data Repair** — Fix backfill code to populate CIS fields; audit + repair NULL CIS rows in signal_ledger
 - [ ] **Phase 26: Signal Generator Warmup** — Seed bar_history from intelligence_features on startup; eliminate 50-min warmup wait
+- [ ] **Phase 27: Signal Lifecycle Stream Events** — Publish terminal signal events to Redis stream; SSE snapshot age filter; dashboard resolved state with outcome badge
 
 ## Phase Details
 
@@ -133,6 +134,25 @@ Plans:
 
 Plans:
 - [ ] 26-01: DB seed implementation — `_seed_bar_history_from_db()` method + startup integration + tests
+
+### Phase 27: Signal Lifecycle Stream Events
+**Goal**: The dashboard shows signal outcomes (EXPIRED, STOPPED, T1 HIT, etc.) in real time as `signal_lifecycle_service` closes signals — and never replays a stale signal on SSE reconnect.
+**Depends on**: Nothing (independent of 25 and 26)
+**Design**: `docs/plans/2026-03-06-signal-lifecycle-stream-events-design.md`
+**Success Criteria** (what must be TRUE):
+  1. When a signal exits (any outcome), a `direction=0` event with `signal_id`, `status`, `outcome`, and `exit_price` is published to `signals:SYMBOL:TF:aggregated` within the same bar evaluation loop.
+  2. The dashboard renders a resolved signal as dimmed + outcome badge (`EXPIRED` / `STOPPED` / `T1 HIT` / `T1+T2 HIT` / `FULL TARGET`) and clears it when the next live signal arrives.
+  3. On SSE reconnect, signal stream entries older than `2×TF` are skipped — no stale signal replays on page load.
+  4. `GET /api/signals/{symbol}?timeframe=5m` returns only 5m signals (timeframe filter was previously accepted but silently ignored).
+
+Plans:
+- [ ] 27-01: `_publish_terminal_event()` helper in signal_lifecycle_service + tests
+- [ ] 27-02: Wire terminal event into both exit paths (normal + shadow)
+- [ ] 27-03: SSE snapshot age filter — skip signal entries older than 2×TF on reconnect
+- [ ] 27-04: REST API timeframe filter — fix silently-ignored `?timeframe=` param
+- [ ] 27-05: Extend `SignalData` type with `resolved`, `outcome`, `exit_price`, `signal_id`
+- [ ] 27-06: Handle resolved events in `use-market-stream.ts` signal_data handler
+- [ ] 27-07: Render resolved state in `signal-panel.tsx` with outcome badge
 
 ## Backlog
 
@@ -222,5 +242,6 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
 | 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
-| 25. CIS Data Repair | v1.7 | 0/TBD | Not started | - |
-| 26. Signal Generator Warmup | v1.7 | 0/TBD | Not started | - |
+| 25. CIS Data Repair | v1.7 | 0/2 | Not started | - |
+| 26. Signal Generator Warmup | v1.7 | 0/1 | Not started | - |
+| 27. Signal Lifecycle Stream Events | v1.7 | 0/7 | Not started | - |
