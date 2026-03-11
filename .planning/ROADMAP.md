@@ -115,7 +115,7 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
   2. A pre-repair audit query reports exact NULL counts, recoverable count (rows with a matching `intelligence_features` row), and unrecoverable count (orphaned rows with no feature match).
   3. After the repair UPDATE, a post-repair verification query shows NULL `cis_score` count = unrecoverable count (all recoverable rows now have values).
   4. Unrecoverable (orphaned) rows are logged at WARNING level with their signal IDs for investigation, not silently left NULL.
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 25-01: Fix `historical_backfill.py` — pass `features=` kwarg to `aggregate()` and add tests
