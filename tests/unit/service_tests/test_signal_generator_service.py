@@ -673,16 +673,14 @@ async def test_seed_bar_history_from_db_success():
     mock_db = AsyncMock()
     svc.db_manager = mock_db
 
-    # Mock query to return 3 bars for ES 1m
+    # Mock query returns exactly LIMIT rows (DESC order, newest first)
     # bar column format in DB: {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}
     mock_db.execute_query.return_value = [
         (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}),
         (datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), {"o": 0.8, "h": 1.2, "l": 0.6, "c": 1.0, "v": 80}),
-        (datetime(2026, 3, 10, 9, 58, 0, tzinfo=UTC), {"o": 0.5, "h": 0.9, "l": 0.4, "c": 0.8, "v": 60}),
     ]
 
-    # Mock min_bars_for_tf to return 2 for 1m (only 2 bars needed)
-    # Patch get_active_contracts at the service module level
+    # Mock min_bars_for_tf to return 2 for 1m
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=2):
         with patch("services.signal_generator_service.get_active_contracts", return_value=["ES"]):
             await svc._seed_bar_history_from_db()
@@ -690,12 +688,12 @@ async def test_seed_bar_history_from_db_success():
     # Verify bar_history was populated
     key = "ES:1m"
     assert key in svc.bar_history
-    assert len(svc.bar_history[key]) == 2  # Only 2 bars due to min_bars_for_tf=2
+    assert len(svc.bar_history[key]) == 2
 
-    # Verify bar format conversion (DB format → bar_history format)
-    # bar_history format: {"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100, "timestamp": datetime}
+    # Verify bar format conversion and chronological order (oldest first after reverse)
+    # bar_history format: {"open": ..., "high": ..., "low": ..., "close": ..., "volume": ..., "timestamp": ...}
     first_bar = svc.bar_history[key][0]
-    assert first_bar["open"] == 0.8  # Oldest bar (second in DB query due to DESC order)
+    assert first_bar["open"] == 0.8  # Oldest bar (9:59, second in DESC result)
     assert first_bar["high"] == 1.2
     assert first_bar["low"] == 0.6
     assert first_bar["close"] == 1.0
