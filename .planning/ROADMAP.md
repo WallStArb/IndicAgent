@@ -145,7 +145,7 @@ Plans:
   3. On SSE reconnect, signal stream entries older than `2×TF` are skipped — no stale signal replays on page load.
   4. `GET /api/signals/{symbol}?timeframe=5m` returns only 5m signals (timeframe filter was previously accepted but silently ignored).
 
-Plans:
+Plans: 7 plans
 - [ ] 27-01: `_publish_terminal_event()` helper in signal_lifecycle_service + tests
 - [ ] 27-02: Wire terminal event into both exit paths (normal + shadow)
 - [ ] 27-03: SSE snapshot age filter — skip signal entries older than 2×TF on reconnect
@@ -242,6 +242,6 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
 | 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
-| 25. CIS Data Repair | v1.7 | 0/2 | Not started | - |
+| 25. CIS Data Repair | 1/2 | In Progress|  | - |
 | 26. Signal Generator Warmup | v1.7 | 0/1 | Not started | - |
 | 27. Signal Lifecycle Stream Events | v1.7 | 0/7 | Not started | - |
