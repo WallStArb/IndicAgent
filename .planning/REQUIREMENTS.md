@@ -38,20 +38,20 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CIS-01 | TBD | Pending |
-| CIS-02 | TBD | Pending |
-| CIS-03 | TBD | Pending |
-| CIS-04 | TBD | Pending |
-| WARM-01 | TBD | Pending |
-| WARM-02 | TBD | Pending |
-| WARM-03 | TBD | Pending |
-| WARM-04 | TBD | Pending |
+| CIS-01 | Phase 25 | Pending |
+| CIS-02 | Phase 25 | Pending |
+| CIS-03 | Phase 25 | Pending |
+| CIS-04 | Phase 25 | Pending |
+| WARM-01 | Phase 26 | Pending |
+| WARM-02 | Phase 26 | Pending |
+| WARM-03 | Phase 26 | Pending |
+| WARM-04 | Phase 26 | Pending |
 
 **Coverage:**
 - v1 requirements: 8 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 8 ⚠️
+- Mapped to phases: 8
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-10*
-*Last updated: 2026-03-10 after initial definition*
+*Last updated: 2026-03-10 — traceability updated after roadmap creation (phases 25-26)*

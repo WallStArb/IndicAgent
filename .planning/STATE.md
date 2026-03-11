@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: planning
-stopped_at: "Defining requirements"
-last_updated: "2026-03-10T16:30:00.000Z"
-last_activity: "2026-03-10 — Milestone v1.7 Data Integrity started"
+stopped_at: "Roadmap created — ready to plan Phase 25"
+last_updated: "2026-03-10T17:00:00.000Z"
+last_activity: "2026-03-10 — v1.7 roadmap created: phases 25 (CIS Data Repair) and 26 (Signal Generator Warmup)"
 progress:
   total_phases: 2
-  completed_phases: 2
-  total_plans: 10
-  completed_plans: 10
-  percent: 40
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,160 +21,58 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Milestone v1.7 — Data Integrity
+**Current focus:** v1.7 Data Integrity — Phase 25: CIS Data Repair
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-10 — Milestone v1.7 Data Integrity started
+Phase: 25 of 26 (CIS Data Repair)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-03-10 — Roadmap created, phases 25-26 defined
+
+Progress: [░░░░░░░░░░] 0% (v1.7)
 
 ## Performance Metrics
 
-**Velocity:**
-- Total plans completed: 45
-- Average duration: ~30 min
-- Total execution time: ~22.5 hours
+**Velocity (cumulative):**
+- Total plans completed: 82 (v1.0–v1.6)
+- Average duration: ~30 min/plan
+- Total execution time: ~41 hours
 
-**By Phase:**
+**Recent phases (v1.6):**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1-9 (v1.0) | 21 | ~8h | ~23 min |
-| 10 (v1.1) | 1 | ~20m | ~20 min |
-| 11-14 (v1.2) | 8 | ~4h | ~30 min |
-| 15-16 (v1.3) | 4 | ~2h | ~30 min |
-| 17 (v1.4) | 3 | ~1.5h | ~30 min |
-| 18-21 (v1.5) | 0 | - | - |
+| Phase | Plans | Notes |
+|-------|-------|-------|
+| 23. Signal Generator Gate | 3 | Onset detection + flip suppression |
+| 24. Second-Derivative Acceleration | 7 | HMA + ExhaustionScore + AccelerationRegime + SwingMomentum |
 
-**Recent Trend:**
-- Last 5 plans: Phase 17 (3 plans, ~30 min each)
-- Trend: Stable
-
-*Updated after v1.4 completion*
-| Phase 18-financial-math-safety P02 | 88 | 2 tasks | 1 files |
-| Phase 18 P01 | 4 min | 3 tasks | 3 files |
-| Phase 18 P03 | 420 | 5 tasks | 6 files |
-| Phase 18 P05 | 1 min | 1 task | 1 file |
-| Phase 18-financial-math-safety P07 | 10 | 1 tasks | 2 files |
-| Phase 18 P06 | 170 | 2 tasks | 2 files |
-| Phase 18 P04 | 10 | 1 tasks | 1 files |
-| Phase 19-financial-math-characterization P02 | 3 | 1 tasks | 1 files |
-| Phase 19-financial-math-characterization P03 | 2 | 1 tasks | 1 files |
-| Phase 19-financial-math-characterization P01 | 4 | 1 tasks | 2 files |
-| Phase 20-circuit-breaker-integration P01 | 2 | 2 tasks | 2 files |
-| Phase 20 P03 | 122 | 3 tasks | 1 files |
-| Phase 20 P02 | 4 | 2 tasks | 2 files |
-| Phase 20 P04 | 303 | 3 tasks | 3 files |
-| Phase 21-efficiency-optimizations P01 | 2 | 2 tasks | 2 files |
-| Phase 21-efficiency-optimizations P03 | 103 | 3 tasks | 2 files |
-| Phase 21-efficiency-optimizations P02 | 147 | 2 tasks | 2 files |
-| Phase 21 P04 | 223 | 3 tasks | 3 files |
-| Phase 22-i8-narrative-three-tier-redesign P04 | 2 | 1 tasks | 2 files |
-| Phase 22-i8-narrative-three-tier-redesign P06 | 462 | 1 tasks | 1 files |
-| Phase 22-i8-narrative-three-tier-redesign P01 | 8 | 1 tasks | 2 files |
-| Phase 22-i8-narrative-three-tier-redesign P02 | 10 | 1 tasks | 2 files |
-| Phase 22-i8-narrative-three-tier-redesign P05 | 30 | 2 tasks | 1 files |
-| Phase 22-i8-narrative-three-tier-redesign P03 | 15 | 1 tasks | 2 files |
-| Phase 22-i8-narrative-three-tier-redesign P07 | 15 | 4 tasks | 1 files |
-| Phase 23-signal-generator-gate P01 | 2 | 1 tasks | 1 files |
-| Phase 23-signal-generator-gate P02 | 4 | 2 tasks | 1 files |
-| Phase 23-signal-generator-gate P03 | 157 | 2 tasks | 19 files |
-| Phase 24-second-derivative-acceleration P01 | 445 | 3 tasks | 6 files |
-| Phase 24-second-derivative-acceleration P02 | 3 | 2 tasks | 2 files |
-| Phase 24-second-derivative-acceleration P04 | 4 | 1 tasks | 1 files |
-| Phase 24-second-derivative-acceleration P03 | 199 | 2 tasks | 2 files |
-| Phase 24-second-derivative-acceleration P05 | 3 | 3 tasks | 7 files |
-| Phase 24-second-derivative-acceleration P06 | 10 | 2 tasks | 4 files |
-| Phase 24-second-derivative-acceleration P07 | 10 | 1 tasks | 1 files |
+**Recent Trend:** Stable
 
 ## Accumulated Context
-
-### Roadmap Evolution
-
-- Phase 24 added: second-derivative-acceleration — ExhaustionScore/AccelerationRegime I2 + SwingMomentum I3 + exhaustion wiring into 4 I7 setups
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
-- Phase 12 (v1.4): Regime-aware gating on all I7 plugins enforced via hmm_regime + prob>=0.60 + duration>=5
-- Phase 13 (v1.4): Shadow signals tracked in signal_ledger for empirical gate tuning
-- Phase 16 (v1.4): perf_multiplier as primary aggregator sort key
-- Phase 18 (v1.5): Renaissance framing — safety first, efficiency second for algorithmic improvements
-- [Phase 18]: EPSILON_TOLERANCE = 1e-9 for all floating-point comparisons across trading layer — Renaissance principle: instrument everything. Prevents precision issues in financial calculations.
-- [Phase 18]: ATR multipliers and regime thresholds as named constants with Renaissance framing — Renaissance principle: explicit structural levels over hidden constants. Makes magic numbers discoverable and explainable.
-- [Phase 18-05]: All LLM providers expose timeout: float | None = None in __init__ defaulting to _default_llm_timeout() — consistent pattern across OpenRouterProvider, AnthropicProvider, ZAIProvider, OllamaProvider
-- [Phase 18-financial-math-safety]: Two async helpers (_update_plugin_state, _save_plugin_state) activate orphaned lock infrastructure in I1 indicator service — state read and write wrapped with per-key asyncio.Lock()
-- [Phase 18]: _run_tier converted to async nested function to enable async with lock inside synchronous-style pipeline flow
-- [Phase 18]: Lock wraps both plugin state read (setdefault) and write-back (_state reassignment) as atomic unit
-- [Phase 18]: Stop directional checks use entry ± EPSILON_TOLERANCE to prevent degenerate stops at exactly entry price
-- [Phase 19-02]: Characterization tests for zero-ATR emergency fallback in frame_trade() pin ATR_EMERGENCY_FALLBACK_PCT == 0.001 and verify stop = entry - (entry*0.001*2.0)
-- [Phase 19-03]: Use __new__ pattern to bypass __init__ and set only the lock dict needed for isolated asyncio.Lock testing
-- [Phase 19-financial-math-characterization]: RSI characterization: seed _state directly to isolate compute_next — avoids full dataset dependency in unit tests
-- [Phase 19-financial-math-characterization]: RSI characterization Test 3: assert directional ordering (rsi2 < rsi1) rather than exact floats — pins behavioral invariant robustly
-- [Phase 20-01]: jitter_factor=0.5 default (±50%) spread — wide enough to prevent thundering herd on concurrent retries
-- [Phase 20-01]: retry_with_backoff() re-raises on final attempt directly (not via last_exception capture) to preserve full exception traceback
-- [Phase 20-01]: retry_on=(Exception,) default catches all; callers narrow for precision; no retry_tracker callback — instrumentation delegated to circuit breaker state counts
-- [Phase 20]: Module-level _ibkr_circuit_breaker singleton tracks connection health — IBKR has one connection, one breaker
-- [Phase 20]: [Phase 20-03]: retry_with_backoff base_delay=2.0s, max_delay=15.0s for IBKR — longer than default to match TWS reconnect timing
-- [Phase 20]: [Phase 20-03]: failure_window=120s, recovery_timeout=180s — IBKR reconnects ~1 min, 3 min recovery buffer
-- [Phase 20]: _call_llm_with_circuit_breaker accepts sync call_fn not coroutine — each retry gets fresh to_thread invocation, preventing coroutine reuse errors
-- [Phase 20-02]: Module-level _llm_circuit_breaker shared across all LLM providers, keyed by provider_id — failure history persists across chain iterations
-- [Phase 20-04]: Circuit breaker state transitions use state snapshots (previous_state captured before operation) to detect actual changes at metric recording time
-- [Phase 21-01]: cache_invalidated flag pattern — set inside while/popitem() loop, conditionally invalidates _df_cache only when buffer eviction occurs
-- [Phase 21-efficiency-optimizations]: np.dot(weights_array, scores_array) replaces scalar sum() for CIS weighted aggregation — identical numerical result, leverages compiled BLAS
-- [Phase 21-efficiency-optimizations]: CIS vectorization scoped to aggregation layer only — bucket methods (_trend, _momentum, etc.) left as-is to preserve readability
-- [Phase 21-efficiency-optimizations]: Overflow detection uses len_before == history.maxlen (deque semantics): cache invalidated only when deque was at capacity before append
-- [Phase 21]: PLUGIN_METRICS_SAMPLE_RATE=10 documented with explicit modulo pattern and rationale
-- [Phase 21]: Error path records every call without sampling — safety invariant pinned by tests
-- [Phase 22-04]: narrative backward-compat: narrative?: string kept optional in NarrativeData — set as alias when narrative_type=short, allows gradual migration in components
-- [Phase 22-04]: spread-merge SSE pattern: {existing, ...newFields} merges short and deep into same state key enabling independent async arrivals
-- [Phase 22]: narrative_short and narrative_deep start identical to per_signal (6 providers each); routing diverges independently as llm_model_scores accumulates
-- [Phase 22]: _build_chains() uses direct key access for narrative_short/narrative_deep — KeyError on missing config is intentional, forces explicit config hygiene
-- [Phase 22-i8-narrative-three-tier-redesign]: Confidence thresholds for build_action_tag: >=0.75=DIRECT, 0.50-0.74=WAIT, <0.50=MONITOR — confidence-gated execution instruction for PM clarity
-- [Phase 22-i8-narrative-three-tier-redesign]: extract_deep_context superset guarantee: calls extract_short_context then ctx.update() — all short keys always present in deep
-- [Phase 22]: SYSTEM_PROMPT banned phrases expressed as behavioral prohibition without listing them verbatim to avoid self-referential test failures
-- [Phase 22]: _apply_score_routing loop uses narrative_short/narrative_deep replacing legacy per_signal; score cache keys aligned with new three-tier call types
-- [Phase 22-05]: action_tag badge uses text-xs font-mono text-amber-400 — amber mono distinguishes machine-generated instruction from narrative prose
-- [Phase 22-05]: Expand button only rendered when shortText is present — prevents orphaned toggle when no narrative has arrived
-- [Phase 22]: narrative_short and narrative_deep fire as independent asyncio.create_task() calls, neither blocking the processing loop
-- [Phase 22]: xrevrange(count=1) fetches intel context before prompt building; empty list degrades gracefully to empty dict
-- [Phase 22-07]: per_signal config key preserved in default_config — documents historical fallback chain; only functional routing code removed
-- [Phase 23-01]: _check_gate(symbol, tf, direction, timestamp) returns bool: True=gated/suppress, False=not gated/allow — codified in 5 TDD RED stubs
-- [Phase 23-02]: E501 on _update_gate signature accepted as pre-existing non-blocking type — consistent with 74-error E501 baseline
-- [Phase 23-02]: Gate check placed after RR filter so gating sees final framed signal, not raw aggregator output
-- [Phase 23-02]: Resolution listener uses xread (not xreadgroup) — read-only observation of own stream, no consumer group needed
-- [Phase 23-03]: InputSpec.timeframe='.*' confirms dead-code nature: field defined but never enforced; '.*' makes intent explicit
-- [Phase 23-03]: 4h/1d exclusion documented in both service configs as day-trading scope boundary
-- [Phase 24-01]: macd_hist_slope reads macd_histogram_12_26_9 (not macd_12_26_9) — histogram reveals slope of momentum, not signal line
-- [Phase 24-01]: I7 boost/guard tests use diff-confidence-delta pattern (baseline vs with-exhaustion call) to pin exact +0.1/-0.15 values
-- [Phase 24-02]: HMA diff_buffer seeded from last sqrt_n historical bars in compute_full — enables valid HMA output on first batch call without incremental accumulation
-- [Phase 24-02]: price_accel uses 4-value close window: velocity_prev=close[-3]-close[-4], velocity_now=close[-1]-close[-2]; test authority overrides plan interface comment
-- [Phase 24-04]: Full-frame rebuild of extremes on compute_full — simpler than incremental tracking, correct for non-incremental plugin
-- [Phase 24-04]: _dedup_extremes() ensures alternating H/L sequence: stronger extreme kept when consecutive same-type appear
-- [Phase 24]: ExhaustionScore RSI-gated logic: bull/bear counts only increment when RSI is in respective extreme zone — prevents spurious scores when RSI=75 but secondary conditions contradict
-- [Phase 24]: AccelerationRegime inflection priority: peak/trough checked before building/waning — test authority overrides plan spec for branch order
-- [Phase 24]: 4-vote AccelerationRegime: hma_accel added as 4th vote per test file; accel_agreement = max(pos,neg)/4 giving 0.5 for 2/2 split
-- [Phase 24-05]: Exhaustion boost is directional: bull exhaustion only boosts long sweeps, bear only boosts short — wrong-direction exhaustion ignored
-- [Phase 24-05]: MomentumBreakout guard applies penalty without suppression; TrendFollowing adds _no_signal() when confidence < confidence_threshold (0.4) after guard
-- [Phase 24-06]: HMAPlugin registered as 25th I1 indicator — gap was silently zeroing hma_slope and hma_accel
-- [Phase 24-06]: pandas import removed from hma.py — only numpy was ever used
+
+- [Phase 23]: _check_gate() onset detection — only fires signal when condition transitions false→true, not every bar condition holds
+- [Phase 24]: AccelerationRegime 4-vote system; ExhaustionScore RSI-gated; HMA registered as 25th I1 indicator
+- [v1.7 roadmap]: CIS repair split into code fix (backfill.py) + audit/repair script — two natural plans in Phase 25
+- [v1.7 roadmap]: Warmup seeding is a single self-contained plan in Phase 26 — DB read at startup, graceful fallback
 
 ### Pending Todos
 
 From .planning/todos/pending/:
-- 2026-03-06-dashboard-intelligence-field-gaps.md — Largely complete, minor remaining work
-- 2026-02-24-fix-sequential-stream-polling-in-feature-writer-service.md — Pre-existing
-- 2026-03-10-research-and-fix-signal-generator-condition-vs-event-firing-and-direction-flip-gate.md — NEW: 4 findings: (1) plugins fire every bar a condition is true, not on onset; (2) no cross-bar memory/cooldown in signal_generator_service; (3) I7 InputSpec timeframe="1m" is dead code; (4) 4h/1d missing from market_analysis and signal_generator. Needs research before implementation.
+- 2026-03-06-dashboard-intelligence-field-gaps.md — largely complete, minor remaining work
+- 2026-02-24-fix-sequential-stream-polling-in-feature-writer-service.md — pre-existing, non-blocking
+- 2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md — research gate required first
 
 ### Blockers/Concerns
 
-None currently blocking v1.5 work.
+None blocking v1.7 work.
 
 ## Session Continuity
 
-Last session: 2026-03-10T14:00:00.000Z
-Stopped at: Completed 24-07-PLAN.md (gap closure: I3Structure schema)
+Last session: 2026-03-10
+Stopped at: Roadmap creation complete — Phase 25 and 26 defined, ready for /gsd:plan-phase 25
 Resume file: None

@@ -9,6 +9,7 @@
 - ✅ **v1.4 Quant Foundation** — Phases 12-17 (shipped 2026-03-07)
 - ✅ **v1.5 Production Hardening** — Phases 18-22 (shipped 2026-03-10)
 - ✅ **v1.6 Signal Quality** — Phases 23-24 (shipped 2026-03-10)
+- 🚧 **v1.7 Data Integrity** — Phases 25-26 (in progress)
 
 ## Phases
 
@@ -95,6 +96,44 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 Full details: `.planning/milestones/v1.6-ROADMAP.md`
 </details>
 
+### 🚧 v1.7 Data Integrity (In Progress)
+
+**Milestone Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts.
+
+- [ ] **Phase 25: CIS Data Repair** — Fix backfill code to populate CIS fields; audit + repair NULL CIS rows in signal_ledger
+- [ ] **Phase 26: Signal Generator Warmup** — Seed bar_history from intelligence_features on startup; eliminate 50-min warmup wait
+
+## Phase Details
+
+### Phase 25: CIS Data Repair
+**Goal**: All signal_ledger rows — historical and future — carry populated CIS fields, making the ML training dataset complete.
+**Depends on**: Nothing (independent of Phase 26)
+**Requirements**: CIS-01, CIS-02, CIS-03, CIS-04
+**Success Criteria** (what must be TRUE):
+  1. Running `historical_backfill.py` produces new `signal_ledger` rows with non-NULL `cis_score`, `cis_direction`, and `cis_bucket_breakdown` on every signal that has a matching `intelligence_features` row.
+  2. A pre-repair audit query reports exact NULL counts, recoverable count (rows with a matching `intelligence_features` row), and unrecoverable count (orphaned rows with no feature match).
+  3. After the repair UPDATE, a post-repair verification query shows NULL `cis_score` count = unrecoverable count (all recoverable rows now have values).
+  4. Unrecoverable (orphaned) rows are logged at WARNING level with their signal IDs for investigation, not silently left NULL.
+**Plans**: TBD
+
+Plans:
+- [ ] 25-01: Fix `historical_backfill.py` — pass `features=` kwarg to `aggregate()` and add tests
+- [ ] 25-02: Audit and repair script — NULL count query, UPDATE recoverable rows, log orphans
+
+### Phase 26: Signal Generator Warmup
+**Goal**: The signal generator fires on the first live bar after startup, with no manual wait and no data loss during service restarts.
+**Depends on**: Nothing (independent of Phase 25)
+**Requirements**: WARM-01, WARM-02, WARM-03, WARM-04
+**Success Criteria** (what must be TRUE):
+  1. On `signal_generator_service` startup, `bar_history` is seeded with `min_bars_for_tf(tf)` bars per active contract × timeframe fetched from `intelligence_features` before the service begins consuming live stream data.
+  2. The first live bar received after startup can trigger a signal — no warmup period elapses before signal evaluation begins.
+  3. If `intelligence_features` is unreachable at startup, the service logs a loud WARNING ("DB seed failed — falling back to live warmup") and starts normally; it does not crash or hang.
+  4. The startup log includes a seeding completion message with bar counts per symbol/TF (e.g., "Seeded ES 1m: 120 bars, ES 5m: 26 bars, ...").
+**Plans**: TBD
+
+Plans:
+- [ ] 26-01: DB seed implementation — `_seed_bar_history_from_db()` method + startup integration + tests
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -104,16 +143,11 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| Signal Generator DB Warmup | Seed bar_history from intelligence_features on startup — eliminates 50-min warmup after restart. | `.planning/todos/pending/2026-03-09-seed-signal-generator-bar-history-from-db-on-startup.md` |
-| CIS Backfill Fix (BUG) | `aggregate()` never receives `features=` kwarg in backfill — backfilled signals have NULL CIS fields. High impact on ML training dataset. | `.planning/todos/pending/2026-03-08-enable-cis-scoring-in-historical-backfill.md` |
 | Renaissance Gaps (Signal Quality) | T0: constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
 | Dashboard Complete | I7 all_ranked panel (new SSE route); drill panel signal history from DB on open; dashboard audit across all symbol profiles + TFs; I-tier tooltips; signal banner polish. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md`, `.planning/todos/pending/2026-03-11-drill-panel-signal-history-from-db.md`, `.planning/todos/pending/2026-02-27-add-tooltips-to-intelligence-level-indicators.md` |
 | Expand I5 candlestick + I7 setup | 18 patterns spec'd (Tier 1: Harami, Dark Cloud, Three Soldiers/Crows, Morning/Evening Star). Research doc complete. | `docs/ideas/candlestick-pattern-expansion-research.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
-| AC Oscillator I1 plugin | Todo exists, fully specced. | — |
-| Derivative Oscillator I2 plugin | Todo exists, fully specced. | — |
-| Extend MACD events | Histogram acceleration signal, ~10 lines added to existing I2 MACD event plugin. | — |
 | Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | `.planning/todos/pending/2026-03-06-audit-and-remove-dead-database-tables.md` |
 | validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
 | Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. SSE fan-out: one Redis reader → broadcast to N clients (not N independent pollers). `next build` + nginx for prod dashboard. | — |
@@ -150,7 +184,7 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). Next: v1.7 phases (TBD via `/gsd:new-milestone`).
+Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-26.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -188,3 +222,5 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). Next: v1.7
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
 | 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
+| 25. CIS Data Repair | v1.7 | 0/TBD | Not started | - |
+| 26. Signal Generator Warmup | v1.7 | 0/TBD | Not started | - |
