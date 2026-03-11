@@ -199,42 +199,42 @@ class TestAuditNullCIS:
         def mock_fetchone():
             return (10,)
 
-        # Use side_effect for sequential fetchall calls
+        recoverable_batch = [
+            {
+                "signal_id": "11111111-1111-1111-1111-111111111111",
+                "symbol": "ES",
+                "feature_ts": "2026-01-01 12:00:00",
+                "feature_tf": "5m",
+                "i1": {"rsi_14": 50.0},
+                "i3": {},
+                "i4": {},
+                "i5": {},
+                "smc": {},
+                "i6": {},
+            },
+            {
+                "signal_id": "22222222-2222-2222-2222-222222222222",
+                "symbol": "NQ",
+                "feature_ts": "2026-01-01 12:05:00",
+                "feature_tf": "15m",
+                "i1": {"rsi_14": 60.0},
+                "i3": {},
+                "i4": {},
+                "i5": {},
+                "smc": {},
+                "i6": {},
+            },
+        ]
+
+        # audit_null_cis uses fetchmany() in a while-True loop for recoverable rows,
+        # then fetchall() for orphaned rows. fetchmany must return [] on second call
+        # to break the loop — otherwise MagicMock returns a truthy object forever.
         mock_cursor.fetchone = mock_fetchone
-        mock_cursor.fetchall.side_effect = [
-            # First fetchall: recoverable rows (dicts from RealDictCursor)
-            [
-                {
-                    "signal_id": "11111111-1111-1111-1111-111111111111",
-                    "symbol": "ES",
-                    "feature_ts": "2026-01-01 12:00:00",
-                    "feature_tf": "5m",
-                    "i1": {"rsi_14": 50.0},
-                    "i3": {},
-                    "i4": {},
-                    "i5": {},
-                    "smc": {},
-                    "i6": {},
-                },
-                {
-                    "signal_id": "22222222-2222-2222-2222-222222222222",
-                    "symbol": "NQ",
-                    "feature_ts": "2026-01-01 12:05:00",
-                    "feature_tf": "15m",
-                    "i1": {"rsi_14": 60.0},
-                    "i3": {},
-                    "i4": {},
-                    "i5": {},
-                    "smc": {},
-                    "i6": {},
-                },
-            ],
-            # Second fetchall: orphaned IDs (dicts from RealDictCursor)
-            [
-                {"signal_id": "33333333-3333-3333-3333-333333333333"},
-                {"signal_id": "44444444-4444-4444-4444-444444444444"},
-                {"signal_id": "55555555-5555-5555-5555-555555555555"},
-            ],
+        mock_cursor.fetchmany.side_effect = [recoverable_batch, []]
+        mock_cursor.fetchall.return_value = [
+            {"signal_id": "33333333-3333-3333-3333-333333333333"},
+            {"signal_id": "44444444-4444-4444-4444-444444444444"},
+            {"signal_id": "55555555-5555-5555-5555-555555555555"},
         ]
 
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
