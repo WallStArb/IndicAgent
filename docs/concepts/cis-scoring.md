@@ -1,11 +1,11 @@
 # Composite Intelligence Score (CIS)
 
-**Last Updated:** 2026-03-07
+**Last Updated:** 2026-03-11
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves
 
-The I7 tier runs 16 setup plugins against every bar. On a typical bar during an active session, multiple plugins fire simultaneously — a TrendFollowing setup, a VWAPDeviation setup, and a CHoCHReversal might all trigger with different directions and confidence scores. How do you decide which signal to publish?
+The I7 tier runs 17 setup plugins against every bar. On a typical bar during an active session, multiple plugins fire simultaneously — a TrendFollowing setup, a VWAPDeviation setup, and a CHoCHReversal might all trigger with different directions and confidence scores. How do you decide which signal to publish?
 
 The naive approach (highest confidence wins) is fragile: a plugin with high confidence in the wrong regime still produces a bad trade. Majority voting ignores signal quality. Any hand-tuned priority ordering goes stale as market regimes shift.
 
