@@ -19,6 +19,13 @@
 - [ ] **WARM-03**: Seeding degrades gracefully if DB unavailable — logs loudly and falls back to live warmup without crashing
 - [ ] **WARM-04**: Startup log reports seeding completion with bar counts per symbol/TF
 
+### Signal Lifecycle Stream Events
+
+- [ ] **SLES-01**: `signal_lifecycle_service` publishes a terminal event (`direction=0`, `signal_id`, `status`, `outcome`, `exit_price`) to `signals:SYMBOL:TF:aggregated` on every terminal state transition
+- [ ] **SLES-02**: SSE snapshot skips signal stream entries older than `2×TF` minutes on reconnect — no stale signal replayed on page load
+- [ ] **SLES-03**: Dashboard handles resolved events: `signal_id` match → dimmed signal + outcome badge (`EXPIRED`/`STOPPED`/`T1 HIT`/`T1+T2 HIT`/`FULL TARGET`); mismatched signal_id → no-op
+- [ ] **SLES-04**: REST API `GET /api/signals/{symbol}?timeframe=` filter actually filters results (was silently ignored)
+
 ## v2 Requirements
 
 ### Renaissance Follow-on
@@ -46,10 +53,14 @@
 | WARM-02 | Phase 26 | Pending |
 | WARM-03 | Phase 26 | Pending |
 | WARM-04 | Phase 26 | Pending |
+| SLES-01 | Phase 27 | Pending |
+| SLES-02 | Phase 27 | Pending |
+| SLES-03 | Phase 27 | Pending |
+| SLES-04 | Phase 27 | Pending |
 
 **Coverage:**
-- v1 requirements: 8 total
-- Mapped to phases: 8
+- v1 requirements: 12 total
+- Mapped to phases: 12
 - Unmapped: 0 ✓
 
 ---
