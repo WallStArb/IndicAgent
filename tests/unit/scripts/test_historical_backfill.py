@@ -1,6 +1,9 @@
+import json
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock, call, patch
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
@@ -70,3 +73,198 @@ def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
     ]
     result = aggregate_bars_from_1m(bars, "5m")
     assert result[0]["volume"] == 0
+
+
+# ---------------------------------------------------------------------------
+# CIS field propagation tests (Phase 25-01)
+# ---------------------------------------------------------------------------
+
+
+def _make_bar_history(n: int = 55) -> deque:
+    """Return a deque of n minimal bar dicts for testing."""
+    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    bars = deque(maxlen=200)
+    for i in range(n):
+        bars.append({
+            "timestamp": base.replace(minute=base.minute + i % 30),
+            "open": 100.0 + i,
+            "high": 101.0 + i,
+            "low": 99.0 + i,
+            "close": 100.5 + i,
+            "volume": 100,
+        })
+    return bars
+
+
+def test_run_i7_and_persist_populates_cis_fields():
+    """CIS fields from AggregatedResult flow through _build_ledger_entries into LedgerEntry."""
+    from production.scripts.historical_backfill import (
+        _build_ledger_entries,
+        run_i7_and_persist,
+    )
+    from src.intelligence.trading.aggregator import AggregatedResult
+
+    cis_agg = AggregatedResult(
+        selected_signal={"direction": 1, "composite_rank": 1},
+        all_ranked=[{"direction": 1, "composite_rank": 1, "setup_plugin": "trad_TrendFollowing",
+                     "signal_type": "long", "entry_price": 100.0, "stop_loss": 99.0,
+                     "targets": [102.0], "confidence": 0.7, "confluence_score": 0.8,
+                     "regime_context": "trend", "supporting_factors": []}],
+        resolution_method="highest_rank",
+        num_signals_fired=1,
+        num_agreeing=1,
+        num_conflicting=0,
+        cis_score=0.42,
+        bucket_scores={"trend": 0.4, "momentum": 0.3},
+        weights_version=0,
+    )
+
+    features = {"trend_regime": 1.0}
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+
+    captured_entries: list = []
+
+    def fake_insert(conn, entries):
+        captured_entries.extend(entries)
+
+    mock_plugin = MagicMock()
+    mock_plugin.compute_full.return_value = {
+        "direction": 1, "setup_plugin": "trad_TrendFollowing",
+    }
+    mock_registry = MagicMock()
+    mock_registry.get_pattern.return_value = mock_plugin
+
+    with (
+        patch("production.scripts.historical_backfill.aggregate", return_value=cis_agg),
+        patch("production.scripts.historical_backfill._insert_signals_sync", side_effect=fake_insert),
+        patch("production.scripts.historical_backfill.registry", mock_registry),
+    ):
+        mock_conn = MagicMock()
+        run_i7_and_persist(
+            _make_bar_history(), features, "ESH6", "1m", ts, mock_conn,
+        )
+
+    assert len(captured_entries) == 1
+    entry = captured_entries[0]
+    assert entry.cis_score == 0.42
+    assert entry.bucket_scores == {"trend": 0.4, "momentum": 0.3}
+    assert entry.weights_version == 0
+
+
+def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
+    """run_i7_and_persist must call aggregate(..., features=features_dict)."""
+    from production.scripts.historical_backfill import run_i7_and_persist
+    from src.intelligence.trading.aggregator import AggregatedResult
+
+    fired_signal = {
+        "direction": 1, "setup_plugin": "trad_TrendFollowing",
+        "signal_type": "long", "entry_price": 100.0, "stop_loss": 99.0,
+        "targets": [102.0], "confidence": 0.7, "confluence_score": 0.8,
+        "regime_context": "trend", "supporting_factors": [], "composite_rank": 1,
+    }
+    empty_agg = AggregatedResult(
+        selected_signal=None, all_ranked=[], resolution_method="no_signal",
+        num_signals_fired=0,
+    )
+
+    features = {"trend_regime": 1.0, "some_feature": 42.0}
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+
+    mock_plugin = MagicMock()
+    mock_plugin.compute_full.return_value = {"direction": 1}
+    mock_registry = MagicMock()
+    mock_registry.get_pattern.return_value = mock_plugin
+
+    with (
+        patch("production.scripts.historical_backfill.aggregate", return_value=empty_agg) as mock_agg,
+        patch("production.scripts.historical_backfill.registry", mock_registry),
+    ):
+        run_i7_and_persist(_make_bar_history(), features, "ESH6", "1m", ts, None)
+
+        assert mock_agg.called
+        _, kwargs = mock_agg.call_args
+        assert "features" in kwargs
+        assert kwargs["features"] == features
+
+
+def test_insert_signals_sync_writes_cis_fields():
+    """_insert_signals_sync must NOT hardcode None for cis_score/bucket_scores/weights_version."""
+    from production.scripts.historical_backfill import _insert_signals_sync
+    from src.intelligence.trading.signal_ledger import LedgerEntry
+
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    entry = LedgerEntry(
+        signal_id="00000000-0000-0000-0000-000000000001",
+        timestamp=ts,
+        symbol="ESH6",
+        timeframe="1m",
+        setup_plugin="trad_TrendFollowing",
+        signal_type="long",
+        direction=1,
+        entry_price=100.0,
+        stop_loss=99.0,
+        targets=[102.0],
+        confidence=0.7,
+        confluence_score=0.8,
+        regime_context="trend",
+        supporting_factors=[],
+        was_selected=True,
+        num_signals_bar=1,
+        num_agreeing=1,
+        num_conflicting=0,
+        resolution_method="highest_rank",
+        composite_rank=1,
+        market_context={},
+        status="pending",
+        feature_ts=ts,
+        feature_tf="1m",
+        cis_score=0.55,
+        bucket_scores={"trend": 0.5},
+        weights_version=1,
+    )
+
+    captured_params: list = []
+
+    mock_cur = MagicMock()
+
+    def fake_execute_batch(cur, sql, params_list):
+        captured_params.extend(params_list)
+
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = lambda s: mock_cur
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    with patch("production.scripts.historical_backfill.psycopg2.extras.execute_batch",
+               side_effect=fake_execute_batch):
+        _insert_signals_sync(mock_conn, [entry])
+
+    assert len(captured_params) == 1
+    row = captured_params[0]
+    # Positions 24, 25, 26 (0-indexed) are cis_score, bucket_scores, weights_version
+    assert row[24] == 0.55, f"Expected cis_score=0.55, got {row[24]}"
+    assert row[25] == json.dumps({"trend": 0.5}), f"Expected bucket_scores json, got {row[25]}"
+    assert row[26] == 1, f"Expected weights_version=1, got {row[26]}"
+    assert row[27] is None, "signal_quality should still be None"
+
+
+def test_run_i7_and_persist_cis_null_when_no_raw_signals():
+    """When no I7 plugins fire, run_i7_and_persist returns 0 (unchanged behaviour)."""
+    from production.scripts.historical_backfill import run_i7_and_persist
+
+    features = {"trend_regime": 0.0}
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+
+    # Plugin returns direction=0 → no signal → raw_signals stays empty
+    mock_plugin = MagicMock()
+    mock_plugin.compute_full.return_value = {"direction": 0}
+    mock_registry = MagicMock()
+    mock_registry.get_pattern.return_value = mock_plugin
+
+    mock_conn = MagicMock()
+
+    with patch("production.scripts.historical_backfill.registry", mock_registry):
+        result = run_i7_and_persist(_make_bar_history(), features, "ESH6", "1m", ts, mock_conn)
+
+    assert result == 0
+    # DB insert never called when no signals
+    mock_conn.cursor.assert_not_called()
