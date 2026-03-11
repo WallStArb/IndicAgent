@@ -100,7 +100,7 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 
 **Milestone Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts. Also close the signal lifecycle loop so the dashboard reflects signal outcomes in real time.
 
-- [ ] **Phase 25: CIS Data Repair** — Fix backfill code to populate CIS fields; audit + repair NULL CIS rows in signal_ledger
+- [x] **Phase 25: CIS Data Repair** — Fix backfill code to populate CIS fields; audit + repair NULL CIS rows in signal_ledger (completed 2026-03-11)
 - [ ] **Phase 26: Signal Generator Warmup** — Seed bar_history from intelligence_features on startup; eliminate 50-min warmup wait
 - [ ] **Phase 27: Signal Lifecycle Stream Events** — Publish terminal signal events to Redis stream; SSE snapshot age filter; dashboard resolved state with outcome badge
 
@@ -242,6 +242,6 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
 | 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
-| 25. CIS Data Repair | 1/2 | In Progress|  | - |
+| 25. CIS Data Repair | 2/2 | Complete   | 2026-03-11 | - |
 | 26. Signal Generator Warmup | v1.7 | 0/1 | Not started | - |
 | 27. Signal Lifecycle Stream Events | v1.7 | 0/7 | Not started | - |

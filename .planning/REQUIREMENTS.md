@@ -8,9 +8,9 @@
 ### CIS Backfill Fix
 
 - [x] **CIS-01**: `historical_backfill.py` passes `features=` kwarg to `aggregate()` so new backfill runs produce signals with populated CIS fields
-- [ ] **CIS-02**: Pre-repair audit query reports NULL count, recoverable count (matched `intelligence_features`), and unrecoverable count (orphaned)
-- [ ] **CIS-03**: Backfill repair UPDATE populates NULL CIS fields on all recoverable `signal_ledger` rows
-- [ ] **CIS-04**: Post-repair verification reports before/after NULL counts; unrecoverable rows logged for investigation
+- [x] **CIS-02**: Pre-repair audit query reports NULL count, recoverable count (matched `intelligence_features`), and unrecoverable count (orphaned)
+- [x] **CIS-03**: Backfill repair UPDATE populates NULL CIS fields on all recoverable `signal_ledger` rows
+- [x] **CIS-04**: Post-repair verification reports before/after NULL counts; unrecoverable rows logged for investigation
 
 ### Signal Generator Warmup
 
@@ -46,9 +46,9 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CIS-01 | Phase 25 | Complete |
-| CIS-02 | Phase 25 | Pending |
-| CIS-03 | Phase 25 | Pending |
-| CIS-04 | Phase 25 | Pending |
+| CIS-02 | Phase 25 | Complete |
+| CIS-03 | Phase 25 | Complete |
+| CIS-04 | Phase 25 | Complete |
 | WARM-01 | Phase 26 | Pending |
 | WARM-02 | Phase 26 | Pending |
 | WARM-03 | Phase 26 | Pending |
