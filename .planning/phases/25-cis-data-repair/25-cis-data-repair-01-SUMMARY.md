@@ -146,3 +146,20 @@ Future replay runs (via `historical_backfill.py --replay-only`) will produce sig
 - [x] `_insert_signals_sync` serializes `LedgerEntry` CIS fields instead of hardcoding `None`
 - [x] All 4 new tests pass; all pre-existing tests in `test_historical_backfill.py` still pass
 - [x] Future replay runs will produce signal_ledger rows with populated cis_score/bucket_scores/weights_version
+
+## Self-Check: PASSED
+
+All verified claims:
+- [x] `tests/unit/scripts/test_historical_backfill.py` exists and contains 4 new CIS tests
+- [x] `production/scripts/historical_backfill.py` exists with all 3 fixes applied
+- [x] Commit `c77b17a` exists (test RED)
+- [x] Commit `9b8dfa5` exists (feat GREEN)
+- [x] Commit `22d34d8` exists (docs metadata)
+- [x] `25-cis-data-repair-01-SUMMARY.md` exists in `.planning/phases/25-cis-data-repair/`
+- [x] `aggregate(raw_signals, trend_regime=trend_regime, features=features)` is present in `run_i7_and_persist`
+- [x] `cis_score=result.cis_score, bucket_scores=result.bucket_scores, weights_version=result.weights_version` is present in `LedgerEntry` constructor
+- [x] `e.cis_score, json.dumps(e.bucket_scores) if e.bucket_scores is not None else None, e.weights_version` is present in `_insert_signals_sync` params tuple
+- [x] All 8 tests pass (4 pre-existing + 4 new)
+- [x] STATE.md updated with progress 33%, Plan 01 complete
+- [x] ROADMAP.md updated with summary_count=1 for Phase 25
+- [x] REQUIREMENTS.md marked CIS-01 complete
