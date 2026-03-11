@@ -149,14 +149,14 @@ def audit_null_cis(
     with conn.cursor() as cur:
         # Total NULL count (use regular cursor, not RealDictCursor, for COUNT(*))
         if symbols:
-            where_clause = "WHERE cis_score IS NULL AND symbol = ANY(%s)"
+            where_clause = "WHERE sl.cis_score IS NULL AND sl.symbol = ANY(%s)"
             cur.execute(
-                f"SELECT COUNT(*) FROM signal_ledger {where_clause}",
+                f"SELECT COUNT(*) FROM signal_ledger sl {where_clause}",
                 (symbols,),
             )
         else:
-            where_clause = "WHERE cis_score IS NULL"
-            cur.execute(f"SELECT COUNT(*) FROM signal_ledger {where_clause}")
+            where_clause = "WHERE sl.cis_score IS NULL"
+            cur.execute(f"SELECT COUNT(*) FROM signal_ledger sl {where_clause}")
 
         total_null = cur.fetchone()[0]
 
@@ -176,13 +176,20 @@ def audit_null_cis(
                 AND f.tf = sl.feature_tf
             {where_clause}
             AND sl.feature_ts IS NOT NULL
+            LIMIT 10000
         """
         if symbols:
             cur.execute(recoverable_query, (symbols,))
         else:
             cur.execute(recoverable_query)
 
-        recoverable_rows = cur.fetchall()
+        # Fetch in batches to avoid memory pressure
+        recoverable_rows = []
+        while True:
+            batch = cur.fetchmany(1000)
+            if not batch:
+                break
+            recoverable_rows.extend(batch)
 
         logger.info("Recoverable rows (have feature match): %d", len(recoverable_rows))
 
