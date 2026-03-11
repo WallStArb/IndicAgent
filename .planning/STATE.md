@@ -5,9 +5,9 @@ milestone_name: Data Integrity
 status: planning
 stopped_at: "Roadmap created — ready to plan Phase 25"
 last_updated: "2026-03-10T17:00:00.000Z"
-last_activity: "2026-03-10 — v1.7 roadmap created: phases 25 (CIS Data Repair) and 26 (Signal Generator Warmup)"
+last_activity: "2026-03-10 — v1.7 roadmap updated: 3 phases (25 CIS Data Repair, 26 Signal Generator Warmup, 27 Signal Lifecycle Stream Events)"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
