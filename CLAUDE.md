@@ -239,8 +239,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1485 passing · **Ruff:** 106 errors (mostly E501 line-too-long, non-blocking; 24 fixable with --fix) ⚠️
-**Pipeline:** I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence
+**Tests:** 1497 passing (Phase 25: +12 new tests)
+I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair infrastructure
 **v1.5 SHIPPED 2026-03-10** · **v1.6 SHIPPED 2026-03-10** — see `.planning/ROADMAP.md`
 
 ## Roadmap Position
@@ -252,7 +252,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - v1.4 SHIPPED 2026-03-07 — milestone archived (`de075f7`), tagged `v1.4`
 - v1.5 SHIPPED 2026-03-07 — milestone archived (`c927b3e`), tagged `v1.5`
 - v1.6 SHIPPED 2026-03-10 — milestone archived, tagged `v1.6`
-- Next: `/gsd:new-milestone` to define v1.7
+- **v1.7 SHIPPED 2026-03-11** — milestone archived, tagged `v1.7`
+
+- Next: `/gsd:new-milestone` to define v1.8
 
 ## Key References
 
