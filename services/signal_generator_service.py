@@ -613,11 +613,11 @@ class SignalGeneratorService:
             query = f"""
                 SELECT ts, bar
                 FROM intelligence_features
-                WHERE symbol = %s AND tf = %s
+                WHERE symbol = $1 AND tf = $2
                 ORDER BY ts DESC
                 LIMIT {min_bars}
             """
-            result = await self.db_manager.execute_query(query, (symbol, tf))
+            result = await self.db_manager.execute_query(query, symbol, tf)
             return symbol, tf, result or []
 
         try:
@@ -633,14 +633,15 @@ class SignalGeneratorService:
                     continue
                 key = f"{symbol}:{tf}"
                 # DB returns DESC (newest first); reverse to append oldest→newest
-                for ts, bar_json in reversed(rows):
+                for row in reversed(rows):
+                    bar_json = row["bar"]
                     self.bar_history[key].append({
                         "open": bar_json.get("o"),
                         "high": bar_json.get("h"),
                         "low": bar_json.get("l"),
                         "close": bar_json.get("c"),
                         "volume": bar_json.get("v"),
-                        "timestamp": ts,
+                        "timestamp": row["ts"],
                     })
                     seeded_count += 1
 
