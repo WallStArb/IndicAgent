@@ -1,8 +1,8 @@
 # Plugin-Native Architecture Explained
 
-**Version:** 2.1.0
-**Last Updated:** 2026-02-14
-**Status:** 31 Plugins Operational, I1-I6 Partial (Smart Money)
+**Version:** 3.0.0
+**Last Updated:** 2026-03-11
+**Status:** I1-I8 Complete — 95 Plugins Operational
 
 ## Overview
 
@@ -62,64 +62,77 @@ IBKR TWS -> High-Frequency Collection (100-500+ ticks/sec)
 
 **Key Components:**
 - `production/daemons/high_frequency_tws_daemon.py` - Live tick collection
-- `services/timeframes_builder_service.py` - Multi-timeframe aggregation
-- `src/core/redis_streams_manager.py` - High-performance stream distribution
+- `src/core/stream_keys.py` - All Redis stream key construction
 - `src/core/database_manager.py` - TimescaleDB persistence
 
 **Output:** Clean `market:SYMBOL:TIMEFRAME` streams that feed all intelligence processing.
 
-### Layer 2: Mathematical Intelligence (I1-I4) -- Implemented
+### Layer 2: Mathematical Intelligence (I1-I4) — Operational
 **Purpose:** Plugin-based mathematical analysis, structure, and context
 
-**I1 Raw Indicators (16 plugins, all incremental):**
+**I1 Raw Indicators (25 plugins, all incremental):**
 
 | Category | Plugins |
 |----------|---------|
-| Trend | SMA/EMA, MACD, ADX/DMI |
-| Momentum | RSI, Stochastic, Williams %R, CCI, ROC/PPO |
-| Volatility | Bollinger Bands, ATR, Keltner Channels, Donchian Channels |
-| Volume | OBV, MFI, VWAP |
-| Composite | MA Composites (crossovers, distances) |
+| Trend | SMA/EMA (MA), MACompare, MACD, ADX/DMI, Supertrend, HMA |
+| Momentum | RSI, Stochastic, Williams %R, CCI, ROC/PPO, Aroon, StochRSI, ACOscillator |
+| Volatility | Bollinger Bands, ATR, Keltner, Donchian, HistoricalVolatility, ChandelierExit, PSAR |
+| Volume | OBV, MFI, VWAP, CMF |
 
-**I3 Market Structure (3 plugins):**
-- Swing detector (HH/HL/LH/LL classification)
-- Support/resistance (pivot clustering with strength scoring)
-- Trend structure (swing sequence scoring, structural integrity)
+**I2 Second-Derivative / Event (10 plugins):**
+- MACD Events, RSI Events, Stoch Events, ADX Events, Volume Events
+- MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore
 
-**I4 Context Classification (3 plugins):**
-- Volatility regime (ATR percentile + BB width)
-- Trend regime (SMA-20/50 alignment, 5-state classification)
-- Momentum context (multi-oscillator direction scoring)
+**I3 Market Structure (8 plugins):**
+- Swing (HH/HL/LH/LL classification), SR (pivot clustering with strength scoring), TrendStructure (swing sequence scoring)
+- MarketProfile, SessionLevels, AnchoredVWAP, FibZones, SwingMomentum
 
-**Output Streams:** `indicators:SYMBOL:TIMEFRAME`, `patterns:SYMBOL:TIMEFRAME`
+**I4 Context Classification (7 plugins):**
+- VolRegime, TrendRegime, MomentumCtx
+- GARCHVol, KalmanTrend, SessionCtx, MTFVol
 
-### Layer 3: Pattern Intelligence (I5) -- Implemented
-**Purpose:** Pattern detection using I1 features and raw OHLCV data
+**Output Streams:** `indicators:SYMBOL:TIMEFRAME`
 
-**I5 Pattern Plugins (4 plugins):**
-- RSI Divergence — bullish/bearish divergence with peak/trough detection
-- Bollinger Squeeze — TTM-style BB-inside-KC squeeze detection
-- Volume Divergence — OBV slope vs price slope via linear regression
-- Confluence — multi-indicator scoring (RSI/MACD/Stoch/CCI) from -1 to +1
+### Layer 3: Pattern Intelligence (I5 + SMC) — Operational
+**Purpose:** Pattern detection using I1 features, raw OHLCV, and smart money flow
 
-**Output Streams:** `patterns:SYMBOL:TIMEFRAME`
+**I5 Pattern Plugins (14 plugins):**
+- RSIDivergence, BollingerSqueeze, VolDivergence, Confluence, TrendConfluence
+- DoubleTB, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle
+- MeasuredMove, VolumeProfile, KeyLevelReaction
 
-### Layer 4: Smart Money Intelligence & Confluence (I6-I8) -- Partial Implementation
-**Purpose:** Smart money flow detection, confluence scoring, institutional liquidity analysis, and future multi-factor scoring
+**SMC Smart Money Plugins (13 plugins):**
+- BOS/CHoCH (structural bias and reversal detection)
+- FVG (imbalance zones, gap fill probability)
+- OrderBlocks (institutional demand/supply zone clustering)
+- LiquiditySweeps (institutional trap identification)
+- BOCPD (Bayesian online change point detection)
+- HMM (3-state Hidden Markov Model: ranging/trending-up/trending-down)
+- LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle
+- BreakerBlocks, MitigationBlocks, PremiumDiscount
 
-**I6 Smart Money Plugins (6 plugins):**
-- Break of Structure (BOS) / Change of Character (CHOCH) — structural bias detection and reversal identification
-- Fair Value Gap (FVG) — imbalance zone identification, HTF confluence, and gap fill probability
-- Order Blocks (OB) — demand/supply zone clustering with strength scoring and institutional accumulation zones
-- Liquidity Sweeps — institutional liquidity extraction, swing point violation detection, and trap identification
-- BOCPD Change Point Detection — Bayesian online change point detection for regime shifts and regime consistency analysis
-- HMM Regime Classification — 3-state Hidden Markov Model (ranging/trending-up/trending-down) with multivariate Gaussian emissions
+### Layer 4: Signal Intelligence (I6-I8) — Operational
+**Purpose:** Cross-timeframe confluence, trading setups, and AI narrative
 
-**Future capabilities (I7-I8):**
-- **I7 Trading Outputs:** Validated setups with entry/exit/stops, position sizing, risk/reward ratios
-- **I8 AI Insights:** LLM-powered pattern interpretation, market narratives, cost-controlled inference
+**I6 CrossTimeframe (1 plugin):**
+- CTF: alignment scoring across 1m/5m/15m/1h — scores trend/structure/regime/pattern alignment
 
-**Output Streams:** `intelligence:SYMBOL:TIMEFRAME`, `insights:SYMBOL:TIMEFRAME`
+**I7 Trading Setups (17 plugins + 2 aggregation components):**
+
+| Setup Type | Plugin |
+|-----------|--------|
+| Trend | TrendFollowing, MTFAlignment, MomentumBreakout |
+| Reversal | MeanReversion, CHoCHReversal, DivergenceStack |
+| Liquidity | LiquiditySweepReclaim, LiquidityHunt, VWAPDeviation |
+| Pattern | SqueezeExpansion, SupplyDemandSetup, FVGFill, PatternCompletion |
+| Regime | RegimeTransition, GapAnalysis, CandlestickPatternSetup, SessionExtremes |
+| Aggregation | **CISScorer** (composite intelligence scoring), **SignalAggregator** (winner selection) |
+
+**I8 AI Narrative — Operational:**
+- Ollama `qwen3.5:9b` per-signal narrative, `phi4-mini:3.8b` group synthesis
+- LLM Writer service: full audit log to `llm_calls` hypertable, model scoring via `llm_model_scores`
+
+**Output Streams:** `intelligence:SYMBOL:TIMEFRAME`, `signals:SYMBOL:TIMEFRAME:aggregated`, `narratives:SYMBOL:TIMEFRAME`
 
 ---
 
@@ -207,27 +220,42 @@ That's it. The DAG engine picks it up, streams carry its output, and the service
 
 ### How Dependencies Work
 
-The DAG engine (`src/intelligence/dag.py`) uses Kahn's algorithm for topological sorting:
+The DAG engine (`src/intelligence/dag.py`) uses Kahn's algorithm for topological sorting. Current execution order within `market_analysis_service`:
 
 ```
-OHLCV Data --+-- I1 Indicators (parallel) --+-- I2 Composites
-             |                               +-- I5 Patterns (reads features)
-             +-- I3 Structure ----- I4 Context (optional I3 blending)
-             +-- I4 Context (self-contained mode)
+OHLCV Data --+-- I1 indicators (parallel, incremental)
+             +-- I2 composites (depend on I1 outputs)
+             +-- I3 structure (parallel, on raw OHLCV)
+             +-- I4 context (on OHLCV, optionally blends I3)
+             +-- I5 patterns (depend on I1 features)
+             +-- SMC (on OHLCV + I1 features)
+             +-- I6 CTF (reads cross-TF intelligence cache)
+             --> intelligence:SYMBOL:TF (typed IntelligenceEvent)
+             --> signal_generator_service --> I7 setups --> signals:SYMBOL:TF:aggregated
 ```
 
 Plugins declare their dependencies via `inputs` and `capability_tags`. The DAG ensures:
-1. I1 indicators compute before I5 patterns (which need features)
+1. I1 indicators compute before I2 composites and I5 patterns (which need features)
 2. I3 structure computes before I4 context (for optional blending)
-3. I6 smart money plugins compute after I1-I3 (independent of I4-I5)
-4. Independent plugins can execute in parallel within a stage
+3. SMC plugins compute on OHLCV + I1 features, independent of I4-I5
+4. I6 CTF reads the cross-TF intelligence cache after all prior tiers complete
+5. I7 setups run in `signal_generator_service` on the full `IntelligenceEvent`
+6. Independent plugins can execute in parallel within a stage
+
+### Plugin State Management
+
+Plugin state is managed entirely in-memory within each service — no Redis-backed state in the hot path:
+
+- **`_plugin_cache`** — plugin singletons built at init, reused per-bar (no registry lookup)
+- **`_plugin_states`** — `dict[tuple[str, str, str], dict]` keyed by `(plugin_name, symbol, timeframe)`; swapped onto `p._state` before `compute_full()` and written back after (write-back is load-bearing for GARCH/HMM which fully reassign `_state`)
+- **`_plugin_call_counts`** — `defaultdict(int)` keyed by `(plugin_name, tier)`; records Prometheus success metrics every `PLUGIN_METRICS_SAMPLE_RATE=10` total calls; errors always recorded
 
 ### Incremental Processing (141x Speedup)
 
 The key performance optimization: after initial `compute_full()` seeds state, subsequent bars use `compute_next()` for O(1) updates:
 
 ```python
-# Initial: ~50-100ms for all 16 indicators
+# Initial: ~50-100ms for all 25 indicators
 plugin.compute_full({"main": historical_600_bars})
 
 # Live: <1ms per indicator per bar
@@ -251,77 +279,135 @@ Every intelligence result flows through Redis Streams:
 
 ```
 market:ES:1m  -->  Indicator Service  -->  indicators:ES:1m
-                                      -->  patterns:ES:1m
-                                      -->  intelligence:ES:1m
-                                      -->  SSE to Dashboard
+                                      -->  (I1+I2 features)
+
+indicators:ES:1m  -->  Market Analysis Service  -->  intelligence:ES:1m
+                                                     (I3→I4→I5→SMC→I6 pipeline)
+
+intelligence:ES:1m  -->  Signal Generator Service  -->  signals:ES:1m:aggregated
+                                                        signal_ledger (DB)
+
+intelligence:ES:1m  -->  AI Narrative Service  -->  narratives:ES:1m
+                    -->  Feature Writer Service -->  intelligence_features (DB)
 ```
 
 **Stream naming** (always via `src/core/stream_keys.py`):
 ```
 {env_prefix}:{type}:{SYMBOL}:{timeframe}
 
-market:ES:1m          # Raw OHLCV bars
-ticks:ES:live         # High-frequency tick data
-indicators:ES:1m      # I1 indicator features
-patterns:ES:1m        # I3-I6 pattern/structure/context/smart_money
-intelligence:ES:1m    # I6+ higher-tier intelligence
+market:ES:1m              # Raw OHLCV bars from IBKR TWS
+indicators:ES:1m          # I1+I2 indicator features
+intelligence:ES:1m        # I3-I6 typed IntelligenceEvent
+signals:ES:1m:aggregated  # I7 winning setup signal
+narratives:ES:1m          # I8 AI narrative
 ```
 
 ### Hot/Warm/Cold Data Flow
 - **Hot (DragonflyDB):** Real-time streams, sub-ms latency, no database in the critical path
 - **Warm (Stream Processing):** Service mesh processes bars through plugins in <200ms
-- **Cold (TimescaleDB):** Background archival only, historical analysis and backtesting
+- **Cold (TimescaleDB):** Background archival only — `feature_writer_service` batches `intelligence_features`; `signal_ledger` written by `signal_generator_service`
 
 ---
 
 ## Complete Intelligence Flow
 
-Here's how a single 1-minute bar flows through the system:
+Here's how a single 1-minute bar flows through the full system:
 
 **1. Data Ingestion:**
 ```
-IBKR TWS -> hf-tws daemon -> market:ES:1m (DragonflyDB stream)
+IBKR TWS -> hf-tws daemon -> market:ES:1m + market:ES:5m/15m/1h/4h/1d
 ```
 
-**2. Indicator Processing (I1):**
+**2. I1+I2 Processing (Indicator Service):**
 ```
-market:ES:1m -> Indicator Service -> 16 plugins via compute_next()
+market:ES:TF -> 25 I1 plugins via compute_next() + 10 I2 composites
    RSI: 65.2, MACD: 2.1, ATR: 12.3, ADX: 28.4, ...
-   -> indicators:ES:1m
+   MomentumAccel: 0.82, ExhaustionScore: 0.31, ...
+   -> indicators:ES:TF
    Latency: <1ms per plugin (incremental)
 ```
 
-**3. Structure & Context (I3-I4):**
+**3. I3 Structure (Market Analysis Service, 8 plugins):**
 ```
-market:ES:1m -> Structure plugins -> swing highs/lows, S/R levels
-             -> Context plugins  -> trend regime: "bullish", volatility: "normal"
-   -> patterns:ES:1m
+market:ES:TF -> Swing highs/lows, S/R levels, trend structure,
+               market profile, session levels, anchored VWAP,
+               fib zones, swing momentum
 ```
 
-**4. Pattern Detection (I5):**
+**4. I4 Context (7 plugins):**
 ```
-indicators:ES:1m + market:ES:1m -> Pattern plugins
+market:ES:TF -> vol regime, trend regime, momentum context,
+               GARCH vol, Kalman trend, session context, MTF vol
+   trend regime: "bullish", volatility: "normal"
+```
+
+**5. I5 Patterns (14 plugins):**
+```
+indicators:ES:TF + market:ES:TF ->
    RSI divergence: bullish (strength: 0.76)
    Bollinger squeeze: active (count: 5 bars)
-   -> patterns:ES:1m
+   Double bottom: forming, H&S: not detected
+   Key level reaction: confirmed
 ```
 
-**5. Smart Money Detection (I6):**
+**6. SMC Smart Money (13 plugins):**
 ```
-market:ES:1m -> Smart Money plugins
-   BOS/CHOCH: bearish structure break detected
+market:ES:TF + I1 features ->
+   BOS/CHoCH: bearish structure break detected
    FVG: imbalance zone at 5000-5010 (mitigated: 0.3)
    Order Blocks: supply zone strength: 0.82
    Liquidity Sweeps: HTF trap activated
+   ICT Killzone: London open active
+   AMD Cycle: accumulation phase
    BOCPD: regime shift detected (bullish -> ranging)
-   -> patterns:ES:1m / intelligence:ES:1m
 ```
 
-**6. Dashboard Distribution:**
+**7. I6 CTF (1 plugin):**
 ```
-indicators:ES:1m -> SSE route -> Next.js Dashboard (live charts)
-patterns:ES:1m   -> SSE route -> Next.js Dashboard (alerts)
-intelligence:ES:1m -> SSE route -> Next.js Dashboard (smart money insights)
+Cross-TF intelligence cache ->
+   alignment score across 1m/5m/15m/1h: 0.74 (trend/structure/regime/pattern)
+   -> intelligence:ES:TF (typed IntelligenceEvent, tiered JSONB: i1/i3/i4/i5/smc/i6)
+```
+
+**8. I7 Signal Generation (Signal Generator Service, 17 setup plugins):**
+```
+intelligence:ES:TF ->
+   TrendFollowing: long setup (rank: 0.81)
+   LiquiditySweepReclaim: long setup (rank: 0.73)
+   CISScorer: composite score 0.79 (bucket: high_confidence)
+   SignalAggregator: TrendFollowing wins -> signals:ES:TF:aggregated
+   -> signal_ledger (pending, zone_low/zone_high, targets, stops)
+```
+
+**9. Signal Lifecycle:**
+```
+market:ES:1m -> Signal Lifecycle Service ->
+   Activation: price enters zone -> status: active
+   MAE/MFE tracking per bar
+   Exit classification: 8-class outcome
+   (never_activated / stopped_at_entry / stopped_in_trade /
+    target_1 / target_1_2 / target_full / ttl_expired_ahead / ttl_expired_behind)
+   -> signal_ledger outcome/pnl_r/mae/mfe updated
+```
+
+**10. I8 AI Narrative (AI Narrative Service):**
+```
+intelligence:ES:TF -> Ollama qwen3.5:9b -> narratives:ES:TF
+   LLM Writer: llm_calls:stream -> llm_calls hypertable
+              outcome back-fill from llm_outcomes:stream
+              model scoring -> llm_model_scores (refreshed every 15 min)
+```
+
+**11. Feature Persistence (Feature Writer Service):**
+```
+intelligence:ES:TF -> intelligence_features hypertable (async batch)
+   Full feature vectors per bar including i7/i8 JSONB — ML training dataset
+```
+
+**12. Dashboard:**
+```
+signals:ES:TF:aggregated + intelligence:ES:TF + narratives:ES:TF
+   -> SSE routes -> Next.js Dashboard (live charts, signal cards, drill panel)
 ```
 
 ---
@@ -348,20 +434,31 @@ The distinction is that plugins aren't bolted onto an existing system — they A
 
 3. **Streams carry plugin output natively.** The stream infrastructure doesn't know about RSI or MACD — it carries whatever key-value pairs plugins produce.
 
-4. **New capabilities = new plugins.** Adding ADX/DMI to the platform required one Python file and one registration line. No pipeline changes, no stream changes, no config changes.
+4. **New capabilities = new plugins.** Adding a new setup type to I7 required one Python file and one registration line. No pipeline changes, no stream changes, no config changes.
 
 ---
 
 ## Current Status & Metrics
 
-- **57 plugins** registered (23 I1 + 3 I3 + 5 I4 + 8 I5 + 8 SMC + 1 I6 confluence + 9 I7 setups)
-- **Breakdown:** 23 I1 indicators + 3 I3 structure + 5 I4 context + 8 I5 patterns + 8 SMC smart money + 1 CTF + 9 I7 setups
-- **170+ unit tests** passing, 0 ruff errors
+- **95 active plugins** + 2 aggregation components (CISScorer, SignalAggregator)
+- **Breakdown:** 25 I1 + 10 I2 + 8 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7 = 95 plugins
+- **1497 unit tests** passing
 - **141x** incremental performance boost measured
 - **100-500+** ticks/sec ingestion during RTH
 - **<1ms** per-plugin incremental calculation latency
-- **I1-I6** tiers operational (I6 Smart Money partially implemented)
-- **I7-I8** tiers planned (trading outputs, AI insights)
+- **I1-I8** all tiers operational
+
+**Services:**
+| Service | Tier | Purpose |
+|---------|------|---------|
+| `indicagent-indicator` | I1+I2 | 25+10 plugins → `indicators:SYMBOL:TF` |
+| `indicagent-market-analysis` | I3→I6 | DAG pipeline → `intelligence:SYMBOL:TF` |
+| `indicagent-signal-generator` | I7 | 17 setups + CIS → `signals:SYMBOL:TF:aggregated` + `signal_ledger` |
+| `indicagent-signal-lifecycle` | I7 outcome | Zone activation, MAE/MFE, 8-class outcome |
+| `indicagent-ai-narrative` | I8 | Ollama qwen3.5:9b → `narratives:SYMBOL:TF` |
+| `indicagent-feature-writer` | Storage | Redis → `intelligence_features` hypertable |
+| `indicagent-llm-writer` | Storage | `llm_calls:stream` → `llm_calls` hypertable + model scoring |
+| `indicagent-api` | API | FastAPI + SSE on :8000 → Dashboard |
 
 ---
 
@@ -369,4 +466,4 @@ The distinction is that plugins aren't bolted onto an existing system — they A
 - [Plugin Registry & DAG Execution](plugin-registry-and-dag-execution.md) - Technical implementation details
 - [Intelligence Tiers (I1-I8)](../concepts/intelligence-tiers.md) - Complete tier definitions
 - [Layered Architecture](layered-architecture.md) - Infrastructure overview
-- [Stream Schemas](stream-schemas.md) - Data format specifications
+- [Stream Schemas](../reference/schemas/stream-schemas.md) - Data format specifications

@@ -1,14 +1,14 @@
 # Intelligence Plugin Registry & DAG Execution Framework
 
-**Version:** 5.8.0
-**Last Updated:** 2026-03-01
-**Status:** 63 Plugins Operational — I1-I8 Complete, DAG Execution Active
+**Version:** 6.0.0
+**Last Updated:** 2026-03-11
+**Status:** I1-I8 Complete — 95 Plugins + 2 Aggregation Components Operational
 
 ## Executive Summary
 
 IndicAgent's Intelligence Plugin Registry and DAG Execution Framework provides the foundation for market intelligence processing. The framework uses a simple, protocol-based plugin architecture with dependency-aware DAG execution, supporting the I1-I8 intelligence tiers.
 
-**Core Capability:** Extensible intelligence processing framework that transforms raw market data into structured intelligence through modular, dependency-aware plugin execution.
+**Core Capability:** 95 plugins + 2 aggregation components across I1-I8 tiers, 1497 passing tests, all tiers operational.
 
 ---
 
@@ -183,24 +183,23 @@ from .indicators.adx import plugin as adx_plugin
 def register_all_plugins() -> None:
     registry.register_indicator(rsi_plugin)
     registry.register_indicator(adx_plugin)
-    # ... 16 indicators total ...
-    registry.register_pattern(rsi_div_plugin)
-    # ... 15 patterns total ...
+    # ... all plugins ...
 ```
 
 No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (63 Total)
+## Registered Plugins (95 Total + 2 Aggregation Components)
 
-### I1 Indicator Plugins (23) — All support incremental `compute_next()`
+### I1 Indicator Plugins (25) — All support incremental `compute_next()`
 
 | Plugin | Category | Key Outputs |
 |--------|----------|-------------|
 | RSI | Momentum | `rsi_14` |
+| MA (SMA/EMA) | Trend | `sma_20`, `sma_50`, `sma_100`, `sma_200`, `ema_8`, `ema_9`, `ema_13`, `ema_21`, `ema_55` |
+| MACompare | Trend | `ma_cross_20_50`, `ma_distance_20`, `ma_distance_50` |
 | MACD | Trend | `macd_12_26_9`, `macd_signal_12_26_9`, `macd_histogram_12_26_9` |
-| SMA/EMA | Trend | `sma_20`, `sma_50`, `ema_12`, `ema_26` |
 | ATR | Volatility | `atr_14` |
 | Bollinger Bands | Volatility | `bb_20_2_upper`, `bb_20_2_mid`, `bb_20_2_lower` |
 | Stochastic | Momentum | `stoch_k_14`, `stoch_d_14` |
@@ -209,68 +208,102 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 | MFI | Volume | `mfi_14` |
 | OBV | Volume | `obv_value`, `obv_slope` |
 | VWAP | Volume | `vwap_value` |
+| Supertrend | Trend | `supertrend_direction`, `supertrend_trend` |
 | ADX/DMI | Trend | `adx_14`, `plus_di_14`, `minus_di_14` |
 | Keltner Channels | Volatility | `kc_upper_20`, `kc_mid_20`, `kc_lower_20` |
 | Donchian Channels | Volatility | `donchian_upper_20`, `donchian_mid_20`, `donchian_lower_20` |
 | ROC/PPO | Momentum | `roc_14`, `ppo_12_26`, `ppo_signal_12_26` |
-| MA Composites | Composite | `ma_cross_20_50`, `ma_distance_20` |
-| Supertrend | Trend | `supertrend_direction`, `supertrend_trend` |
+| Aroon | Trend | `aroon_up`, `aroon_down`, `aroon_os` |
+| Chandelier Exit | Trend | `chandelier_exit_long`, `chandelier_exit_short` |
+| CMF | Volume | `cmf_value` |
+| Historical Volatility | Volatility | `hist_vol_mean`, `hist_vol_upper`, `hist_vol_lower` |
 | PSAR | Trend | `psar` |
 | StochRSI | Momentum | `stochrsi_k`, `stochrsi_d` |
-| CMF | Volume | `cmf_value` |
-| Aroon | Trend | `aroon_up`, `aroon_down`, `aroon_os` |
-| ChandelierExit | Trend | `chandelier_exit_long`, `chandelier_exit_short` |
-| HistoricalVolatility | Volatility | `hist_vol_mean`, `hist_vol_upper`, `hist_vol_lower` |
+| AC Oscillator | Momentum | `ac_osc` |
+| HMA | Trend | `hma_value` |
 
-### I3 Structure Plugins (3) — `supports_incremental = False`
+### I2 Second-Derivative / Event Plugins (10) — detect state changes in I1 outputs
+
+| Plugin | Outputs |
+|--------|---------|
+| MACD Events | `macd_cross_up`, `macd_cross_dn`, `macd_hist_flip` |
+| RSI Events | `rsi_ob`, `rsi_os`, `rsi_cross_mid` |
+| Stoch Events | `stoch_cross_up`, `stoch_cross_dn`, `stoch_ob`, `stoch_os` |
+| ADX Events | `adx_rising`, `adx_falling`, `adx_strong_trend` |
+| Volume Events | `vol_spike`, `vol_dry`, `vol_expanding` |
+| MomentumAccel | `mom_accel`, `mom_decel` |
+| DonchianPos | `price_near_upper`, `price_near_lower`, `donchian_position` |
+| OBV Momentum | `obv_momentum`, `obv_trend_align` |
+| DerivOsc (AO) | `ao_value`, `ao_cross_zero` |
+| ExhaustionScore | `exhaustion_score`, `exhaustion_signal` |
+
+### I3 Structure Plugins (8) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
 | Swing Detector | Swing highs/lows, HH/HL/LH/LL classification |
 | Support/Resistance | Pivot clustering, strength scoring, nearest S/R levels |
 | Trend Structure | Swing sequence scoring, structural integrity, price position |
+| Market Profile | Value area, POC, TPO distribution |
+| Session Levels | Prior day H/L/C, overnight range |
+| Anchored VWAP | AVWAP from session open, prior day close |
+| Fibonacci Zones | Auto-fib from swing H/L, key retracement levels |
+| Swing Momentum | Momentum at swing highs/lows for divergence context |
 
-### I4 Context Plugins (5) — `supports_incremental = False`
+### I4 Context Plugins (7) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
 | Volatility Regime | ATR percentile, BB width, expansion/contraction |
 | Trend Regime | SMA-20/50 alignment, 5-state classification |
 | Momentum Context | Multi-oscillator direction scoring (RSI/MACD/Stoch/CCI) |
-| GARCH Volatility | `garch_vol_regime`, `garch_sigma`, conditional volatility forecast |
+| GARCH Volatility | `garch_vol_regime`, `garch_sigma`, conditional vol forecast |
 | Kalman Trend | `kalman_price_position`, `kalman_trend_slope`, 7 outputs |
+| Session Context | Active session (London/NY/Asia), killzone timing |
+| MTF Volatility | Multi-timeframe volatility alignment score |
 
-### I5 Pattern Plugins (8) — `supports_incremental = False`
+### I5 Pattern Plugins (14) — `supports_incremental = False`
 
 | Plugin | Category | Outputs |
 |--------|----------|---------|
-| RSI Divergence | Pattern Detection | Bullish/bearish divergence type and strength |
-| Bollinger Squeeze | Pattern Detection | TTM-style BB-inside-KC squeeze detection |
-| Volume Divergence | Pattern Detection | OBV slope vs price slope via linear regression |
-| Confluence | Pattern Detection | RSI/MACD/Stoch/CCI scoring from -1 to +1 |
-| TrendConfluence | Pattern Detection | 6-signal trend aggregation score |
-| DoubleTB | Chart Pattern | Double top/bottom detection |
-| HeadShoulders | Chart Pattern | Head and shoulders (sloped neckline) |
-| TriangleWedge | Chart Pattern | Triangle/wedge convergence ratio |
+| RSI Divergence | Oscillator | Bullish/bearish divergence type and strength |
+| Bollinger Squeeze | Momentum | TTM-style BB-inside-KC squeeze detection |
+| Volume Divergence | Volume | OBV slope vs price slope via linear regression |
+| Confluence | Oscillator | RSI/MACD/Stoch/CCI scoring from -1 to +1 |
+| TrendConfluence | Trend | 6-signal trend aggregation score |
+| Double Top/Bottom | Chart | Double top/bottom detection |
+| Head & Shoulders | Chart | H&S with sloped neckline |
+| Triangle/Wedge | Chart | Triangle/wedge convergence ratio |
+| Candlestick | Candlestick | Hammer, engulfing, doji, pin bar patterns |
+| Flag/Pennant | Continuation | Flag and pennant pattern detection |
+| Cup & Handle | Continuation | Cup & handle pattern |
+| Measured Move | Projection | AB=CD measured move projection |
+| Volume Profile | Volume | Volume at price, high-volume nodes |
+| Key Level Reaction | Price Action | Reaction strength at key levels |
 
-### I6 SMC Plugins (8) — `supports_incremental = False`
+### I6 SMC / Smart Money Plugins (13) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
-| BOS/CHoCH | Break of structure, change of character levels |
+| BOS/CHoCH | Break of structure, change of character |
 | FVG | Fair value gaps (bullish/bearish, size, fill%) |
 | Order Blocks | OB zones, strength, touch count |
 | Liquidity Sweeps | Sweep events, reclaim signals |
 | BOCPD | Changepoint probability, hazard function |
-| HMM Regime | 3-state HMM (ranging/trend↑/trend↓), forward probabilities |
+| HMM Regime | 3-state HMM (ranging/trend↑/trend↓) |
 | Liquidity Pools | BSL/SSL pool levels and proximity |
 | Supply/Demand Zones | S/D zones with strength scoring |
+| ICT Killzones | London/NY/Asia killzone timing and bias |
+| AMD Cycle | Accumulation/Manipulation/Distribution cycle detection |
+| Breaker Blocks | Failed order blocks converted to breakers |
+| Mitigation Blocks | Unmitigated order block tracking |
+| Premium/Discount | Price position relative to range midpoint |
 
 ### I6 Cross-Timeframe Confluence (1)
 
-Single plugin scoring trend/structure/regime/pattern alignment across 1m/5m/15m/1h.
+Single CTF plugin scoring trend/structure/regime/pattern alignment across 1m/5m/15m/1h timeframes.
 
-### I7 Trading Setup Plugins (14) + 4 aggregation components
+### I7 Trading Setup Plugins (17) + 2 Aggregation Components
 
 | Plugin | Type |
 |--------|------|
@@ -288,8 +321,11 @@ Single plugin scoring trend/structure/regime/pattern alignment across 1m/5m/15m/
 | PatternCompletion | Setup (CIS) |
 | DivergenceStack | Setup (CIS) |
 | RegimeTransition | Setup (CIS) |
+| GapAnalysis | Setup |
+| CandlestickPatternSetup | Setup |
+| SessionExtremes | Setup |
 
-Aggregation components: CISScorer, SignalAggregator, SignalLifecycle, SignalSizer.
+Aggregation components (not plugins): **CISScorer** (Confluence Intelligence Score across all fired setups), **SignalAggregator** (selects winning signal per bar using adjusted_rank from all_ranked)
 
 ---
 
@@ -329,13 +365,19 @@ The DAG determines plugin execution order through topological sorting. Currently
 2. **I2 composites** compute next (depend on I1 outputs)
 3. **I3 structure** computes on raw OHLCV (independent of I1)
 4. **I4 context** computes on raw OHLCV + optionally blends I3 results
-5. **I5 patterns** compute last (depend on I1 features via `frames["features"]`)
+5. **I5 patterns** compute after I1 (depend on I1 features via `frames["features"]`)
+6. **SMC plugins** compute in parallel with I3-I5, read OHLCV + I1
+7. **I6 CTF** reads cross-TF intelligence cache, runs last in market_analysis_service
+8. **I7 setups** run in signal_generator_service (separate service)
 
 ```
-OHLCV Data ──┬── I1 Indicators (parallel) ──┬── I2 Composites
-             │                               └── I5 Patterns (reads features)
-             ├── I3 Structure ───── I4 Context (optional I3 blending)
-             └── I4 Context (self-contained mode)
+OHLCV Data ──┬── I1 Indicators (parallel) ──┬── I2 Composites (depend on I1)
+             │                               └── I5 Patterns (read I1 features)
+             ├── I3 Structure ──── I4 Context (optional I3 blending)
+             ├── SMC Plugins (parallel with I3-I5, read OHLCV + I1)
+             └── I6 CTF (reads cross-TF intelligence cache, runs last)
+                                ↓
+                        I7 Setups (in signal_generator_service, separate service)
 ```
 
 ### Incremental Processing
@@ -376,11 +418,11 @@ Circuit breakers protect against cascade failures via LangGraph integration:
 - **Implementation:** `src/intelligence/langgraph_event_processor.py`
 
 ### Plugin Validation
-- Incremental vs full computation parity: `tests/unit/intelligence/test_plugin_incremental.py` (27 tests)
-- Pattern detection correctness: `tests/unit/intelligence/test_pattern_plugins.py` (16 tests)
-- Structure plugins: `tests/unit/intelligence/test_structure_plugins.py` (12 tests)
-- Context plugins: `tests/unit/intelligence/test_context_plugins.py` (13 tests)
-- **Total: 803 unit tests passing, 0 ruff errors**
+- Incremental vs full computation parity: `tests/unit/intelligence/test_plugin_incremental.py`
+- Pattern detection correctness: `tests/unit/intelligence/test_pattern_plugins.py`
+- Structure plugins: `tests/unit/intelligence/test_structure_plugins.py`
+- Context plugins: `tests/unit/intelligence/test_context_plugins.py`
+- **Total: 1497 unit tests passing**
 
 ---
 
@@ -413,9 +455,12 @@ ticks:ES:live         # Raw tick data
 ### Current Production Performance
 - **Tick Ingestion:** 100-500+ ticks/sec during RTH
 - **Hot Path Latency:** Sub-millisecond DragonflyDB stream writes
-- **Indicator Calculation:** <1ms per plugin via incremental compute_next()
-- **Full Recomputation:** ~50-100ms for all 16 indicators (batch mode)
+- **I1 Indicator Calculation:** <1ms per plugin via incremental compute_next()
+- **I3-I6 Pipeline:** <10ms per bar (market_analysis_service)
+- **I7 Signal Generation:** <50ms per bar
+- **Full Recomputation (I1):** ~50-100ms for all 25 indicators (batch mode)
 - **Incremental vs Batch:** 141x speedup measured
+- **Tests:** 1497 passing
 
 ### SLO Targets
 | Metric | Target | Status |
@@ -423,18 +468,13 @@ ticks:ES:live         # Raw tick data
 | Plugin execution latency | <50ms p99 | Achieved (<1ms incremental) |
 | End-to-end bar-to-indicator | <200ms | Achieved |
 | Stream backlog | <30s | Achieved |
-| Test suite pass rate | 100% | 123/123 passing |
+| Test suite pass rate | 100% | 1497 passing |
 
 ---
 
 ## Future Enhancements (Not Yet Implemented)
 
 ### Planned Architecture Additions
-
-**Cross-Asset & Multi-Timeframe Plugins (I6):**
-- Multi-input plugins consuming multiple symbols/timeframes
-- Data alignment with temporal join policies
-- Cross-timeframe confluence scoring (1m→5m→15m→1h)
 
 **YAML Pipeline Configuration:**
 - Configuration-driven pipeline composition (currently Python-only)
@@ -443,11 +483,6 @@ ticks:ES:live         # Raw tick data
 **Parallel DAG Execution:**
 - Async parallel execution within DAG stages (independent plugins)
 - Symbol sharding across processing instances
-
-**AI Intelligence (I8):**
-- LLM-powered narrative synthesis via ZAI GLM-5 (primary), OpenRouter (fallback), Ollama (fallback)
-- Provider chain defined in `src/intelligence/llm_providers.py`
-- Per-signal narratives (conf>0.7, 5m/15m/1h) + 6-asset-group synthesis
 
 **Backpressure & Autoscaling:**
 - Stream queue depth monitoring
