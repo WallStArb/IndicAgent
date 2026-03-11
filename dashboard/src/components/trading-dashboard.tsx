@@ -19,6 +19,16 @@ import { DrillPanel } from "./drill-panel";
 import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData, SignalData } from "@/lib/types";
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
+import { fmtTimeHMS } from "@/lib/format";
+
+const TF_STALENESS_MS: Record<string, number> = {
+  "1m":  10 * 60_000,
+  "5m":  50 * 60_000,
+  "15m": 150 * 60_000,
+  "1h":  10 * 3_600_000,
+  "4h":  40 * 3_600_000,
+  "1d":  10 * 86_400_000,
+};
 
 function IndicAgentLogo({ size = 28 }: { size?: number }) {
   return (
@@ -224,7 +234,14 @@ function SymbolCard({
 
   // Active signal is strictly per-TF — signals only show on the TF that generated them.
   // signal_generator currently only emits 1m, so signals appear on the 1m tab only.
-  const activeSignal = data.signalsByTf[activeTf] ?? null;
+  const rawSignal = data.signalsByTf[activeTf] ?? null;
+  // Inline (no memo): Date.now() must stay fresh every render so staleness expiry works.
+  const activeSignal = (() => {
+    if (!rawSignal) return null;
+    const ts = new Date(rawSignal.timestamp).getTime();
+    const cutoff = TF_STALENESS_MS[activeTf] ?? 3_600_000;
+    return isNaN(ts) || Date.now() - ts > cutoff ? null : rawSignal;
+  })();
 
   // Narrative is TF-matched — only show narrative for the active timeframe
   const narrative = narratives[`${data.symbol}:${activeTf}`] ?? null;
@@ -271,18 +288,25 @@ function SymbolCard({
         </div>
         <div className="flex items-center gap-1.5">
           {hasSignal && (
-            <span
-              className="text-[0.6rem] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded"
-              style={{
-                backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
-                color: isLong ? "var(--green)" : "var(--red)",
-              }}
-            >
-              {isLong ? "LONG" : "SHORT"}
-              {confidence !== null && (
-                <span className="ml-1 opacity-75">{Math.round(confidence * 100)}%</span>
+            <div className="flex items-center gap-1">
+              <span
+                className="text-[0.6rem] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded"
+                style={{
+                  backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
+                  color: isLong ? "var(--green)" : "var(--red)",
+                }}
+              >
+                {isLong ? "LONG" : "SHORT"}
+                {confidence !== null && (
+                  <span className="ml-1 opacity-75">{Math.round(confidence * 100)}%</span>
+                )}
+              </span>
+              {activeSignal.signal_computed_at && (
+                <span className="text-[0.5rem] font-data text-[var(--text-muted)] opacity-70">
+                  {fmtTimeHMS(activeSignal.signal_computed_at)}
+                </span>
               )}
-            </span>
+            </div>
           )}
           <span className="text-[0.55rem] font-medium text-[var(--text-muted)] bg-[var(--bg-base)] px-1.5 py-0.5 rounded">
             {contract}

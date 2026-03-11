@@ -4,7 +4,7 @@
 import { X } from "lucide-react";
 import type { SymbolData, SignalData } from "@/lib/types";
 import { fmtPrice, fmtNum, fmtPriceRange, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
-import { deriveBarCloseIso } from "@/lib/timeframe-utils";
+import { deriveBarCloseIso, TF_OFFSETS } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import { useMemo } from "react";
 import {
@@ -171,6 +171,7 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
           <Tooltip tooltip={zoneTooltip()}>
             <span style={{ color: "var(--accent-cyan)", opacity: 0.8 }}>WAIT →</span>
           </Tooltip>
+          <span className="opacity-50">ZONE</span>
           <span>{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
           {signal.zone_valid_at_signal === true && (
             <span style={{ color: "var(--green)", opacity: 0.7 }}>✓ in zone</span>
@@ -203,16 +204,27 @@ function RecentSignals({ symbol, timeframe, signalsHistory, selectedSignal, onSi
   selectedSignal: SignalData | null;
   onSignalSelect: (signal: SignalData) => void;
 }) {
-  // Show last 5 signals from history (sorted oldest→newest for natural timeline)
-  const recentSignals = signalsHistory
-    .filter(s => !!(s.bar_close_ts || s.timestamp))
-    .sort((a, b) => {
-      const timeA = new Date(a.bar_close_ts ?? a.timestamp).getTime();
-      const timeB = new Date(b.bar_close_ts ?? b.timestamp).getTime();
-      return timeB - timeA;
-    })
-    .slice(0, 5)
-    .reverse();
+  // ~10 bars lookback window using TF_OFFSETS (seconds → ms)
+  const windowMs = (TF_OFFSETS[timeframe] ?? 60) * 1000 * 10;
+
+  // Memoized: only recompute when signalsHistory or timeframe changes.
+  // cutoff updates on those changes, which is the right cadence (new data = new window).
+  const recentSignals = useMemo(() => {
+    const cutoff = Date.now() - windowMs;
+    return signalsHistory
+      .filter(s => {
+        if (s.timeframe !== timeframe) return false;
+        const t = new Date(s.bar_close_ts ?? s.timestamp).getTime();
+        return !isNaN(t) && t >= cutoff;
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.bar_close_ts ?? a.timestamp).getTime();
+        const timeB = new Date(b.bar_close_ts ?? b.timestamp).getTime();
+        return timeB - timeA;
+      })
+      .slice(0, 5)
+      .reverse();
+  }, [signalsHistory, timeframe, windowMs]);
 
   const hasSignals = recentSignals.length > 0;
 
