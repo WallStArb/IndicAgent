@@ -14,10 +14,10 @@
 
 ### Signal Generator Warmup
 
-- [ ] **WARM-01**: On startup, `signal_generator_service` seeds `bar_history` with `min_bars_for_tf(tf)` bars per active contract × timeframe from `intelligence_features`
-- [ ] **WARM-02**: After seeding, signals fire on the first incoming live bar (no warmup wait)
-- [ ] **WARM-03**: Seeding degrades gracefully if DB unavailable — logs loudly and falls back to live warmup without crashing
-- [ ] **WARM-04**: Startup log reports seeding completion with bar counts per symbol/TF
+- [x] **WARM-01**: On startup, `signal_generator_service` seeds `bar_history` with `min_bars_for_tf(tf)` bars per active contract × timeframe from `intelligence_features`
+- [x] **WARM-02**: After seeding, signals fire on the first incoming live bar (no warmup wait)
+- [x] **WARM-03**: Seeding degrades gracefully if DB unavailable — logs loudly and falls back to live warmup without crashing
+- [x] **WARM-04**: Startup log reports seeding completion with bar counts per symbol/TF
 
 ### Signal Lifecycle Stream Events
 
@@ -49,10 +49,10 @@
 | CIS-02 | Phase 25 | Complete |
 | CIS-03 | Phase 25 | Complete |
 | CIS-04 | Phase 25 | Complete |
-| WARM-01 | Phase 26 | Pending |
-| WARM-02 | Phase 26 | Pending |
-| WARM-03 | Phase 26 | Pending |
-| WARM-04 | Phase 26 | Pending |
+| WARM-01 | Phase 26 | Complete |
+| WARM-02 | Phase 26 | Complete |
+| WARM-03 | Phase 26 | Complete |
+| WARM-04 | Phase 26 | Complete |
 | SLES-01 | Phase 27 | Pending |
 | SLES-02 | Phase 27 | Pending |
 | SLES-03 | Phase 27 | Pending |
