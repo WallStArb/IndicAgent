@@ -648,3 +648,231 @@ def test_gate_flip_allowed_after_resolution():
     new_ts = datetime(2026, 3, 10, 10, 10, 0, tzinfo=UTC)
     result = svc._check_gate("ESH6", "1m", -1, new_ts)
     assert result is False  # False = not gated = flip allowed
+
+
+# ── _seed_bar_history_from_db ───────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_success():
+    """Seeding populates bar_history with bars from intelligence_features."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from services.signal_generator_service import SignalGeneratorService
+    from src.core.service_utils import min_bars_for_tf
+
+    # Mock service setup
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.bar_history = {}
+    svc._df_cache = {}
+    svc.config = {"service": {"timeframes": ["1m", "5m", "15m"]}}
+    svc.logger = MagicMock()
+
+    # Mock DB manager
+    mock_db = AsyncMock()
+    svc.db_manager = mock_db
+
+    # Mock query to return 3 bars for ES 1m
+    # bar column format in DB: {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}
+    mock_db.execute_query.return_value = [
+        (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}),
+        (datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), {"o": 0.8, "h": 1.2, "l": 0.6, "c": 1.0, "v": 80}),
+        (datetime(2026, 3, 10, 9, 58, 0, tzinfo=UTC), {"o": 0.5, "h": 0.9, "l": 0.4, "c": 0.8, "v": 60}),
+    ]
+
+    # Mock min_bars_for_tf to return 2 for 1m (only 2 bars needed)
+    with patch("src.core.service_utils.min_bars_for_tf", return_value=2):
+        with patch("src.config.settings.get_active_contracts", return_value=["ES"]):
+            await svc._seed_bar_history_from_db()
+
+    # Verify bar_history was populated
+    key = "ES:1m"
+    assert key in svc.bar_history
+    assert len(svc.bar_history[key]) == 2  # Only 2 bars due to min_bars_for_tf=2
+
+    # Verify bar format conversion (DB format → bar_history format)
+    # bar_history format: {"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100, "timestamp": datetime}
+    first_bar = svc.bar_history[key][0]
+    assert first_bar["open"] == 0.8  # Oldest bar (second in DB query due to DESC order)
+    assert first_bar["high"] == 1.2
+    assert first_bar["low"] == 0.6
+    assert first_bar["close"] == 1.0
+    assert first_bar["volume"] == 80
+    assert first_bar["timestamp"] == datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_multiple_symbols():
+    """Seeding handles multiple symbols and timeframes."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.bar_history = {}
+    svc._df_cache = {}
+    svc.config = {"service": {"timeframes": ["1m", "5m", "15m"]}}
+    svc.logger = MagicMock()
+
+    mock_db = AsyncMock()
+    svc.db_manager = mock_db
+
+    # Mock different results per symbol/TF combination
+    def mock_execute_query_side_effect(query, params):
+        symbol, tf = params
+        if symbol == "ES" and tf == "1m":
+            return [
+                (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}),
+                (datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), {"o": 0.9, "h": 1.1, "l": 0.7, "c": 1.0, "v": 90}),
+            ]
+        elif symbol == "NQ" and tf == "5m":
+            return [
+                (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 2.0, "h": 2.2, "l": 1.8, "c": 2.1, "v": 200}),
+                (datetime(2026, 3, 10, 9, 55, 0, tzinfo=UTC), {"o": 1.9, "h": 2.1, "l": 1.7, "c": 2.0, "v": 190}),
+            ]
+        elif symbol == "ES" and tf == "15m":
+            return [
+                (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 3.0, "h": 3.2, "l": 2.8, "c": 3.1, "v": 300}),
+            ]
+        return []
+
+    mock_db.execute_query.side_effect = mock_execute_query_side_effect
+
+    # Mock min_bars_for_tf to return different values per TF
+    def mock_min_bars(tf):
+        return {"1m": 2, "5m": 26, "15m": 26}.get(tf, 26)
+
+    with patch("src.core.service_utils.min_bars_for_tf", side_effect=mock_min_bars):
+        with patch("src.config.settings.get_active_contracts", return_value=["ES", "NQ"]):
+            await svc._seed_bar_history_from_db()
+
+    # Verify all symbol/TF combinations were seeded
+    assert "ES:1m" in svc.bar_history
+    assert "NQ:5m" in svc.bar_history
+    assert "ES:15m" in svc.bar_history
+
+    # Verify correct bar counts (limited by DB availability, not min_bars_for_tf)
+    assert len(svc.bar_history["ES:1m"]) == 2
+    assert len(svc.bar_history["NQ:5m"]) == 2
+    assert len(svc.bar_history["ES:15m"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_partial_data():
+    """Seeding handles partial data (less than min_bars_for_tf)."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.bar_history = {}
+    svc._df_cache = {}
+    svc.config = {"service": {"timeframes": ["1m"]}}
+    svc.logger = MagicMock()
+
+    mock_db = AsyncMock()
+    svc.db_manager = mock_db
+
+    # Return only 1 bar (less than min_bars_for_tf=120)
+    mock_db.execute_query.return_value = [
+        (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}),
+    ]
+
+    with patch("src.core.service_utils.min_bars_for_tf", return_value=120):
+        with patch("src.config.settings.get_active_contracts", return_value=["ES"]):
+            await svc._seed_bar_history_from_db()
+
+    # Verify bar_history contains whatever DB returned (doesn't enforce min_bars)
+    key = "ES:1m"
+    assert key in svc.bar_history
+    assert len(svc.bar_history[key]) == 1
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_unavailable():
+    """Seeding gracefully degrades when DB is unavailable."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    import psycopg2
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.bar_history = {}
+    svc._df_cache = {}
+    svc.config = {"service": {"timeframes": ["1m"]}}
+    svc.logger = MagicMock()
+
+    mock_db = AsyncMock()
+    svc.db_manager = mock_db
+
+    # Mock DB error
+    mock_db.execute_query.side_effect = psycopg2.OperationalError("connection timeout")
+
+    with patch("src.core.service_utils.min_bars_for_tf", return_value=120):
+        with patch("src.config.settings.get_active_contracts", return_value=["ES"]):
+            await svc._seed_bar_history_from_db()
+
+    # Verify WARNING log was emitted
+    svc.logger.warning.assert_called()
+    warning_call = str(svc.logger.warning.call_args)
+    assert "DB seed failed" in warning_call or "falling back" in warning_call
+
+    # Verify bar_history remains empty (graceful fallback to live warmup)
+    assert "ES:1m" not in svc.bar_history or len(svc.bar_history.get("ES:1m", [])) == 0
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_no_db_manager():
+    """Seeding handles None db_manager gracefully."""
+    import asyncio
+    from unittest.mock import patch
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.bar_history = {}
+    svc._df_cache = {}
+    svc.config = {"service": {"timeframes": ["1m"]}}
+    svc.logger = MagicMock()
+    svc.db_manager = None  # No DB manager
+
+    with patch("src.core.service_utils.min_bars_for_tf", return_value=120):
+        with patch("src.config.settings.get_active_contracts", return_value=["ES"]):
+            await svc._seed_bar_history_from_db()
+
+    # Verify WARNING log was emitted
+    svc.logger.warning.assert_called()
+
+    # Verify bar_history remains empty
+    assert "ES:1m" not in svc.bar_history or len(svc.bar_history.get("ES:1m", [])) == 0
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_empty_result():
+    """Seeding handles empty DB result set."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.bar_history = {}
+    svc._df_cache = {}
+    svc.config = {"service": {"timeframes": ["1m"]}}
+    svc.logger = MagicMock()
+
+    mock_db = AsyncMock()
+    svc.db_manager = mock_db
+
+    # Return empty result
+    mock_db.execute_query.return_value = []
+
+    with patch("src.core.service_utils.min_bars_for_tf", return_value=120):
+        with patch("src.config.settings.get_active_contracts", return_value=["ES"]):
+            await svc._seed_bar_history_from_db()
+
+    # Verify bar_history remains empty
+    assert "ES:1m" not in svc.bar_history or len(svc.bar_history.get("ES:1m", [])) == 0
