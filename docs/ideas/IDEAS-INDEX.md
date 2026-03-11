@@ -47,8 +47,9 @@ Each idea is a `.md` file in this directory. This index tracks:
 | 17 | `trade-journal-auto-documentation.md` | Trade Journal Auto Documentation | draft | low | v1.7+ | — |
 | 18 | `momentum-acceleration-second-derivative.md` | Momentum Acceleration (2nd Derivative) Research | shipped | — | v1.6 (shipped 2026-03-10) | 2026-03-10 |
 | 19 | `second-derivative-indicators-current-and-future.md` | 2nd Derivative Indicators — Current State & Future Additions (4 shipped + 10 expansion ideas) | research | medium | future | 2026-03-11 |
-| 20 | `candlestick-pattern-expansion-research.md` | Candlestick Pattern Expansion Research — 18 patterns spec'd | design | medium | v1.7 | 2026-03-10 |
-| 21 | `jim-simons-renaissance-principles.md` | Jim Simons Renaissance Principles — 10 principles reference | reference | — | — | — |
+| 20 | `ml-classification-pattern-recognition.md` | ML Classification — Random Forest, KNN, SVM for pattern recognition | research | medium | v1.8+ | 2026-03-11 |
+| 21 | `candlestick-pattern-expansion-research.md` | Candlestick Pattern Expansion Research — 18 patterns spec'd | design | medium | v1.7 | 2026-03-10 |
+| 22 | `jim-simons-renaissance-principles.md` | Jim Simons Renaissance Principles — 10 principles reference | reference | — | — | — |
 | 22 | `ml-learning-machine.md` | MLAgent — Renaissance-Style Learning Machine: discovery engine, adaptive CIS, segmented ensemble, feedback loop | design | high | v1.8+ | 2026-03-10 |
 
 ---
@@ -127,13 +128,20 @@ Each idea is a `.md` file in this directory. This index tracks:
 | `hmm` | regime-adaptive-trading.md |
 | `latency` | intelligence-stack-latency-reduction.md |
 | `renaissance` | renaissance-framing.md, renaissance-i7-i8-refinement.md |
+| `ml` | ml-learning-machine.md, ml-classification-pattern-recognition.md |
+| `classification` | ml-classification-pattern-recognition.md |
+| `random-forest` | ml-classification-pattern-recognition.md |
+| `knn` | ml-classification-pattern-recognition.md |
+| `svm` | ml-classification-pattern-recognition.md |
+| `pattern-recognition` | ml-classification-pattern-recognition.md |
+| `supervised-learning` | ml-classification-pattern-recognition.md |
 
 ---
 
 ## Notes
 
-- **24 total ideas** cataloged
-- **6 in design** status: `i6-confluence-expansion.md` (high), `renaissance-i7-i8-refinement.md` (high), `regime-adaptive-trading.md` (medium), `candlestick-pattern-expansion-research.md` (medium), `intelligence-stack-latency-reduction.md` (medium), `ml-learning-machine.md` (high)
+- **25 total ideas** cataloged
+- **7 in design** status: `i6-confluence-expansion.md` (high), `renaissance-i7-i8-refinement.md` (high), `regime-adaptive-trading.md` (medium), `candlestick-pattern-expansion-research.md` (medium), `intelligence-stack-latency-reduction.md` (medium), `ml-learning-machine.md` (high), `ml-classification-pattern-recognition.md` (medium)
 - **2 in research** status: `second-derivative-indicators-current-and-future.md` (medium), `commercialization-retail-saas.md` (low)
 - **1 archived**: `intelligence-redo-brainstorm.md` (v1.2)
 - **6 product visions** (TradeAgent, QualAgent, DerivAgent, PrimeAgent, AegisAgent, Platform)
