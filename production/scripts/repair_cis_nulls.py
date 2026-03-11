@@ -146,8 +146,8 @@ def audit_null_cis(
     Recoverable rows include: signal_id, symbol, feature_ts, feature_tf, and
     all tier JSONB columns (i1, i3, i4, i5, smc, i6).
     """
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # Total NULL count
+    with conn.cursor() as cur:
+        # Total NULL count (use regular cursor, not RealDictCursor, for COUNT(*))
         if symbols:
             where_clause = "WHERE cis_score IS NULL AND symbol = ANY(%s)"
             cur.execute(
@@ -161,6 +161,9 @@ def audit_null_cis(
         total_null = cur.fetchone()[0]
 
         logger.info("Total NULL cis_score rows: %d", total_null)
+
+    # Now use RealDictCursor for row fetching
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
 
         # Recoverable rows: JOIN with intelligence_features
         recoverable_query = f"""
