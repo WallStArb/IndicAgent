@@ -1,6 +1,6 @@
 # Incremental Computation
 
-**Last Updated:** 2026-03-04
+**Last Updated:** 2026-03-11
 
 ## The Problem with Full Recomputation
 
@@ -10,7 +10,7 @@ Most technical indicators are defined as functions over a trailing window of bar
 New bar arrives → recompute RSI over last 14 bars → recompute MACD over last 26 bars → ...
 ```
 
-With 23 indicators, 23 symbols, and 4 timeframes, that's 23 × 23 × 4 = 2,116 full recomputations per bar. Each one reprocesses data that hasn't changed. At scale, this creates a processing backlog that grows faster than bars arrive.
+With 25 indicators, 24 contracts, and 4 timeframes, that's 25 × 24 × 4 = 2,400 full recomputations per bar. Each one reprocesses data that hasn't changed. At scale, this creates a processing backlog that grows faster than bars arrive.
 
 ---
 
@@ -130,7 +130,7 @@ def compute_next(self, windows):
 
 ## Plugins That Don't Use Incremental Computation
 
-I3 (structure), I4 (regime), and I5 (pattern) plugins set `supports_incremental = False`. These plugins require a multi-bar window for correctness:
+I3 (structure), I4 (regime), and I5 (pattern) plugins set `supports_incremental = False`. These plugins require a multi-bar window for correctness. I2 (composite/event) plugins also set `supports_incremental = False` — they detect state transitions across recent bars, which requires the full recent window.
 
 - **SwingDetector** — needs to look back N bars to confirm swing points
 - **GARCHVolatility** — fits a parametric model over a window; can't update with a single bar

@@ -1,6 +1,6 @@
 # Signal Lifecycle
 
-**Last Updated:** 2026-03-07
+**Last Updated:** 2026-03-11
 
 ## Overview
 
@@ -17,7 +17,7 @@ This data becomes the **labeled training dataset** for the ML scoring model.
 
 ## Signal Origin: I7 Setup Detection
 
-The I7 tier (14 setup plugins + CISScorer aggregator) fires signals when it detects high-confidence trading setups. Each signal is written to `signal_ledger` (TimescaleDB) with:
+The I7 tier (17 setup plugins + CISScorer aggregator + SignalAggregator) fires signals when it detects high-confidence trading setups. Each signal is written to `signal_ledger` (TimescaleDB) with:
 
 - `symbol`, `feature_ts`, `feature_tf` — join key back to `intelligence_features`
 - `direction` — `long` or `short`
@@ -101,6 +101,15 @@ Every closed signal receives one of 8 outcomes:
 | `ttl_expired_behind` | TTL expired while trade was in negative territory |
 
 The stop outcomes (`stopped_at_entry` / `stopped_in_trade`) are resolved by `_classify_stop_outcome(mfe, bars_in_trade)` — the raw exit only knows a stop was hit, not which class.
+
+---
+
+## Outcome Propagation to LLM Audit
+
+When a signal closes, the lifecycle service publishes the outcome to `llm_outcomes:stream`:
+- Signal ID, symbol, timeframe, outcome class, pnl_r, mae, mfe
+- `llm_writer_service` consumes this stream and back-fills the outcome onto any `llm_calls` records that generated this signal's narrative
+- This closes the feedback loop: every LLM narrative call now knows whether the signal it described was profitable
 
 ---
 

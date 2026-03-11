@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-03-04
+**Last Updated:** 2026-03-11
 
 ## Overview
 
@@ -22,7 +22,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Input:** OHLCV bars
 - **Output:** `features.v1` (raw mathematical values: `sma_20`, `ema_21`, `rsi_14`, `atr_14`)
 - **Code Location:** `src/intelligence/indicators/`
-- **Stream:** `env:features:SYMBOL:TF`
+- **Stream:** `{env}:indicators:SYMBOL:TF`
 - **Examples:** RSI, MACD, SMA/EMA, Bollinger Bands, ATR, Stochastic, CCI, Williams %R, MFI, OBV
 
 #### **I2: Composite Events**
@@ -33,12 +33,17 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Output:** Event flags, bar counts, magnitude readings published into the IntelligenceEvent payload
 - **Code Location:** `src/intelligence/composites/`
 - **Shared Utilities:** `common.py` — `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`
-- **Plugins (5):**
+- **Plugins (10):**
   - `MACDEvents` — MACD line crossovers, histogram sign flips, zero-line crosses
   - `RSIEvents` — overbought/oversold threshold crosses, bars-since tracking
   - `StochasticEvents` — %K/%D crossovers, extreme zone entries/exits
   - `ADXEvents` — ADX strength threshold events, DI+/DI− crossovers
   - `VolumeEvents` — volume spike events, relative-volume threshold crosses
+  - `MomentumAccel` — acceleration/deceleration state from momentum composite
+  - `DonchianPos` — price position relative to Donchian channel bounds
+  - `OBVMomentum` — OBV trend direction and momentum score
+  - `DerivOscillator (AO)` — Awesome Oscillator: fast vs slow momentum
+  - `ExhaustionScore` — multi-indicator exhaustion scoring (overbought/oversold composite)
 
 #### **I3: Market Structure Analysis**
 **Purpose:** Identify structural patterns, key levels, and price geometry
@@ -47,7 +52,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Input:** OHLCV bars + I1 features
 - **Output:** Structure data published into IntelligenceEvent `i3` JSONB field
 - **Code Location:** `src/intelligence/structure/`
-- **Plugins (7):**
+- **Plugins (8):**
   - `SwingDetector` — HH/HL/LH/LL swing points, trend structure classification
   - `SupportResistance` — pivot-based S/R level clustering with touch counts
   - `TrendStructure` — higher-level trend structure (uptrend / downtrend / ranging)
@@ -55,6 +60,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
   - `SessionLevels` — Asian / London / NY session high, low, midpoint
   - `AnchoredVWAP` — VWAP anchored to swing points or session opens
   - `FibonacciZones` — Fibonacci retracement and extension zones from swing range
+  - `SwingMomentum` — momentum at swing highs/lows, provides divergence context for I5 patterns
 
 #### **I4: Market Context & Regime Detection**
 **Purpose:** Classify market environment — volatility state, trend regime, session context
@@ -138,9 +144,10 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Input:** I2–I6 confluence-validated intelligence
 - **Output:** Setup events → `signal_ledger` (TimescaleDB); aggregated signal on `signals:SYMBOL:TF:aggregated`
 - **Code Location:** `src/intelligence/trading/`
-- **Setup Plugins (14):**
+- **Setup Plugins (17):**
   - *Original 9:* `TrendFollowing`, `MeanReversion`, `LiquiditySweepReclaim`, `MTFAlignment`, `SqueezeExpansion`, `VWAPDeviation`, `MomentumBreakout`, `LiquidityHunt`, `SupplyDemandSetup`
   - *CIS contributors (+5):* `CHoCHReversal`, `FVGFill`, `PatternCompletion`, `DivergenceStack`, `RegimeTransition`
+  - *New standalone setups (+3):* `GapAnalysis` — gap-up/gap-down setup detection with fill probability; `CandlestickPatternSetup` — entry setups based on confirmed candlestick patterns (from I5 Candlestick plugin); `SessionExtremes` — fade/break setups at session high/low extremes
   - **Quality gates:** GARCH/Kalman checks on `MeanReversion`, `VWAPDeviation`, `SqueezeExpansion`
 - **Signal Aggregation (CISScorer):**
   - Replaces the old winner-pick aggregator
@@ -162,8 +169,9 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Streams:**
   - `narratives:SYMBOL:TF` — per-signal narrative
   - `narratives:group:GROUP_NAME` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
-- **LLM Chain:** ZAI GLM-5 (primary) → OpenRouter (fallback, 100+ models) → Ollama local (offline)
-- See [AI Intelligence Architecture](../intelligence/ai-intelligence-architecture.md) for full chain details
+- **LLM Chain:** Ollama local Docker — qwen3.5:9b (per-signal narratives) + phi4-mini:3.8b (asset-group synthesis)
+- **Streams:** `narratives:SYMBOL:TF` (per-signal) published to Redis; consumed by `indicagent-api` for SSE
+- **Audit:** Every LLM call published to `llm_calls:stream` → `llm_writer_service` persists to `llm_calls` hypertable
 
 ---
 
@@ -283,14 +291,12 @@ capability_tags = {
 ### **Service Architecture Integration**
 The I1-I8 framework integrates seamlessly with IndicAgent's service-based architecture:
 
-- **Data Foundation:** `indicators_processor_service` (and `indicators_enhanced_service`) provide I1 raw features
-- **Intelligence Processing:** Plugin framework handles I2-I8 advanced intelligence
+- **Data Foundation:** `indicagent-indicator` (`indicator_service.py`) provides I1+I2 raw features and composite events
+- **Intelligence Pipeline:** `indicagent-market-analysis` (`market_analysis_service.py`) runs I3→I4→I5→SMC→I6
+- **Signal Generation:** `indicagent-signal-generator` runs I7 setup plugins + CISScorer aggregation
+- **AI Narrative:** `indicagent-ai-narrative` (`ai_narrative_service.py`) runs I8 via Ollama
 - **Distribution:** Redis Streams distribute intelligence across all tiers
 - **Consumption:** External intelligence consumers access processed intelligence
-
-### **AI Intelligence Framework**
-- **I8 Operational:** `ai_narrative_service` running with ZAI GLM-5 (primary), OpenRouter (fallback), Ollama (fallback: qwen3:8b per-signal, group synthesis)
-- **LLMChain:** `src/intelligence/llm_providers.py` — ZAIProvider → OpenRouterProvider → OllamaProvider (tries in sequence, exits on first success)
 
 ---
 
@@ -300,19 +306,19 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 
 | Tier | Plugins | Notes |
 |------|---------|-------|
-| I1 Technical Indicators | 23 | RSI, MACD, MA/EMA, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian — all incremental `compute_next()` |
-| I2 Composite Events | 5 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents |
-| I3 Market Structure | 7 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones |
+| I1 Technical Indicators | 25 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA — all incremental `compute_next()` |
+| I2 Composite Events | 10 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore |
+| I3 Market Structure | 8 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones, SwingMomentum |
 | I4 Context / Regime | 7 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, KalmanTrend, SessionContext, MTFVolatility |
 | I5 Patterns | 14 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction |
 | I6 SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
 | I6 Confluence | 1 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, 10 output fields |
-| I7 Trading Setups | 14 + 2 agg | 14 setup plugins (9 original + 5 CIS contributors) + CISScorer aggregator + WeightUpdater |
-| I8 AI Narrative | 1 service | `ai_narrative_service` — ZAI GLM-5 → OpenRouter → Ollama (conf>0.7, 5m/15m/1h) + group synthesis |
+| I7 Trading Setups | 17 + 2 agg | 17 setup plugins (9 original + 5 CIS contributors + 3 new: GapAnalysis, CandlestickPatternSetup, SessionExtremes) + CISScorer aggregator + SignalAggregator |
+| I8 AI Narrative | 1 service | `ai_narrative_service` — Ollama qwen3.5:9b (per-signal, conf>0.7, 5m/15m/1h) + phi4-mini:3.8b (group synthesis) |
 
 ### **Totals**
-- **87 registered plugins + 2 aggregation components:** 23 I1 + 5 I2 + 7 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 14 I7 (+ 3 new I7 setups in v1.3)
-- **1053 unit tests passing**, 0 ruff errors
+- **95 registered plugins + 2 aggregation components:** 25 I1 + 10 I2 + 8 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7
+- **1497 unit tests passing**, 106 ruff errors (E501 line-too-long)
 
 ---
 
