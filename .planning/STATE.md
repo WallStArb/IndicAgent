@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.6
-milestone_name: Signal Quality
-status: executing
-stopped_at: "Completed 24-07-PLAN.md (gap closure: I3Structure schema)"
-last_updated: "2026-03-10T16:06:48.434Z"
-last_activity: "2026-03-10 — 24-07: gap closure for I3Structure schema complete"
+milestone: v1.7
+milestone_name: Data Integrity
+status: planning
+stopped_at: "Defining requirements"
+last_updated: "2026-03-10T16:30:00.000Z"
+last_activity: "2026-03-10 — Milestone v1.7 Data Integrity started"
 progress:
   total_phases: 2
   completed_phases: 2
@@ -21,16 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Planning next milestone (v1.6)
+**Current focus:** Milestone v1.7 — Data Integrity
 
 ## Current Position
 
-Phase: 24 of 24 (Second-Derivative Acceleration)
-Plan: 7 of 7 in current phase (24-07 complete)
-Status: In Progress
-Last activity: 2026-03-10 — 24-07: gap closure for I3Structure schema complete
-
-Progress: [██████████] 40%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-10 — Milestone v1.7 Data Integrity started
 
 ## Performance Metrics
 
