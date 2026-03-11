@@ -434,6 +434,9 @@ def _build_ledger_entries(
             status="pending",
             feature_ts=feature_ts,
             feature_tf=feature_tf,
+            cis_score=result.cis_score,
+            bucket_scores=result.bucket_scores,
+            weights_version=result.weights_version,
         ))
     return entries
 
@@ -452,12 +455,12 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
             e.was_selected, e.num_signals_bar, e.num_agreeing, e.num_conflicting,
             e.resolution_method, e.composite_rank, json.dumps(e.market_context),
             e.status,
-            e.feature_ts,   # None for backfill
-            e.feature_tf,   # None for backfill
-            None,           # cis_score — NULL for backfill rows
-            None,           # bucket_scores — NULL for backfill rows
-            None,           # weights_version — NULL for backfill rows
-            None,           # signal_quality — NULL for backfill rows
+            e.feature_ts,
+            e.feature_tf,
+            e.cis_score,
+            json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
+            e.weights_version,
+            None,  # signal_quality — populated by lifecycle on exit
         ))
     with conn.cursor() as cur:
         psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params)
@@ -510,7 +513,7 @@ def run_i7_and_persist(
         return 0
 
     trend_regime = float(features.get("trend_regime", 0.0))
-    agg_result = aggregate(raw_signals, trend_regime=trend_regime)
+    agg_result = aggregate(raw_signals, trend_regime=trend_regime, features=features)
     entries = _build_ledger_entries(
         agg_result, symbol, timeframe, timestamp, features,
         feature_ts=feature_ts, feature_tf=feature_tf,
