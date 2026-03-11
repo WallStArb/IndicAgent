@@ -35,7 +35,7 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
-from src.core.service_utils import TF_SECONDS, setup_service_logging
+from src.core.service_utils import TF_SECONDS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
     intelligence_i7 as sk_intelligence_i7,
 )
@@ -587,6 +587,76 @@ class SignalGeneratorService:
             self.logger.warning("Database unavailable, persistence disabled", error=str(e))
             self.db_manager = None
 
+    async def _seed_bar_history_from_db(self) -> None:
+        """Seed bar_history from intelligence_features to eliminate warmup delay on restart.
+
+        Queries min_bars_for_tf(tf) recent bars per (symbol, tf) from
+        intelligence_features table and populates bar_history dict.
+
+        Gracefully degrades if DB unavailable: logs WARNING and proceeds
+        with empty bar_history (live warmup fallback).
+        """
+        if not self.db_manager:
+            self.logger.warning("DB seed failed - falling back to live warmup: no db_manager")
+            return
+
+        active_contracts = get_active_contracts()
+        seeded_count = 0
+
+        try:
+            for symbol in active_contracts:
+                for tf in self.config["service"]["timeframes"]:
+                    min_bars = min_bars_for_tf(tf)
+
+                    query = f"""
+                        SELECT ts, bar
+                        FROM intelligence_features
+                        WHERE symbol = %s AND tf = %s
+                        ORDER BY ts DESC
+                        LIMIT {min_bars}
+                    """
+                    result = await self.db_manager.execute_query(
+                        query, (symbol, tf)
+                    )
+
+                    if result and len(result) > 0:
+                        # Limit to min_bars (in case DB returns more than requested)
+                        # DB returns in DESC order, so we take first min_bars (most recent)
+                        result = result[:min_bars]
+
+                        # Convert to list of dicts and reverse for chronological order
+                        # DB format: (datetime, {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100})
+                        # bar_history format: {"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100, "timestamp": datetime}
+                        bars = []
+                        for ts, bar_json in result:
+                            bar_dict = {
+                                "open": bar_json.get("o"),
+                                "high": bar_json.get("h"),
+                                "low": bar_json.get("l"),
+                                "close": bar_json.get("c"),
+                                "volume": bar_json.get("v"),
+                                "timestamp": ts,
+                            }
+                            bars.append(bar_dict)
+
+                        # Reverse for chronological order (oldest first)
+                        bars.reverse()
+
+                        # Store in bar_history using existing key structure
+                        key = f"{symbol}:{tf}"
+                        for bar in bars:
+                            self.bar_history[key].append(bar)
+                            seeded_count += 1
+
+            self.logger.info(
+                f"Seeded bar_history: {seeded_count} entries across "
+                f"{len(active_contracts)} symbols, {len(self.config['service']['timeframes'])} TFs"
+            )
+
+        except Exception as e:
+            self.logger.warning(f"DB seed failed - falling back to live warmup: {e}")
+            # bar_history remains empty, service proceeds with live warmup
+
     async def _setup_consumer_groups(self) -> None:
         from src.core.stream_keys import intelligence as sk_intel
         warmup_bars = 60
@@ -1035,6 +1105,8 @@ class SignalGeneratorService:
         try:
             await self._connect_redis()
             await self._connect_database()
+            # Seed bar_history from intelligence_features (new warmup logic)
+            await self._seed_bar_history_from_db()
             await self._setup_consumer_groups()
             self.running = True
             # Load perf weights at startup so first bar already has weights
