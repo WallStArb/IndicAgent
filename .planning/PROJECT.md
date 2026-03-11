@@ -8,11 +8,28 @@ IndicAgent is a real-time market intelligence platform covering 23 instruments a
 
 Every intelligence output — indicator, pattern, signal, narrative — flows through one canonical typed bus that both internal and external consumers can trust.
 
+## Current Milestone: v1.7 Data Integrity
+
+**Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts.
+
+**Target features:**
+- CIS backfill fix: pass `features=` to `aggregate()` in `historical_backfill.py`; re-run backfill to populate NULL CIS fields on existing signals
+- Signal Generator DB warmup: seed `bar_history` from `intelligence_features` on startup to eliminate 50-min warmup wait
+
 ## Requirements
 
 ### Validated
 
 (Shipped and verified in production)
+
+**v1.6 Signal Quality (2026-03-10):**
+- ✓ Signal generator onset detection: `_check_gate()` suppresses repeated fires when condition is already true — only onset triggers a signal — v1.6
+- ✓ Direction flip suppression: cross-bar memory prevents immediate reversal signals — v1.6
+- ✓ 4h/1d TF exclusion documented as day-trading scope boundary; `InputSpec.timeframe='.*'` dead-code intent made explicit — v1.6
+- ✓ HMAPlugin (I1) registered as 25th indicator; `hma_slope` and `hma_accel` live in pipeline — v1.6
+- ✓ ExhaustionScore (I2) + AccelerationRegime (I2): RSI-gated exhaustion vote + 4-vote acceleration regime — v1.6
+- ✓ SwingMomentumPlugin (I3): HMA-based swing momentum detection — v1.6
+- ✓ Exhaustion boost/guard wired into MomentumBreakout + TrendFollowing + 2 other I7 setups — v1.6
 
 **v1.4 Quant Foundation (2026-03-07):**
 - ✓ Regime-aware I7 gating: hmm_regime type + prob≥0.60 + duration≥5 gates on all 17 setups — v1.4
@@ -120,7 +137,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ai_narrative_service._per_signal_timeout bypasses Settings.llm_timeout_sec at runtime (v1.5 tech debt, AI-01/AI-02 partial)
 - signal_generator: plugins fire every bar a condition is true (no onset detection); 4h/1d TFs missing from market_analysis + signal_generator — research todo active
 
-**Next milestone candidates:** Dashboard Complete (I7 all_ranked panel, signal history), Signal Generator Onset Detection + 4h/1d TF coverage, ML Scoring Model (needs ~90 days labeled outcomes), Auth + External Access
+**Next milestone candidates:** Dashboard Complete (I7 all_ranked panel, signal history), ML Scoring Model (needs ~90 days labeled outcomes), Auth + External Access
 
 ## Key Decisions
 
@@ -158,4 +175,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-03-10 after v1.5 milestone*
+*Last updated: 2026-03-10 after v1.7 milestone start*
