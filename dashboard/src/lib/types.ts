@@ -106,6 +106,14 @@ export interface ContextData {
   momentum_direction?: "bullish" | "bearish" | "neutral";
   // GARCH vol regime (I4)
   garch_vol_regime?: number;       // 0=low, 1=normal, 2=high
+  // GARCH volatility model outputs (I4)
+  garch_sigma?: number;           // GARCH conditional volatility estimate
+  garch_vol_ratio?: number;       // GARCH sigma / realized vol (>1 = vol rising)
+  garch_shock?: number;           // standardized return shock (magnitude; pipeline classifies regime)
+  // Kalman filter trend outputs (I4)
+  kalman_slope?: number;          // trend slope (+= up, -= down)
+  kalman_price_position?: number; // price minus Kalman trend (deviation from smoothed level)
+  kalman_uncertainty?: number;    // filter uncertainty (lower = more confident)
 }
 
 // ── I5 Pattern Detection ──

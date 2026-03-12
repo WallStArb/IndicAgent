@@ -133,6 +133,12 @@ function parseIntelligence(p: Record<string, string>): {
     momentum_bias: mb,
     momentum_direction: momDir as ContextData["momentum_direction"],
     garch_vol_regime: i4.garch_vol_regime != null ? Number(i4.garch_vol_regime) : undefined,
+    garch_sigma: i4.garch_sigma != null ? nf(i4.garch_sigma) : undefined,
+    garch_vol_ratio: i4.garch_vol_ratio != null ? nf(i4.garch_vol_ratio) : undefined,
+    garch_shock: i4.garch_shock != null ? nf(i4.garch_shock) : undefined,
+    kalman_slope: i4.kalman_slope != null ? nf(i4.kalman_slope) : undefined,
+    kalman_price_position: i4.kalman_price_position != null ? nf(i4.kalman_price_position) : undefined,
+    kalman_uncertainty: i4.kalman_uncertainty != null ? nf(i4.kalman_uncertainty) : undefined,
   };
 
   const patterns: PatternData = {
