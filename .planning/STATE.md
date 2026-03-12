@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 28-07-PLAN.md (TierTooltip component + drill-panel wiring)
-last_updated: "2026-03-12T21:28:54.614Z"
+stopped_at: Completed 28-02-PLAN.md (RankedSignal types + scorecardByTf state + signal_scorecard SSE handler)
+last_updated: "2026-03-12T21:31:57.346Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 22
-  completed_plans: 12
+  completed_phases: 0
+  total_plans: 23
+  completed_plans: 13
   percent: 0
 ---
 
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 28-dashboard-completion P01 | 2 | 2 tasks | 2 files |
 | Phase 28-dashboard-completion P04 | 8 | 2 tasks | 2 files |
 | Phase 28-dashboard-completion P07 | 2 | 2 tasks | 2 files |
+| Phase 28-dashboard-completion P02 | 5 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 28-dashboard-completion]: Route /signals/recent placed before /signals/{symbol} path param to prevent FastAPI matching 'recent' as symbol
 - [Phase 28-dashboard-completion]: Summary query runs against full signal_ledger (no LIMIT) so aggregate reflects full window, not just paged slice
 - [Phase 28-07]: TierTooltip uses existing CSS-only Tooltip component (no new Radix dep); Section label widened to ReactNode
+- [Phase 28-02]: scorecardByTf not added to pipeline_reset handler — current-bar-only, new bars overwrite naturally
 
 ### Pending Todos (addressed in v1.8)
 
@@ -96,6 +98,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T21:28:54.612Z
-Stopped at: Completed 28-07-PLAN.md (TierTooltip component + drill-panel wiring)
+Last session: 2026-03-12T21:31:57.344Z
+Stopped at: Completed 28-02-PLAN.md (RankedSignal types + scorecardByTf state + signal_scorecard SSE handler)
 Resume file: None
