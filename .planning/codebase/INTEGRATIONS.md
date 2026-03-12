@@ -1,163 +1,235 @@
 # External Integrations
 
-**Analysis Date:** 2026-02-22
+**Analysis Date:** 2026-03-11
 
 ## APIs & External Services
 
-**Interactive Brokers (IBKR):**
-- TWS/Gateway REST API for market data and order management
-  - SDK/Client: `ib_insync` 0.9.86
-  - Connection: TCP socket to configurable host:port (default: localhost:7497 paper trading)
-  - Data: Historical OHLCV bars, real-time ticks, contract details
-  - Implementation: `src/providers/ibkr.py` — abstraction layer wrapping ib_insync
-  - Usage: `production/daemons/high_frequency_tws_daemon.py` publishes ticks to Redis Streams
-  - Backfill: `production/scripts/historical_backfill.py` stages IBKR data into PostgreSQL
+**Trading & Market Data:**
+- **Interactive Brokers (IBKR)** - Live tick data, historical OHLCV, order execution
+  - SDK/Client: `ib_insync 0.9.86`
+  - Gateway: `10.0.0.33:7497` (Windows LAN, paper trading)
+  - Auth: Client ID 35+ (configured in `IBKR_CLIENT_ID`)
+  - Integration: `src/providers/ibkr.py` (circuit breaker + circuit breaker recovery)
+  - Covered assets: Futures (ES, NQ, RTY, YM, CL, etc.), FX (EURUSD, GBPUSD, USDJPY, USDCHF), Crypto (BTCUSD, ETHUSD, SOLUSD), Volatility (VX), Rates (ZN, ZF, ZB, ZT)
+  - Circuit breaker: 3 failures → 180s open, 2 successes → recover
 
-**Ollama (Local LLM):**
-- In-process or remote LLM inference for AI narrative generation
-  - SDK/Client: HTTP REST client via `urllib.request` (no external library dependency)
-  - Endpoint: Configurable (default: `http://localhost:11434`)
-  - Auth: None (local or trusted network)
-  - Models: qwen3:8b (default), configurable per instance
-  - Usage: `services/ai_narrative_service.py` → calls `/api/chat` with trading signals
-  - Features: `/no_think` directive for fast inference, 500-token max output
+**LLM Providers (Tiered Chain):**
+- **Z.ai (Primary)** - GLM-5 foundation model for agentic analysis
+  - Provider: `ZAIProvider` in `src/intelligence/llm_providers.py`
+  - Model: `glm-5` (configurable via `ZAI_MODEL`)
+  - Auth: `ZAI_API_KEY` env var
+  - Endpoint: `https://api.z.ai/api/paas/v4/chat/completions` (OpenAI-compatible)
+  - Default timeout: 30.0s (configurable via `ZAI_TIMEOUT_SEC`)
+  - Circuit breaker: 3 failures → 5 min open, 2 successes → recover
+  - Used for: I8 AI narrative generation, per-signal analysis
 
-**OpenTelemetry (Optional):**
-- Distributed tracing and observability
-  - SDK: `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`
-  - Endpoint: Configurable via `OTEL_EXPORTER_OTLP_ENDPOINT` (default: http://localhost:4318)
-  - Implementation: `src/observability/otel.py` — tracer initialization
-  - Status: Optional (can run without external collector)
+- **OpenRouter (Secondary Fallback)** - 100+ model selection
+  - Provider: `OpenRouterProvider` in `src/intelligence/llm_providers.py`
+  - Model: User-configurable (default: empty string → skipped if no key)
+  - Auth: `OPENROUTER_API_KEY` env var
+  - Endpoint: `https://openrouter.ai/api/v1/chat/completions` (OpenAI-compatible)
+  - Timeout: `LLM_TIMEOUT_SEC` (default 60.0s)
+  - Circuit breaker: Shared with Z.ai, 3 failures → 5 min open
+  - Fallback trigger: When Z.ai unavailable or circuit breaker open
+
+- **Ollama (Tertiary, Offline)** - Local inference fallback
+  - Provider: `OllamaProvider` in `src/intelligence/llm_providers.py`
+  - Models: `qwen3.5:9b` (per-signal), `phi4-mini:3.8b` (group synthesis)
+  - Auth: No API key required
+  - Endpoint: `http://localhost:11434` (Docker container, ROCm GPU)
+  - Timeout: `LLM_TIMEOUT_SEC` (default 60.0s, configurable)
+  - Circuit breaker: Shared with Z.ai/OpenRouter
+  - Fallback trigger: When all cloud providers unavailable
+
+**LLM Chain Mechanism:**
+- Location: `src/intelligence/llm_providers.py` (`LLMChain` class)
+- Behavior: Tries providers in order (Z.ai → OpenRouter → Ollama), returns first successful response
+- Attribute: `chain.last_provider_id` indicates which provider succeeded
+- Async: All providers support async generation with configurable timeouts
+- Error handling: ConnectionError, TimeoutError, BrokenPipeError trigger retry with exponential backoff (1s base, 10s max, 3 attempts)
 
 ## Data Storage
 
 **Databases:**
+- **PostgreSQL 15+ with TimescaleDB extension**
+  - Connection: `DATABASE_URL` env var (default: `postgresql://postgres:postgres@localhost:5432/indicagent`)
+  - Client: `asyncpg 0.31.0` (primary, async), `psycopg2-binary 2.9.7` (legacy, sync)
+  - Hypertables:
+    - `market_data_ohlcv` - Raw OHLCV bars (backfill only, kept forever for ground truth)
+    - `intelligence_features` - Full feature vectors per bar incl. I1-I8 JSONB (ML training dataset)
+    - `signal_ledger` - I7 signals + lifecycle outcomes, 8-class resolution
+    - `llm_calls` - Full LLM audit log per call (timestamp, model, prompt, response, outcome)
+  - Views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
+  - Pool: min 2, max 10 connections; 30s command timeout
+  - Settings: `max_locks_per_transaction=16384`, `wal_buffers=8192`, `log_min_duration_statement=1000` (slow query logging)
+  - VACUUM/ANALYZE: Automated via TimescaleDB job 1020 (Sundays 02:00 UTC)
 
-*PostgreSQL + TimescaleDB:*
-- Database: `indicagent` on localhost:5432 (configurable via `DATABASE_URL`)
-- Client: `asyncpg` (async) + `psycopg2-binary` (sync/batch operations)
-- Schema: SQL migrations in `production/migrations/` (idempotent, numbered)
-- Tables:
-  - `market_data_ohlcv` - Hypertable for 1-minute OHLCV bars (compressed after 7 days)
-  - `technical_indicators` - Hypertable for indicator values (compressed after 7 days)
-  - `signal_ledger` - Hypertable for trading signals with feature context (feature_ts, feature_tf columns)
-  - `intelligence_features` - Hypertable for tiered JSONB intelligence data (I1/I3/I4/I5/I6/SMC/I7 tiers)
-  - `instruments` - Reference table for contract metadata
-- Features:
-  - Time-series compression: Data older than 7 days compressed to reduce storage
-  - GIN indexes on JSONB columns for fast tiered intelligence queries
-  - Continuous aggregates (5m, 15m bars from 1m) via `SELECT * FROM cagg_5m`
-  - No retention policy (data kept for seasonal analysis)
-- Connection pooling: `asyncpg` pool 2-10 connections, 30-second command timeout
-
-**Redis/DragonflyDB (Real-time Streams):**
-- Store: DragonflyDB compatible with Redis protocol
-- Host: localhost:6379 (configurable via `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`)
-- Client: `redis[hiredis]` 7.1.0 (async via `redis.asyncio`)
-- Streams (core pipeline):
-  - `ticks:{symbol}` - Live ticks from IBKR
-  - `market:{symbol}:{timeframe}` - OHLCV bars (1m, 5m, 15m, 1h, 4h, 1d)
-  - `indicators:{symbol}:{timeframe}` - Technical indicator values (RSI, MACD, Bollinger Bands, etc.)
-  - `intelligence:{symbol}:{timeframe}` - Tiered intelligence (market structure, context, patterns, SMC, confluence)
-  - `signals:{symbol}:{timeframe}` - Setup-specific trading signals
-  - `signals:{symbol}:{timeframe}:aggregated` - Aggregated signals with confidence scoring
-  - `narratives:{symbol}:{timeframe}` - AI-generated trading narratives
-- Consumer groups:
-  - Internal: `{service}:{purpose}` (e.g., `indicator_service:process`, `market_analysis:consume`)
-  - External: `ext:{app}:{purpose}` (e.g., `ext:dashboard:events`)
-- Max stream length: 1,000 entries per stream (circular buffer, FIFO)
-- State persistence: Plugin state hashes at `plugin_state:{symbol}:{tf}:{plugin_name}` (7-day TTL, checkpointed every 60 bars)
+**Caching & Streams:**
+- **DragonflyDB (Redis-compatible)**
+  - Connection: `REDIS_HOST:REDIS_PORT` (default: localhost:6379)
+  - Client: `redis-py 7.1.0` (with hiredis C parser)
+  - Max connections: 100 (configurable via `REDIS_MAX_CONNECTIONS`)
+  - Docker: `docker.dragonflydb.io/dragonflydb/dragonfly:latest`
+  - Configuration:
+    - Snapshot: `--snapshot_cron "*/5 * * * *"` (every 5 min)
+    - Keepalive: `--tcp_keepalive 300` (5 min)
+    - Data dir: `/data` (volume: `dragonfly-data`)
+  - Stream Keys (22+):
+    - `{env_prefix}:indicators:SYMBOL:TF` - I1 technical indicators
+    - `{env_prefix}:intelligence:SYMBOL:TF` - I3-I6 typed intelligence events
+    - `{env_prefix}:signals:SYMBOL:TF:aggregated` - Selected I7 signal per bar
+    - `{env_prefix}:narratives:SYMBOL:TF` - I8 AI narratives
+    - `{env_prefix}:llm_calls:stream` - Every LLM call (maxlen=500)
+    - `{env_prefix}:llm_outcomes:stream` - Signal exit outcomes (maxlen=200)
+  - Consumer groups: `indicator`, `market_analysis`, `signal_generator`, `signal_lifecycle`, `ai_narrative`, `feature_writer`, `llm_writer` (auto-created on service startup)
+  - Note: No Redis modules (TS.*, RediSearch unavailable) — time-series queries via TimescaleDB
 
 **File Storage:**
-- None (all runtime data in Redis Streams; historical in PostgreSQL)
-
-**Caching:**
-- Redis hashes for plugin state snapshots (transient, not long-lived cache)
+- Local filesystem only (no S3/cloud storage)
+  - Backups: `.venv/`, `production/migrations/`, `docker-compose.yml`, volumes (docker managed)
+  - Output: Dashboard static files in `dashboard/.next/`, logs in service systemd journals
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- Custom: JWT tokens (for humans/Vercel frontend) + API keys (for machines/services)
-- Implementation: Single `Depends(verify_auth)` FastAPI dependency in `src/api/dependencies.py`
-- Scope: IBKR client ID (service-level) + optional JWT/API key for dashboard access
-- Status: Under development (Phase 2 milestone)
-
-**Credentials:**
-- IBKR: Client ID passed at connection time (no username/password)
-- Ollama: None (local/trusted network)
-- OTEL: Optional headers via `OTEL_EXPORTER_OTLP_HEADERS` (key=value pairs)
+- Custom (none for API)
+- IBKR: Client ID + Gateway credentials (paper trading)
+- LLM providers: API keys (Z.ai, OpenRouter) via env vars; Ollama unauthenticated
+- Dashboard: No auth required (localhost-only in development)
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None (errors logged to structlog, optional OTEL integration)
+- Structured logging via structlog (not sent to external service)
+- Circuit breaker metrics via Prometheus (IBKR, LLM providers)
+- LLM failures tracked in `llm_calls` hypertable (outcome field back-filled)
 
 **Logs:**
-- Structured: `structlog` 25.5.0 for all services
-- Output: Console and rotating file handlers in `logs/` directory
-- Configuration: Per-service JSON config files (e.g., `config/ai_narrative_service.json`)
+- **Approach:** structlog + systemd journal
+  - Structured: JSON-serializable context fields (`service`, `symbol`, `timeframe`, `level`)
+  - Output: STDOUT (captured by systemd `journalctl -u indicagent-<name> -f`)
+  - Log level: Configurable per service (default: INFO)
 
 **Metrics:**
-- Prometheus-compatible endpoint (`:9113` default for AI Narrative, `:9112` for Signal Orchestrator)
-- Metrics: Counters (signals/narratives generated, errors), Gauges (latency, uptime), Histograms (processing time)
-- Scraped by: External Prometheus server (optional)
+- **Prometheus 2.47.0** (Docker)
+  - Scrape targets: Service `/metrics` ports (9109, 9112–9117 on host)
+  - Scrape interval: 15s (default, configurable in `prometheus.yml`)
+  - Retention: 15 days (default)
+  - TSDB: Time series database at `/prometheus` (volume: `prometheus-data`)
+  - Metrics exposed:
+    - Plugin call counters (per tier, sampled at rate 10)
+    - Circuit breaker state transitions, open duration
+    - Redis stream lag per consumer group
+    - Database query latencies (when tracked)
 
-**Distributed Tracing:**
-- OpenTelemetry SDK exportable to Jaeger/Datadog via OTLP HTTP
-- Tracer initialization in `src/observability/otel.py`
-- Service names: `indicagent-processor`, `indicagent-api`, etc. (configurable)
+**Dashboards:**
+- **Grafana 10.2.0** (Docker)
+  - Port: 3001 (separate from Next.js dashboard on 3000)
+  - Data sources: Prometheus, PostgreSQL (optional)
+  - Dashboards: Provisioned from `grafana/dashboards/` directory
+  - Auth: admin/admin (default, change in production)
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Not applicable (development/research platform)
-- Potential targets: Vercel (frontend), self-managed Linux VM (services)
+- Linux VMs (systemd-managed services)
+- Docker Compose for infrastructure (PostgreSQL, DragonflyDB, Ollama, Prometheus, Grafana)
+  - Single source of truth: `production/docker-compose.yml`
 
 **CI Pipeline:**
-- Not detected (development uses local test runner)
+- None detected (no GitHub Actions, GitLab CI, or Jenkins configs)
+- Manual deployment: `git push` + systemd service restart
 
-**Deployment Tools:**
-- Container-friendly (no Docker in current setup, but services can be containerized)
-- Current: Native processes with systemd or supervisor
+**Services (systemd):**
+```
+indicagent-tws                # IBKR tick/bar collection
+indicagent-indicator          # I1 technical indicators
+indicagent-market-analysis    # I3→I6 intelligence pipeline
+indicagent-signal-generator   # I7 setup detection
+indicagent-signal-lifecycle   # Zone-aware lifecycle tracking
+indicagent-ai-narrative       # I8 LLM narrative generation
+indicagent-feature-writer     # Redis → TimescaleDB persistence
+indicagent-llm-writer         # LLM audit log + outcome back-fill
+indicagent-api                # FastAPI server (uvicorn :8000)
+```
+
+All services: `Restart=always` (auto-restart on failure)
 
 ## Environment Configuration
 
-**Required env vars (production):**
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB` - DragonflyDB connection
-- `IBKR_HOST`, `IBKR_PORT`, `IBKR_CLIENT_ID` - Interactive Brokers
-- `INDICAGENT_ENV` - Environment name for stream key prefixing
+**Required env vars (critical):**
+```
+DATABASE_URL          # PostgreSQL connection (default OK for dev)
+REDIS_HOST, REDIS_PORT (defaults OK)
+IBKR_HOST, IBKR_PORT  (default 10.0.0.33:7497)
+```
 
-**Optional env vars:**
-- `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry collector (default: http://localhost:4318)
-- `OTEL_EXPORTER_OTLP_HEADERS` - OTEL auth headers (if remote collector requires auth)
+**Optional but recommended:**
+```
+INDICAGENT_ENV        # "development" | "production" (default: "")
+ZAI_API_KEY           # Z.ai GLM-5 (required for I8 narrative)
+LLM_TIMEOUT_SEC       # Adjust if LLM calls timeout (default 60s)
+```
 
 **Secrets location:**
-- `.env` file (local development, not committed)
-- Environment variables injected at runtime (production)
-- API keys: None currently (future OpenRouter/Claude API keys for I8 expansion)
+- `.env` file (not checked into git, matches `.env.example` if present)
+- Env vars sourced by systemd service files or `~/.bashrc`
+- No `.env.*` variations; single `.env` per environment
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None (IndicAgent only publishes; it does not consume external webhooks)
+- SSE (Server-Sent Events): `/events` endpoint on FastAPI
+  - Client: Browser WebSocket or JavaScript EventSource
+  - Streams: Intelligence updates, signal changes, narrative generation
+  - No webhook/callback endpoints for external services
 
 **Outgoing:**
-- None (IndicAgent publishes to Redis Streams and PostgreSQL)
-- Future: Webhook support planned for external app notifications (Phase 3+)
+- None detected (no webhooks to external services)
+- IBKR integration: Polling-based (no event callbacks from gateway)
+- LLM chains: Request/response model (no async webhooks)
 
-## Data Flow: Tick to Dashboard
+## Data Flow Between Systems
 
-1. **IBKR TWS** → High-frequency daemon publishes ticks to `ticks:{symbol}` stream
-2. **Timeframes Builder** consumes ticks, aggregates to multi-timeframe bars
-3. **Indicator Service** processes bars, publishes indicators to `indicators:{symbol}:{tf}`
-4. **Market Analysis Service** (I1-I7) processes market structure, context, patterns, SMC
-5. **Signal Orchestrator** aggregates plugin outputs → `signals:{symbol}:{tf}:aggregated`
-6. **AI Narrative Service** subscribes to aggregated signals, calls Ollama, publishes narratives
-7. **Signal Tracker** writes signals to `signal_ledger` table (PostgreSQL) for history
-8. **FastAPI SSE endpoint** (`/api/sse/events`) bridges Redis Streams → browser SSE
-9. **Next.js Dashboard** (socket.io-client) subscribes to SSE events for live updates
+**Hot/Warm/Cold Tiers:**
+```
+Hot:   IBKR TWS → DragonflyDB Streams (sub-ms latency)
+Warm:  Streams → indicator/analysis/signal services (<10ms)
+Cold:  feature_writer_service → TimescaleDB (batch, async)
+```
+
+**Cross-Service Communication:**
+- Redis streams: Service-to-service data flow (async, persistent)
+- No gRPC, message queues (RabbitMQ, Kafka), or HTTP polling between services
+- All services read independently from Redis streams (consumer groups)
+
+**Real-Time Pipeline Never Touches DB:**
+- Live analysis uses DragonflyDB streams only
+- Database writes deferred to `feature_writer_service` (batched persistence)
+- Backfill/repairs use direct database access
+
+## External API Rate Limits & Quotas
+
+**IBKR:**
+- No published rate limit (gateway-based)
+- Max historical bars: 6d (1m), 30d (5m), 60d (15m), 1yr (1h-1d)
+- Circuit breaker: 3 failures → 180s retry delay
+
+**Z.ai (GLM-5):**
+- API rate limits: Check Z.ai documentation (not explicitly listed in code)
+- Timeout: 30s per request
+- Circuit breaker: 3 failures → 300s retry delay (5 min)
+
+**OpenRouter:**
+- Model-specific rate limits (depends on selected model)
+- Timeout: 60s per request
+- Circuit breaker: Shared with Z.ai (3 failures → 300s)
+
+**Ollama:**
+- Local only, no rate limits
+- Timeout: 60s per request
+- GPU memory: Limited by device VRAM (AMD iGPU: 16.3 GiB shared)
 
 ---
 
-*Integration audit: 2026-02-22*
+*Integration audit: 2026-03-11*
