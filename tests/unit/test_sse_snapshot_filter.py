@@ -3,6 +3,8 @@ import time
 
 import pytest
 
+from src.api.routes.sse import _build_stream_list, _event_name_for_stream
+
 
 def _entry_id_for_age(seconds_ago: float) -> str:
     """Create a Redis entry ID that appears N seconds old."""
@@ -67,3 +69,39 @@ class TestSseSnapshotFilter:
         """Entry 3 min 1 sec old on 1m stream: max_age=120s → stale."""
         entry_id = _entry_id_for_age(181)
         assert _is_signal_entry_stale("development:signals:ESH6:1m:aggregated", entry_id)
+
+
+@pytest.mark.unit
+class TestIntelligenceI7Routing:
+    def teardown_method(self, method):
+        _event_name_for_stream.cache_clear()
+
+    def test_event_name_for_intelligence_i7_es_1m(self):
+        """intelligence_i7 stream maps to signal_scorecard event."""
+        assert _event_name_for_stream("development:intelligence_i7:ESH6:1m") == "signal_scorecard"
+
+    def test_event_name_for_intelligence_i7_nq_5m(self):
+        """intelligence_i7 stream for NQ maps to signal_scorecard event."""
+        assert _event_name_for_stream("development:intelligence_i7:NQH6:5m") == "signal_scorecard"
+
+    def test_intelligence_data_not_regressed(self):
+        """intelligence: stream still returns intelligence_data (no regression)."""
+        assert _event_name_for_stream("development:intelligence:ESH6:1m") == "intelligence_data"
+
+    def test_build_stream_list_includes_intelligence_i7(self):
+        """_build_stream_list includes at least one intelligence_i7 stream for single TF."""
+        streams = _build_stream_list(["ES"], "1m")
+        assert any("intelligence_i7" in s for s in streams)
+
+    def test_build_stream_list_includes_two_intelligence_i7_for_two_tfs(self):
+        """_build_stream_list includes 2 intelligence_i7 streams for two timeframes."""
+        streams = _build_stream_list(["ES"], "1m,5m")
+        i7_streams = [s for s in streams if "intelligence_i7" in s]
+        assert len(i7_streams) == 2
+
+    def test_build_stream_list_i7_stream_contains_correct_tf(self):
+        """intelligence_i7 streams carry the correct timeframe suffix."""
+        streams = _build_stream_list(["ES"], "1m,5m")
+        i7_streams = [s for s in streams if "intelligence_i7" in s]
+        tfs_in_streams = {s.split(":")[-1] for s in i7_streams}
+        assert tfs_in_streams == {"1m", "5m"}
