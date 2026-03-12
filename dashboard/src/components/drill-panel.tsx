@@ -377,6 +377,33 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
                   tooltip={momentumBiasTooltip(context.momentum_bias)}
                 />
                 <KV label="Mom dir" value={context.momentum_direction ?? "—"} />
+                {/* GARCH vol model — regime label styled by pipeline classification, not hardcoded threshold */}
+                {context.garch_vol_regime != null && (
+                  <KV
+                    label="GARCH regime"
+                    value={["low", "normal", "high"][context.garch_vol_regime] ?? String(context.garch_vol_regime)}
+                    valueClassName={context.garch_vol_regime === 2 ? "text-amber-400" : undefined}
+                  />
+                )}
+                {context.garch_sigma != null && (
+                  <KV label="GARCH σ" value={fmtNum(context.garch_sigma, 4)} />
+                )}
+                {context.garch_vol_ratio != null && (
+                  <KV label="GARCH ratio" value={fmtNum(context.garch_vol_ratio, 2)} />
+                )}
+                {context.garch_shock != null && (
+                  <KV label="GARCH shock" value={fmtNum(context.garch_shock, 2)} />
+                )}
+                {/* Kalman trend filter */}
+                {context.kalman_slope != null && (
+                  <KV label="Kalman slope" value={fmtNum(context.kalman_slope, 4)} />
+                )}
+                {context.kalman_price_position != null && (
+                  <KV label="Kalman pos" value={fmtNum(context.kalman_price_position, 2)} />
+                )}
+                {context.kalman_uncertainty != null && (
+                  <KV label="K-uncertainty" value={fmtNum(context.kalman_uncertainty, 4)} />
+                )}
               </Grid>
             ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
           </Section>
@@ -449,11 +476,23 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
                   value={smc.bsl_level != null ? `${fmtPrice(smc.bsl_level)} (${fmtNum(smc.bsl_dist_atr, 1)} ATR)` : "—"}
                   tooltip={liquidityLevelTooltip("BSL")}
                 />
+                {smc.bsl_touches != null && (
+                  <KV label="BSL touches" value={String(smc.bsl_touches)} />
+                )}
+                {smc.bsl_significance != null && (
+                  <KV label="BSL sig" value={fmtNum(smc.bsl_significance, 2)} />
+                )}
                 <KV
                   label="SSL"
                   value={smc.ssl_level != null ? `${fmtPrice(smc.ssl_level)} (${fmtNum(smc.ssl_dist_atr, 1)} ATR)` : "—"}
                   tooltip={liquidityLevelTooltip("SSL")}
                 />
+                {smc.ssl_touches != null && (
+                  <KV label="SSL touches" value={String(smc.ssl_touches)} />
+                )}
+                {smc.ssl_significance != null && (
+                  <KV label="SSL sig" value={fmtNum(smc.ssl_significance, 2)} />
+                )}
                 {/* Breaker Block */}
                 <KV
                   label="Breaker"
@@ -470,6 +509,12 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
                     : "—"}
                   tooltip={premiumDiscountPctTooltip(smc.premium_discount_pct)}
                 />
+                {smc.price_in_premium != null && (
+                  <KV label="In premium" value={smc.price_in_premium ? "yes ▲" : "no ▼"} />
+                )}
+                {smc.equilibrium_level != null && (
+                  <KV label="Equilibrium" value={fmtPrice(smc.equilibrium_level)} />
+                )}
               </Grid>
             ) : <Empty>Awaiting {timeframe} intelligence</Empty>}
           </Section>
@@ -673,10 +718,12 @@ function KV({
   label,
   value,
   tooltip,
+  valueClassName,
 }: {
   label: string;
   value: string;
   tooltip?: TooltipContent;
+  valueClassName?: string;
 }) {
   const labelEl = (
     <span className="text-[0.55rem] text-[var(--text-muted)] shrink-0">{label}</span>
@@ -689,7 +736,7 @@ function KV({
       ) : (
         labelEl
       )}
-      <span className="text-[0.6rem] font-data text-[var(--text-secondary)] truncate text-right">
+      <span className={`text-[0.6rem] font-data truncate text-right ${valueClassName ?? "text-[var(--text-secondary)]"}`}>
         {value}
       </span>
     </div>
