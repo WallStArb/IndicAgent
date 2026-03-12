@@ -176,6 +176,16 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
           <OutcomeBadge outcome={signal.outcome} />
         )}
       </div>
+      {/* Setup performance annotation — only shown when 30d sample data available */}
+      {signal.setup_win_rate != null && (
+        <div className="text-[0.5rem] text-[var(--text-muted)] mt-0.5">
+          {Math.round(signal.setup_win_rate * 100)}% win
+          {signal.setup_avg_pnl_r != null &&
+            ` · avg ${signal.setup_avg_pnl_r >= 0 ? "+" : ""}${signal.setup_avg_pnl_r.toFixed(2)}R`
+          }
+          {" (30d)"}
+        </div>
+      )}
       {/* Row 2: entry target, SL, T1 + RR */}
       <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
         <Tooltip tooltip={entryTooltip()}>
@@ -307,6 +317,42 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
   const confluence = intel?.confluence ?? null;
   const indicators = data.indicatorsByTf[timeframe] ?? null;
 
+  // DB-backed signal history — fetched on mount, merged with SSE history
+  const [dbSignals, setDbSignals] = useState<SignalData[]>([]);
+  const [windowSummary, setWindowSummary] = useState<SignalWindowSummary | null>(null);
+
+  useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    fetch(
+      `${base}/api/signals/recent?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=20`
+    )
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then((body: { signals: DbSignalRow[]; summary: SignalWindowSummary }) => {
+        setDbSignals(body.signals.map(row => dbRowToSignalData(row, symbol)));
+        setWindowSummary(body.summary);
+      })
+      .catch(() => {
+        // non-fatal — SSE history still works, summary stays null
+      });
+  }, [symbol, timeframe]);
+
+  // Merge DB signals with SSE history — SSE wins on same signal_id (more up-to-date lifecycle state)
+  const mergedSignalsHistory = useMemo(() => {
+    const byId = new Map<string, SignalData>();
+    for (const s of dbSignals) {
+      if (s.signal_id) byId.set(s.signal_id, s);
+    }
+    for (const s of signalsHistory) {
+      if (s.signal_id) byId.set(s.signal_id, s);
+      else byId.set(`${s.timestamp}:${s.entry_price}`, s);
+    }
+    return Array.from(byId.values()).sort((a, b) => {
+      const ta = new Date(a.signal_computed_at ?? a.timestamp).getTime();
+      const tb = new Date(b.signal_computed_at ?? b.timestamp).getTime();
+      return tb - ta;
+    });
+  }, [dbSignals, signalsHistory]);
+
   return (
     <>
       <div
@@ -346,10 +392,28 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-0 flex flex-col gap-3">
           {/* Recent Signals Hero */}
+          {windowSummary && (windowSummary.n_resolved > 0 || windowSummary.n_suppressed > 0) && (
+            <div className="text-xs text-muted-foreground px-4 pt-3 pb-0 flex gap-2 flex-wrap">
+              <span className="text-[0.55rem] text-[var(--text-muted)]">{windowSummary.n_resolved} resolved</span>
+              {windowSummary.win_rate != null && (
+                <span className={`text-[0.55rem] ${windowSummary.win_rate >= 0.5 ? "text-green-400" : "text-red-400"}`}>
+                  {Math.round(windowSummary.win_rate * 100)}% win
+                </span>
+              )}
+              {windowSummary.avg_pnl_r != null && (
+                <span className={`text-[0.55rem] ${windowSummary.avg_pnl_r >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  avg {windowSummary.avg_pnl_r >= 0 ? "+" : ""}{windowSummary.avg_pnl_r.toFixed(2)}R
+                </span>
+              )}
+              {windowSummary.n_suppressed > 0 && (
+                <span className="text-[0.55rem] text-amber-400">{windowSummary.n_suppressed} suppressed</span>
+              )}
+            </div>
+          )}
           <RecentSignals
             symbol={symbol}
             timeframe={timeframe}
-            signalsHistory={signalsHistory}
+            signalsHistory={mergedSignalsHistory}
             selectedSignal={signal}
             onSignalSelect={onSignalSelect}
           />

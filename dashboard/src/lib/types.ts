@@ -275,6 +275,9 @@ export interface SignalData {
   outcome?: string;              // 8-class: "never_activated" | "stopped_at_entry" | "stopped_in_trade" | "target_1" | "target_1_2" | "target_full" | "ttl_expired_behind" | "ttl_expired_ahead"
   exit_price?: number;           // price at which signal was closed
   pnl_r?: number;                // profit/loss in R-multiples (e.g., 2.5R = 2.5x profit)
+  // Setup performance — from setup_performance table JOIN (populated by DB fetch, null when < 30 samples)
+  setup_win_rate?: number;       // 30d rolling win rate for this setup (0.0–1.0)
+  setup_avg_pnl_r?: number;      // 30d rolling avg pnl_r for this setup
 }
 
 // ── I7 Signal Scorecard (all_ranked from signal_generator_service) ──
