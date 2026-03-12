@@ -269,6 +269,28 @@ export interface SignalData {
   pnl_r?: number;                // profit/loss in R-multiples (e.g., 2.5R = 2.5x profit)
 }
 
+// ── I7 Signal Scorecard (all_ranked from signal_generator_service) ──
+
+export interface RankedSignal {
+  setup_type: string;
+  confidence: number;
+  direction: number;        // 1 = long, -1 = short, 0 = none
+  regime_eligible: boolean;
+  suppression_reason: string | null;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+  composite_rank: number;
+  is_winner: boolean;
+}
+
+export interface SignalScorecardData {
+  ts: string;
+  symbol: string;
+  tf: string;
+  ranked: RankedSignal[];
+}
+
 // ── I8 AI Narratives ──
 
 export interface NarrativeData {
@@ -352,6 +374,8 @@ export interface SymbolData {
   indicatorsByTf: Record<string, IndicatorData>;
   /** Per-TF I3–I6 intelligence snapshots — keyed by timeframe string */
   intelligenceByTf: Record<string, IntelligenceTfData>;
+  /** Per-TF I7 signal scorecard (all_ranked) — keyed by timeframe string */
+  scorecardByTf: Record<string, SignalScorecardData>;
   lastUpdate: number;
 }
 
