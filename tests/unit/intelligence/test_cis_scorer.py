@@ -307,3 +307,70 @@ def test_constituent_contributions_values_are_floats():
     for bucket, contribs in result.constituent_contributions.items():
         for signal, val in contribs.items():
             assert isinstance(val, float), f"{bucket}.{signal} is not float"
+
+
+# ---------------------------------------------------------------------------
+# Constituent contributions — RED tests (QUAL-01)
+# ---------------------------------------------------------------------------
+
+
+def test_constituent_contributions_trend_has_at_least_one_feature():
+    """score() returns CISResult where constituent_contributions['trend'] has at least one
+    feature key with a float value — not an empty dict."""
+    scorer = CISScorer()
+    features = {"trend_regime": 0.8, "kalman_slope": 0.5}
+    result = scorer.score(features, {})
+    assert len(result.constituent_contributions["trend"]) >= 1
+    for v in result.constituent_contributions["trend"].values():
+        assert isinstance(v, float)
+
+
+def test_constituent_contributions_momentum_has_rsi_and_macd():
+    """constituent_contributions['momentum'] contains 'rsi_14' and
+    'macd_histogram_12_26_9' keys."""
+    scorer = CISScorer()
+    features = {"rsi_14": 65.0, "macd_histogram_12_26_9": 0.3}
+    result = scorer.score(features, {})
+    contribs = result.constituent_contributions["momentum"]
+    assert "rsi_14" in contribs, f"Expected 'rsi_14' in momentum contributions, got {list(contribs)}"
+    assert "macd_histogram_12_26_9" in contribs, (
+        f"Expected 'macd_histogram_12_26_9' in momentum contributions, got {list(contribs)}"
+    )
+
+
+def test_constituent_contributions_all_six_buckets_present():
+    """constituent_contributions keys == set(BUCKET_NAMES) — all 6 buckets present."""
+    scorer = CISScorer()
+    result = scorer.score({}, {})
+    assert set(result.constituent_contributions.keys()) == set(BUCKET_NAMES)
+
+
+def test_no_bucket_contribution_dict_is_empty():
+    """No bucket's contribution dict is empty ({}) — every bucket has at least one entry.
+    Uses a features dict with non-zero inputs to trigger non-trivial bucket scoring."""
+    scorer = CISScorer()
+    features = _bullish_features()
+    result = scorer.score(features, {})
+    for bucket, contribs in result.constituent_contributions.items():
+        assert len(contribs) >= 1, f"Bucket '{bucket}' contribution dict is empty"
+
+
+def test_bucket_scores_are_floats_not_tuples():
+    """bucket_scores values remain floats — not tuples — after the bucket method refactor."""
+    scorer = CISScorer()
+    result = scorer.score(_bullish_features(), {})
+    for bucket, score in result.bucket_scores.items():
+        assert isinstance(score, float), f"bucket_scores['{bucket}'] is {type(score)}, expected float"
+
+
+def test_cis_score_value_unchanged_after_contributions_refactor():
+    """Regression: same inputs produce same cis_score after refactor.
+    The refactor is additive only — contributions don't change scoring math."""
+    scorer = CISScorer()
+    features = _bullish_features()
+    result = scorer.score(features, {})
+    # Compute expected raw from bucket scores (same formula as score())
+    from src.intelligence.trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES  # noqa: PLC0415
+    expected_raw = sum(BOOTSTRAP_WEIGHTS[b] * result.bucket_scores[b] for b in BUCKET_NAMES)
+    expected_cis = round(max(-1.0, min(1.0, expected_raw)), 4)
+    assert result.cis_score == pytest.approx(expected_cis, abs=1e-6)
