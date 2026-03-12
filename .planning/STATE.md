@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 28-06-PLAN.md (GARCH/Kalman + BSL/SSL detail fields in drill panel)
-last_updated: "2026-03-12T21:35:17.588Z"
+stopped_at: Completed 28-03-PLAN.md (SignalScorecard component + drill-panel wiring)
+last_updated: "2026-03-12T21:37:43.697Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 24
-  completed_plans: 14
+  completed_plans: 15
   percent: 0
 ---
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 28-dashboard-completion P07 | 2 | 2 tasks | 2 files |
 | Phase 28-dashboard-completion P02 | 5 | 2 tasks | 3 files |
 | Phase 28-dashboard-completion P06 | 2 | 2 tasks | 3 files |
+| Phase 28-dashboard-completion P03 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 28-07]: TierTooltip uses existing CSS-only Tooltip component (no new Radix dep); Section label widened to ReactNode
 - [Phase 28-02]: scorecardByTf not added to pipeline_reset handler — current-bar-only, new bars overwrite naturally
 - [Phase 28-06]: GARCH regime amber styling uses pipeline-classified garch_vol_regime===2, never hardcoded threshold — UI is passive consumer of pipeline decisions
+- [Phase 28-03]: SignalScorecard handles undefined data gracefully — empty state renders at component level, no guard needed at call site
 
 ### Pending Todos (addressed in v1.8)
 
@@ -100,6 +102,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T21:35:17.586Z
-Stopped at: Completed 28-06-PLAN.md (GARCH/Kalman + BSL/SSL detail fields in drill panel)
+Last session: 2026-03-12T21:37:43.696Z
+Stopped at: Completed 28-03-PLAN.md (SignalScorecard component + drill-panel wiring)
 Resume file: None
