@@ -152,7 +152,7 @@ Plans:
   3. On SSE reconnect, signal stream entries older than `2×TF` are skipped — no stale signal replays on page load.
   4. `GET /api/signals/{symbol}?timeframe=5m` returns only 5m signals (timeframe filter was previously accepted but silently ignored).
 
-Plans: 7 plans
+Plans: 8 plans
 - [ ] 27-01: `_publish_terminal_event()` helper in signal_lifecycle_service + tests
 - [ ] 27-02: Wire terminal event into both exit paths (normal + shadow)
 - [ ] 27-03: SSE snapshot age filter — skip signal entries older than 2×TF on reconnect
@@ -160,6 +160,7 @@ Plans: 7 plans
 - [ ] 27-05: Extend `SignalData` type with `resolved`, `outcome`, `exit_price`, `signal_id`
 - [ ] 27-06: Handle resolved events in `use-market-stream.ts` signal_data handler
 - [ ] 27-07: Render resolved state in `signal-panel.tsx` with outcome badge
+- [ ] 27-08: Wire OutcomeBadge into signal-banner.tsx + eliminate three-way resolved rendering drift (gap closure)
 
 ### Phase 28: Dashboard Completion
 **Goal**: The dashboard fully surfaces the intelligence pipeline — Signal Scorecard with all ranked signals, drill panel signal history from DB, GARCH/Kalman I4 fields, SMC detail fields, and tier tooltips.
@@ -171,7 +172,16 @@ Plans: 7 plans
   3. `GET /api/signals/recent` returns paginated recent signals from signal_ledger; drill panel merges with live SSE history deduplicated by signal_id.
   4. Drill panel shows GARCH/Kalman I4 fields and SMC detail fields (BSL/SSL dist_atr/touches/significance, premium/discount fields).
   5. Tier labels (I1–I8) show hover tooltips.
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 28-01-PLAN.md — SSE: wire intelligence_i7 stream domain + signal_scorecard event name
+- [ ] 28-02-PLAN.md — Types + hook: RankedSignal, SignalScorecardData, scorecardByTf state
+- [ ] 28-03-PLAN.md — New component signal-scorecard.tsx + drill panel wiring
+- [ ] 28-04-PLAN.md — Backend: GET /api/signals/recent endpoint
+- [ ] 28-05-PLAN.md — Drill panel: DB signal history fetch + dedup merge with SSE history
+- [ ] 28-06-PLAN.md — Drill panel: GARCH/Kalman I4 fields + BSL/SSL detail + premium/discount
+- [ ] 28-07-PLAN.md — TierTooltip component + wire to all I1-I8 tier labels
 
 ### Phase 29: Renaissance Signal Quality
 **Goal**: Signal quality matches Renaissance-grade standards — constituent contributions populated, alpha decay applied, signal freshness decay active, volume/killzone CIS gates wired, Hurst/entropy I4 plugins gating setups, and KS + CUSUM drift detection monitoring.
@@ -281,5 +291,5 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 25. CIS Data Repair | 2/2 | Complete    | 2026-03-11 | - |
 | 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
 | 27. Signal Lifecycle Stream Events | 7/7 | Complete   | 2026-03-12 | - |
-| 28. Dashboard Completion | v1.8 | TBD | Planned | — |
+| 28. Dashboard Completion | v1.8 | 0/7 | Planned | — |
 | 29. Renaissance Signal Quality | v1.8 | TBD | Planned | — |
