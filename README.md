@@ -2,7 +2,7 @@
 
 **Repository:** [github.com/WallStArb/IndicAgent](https://github.com/WallStArb/IndicAgent)
 
-**Version:** v1.6 | **Status:** Operational | 96 plugins · 24 instruments · 1430 tests
+**Version:** v1.7 | **Status:** Operational | 96 plugins · 24 instruments · 1503 tests
 
 > **TLDR:** IndicAgent is a real-time market intelligence platform built on a shared, durable event bus. Every tick, every signal, and every intelligence output flows through that bus. An 8-tier pipeline runs 96 plugins in a dependency-ordered DAG where each tier builds on the outputs of the tier below — raw indicators and market structure feed into adaptive statistical models (HMM, GARCH, Kalman, BOCPD) and Smart Money Concepts, which feed into cross-timeframe confluence scoring and AI narrative synthesis. Every output is encoded into a canonical typed schema, published to the bus, and persisted to a feature store, creating a learning loop where signal outcomes feed back into model weights without manual retuning. The primary goal is alpha generation: every design decision — from the CIS 6-bucket aggregator to the outcome-labeled feature store — is oriented toward identifying edges that are statistically significant, regime-specific, and improvable over time. New data domains and product layers attach as independent services that subscribe to existing streams and publish their own, with no changes to anything already running.
 
@@ -444,4 +444,4 @@ In each case: subscribe to the streams you need, publish what you produce. Risk 
 
 ---
 
-**Version:** v1.6 | **Status:** Operational | 96 plugins · 24 instruments · 1430 tests
+**Version:** v1.7 | **Status:** Operational | 96 plugins · 24 instruments · 1503 tests

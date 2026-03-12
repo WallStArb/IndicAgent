@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.19.0
-Last Updated: 2026-03-10
-Status: I1-I8 pipeline complete — 95 plugins + 2 aggregation components + feature store + typed intelligence bus, 1485 passing, 106 ruff errors (E501 line-too-long, 24 fixable with --fix), 24 contracts
+Version: 5.20.0
+Last Updated: 2026-03-11
+Status: I1-I8 pipeline complete — 95 plugins + 2 aggregation components + feature store + typed intelligence bus, 1503 passing, 139 ruff errors (E501 line-too-long, 41 fixable with --fix), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -239,7 +239,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1497 passing (Phase 25: +12 new tests)
+**Tests:** 1503 passing (Phase 26: +3 new tests, fixed 3 test bugs)
 I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair infrastructure
 **v1.5 SHIPPED 2026-03-10** · **v1.6 SHIPPED 2026-03-10** — see `.planning/ROADMAP.md`
 
