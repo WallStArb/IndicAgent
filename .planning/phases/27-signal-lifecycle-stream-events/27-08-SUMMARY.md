@@ -32,6 +32,8 @@ key-decisions:
   - "signal-panel.tsx is the canonical home for OutcomeBadge — file retained as ~41-line utility, not deleted"
   - "Resolved state in signal-banner: opacity-50 wrapping div + OutcomeBadge inside button row (left-aligned before direction icon)"
   - "drill-panel.tsx inline badge replaced with shared OutcomeBadge — intentional trade-off: shared bg-green-600/red-600 vs old CSS var colors"
+  - "small prop added to OutcomeBadge (4a21000) for compact banner rendering based on human verify feedback"
+  - "signal-banner redesigned to two-line layout (088580d) based on operator UI feedback during verification — trade info line 1, zone/timing line 2"
 
 patterns-established:
   - "Shared badge pattern: outcome display uses OUTCOME_LABEL_MAP from signal-panel.tsx exclusively"
@@ -39,7 +41,7 @@ patterns-established:
 requirements-completed: [SLES-02, SLES-03]
 
 # Metrics
-duration: 3min
+duration: ~45min
 completed: 2026-03-12
 ---
 
@@ -49,10 +51,10 @@ completed: 2026-03-12
 
 ## Performance
 
-- **Duration:** ~3 min
+- **Duration:** ~45 min
 - **Started:** 2026-03-12T12:06:13Z
-- **Completed:** 2026-03-12T12:09:00Z
-- **Tasks:** 2/3 auto-tasks complete (Task 3 = human-verify checkpoint)
+- **Completed:** 2026-03-12
+- **Tasks:** 3/3 complete (2 auto + 1 human-verify — approved)
 - **Files modified:** 3
 
 ## Accomplishments
@@ -67,7 +69,7 @@ Each task was committed atomically:
 
 1. **Task 1: Wire OutcomeBadge into signal-banner + trim signal-panel** - `6c75754` (feat)
 2. **Task 2: Replace inline badge in drill-panel with shared OutcomeBadge** - `4268ced` (feat)
-3. **Task 3: Human verify** - checkpoint (awaiting)
+3. **Task 3: Human verify** - APPROVED; UI feedback actioned in `4a21000` (small prop) and `088580d` (two-line banner layout)
 
 ## Files Created/Modified
 - `dashboard/src/components/signal-banner.tsx` - Added OutcomeBadge import, opacity-50 wrapper div, conditional badge render when signal.resolved
@@ -99,9 +101,9 @@ Each task was committed atomically:
 None beyond the pre-existing TypeScript error documented above.
 
 ## Next Phase Readiness
-- Phase 27 gap fully closed: OutcomeBadge single implementation, signal-banner renders resolved state
-- Task 3 (human-verify) awaiting user confirmation that banner dims + shows badge on live signal close
-- Phase 28 (Dashboard Completion) ready to proceed once Task 3 approved
+- Phase 27 gap fully closed: OutcomeBadge single implementation, signal-banner renders resolved state, human verified
+- Phase 27 VERIFICATION.md truth #2 satisfied: dashboard renders resolved signal as dimmed + outcome badge in primary signal view
+- Phase 28 (Dashboard Completion) ready to proceed — OutcomeBadge available at `@/components/signal-panel`
 
 ---
 *Phase: 27-signal-lifecycle-stream-events*

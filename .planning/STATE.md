@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 27-08 auto tasks (Task 1+2); awaiting human-verify checkpoint (Task 3)
-last_updated: "2026-03-12T12:09:44.169Z"
+stopped_at: Completed 27-08-PLAN.md — Phase 27 plan 8 complete, human verify approved
+last_updated: "2026-03-12T16:40:41.381Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 15
+  total_plans: 22
   completed_plans: 8
   percent: 0
 ---
@@ -70,6 +70,8 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 27-signal-lifecycle-stream-events]: Plan 27-02: Both terminal event exit path calls (active + shadow) already present in v1.6 monolith; verified passing with 23 tests
 - [Phase 27-signal-lifecycle-stream-events]: SignalPanel is a standalone component encapsulating price strip + resolved overlays, enabling reuse outside signal-card
 - [Phase 27-signal-lifecycle-stream-events]: signal-panel.tsx is the canonical home for OutcomeBadge — file retained as utility (SignalPanel deleted), single OutcomeBadge export used by both signal-banner and drill-panel
+- [Phase 27-signal-lifecycle-stream-events]: signal-panel.tsx is the canonical home for OutcomeBadge — file retained as utility, SignalPanel deleted
+- [Phase 27-signal-lifecycle-stream-events]: OutcomeBadge small prop added for compact banner use; signal-banner redesigned to two-line layout based on human verify feedback
 
 ### Pending Todos (addressed in v1.8)
 
@@ -85,6 +87,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T12:09:44.168Z
-Stopped at: Completed 27-08 auto tasks (Task 1+2); awaiting human-verify checkpoint (Task 3)
+Last session: 2026-03-12T16:40:41.379Z
+Stopped at: Completed 27-08-PLAN.md — Phase 27 plan 8 complete, human verify approved
 Resume file: None
