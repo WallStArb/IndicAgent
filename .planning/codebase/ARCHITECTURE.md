@@ -1,312 +1,218 @@
 # Architecture
 
-**Analysis Date:** 2026-02-22
+**Analysis Date:** 2026-03-11
 
 ## Pattern Overview
 
-**Overall:** Event-driven microservices architecture using Redis Streams as message bus.
+**Overall:** Plugin-native event-driven intelligence pipeline with 8 tiers of analysis (I1–I8) flowing through a hot/warm/cold data architecture.
 
 **Key Characteristics:**
-- Services are independent processes communicating exclusively via Redis Streams (no direct HTTP calls between pipeline services)
-- Plugin-based intelligence pipeline with 7 processing tiers (I1 through I8)
-- Real-time processing optimized for low latency — no database on hot path
-- Stateless service design with optional state persistence in Redis for stateful plugins
-- Separate daemon for IBKR tick ingestion with high-frequency optimization (100-500+ ticks/sec)
-- Canonical tier plugin registry (TIER_I1 through TIER_I7) as single source of truth
+- **Plugin-based intelligence tiers**: All analysis is modular — each tier (I1–I8) runs independent plugins that consume typed inputs and produce validated outputs
+- **Typed event bus**: Single canonical `IntelligenceEvent` model flows through the system; every plugin output is validated against sub-models
+- **Multi-layered data streaming**: Hot tier (Redis Streams, sub-ms), Warm tier (service pipeline, <10ms), Cold tier (TimescaleDB batch, async)
+- **Stateful plugin execution**: Plugin state is isolated per (symbol, timeframe, plugin_name), swapped on/off per-bar to prevent cross-symbol leakage
+- **Consumer group-driven service orchestration**: Each service is a stateless stream consumer with idempotent replay capability
 
 ## Layers
 
-**Data Ingestion Layer:**
-- Purpose: Capture real-time market data from Interactive Brokers
-- Location: `production/daemons/high_frequency_tws_daemon.py`
-- Contains: IBKR connection management, tick callback handlers, bar aggregation to 1m
-- Depends on: IBKRProvider (`src/providers/ibkr.py`), Redis client, AsyncTickPublisher
-- Used by: market_data_daemon publishes to `ticks:SYMBOL:live` and `market:SYMBOL:1m` streams
-- Key flow: IBKR ticks → Redis tick stream → 1m bar stream
+**Data Foundation (Layer 1):**
+- Purpose: Collect and distribute raw market data
+- Location: `src/providers/ibkr.py` (TWS connection), `production/daemons/` (tick publisher)
+- Contains: IBKR quote ticks, bar OHLCV via TWS
+- Depends on: IBKR Interactive Brokers
+- Used by: All downstream services
 
-**Bar Aggregation Layer:**
-- Purpose: Convert 1m bars to higher timeframes (5m, 15m, 1h, 4h, 1d)
-- Location: Embedded in `services/timeframes_builder_service.py`
-- Contains: Time-series bar aggregation logic, multi-timeframe coordination
-- Depends on: market_data_daemon's 1m bars from Redis streams
-- Used by: indicator_service and downstream intelligence services
-- Key mechanics: Consumes `market:SYMBOL:1m`, publishes to `market:SYMBOL:{5m,15m,1h,4h,1d}`
+**Technical Indicators (Layer I1):**
+- Purpose: Compute 23 technical indicators (RSI, MACD, Bollinger Bands, ATR, ADX, etc.) at 1m/5m/15m/1h resolution
+- Location: `services/indicator_service.py`, `src/intelligence/indicators/`
+- Contains: 23 indicator plugins (trend, momentum, volatility, volume categories)
+- Depends on: Market data from `market:SYMBOL:TF` Redis streams
+- Used by: Market analysis service (I3–I6 pipeline)
+- Output: Single combined message per bar to `indicators:SYMBOL:TF` stream
 
-**Technical Indicators Layer (I1):**
-- Purpose: Calculate 23 base technical indicators incrementally on each bar
-- Location: `services/indicator_service.py` and `src/intelligence/indicators/`
-- Contains: 23 indicator plugins (RSI, MA, MACD, ATR, Bollinger, etc.) with incremental compute support
-- Depends on: OHLCV bars from multi-timeframe streams, plugin registry
-- Used by: market_analysis_service (I3+ pipeline)
-- Key output: Combined OHLCV + I1 features to `indicators:SYMBOL:TF` stream
+**Composite Events (Layer I2):**
+- Purpose: Detect crossovers, threshold crossings, extremes on top of I1 outputs
+- Location: `src/intelligence/composites/`
+- Contains: 11 composite plugins (MACD events, RSI events, Stochastic events, ADX events, Volume events, Acceleration regime, Donchian position, OBV momentum, Derivative oscillator, Exhaustion score, MA composites)
+- Depends on: I1 indicator outputs
+- Used by: Incorporated into `IntelligenceEvent.i2` for downstream pattern detection
 
-**Intelligence Pipeline Layer (I3-I6):**
-- Purpose: Execute plugin tiers for market structure, context, patterns, and smart money
-- Location: `services/market_analysis_service.py` consuming from `indicators:SYMBOL:TF`
-- Contains: Five sequential plugin execution stages:
-  - I3 (Structure): Swing detection, support/resistance, trend structure (3 plugins)
-  - I4 (Context): Volatility regime, trend regime, momentum context, GARCH, Kalman (5 plugins)
-  - I5 (Patterns): Divergence, squeeze, confluence, chart patterns (8 plugins)
-  - SMC (Smart Money): BOS/CHoCH, FVG, order blocks, liquidity sweeps, etc. (8 plugins)
-  - I6 (Confluence): Cross-timeframe confluence scoring (1 plugin)
-- Depends on: I1 features from indicators stream, plugin registry with tier validation at startup
-- Used by: signal_generator_service (I7) and signal_orchestrator_service
-- Key output: Combined features to `intelligence:SYMBOL:TF` stream
-- Key pattern: Each tier depends on outputs from prior tiers; plugins consume frames from Redis
+**Structure Analysis (Layer I3):**
+- Purpose: Identify market structure, support/resistance, swing patterns, profile levels
+- Location: `src/intelligence/structure/`
+- Contains: 8 plugins (swing detector, S/R, trend structure, market profile, session levels, anchored VWAP, Fibonacci zones, swing momentum)
+- Depends on: OHLCV bars
+- Used by: Pattern detection and confluence analysis
+- Outputs: Swing highs/lows, support/resistance levels, trend direction, market profile POC/VA, Fibonacci ratios
 
-**Signal Generation Layer (I7):**
-- Purpose: Generate trading setups and signal aggregation
-- Location: `services/signal_generator_service.py` and `src/intelligence/trading/`
-- Contains: 9 I7 setup plugins + aggregation logic, ledger insertion
-- Depends on: `intelligence:SYMBOL:TF` stream (enriched with OHLCV), market context snapshot
-- Used by: signal_tracker_service (lifecycle management), AI narrative service
-- Key output: Individual signals to `signal_ledger` table, winner to `signals:SYMBOL:TF:aggregated` stream
-- Key mechanics: Aggregates I7 setup signals by timeframe, selects winner via AggregatedResult
+**Context Classification (Layer I4):**
+- Purpose: Quantify regime (volatility, trend, momentum) and session context
+- Location: `src/intelligence/context/`
+- Contains: 7 plugins (vol regime, trend regime, momentum context, GARCH volatility, Kalman filter, session context, MTF volatility)
+- Depends on: I1 indicators, price bars, time/date
+- Used by: Signal generation (regime gating), trading setup qualification
+- Outputs: Regime flags (ranging/trending), vol percentile, session killzones, HMM regime state
 
-**Signal Tracking Layer:**
-- Purpose: Track open signal lifecycle (entry, exit, P&L, status transitions)
-- Location: `services/signal_tracker_service.py` and `src/intelligence/trading/lifecycle_tracker.py`
-- Contains: Signal state machine (pending→active→exit), P&L calculation, time-based expiration
-- Depends on: `signals:SYMBOL:TF:aggregated` (signals), `market:SYMBOL:1m` (price updates for P&L)
-- Used by: AI narrative service (for context), dashboard via API
-- Key output: Updated signal records in `signal_ledger`, status changes published back to streams
-- Key pattern: Lifecycle tracking is separate from generation — enables clean signal state machine
+**Pattern Detection (Layer I5):**
+- Purpose: Identify chart patterns, divergences, confluence zones, technical formations
+- Location: `src/intelligence/patterns/`
+- Contains: 14 plugins (RSI divergence, squeeze, vol divergence, confluence, double top/bottom, head & shoulders, triangle/wedge, candlestick patterns, flag/pennant, cup & handle, measured move, volume profile, key level reaction, trend confluence)
+- Depends on: I3 structure, I1 indicators, OHLCV
+- Used by: I7 trading setups (pattern-based entries)
+- Outputs: Pattern confidence scores, target levels, formation state
 
-**AI Narrative Layer (I8):**
-- Purpose: Generate human-readable narratives for active signals using LLM
-- Location: `services/ai_narrative_service.py`
-- Contains: LangGraph-based agent orchestration, Ollama integration, narrative generation
-- Depends on: `signals:SYMBOL:TF:aggregated` stream, active signals from `signal_ledger`, market context
-- Used by: Dashboard and external consumers via `narratives:SYMBOL:TF` stream
-- Key output: Publishesto `narratives:SYMBOL:TF` stream with signal ID linking
+**Smart Money Concepts (Layer SMC/I6 sub-tier):**
+- Purpose: Institutional/smart money flow analysis (order blocks, fair value gaps, liquidity pools, killzones)
+- Location: `src/intelligence/smart_money/`
+- Contains: 13 plugins (BOS/CHoCH, FVG, order blocks, liquidity sweeps, BOCPD changepoint, HMM regime, liquidity pools, supply/demand zones, ICT killzones, AMD cycle, breaker blocks, mitigation blocks, premium/discount)
+- Depends on: Swing structure, OHLCV extremes, time of day
+- Used by: I6 confluence, I7 setup targeting
+- Outputs: Zone levels, sweep/mitigation events, killzone entry/exit signals
 
-**API Layer:**
-- Purpose: Expose real-time data and historical queries to external consumers (dashboard, ML, etc.)
-- Location: `src/api/main.py` and `src/api/routes/`
-- Contains: FastAPI application, SSE subscriptions, query endpoints, health/metrics
-- Routes:
-  - `GET /health` — Service health
-  - `GET /metrics` — Prometheus metrics
-  - `GET /api/sse/stream` — SSE subscriptions to Redis streams (instruments, bars, indicators, intelligence, signals, narratives)
-  - `GET /indicators/{symbol}/{timeframe}` — Get latest indicator values
-  - `GET /api/market_data/{symbol}/{timeframe}` — Get historical OHLCV
-  - `GET /api/instruments` — List all tracked instruments
-- Depends on: Redis streams for real-time data, database for historical queries
-- Entry point: Lifespan context managers initialize DatabaseManager and RedisStreamsManager
+**Confluence & Cross-Timeframe (Layer I6):**
+- Purpose: Aggregate multi-timeframe alignment, validate I3–SMC signals across TFs
+- Location: `src/intelligence/confluence/` (1 plugin: CrossTimeframeConfluence)
+- Contains: Single `CrossTimeframeConfluence` plugin that reads aligned timeframes
+- Depends on: I3, SMC, I4 outputs across multiple timeframes (1m, 5m, 15m, 1h)
+- Used by: Signal generation, setup quality scoring
+- Outputs: CTF alignment score, highest aligned TF, multi-TF trend agreement
 
-**Core Infrastructure Layer:**
-- Purpose: Provide shared utilities and abstractions
-- Location: `src/core/`
-- Contains:
-  - `stream_keys.py` — Centralized stream naming (e.g., `indicators:SYMBOL:TF`) and retention policies
-  - `models.py` — Pydantic domain models (Instrument, OHLCVData, TechnicalIndicator, SignalScore, TradingSignal, etc.)
-  - `database_manager.py` — AsyncPG pool management and query execution
-  - `redis_streams_manager.py` — Redis stream lifecycle (start/stop)
-  - `plugin_circuit_breaker.py` — Circuit breaker for plugin execution failures
-  - `plugin_state_manager.py` — Persistent plugin state in Redis for stateful plugins
-  - `redis_stream_consumer.py` — Consumer group management for stream subscriptions
-  - `async_tick_publisher.py` — Async batch publisher for high-frequency tick writing
-- Depends on: external libraries (asyncpg, redis-py, pydantic)
-- Used by: All services
+**Trading Setups (Layer I7):**
+- Purpose: Generate trade entry signals based on confluence of I1–I6 indicators
+- Location: `src/intelligence/trading/` (17 plugins + aggregator)
+- Contains: 17 I7 setup plugins (TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup, CandlestickPatternSetup, SessionExtremesSetup) + aggregator (Aggregator, CIS-based composite score)
+- Depends on: All I1–I6 outputs; I4 regime for gating
+- Used by: Signal generation, signal lifecycle tracking
+- Output: Per-bar collection of fired setups with direction/targets/entry zones; aggregator selects ONE active signal per bar via regime gate + performance weighting
 
-**Plugin System Layer:**
-- Purpose: Provide plugin registration, discovery, and validation
-- Location: `src/intelligence/plugins.py` and `src/intelligence/register_plugins.py`
-- Contains:
-  - Plugin protocol definitions (IndicatorPlugin, PatternPlugin)
-  - PluginRegistry class for registration and lookup
-  - Tier lists (TIER_I1, TIER_I3, TIER_I4, TIER_I5, TIER_SMC, TIER_I6, TIER_I7) as single source of truth
-  - `register_all_plugins()` function to initialize all 57 plugins
-- Depends on: Individual plugin implementations in `src/intelligence/{indicators,patterns,context,structure,smart_money,trading,confluence}/`
-- Used by: All service layers that execute plugins
-- Key pattern: Tier lists are derived from actual plugin objects at registration time, ensuring consistency
-
-**Configuration Layer:**
-- Purpose: Centralize environment configuration and provide typed settings
-- Location: `src/config/settings.py`
-- Contains: Settings class with Pydantic validation, environment variable overrides
-- Configuration options: IBKR host/port/client_id, Redis host/port/db, database URL, contracts, env_name for stream prefixing, metrics port
-- Used by: All services at initialization
-- Key pattern: Supports both individual env vars (e.g., `IB_HOST`) and JSON string contracts (e.g., `HF_CONTRACTS_JSON`)
-
-**Observability Layer:**
-- Purpose: Metrics collection and monitoring
-- Location: `src/observability/metrics.py`
-- Contains: Prometheus metric helpers (counter, gauge, histogram), plugin execution recording
-- Metrics exported: bars_processed_total, calculations_total, plugin_execution_* (per-plugin timing and counts)
-- Used by: All services for instrumentation
+**AI Narrative (Layer I8):**
+- Purpose: Generate LLM-based narrative context and confirmations for signals
+- Location: `services/ai_narrative_service.py`, `src/intelligence/llm_providers.py`
+- Contains: LLM chain (Z.ai GLM-5 → OpenRouter fallback → Ollama qwen3.5:9b), per-signal narrative generation
+- Depends on: I7 active signal, bar context, historical setup outcomes
+- Used by: Dashboard narrative display, outcome feedback loops
+- Output: Narrative metadata to `narratives:SYMBOL:TF` stream; outcomes to `llm_outcomes:stream`
 
 ## Data Flow
 
-**Live Market Processing:**
+**Live Signal Pipeline:**
 
-1. IBKR Connection opens via IBKRProvider
-2. TWS Daemon receives tick callbacks, publishes to `ticks:SYMBOL:live` stream
-3. TWS Daemon aggregates to 1m bars, publishes to `market:SYMBOL:1m`
-4. Timeframes Builder consumes 1m bars, aggregates to 5m/15m/1h/4h/1d, publishes to `market:SYMBOL:{TF}`
-5. Indicator Service consumes `market:SYMBOL:{TF}`, runs I1 plugins (23 total), publishes OHLCV + I1 features to `indicators:SYMBOL:TF`
-6. Market Analysis Service consumes `indicators:SYMBOL:TF`, runs I3→I4→I5→SMC→I6 plugins in sequence, publishes combined features to `intelligence:SYMBOL:TF`
-7. Signal Generator Service consumes `intelligence:SYMBOL:TF`, runs I7 setup plugins, aggregates, inserts to `signal_ledger`, publishes to `signals:SYMBOL:TF:aggregated`
-8. Signal Tracker Service consumes `signals:SYMBOL:TF:aggregated` for signal events and `market:SYMBOL:1m` for live P&L, updates signal status in `signal_ledger`
-9. AI Narrative Service consumes `signals:SYMBOL:TF:aggregated`, generates narratives via Ollama/LangGraph, publishes to `narratives:SYMBOL:TF`
-10. API server reads from streams via SSE for live dashboard, or database for historical queries
+1. **Market collection** (TWS → tick publisher) → `market:SYMBOL:TF` Redis stream (1m bars)
+2. **I1 computation** (indicator_service) consumes `market:SYMBOL:TF` → publishes `indicators:SYMBOL:TF`
+3. **I2–I6 computation** (market_analysis_service) consumes `indicators:SYMBOL:TF` → publishes `intelligence:SYMBOL:TF` (typed IntelligenceEvent)
+4. **I7 signal generation** (signal_generator_service) consumes `intelligence:SYMBOL:TF` → fires setups → publishes to `signals:SYMBOL:TF:aggregated` (one active signal per bar)
+5. **Signal lifecycle** (signal_lifecycle_service) consumes market bars + live signals → tracks MAE/MFE/outcomes → publishes to `signal_ledger`
+6. **I8 narratives** (ai_narrative_service) consumes `signals:SYMBOL:TF:aggregated` → LLM analysis → publishes `narratives:SYMBOL:TF`
+7. **Feature persistence** (feature_writer_service) consumes `intelligence:SYMBOL:TF` + enrichments → batch writes to `intelligence_features` hypertable
+8. **LLM audit** (llm_writer_service) consumes `llm_calls:stream` + `llm_outcomes:stream` → writes `llm_calls` hypertable + back-fills `llm_model_scores`
 
 **State Management:**
 
-- Ephemeral state (window/frame caches): Stored in-memory in service processes, rebuilt from stream history on restart
-- Plugin incremental state (Wilder's smoothing, etc.): Stored in Redis hash `plugin_state:{symbol}:{tf}:{plugin_name}` with 7-day TTL
-- Signal ledger state: Persistent in PostgreSQL/TimescaleDB `signal_ledger` table
-- Bar history: Redis streams store last N bars per stream (e.g., 1000 bars in indicators stream)
-
-**Backfill/Historical Processing:**
-
-- Triggered by `production/scripts/historical_backfill.py`
-- Stage 1 (`--fetch-only`): Downloads OHLCV from IBKR via ib_insync, stores in `market_data_ohlcv` table
-- Stage 2 (`--replay-only`): Replays stored OHLCV through full pipeline (indicator_service logic), inserts results to `signal_ledger` and `technical_indicators` tables
-- Backfill writes to database directly (not streams) for efficiency
+- **Per-bar plugin state**: Each plugin maintains internal state (e.g., GARCH volatility model, HMM regime probabilities). State is isolated per (symbol, timeframe, plugin_name) in service memory (`_plugin_states` dict). Swapped on/off before/after each plugin execution to prevent cross-symbol state bleed.
+- **In-memory signal tracking**: Signal lifecycle service maintains `_activated_at`, `_mae`, `_mfe` dicts keyed by `signal_id`. Written to `signal_ledger` on signal exit. No distributed state — per-service in-memory only.
+- **CIS aggregator weights**: Loaded from `setup_performance` table at startup + every 60 min into Redis cache `setup_performance:weights`. Applied per-setup in aggregator ranking.
+- **Consumer groups**: Each service maintains Redis consumer group (e.g., `indicator_service`, `market_analysis`, `signal_generator`) starting at `$` (skip backlog on first run). Groups persist across restarts, enabling replay of missed bars during downtime.
 
 ## Key Abstractions
 
-**IndicatorPlugin / PatternPlugin:**
-- Purpose: Define contract for intelligence plugins (compute_full, compute_next, metadata)
-- Examples: `src/intelligence/indicators/rsi.py`, `src/intelligence/patterns/bollinger_squeeze.py`
-- Pattern: Each plugin is a dataclass with ClassVar metadata (name, outputs, min_lookback, supports_incremental, capability_tags, inputs)
-- Key methods:
-  - `compute_full(frames: dict[str, DataFrame]) → dict[str, Any]` — Full recompute from scratch
-  - `compute_next(windows: dict[str, Any]) → dict[str, Any]` — Incremental update using cached state
+**Plugin Protocol:**
+- Purpose: Encapsulate analysis logic with typed inputs/outputs
+- Examples: `src/intelligence/indicators/rsi.py`, `src/intelligence/structure/swing_detector.py`, `src/intelligence/trading/trend_following.py`
+- Pattern: Each plugin implements `PatternPlugin` with `inputs` (tuple of `InputSpec`), `outputs` (frozenset of field names), and `compute_full(bar_data, state) -> dict`. Plugins are stateless functions; state management is external.
 
-**Stream Message Format:**
+**IntelligenceEvent Schema:**
+- Purpose: Canonical typed model for all intelligence flowing through system
+- Examples: `src/intelligence/schemas.py` defines `OHLCVBar`, `I1Indicators`, `I2Events`, `I3Structure`, `I4Context`, `I5Patterns`, `SMCContext`, `I6Confluence`, `IntelligenceEvent`
+- Pattern: Nested Pydantic models with `extra="forbid"` (strict) on I3–I6/SMC to catch schema drift; `extra="allow"` on I1 to permit period-encoded field names (rsi_14, atr_20, etc.)
 
-All Redis stream messages are JSON-serialized field dictionaries. Example from indicator_service output:
-```json
-{
-  "timestamp": "2026-02-22T14:30:00Z",
-  "symbol": "ESH6",
-  "timeframe": "1m",
-  "open": "5200.00",
-  "high": "5210.50",
-  "low": "5195.25",
-  "close": "5208.75",
-  "volume": "125000",
-  "rsi_14": "62.3",
-  "ma_20": "5195.4",
-  "macd": "12.5",
-  ...
-}
-```
+**Signal Ledger Entry:**
+- Purpose: Persistent record of every signal, its lifecycle, and outcome
+- Examples: `src/intelligence/trading/signal_ledger.py` defines `LedgerEntry` dataclass
+- Pattern: Single table `signal_ledger` hypertable in TimescaleDB with (symbol, timestamp) primary key. Rows are immutable after exit; fields populated progressively (determined_at → activation → outcome).
 
-**SignalScore / TradingSignal:**
-- Purpose: Structured representation of generated signals
-- Location: `src/core/models.py`
-- Fields: ID (UUID), symbol, timeframe, entry_price, setup_name, grade (A-D), confidence, timestamp
-- Pattern: Published as nested JSONB to `signals:SYMBOL:TF:aggregated` stream, persisted in `signal_ledger`
+**Trade Frame:**
+- Purpose: Encapsulate entry zone geometry, stop/target levels for a signal
+- Examples: `src/intelligence/trading/trade_framer.py` defines `TradeFrame` and `_resolve_zone_bounds()`
+- Pattern: Zone bounds computed at signal determination time from setup-specific rules (e.g., supply_demand → nearest_supply/demand levels; fvg → fvg_bottom/top; others → entry ± 1.0×ATR). Used by lifecycle tracker for zone-aware activation detection.
 
-**LedgerEntry:**
-- Purpose: Represent a single signal record with full context
-- Location: `src/intelligence/trading/signal_ledger.py`
-- Fields: signal_id (UUID), symbol, timeframe, entry_ts, entry_price, setup_name, setup_details (JSON), market_context (JSON), status (enum), exit_ts, exit_price, pnl, pnl_percent
-- Key pattern: Immutable insert-only during generation; status updates via separate lifecycle module
+**Aggregator:**
+- Purpose: Select ONE active signal per bar from all fired I7 setups
+- Examples: `src/intelligence/trading/aggregator.py`
+- Pattern: Rank all fired setups by (regime eligibility × perf_multiplier × confluence_score); activate highest-ranked if regime-eligible; suppress mean-reversion setups in trending regimes (HMM) and trend-following in ranging regimes.
 
-**InputSpec:**
-- Purpose: Define plugin input requirements
-- Location: `src/intelligence/plugins.py`
-- Fields: symbol (regex pattern), timeframe (str or list), lookback (int), required (bool)
-- Usage: Each plugin declares its inputs so services know what data to fetch before execution
+**CIS (Composite Intelligence Score):**
+- Purpose: Weighted aggregate quality score across I1–I6 constituents
+- Examples: `src/intelligence/trading/cis_scorer.py`
+- Pattern: Bucket-based scoring — I1 (technical), I3 (structure), I4 (context), I5 (patterns), SMC (smart money), I6 (confluence) each get weighted scores; final CIS ∈ [-1.0, +1.0]. Applied at signal fire time by signal_generator to populate `signal_ledger.cis_score`.
 
 ## Entry Points
 
-**High-Frequency TWS Daemon:**
-- Location: `production/daemons/high_frequency_tws_daemon.py`
-- Triggers: Manual CLI invocation (not auto-started)
-- Responsibilities: Connect to IBKR, subscribe to tick updates, publish to Redis streams
-- CLI usage: `python production/daemons/high_frequency_tws_daemon.py --client-id 35`
-- Exit conditions: SIGTERM, network disconnect, unrecoverable error
-
-**Indicator Service:**
+**indicator_service (I1):**
 - Location: `services/indicator_service.py`
-- Triggers: Consumes `market:SYMBOL:*` streams
-- Responsibilities: Run I1 plugins on each bar, publish combined features
-- CLI usage: `python services/indicator_service.py`
-- Consumer group: Created per-service instance with dynamic naming
+- Triggers: Executes on schedule; triggered by market bar arrival on `market:SYMBOL:TF` stream
+- Responsibilities: Read bar OHLCV, run 23 I1 plugins, publish combined `indicators:SYMBOL:TF` message
 
-**Market Analysis Service:**
+**market_analysis_service (I3–I6):**
 - Location: `services/market_analysis_service.py`
-- Triggers: Consumes `indicators:SYMBOL:*` streams
-- Responsibilities: Execute I3/I4/I5/SMC/I6 tiers, publish intelligence features
-- CLI usage: `python services/market_analysis_service.py`
-- Key startup validation: Validates all tier plugins registered at startup
+- Triggers: Consumes `indicators:SYMBOL:TF` (I1 output)
+- Responsibilities: Parse I1 output, run I3/I4/I5/SMC/I6 plugins, construct typed `IntelligenceEvent`, publish to `intelligence:SYMBOL:TF`
 
-**Signal Generator Service:**
+**signal_generator_service (I7):**
 - Location: `services/signal_generator_service.py`
-- Triggers: Consumes `intelligence:SYMBOL:*` streams
-- Responsibilities: Run I7 setup plugins, aggregate signals, insert to ledger
-- CLI usage: `python services/signal_generator_service.py`
-- Ledger interaction: Uses DatabaseManager to batch-insert signals
+- Triggers: Consumes `intelligence:SYMBOL:TF` (full intelligence event)
+- Responsibilities: Run 17 I7 setup plugins, aggregate via CIS + regime gating, fire one active signal per bar, publish to `signals:SYMBOL:TF:aggregated`
 
-**Signal Tracker Service:**
-- Location: `services/signal_tracker_service.py`
-- Triggers: Consumes `signals:SYMBOL:*:aggregated` and `market:SYMBOL:1m` streams
-- Responsibilities: Track signal lifecycle, calculate P&L, update status
-- CLI usage: `python services/signal_tracker_service.py`
-- Database updates: Via DatabaseManager, may queue updates per batch interval
+**signal_lifecycle_service (lifecycle):**
+- Location: `services/signal_lifecycle_service.py`
+- Triggers: Consumes market bars (1m) and `signals:SYMBOL:TF:aggregated`
+- Responsibilities: Track signal activation, compute MAE/MFE, classify 8-class outcome, write to `signal_ledger`
 
-**AI Narrative Service:**
+**ai_narrative_service (I8):**
 - Location: `services/ai_narrative_service.py`
-- Triggers: Consumes `signals:SYMBOL:*:aggregated` streams
-- Responsibilities: Fetch signal details from ledger, generate narratives via Ollama, publish
-- CLI usage: `python services/ai_narrative_service.py`
-- External dependency: Ollama server on localhost:11434
+- Triggers: Consumes `signals:SYMBOL:TF:aggregated`
+- Responsibilities: Call LLM with setup context, generate narrative, publish to `narratives:SYMBOL:TF`, emit LLM audit events
 
-**FastAPI Server:**
+**feature_writer_service (cold storage):**
+- Location: `services/feature_writer_service.py`
+- Triggers: Consumes `intelligence:SYMBOL:TF` (I6 outputs) + enrichment streams
+- Responsibilities: Batch accumulate feature vectors, write to `intelligence_features` hypertable (ML training dataset)
+
+**FastAPI API:**
 - Location: `src/api/main.py`
-- Triggers: Manual CLI invocation or container/deployment startup
-- Responsibilities: Serve queries, SSE subscriptions, health checks
-- CLI usage: `uvicorn src.api.main:app --host 0.0.0.0 --port 8000`
-- Lifespan: Initialize database and Redis managers on startup, clean up on shutdown
-
-**Historical Backfill Script:**
-- Location: `production/scripts/historical_backfill.py`
-- Triggers: Manual CLI invocation
-- Responsibilities: Fetch OHLCV from IBKR, replay through pipeline, populate database
-- CLI usage: `python production/scripts/historical_backfill.py --days 90 --client-id 35`
-- Flags: `--fetch-only`, `--replay-only`, `--symbols`, `--timeframes`
+- Triggers: HTTP requests from dashboard / external clients
+- Responsibilities: Serve instrument metadata, current market state, signal summaries, SSE stream for live updates
 
 ## Error Handling
 
-**Strategy:** Fail fast with structured logging; use circuit breakers for plugin execution; retry streams operations.
+**Strategy:** Graceful degradation per plugin; services continue on upstream plugin failures.
 
 **Patterns:**
-
-- **Plugin Execution:** Wrapped in try-except with record_plugin_execution() metrics; individual plugin failure does not stop service
-- **Stream Operations:** Retry on transient Redis errors; log at ERROR level on persistent failures
-- **Database Operations:** Use asyncpg's built-in connection pooling with configurable timeouts; raise on constraint violations (e.g., signal_ledger PK)
-- **IBKR Connection:** Implement reconnect logic with exponential backoff in daemon; track reconnect count in metrics
-- **Graceful Shutdown:** Services catch SIGTERM, flush pending writes, close connections, exit cleanly
-
-**Circuit Breaker Pattern:**
-
-Location: `src/core/plugin_circuit_breaker.py`
-
-Purpose: Prevent cascading failures if a plugin begins failing repeatedly
-
-Behavior: Track failure count per plugin; after threshold (default 3), skip execution and log warning; reset after success period
-
-Usage: Wrapped around plugin.compute_full() and plugin.compute_next() calls in services
+- **Plugin timeout**: If plugin exceeds budget (computed live at execution), it returns `None` for all outputs; downstream plugins see `None` and handle per their `InputSpec` (required inputs → skip that downstream plugin; optional → proceed with `None`)
+- **Service restart**: Consumer groups persist across restarts. On restart, service resumes from last acknowledged position in stream (not `$` — `$` only applies on first group creation). Missed bars are replayed on next startup.
+- **Validation failure**: If `IntelligenceEvent` fails Pydantic validation, message is logged + dropped; service continues to next message (no blocking).
+- **Database connection loss**: Services retry with exponential backoff (retry_utils.py); feature_writer queues locally; signal_lifecycle falls back to in-memory state (resets on crash).
 
 ## Cross-Cutting Concerns
 
-**Logging:** Structured JSON logs via structlog; all services log to stdout and rotating file handlers in `logs/`
+**Logging:**
+- Tool: `structlog` with structured fields (timestamp, service, symbol, timeframe, level)
+- Pattern: Every service logs startup, per-bar processing, errors. Logs streamed via `journalctl` on systemd units.
 
-**Validation:** Pydantic models validate OHLCV, signals, and configuration; Stream parsing uses explicit field extraction from byte dictionaries
+**Validation:**
+- Plugin outputs validated against registry output schemas + Pydantic models (I3–I6 strict mode)
+- IntelligenceEvent validated before publishing to stream
+- Signal ledger entries type-checked at insert time
 
-**Authorization:** Not yet implemented (authentication layer planned for Phase 2 per design doc)
+**Authentication:**
+- IBKR: Client ID 35+, TWS running on LAN at 10.0.0.33:7497
+- API: No authentication (local only, no secrets exposed)
+- LLM: API keys in `.env` (ZAI_API_KEY, OPENROUTER_API_KEY)
 
-**Rate Limiting:** No rate limiting on internal streams; API endpoints will enforce per-consumer limits when auth layer added
-
-**Observability:** Prometheus metrics on `INDICAGENT_METRICS_PORT` (default 9108); dashboard accesses via SSE for real-time updates
-
-**Data Consistency:** Streams provide ordering guarantees per SYMBOL:TF key; signal_ledger uses transactions; timestamps use ISO 8601 UTC
+**Metrics & Observability:**
+- Prometheus metrics exported by each service on individual port (indicator :9109, market-analysis :9114, signal-gen :9112, etc.)
+- Metrics: Per-plugin execution time, latency from bar close to signal fire, error rates
+- Dashboards: Grafana via `production/grafana/`
 
 ---
 
-*Architecture analysis: 2026-02-22*
+*Architecture analysis: 2026-03-11*

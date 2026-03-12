@@ -1,209 +1,588 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-02-22
+**Analysis Date:** 2026-03-11
 
-## Tech Debt
+## Executive Summary
 
-**Unused Database Tables — Cold Path Incomplete:**
-- Issue: `features` table exists in schema (`production/migrations/001_timescale_schema.sql`) but zero INSERT calls in codebase. Completely unused since platform inception.
-- Files: `production/migrations/001_timescale_schema.sql`, `production/migrations/003_timescaledb_enable_and_policies.sql`
-- Impact: Schema confusion, wasted DBA effort, misleads developers about where feature data lives. The `intelligence` table is written to instead (scalar-only, lossy).
-- Fix approach: Define new `intelligence_features` hypertable with tiered JSONB columns (i1, i3, i4, i5, smc, i6). Wire feature writer service to consume `intelligence:` stream and persist to new table. Deprecate old `features` and `intelligence` tables. See design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md`.
-
-**Dual Pipeline Services — Architecture Violation:**
-- Issue: Both `intelligence_processor_service.py` (707 lines) and `market_analysis_service.py` (533 lines) compute I3-I6 plugins. `intelligence_processor_service` reads raw `market:` stream and recomputes I1 internally. This violates separation of concerns: I1 is already computed by `indicator_service.py` and published to `indicators:` stream.
-- Files: `services/intelligence_processor_service.py`, `services/market_analysis_service.py`
-- Impact: Code duplication, unclear which service is authoritative, confused team routing. If one changes, the other falls out of sync.
-- Fix approach: Deprecate `intelligence_processor_service.py`. Audit any consumers relying on it, migrate to `market_analysis_service.py` which correctly consumes pre-computed `indicators:` stream. Do NOT remove yet — check for undocumented consumers first.
-
-**Incomplete Persistence Layer — Ephemeral GARCH/Kalman:**
-- Issue: GARCH and Kalman plugins (I4) compute on every bar and publish to `intelligence:` stream. But zero I7 plugins consume them. LLM agents and ML models will need these outputs — currently no wiring exists.
-- Files: `src/intelligence/context/garch_volatility.py`, `src/intelligence/context/kalman_trend.py`, `services/market_analysis_service.py`
-- Impact: Valuable volatility and trend context completely orphaned. ML scoring model will lack rich features. LLM narrative service operates blind to current market regime.
-- Fix approach: (1) Wire GARCH/Kalman outputs to I7 plugins: `trad_MeanReversion` (gate on kalman_price_position), `trad_VWAPDeviation` (use garch_sigma threshold), `trad_SqueezeExpansion` (garch_vol_regime check). (2) Pass full I4 context block to I8 narrative service. (3) Include in intelligence_features persistence (see above).
-
-**Redis Stream Retention — Ephemeral Data:**
-- Issue: Streams configured with `maxlen=2000` (count-based trim, not time-based). At 23 contracts × 4 timeframes, this = ~12 bars of history per symbol/timeframe. On restart or lag, data beyond 12 bars is lost forever.
-- Files: `production/daemons/high_frequency_tws_daemon.py` (maxlen=2000), `src/core/redis_streams_manager.py` (stream configuration)
-- Impact: Backfill/replay cannot access historical streams. Real-time subscriber lag > 12 bars = data loss. No audit trail for debugging.
-- Fix approach: Redis Streams are hot path (real-time). Accept ephemeral retention. Cold path (durable) is TimescaleDB via feature writer service (see unified data bus design).
-
-**Lossy Intelligence Table Schema:**
-- Issue: `intelligence` table persists only scalars. Arrays (divergence zones, target lists, FVG bounds), nested objects (SMC geometry), and complex structures all dropped at serialization. Only I7 signal snapshots capture partial context.
-- Files: `services/market_analysis_service.py` (publishes flat string k/v), `production/migrations/001_timescale_schema.sql` (intelligence table schema)
-- Impact: ML training data lacks rich SMC geometry (order block bounds, FVG structure). Backtesting can't replay full feature state. Audit loss for pattern analysis.
-- Fix approach: New `intelligence_features` table with tiered JSONB columns: preserve full structure per tier. Validate schema via Pydantic `IntelligenceEvent` model (to be created in `src/intelligence/schemas.py`).
-
-**Stateless Plugin Replay — Quality Degradation:**
-- Issue: Backfill replay (`production/scripts/historical_backfill.py`) recomputes I1-I7 from OHLCV each time. Stateful plugins (GARCH, Kalman, divergence lookback, order blocks) lose warm-up state — first ~50 bars of replay have degraded quality. No warm-up state persistence exists.
-- Files: `production/scripts/historical_backfill.py` (Stage 2 replay), `src/intelligence/context/garch_volatility.py`, `src/intelligence/context/kalman_trend.py`
-- Impact: ML training data has poor signal quality in first ~50 bars of each replay. Seasonal backtests (365 days) accumulate this degradation at year boundaries.
-- Fix approach: Add plugin state protocol (`get_state()`, `restore_state()` methods to all stateful plugins). Persist state to Redis hash `plugin_state:{symbol}:{tf}:{plugin_name}` (7-day TTL). Load on startup, checkpoint every 60 bars. See design: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md` (section 3).
-
-**Retention Policy Misalignment:**
-- Issue: Compression policies apply 7 days after insertion, but retention deletes after 30/60/365 days depending on table. `intelligence` table has NO retention policy — unbounded growth risk. If backfill ever runs to 365 days, table will grow indefinitely.
-- Files: `production/migrations/003_timescaledb_enable_and_policies.sql`, `production/migrations/007_fix_compress_orderby_and_retention.sql`
-- Impact: Production database bloats without bound. Queries slow over time. Storage costs climb. Queries for seasonal patterns become prohibitive.
-- Fix approach: Set explicit retention: `market_data_ohlcv` 90 days, `technical_indicators` 60 days, `signal_ledger` 365 days, `intelligence_features` indefinite (seasonal analysis). No retention on new `intelligence_features` — apply only compression (7 days, then archive cold storage if needed).
-
-## Security Considerations
-
-**API Authentication — Not Implemented:**
-- Risk: Backend FastAPI (`:8000`) has no auth. Any local process or network hop can call endpoints. If Vercel frontend connects, external exposure without JWT/API keys.
-- Files: `src/api/routes/` (all endpoints), `services/` (no auth checks)
-- Current mitigation: None. Runs on localhost only; no external exposure yet.
-- Recommendations: (1) Add JWT middleware for human users (Vercel frontend login flow). (2) Add API key support for machine consumers. (3) FastAPI `Depends(verify_auth)` single injection point. See design: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md` (section 9).
-
-**IBKR Credentials — Environment Variable:**
-- Risk: `IBKR_HOST` in `.env` must be kept secret. If `.env` leaks, attacker can connect to home TWS instance and execute trades.
-- Files: `.env` (NEVER committed), `src/config/settings.py` (loads via Settings)
-- Current mitigation: `.env` in `.gitignore`. Local machine only.
-- Recommendations: (1) Use separate credentials file for production (not checked in). (2) If containerizing, use Docker secrets or HashiCorp Vault. (3) Rotate API keys periodically.
-
-**No Rate Limiting:**
-- Risk: Backend has no rate limits. A local script can flood endpoints with requests, consuming all database connections.
-- Files: All FastAPI routes in `src/api/routes/`
-- Current mitigation: Internal use only (localhost).
-- Recommendations: Add FastAPI middleware with redis-based rate limiting (e.g., `slowapi`). Tie to API key tier.
-
-## Performance Bottlenecks
-
-**Plugin Circuit Breaker — Complexity at Scale:**
-- Problem: `src/core/plugin_circuit_breaker.py` (596 lines) implements sophisticated failure recovery: state tracking, fallback execution, recovery testing, LangGraph integration. While robust, it adds latency (async overhead, metrics recording) to every plugin call.
-- Files: `src/core/plugin_circuit_breaker.py`, all service files that instantiate it
-- Cause: Over-engineered for current 57-plugin workload. Per-plugin failure tracking, metrics, and recovery testing adds ~5-10ms latency per bar processing.
-- Improvement path: (1) Profile to confirm overhead vs production value. (2) If latency is unacceptable, decouple circuit breaker to async background thread (not on hot path). (3) Consider lazy initialization — only track plugins that actually fail.
-
-**Indicator Computation — Deques at Scale:**
-- Problem: Backfill and replay use Python `deque(maxlen=200)` for bar history. At 23 contracts × 4 timeframes × multiple lookback windows, memory fragmentation and deque copies can accumulate.
-- Files: `production/scripts/historical_backfill.py` (bar_histories dict with deques), `src/indicators/incremental_manager.py` (similar pattern)
-- Cause: Deques are convenient but inefficient at large scale. Each deque copy on FIFO rotation copies 200 bars.
-- Improvement path: (1) Use numpy arrays with rolling index (O(1) rotation instead of O(n)). (2) Benchmark deque vs numpy at current scale — may be acceptable. (3) For backfill specifically, switch to pandas DataFrame with `.iloc[-200:]` slicing (vectorized, faster).
-
-**JSONB Queries — Index Strategy Missing:**
-- Problem: New `intelligence_features` table will store full JSONB payload. Without proper GIN indexes on sub-keys (e.g., `i4.garch_sigma`), queries will scan full column.
-- Files: `production/migrations/` (index strategy not yet defined)
-- Cause: JSONB queries are powerful but require deliberate indexing. Generic GIN on top-level keys won't help nested queries.
-- Improvement path: (1) Add GIN indexes on frequently queried keys: `CREATE INDEX ON intelligence_features USING GIN ((i4->>'garch_sigma'))`. (2) Cluster table by (symbol, tf, ts) for time-range queries. (3) Use `jsonb_path_ops` for prefix searches. (4) Test query plans before enabling historical backfill to 365 days.
-
-**TimescaleDB Compression — Warm-up Stalls:**
-- Problem: Compression policy runs every 7 days. When chunks are compressed, first query after compression decompresses entire chunk (~1GB) into memory before filtering. Can stall queries for seconds.
-- Files: `production/migrations/006_timescale_compression_retention.sql`, `production/migrations/007_fix_compress_orderby_and_retention.sql`
-- Cause: TimescaleDB optimization strategy trades insert speed for query latency. Acceptable for cold data, not for active features.
-- Improvement path: (1) Compress only data > 30 days old (not 7 days). (2) Stagger compression to background hours. (3) Monitor decompression latency with `timescaledb.compressed_chunk_decompress_count` metric. (4) Archive to cold storage (S3) after 90 days if seasonal analysis is the only consumer.
-
-## Fragile Areas
-
-**Intelligence Processor Dependency Chain:**
-- Files: `services/intelligence_processor_service.py` (707 lines), depends on `market:` stream format, raw OHLCV handling, I1 recomputation.
-- Why fragile: Single service with multiple responsibilities (stream consumption, I1 computation, I3-I6 execution, Redis publishing). If one part breaks, whole service stops. I1 recomputation duplicates logic from `indicator_service.py` — if either changes, they diverge.
-- Safe modification: Before touching, audit consumers. Create feature flag to toggle between `intelligence_processor_service` and `market_analysis_service`. Run parallel for 1 week, then migrate consumers.
-- Test coverage: Likely has unit tests but no integration tests with actual `market:` stream. Add E2E test with real IBKR data.
-
-**Plugin Registry — Tier Validation at Startup:**
-- Files: `src/intelligence/register_plugins.py` (tier constants), `services/` (import and use tier constants)
-- Why fragile: v4.9.1 refactor moved all tier lists to `register_plugins.py` constants. If plugin is added but not added to correct TIER_* list, service crashes on startup (`PluginRegistry.validate_tier()` hard-crashes). Good for safety, but requires exact coordination.
-- Safe modification: When adding new plugin: (1) Add to plugin file (e.g., `src/intelligence/patterns/`). (2) Add to `registry.register_plugin()` call in `register_plugins.py`. (3) Add to correct `TIER_*` constant. (4) Add to all 5 service files that use tiers. (5) Run services and verify startup succeeds.
-- Test coverage: Unit tests for tier constants exist. No test that verifies service startup validates tiers correctly.
-
-**Multi-Service Stream Synchronization:**
-- Files: `services/indicator_service.py`, `services/market_analysis_service.py`, `services/signal_generator_service.py`, all consuming from Redis Streams
-- Why fragile: If any service lags or crashes, stream consumer group falls behind. Other services waiting on features from lagging service will get stale data. No backpressure mechanism.
-- Safe modification: Monitor consumer group lag (`XINFO GROUPS intelligence:SYMBOL:TF`). Set up alerts for lag > 1000ms. If lag spikes, manually ack previous batch and resume.
-- Test coverage: No tests for multi-service lag or coordination. Add integration test: start all services, inject load, verify lag stays < threshold.
-
-**Backfill Script — Replay Quality Variance:**
-- Files: `production/scripts/historical_backfill.py` (686 lines, 17 unit tests)
-- Why fragile: Stage 2 replay (I1-I7 from OHLCV) drops plugin state. First ~50 bars of replay have degraded quality (especially GARCH/Kalman). If backfill is rerun with different date range, state variance is inconsistent.
-- Safe modification: Before running backfill, review design doc for state persistence plan (`docs/plans/2026-02-22-unified-intelligence-data-bus-design.md` section 3). Implement plugin state save/restore, then rerun entire backfill for consistency.
-- Test coverage: 17 unit tests for script. Tests mock IBKR and DB. No test for full end-to-end replay with real data. Run manually on test DB with 30 days of real IBKR data before production run.
-
-**Dashboard SSE Connection — No Reconnect Logic:**
-- Files: `src/api/routes/sse.py`, `dashboard/src/hooks/use-market-stream.ts`
-- Why fragile: SSE is stateless HTTP streaming. If backend crashes or network hiccups, frontend loses connection. Frontend has no auto-reconnect, no fallback, no buffer of missed updates.
-- Safe modification: (1) Add exponential backoff reconnect in `use-market-stream.ts` (start 1s, max 30s). (2) Add message deduplication (include sequence number). (3) Add last-seen timestamp; query history on reconnect to fill gap.
-- Test coverage: No tests for SSE. Add test: start stream, simulate network dropout, verify auto-reconnect succeeds.
-
-## Scaling Limits
-
-**Redis Retention — Per-Symbol Limits:**
-- Current capacity: `maxlen=2000` per stream. At 23 contracts × 4 timeframes = 92 streams. Total retention = ~92 × 2000 = 184K messages ≈ 18 seconds of data at 10K msgs/sec market velocity.
-- Limit: Subscriber lag > 18s = data loss. If backfill reader is slow, will miss bars.
-- Scaling path: (1) Accept ephemeral Redis, rely on TimescaleDB for durable history. (2) For backfill, switch to direct DB read instead of streaming (already done in backfill.py — no longer uses streams). (3) Monitor lag; if frequent lag spikes, increase `maxlen` to 5000 (uses more memory).
-
-**TimescaleDB Connection Pool — Async Overhead:**
-- Current capacity: Default psycopg2 pool (5 connections). With 7 services + backfill + dashboard, can exhaust pool if one service crashes and doesn't release connections.
-- Limit: Database lock timeout (default 30s). Long-running queries block others.
-- Scaling path: (1) Use `asyncpg` with larger pool (20 connections) for async services. (2) Monitor pool exhaustion: `SELECT count(*) FROM pg_stat_activity WHERE state = 'active'`. (3) Set statement timeout to 30s to abort runaway queries.
-
-**Dashboard Concurrency — WebSocket vs SSE:**
-- Current capacity: SSE (Server-Sent Events) can handle ~100 concurrent clients with 1-2 message/sec throughput on a single FastAPI worker.
-- Limit: If dashboard goes viral (100+ concurrent users), backend will hit CPU/memory limits. Single worker will saturate.
-- Scaling path: (1) Run FastAPI with multiple workers (e.g., gunicorn -w 4). (2) Switch from SSE to WebSocket for true bidirectional (allows Vercel frontend to send queries, not just consume broadcast). (3) Add Redis pub/sub for multi-worker coordination (broadcast to all workers' SSE clients).
-
-**IBKR Rate Limits — Contract Limits:**
-- Current capacity: 23 contracts, 6 timeframes = 138 active subscriptions. IBKR allows ~40-50 simultaneous subscriptions per account.
-- Limit: >50 subscriptions = connection errors, auto-disconnect.
-- Scaling path: (1) If expanding to 50+ contracts, need separate IBKR account or reduce timeframes. (2) Use market data snapshot mode (poll instead of subscribe) for low-velocity timeframes (4h, 1d). (3) Rotate subscriptions dynamically — subscribe to active contracts only during trading hours.
-
-## Test Coverage Gaps
-
-**Multi-Service Integration — No E2E Tests:**
-- What's not tested: Full pipeline from IBKR tick → `market:` stream → `indicator_service` → `indicators:` stream → `market_analysis_service` → `intelligence:` stream → dashboard SSE. If any service is down, integration breaks silently.
-- Files: Tests exist for individual services (`test_indicator_service.py`, etc.). No `test_e2e_pipeline.py`.
-- Risk: Deployment failures go unnoticed until production. A service refactor that breaks the stream format will only be caught when dashboard breaks.
-- Priority: High. Add E2E test: mock IBKR, start all services, inject bars, verify dashboard receives updates.
-
-**Plugin State Persistence — Protocol Not Tested:**
-- What's not tested: `get_state()` / `restore_state()` methods on stateful plugins. No test verifies that state saved at shutdown can be loaded at startup.
-- Files: No test file for plugin state protocol. `src/intelligence/context/garch_volatility.py` and `kalman_trend.py` don't have test coverage for state methods.
-- Risk: When state persistence is implemented (see Tech Debt section), it will break silently because there are no tests.
-- Priority: Medium (blocking). Before implementing state persistence, write tests for each stateful plugin's state protocol.
-
-**Backfill Replay Quality Validation — No Assertions:**
-- What's not tested: First 50 bars of replay have degraded indicator quality due to warm-up loss. No test verifies that replay quality is acceptable.
-- Files: `production/scripts/historical_backfill.py` (Stage 2 replay), 17 unit tests (all mock DB).
-- Risk: Backfill runs to completion but signals have poor quality. ML model trains on degraded data. No one notices until model performance is poor in production.
-- Priority: Medium. Add test: run backfill, compare first-50-bars RSI/MACD values vs live computation on same data. Assert that degradation is < 5%.
-
-**SSE Streaming — Load Tests Missing:**
-- What's not tested: Dashboard SSE under concurrent load. How many clients before connection drops? What message throughput before backend saturates?
-- Files: `src/api/routes/sse.py` (no load tests), `dashboard/` (no load tests).
-- Risk: 50 concurrent dashboard users → backend crashes. Unknown until production.
-- Priority: Low (nice-to-have, acceptable failure mode for 1.0). Before external Vercel frontend launch, add locust test: 50 concurrent clients, verify <5% message drop rate.
-
-**Retention Policy Cleanup — No Verification:**
-- What's not tested: Retention policies actually delete expired data. No test verifies that `signal_ledger` rows > 365 days old are deleted.
-- Files: Retention policies defined in `production/migrations/007_fix_compress_orderby_and_retention.sql`. No test.
-- Risk: Retention policy is misconfigured or never applied. Database grows unbounded. No one notices until disk is full.
-- Priority: High (critical). Add test: insert a row with timestamp 400 days ago, wait 1 day, verify it's deleted.
-
-## Known Bugs
-
-**Dashboard Component Missing — No Longer Generated:**
-- Symptoms: Dashboard signals/narrative panels wired (v4.4.0). But if a new component is added to `signal_orchestrator_service.py` output, dashboard doesn't auto-generate new panels.
-- Files: `dashboard/src/components/` (manual component library), `services/signal_orchestrator_service.py` (hardcoded output schema)
-- Trigger: Add new signal component to orchestrator → dashboard doesn't show it → admin confusion.
-- Workaround: Manually add React component to dashboard, wire to SSE payload. No auto-generation.
-- Status: Accepted limitation — no plans to auto-generate (too risky). Documented in STATUS.md.
-
-## Missing Critical Features
-
-**Alert System — No Alerts Defined:**
-- Problem: No alerts for critical failures: service crashes, lag spikes, DB errors, IBKR disconnects.
-- Blocks: Production monitoring. If service crashes at 3am, no one knows until market opens and trades don't execute.
-- Recommended implementation: Integrate with health endpoints (`:9109/health` for indicator service, etc.). Poll every 30s. Alert on 2 consecutive failures. Send to Slack/email.
-
-**HTTPS Reverse Proxy — Required for External Frontend:**
-- Problem: Backend FastAPI runs on `:8000` HTTP. Vercel frontend will refuse to call HTTP endpoint (CORS/security).
-- Blocks: External frontend access. Currently blocked.
-- Recommended implementation: Cloudflare Tunnel (free, no port forwarding). See design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md` (section 11).
-
-**Feature Writer Service — Not Yet Implemented:**
-- Problem: `intelligence_features` hypertable defined in design but Feature Writer Service (`services/feature_writer_service.py`) does not exist. Intelligence data flows to Redis, not persisted to cold storage.
-- Blocks: Historical feature access, ML training data collection, backtest replay with full context.
-- Recommended implementation: See design doc Phase 2: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md` (section 7).
+IndicAgent v1.7 is structurally sound (1503 tests passing, plugin system mature, data pipeline stable) but carries **accumulated technical debt from rapid feature velocity**: 139 ruff errors (mostly fixable), hard-coded signal status strings (error-prone), infrastructure blocking data repair (PostgreSQL memory issue), and several fragile patterns in service initialization. None are critical, but collectively they represent operational risk and maintainability drag.
 
 ---
 
-*Concerns audit: 2026-02-22*
+## Ruff Linting Debt
+
+**Priority:** Medium (code quality)
+**Impact:** None (runtime), but adds noise to CI/CD and hides real issues in output
+
+**Current Status:**
+- 89 E501 errors (line too long >100 chars) across production code
+- 41 are auto-fixable with `--fix` flag
+- Mostly in `production/scripts/historical_backfill.py` (34 errors concentrated here)
+
+**Files Most Affected:**
+- `production/scripts/historical_backfill.py` (34 E501) — docstrings and help text exceeding 100 chars
+- Scattered across `src/` and `services/` (remaining 55)
+
+**Action:** Run `.venv/bin/ruff check . --fix` to auto-fix. For remaining docstring overflows, split long lines in docstrings or wrap help text manually.
+
+**Follow-up:** Add pre-commit hook check to prevent new E501 errors from landing.
+
+---
+
+## Signal Status Strings — No Enum, Raw Literals Everywhere
+
+**Priority:** High (error-prone, scattered)
+**Impact:** Silent bugs if any service forgets a status value; refactoring nightmares; no IDE autocomplete
+
+**Current State:**
+Signal status is represented as raw string literals across **5 files**:
+- `src/intelligence/trading/signal_ledger.py` — `status: str = "pending"`
+- `src/intelligence/trading/lifecycle_tracker.py` — two string comparisons `if status == "pending"`
+- `services/signal_generator_service.py` — assignment `entry_status = "pending" if ... else "regime_suppressed"`
+- `services/signal_lifecycle_service.py` — 4 status comparisons spread across activation + lifecycle logic
+
+**Valid Statuses:** `"pending"`, `"active"`, `"regime_suppressed"` (no others currently)
+
+**Risk:**
+1. Typo in any status string is silent — comparison fails, signal quietly skipped
+2. Adding a fourth status requires changes across all 5 files with high error risk
+3. No IDE autocomplete — developers must remember the three strings
+4. Lifecycle state machine is implicit (hardcoded in if/else chains) instead of explicit
+
+**Fix Approach:**
+1. Create `src/intelligence/trading/signal_status.py` with Python enum:
+   ```python
+   from enum import Enum
+
+   class SignalStatus(Enum):
+       PENDING = "pending"
+       ACTIVE = "active"
+       REGIME_SUPPRESSED = "regime_suppressed"
+   ```
+2. Update all files to use `SignalStatus.PENDING` instead of `"pending"`
+3. Update DB schema migration to include CHECK constraint on status values
+4. Add to `.planning/todos/pending/` as v1.8 cleanup task
+
+---
+
+## Sequential Stream Polling in `feature_writer_service`
+
+**Priority:** Medium (performance, documented)
+**Impact:** 5-10ms latency per stream × 92 streams = worst-case ~920ms lag before feature write
+
+**Current Behavior:**
+`feature_writer_service._base_process_loop()` at line 494+ reads from intelligence: streams via `xreadgroup`. However, the service consumes **I7 and I8 enrichment streams separately** in subsequent async tasks:
+- `_process_loop()` — reads intelligence: streams (base features)
+- `_enrich_i7_loop()` — reads intelligence_i7: streams (separate consumer group)
+- `_enrich_i8_loop()` — reads intelligence_i8: streams (separate consumer group)
+
+Each loop blocks independently (default 100ms block per stream). If I7/I8 data arrives out of sync with base intelligence features, rows can be written without enrichment, then upserted later.
+
+**Better Pattern (proven in `market_analysis_service`):**
+Single `xreadgroup` call with dict of all streams:
+```python
+all_streams = {name: ">" for name in self._stream_map}
+messages = await self.redis_client.xreadgroup(
+    group, consumer, all_streams, count=10, block=1000
+)
+```
+
+**Todo Exists:**
+`.planning/todos/pending/2026-02-24-fix-sequential-stream-polling-in-feature-writer-service.md` (not yet tackled)
+
+**Recommendation:**
+Refactor to single `xreadgroup` after v1.7 ships. Low urgency — current batch flush model absorbs latency well. Flag for v1.8.
+
+---
+
+## Service Test Pattern — Manual `__new__` Attribute Synchronization
+
+**Priority:** Medium (fragile test maintenance)
+**Impact:** Test bugs if service `__init__` is modified without updating all test fixtures
+
+**Current Pattern:**
+Unit tests in `tests/unit/service_tests/` and `tests/unit/services/` use `ServiceClass.__new__(ServiceClass)` to bypass `__init__`, avoiding full service initialization:
+
+```python
+svc = IndicatorService.__new__(IndicatorService)
+svc.bar_history = defaultdict(OrderedDict)
+svc._bar_history_max = 5
+svc._plugin_cache = {}
+svc._i1_plugin_states = {}
+# ... manually set 8-10 more attributes
+```
+
+**Problem:**
+When `__init__` adds a new instance attribute (e.g., `self._new_field = ...`), **tests silently fail** if the test fixture doesn't set it. The error is indirect: `AttributeError: 'IndicatorService' object has no attribute '_new_field'` appears deep in a method, not at setup.
+
+**Examples (already affected):**
+- `tests/unit/service_tests/test_concurrent_lock_behavior.py` — 4 test functions manually set `_*_locks` dicts
+- `tests/unit/service_tests/test_feature_writer_service.py` — manually sets logger, config
+- `tests/unit/test_indicator_service_warmup.py` — manually sets config, bar_history, plugin fields
+
+**Safer Alternative:**
+1. Extract init logic into a `_init_attributes()` method, call from both `__init__` and test fixture builder
+2. Or create a `ServiceTestFactory` helper that mimics `__init__` setup without async/Redis/DB calls
+3. Add a test that verifies the two paths stay in sync
+
+**Recommendation:**
+Document the risk in code comments. Create a pattern guide in `src/core/service_utils.py` for safe test fixtures. Flagged for v1.8+ refactor.
+
+---
+
+## CIS Data Repair Blocked by PostgreSQL Shared Memory Issue
+
+**Priority:** High (data quality, infrastructure)
+**Impact:** 1,863,228 NULL `cis_score` rows in `signal_ledger` cannot be repaired; ML training data incomplete
+
+**Situation:**
+Phase 25 (CIS Data Repair) code is **complete and tested** (11 tests passing):
+- `production/scripts/repair_cis_nulls.py` — audit + repair script
+- `tests/unit/scripts/test_repair_cis_nulls.py` — TDD test suite
+
+**However:** Running the audit query on the 1.8M NULL rows causes PostgreSQL to crash:
+```
+psycopg2.errors.DiskFull: could not resize shared memory segment
+```
+
+Error is misleading — not actually a disk space issue. Root cause is PostgreSQL shared memory segment allocation when processing large result sets. Multiple mitigation attempts:
+- Increased `work_mem` from 6MB → 256MB
+- Tested `shared_buffers` at 16GB → 4GB
+- Added table aliases to prevent ambiguous columns
+- Batch fetching with `fetchmany(1000)` to reduce per-iteration memory
+
+**Code Status:**
+- Backfill fix committed: `15297a4` — `historical_backfill.py` now passes `features=` kwarg, CIS fields will populate for future backfill runs
+- Repair script code committed; ready to run once PostgreSQL issue resolved
+
+**Data Debt:**
+- **Backfill-able rows:** ~1.8M — can recover if PostgreSQL memory can be tuned
+- **Orphaned rows:** Unknown count — rows with NULL `cis_score` and NO matching `intelligence_features` row (lost to gaps)
+
+**Resolution Path:**
+1. Docker PostgreSQL container memory constraints (cgroup limits) — check `docker inspect timescaledb | grep -i memory`
+2. PostgreSQL config tunables (`max_locks_per_transaction` already raised to 16384 on 2026-03-07)
+3. Consider split the repair into multiple smaller transactions (symbol-by-symbol)
+4. Last resort: manual DELETE of orphaned rows, then VACUUM
+
+**Temporary Workaround:** Future backfill runs will populate CIS fields correctly. Over time, as live signals accumulate, the problem becomes less severe (only old historical signals remain affected).
+
+---
+
+## Consumer Group Silent Failure Pattern
+
+**Priority:** Medium (operational)
+**Impact:** After service restart, if consumer group exists, `xgroup_create(..., "$")` silently fails → service processes entire backlog instead of starting at latest
+
+**Pattern:**
+```python
+try:
+    await redis_client.xgroup_create(stream, group, "$")
+except redis.ResponseError:
+    pass  # Group already exists
+```
+
+**Problem:**
+When the group exists, Redis silently returns error, group position is NOT reset, and service begins consuming from wherever it left off. If the service was stopped for hours, it could replay 100+ backlog messages.
+
+**Mitigation Deployed:**
+Commit `137fcc7` (2026-02-28) added the proper fix in `src/core/stream_utils.py`:
+```python
+async def ensure_consumer_group_with_reset(redis_client, stream, group):
+    try:
+        await redis_client.xgroup_create(stream, group, "$")
+    except redis.ResponseError:
+        # Group exists — force reset to "$" (latest)
+        await redis_client.xgroup_setid(stream, group, "$")
+```
+
+**Current Status:**
+✅ Fixed across all services:
+- `indicator_service.py` — uses `ensure_consumer_group_with_reset`
+- `signal_generator_service.py` — uses `ensure_consumer_group_with_reset`
+- `market_analysis_service.py` — uses `ensure_consumer_group_with_reset`
+- `feature_writer_service.py` — uses `ensure_consumer_group_with_reset`
+
+**No action needed** — pattern is already fixed. Document as a "gotcha" in service development guide.
+
+---
+
+## Aggregator Must Derive `active` from `all_ranked`, Not Raw `signals`
+
+**Priority:** High (correctness, subtle bug risk)
+**Impact:** If `active` is derived from raw `signals` instead of `all_ranked`, the performance weighting system (`perf_multiplier`) silently has zero effect on winner selection
+
+**Current Correctness:**
+`src/intelligence/trading/aggregator.py` correctly derives `active` from `all_ranked`:
+```python
+all_ranked = _build_all_ranked(...)  # Applies perf_multiplier
+active = [s for s in all_ranked if s.get("regime_eligible", True)]
+```
+
+**Risk Area:**
+If someone adds a new aggregation mode or modifies winner selection logic, they might mistakenly use:
+```python
+# WRONG:
+active = [s for s in signals if s.get("regime_eligible", True)]
+# RIGHT:
+active = [s for s in all_ranked if s.get("regime_eligible", True)]
+```
+
+**Gotcha Details:**
+- `_build_all_ranked()` copies signal dicts and adds `adjusted_rank` field
+- Raw `signals` list is never modified — `perf_weights` are only applied during the copy
+- The bug is silent: signals still fire, just with wrong priority
+
+**Mitigation:**
+1. Add a comment in `aggregator.py` at the `active` derivation point:
+   ```python
+   # CRITICAL: Always derive active from all_ranked, NOT raw signals
+   # all_ranked applies perf_multiplier weighting; raw signals don't have adjusted_rank
+   ```
+2. Add assertion in tests: verify that `active[0].get("adjusted_rank")` exists and matches `all_ranked[0]`
+3. Document in `src/intelligence/CLAUDE.md` under Gotchas section (already partially done)
+
+**Status:** ✅ Currently correct in code. High risk of regression if refactored.
+
+---
+
+## Missing Cross-TF Confluence Features
+
+**Priority:** Low (feature gap, research-first)
+**Impact:** CIS scoring and confluence metrics ignore cross-TF alignment for FVG and Order Blocks
+
+**Current State:**
+`src/intelligence/confluence/cross_timeframe.py` has placeholder zeros:
+```python
+"i6_fvg_tf_alignment": 0.0,   # TODO: FVG overlap across TFs — implement in next pass
+"i6_ob_tf_alignment": 0.0,    # TODO: OB confluence across TFs — implement in next pass
+```
+
+**What's Needed:**
+1. Multi-TF FVG sweep detection (e.g., 1m FVG filled on 5m bar)
+2. Multi-TF order block alignment (same level across 1m/5m/15m/1h)
+3. Tier 1 priority but deferred to v1.8+ after signal lifecycle closes
+
+**Analysis:**
+`.planning/IDEAS.md` and `docs/ideas/i6-confluence-expansion.md` document this. Research phase already complete.
+
+---
+
+## PostgreSQL Transaction Locking Gotcha
+
+**Priority:** Medium (operational knowledge)
+**Impact:** Full-table operations (COUNT(*) on 10k-chunk hypertable) can hit `max_locks_per_transaction` limit
+
+**Background:**
+`market_data_ohlcv` hypertable has **10,083 chunks** (7-year OHLCV backfill = 1,826 days × 1m bars). Running COUNT(*) or a broad JOIN locks all chunks. Previous value: 512 (too low). Raised to 16384 on 2026-03-07.
+
+**Mitigation Deployed:**
+1. `production/scripts/pipeline_reset.py` (_row_count function) — now uses `reltuples` estimate instead of COUNT(*)
+2. `production/migrations/022_db_optimization.sql` — raised to 16384
+
+**Gotcha:**
+Changes to `max_locks_per_transaction` require PostgreSQL server restart (postmaster setting, not online tunable).
+
+```bash
+# How to apply:
+ALTER SYSTEM SET max_locks_per_transaction = 16384;
+docker compose restart timescaledb
+```
+
+**Status:** ✅ Fixed for current infrastructure.
+
+---
+
+## Incomplete LLM Call Tracking
+
+**Priority:** Medium (observability)
+**Impact:** Missing cost analysis, error debugging, and model optimization signals
+
+**Current Gaps:**
+
+| Field | Status | Issue |
+|-------|--------|-------|
+| `tokens_in` / `tokens_out` | Missing | Using word-count proxy; Ollama response has real counts |
+| `error_message` | Missing | `succeeded=False` rows have no detail (timeout vs OOM vs bad format) |
+| `cis_score`, `entry_zone_low/high` | Columns exist, never filled | Available in signal context but not persisted |
+| Retry chain visibility | Missing | Only final winning provider logged; failures silent |
+| Request params | Missing | `temperature`, `max_tokens` not logged |
+
+**Files Involved:**
+- `services/ai_narrative_service.py` — publish side
+- `services/llm_writer_service.py` — insert side
+- `src/intelligence/schemas.py` — schema definitions
+
+**Analysis:**
+Detailed breakdown in `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md`
+
+**Implementation Order (easiest first):**
+1. Real token counts — Ollama already returns `prompt_eval_count` / `eval_count`
+2. Error message on failures — capture exception in except block
+3. Fill `cis_score` / zone fields — wire through publish payload
+4. Request params — add `temperature`, `max_tokens` to schema
+
+**Recommendation:**
+Queue for v1.8+ after Phase 27 ships. Low urgency but high ROI for model tuning.
+
+---
+
+## Dashboard I7 All-Ranked Panel — Missing SSE Route
+
+**Priority:** Medium (feature incomplete)
+**Impact:** Cannot display all ranked setups in real time; drill panel only shows active signal
+
+**Current State:**
+- SSE streams exist for: indicators, intelligence (I1-I6), signals_aggregated, narratives
+- Signal selection model publishes best signal to `signals:SYMBOL:TF:aggregated` (single winner)
+- `i7` JSONB in `intelligence_features` contains **all ranked setups** but never streams to client
+
+**Missing Piece:**
+No SSE route for full `i7` array (all fired + ranked setups). Would need:
+1. New Redis stream: `intelligence_i7_all_ranked:SYMBOL:TF` (or extend existing i7 stream schema)
+2. SSE endpoint `/api/sse/intelligence?symbol=ES&timeframe=1m&domain=i7_all_ranked`
+3. Dashboard panel rendering all ranked setups with scores/ranks
+4. Use-market-stream hook to subscribe and cache
+
+**Analysis:**
+Partially planned in Phase 27 (Signal Lifecycle Stream Events) but deferred to post-v1.7. Design doc: `docs/plans/2026-03-06-signal-lifecycle-stream-events-design.md`
+
+**Todo Reference:**
+`.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md` — marked as "LARGELY COMPLETE" but all_ranked panel is the one remaining gap
+
+---
+
+## Dead Database Table — `technical_indicators`
+
+**Priority:** Low (cleanup)
+**Impact:** Schema confusion, zero functional impact (table is never written to)
+
+**Evidence:**
+- 4 rows, last written Feb 22 – Mar 1
+- Zero active services write to it (confirmed via grep of `src/` and `services/`)
+- Pipeline uses `intelligence_features` (full JSONB feature vectors) instead
+
+**Cleanup Action:**
+1. Confirm via grep: `grep -r "technical_indicators" src/ services/`
+2. Write migration `026_drop_technical_indicators.sql`:
+   ```sql
+   DROP TABLE IF EXISTS public.technical_indicators CASCADE;
+   ```
+3. Update `docs/guides/database-management.md`
+
+**Todo:**
+`.planning/todos/pending/2026-03-06-audit-and-remove-dead-database-tables.md` — scheduled for v1.8
+
+---
+
+## VACUUM Cannot Run Inside Transaction Block
+
+**Priority:** Low (operational knowledge)
+**Impact:** Cannot VACUUM inside a PL/pgSQL function or multi-statement transaction
+
+**Pattern:**
+```sql
+-- WRONG: PostgreSQL error
+BEGIN;
+VACUUM indicagent;
+COMMIT;
+
+-- RIGHT: Standalone command
+VACUUM indicagent;
+```
+
+**Workaround:**
+Run VACUUM directly in psql, or write a shell script that issues separate `psql -c "VACUUM ..."` commands.
+
+**When Needed:**
+After large backfill or signal_ledger cleanup migrations to recover bloat.
+
+**Status:** ✅ Documented in `.planning/db-operations.md` memory file. No code changes needed.
+
+---
+
+## Service `__init__` Timing — Health Check Before Redis Ready
+
+**Priority:** Low (race condition, low probability)
+**Impact:** Health check endpoint returns 503 if queried before Redis connection succeeds
+
+**Pattern:**
+Services start health check server immediately, but Redis connection is async and may not complete instantly:
+
+```python
+def __init__(self):
+    # Health check server starts here
+    start_metrics_server(port=9116)
+
+    # But Redis connection happens in async main()
+    async def main(self):
+        self.redis_client = await redis.Redis(...).from_url(...)
+```
+
+**Risk:**
+If a probe hits `/health` before `redis_client` is initialized, checks that depend on Redis return false.
+
+**Current Mitigation:**
+Services initialize Redis in `async def run()` before entering main loop. Health check server is started early, but actual health checks verify `self.redis_client is not None`.
+
+**Recommendation:**
+Accept as low-priority (race window is <1s at startup). Document in service development guide.
+
+---
+
+## VWAP and Session Plugin Timeframe Guards — Missing
+
+**Priority:** Low (correctness, edge case)
+**Impact:** VWAP and session-based indicators may fire on inappropriate timeframes (e.g., 1d)
+
+**Status:**
+Todo exists: `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` (not yet researched)
+
+**Issue:**
+- VWAP resets at session open; only meaningful on intraday TFs (1m–4h)
+- Session context (London open, NY open) less relevant on 1d
+- Currently no guards prevent these plugins from running on all TFs
+
+**Research Required:**
+Which I1/I4/I5 plugins are sensitive to timeframe? Add explicit `valid_timeframes` attribute or InputSpec constraint.
+
+**Recommendation:**
+Queue for v1.8 after all Phase 27 work complete.
+
+---
+
+## Signal Generator Warmup Phase (COMPLETED v1.7)
+
+**Priority:** ✅ Resolved
+**Status:** Phase 26 complete — `signal_generator_service` now seeds `bar_history` from `intelligence_features` on startup
+
+**What Was Solved:**
+- Previously: 50-min warmup window before signals fire after restart (needed ~120 live 1m bars to warm up)
+- Now: DB seed at startup fills bar_history before consuming live stream
+- Graceful fallback: if DB unreachable, service logs WARNING and starts normally (falls back to live warmup)
+
+**References:**
+- Implementation: `services/signal_generator_service.py._seed_bar_history_from_db()`
+- Phase plan: `.planning/milestones/v1.7-phases/26-signal-generator-warmup/`
+
+---
+
+## Missing Broker-Agnostic Instrument Provider
+
+**Priority:** Low (future architecture)
+**Impact:** Adding a second broker (e.g., Coinbase, Kraken) requires tight coupling to IBKR code
+
+**Current State:**
+All asset/contract logic tightly coupled to IBKR in:
+- `src/providers/ibkr.py` — 592 lines, handles all IBKR-specific contract details
+- `src/config/settings.py` — hardcoded contract list
+
+**Vision:**
+Abstract instrument provider interface:
+```python
+class InstrumentProvider(Protocol):
+    async def subscribe(self, contract: InstrumentSpec) -> AsyncIterator[Tick]:
+        ...
+    async def fetch_historical_bars(self, contract, start, end, timeframe) -> List[Bar]:
+        ...
+```
+
+Multiple impls: `IBKRProvider`, `CoinbaseProvider`, etc.
+
+**Status:**
+Deferred to v2.0+ (see `.planning/todos/pending/2026-03-07-broker-agnostic-instrument-provider-meta.md`)
+
+---
+
+## Signal Lifecycle Redesign — Complete (v1.7)
+
+**Priority:** ✅ Resolved
+**Status:** Fully implemented and live
+
+**What Was Delivered:**
+- New `signal_lifecycle_service` — zone-aware signal tracking with MAE/MFE, outcome classification
+- 8-class outcome taxonomy: `never_activated`, `stopped_at_entry`, `stopped_in_trade`, `target_1`, `target_1_2`, `target_full`, `ttl_expired_ahead`, `ttl_expired_behind`
+- 14 new columns on `signal_ledger` for lifecycle tracking
+- Migration `015_signal_lifecycle_fields.sql` applied
+
+**References:**
+- Design: `docs/plans/2026-03-03-signal-lifecycle-redesign.md`
+- Phase: `.planning/milestones/v1.5-ROADMAP.md` (Phases 18-22)
+
+---
+
+## Test Coverage Gaps
+
+**Priority:** Low (informational)
+**Current:** 1503 tests passing
+
+**Known Untested Areas:**
+1. **Dashboard SSE reconnection** — reconnect logic in `use-market-stream.ts` is not end-to-end tested
+2. **Multi-symbol parallel aggregation** — aggregator tested on single symbol, not concurrent multiple
+3. **Service graceful shutdown under load** — SIGINT/SIGTERM handling with pending writes not fully stress-tested
+4. **PostgreSQL transaction failures** — retry logic in `database_manager.py` not tested for mid-batch failure
+5. **LLM fallback chain** — `llm_providers.py` fallback order tested, but not realistic timeout scenarios
+
+**No action needed** — coverage is solid for core logic. Add targeted tests as issues surface.
+
+---
+
+## Fragile Areas
+
+### 1. Plugin State Write-Back (`market_analysis_service`, `indicator_service`)
+**Files:** `services/market_analysis_service.py`, `services/indicator_service.py`
+**Why Fragile:** GARCH and HMM plugins fully reassign `_state` dict; must write back after `compute_full()` or changes are lost
+**Safe Modification:**
+- Never skip the `_plugin_states[key] = p._state` line after plugin computation
+- Always swap state onto plugin before calling compute: `p._state = self._plugin_states[key]`
+- Add assertion in tests to verify state persists across bars
+
+### 2. Signal Aggregation Logic (`aggregator.py`)
+**Files:** `src/intelligence/trading/aggregator.py`
+**Why Fragile:** Perf weighting only applies if `active` derives from `all_ranked` (not raw `signals`)
+**Safe Modification:**
+- Always use `active = [s for s in all_ranked if s.get("regime_eligible", True)]`
+- Never use raw `signals` for winner selection
+- Add comment explaining why this matters
+
+### 3. TimescaleDB Hypertable Indexes
+**Files:** `production/migrations/024_index_audit_and_optimization.sql`
+**Why Fragile:** 10k+ chunks × multiple TFs = complex index interactions; full table scans can hit lock limits
+**Safe Modification:**
+- Always use `reltuples` estimates instead of COUNT(*) for large tables
+- Batch large UPDATEs by symbol/TF to avoid locking all chunks
+- Monitor `pg_stat_statements` for slow queries after any schema change
+
+### 4. Consumer Group Position Reset
+**Files:** `src/core/stream_utils.py`, all services using `ensure_consumer_group_with_reset`
+**Why Fragile:** Group creation silently fails if group exists; must explicitly reset position
+**Safe Modification:**
+- Always use `ensure_consumer_group_with_reset()`, never raw `xgroup_create()`
+- Never catch `ResponseError` and silently ignore — must call `xgroup_setid()` to reset
+
+---
+
+## Summary of Action Items
+
+### Immediate (v1.7 completion)
+- [ ] Phase 27: Signal Lifecycle Stream Events (7 plans)
+
+### High Priority (v1.8)
+- [ ] Signal status enum (prevent typos)
+- [ ] CIS data repair (unblock PostgreSQL issue investigation)
+- [ ] Dashboard all_ranked panel (complete I7 visibility)
+
+### Medium Priority (v1.8–v1.9)
+- [ ] Fix sequential stream polling in feature_writer_service
+- [ ] LLM call tracking improvements (tokens, errors, context)
+- [ ] Service test pattern documentation
+- [ ] Ruff linting fixes (auto-fix + pre-commit hook)
+
+### Low Priority (v1.9+, nice-to-have)
+- [ ] Drop dead `technical_indicators` table
+- [ ] Research VWAP/session TF guards
+- [ ] Broker-agnostic instrument provider design
+- [ ] Dashboard SSE stress tests
+
+---
+
+*Concerns audit: 2026-03-11. Next review: after v1.7 ships and Phase 27 completes.*
