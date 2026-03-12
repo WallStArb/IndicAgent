@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 28-01-PLAN.md (intelligence_i7 SSE stream wiring)
-last_updated: "2026-03-12T21:28:09.285Z"
+stopped_at: Completed 28-04-PLAN.md (GET /api/signals/recent endpoint)
+last_updated: "2026-03-12T21:28:38.433Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 22
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 27-signal-lifecycle-stream-events P08 | 205 | 2 tasks | 3 files |
 | Phase 29-renaissance-signal-quality P01 | 4 | 1 tasks | 2 files |
 | Phase 28-dashboard-completion P01 | 2 | 2 tasks | 2 files |
+| Phase 28-dashboard-completion P04 | 8 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,8 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 27-signal-lifecycle-stream-events]: OutcomeBadge small prop added for compact banner use; signal-banner redesigned to two-line layout based on human verify feedback
 - [Phase 29-01]: Bucket methods return (float, dict[str,float]) tuple — public score() signature unchanged; contributions assembled in score()
 - [Phase 28-01]: intelligence_i7 startswith check placed before intelligence: to prevent shadowing; intelligence_i7 added to known_domains for env-prefix stripping
+- [Phase 28-dashboard-completion]: Route /signals/recent placed before /signals/{symbol} path param to prevent FastAPI matching 'recent' as symbol
+- [Phase 28-dashboard-completion]: Summary query runs against full signal_ledger (no LIMIT) so aggregate reflects full window, not just paged slice
 
 ### Pending Todos (addressed in v1.8)
 
@@ -91,6 +94,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T21:28:09.283Z
-Stopped at: Completed 28-01-PLAN.md (intelligence_i7 SSE stream wiring)
+Last session: 2026-03-12T21:28:38.431Z
+Stopped at: Completed 28-04-PLAN.md (GET /api/signals/recent endpoint)
 Resume file: None
