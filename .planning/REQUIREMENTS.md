@@ -34,8 +34,17 @@
 - [ ] **QUAL-06**: Killzone context wired as CIS time-of-day gate: confidence boosted during killzone opens (London/NY), reduced in dead sessions
 - [ ] **QUAL-07**: `HurstExponentPlugin` (I4) computes rolling Hurst exponent; H > 0.65 suppresses mean-reversion setups; H < 0.45 suppresses trend setups
 - [ ] **QUAL-08**: `ShannonEntropyPlugin` (I4) computes rolling return entropy; high entropy reduces all signal confidence by 30–50% as a universal noise gate
+- [ ] **QUAL-09**: KS distribution drift detection — periodic background job comparing current I1/I4 feature distributions to a baseline reference window; emits monitoring flag when KS p-value < 0.05 on key features; operates in "warming up" state until baseline window is filled
+- [ ] **QUAL-10**: CUSUM performance drift detection — detects when per-setup win rates are degrading relative to historical baseline; alerts before losses accumulate; uses `setup_performance` data (setups with N≥30 already active)
 
-### Candlestick Expansion (Phase 30)
+### LLM Call Tracking (Phase 31)
+
+- [ ] **LLM-01**: Real token counts (`prompt_eval_count` / `eval_count`) read from Ollama response and stored in `llm_calls` as `tokens_in` / `tokens_out`
+- [ ] **LLM-02**: Failed LLM calls store the exception message or HTTP error in an `error_message` column — no more silent `succeeded=False` with no detail
+- [ ] **LLM-03**: `cis_score`, `entry_zone_low`, `entry_zone_high` populated in `llm_calls` — values are available in the narrative context but currently not written
+- [ ] **LLM-04**: `temperature` and `max_tokens` logged per call in a `request_params` JSONB column
+
+### Candlestick Expansion (Phase 32)
 
 **Tier 1 — 10 new output fields:**
 - [ ] **CNDL-01**: `harami_bull` / `harami_bear` — small body inside prior body, directional color check
@@ -56,13 +65,9 @@
 
 **I7 wiring:**
 - [ ] **CNDL-14**: `CandlestickPatternSetupPlugin` (I7) extended to consume all 18 new directional fields with appropriate base confidences from research doc
-- [ ] **CNDL-15**: Tier 3 patterns (Abandoned Baby, Rising/Falling Three Methods, Kicker) documented as deferred in `candlestick_patterns.py` with comment explaining futures applicability gap
+- [ ] **CNDL-15**: Tier 3 patterns (Abandoned Baby, Rising/Falling Three Methods, Kicker) documented as deferred in `candlestick_patterns.py` with comment explaining futures applicability gap (gap-dependent; nearly non-existent in continuous 24/7 futures)
 
 ## v2 Requirements (Deferred)
-
-### Signal Quality — Tier 3 (needs more outcome data)
-- **QUAL-T3-A**: KS distribution drift detection — periodic background job comparing current feature distributions to baseline; alert on p < 0.05
-- **QUAL-T3-B**: CUSUM performance drift — detect when setup win rates are degrading before losses accumulate
 
 ### Dashboard — Deferred field groups
 - I3 Fib levels, Value Area, Session levels, Weekly pivots — large field group, needs collapsible section design
@@ -115,25 +120,31 @@
 | QUAL-06 | Phase 29 | Pending |
 | QUAL-07 | Phase 29 | Pending |
 | QUAL-08 | Phase 29 | Pending |
-| CNDL-01 | Phase 30 | Pending |
-| CNDL-02 | Phase 30 | Pending |
-| CNDL-03 | Phase 30 | Pending |
-| CNDL-04 | Phase 30 | Pending |
-| CNDL-05 | Phase 30 | Pending |
-| CNDL-06 | Phase 30 | Pending |
-| CNDL-07 | Phase 30 | Pending |
-| CNDL-08 | Phase 30 | Pending |
-| CNDL-09 | Phase 30 | Pending |
-| CNDL-10 | Phase 30 | Pending |
-| CNDL-11 | Phase 30 | Pending |
-| CNDL-12 | Phase 30 | Pending |
-| CNDL-13 | Phase 30 | Pending |
-| CNDL-14 | Phase 30 | Pending |
-| CNDL-15 | Phase 30 | Pending |
+| QUAL-09 | Phase 29 | Pending |
+| QUAL-10 | Phase 29 | Pending |
+| LLM-01 | Phase 31 | Pending |
+| LLM-02 | Phase 31 | Pending |
+| LLM-03 | Phase 31 | Pending |
+| LLM-04 | Phase 31 | Pending |
+| CNDL-01 | Phase 32 | Pending |
+| CNDL-02 | Phase 32 | Pending |
+| CNDL-03 | Phase 32 | Pending |
+| CNDL-04 | Phase 32 | Pending |
+| CNDL-05 | Phase 32 | Pending |
+| CNDL-06 | Phase 32 | Pending |
+| CNDL-07 | Phase 32 | Pending |
+| CNDL-08 | Phase 32 | Pending |
+| CNDL-09 | Phase 32 | Pending |
+| CNDL-10 | Phase 32 | Pending |
+| CNDL-11 | Phase 32 | Pending |
+| CNDL-12 | Phase 32 | Pending |
+| CNDL-13 | Phase 32 | Pending |
+| CNDL-14 | Phase 32 | Pending |
+| CNDL-15 | Phase 32 | Pending |
 
 **Coverage:**
-- v1 requirements: 36 total
-- Mapped to phases: 36
+- v1 requirements: 46 total
+- Mapped to phases: 46
 - Unmapped: 0 ✓
 
 ---

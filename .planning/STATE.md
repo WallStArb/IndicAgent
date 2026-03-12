@@ -7,7 +7,7 @@ stopped_at: Requirements defined — roadmap pending
 last_updated: "2026-03-11T00:00:00.000Z"
 last_activity: "2026-03-11 — Milestone v1.8 started, requirements defined (36 reqs, 4 phases)"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
