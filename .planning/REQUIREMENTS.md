@@ -15,7 +15,7 @@
 
 ### Dashboard Completion (Phase 28)
 
-- [ ] **DASH-01**: SSE subscribes to `intelligence_i7:SYMBOL:TF` stream and emits a `signal_scorecard` event per bar
+- [x] **DASH-01**: SSE subscribes to `intelligence_i7:SYMBOL:TF` stream and emits a `signal_scorecard` event per bar
 - [ ] **DASH-02**: Drill panel shows a Signal Scorecard — all ranked signals for the current bar with confidence, direction, composite rank, regime eligibility, and suppression reason
 - [ ] **DASH-03**: Suppressed signals display a human-readable suppression label (`< 60% conf` / `< 5 bars` / `wrong regime`)
 - [ ] **DASH-04**: `GET /api/signals/recent?symbol=&timeframe=&limit=` returns recent signals from `signal_ledger` for drill panel history
@@ -104,7 +104,7 @@
 | SIG-03 | Phase 27 | Pending |
 | SIG-04 | Phase 27 | Pending |
 | SIG-05 | Phase 27 | Pending |
-| DASH-01 | Phase 28 | Pending |
+| DASH-01 | Phase 28 | Complete |
 | DASH-02 | Phase 28 | Pending |
 | DASH-03 | Phase 28 | Pending |
 | DASH-04 | Phase 28 | Pending |
