@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 27-08-PLAN.md — Phase 27 plan 8 complete, human verify approved
-last_updated: "2026-03-12T16:40:41.381Z"
+stopped_at: Completed 29-01-PLAN.md (CIS constituent_contributions population)
+last_updated: "2026-03-12T16:41:32.799Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 22
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 27-signal-lifecycle-stream-events P02 | 3 | 2 tasks | 0 files |
 | Phase 27-signal-lifecycle-stream-events P07 | 5 | 1 tasks | 1 files |
 | Phase 27-signal-lifecycle-stream-events P08 | 205 | 2 tasks | 3 files |
+| Phase 29-renaissance-signal-quality P01 | 4 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 27-signal-lifecycle-stream-events]: signal-panel.tsx is the canonical home for OutcomeBadge — file retained as utility (SignalPanel deleted), single OutcomeBadge export used by both signal-banner and drill-panel
 - [Phase 27-signal-lifecycle-stream-events]: signal-panel.tsx is the canonical home for OutcomeBadge — file retained as utility, SignalPanel deleted
 - [Phase 27-signal-lifecycle-stream-events]: OutcomeBadge small prop added for compact banner use; signal-banner redesigned to two-line layout based on human verify feedback
+- [Phase 29-01]: Bucket methods return (float, dict[str,float]) tuple — public score() signature unchanged; contributions assembled in score()
 
 ### Pending Todos (addressed in v1.8)
 
@@ -87,6 +89,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T16:40:41.379Z
-Stopped at: Completed 27-08-PLAN.md — Phase 27 plan 8 complete, human verify approved
+Last session: 2026-03-12T16:41:32.797Z
+Stopped at: Completed 29-01-PLAN.md (CIS constituent_contributions population)
 Resume file: None

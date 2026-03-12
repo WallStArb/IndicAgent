@@ -26,7 +26,7 @@
 
 ### Renaissance Signal Quality (Phase 29)
 
-- [ ] **QUAL-01**: `cis_scorer.py` populates `constituent_contributions` JSONB with per-setup scores for each bucket — no longer always empty
+- [x] **QUAL-01**: `cis_scorer.py` populates `constituent_contributions` JSONB with per-setup scores for each bucket — no longer always empty
 - [ ] **QUAL-02**: Alpha decay multiplier applied in aggregator: repeated same-direction signals from the same setup within `alpha_half_life` bars are down-weighted
 - [ ] **QUAL-03**: Signal freshness exponential decay applied in `signal_lifecycle_service`: active signal confidence decays as `exp(-λ × bars_since_fire)`
 - [ ] **QUAL-04**: Per-setup cooldown window prevents the same setup firing in the same direction within `_SIGNAL_COOLDOWN_BARS` (3 bars for 1m, 2 bars for 5m+)
@@ -112,7 +112,7 @@
 | DASH-06 | Phase 28 | Pending |
 | DASH-07 | Phase 28 | Pending |
 | DASH-08 | Phase 28 | Pending |
-| QUAL-01 | Phase 29 | Pending |
+| QUAL-01 | Phase 29 | Complete |
 | QUAL-02 | Phase 29 | Pending |
 | QUAL-03 | Phase 29 | Pending |
 | QUAL-04 | Phase 29 | Pending |
