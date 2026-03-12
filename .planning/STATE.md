@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: Data Integrity
-status: completed
-stopped_at: Completed 26-01 — DB Seed Implementation
-last_updated: "2026-03-11T10:23:16.164Z"
-last_activity: "2026-03-11 — Plan 01 complete: DB seed implementation with 6 unit tests, 2 commits, 22 min execution"
+milestone: v1.8
+milestone_name: Signal Intelligence
+status: defining requirements
+stopped_at: Requirements defined — roadmap pending
+last_updated: "2026-03-11T00:00:00.000Z"
+last_activity: "2026-03-11 — Milestone v1.8 started, requirements defined (36 reqs, 4 phases)"
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 10
-  completed_plans: 3
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,66 +18,57 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-10)
+See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.7 Data Integrity — Phase 26: Signal Generator Warmup
+**Current focus:** v1.8 Signal Intelligence — defining requirements
 
 ## Current Position
 
-Phase: 26 of 26 (Signal Generator Warmup)
-Plan: 01 of 1
-Status: Plan 01 complete
-Last activity: 2026-03-11 — Plan 01 complete: DB seed implementation with 6 unit tests, 2 commits, 22 min execution
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 
-Progress: [██░░░░░░░░] 0% (v1.7)
+Progress: [░░░░░░░░░░] 0% (v1.8)
 
 ## Performance Metrics
 
 **Velocity (cumulative):**
-- Total plans completed: 82 (v1.0–v1.6)
+- Total plans completed: 85 (v1.0–v1.7)
 - Average duration: ~30 min/plan
-- Total execution time: ~41 hours
+- Total execution time: ~43 hours
 
-**Recent phases (v1.6):**
+**Recent phases (v1.7):**
 
 | Phase | Plans | Notes |
 |-------|-------|-------|
-| 23. Signal Generator Gate | 3 | Onset detection + flip suppression |
-| 24. Second-Derivative Acceleration | 7 | HMA + ExhaustionScore + AccelerationRegime + SwingMomentum |
-
-**Recent Trend:** Stable
-| Phase 25 P01 | 1093 | 1 tasks | 2 files |
-| Phase 25 P02 | 1093 | 1 tasks | 2 files |
-| Phase 26 P01 | 1371 | 1 tasks | 2 files |
-| Phase 25 P02 | 1280 | 2 tasks | 2 files |
-| Phase 26 P01 | 1371 | 1 tasks | 2 files |
+| 25. CIS Data Repair | 2 | Backfill fix + repair script |
+| 26. Signal Generator Warmup | 1 | DB seed on startup, graceful fallback |
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
+- [v1.8 scope]: Phase 27 (Signal Lifecycle Stream Events) — fully designed and planned, execute directly
+- [v1.8 scope]: Phase 28 (Dashboard Completion) — design written 2026-03-11; I7 all_ranked scorecard, drill signal history, GARCH/Kalman/SMC gaps, tooltips
+- [v1.8 scope]: Phase 29 (Renaissance Signal Quality) — T0-B + T1 (all 5 wire-ins) + T2-A/B (Hurst + Shannon entropy)
+- [v1.8 scope]: Phase 30 (Candlestick Expansion) — Tier 1 + Tier 2 (18 new patterns); Tier 3 deferred (gap-dependent, poor futures applicability)
 
-- [Phase 23]: _check_gate() onset detection — only fires signal when condition transitions false→true, not every bar condition holds
-- [Phase 24]: AccelerationRegime 4-vote system; ExhaustionScore RSI-gated; HMA registered as 25th I1 indicator
-- [v1.7 roadmap]: CIS repair split into code fix (backfill.py) + audit/repair script — two natural plans in Phase 25
-- [v1.7 roadmap]: Warmup seeding is a single self-contained plan in Phase 26 — DB read at startup, graceful fallback
+### Pending Todos (addressed in v1.8)
 
-### Pending Todos
-
-From .planning/todos/pending/:
-- 2026-03-06-dashboard-intelligence-field-gaps.md — largely complete, minor remaining work
-- 2026-02-24-fix-sequential-stream-polling-in-feature-writer-service.md — pre-existing, non-blocking
-- 2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md — research gate required first
+- 2026-03-06-dashboard-intelligence-field-gaps.md → Phase 28
+- 2026-03-11-drill-panel-signal-history-from-db.md → Phase 28
+- 2026-02-27-add-tooltips-to-intelligence-level-indicators.md → Phase 28
+- 2026-02-27-add-signal-history-view-to-dashboard.md → Phase 28
+- 2026-03-03-expand-i5-candlestickpatterns-and-i7-candlestickpatternsetup.md → Phase 30
 
 ### Blockers/Concerns
 
-None blocking v1.7 work.
+None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-11T10:00:06.153Z
-Stopped at: Completed 26-01 — DB Seed Implementation
+Last session: 2026-03-11
+Stopped at: Requirements defined — ready for roadmap creation
 Resume file: None
