@@ -8,6 +8,7 @@ import { deriveBarCloseIso, TF_OFFSETS } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import { useMemo } from "react";
 import { OutcomeBadge } from "@/components/signal-panel";
+import { TierTooltip } from "@/components/tier-tooltip";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -302,7 +303,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           />
 
           {/* I7 Signal */}
-          <Section label="I7 Signal">
+          <Section label={<TierTooltip tier="I7">I7 Signal</TierTooltip>}>
             {signal ? (
               <SignalDetail signal={signal} />
             ) : timeframe === "1m" ? (
@@ -313,7 +314,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           </Section>
 
           {/* I3 Structure */}
-          <Section label="I3 Structure">
+          <Section label={<TierTooltip tier="I3">I3 Structure</TierTooltip>}>
             {structure ? (
               <Grid>
                 <KV label="Trend" value={structure.swing_trend ?? "—"} />
@@ -347,7 +348,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           </Section>
 
           {/* I4 Context */}
-          <Section label="I4 Context">
+          <Section label={<TierTooltip tier="I4">I4 Context</TierTooltip>}>
             {context ? (
               <Grid>
                 <KV
@@ -381,7 +382,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           </Section>
 
           {/* I5 Patterns */}
-          <Section label="I5 Patterns">
+          <Section label={<TierTooltip tier="I5">I5 Patterns</TierTooltip>}>
             {patterns ? (
               <Grid>
                 <KV
@@ -410,7 +411,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           </Section>
 
           {/* SMC */}
-          <Section label="Smart Money">
+          <Section label={<TierTooltip tier="SMC">Smart Money</TierTooltip>}>
             {smc ? (
               <Grid>
                 <KV
@@ -530,7 +531,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           </Section>
 
           {/* I6 Cross-TF Confluence */}
-          <Section label="I6 Confluence">
+          <Section label={<TierTooltip tier="I6">I6 Confluence</TierTooltip>}>
             {confluence ? (
               <Grid>
                 <KV
@@ -563,7 +564,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
           </Section>
 
           {/* I1 Indicators */}
-          <Section label="I1 Indicators">
+          <Section label={<TierTooltip tier="I1">I1 Indicators</TierTooltip>}>
             {indicators ? (
               <Grid>
                 <KV
@@ -644,7 +645,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
   );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
       <h3 className="text-[0.55rem] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-1.5">
