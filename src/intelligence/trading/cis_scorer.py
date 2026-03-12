@@ -119,15 +119,30 @@ class CISScorer:
         Returns
         -------
         CISResult with cis_score, direction, bucket_scores, weights_version,
-        buckets_agreeing.
+        buckets_agreeing, constituent_contributions.
         """
+        trend_score, trend_contrib = self._trend(features)
+        momentum_score, momentum_contrib = self._momentum(features, plugin_outputs)
+        structure_score, structure_contrib = self._structure(features, plugin_outputs)
+        pattern_score, pattern_contrib = self._pattern(features, plugin_outputs)
+        institutional_score, institutional_contrib = self._institutional(features, plugin_outputs)
+        regime_score, regime_contrib = self._regime(features, plugin_outputs)
+
         bucket_scores: dict[str, float] = {
-            "trend": self._trend(features),
-            "momentum": self._momentum(features, plugin_outputs),
-            "structure": self._structure(features, plugin_outputs),
-            "pattern": self._pattern(features, plugin_outputs),
-            "institutional": self._institutional(features, plugin_outputs),
-            "regime": self._regime(features, plugin_outputs),
+            "trend": trend_score,
+            "momentum": momentum_score,
+            "structure": structure_score,
+            "pattern": pattern_score,
+            "institutional": institutional_score,
+            "regime": regime_score,
+        }
+        contributions: dict[str, dict[str, float]] = {
+            "trend": trend_contrib,
+            "momentum": momentum_contrib,
+            "structure": structure_contrib,
+            "pattern": pattern_contrib,
+            "institutional": institutional_contrib,
+            "regime": regime_contrib,
         }
 
         # Vectorized aggregation: weights_array is pre-computed at init (static),
@@ -159,7 +174,7 @@ class CISScorer:
             bucket_scores={k: round(v, 4) for k, v in bucket_scores.items()},
             weights_version=self._weights_version,
             buckets_agreeing=agreeing,
-            constituent_contributions={b: {} for b in BUCKET_NAMES},  # populated in Task 13
+            constituent_contributions=contributions,
         )
 
     # ------------------------------------------------------------------
@@ -196,7 +211,7 @@ class CISScorer:
     # Bucket scoring methods
     # ------------------------------------------------------------------
 
-    def _trend(self, f: dict) -> float:
+    def _trend(self, f: dict) -> tuple[float, dict[str, float]]:
         """Trend bucket [-1, +1].
 
         Weights:
@@ -209,21 +224,28 @@ class CISScorer:
         slope = self._fval(f, "kalman_slope")
         slope_dir = 1.0 if slope > EPSILON_TOLERANCE else (-1.0 if slope < -EPSILON_TOLERANCE else 0.0)
 
-        score = (
-            0.35 * clamp(self._fval(f, "trend_regime"))
-            + 0.20 * slope_dir
-            + 0.25 * clamp(self._fval(f, "smc_trend_direction"))
-            + 0.10 * clamp(self._fval(f, "ctf_trend_alignment"))
-            + 0.10 * clamp(self._fval(f, "trend_confluence_score"))
-        )
-        return clamp(score)
+        c_trend_regime = 0.35 * clamp(self._fval(f, "trend_regime"))
+        c_kalman_slope = 0.20 * slope_dir
+        c_smc_trend = 0.25 * clamp(self._fval(f, "smc_trend_direction"))
+        c_ctf_trend = 0.10 * clamp(self._fval(f, "ctf_trend_alignment"))
+        c_trend_confluence = 0.10 * clamp(self._fval(f, "trend_confluence_score"))
 
-    def _momentum(self, f: dict, po: dict) -> float:
+        score = c_trend_regime + c_kalman_slope + c_smc_trend + c_ctf_trend + c_trend_confluence
+        contrib = {
+            "trend_regime": float(c_trend_regime),
+            "kalman_slope": float(c_kalman_slope),
+            "smc_trend_direction": float(c_smc_trend),
+            "ctf_trend_alignment": float(c_ctf_trend),
+            "trend_confluence_score": float(c_trend_confluence),
+        }
+        return clamp(score), contrib
+
+    def _momentum(self, f: dict, po: dict) -> tuple[float, dict[str, float]]:
         """Momentum bucket [-1, +1].
 
         Weights:
           - rsi_14 mapped [0,100]→[-1,+1] around 50   0.30
-          - macd_hist_12_26_9 sign                     0.25
+          - macd_histogram_12_26_9 sign                0.25
           - roc_14 sign                                0.20
           - momentum_bias                              0.15
           - DivergenceStack plugin direction * conf    0.10
@@ -239,16 +261,23 @@ class CISScorer:
 
         d, c = self._plug(po, "trad_DivergenceStack")
 
-        score = (
-            0.30 * clamp(rsi_dir)
-            + 0.25 * macd_dir
-            + 0.20 * roc_dir
-            + 0.15 * clamp(self._fval(f, "momentum_bias"))
-            + 0.10 * float(d) * float(c)
-        )
-        return clamp(score)
+        c_rsi = 0.30 * clamp(rsi_dir)
+        c_macd = 0.25 * macd_dir
+        c_roc = 0.20 * roc_dir
+        c_momentum_bias = 0.15 * clamp(self._fval(f, "momentum_bias"))
+        c_divergence = 0.10 * float(d) * float(c)
 
-    def _structure(self, f: dict, po: dict) -> float:
+        score = c_rsi + c_macd + c_roc + c_momentum_bias + c_divergence
+        contrib = {
+            "rsi_14": float(c_rsi),
+            "macd_histogram_12_26_9": float(c_macd),
+            "roc_14": float(c_roc),
+            "momentum_bias": float(c_momentum_bias),
+            "trad_DivergenceStack": float(c_divergence),
+        }
+        return clamp(score), contrib
+
+    def _structure(self, f: dict, po: dict) -> tuple[float, dict[str, float]]:
         """Structure bucket [-1, +1].
 
         Weights:
@@ -261,15 +290,21 @@ class CISScorer:
         choch = self._fval(f, "choch_detected") * self._fval(f, "choch_direction")
         d, c = self._plug(po, "trad_CHoCHReversal")
 
-        score = (
-            0.30 * clamp(self._fval(f, "swing_pattern"))
-            + 0.25 * clamp(bos)
-            + 0.25 * clamp(choch)
-            + 0.20 * float(d) * float(c)
-        )
-        return clamp(score)
+        c_swing = 0.30 * clamp(self._fval(f, "swing_pattern"))
+        c_bos = 0.25 * clamp(bos)
+        c_choch = 0.25 * clamp(choch)
+        c_choch_reversal = 0.20 * float(d) * float(c)
 
-    def _pattern(self, f: dict, po: dict) -> float:
+        score = c_swing + c_bos + c_choch + c_choch_reversal
+        contrib = {
+            "swing_pattern": float(c_swing),
+            "bos_detected": float(c_bos),
+            "choch_detected": float(c_choch),
+            "trad_CHoCHReversal": float(c_choch_reversal),
+        }
+        return clamp(score), contrib
+
+    def _pattern(self, f: dict, po: dict) -> tuple[float, dict[str, float]]:
         """Pattern bucket [-1, +1].
 
         Weights:
@@ -289,15 +324,21 @@ class CISScorer:
 
         d, c = self._plug(po, "trad_PatternCompletion")
 
-        score = (
-            0.40 * dt_dir * self._fval(f, "dt_db_confidence")
-            + 0.30 * hs_dir * self._fval(f, "hs_confidence")
-            + 0.20 * self._fval(f, "tri_breakout_bias") * self._fval(f, "tri_confidence")
-            + 0.10 * float(d) * float(c)
-        )
-        return clamp(score)
+        c_dt = 0.40 * dt_dir * self._fval(f, "dt_db_confidence")
+        c_hs = 0.30 * hs_dir * self._fval(f, "hs_confidence")
+        c_tri = 0.20 * self._fval(f, "tri_breakout_bias") * self._fval(f, "tri_confidence")
+        c_pattern_completion = 0.10 * float(d) * float(c)
 
-    def _institutional(self, f: dict, po: dict) -> float:
+        score = c_dt + c_hs + c_tri + c_pattern_completion
+        contrib = {
+            "dt_db_pattern": float(c_dt),
+            "hs_pattern": float(c_hs),
+            "tri_breakout_bias": float(c_tri),
+            "trad_PatternCompletion": float(c_pattern_completion),
+        }
+        return clamp(score), contrib
+
+    def _institutional(self, f: dict, po: dict) -> tuple[float, dict[str, float]]:
         """Institutional bucket [-1, +1].
 
         Weights:
@@ -313,16 +354,23 @@ class CISScorer:
         fd, fc = self._plug(po, "trad_FVGFill")
         sd_d, sd_c = self._plug(po, "trad_SupplyDemandSetup")
 
-        score = (
-            0.25 * clamp(self._fval(f, "ob_type") * self._fval(f, "ob_strength"))
-            + 0.15 * clamp(self._fval(f, "fvg_type") * fvg_active)
-            + 0.20 * clamp(zone)
-            + 0.20 * float(fd) * float(fc)
-            + 0.20 * float(sd_d) * float(sd_c)
-        )
-        return clamp(score)
+        c_ob = 0.25 * clamp(self._fval(f, "ob_type") * self._fval(f, "ob_strength"))
+        c_fvg = 0.15 * clamp(self._fval(f, "fvg_type") * fvg_active)
+        c_zone = 0.20 * clamp(zone)
+        c_fvg_fill = 0.20 * float(fd) * float(fc)
+        c_supply_demand = 0.20 * float(sd_d) * float(sd_c)
 
-    def _regime(self, f: dict, po: dict) -> float:
+        score = c_ob + c_fvg + c_zone + c_fvg_fill + c_supply_demand
+        contrib = {
+            "ob_type": float(c_ob),
+            "fvg_type": float(c_fvg),
+            "in_demand_zone": float(c_zone),
+            "trad_FVGFill": float(c_fvg_fill),
+            "trad_SupplyDemandSetup": float(c_supply_demand),
+        }
+        return clamp(score), contrib
+
+    def _regime(self, f: dict, po: dict) -> tuple[float, dict[str, float]]:
         """Regime bucket [-1, +1].
 
         Weights:
@@ -344,11 +392,18 @@ class CISScorer:
 
         d, c = self._plug(po, "trad_RegimeTransition")
 
-        score = (
-            0.35 * clamp(hmm_dir)
-            + 0.15 * cp_contribution
-            + 0.20 * clamp(self._fval(f, "ctf_regime_agreement"))
-            + 0.20 * clamp(self._fval(f, "vol_regime") * -1.0)
-            + 0.10 * float(d) * float(c)
-        )
-        return clamp(score)
+        c_hmm = 0.35 * clamp(hmm_dir)
+        c_cp = 0.15 * cp_contribution
+        c_ctf_regime = 0.20 * clamp(self._fval(f, "ctf_regime_agreement"))
+        c_vol_regime = 0.20 * clamp(self._fval(f, "vol_regime") * -1.0)
+        c_regime_transition = 0.10 * float(d) * float(c)
+
+        score = c_hmm + c_cp + c_ctf_regime + c_vol_regime + c_regime_transition
+        contrib = {
+            "hmm_prob_trending_up": float(c_hmm),
+            "cp_probability": float(c_cp),
+            "ctf_regime_agreement": float(c_ctf_regime),
+            "vol_regime": float(c_vol_regime),
+            "trad_RegimeTransition": float(c_regime_transition),
+        }
+        return clamp(score), contrib
