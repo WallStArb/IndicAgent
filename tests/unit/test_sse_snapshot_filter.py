@@ -1,9 +1,11 @@
 """Tests for SSE snapshot age filter on signal streams."""
+import importlib
+import inspect
 import time
 
 import pytest
 
-from src.api.routes.sse import _build_stream_list, _event_name_for_stream
+from src.api.routes.sse import _build_stream_list, _event_name_for_stream, _signal_entry_stale
 
 
 def _entry_id_for_age(seconds_ago: float) -> str:
@@ -69,6 +71,42 @@ class TestSseSnapshotFilter:
         """Entry 3 min 1 sec old on 1m stream: max_age=120s → stale."""
         entry_id = _entry_id_for_age(181)
         assert _is_signal_entry_stale("development:signals:ESH6:1m:aggregated", entry_id)
+
+
+@pytest.mark.unit
+class TestSnapshotLoopNoAgeFilter:
+    """Confirm the snapshot loop does NOT call _signal_entry_stale."""
+
+    def test_function_retained(self):
+        """_signal_entry_stale must still exist (retained for future live-loop use)."""
+        assert callable(_signal_entry_stale)
+        assert _signal_entry_stale.__code__ is not None
+
+    def test_snapshot_loop_does_not_call_stale_filter(self):
+        """The snapshot block (if not last_event_id:) must not contain _signal_entry_stale."""
+        import src.api.routes.sse as sse_module
+
+        source = inspect.getsource(sse_module)
+        # Find the snapshot block: between "if not last_event_id:" and "# ── Live:"
+        snapshot_start = source.find("if not last_event_id:")
+        live_start = source.find("# ── Live:", snapshot_start)
+        assert snapshot_start != -1, "Could not locate snapshot block in sse.py"
+        assert live_start != -1, "Could not locate live loop marker in sse.py"
+        snapshot_block = source[snapshot_start:live_start]
+        assert "_signal_entry_stale" not in snapshot_block, (
+            "Snapshot loop must NOT call _signal_entry_stale — "
+            "count=2 xrevrange is the correct recency guard"
+        )
+
+    def test_old_5m_signal_stale_function_still_correct(self):
+        """_signal_entry_stale still returns True for a 25-min-old 5m signal."""
+        old_id = _entry_id_for_age(1500)
+        assert _signal_entry_stale("development:signals:ESH6:5m:aggregated", old_id)
+
+    def test_fresh_5m_signal_not_stale_function(self):
+        """_signal_entry_stale still returns False for a 3-min-old 5m signal."""
+        fresh_id = _entry_id_for_age(180)
+        assert not _signal_entry_stale("development:signals:ESH6:5m:aggregated", fresh_id)
 
 
 @pytest.mark.unit
