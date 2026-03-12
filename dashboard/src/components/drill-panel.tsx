@@ -7,6 +7,7 @@ import { fmtPrice, fmtNum, fmtPriceRange, fmtMinutesHM, fmtTimeHMS, fmtLagSecond
 import { deriveBarCloseIso, TF_OFFSETS } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import { useMemo } from "react";
+import { OutcomeBadge } from "@/components/signal-panel";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -72,25 +73,6 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const dirDim = isLong ? "var(--green-dim)" : "var(--red-dim)";
 
-  // Outcome styling for resolved signals
-  const outcomeBadge = signal.resolved ? (
-    <span
-      className="inline-flex items-center px-1 py-0 rounded text-[0.5rem] font-bold uppercase tracking-wider ml-auto"
-      style={{
-        backgroundColor:
-          signal.outcome?.startsWith("target") ? "var(--green-dim)"
-          : signal.outcome?.startsWith("stopped") ? "var(--red-dim)"
-          : "var(--bg-secondary)",
-        color:
-          signal.outcome?.startsWith("target") ? "var(--green)"
-          : signal.outcome?.startsWith("stopped") ? "var(--red)"
-          : "var(--text-muted)",
-      }}
-    >
-      {_outcomeLabel(signal.outcome)}
-    </span>
-  ) : null;
-
   const pnlR = signal.pnl_r != null ? (
     <span className="font-data" style={{ color: signal.pnl_r > 0 ? "var(--green)" : "var(--red)" }}>
       {signal.pnl_r > 0 ? "+" : ""}{fmtNum(signal.pnl_r, 1)}R
@@ -137,7 +119,9 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
         </span>
         <span className="text-[var(--text-muted)]">{pluginShort}</span>
         <span className="font-data" style={{ color: dirColor }}>{fmtNum(signal.confidence * 100, 0)}%</span>
-        {outcomeBadge}
+        {signal.resolved && (
+          <OutcomeBadge outcome={signal.outcome} />
+        )}
       </div>
       {/* Row 2: entry target, SL, T1 + RR */}
       <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
@@ -258,19 +242,6 @@ function _abbreviatePlugin(name: string): string {
   const bare = name.replace(/^(ind_|patt_|ctx_|smc_|trad_)/, "");
   if (bare.length <= 8) return bare;
   return bare.slice(0, 6);
-}
-
-/** Shorten outcome label for badge display */
-function _outcomeLabel(outcome: string | null | undefined): string {
-  if (!outcome) return "—";
-  if (outcome.startsWith("target_1")) return "T1";
-  if (outcome.startsWith("target_1_2")) return "T1+T2";
-  if (outcome.startsWith("target_full")) return "FULL";
-  if (outcome === "stopped_at_entry") return "STP@ENT";
-  if (outcome === "stopped_in_trade") return "STOPPED";
-  if (outcome === "never_activated") return "N/A";
-  if (outcome?.startsWith("ttl_expired")) return "TTL";
-  return outcome.substring(0, 8);
 }
 
 export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, onSignalSelect, onClose }: DrillPanelProps) {
