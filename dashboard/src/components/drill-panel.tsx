@@ -6,9 +6,10 @@ import type { SymbolData, SignalData } from "@/lib/types";
 import { fmtPrice, fmtNum, fmtPriceRange, fmtMinutesHM, fmtTimeHMS, fmtLagSeconds, pipelineLagS } from "@/lib/format";
 import { deriveBarCloseIso, TF_OFFSETS } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { OutcomeBadge } from "@/components/signal-panel";
 import { TierTooltip } from "@/components/tier-tooltip";
+import { SignalScorecard } from "@/components/signal-scorecard";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -40,6 +41,57 @@ import {
   zoneTooltip,
   exitTooltip,
 } from "@/lib/signal-tooltips";
+
+interface DbSignalRow {
+  signal_id: string;
+  setup_plugin: string;
+  signal_type: string;
+  direction: number;
+  entry_price: number | null;
+  stop_loss: number | null;
+  confidence: number | null;
+  status: string;
+  outcome: string | null;
+  exit_price: number | null;
+  pnl_r: number | null;
+  computed_at: string | null;
+  timeframe: string;
+  setup_win_rate: number | null;
+  setup_avg_pnl_r: number | null;
+}
+
+interface SignalWindowSummary {
+  n_total: number;
+  n_resolved: number;
+  n_suppressed: number;
+  win_rate: number | null;
+  avg_pnl_r: number | null;
+}
+
+function dbRowToSignalData(row: DbSignalRow, symbol: string): SignalData {
+  const dir = row.direction > 0 ? "long" as const : "short" as const;
+  return {
+    symbol,
+    signal_id: row.signal_id,
+    setup_plugin: row.setup_plugin,
+    signal_type: row.signal_type,
+    direction: dir,
+    entry_price: row.entry_price ?? 0,
+    stop_loss: row.stop_loss ?? 0,
+    confidence: row.confidence ?? 0,
+    profit_target: null,
+    risk_reward_ratio: 0,
+    regime_context: "",
+    timeframe: row.timeframe,
+    timestamp: row.computed_at ?? "",
+    signal_computed_at: row.computed_at ?? undefined,
+    resolved: row.status !== "pending" && row.status !== "active",
+    outcome: row.outcome ?? undefined,
+    exit_price: row.exit_price ?? undefined,
+    setup_win_rate: row.setup_win_rate ?? undefined,
+    setup_avg_pnl_r: row.setup_avg_pnl_r ?? undefined,
+  };
+}
 
 interface DrillPanelProps {
   symbol: string;
@@ -311,6 +363,11 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
             ) : (
               <Empty>No signal for {timeframe} — signals are generated on 1m</Empty>
             )}
+          </Section>
+
+          {/* Signal Scorecard — all ranked signals for current bar */}
+          <Section label="Signal Scorecard">
+            <SignalScorecard data={data.scorecardByTf?.[timeframe]} />
           </Section>
 
           {/* I3 Structure */}
