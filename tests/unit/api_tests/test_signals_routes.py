@@ -185,3 +185,199 @@ class TestGetSignalsTimeframeFilter:
         assert "timeframe" in sql_query.lower(), (
             "No-features SQL query must reference 'timeframe' column"
         )
+
+
+# ---------------------------------------------------------------------------
+# /api/signals/recent helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_recent_signal_row(**overrides):
+    """Minimal signal row for /api/signals/recent fetch() return value."""
+    import uuid
+    from datetime import timezone
+
+    base = _DictRow({
+        "signal_id": uuid.uuid4(),
+        "setup_plugin": "trad_TrendFollowing",
+        "signal_type": "trend_long",
+        "direction": 1,
+        "entry_price": 4521.50,
+        "stop_loss": 4515.25,
+        "confidence": 0.87,
+        "status": "expired",
+        "outcome": "ttl_expired_ahead",
+        "exit_price": None,
+        "pnl_r": None,
+        "signal_computed_at": datetime(2026, 3, 11, 14, 23, 45, tzinfo=timezone.utc),
+        "timeframe": "1m",
+        "setup_win_rate": 0.58,
+        "setup_avg_pnl_r": 0.38,
+    })
+    base.update(overrides)
+    return base
+
+
+def _make_summary_row(**overrides):
+    """Minimal summary row for /api/signals/recent fetchrow() return value."""
+    base = _DictRow({
+        "n_total": 10,
+        "n_resolved": 7,
+        "n_suppressed": 2,
+        "win_rate": 0.571,
+        "avg_pnl_r": 0.31,
+    })
+    base.update(overrides)
+    return base
+
+
+def _make_recent_mock_db(signal_rows=None, summary_row=None):
+    """Return a mock db with fetch + fetchrow set up for /api/signals/recent."""
+    mock_db = MagicMock()
+    mock_db.fetch = AsyncMock(return_value=signal_rows if signal_rows is not None else [])
+    mock_db.fetchrow = AsyncMock(
+        return_value=summary_row if summary_row is not None else _make_summary_row()
+    )
+    return mock_db
+
+
+# ---------------------------------------------------------------------------
+# TestGetRecentSignals
+# ---------------------------------------------------------------------------
+
+
+class TestGetRecentSignals:
+    """Tests for GET /api/signals/recent."""
+
+    def teardown_method(self, method):
+        test_app.dependency_overrides.clear()
+
+    @pytest.mark.unit
+    def test_empty_result_returns_200_with_structure(self):
+        """Returns 200 with {signals:[], summary:{...}} when DB returns empty."""
+        mock_db = _make_recent_mock_db(
+            signal_rows=[],
+            summary_row=_make_summary_row(n_total=0, n_resolved=0, n_suppressed=0,
+                                          win_rate=None, avg_pnl_r=None),
+        )
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert "signals" in body
+        assert "summary" in body
+        assert body["signals"] == []
+        assert "n_total" in body["summary"]
+
+    @pytest.mark.unit
+    def test_passes_correct_args_to_fetch(self):
+        """Passes symbol, timeframe and limit to db.fetch."""
+        mock_db = _make_recent_mock_db()
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        client.get("/api/signals/recent?symbol=ESH6&timeframe=1m&limit=5")
+
+        call_args = mock_db.fetch.call_args
+        positional = list(call_args.args)
+        assert "ESH6" in positional
+        assert "1m" in positional
+        assert 5 in positional
+
+    @pytest.mark.unit
+    def test_limit_200_returns_422(self):
+        """limit > 100 returns 422 validation error."""
+        mock_db = _make_recent_mock_db()
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6&limit=200")
+
+        assert response.status_code == 422
+
+    @pytest.mark.unit
+    def test_signal_row_includes_setup_performance(self):
+        """Each signal row includes setup_win_rate and setup_avg_pnl_r."""
+        row = _make_recent_signal_row(setup_win_rate=0.58, setup_avg_pnl_r=0.38)
+        mock_db = _make_recent_mock_db(signal_rows=[row])
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["signals"]) == 1
+        sig = body["signals"][0]
+        assert "setup_win_rate" in sig
+        assert "setup_avg_pnl_r" in sig
+        assert sig["setup_win_rate"] == pytest.approx(0.58)
+        assert sig["setup_avg_pnl_r"] == pytest.approx(0.38)
+
+    @pytest.mark.unit
+    def test_signal_row_null_setup_performance_when_no_sample(self):
+        """setup_win_rate and setup_avg_pnl_r are null when no JOIN match."""
+        row = _make_recent_signal_row(setup_win_rate=None, setup_avg_pnl_r=None)
+        mock_db = _make_recent_mock_db(signal_rows=[row])
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6")
+
+        assert response.status_code == 200
+        sig = response.json()["signals"][0]
+        assert sig["setup_win_rate"] is None
+        assert sig["setup_avg_pnl_r"] is None
+
+    @pytest.mark.unit
+    def test_summary_block_fields(self):
+        """Summary block has n_total, n_resolved, n_suppressed, win_rate, avg_pnl_r."""
+        mock_db = _make_recent_mock_db(
+            summary_row=_make_summary_row(n_total=10, n_resolved=7, n_suppressed=2,
+                                          win_rate=0.571, avg_pnl_r=0.31),
+        )
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6")
+
+        assert response.status_code == 200
+        summary = response.json()["summary"]
+        assert summary["n_total"] == 10
+        assert summary["n_resolved"] == 7
+        assert summary["n_suppressed"] == 2
+        assert summary["win_rate"] == pytest.approx(0.571)
+        assert summary["avg_pnl_r"] == pytest.approx(0.31)
+
+    @pytest.mark.unit
+    def test_summary_win_rate_and_avg_pnl_r_null_when_no_data(self):
+        """Summary win_rate and avg_pnl_r are None when no resolved signals."""
+        mock_db = _make_recent_mock_db(
+            summary_row=_make_summary_row(n_total=3, n_resolved=0, n_suppressed=0,
+                                          win_rate=None, avg_pnl_r=None),
+        )
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6")
+
+        assert response.status_code == 200
+        summary = response.json()["summary"]
+        assert summary["win_rate"] is None
+        assert summary["avg_pnl_r"] is None
+
+    @pytest.mark.unit
+    def test_db_error_returns_500(self):
+        """DB error during fetch returns 500."""
+        mock_db = MagicMock()
+        mock_db.fetch = AsyncMock(side_effect=Exception("connection lost"))
+        mock_db.fetchrow = AsyncMock(return_value=_make_summary_row())
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?symbol=ESH6")
+
+        assert response.status_code == 500
