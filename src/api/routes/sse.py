@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from ...config.settings import Settings
 from ...core.stream_keys import indicators as sk_indicators
 from ...core.stream_keys import intelligence as sk_intelligence
+from ...core.stream_keys import intelligence_i7 as sk_intelligence_i7
 from ...core.stream_keys import live_tick as sk_live_tick
 from ...core.stream_keys import market as sk_market
 from ...core.stream_keys import narratives as sk_narratives
@@ -112,6 +113,7 @@ def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
             streams.append(sk_market(env_prefix, contract, tf))
             streams.append(sk_indicators(env_prefix, contract, tf))
             streams.append(sk_intelligence(env_prefix, contract, tf))
+            streams.append(sk_intelligence_i7(env_prefix, contract, tf))
             streams.append(sk_signals_aggregated(env_prefix, contract, tf))
             streams.append(sk_narratives(env_prefix, contract, tf))
     # Group narrative streams — global, not per-symbol
@@ -129,7 +131,7 @@ def _event_name_for_stream(stream_name: str) -> str:
     head = parts[0]
     rest = parts[1] if len(parts) > 1 else ""
     # If head is an env name (e.g., "dev"), re-evaluate from rest
-    known_domains = {"ticks", "market", "indicators", "intelligence", "signals", "narratives", "system"}
+    known_domains = {"ticks", "market", "indicators", "intelligence", "intelligence_i7", "signals", "narratives", "system"}
     candidate = rest if rest and head not in known_domains else stream_name
     if candidate.startswith("ticks:"):
         return "tick_data"
@@ -137,6 +139,8 @@ def _event_name_for_stream(stream_name: str) -> str:
         return "market_data"
     if candidate.startswith("indicators:"):
         return "indicator_data"
+    if candidate.startswith("intelligence_i7:"):
+        return "signal_scorecard"
     if candidate.startswith("intelligence:"):
         # Intelligence stream payload: {"event": "<IntelligenceEvent JSON>"}
         # Parse the event field client-side: JSON.parse(payload.event)
