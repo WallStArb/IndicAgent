@@ -19,6 +19,8 @@ import type {
   PerTfSignal,
   IntelligenceTfData,
   SessionState,
+  SignalScorecardData,
+  RankedSignal,
 } from "@/lib/types";
 
 function emptySymbolData(symbol: string): SymbolData {
@@ -48,6 +50,7 @@ function emptySymbolData(symbol: string): SymbolData {
     signalsByTf: {},
     indicatorsByTf: {},
     intelligenceByTf: {},
+    scorecardByTf: {},
     lastUpdate: 0,
   };
 }
@@ -681,6 +684,39 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
 
         touch();
       }
+    });
+
+    // --- Signal Scorecard (I7 all_ranked — which signals competed and why) ---
+    es.addEventListener("signal_scorecard", (evt) => {
+      const { payload } = JSON.parse(evt.data);
+      const sym = contractToBase(payload.symbol || "");
+      if (!sym) return;
+      const tf = String(payload.tf || payload.timeframe || timeframe);
+      let ranked: RankedSignal[] = [];
+      try {
+        ranked = JSON.parse(String(payload.data || "[]")) as RankedSignal[];
+      } catch {
+        return; // malformed payload — skip silently
+      }
+      const scorecard: SignalScorecardData = {
+        ts: String(payload.ts || ""),
+        symbol: sym,
+        tf,
+        ranked,
+      };
+      setSymbolData((prev) => {
+        const old = prev[sym];
+        if (!old) return prev;
+        return {
+          ...prev,
+          [sym]: {
+            ...old,
+            scorecardByTf: { ...old.scorecardByTf, [tf]: scorecard },
+            lastUpdate: Date.now(),
+          },
+        };
+      });
+      touch();
     });
 
     // --- AI narrative data (I8) — per-symbol and group ---
