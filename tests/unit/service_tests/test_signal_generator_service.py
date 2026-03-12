@@ -674,10 +674,10 @@ async def test_seed_bar_history_from_db_success():
     svc.db_manager = mock_db
 
     # Mock query returns exactly LIMIT rows (DESC order, newest first)
-    # bar column format in DB: {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}
+    # execute_query returns list[dict] with keys "ts" and "bar"
     mock_db.execute_query.return_value = [
-        (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}),
-        (datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), {"o": 0.8, "h": 1.2, "l": 0.6, "c": 1.0, "v": 80}),
+        {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}},
+        {"ts": datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), "bar": {"o": 0.8, "h": 1.2, "l": 0.6, "c": 1.0, "v": 80}},
     ]
 
     # Mock min_bars_for_tf to return 2 for 1m
@@ -720,21 +720,21 @@ async def test_seed_bar_history_from_db_multiple_symbols():
     svc.db_manager = mock_db
 
     # Mock different results per symbol/TF combination
-    def mock_execute_query_side_effect(query, params):
-        symbol, tf = params
+    # execute_query is called as execute_query(query, symbol, tf) → *args style
+    def mock_execute_query_side_effect(query, symbol, tf):
         if symbol == "ES" and tf == "1m":
             return [
-                (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}),
-                (datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), {"o": 0.9, "h": 1.1, "l": 0.7, "c": 1.0, "v": 90}),
+                {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}},
+                {"ts": datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), "bar": {"o": 0.9, "h": 1.1, "l": 0.7, "c": 1.0, "v": 90}},
             ]
         elif symbol == "NQ" and tf == "5m":
             return [
-                (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 2.0, "h": 2.2, "l": 1.8, "c": 2.1, "v": 200}),
-                (datetime(2026, 3, 10, 9, 55, 0, tzinfo=UTC), {"o": 1.9, "h": 2.1, "l": 1.7, "c": 2.0, "v": 190}),
+                {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 2.0, "h": 2.2, "l": 1.8, "c": 2.1, "v": 200}},
+                {"ts": datetime(2026, 3, 10, 9, 55, 0, tzinfo=UTC), "bar": {"o": 1.9, "h": 2.1, "l": 1.7, "c": 2.0, "v": 190}},
             ]
         elif symbol == "ES" and tf == "15m":
             return [
-                (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 3.0, "h": 3.2, "l": 2.8, "c": 3.1, "v": 300}),
+                {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 3.0, "h": 3.2, "l": 2.8, "c": 3.1, "v": 300}},
             ]
         return []
 
@@ -779,7 +779,7 @@ async def test_seed_bar_history_from_db_partial_data():
 
     # Return only 1 bar (less than min_bars_for_tf=120)
     mock_db.execute_query.return_value = [
-        (datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}),
+        {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}},
     ]
 
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=120):
