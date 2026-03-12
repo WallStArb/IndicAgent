@@ -102,7 +102,7 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 
 - [x] **Phase 25: CIS Data Repair** — Fix backfill code to populate CIS fields; audit + repair NULL CIS rows in signal_ledger (completed 2026-03-11)
 - [x] **Phase 26: Signal Generator Warmup** — Seed bar_history from intelligence_features on startup; eliminate 50-min warmup wait (completed 2026-03-11)
-- [ ] **Phase 27: Signal Lifecycle Stream Events** — Publish terminal signal events to Redis stream; SSE snapshot age filter; dashboard resolved state with outcome badge
+- [x] **Phase 27: Signal Lifecycle Stream Events** — Publish terminal signal events to Redis stream; SSE snapshot age filter; dashboard resolved state with outcome badge (completed 2026-03-12)
 
 ### 🔲 v1.8 Signal Intelligence (Planned)
 
@@ -280,6 +280,6 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
 | 25. CIS Data Repair | 2/2 | Complete    | 2026-03-11 | - |
 | 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
-| 27. Signal Lifecycle Stream Events | 6/7 | In Progress|  | - |
+| 27. Signal Lifecycle Stream Events | 7/7 | Complete   | 2026-03-12 | - |
 | 28. Dashboard Completion | v1.8 | TBD | Planned | — |
 | 29. Renaissance Signal Quality | v1.8 | TBD | Planned | — |
