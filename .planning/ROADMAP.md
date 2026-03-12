@@ -245,4 +245,4 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
 | 25. CIS Data Repair | 2/2 | Complete    | 2026-03-11 | - |
 | 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
-| 27. Signal Lifecycle Stream Events | 2/7 | In Progress|  | - |
+| 27. Signal Lifecycle Stream Events | 3/7 | In Progress|  | - |

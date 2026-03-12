@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 27-01-PLAN.md
-last_updated: "2026-03-12T06:21:34.858Z"
+stopped_at: Completed 27-03-PLAN.md
+last_updated: "2026-03-12T06:22:30.946Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 7
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -47,6 +47,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | 26. Signal Generator Warmup | 1 | DB seed on startup, graceful fallback |
 | Phase 27-signal-lifecycle-stream-events P05 | 1 | 1 tasks | 0 files |
 | Phase 27 P01 | 1 | 1 tasks | 0 files |
+| Phase 27-signal-lifecycle-stream-events P03 | 3 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -58,6 +59,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [v1.8 scope]: Phase 30 (Candlestick Expansion) — Tier 1 + Tier 2 (18 new patterns); Tier 3 deferred (gap-dependent, poor futures applicability)
 - [Phase 27-signal-lifecycle-stream-events]: NO-OP: SignalData resolved/outcome/exit_price/pnl_r fields already present in types.ts from prior phase work
 - [Phase 27]: Plan 27-01: _publish_terminal_event() was already implemented in v1.6 monolith; verified passing with 23 tests
+- [Phase 27-03]: SSE snapshot age filter skips signal entries older than 2xTF to prevent stale replay on reconnect; cursor still advances for all entries
 
 ### Pending Todos (addressed in v1.8)
 
@@ -73,6 +75,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T06:21:34.856Z
-Stopped at: Completed 27-01-PLAN.md
+Last session: 2026-03-12T06:22:30.940Z
+Stopped at: Completed 27-03-PLAN.md
 Resume file: None
