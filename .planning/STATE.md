@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 28-04-PLAN.md (GET /api/signals/recent endpoint)
-last_updated: "2026-03-12T21:28:38.433Z"
+stopped_at: Completed 28-07-PLAN.md (TierTooltip component + drill-panel wiring)
+last_updated: "2026-03-12T21:28:54.614Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 22
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 29-renaissance-signal-quality P01 | 4 | 1 tasks | 2 files |
 | Phase 28-dashboard-completion P01 | 2 | 2 tasks | 2 files |
 | Phase 28-dashboard-completion P04 | 8 | 2 tasks | 2 files |
+| Phase 28-dashboard-completion P07 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 28-01]: intelligence_i7 startswith check placed before intelligence: to prevent shadowing; intelligence_i7 added to known_domains for env-prefix stripping
 - [Phase 28-dashboard-completion]: Route /signals/recent placed before /signals/{symbol} path param to prevent FastAPI matching 'recent' as symbol
 - [Phase 28-dashboard-completion]: Summary query runs against full signal_ledger (no LIMIT) so aggregate reflects full window, not just paged slice
+- [Phase 28-07]: TierTooltip uses existing CSS-only Tooltip component (no new Radix dep); Section label widened to ReactNode
 
 ### Pending Todos (addressed in v1.8)
 
@@ -94,6 +96,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T21:28:38.431Z
-Stopped at: Completed 28-04-PLAN.md (GET /api/signals/recent endpoint)
+Last session: 2026-03-12T21:28:54.612Z
+Stopped at: Completed 28-07-PLAN.md (TierTooltip component + drill-panel wiring)
 Resume file: None
