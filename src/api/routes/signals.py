@@ -110,6 +110,115 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     return signal
 
 
+# Outcome classes considered wins for summary win_rate computation
+_WIN_OUTCOMES = frozenset({"target_1", "target_1_2", "target_full"})
+
+
+@router.get("/signals/recent")
+async def get_recent_signals(
+    symbol: str = Query(..., description="Symbol, e.g. ESH6 or ES"),
+    timeframe: str | None = Query(None, description="Filter by timeframe, e.g. 1m"),
+    limit: int = Query(20, ge=1, le=100, description="Max signals to return"),
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """
+    Recent signals from signal_ledger for drill panel history.
+
+    Annotated with 30d setup performance from setup_performance table.
+    Includes aggregate summary over the returned window.
+    """
+    contract = _resolve_contract(symbol)
+    try:
+        main_query = """
+            SELECT
+                sl.signal_id,
+                sl.setup_plugin,
+                sl.signal_type,
+                sl.direction,
+                sl.entry_price,
+                sl.stop_loss,
+                sl.confidence,
+                sl.status,
+                sl.outcome,
+                sl.exit_price,
+                sl.pnl_r,
+                sl.signal_computed_at,
+                sl.timeframe,
+                sp.win_rate   AS setup_win_rate,
+                sp.avg_pnl_r  AS setup_avg_pnl_r
+            FROM signal_ledger sl
+            LEFT JOIN setup_performance sp ON sp.setup_type = sl.signal_type
+            WHERE sl.symbol = $1
+              AND ($2::text IS NULL OR sl.timeframe = $2)
+            ORDER BY sl.signal_computed_at DESC
+            LIMIT $3
+        """
+        rows = await db_manager.fetch(main_query, contract, timeframe, limit)
+
+        summary_query = """
+            SELECT
+                COUNT(*)                                                          AS n_total,
+                COUNT(*) FILTER (WHERE status NOT IN ('pending', 'active'))       AS n_resolved,
+                COUNT(*) FILTER (WHERE status = 'regime_suppressed')              AS n_suppressed,
+                ROUND(
+                    AVG(CASE WHEN outcome IN ('target_1','target_1_2','target_full') THEN 1.0
+                             WHEN outcome IS NOT NULL
+                              AND status NOT IN ('pending','active') THEN 0.0
+                             ELSE NULL END)::numeric, 3
+                )                                                                 AS win_rate,
+                ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 3)   AS avg_pnl_r
+            FROM signal_ledger
+            WHERE symbol = $1
+              AND ($2::text IS NULL OR timeframe = $2)
+        """
+        summary_row = await db_manager.fetchrow(summary_query, contract, timeframe)
+
+        def _f(v: Any) -> float | None:
+            return float(v) if v is not None else None
+
+        signals = [
+            {
+                "signal_id": str(row["signal_id"]),
+                "setup_plugin": row["setup_plugin"],
+                "signal_type": row["signal_type"],
+                "direction": row["direction"],
+                "entry_price": _f(row["entry_price"]),
+                "stop_loss": _f(row["stop_loss"]),
+                "confidence": _f(row["confidence"]),
+                "status": row["status"],
+                "outcome": row["outcome"],
+                "exit_price": _f(row["exit_price"]),
+                "pnl_r": _f(row["pnl_r"]),
+                "computed_at": (
+                    row["signal_computed_at"].isoformat()
+                    if row["signal_computed_at"] is not None
+                    and hasattr(row["signal_computed_at"], "isoformat")
+                    else None
+                ),
+                "timeframe": row["timeframe"],
+                "setup_win_rate": _f(row["setup_win_rate"]),
+                "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
+            }
+            for row in rows
+        ]
+
+        summary = {
+            "n_total": int(summary_row["n_total"]) if summary_row else 0,
+            "n_resolved": int(summary_row["n_resolved"]) if summary_row else 0,
+            "n_suppressed": int(summary_row["n_suppressed"]) if summary_row else 0,
+            "win_rate": _f(summary_row["win_rate"]) if summary_row else None,
+            "avg_pnl_r": _f(summary_row["avg_pnl_r"]) if summary_row else None,
+        }
+
+        return {"signals": signals, "summary": summary}
+
+    except Exception as e:
+        logger.error("Error fetching recent signals", symbol=contract, error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching recent signals: {str(e)}"
+        ) from e
+
+
 @router.get("/signals/{symbol}")
 async def get_signals(
     symbol: str,
