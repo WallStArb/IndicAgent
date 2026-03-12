@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.8
-milestone_name: Signal Intelligence
-status: defining requirements
-stopped_at: Requirements defined — roadmap pending
-last_updated: "2026-03-11T00:00:00.000Z"
-last_activity: "2026-03-11 — Milestone v1.8 started, requirements defined (36 reqs, 4 phases)"
+milestone: v1.7
+milestone_name: Data Integrity
+status: Defining requirements
+stopped_at: Completed 27-signal-lifecycle-stream-events-05-PLAN.md
+last_updated: "2026-03-12T06:20:19.801Z"
+last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
-  total_phases: 5
+  total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 7
+  completed_plans: 1
   percent: 0
 ---
 
@@ -45,6 +45,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 |-------|-------|-------|
 | 25. CIS Data Repair | 2 | Backfill fix + repair script |
 | 26. Signal Generator Warmup | 1 | DB seed on startup, graceful fallback |
+| Phase 27-signal-lifecycle-stream-events P05 | 1 | 1 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -54,6 +55,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [v1.8 scope]: Phase 28 (Dashboard Completion) — design written 2026-03-11; I7 all_ranked scorecard, drill signal history, GARCH/Kalman/SMC gaps, tooltips
 - [v1.8 scope]: Phase 29 (Renaissance Signal Quality) — T0-B + T1 (all 5 wire-ins) + T2-A/B (Hurst + Shannon entropy)
 - [v1.8 scope]: Phase 30 (Candlestick Expansion) — Tier 1 + Tier 2 (18 new patterns); Tier 3 deferred (gap-dependent, poor futures applicability)
+- [Phase 27-signal-lifecycle-stream-events]: NO-OP: SignalData resolved/outcome/exit_price/pnl_r fields already present in types.ts from prior phase work
 
 ### Pending Todos (addressed in v1.8)
 
@@ -69,6 +71,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-11
-Stopped at: Requirements defined — ready for roadmap creation
+Last session: 2026-03-12T06:20:19.796Z
+Stopped at: Completed 27-signal-lifecycle-stream-events-05-PLAN.md
 Resume file: None
