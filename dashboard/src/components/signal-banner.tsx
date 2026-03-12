@@ -6,18 +6,7 @@ import { fmtPrice, fmtPriceRange, fmtNum, fmtTimeHMS, fmtLagSeconds, pipelineLag
 import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
-import { Tooltip } from "@/components/tooltip";
 import { OutcomeBadge } from "@/components/signal-panel";
-import {
-  barTimeTooltip,
-  sigTimeTooltip,
-  ttsTooltip,
-  barClosePriceTooltip,
-  marketPriceTooltip,
-  entryTooltip,
-  slTooltip,
-  zoneTooltip,
-} from "@/lib/signal-tooltips";
 
 interface SignalBannerProps {
   signal: SignalData | null;
@@ -25,6 +14,10 @@ interface SignalBannerProps {
 }
 
 const HIGH_CONFIDENCE_THRESHOLD = 0.75;
+
+function fmtSignalType(raw: string): string {
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
   const isLong = signal?.direction === "long";
@@ -37,7 +30,6 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
     [signal?.bar_close_ts, signal?.timestamp, signal?.timeframe]
   );
   const signalTimeStr = useMemo(() => fmtTimeHMS(signal?.signal_computed_at), [signal?.signal_computed_at]);
-  const barCloseStr = useMemo(() => fmtTimeHMS(barCloseIso), [barCloseIso]);
   const ttsS = useMemo(
     () => signal ? (pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null)) : null,
     [signal?.signal_computed_at, barCloseIso, signal?.pipeline_lag_s]
@@ -46,83 +38,64 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
 
   if (!signal || signal.confidence < HIGH_CONFIDENCE_THRESHOLD) return null;
 
+  const hasZone = signal.entry_zone_low != null && signal.entry_zone_high != null;
+  const hasLine2 = hasZone || !!signalTimeStr;
+
   return (
     <div className={signal.resolved ? "opacity-50" : undefined}>
       <button
         onClick={onDrillDown}
-        className="w-full flex items-center gap-2 px-2 py-1 cursor-pointer"
+        className="w-full flex flex-col px-2 py-1 cursor-pointer"
         style={{
           backgroundColor: dimColor,
           borderBottom: `1px solid ${color}33`,
         }}
       >
-        {signal.resolved && (
-          <OutcomeBadge outcome={signal.outcome} />
+        {/* Line 1: trade info */}
+        <div className="flex items-center gap-1.5 w-full">
+          {signal.resolved && <OutcomeBadge outcome={signal.outcome} small />}
+          <Icon size={10} style={{ color }} />
+          <span
+            className="text-[0.55rem] font-bold uppercase tracking-widest"
+            style={{ color }}
+          >
+            {isLong ? "LONG" : "SHORT"}
+          </span>
+          <span className="text-[0.55rem] font-data" style={{ color }}>
+            @ {fmtPrice(signal.entry_price)}
+          </span>
+          <span className="text-[0.5rem] text-[var(--text-muted)]">
+            ({fmtNum(signal.confidence * 100, 0)}% {fmtSignalType(signal.signal_type)})
+          </span>
+          <span className="text-[0.5rem] text-[var(--text-muted)]">
+            | SL: {fmtPrice(signal.stop_loss)}
+          </span>
+          {signal.profit_target != null && (
+            <span className="text-[0.5rem] text-[var(--text-muted)]">
+              | T1: {fmtPrice(signal.profit_target)}
+              {signal.rr_t1 != null && ` (${fmtNum(signal.rr_t1, 1)}R)`}
+            </span>
+          )}
+          <ChevronRight size={8} className="ml-auto text-[var(--text-muted)]" />
+        </div>
+
+        {/* Line 2: zone + timing context */}
+        {hasLine2 && (
+          <div className="flex items-center gap-1 text-[0.45rem] font-data text-[var(--text-muted)] opacity-70 mt-0.5">
+            {hasZone && (
+              <span>Zone: {fmtPriceRange(signal.entry_zone_low!, signal.entry_zone_high!)}</span>
+            )}
+            {hasZone && signalTimeStr && (
+              <span className="opacity-50">|</span>
+            )}
+            {signalTimeStr && (
+              <span>
+                Sig: {signalTimeStr}
+                {ttsStr && ` (${ttsStr})`}
+              </span>
+            )}
+          </div>
         )}
-        <Icon size={10} style={{ color }} />
-      <span
-        className="text-[0.55rem] font-bold uppercase tracking-widest"
-        style={{ color }}
-      >
-        {isLong ? "LONG" : "SHORT"}
-      </span>
-      <span className="text-[0.55rem] text-[var(--text-muted)]">
-        {signal.signal_type.replace(/_/g, " ")}
-      </span>
-      <span className="text-[0.55rem] font-data font-bold" style={{ color }}>
-        {fmtNum(signal.confidence * 100, 0)}%
-      </span>
-      <span className="text-[0.5rem] text-[var(--text-muted)] font-data flex items-center gap-1">
-        <Tooltip tooltip={entryTooltip()}>
-          <span>E</span>
-        </Tooltip>
-        <span>{fmtPrice(signal.entry_price)}</span>
-        {signal.entry_zone_low != null && signal.entry_zone_high != null && (
-          <>
-            <Tooltip tooltip={zoneTooltip()}>
-              <span className="opacity-50 ml-0.5">ZONE</span>
-            </Tooltip>
-            <span className="opacity-50">{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
-          </>
-        )}
-        <span className="opacity-30">|</span>
-        <Tooltip tooltip={slTooltip()}>
-          <span>SL</span>
-        </Tooltip>
-        <span>{fmtPrice(signal.stop_loss)}</span>
-      </span>
-      {(barCloseStr || signalTimeStr || signal.bar_close_price != null || signal.market_price_at_signal != null) && (
-        <span className="text-[0.45rem] font-data text-[var(--text-muted)] opacity-70 flex items-center gap-1 flex-wrap">
-          {barCloseStr && (
-            <Tooltip tooltip={barTimeTooltip()}>
-              <span className="opacity-50">BAR</span>
-            </Tooltip>
-          )}
-          {barCloseStr && <span>{barCloseStr}</span>}
-          {signal.bar_close_price != null && (
-            <Tooltip tooltip={barClosePriceTooltip()}>
-              <span>@ {fmtPrice(signal.bar_close_price)}</span>
-            </Tooltip>
-          )}
-          {ttsStr && (
-            <Tooltip tooltip={ttsTooltip()}>
-              <span>{ttsStr}</span>
-            </Tooltip>
-          )}
-          {signalTimeStr && (
-            <Tooltip tooltip={sigTimeTooltip()}>
-              <span className="opacity-50">SIG</span>
-            </Tooltip>
-          )}
-          {signalTimeStr && <span style={{ color: "var(--text-secondary)" }}>{signalTimeStr}</span>}
-          {signal.market_price_at_signal != null && (
-            <Tooltip tooltip={marketPriceTooltip()}>
-              <span>@ {fmtPrice(signal.market_price_at_signal)}</span>
-            </Tooltip>
-          )}
-        </span>
-      )}
-        <ChevronRight size={8} className="ml-auto text-[var(--text-muted)]" />
       </button>
     </div>
   );
