@@ -197,7 +197,16 @@ Plans:
   7. `ShannonEntropyPlugin` (I4) reduces all signal confidence 30–50% when return entropy is high.
   8. KS drift detection background job emits monitoring flag when feature distributions deviate (p < 0.05).
   9. CUSUM performance drift detection alerts when per-setup win rates degrade relative to baseline.
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 29-01-PLAN.md — CIS scorer: refactor 6 bucket methods to return (float, dict); populate constituent_contributions
+- [ ] 29-02-PLAN.md — Per-setup cooldown + rel_volume CIS momentum + killzone CIS regime wire-ins
+- [ ] 29-03-PLAN.md — Alpha decay in signal_generator + freshness decay in signal_lifecycle
+- [ ] 29-04-PLAN.md — HurstExponentPlugin (I4) + TIER_I4 registration
+- [ ] 29-05-PLAN.md — ShannonEntropyPlugin (I4) + quality multiplier wiring in _build_all_ranked()
+- [ ] 29-06-PLAN.md — Migration 026 + stream_keys + KSDriftMonitor + drift_monitor_service skeleton
+- [ ] 29-07-PLAN.md — CUSUMMonitor + weight_updater CUSUM integration + GET /api/drift + service completion
 
 ## Backlog
 
@@ -292,4 +301,4 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
 | 27. Signal Lifecycle Stream Events | 8/8 | Complete   | 2026-03-12 | - |
 | 28. Dashboard Completion | v1.8 | 0/7 | Planned | — |
-| 29. Renaissance Signal Quality | v1.8 | TBD | Planned | — |
+| 29. Renaissance Signal Quality | v1.8 | 0/7 | Planned | — |
