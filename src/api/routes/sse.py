@@ -50,6 +50,9 @@ def _signal_max_age_s(stream_name: str) -> float | None:
     return None if tf_minutes is None else 2 * tf_minutes * 60
 
 
+# NOTE: This filter is intentionally NOT applied in the snapshot loop.
+# The count=2 xrevrange guard is sufficient for snapshot recency.
+# Retained here for potential future live-loop staleness filtering.
 def _signal_entry_stale(stream_name: str, entry_id: str | bytes) -> bool:
     """Return True if this signal stream entry is older than 2×TF.
 
@@ -203,12 +206,10 @@ async def sse_events(
                     if not entries:
                         continue
                     # xrevrange returns newest-first; reverse for chronological order
+                    # snapshot loop — no age filter
                     event_name = _event_name_for_stream(stream_name)
                     for msg_id, fields in reversed(entries):
                         last_ids[stream_name] = msg_id  # always advance cursor
-                        # Age filter: skip stale signal entries on reconnect
-                        if _signal_entry_stale(stream_name, msg_id):
-                            continue
                         try:
                             data_json = json.dumps(
                                 {"stream": stream_name, "id": msg_id, "payload": fields}
