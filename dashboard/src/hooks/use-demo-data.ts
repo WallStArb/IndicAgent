@@ -384,6 +384,7 @@ export function useDemoData(
         tfSignals: {}, signalsByTf: {},
         indicatorsByTf: {},
         intelligenceByTf: {},
+        scorecardByTf: {},
         lastUpdate: Date.now(),
       };
     }
@@ -461,6 +462,7 @@ export function useDemoData(
             tfSignals: prev[sym]?.tfSignals ?? {}, signalsByTf: prev[sym]?.signalsByTf ?? {},
             indicatorsByTf: prev[sym]?.indicatorsByTf ?? {},
             intelligenceByTf: prev[sym]?.intelligenceByTf ?? {},
+            scorecardByTf: prev[sym]?.scorecardByTf ?? {},
             lastUpdate: now,
           };
         }
