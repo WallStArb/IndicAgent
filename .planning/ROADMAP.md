@@ -108,7 +108,7 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 
 **Milestone Goal:** Complete the dashboard intelligence surface and close Renaissance signal quality gaps — constituent contributions, alpha decay, freshness decay, Hurst/entropy gates, and distribution drift detection.
 
-- [ ] **Phase 28: Dashboard Completion** — Signal Scorecard panel, drill panel history from DB, GARCH/Kalman I4 fields, SMC detail fields, tier tooltips
+- [x] **Phase 28: Dashboard Completion** — Signal Scorecard panel, drill panel history from DB, GARCH/Kalman I4 fields, SMC detail fields, tier tooltips (completed 2026-03-12)
 - [ ] **Phase 29: Renaissance Signal Quality** — constituent_contributions, alpha decay, signal freshness decay, volume/killzone CIS gates, Hurst/entropy I4 plugins, KS + CUSUM drift detection
 
 ## Phase Details
@@ -300,5 +300,5 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 25. CIS Data Repair | 2/2 | Complete    | 2026-03-11 | - |
 | 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
 | 27. Signal Lifecycle Stream Events | 8/8 | Complete   | 2026-03-12 | - |
-| 28. Dashboard Completion | 6/7 | In Progress|  | — |
+| 28. Dashboard Completion | 7/7 | Complete   | 2026-03-12 | — |
 | 29. Renaissance Signal Quality | 1/7 | In Progress|  | — |
