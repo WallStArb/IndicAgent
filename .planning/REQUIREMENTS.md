@@ -1,68 +1,141 @@
-# Requirements: IndicAgent v1.7 Data Integrity
+# Requirements: IndicAgent v1.8 Signal Intelligence
 
-**Defined:** 2026-03-10
+**Defined:** 2026-03-11
 **Core Value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
 
 ## v1 Requirements
 
-### CIS Backfill Fix
+### Signal Lifecycle Stream Events (Phase 27)
 
-- [x] **CIS-01**: `historical_backfill.py` passes `features=` kwarg to `aggregate()` so new backfill runs produce signals with populated CIS fields
-- [x] **CIS-02**: Pre-repair audit query reports NULL count, recoverable count (matched `intelligence_features`), and unrecoverable count (orphaned)
-- [x] **CIS-03**: Backfill repair UPDATE populates NULL CIS fields on all recoverable `signal_ledger` rows
-- [x] **CIS-04**: Post-repair verification reports before/after NULL counts; unrecoverable rows logged for investigation
+- [ ] **SIG-01**: `signal_lifecycle_service` publishes a `direction=0` terminal event to `signals:SYMBOL:TF:aggregated` on every signal exit, containing `signal_id`, `status`, `outcome`, and `exit_price`
+- [ ] **SIG-02**: Dashboard renders a resolved signal as dimmed with an outcome badge (`EXPIRED` / `STOPPED` / `T1 HIT` / `T1+T2 HIT` / `FULL TARGET`) matched by `signal_id`
+- [ ] **SIG-03**: Resolved events for preempted signals (signal B replaced A before A exited) are silently ignored — no stale badge shown
+- [ ] **SIG-04**: On SSE reconnect, signal stream entries older than `2×TF` are skipped — no stale signal replays on page load
+- [ ] **SIG-05**: `GET /api/signals/{symbol}?timeframe=5m` correctly filters to 5m signals only (was previously accepted but silently ignored)
 
-### Signal Generator Warmup
+### Dashboard Completion (Phase 28)
 
-- [x] **WARM-01**: On startup, `signal_generator_service` seeds `bar_history` with `min_bars_for_tf(tf)` bars per active contract × timeframe from `intelligence_features`
-- [x] **WARM-02**: After seeding, signals fire on the first incoming live bar (no warmup wait)
-- [x] **WARM-03**: Seeding degrades gracefully if DB unavailable — logs loudly and falls back to live warmup without crashing
-- [x] **WARM-04**: Startup log reports seeding completion with bar counts per symbol/TF
+- [ ] **DASH-01**: SSE subscribes to `intelligence_i7:SYMBOL:TF` stream and emits a `signal_scorecard` event per bar
+- [ ] **DASH-02**: Drill panel shows a Signal Scorecard — all ranked signals for the current bar with confidence, direction, composite rank, regime eligibility, and suppression reason
+- [ ] **DASH-03**: Suppressed signals display a human-readable suppression label (`< 60% conf` / `< 5 bars` / `wrong regime`)
+- [ ] **DASH-04**: `GET /api/signals/recent?symbol=&timeframe=&limit=` returns recent signals from `signal_ledger` for drill panel history
+- [ ] **DASH-05**: Drill panel signal history loads from DB on open and merges with live SSE history, deduplicated by `signal_id`
+- [ ] **DASH-06**: Drill panel surfaces GARCH/Kalman I4 fields (`garch_sigma`, `garch_vol_ratio`, `garch_vol_regime`, `kalman_trend`, `kalman_slope`, `kalman_price_position`)
+- [ ] **DASH-07**: Drill panel surfaces remaining SMC fields: BSL/SSL detail (`dist_atr`, `touches`, `significance`) and premium/discount (`price_in_premium`, `premium_discount_pct`, `equilibrium_level`)
+- [ ] **DASH-08**: Tier labels (I1–I8) show hover tooltips explaining what each tier is and how to interpret it
 
-### Signal Lifecycle Stream Events
+### Renaissance Signal Quality (Phase 29)
 
-- [ ] **SLES-01**: `signal_lifecycle_service` publishes a terminal event (`direction=0`, `signal_id`, `status`, `outcome`, `exit_price`) to `signals:SYMBOL:TF:aggregated` on every terminal state transition
-- [ ] **SLES-02**: SSE snapshot skips signal stream entries older than `2×TF` minutes on reconnect — no stale signal replayed on page load
-- [ ] **SLES-03**: Dashboard handles resolved events: `signal_id` match → dimmed signal + outcome badge (`EXPIRED`/`STOPPED`/`T1 HIT`/`T1+T2 HIT`/`FULL TARGET`); mismatched signal_id → no-op
-- [ ] **SLES-04**: REST API `GET /api/signals/{symbol}?timeframe=` filter actually filters results (was silently ignored)
+- [ ] **QUAL-01**: `cis_scorer.py` populates `constituent_contributions` JSONB with per-setup scores for each bucket — no longer always empty
+- [ ] **QUAL-02**: Alpha decay multiplier applied in aggregator: repeated same-direction signals from the same setup within `alpha_half_life` bars are down-weighted
+- [ ] **QUAL-03**: Signal freshness exponential decay applied in `signal_lifecycle_service`: active signal confidence decays as `exp(-λ × bars_since_fire)`
+- [ ] **QUAL-04**: Per-setup cooldown window prevents the same setup firing in the same direction within `_SIGNAL_COOLDOWN_BARS` (3 bars for 1m, 2 bars for 5m+)
+- [ ] **QUAL-05**: `rel_volume` (already in I1) wired into CIS momentum bucket: boost when `rel_volume > 1.5`, suppress when `< 0.5`
+- [ ] **QUAL-06**: Killzone context wired as CIS time-of-day gate: confidence boosted during killzone opens (London/NY), reduced in dead sessions
+- [ ] **QUAL-07**: `HurstExponentPlugin` (I4) computes rolling Hurst exponent; H > 0.65 suppresses mean-reversion setups; H < 0.45 suppresses trend setups
+- [ ] **QUAL-08**: `ShannonEntropyPlugin` (I4) computes rolling return entropy; high entropy reduces all signal confidence by 30–50% as a universal noise gate
 
-## v2 Requirements
+### Candlestick Expansion (Phase 30)
 
-### Renaissance Follow-on
+**Tier 1 — 10 new output fields:**
+- [ ] **CNDL-01**: `harami_bull` / `harami_bear` — small body inside prior body, directional color check
+- [ ] **CNDL-02**: `harami_cross_bull` / `harami_cross_bear` — harami condition + doji body (< 10% of range)
+- [ ] **CNDL-03**: `dark_cloud_cover` — prior bullish, open above prior high, close below prior body midpoint
+- [ ] **CNDL-04**: `piercing_line` — prior bearish, open below prior low, close above prior body midpoint
+- [ ] **CNDL-05**: `three_white_soldiers` — 3 consecutive bullish bars, each opening within prior body
+- [ ] **CNDL-06**: `three_black_crows` — 3 consecutive bearish bars, each opening within prior body
+- [ ] **CNDL-07**: `morning_star` — bearish + small body/doji + bullish closing above prior midpoint
+- [ ] **CNDL-08**: `evening_star` — bullish + small body/doji + bearish closing below prior midpoint
 
-- **REN-01**: Once CIS fields are populated, re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) to validate with real data
-- **REN-02**: Shadow signal gate tuning — analyze `regime_suppressed` signal outcomes vs fired signal outcomes once sufficient data accumulates
+**Tier 2 — 8 new output fields:**
+- [ ] **CNDL-09**: `dragonfly_doji` — open ≈ high ≈ close, long lower wick
+- [ ] **CNDL-10**: `gravestone_doji` — open ≈ low ≈ close, long upper wick
+- [ ] **CNDL-11**: `marubozu_bull` / `marubozu_bear` — full-body candle, wicks < 5% of range
+- [ ] **CNDL-12**: `tweezer_top` / `tweezer_bottom` — two highs/lows within 0.05%, directional reversal
+- [ ] **CNDL-13**: `three_inside_up` / `three_inside_down` — harami + confirming close bar
+
+**I7 wiring:**
+- [ ] **CNDL-14**: `CandlestickPatternSetupPlugin` (I7) extended to consume all 18 new directional fields with appropriate base confidences from research doc
+- [ ] **CNDL-15**: Tier 3 patterns (Abandoned Baby, Rising/Falling Three Methods, Kicker) documented as deferred in `candlestick_patterns.py` with comment explaining futures applicability gap
+
+## v2 Requirements (Deferred)
+
+### Signal Quality — Tier 3 (needs more outcome data)
+- **QUAL-T3-A**: KS distribution drift detection — periodic background job comparing current feature distributions to baseline; alert on p < 0.05
+- **QUAL-T3-B**: CUSUM performance drift — detect when setup win rates are degrading before losses accumulate
+
+### Dashboard — Deferred field groups
+- I3 Fib levels, Value Area, Session levels, Weekly pivots — large field group, needs collapsible section design
+- I5 Chart patterns (dt_db, hs, triangle, flag) — needs visual layout decisions
+- MTF vol divergence scores — requires cross-TF data alignment
+
+### Candlestick — Tier 3 (futures applicability gap)
+- Abandoned Baby — gap-dependent, rarely fires in 24/7 futures
+- Rising/Falling Three Methods — 5-bar, fires rarely, high pattern complexity
+- Kicker — gap-dependent, nearly non-existent in continuous futures
+
+### LLM Call Tracking
+- Real token counts (Ollama `eval_count` / `prompt_eval_count`)
+- Error message on failures, retry chain visibility
+- Fill `cis_score` / zone fields in `llm_calls`
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Backfilling 4h/1d TF signals | Excluded as day-trading scope boundary (Phase 23 decision) |
-| ML model training | Needs ~90 days labeled outcomes — not yet accumulated |
-| CIS adaptive weight learning | Architecture ready; deferred until sufficient signal history |
+| ML Learning Machine | v1.9+ — needs 60+ days of outcome data for meaningful training |
+| I6 Confluence Expansion / Cross-Asset | v1.9+ — own milestone, significant complexity |
+| Auth / External Access | Not blocking any internal use case yet |
+| Volume Profile POC | No research done; complex to implement correctly |
+| Gap-Fill Service | Infrastructure work, deferred |
+| TradeAgent / QualAgent / DerivAgent | Separate products, separate repos |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CIS-01 | Phase 25 | Complete |
-| CIS-02 | Phase 25 | Complete |
-| CIS-03 | Phase 25 | Complete |
-| CIS-04 | Phase 25 | Complete |
-| WARM-01 | Phase 26 | Complete |
-| WARM-02 | Phase 26 | Complete |
-| WARM-03 | Phase 26 | Complete |
-| WARM-04 | Phase 26 | Complete |
-| SLES-01 | Phase 27 | Pending |
-| SLES-02 | Phase 27 | Pending |
-| SLES-03 | Phase 27 | Pending |
-| SLES-04 | Phase 27 | Pending |
+| SIG-01 | Phase 27 | Pending |
+| SIG-02 | Phase 27 | Pending |
+| SIG-03 | Phase 27 | Pending |
+| SIG-04 | Phase 27 | Pending |
+| SIG-05 | Phase 27 | Pending |
+| DASH-01 | Phase 28 | Pending |
+| DASH-02 | Phase 28 | Pending |
+| DASH-03 | Phase 28 | Pending |
+| DASH-04 | Phase 28 | Pending |
+| DASH-05 | Phase 28 | Pending |
+| DASH-06 | Phase 28 | Pending |
+| DASH-07 | Phase 28 | Pending |
+| DASH-08 | Phase 28 | Pending |
+| QUAL-01 | Phase 29 | Pending |
+| QUAL-02 | Phase 29 | Pending |
+| QUAL-03 | Phase 29 | Pending |
+| QUAL-04 | Phase 29 | Pending |
+| QUAL-05 | Phase 29 | Pending |
+| QUAL-06 | Phase 29 | Pending |
+| QUAL-07 | Phase 29 | Pending |
+| QUAL-08 | Phase 29 | Pending |
+| CNDL-01 | Phase 30 | Pending |
+| CNDL-02 | Phase 30 | Pending |
+| CNDL-03 | Phase 30 | Pending |
+| CNDL-04 | Phase 30 | Pending |
+| CNDL-05 | Phase 30 | Pending |
+| CNDL-06 | Phase 30 | Pending |
+| CNDL-07 | Phase 30 | Pending |
+| CNDL-08 | Phase 30 | Pending |
+| CNDL-09 | Phase 30 | Pending |
+| CNDL-10 | Phase 30 | Pending |
+| CNDL-11 | Phase 30 | Pending |
+| CNDL-12 | Phase 30 | Pending |
+| CNDL-13 | Phase 30 | Pending |
+| CNDL-14 | Phase 30 | Pending |
+| CNDL-15 | Phase 30 | Pending |
 
 **Coverage:**
-- v1 requirements: 12 total
-- Mapped to phases: 12
+- v1 requirements: 36 total
+- Mapped to phases: 36
 - Unmapped: 0 ✓
 
 ---
-*Requirements defined: 2026-03-10*
-*Last updated: 2026-03-10 — traceability updated after roadmap creation (phases 25-26)*
+*Requirements defined: 2026-03-11*
+*Last updated: 2026-03-11 — v1.8 milestone definition*

@@ -8,13 +8,15 @@ IndicAgent is a real-time market intelligence platform covering 23 instruments a
 
 Every intelligence output — indicator, pattern, signal, narrative — flows through one canonical typed bus that both internal and external consumers can trust.
 
-## Current Milestone: v1.7 Data Integrity
+## Current Milestone: v1.8 Signal Intelligence
 
-**Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts.
+**Goal:** Close the feedback loop on signal quality — show outcomes in real time, gate signals on regime type and market quality, and expand pattern coverage with 18 new candlestick detectors.
 
 **Target features:**
-- CIS backfill fix: pass `features=` to `aggregate()` in `historical_backfill.py`; re-run backfill to populate NULL CIS fields on existing signals
-- Signal Generator DB warmup: seed `bar_history` from `intelligence_features` on startup to eliminate 50-min warmup wait
+- Signal lifecycle stream events: dashboard shows resolved outcomes (EXPIRED, STOPPED, T1 HIT, etc.) in real time; stale signals never replay on reconnect
+- Dashboard completion: I7 all-ranked Signal Scorecard panel, drill panel signal history from DB, GARCH/Kalman/SMC field gaps, tier tooltips
+- Renaissance signal quality gates: constituent_contributions fix, alpha decay, signal freshness, recycling window, volume confidence, killzone gating, Hurst exponent regime type, Shannon entropy market quality gate
+- Candlestick expansion: 18 new patterns (Tier 1 + Tier 2) added to I5 + I7; Tier 3 (Abandoned Baby, Rising/Falling Three Methods, Kicker) deferred — gap-dependent, poor futures applicability
 
 ## Requirements
 
