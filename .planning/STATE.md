@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 27-04-PLAN.md (timeframe filter tests)
-last_updated: "2026-03-12T06:25:17.566Z"
+stopped_at: Completed 27-06-PLAN.md (resolved event handling)
+last_updated: "2026-03-12T06:27:25.081Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
-  total_phases: 3
+  total_phases: 5
   completed_phases: 0
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 6
   percent: 0
 ---
 
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 27 P01 | 1 | 1 tasks | 0 files |
 | Phase 27-signal-lifecycle-stream-events P03 | 3 | 2 tasks | 2 files |
 | Phase 27-signal-lifecycle-stream-events P04 | 6 | 2 tasks | 2 files |
+| Phase 27-signal-lifecycle-stream-events P06 | 1 | 1 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 27]: Plan 27-01: _publish_terminal_event() was already implemented in v1.6 monolith; verified passing with 23 tests
 - [Phase 27-03]: SSE snapshot age filter skips signal entries older than 2xTF to prevent stale replay on reconnect; cursor still advances for all entries
 - [Phase 27-signal-lifecycle-stream-events]: signals.py timeframe filter was already correctly implemented; plan 27-04 was test-only
+- [Phase 27-signal-lifecycle-stream-events]: NO-OP: Resolved event handling (dir=0 with signal_id matching, resolved SignalData construction) already implemented in use-market-stream.ts from prior phase work
 
 ### Pending Todos (addressed in v1.8)
 
@@ -77,6 +79,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T06:25:17.565Z
-Stopped at: Completed 27-04-PLAN.md (timeframe filter tests)
+Last session: 2026-03-12T06:27:15.586Z
+Stopped at: Completed 27-06-PLAN.md (resolved event handling)
 Resume file: None

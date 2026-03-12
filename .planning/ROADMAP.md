@@ -104,6 +104,13 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 - [x] **Phase 26: Signal Generator Warmup** — Seed bar_history from intelligence_features on startup; eliminate 50-min warmup wait (completed 2026-03-11)
 - [ ] **Phase 27: Signal Lifecycle Stream Events** — Publish terminal signal events to Redis stream; SSE snapshot age filter; dashboard resolved state with outcome badge
 
+### 🔲 v1.8 Signal Intelligence (Planned)
+
+**Milestone Goal:** Complete the dashboard intelligence surface and close Renaissance signal quality gaps — constituent contributions, alpha decay, freshness decay, Hurst/entropy gates, and distribution drift detection.
+
+- [ ] **Phase 28: Dashboard Completion** — Signal Scorecard panel, drill panel history from DB, GARCH/Kalman I4 fields, SMC detail fields, tier tooltips
+- [ ] **Phase 29: Renaissance Signal Quality** — constituent_contributions, alpha decay, signal freshness decay, volume/killzone CIS gates, Hurst/entropy I4 plugins, KS + CUSUM drift detection
+
 ## Phase Details
 
 ### Phase 25: CIS Data Repair
@@ -154,6 +161,34 @@ Plans: 7 plans
 - [ ] 27-06: Handle resolved events in `use-market-stream.ts` signal_data handler
 - [ ] 27-07: Render resolved state in `signal-panel.tsx` with outcome badge
 
+### Phase 28: Dashboard Completion
+**Goal**: The dashboard fully surfaces the intelligence pipeline — Signal Scorecard with all ranked signals, drill panel signal history from DB, GARCH/Kalman I4 fields, SMC detail fields, and tier tooltips.
+**Depends on**: Phase 27 (SSE `signal_scorecard` event type)
+**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06, DASH-07, DASH-08
+**Success Criteria** (what must be TRUE):
+  1. Drill panel Signal Scorecard shows all ranked signals for the current bar with confidence, direction, composite rank, regime eligibility, and suppression reason.
+  2. Suppressed signals display human-readable suppression labels (`< 60% conf` / `< 5 bars` / `wrong regime`).
+  3. `GET /api/signals/recent` returns paginated recent signals from signal_ledger; drill panel merges with live SSE history deduplicated by signal_id.
+  4. Drill panel shows GARCH/Kalman I4 fields and SMC detail fields (BSL/SSL dist_atr/touches/significance, premium/discount fields).
+  5. Tier labels (I1–I8) show hover tooltips.
+**Plans**: TBD
+
+### Phase 29: Renaissance Signal Quality
+**Goal**: Signal quality matches Renaissance-grade standards — constituent contributions populated, alpha decay applied, signal freshness decay active, volume/killzone CIS gates wired, Hurst/entropy I4 plugins gating setups, and KS + CUSUM drift detection monitoring.
+**Depends on**: Phase 14 (setup_performance table), Phase 26 (bar_history seeding)
+**Requirements**: QUAL-01, QUAL-02, QUAL-03, QUAL-04, QUAL-05, QUAL-06, QUAL-07, QUAL-08, QUAL-09, QUAL-10
+**Success Criteria** (what must be TRUE):
+  1. `cis_scorer.py` populates `constituent_contributions` JSONB with per-setup scores for each bucket on every CIS computation.
+  2. Aggregator applies alpha decay: repeated same-direction signals from the same setup within `alpha_half_life` bars are down-weighted.
+  3. Signal lifecycle applies freshness decay: active signal confidence decays as `exp(-λ × bars_since_fire)`.
+  4. Per-setup cooldown prevents same setup firing in same direction within `_SIGNAL_COOLDOWN_BARS` (3 bars 1m, 2 bars 5m+).
+  5. `rel_volume` wired into CIS momentum bucket; killzone context gates CIS time-of-day confidence.
+  6. `HurstExponentPlugin` (I4) suppresses mean-reversion setups when H > 0.65 and trend setups when H < 0.45.
+  7. `ShannonEntropyPlugin` (I4) reduces all signal confidence 30–50% when return entropy is high.
+  8. KS drift detection background job emits monitoring flag when feature distributions deviate (p < 0.05).
+  9. CUSUM performance drift detection alerts when per-setup win rates degrade relative to baseline.
+**Plans**: TBD
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -163,8 +198,8 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| Renaissance Gaps (Signal Quality) | T0: constituent_contributions. T1: alpha decay, signal freshness, volume confidence, killzone accel. T2: Hurst/entropy I4 plugins. T3: KS + CUSUM drift detection. | `docs/ideas/renaissance-gap-analysis.md` |
-| Dashboard Complete | I7 all_ranked panel (new SSE route); drill panel signal history from DB on open; dashboard audit across all symbol profiles + TFs; I-tier tooltips; signal banner polish. | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md`, `.planning/todos/pending/2026-03-11-drill-panel-signal-history-from-db.md`, `.planning/todos/pending/2026-02-27-add-tooltips-to-intelligence-level-indicators.md` |
+| Renaissance Gaps (Signal Quality) | → **Scheduled as Phase 29** | `docs/ideas/renaissance-gap-analysis.md` |
+| Dashboard Complete | → **Scheduled as Phase 28** | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md`, `.planning/todos/pending/2026-03-11-drill-panel-signal-history-from-db.md`, `.planning/todos/pending/2026-02-27-add-tooltips-to-intelligence-level-indicators.md` |
 | Expand I5 candlestick + I7 setup | 18 patterns spec'd (Tier 1: Harami, Dark Cloud, Three Soldiers/Crows, Morning/Evening Star). Research doc complete. | `docs/ideas/candlestick-pattern-expansion-research.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
@@ -245,4 +280,6 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
 | 25. CIS Data Repair | 2/2 | Complete    | 2026-03-11 | - |
 | 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
-| 27. Signal Lifecycle Stream Events | 4/7 | In Progress|  | - |
+| 27. Signal Lifecycle Stream Events | 5/7 | In Progress|  | - |
+| 28. Dashboard Completion | v1.8 | TBD | Planned | — |
+| 29. Renaissance Signal Quality | v1.8 | TBD | Planned | — |
