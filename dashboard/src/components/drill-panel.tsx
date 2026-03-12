@@ -802,14 +802,14 @@ function SignalDetail({ signal }: { signal: SignalData }) {
         {signal.bar_close_price != null && (
           <KV
             label="Bar close"
-            tooltip="Close price of the bar that triggered this signal — what the analysis is based on"
+            tooltip={{ description: "Close price of the bar that triggered this signal — what the analysis is based on", context: null }}
             value={fmtPrice(signal.bar_close_price)}
           />
         )}
         {signal.market_price_at_signal != null && (
           <KV
             label="Signal price"
-            tooltip="Live market price (bid/ask) at the moment this signal was computed"
+            tooltip={{ description: "Live market price (bid/ask) at the moment this signal was computed", context: null }}
             value={fmtPrice(signal.market_price_at_signal)}
           />
         )}

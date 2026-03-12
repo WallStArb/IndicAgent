@@ -7,6 +7,7 @@ import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 import { Tooltip } from "@/components/tooltip";
+import { OutcomeBadge } from "@/components/signal-panel";
 import {
   barTimeTooltip,
   sigTimeTooltip,
@@ -46,15 +47,19 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
   if (!signal || signal.confidence < HIGH_CONFIDENCE_THRESHOLD) return null;
 
   return (
-    <button
-      onClick={onDrillDown}
-      className="w-full flex items-center gap-2 px-2 py-1 cursor-pointer"
-      style={{
-        backgroundColor: dimColor,
-        borderBottom: `1px solid ${color}33`,
-      }}
-    >
-      <Icon size={10} style={{ color }} />
+    <div className={signal.resolved ? "opacity-50" : undefined}>
+      <button
+        onClick={onDrillDown}
+        className="w-full flex items-center gap-2 px-2 py-1 cursor-pointer"
+        style={{
+          backgroundColor: dimColor,
+          borderBottom: `1px solid ${color}33`,
+        }}
+      >
+        {signal.resolved && (
+          <OutcomeBadge outcome={signal.outcome} />
+        )}
+        <Icon size={10} style={{ color }} />
       <span
         className="text-[0.55rem] font-bold uppercase tracking-widest"
         style={{ color }}
@@ -117,7 +122,8 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
           )}
         </span>
       )}
-      <ChevronRight size={8} className="ml-auto text-[var(--text-muted)]" />
-    </button>
+        <ChevronRight size={8} className="ml-auto text-[var(--text-muted)]" />
+      </button>
+    </div>
   );
 }
