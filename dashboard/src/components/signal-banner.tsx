@@ -54,34 +54,34 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
         {/* Line 1: trade info */}
         <div className="flex items-center gap-1.5 w-full">
           {signal.resolved && <OutcomeBadge outcome={signal.outcome} small />}
-          <Icon size={10} style={{ color }} />
+          <Icon size={12} style={{ color }} />
           <span
-            className="text-[0.55rem] font-bold uppercase tracking-widest"
+            className="text-[0.65rem] font-bold uppercase tracking-widest"
             style={{ color }}
           >
             {isLong ? "LONG" : "SHORT"}
           </span>
-          <span className="text-[0.55rem] font-data" style={{ color }}>
+          <span className="text-[0.65rem] font-data" style={{ color }}>
             @ {fmtPrice(signal.entry_price)}
           </span>
-          <span className="text-[0.5rem] text-[var(--text-muted)]">
+          <span className="text-[0.6rem] text-[var(--text-muted)]">
             ({fmtNum(signal.confidence * 100, 0)}% {fmtSignalType(signal.signal_type)})
           </span>
-          <span className="text-[0.5rem] text-[var(--text-muted)]">
+          <span className="text-[0.6rem] text-[var(--text-muted)]">
             | SL: {fmtPrice(signal.stop_loss)}
           </span>
           {signal.profit_target != null && (
-            <span className="text-[0.5rem] text-[var(--text-muted)]">
+            <span className="text-[0.6rem] text-[var(--text-muted)]">
               | T1: {fmtPrice(signal.profit_target)}
               {signal.rr_t1 != null && ` (${fmtNum(signal.rr_t1, 1)}R)`}
             </span>
           )}
-          <ChevronRight size={8} className="ml-auto text-[var(--text-muted)]" />
+          <ChevronRight size={10} className="ml-auto text-[var(--text-muted)]" />
         </div>
 
         {/* Line 2: zone + timing context */}
         {hasLine2 && (
-          <div className="flex items-center gap-1 text-[0.45rem] font-data text-[var(--text-muted)] opacity-70 mt-0.5">
+          <div className="flex items-center gap-1 text-[0.55rem] font-data text-[var(--text-muted)] opacity-70 mt-0.5">
             {hasZone && (
               <span>Zone: {fmtPriceRange(signal.entry_zone_low!, signal.entry_zone_high!)}</span>
             )}
