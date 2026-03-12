@@ -17,7 +17,7 @@
 
 - [x] **DASH-01**: SSE subscribes to `intelligence_i7:SYMBOL:TF` stream and emits a `signal_scorecard` event per bar
 - [ ] **DASH-02**: Drill panel shows a Signal Scorecard — all ranked signals for the current bar with confidence, direction, composite rank, regime eligibility, and suppression reason
-- [ ] **DASH-03**: Suppressed signals display a human-readable suppression label (`< 60% conf` / `< 5 bars` / `wrong regime`)
+- [x] **DASH-03**: Suppressed signals display a human-readable suppression label (`< 60% conf` / `< 5 bars` / `wrong regime`)
 - [ ] **DASH-04**: `GET /api/signals/recent?symbol=&timeframe=&limit=` returns recent signals from `signal_ledger` for drill panel history
 - [ ] **DASH-05**: Drill panel signal history loads from DB on open and merges with live SSE history, deduplicated by `signal_id`
 - [ ] **DASH-06**: Drill panel surfaces GARCH/Kalman I4 fields (`garch_sigma`, `garch_vol_ratio`, `garch_vol_regime`, `kalman_trend`, `kalman_slope`, `kalman_price_position`)
@@ -106,7 +106,7 @@
 | SIG-05 | Phase 27 | Pending |
 | DASH-01 | Phase 28 | Complete |
 | DASH-02 | Phase 28 | Pending |
-| DASH-03 | Phase 28 | Pending |
+| DASH-03 | Phase 28 | Complete |
 | DASH-04 | Phase 28 | Pending |
 | DASH-05 | Phase 28 | Pending |
 | DASH-06 | Phase 28 | Pending |
