@@ -16,7 +16,8 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Signal lifecycle stream events: dashboard shows resolved outcomes (EXPIRED, STOPPED, T1 HIT, etc.) in real time; stale signals never replay on reconnect
 - Dashboard completion: I7 all-ranked Signal Scorecard panel, drill panel signal history from DB, GARCH/Kalman/SMC field gaps, tier tooltips
 - Renaissance signal quality gates: constituent_contributions fix, alpha decay, signal freshness, recycling window, volume confidence, killzone gating, Hurst exponent regime type, Shannon entropy market quality gate
-- Candlestick expansion: 18 new patterns (Tier 1 + Tier 2) added to I5 + I7; Tier 3 (Abandoned Baby, Rising/Falling Three Methods, Kicker) deferred — gap-dependent, poor futures applicability
+- LLM call tracking: real token counts, error details, fill cis_score/zone fields, request params
+- Candlestick expansion: 18 new patterns (Tier 1 + Tier 2) added to I5 + I7; Tier 3 deferred (gap-dependent, poor futures applicability)
 
 ## Requirements
 
