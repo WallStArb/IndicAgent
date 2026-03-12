@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 27-signal-lifecycle-stream-events-05-PLAN.md
-last_updated: "2026-03-12T06:20:19.801Z"
+stopped_at: Completed 27-01-PLAN.md
+last_updated: "2026-03-12T06:21:34.858Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -46,6 +46,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | 25. CIS Data Repair | 2 | Backfill fix + repair script |
 | 26. Signal Generator Warmup | 1 | DB seed on startup, graceful fallback |
 | Phase 27-signal-lifecycle-stream-events P05 | 1 | 1 tasks | 0 files |
+| Phase 27 P01 | 1 | 1 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -56,6 +57,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [v1.8 scope]: Phase 29 (Renaissance Signal Quality) — T0-B + T1 (all 5 wire-ins) + T2-A/B (Hurst + Shannon entropy)
 - [v1.8 scope]: Phase 30 (Candlestick Expansion) — Tier 1 + Tier 2 (18 new patterns); Tier 3 deferred (gap-dependent, poor futures applicability)
 - [Phase 27-signal-lifecycle-stream-events]: NO-OP: SignalData resolved/outcome/exit_price/pnl_r fields already present in types.ts from prior phase work
+- [Phase 27]: Plan 27-01: _publish_terminal_event() was already implemented in v1.6 monolith; verified passing with 23 tests
 
 ### Pending Todos (addressed in v1.8)
 
@@ -71,6 +73,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T06:20:19.796Z
-Stopped at: Completed 27-signal-lifecycle-stream-events-05-PLAN.md
+Last session: 2026-03-12T06:21:34.856Z
+Stopped at: Completed 27-01-PLAN.md
 Resume file: None
