@@ -14,10 +14,11 @@ const OUTCOME_LABEL_MAP: Record<string, string> = {
 
 interface OutcomeBadgeProps {
   outcome?: string;
+  small?: boolean;
 }
 
 /** Renders a colored badge showing the resolved signal outcome. Returns null if no outcome. */
-function OutcomeBadge({ outcome }: OutcomeBadgeProps) {
+function OutcomeBadge({ outcome, small }: OutcomeBadgeProps) {
   if (!outcome) return null;
 
   const label = OUTCOME_LABEL_MAP[outcome] ?? outcome.toUpperCase();
@@ -29,9 +30,13 @@ function OutcomeBadge({ outcome }: OutcomeBadgeProps) {
         ? "bg-red-600"
         : "bg-gray-600";
 
+  const sizeClass = small
+    ? "text-[0.45rem] px-1 py-0.5 rounded-sm"
+    : "text-xs px-2 py-1 rounded";
+
   return (
     <div
-      className={`${colorClass} text-white text-xs font-bold px-2 py-1 rounded inline-block`}
+      className={`${colorClass} ${sizeClass} text-white font-bold inline-block`}
     >
       {label}
     </div>
