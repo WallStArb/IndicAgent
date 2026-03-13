@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 29-03-PLAN.md (QUAL-02 alpha decay + QUAL-03 freshness decay)
-last_updated: "2026-03-13T09:02:22.727Z"
+stopped_at: Completed 29-04-PLAN.md (QUAL-07 HurstExponentPlugin I4)
+last_updated: "2026-03-13T09:08:26.790Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 24
-  completed_plans: 20
+  completed_phases: 1
+  total_plans: 14
+  completed_plans: 11
   percent: 0
 ---
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 28-dashboard-completion P05 | 2 | 1 tasks | 2 files |
 | Phase 29-renaissance-signal-quality P02 | 12 | 2 tasks | 4 files |
 | Phase 29-renaissance-signal-quality P03 | 15 | 2 tasks | 2 files |
+| Phase 29-renaissance-signal-quality P04 | 251 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 29-02]: rel_volume and killzone sub-terms additive (supplemental 0.05 weight) — existing sub-term weights unchanged
 - [Phase 29-03]: Alpha decay (QUAL-02) applied BEFORE aggregate() — _apply_alpha_decay() is a module-level helper; _setup_last_fire keyed by (symbol, tf, plugin, direction)
 - [Phase 29-03]: Freshness decay (QUAL-03) is in-memory only — original confidence in signal_ledger never mutated; FRESHNESS_HALF_LIFE_BARS: 1m=20, 5m=10, 15m=6, 1h=4
+- [Phase 29-04]: HurstExponent R/S uses last-64-bar slice for consistent rolling estimate; quality thresholds from RESEARCH.md (trend>=0.65->1.0, mr<=0.35->1.0); register_all_plugins() and TIER_I4 updated atomically to avoid validate_tier() crash
 
 ### Pending Todos (addressed in v1.8)
 
@@ -111,6 +113,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-13T09:02:22.726Z
-Stopped at: Completed 29-03-PLAN.md (QUAL-02 alpha decay + QUAL-03 freshness decay)
+Last session: 2026-03-13T09:08:26.788Z
+Stopped at: Completed 29-04-PLAN.md (QUAL-07 HurstExponentPlugin I4)
 Resume file: None
