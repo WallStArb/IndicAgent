@@ -267,7 +267,7 @@ All implementation follows TDD. Key test categories:
 - `test_session_registry.py` — invalid `session_id` raises at Instrument construction
 - `test_ibkr_equity_qualification.py` — mocked IBKR, verifies `secType='STK'`
 - `test_plugin_asset_class_guard.py` — plugin with restricted `valid_asset_classes` is skipped, no feature written
-- `test_equity_gap_no_row.py` — backfill with `useRTH=True` produces no off-hours rows in `intelligence_features`; the live pipeline relies on IBKR not streaming equity bars outside market hours, so no active gate is needed in service code
+- `test_equity_gap_no_row.py` — backfill with `useRTH=True` produces no off-hours rows in `intelligence_features` (integration test — requires TimescaleDB, excluded from CI); the live pipeline relies on IBKR not streaming equity bars outside market hours, so no active gate is needed in service code
 - `test_timestamp_alignment.py` — ES and SPY 1m bars at same minute carry identical `feature_ts`
 
 Integration tests require live IBKR paper account connection — excluded from CI, documented in `tests/integration/README.md`.
