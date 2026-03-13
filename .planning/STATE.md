@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 27-10-PLAN.md (dashboard signalsHistory update on terminal events)
-last_updated: "2026-03-13T02:22:03.826Z"
+stopped_at: Completed 29-02-PLAN.md (QUAL-04/05/06 signal quality wire-ins)
+last_updated: "2026-03-13T02:28:59.612Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 24
-  completed_plans: 18
+  completed_plans: 19
   percent: 0
 ---
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 28-dashboard-completion P06 | 2 | 2 tasks | 3 files |
 | Phase 28-dashboard-completion P03 | 2 | 2 tasks | 2 files |
 | Phase 28-dashboard-completion P05 | 2 | 1 tasks | 2 files |
+| Phase 29-renaissance-signal-quality P02 | 12 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 28-03]: SignalScorecard handles undefined data gracefully — empty state renders at component level, no guard needed at call site
 - [Phase 28-dashboard-completion]: [Phase 28-05]: DB+SSE merge — DB provides history on fresh load; SSE provides live updates; deduplicate by signal_id with SSE winning
 - [Phase 27-signal-lifecycle-stream-events]: Plan 27-10: REST seed (fetchActiveSignals) reverted — 27-09 SSE snapshot fix already seeds signalsByTf on mount; setSignalsHistory updated in dir===0 branch to propagate OutcomeBadge for resolved signals
+- [Phase 29-02]: timestamp-based cooldown stores fire_ts not bars_left — consistent with _check_gate, avoids call-count brittleness
+- [Phase 29-02]: rel_volume and killzone sub-terms additive (supplemental 0.05 weight) — existing sub-term weights unchanged
 
 ### Pending Todos (addressed in v1.8)
 
@@ -105,6 +108,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-13T02:08:33.022Z
-Stopped at: Completed 27-10-PLAN.md (dashboard signalsHistory update on terminal events)
+Last session: 2026-03-13T02:28:59.610Z
+Stopped at: Completed 29-02-PLAN.md (QUAL-04/05/06 signal quality wire-ins)
 Resume file: None
