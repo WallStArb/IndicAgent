@@ -4,7 +4,7 @@ milestone: v1.8
 milestone_name: Signal Intelligence
 status: Defining requirements
 stopped_at: Completed 29-08-PLAN.md (QUAL-03 freshness decay wired into _evaluate_signals_against_bar)
-last_updated: "2026-03-13T15:11:04.787Z"
+last_updated: "2026-03-13T15:13:52.391Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
