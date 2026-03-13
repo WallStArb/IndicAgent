@@ -54,14 +54,18 @@ for plugin in self._plugin_cache[tier]:
     if instrument.asset_class not in plugin.valid_asset_classes:
         continue  # skip — no feature written, no NULL
     frames["__instrument__"] = instrument  # available if plugin needs it
-    result = plugin.compute_full(frames, state)
+    plugin._state = self._plugin_states[(plugin.name, symbol, timeframe)]
+    result = plugin.compute_full(frames)
+    self._plugin_states[(plugin.name, symbol, timeframe)] = plugin._state
 ```
+
+State swap pattern is unchanged from current services — `frames["__instrument__"]` is injected before the call and available via `frames.get("__instrument__")` inside `compute_full`. Future plugins that need asset-class-specific behavior read it from `frames`; all current plugins ignore it.
 
 Skip = absent from output dict. Not `None`, not `0.0`, not written to `intelligence_features`. A missing field is interpretable. A garbage field is not.
 
 3. **Plugin audit result:** Zero plugins currently need non-default `valid_asset_classes` declarations. ICTKillzones, AMDCycle, SessionContext are UTC-time-based — they produce valid output for ETFs during market hours. VWAP already handles session reset by date boundary. The layer exists for future plugins that are genuinely asset-class-specific (e.g., futures-only roll momentum, equity-only earnings proximity), not to filter current ones.
 
-4. **DST bug fix** (in-scope, same area): `src/intelligence/context/session_context.py` uses a hardcoded `_ET_OFFSET = timedelta(hours=-5)`. This is wrong — ET is UTC-4 during daylight saving (March–November), causing systematic mis-classification for 7 months of every year. Replace with `ZoneInfo("America/New_York")`.
+4. **DST bug fix** (in-scope, same area): `src/intelligence/context/session_context.py` uses a hardcoded `_ET_OFFSET = timedelta(hours=-5)`. This is wrong — ET is UTC-4 during daylight saving (March–November), causing systematic mis-classification for 7 months of every year. Fix: replace `_et_from_utc()` to use `ZoneInfo("America/New_York")` for the UTC→local conversion. The `_SESSIONS` and `_KILLZONES` window constants are already in local wall-clock time — they do not need to change.
 
 ### Track C — ETF Expansion
 
@@ -96,16 +100,18 @@ class TradingSession:
         if local.weekday() not in self.trading_days:
             return False
         t = local.time().replace(second=0, microsecond=0)
-        if self.open_time < self.close_time:       # normal window: 09:30–16:00
+        if self.open_time == self.close_time:      # all-day session on this trading day
+            return True
+        elif self.open_time < self.close_time:     # normal window: 09:30–16:00
             return self.open_time <= t < self.close_time
-        else:                                       # wraps midnight: 18:00–17:00 futures
+        else:                                      # wraps midnight: 18:00–17:00 futures
             return t >= self.open_time or t < self.close_time
 
 # Singletons — reference by session_id string
 NYSE_SESSION  = TradingSession(time(9, 30), time(16, 0), "America/New_York", frozenset({0,1,2,3,4}))
-FUTURES_24_5  = TradingSession(time(18, 0), time(17, 0), "America/Chicago",  frozenset(range(7)))
-FX_24_5       = TradingSession(time(17, 0), time(17, 0), "America/New_York", frozenset({0,1,2,3,4,6}))
-CRYPTO_24_7   = TradingSession(time(0, 0),  time(0, 0),  "UTC",              frozenset(range(7)))
+FUTURES_24_5  = TradingSession(time(18, 0), time(17, 0), "America/Chicago",  frozenset({0,1,2,3,4,6}))  # Mon–Fri + Sun; Sat is dark
+FX_24_5       = TradingSession(time(0, 0),  time(0, 0),  "UTC",              frozenset({0,1,2,3,4,6}))  # all-day Mon–Fri + Sun
+CRYPTO_24_7   = TradingSession(time(0, 0),  time(0, 0),  "UTC",              frozenset(range(7)))        # all-day every day
 
 SESSION_REGISTRY: dict[str, TradingSession] = {
     "nyse":         NYSE_SESSION,
@@ -144,7 +150,7 @@ FX instruments get `session_id="fx_24_5"`. Crypto gets `session_id="crypto_24_7"
 
 ## Section 2: Instrument Universe
 
-### Futures (22, unchanged except PL and SOLUSD dropped)
+### Futures (22, PLJ6 and SOLUSD removed from settings.py defaults)
 
 | Sector | Symbols |
 |---|---|
@@ -201,10 +207,15 @@ After any ETF backfill, run:
 SELECT COUNT(*) FROM intelligence_features
 WHERE symbol = 'SPY'
   AND feature_tf = '1m'
-  AND EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') NOT BETWEEN 9 AND 16;
+  AND (
+    EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') < 9
+    OR EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') >= 16
+    OR (EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') = 9
+        AND EXTRACT(MINUTE FROM feature_ts AT TIME ZONE 'America/New_York') < 30)
+  );
 ```
 
-Count must be zero (allowing for the 09:30 open bar). Any off-hours rows = timestamp alignment bug, investigate before proceeding.
+Count must be zero. This gates on the full NYSE window (09:30–16:00 ET exactly — bars before 09:30 and from 16:00 onward are invalid). Any rows = timestamp alignment bug or `useRTH` not being applied, investigate before proceeding.
 
 ### Explicitly out of scope
 
@@ -228,7 +239,7 @@ The data capture is this phase. The model comes later — but only works if the 
 | `plugin_skipped_total` | `plugin_name`, `asset_class` | informational only |
 | `ibkr_active_subscriptions` | — | >80% of `IBKR_MAX_SUBSCRIPTIONS` |
 
-`bars_processed_total` already exists in the indicator service. Ensure it fires per symbol per timeframe so `absent()` alerts can be written per symbol — not just an aggregate counter.
+`bars_processed_total` already exists in the indicator service. Verify during implementation that it carries `symbol` and `tf` labels — if it is currently an aggregate-only counter, adding labels is a label-breaking Prometheus change that invalidates historical data. Address explicitly: either accept the break or add a new labeled metric alongside the existing one.
 
 ### Subscription headroom
 
@@ -256,7 +267,7 @@ All implementation follows TDD. Key test categories:
 - `test_session_registry.py` — invalid `session_id` raises at Instrument construction
 - `test_ibkr_equity_qualification.py` — mocked IBKR, verifies `secType='STK'`
 - `test_plugin_asset_class_guard.py` — plugin with restricted `valid_asset_classes` is skipped, no feature written
-- `test_equity_gap_no_row.py` — outside-hours bar produces no `intelligence_features` row
+- `test_equity_gap_no_row.py` — backfill with `useRTH=True` produces no off-hours rows in `intelligence_features`; the live pipeline relies on IBKR not streaming equity bars outside market hours, so no active gate is needed in service code
 - `test_timestamp_alignment.py` — ES and SPY 1m bars at same minute carry identical `feature_ts`
 
 Integration tests require live IBKR paper account connection — excluded from CI, documented in `tests/integration/README.md`.
