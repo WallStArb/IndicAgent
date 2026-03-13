@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: Data Integrity
+milestone: v1.8
+milestone_name: Signal Intelligence
 status: Defining requirements
-stopped_at: Completed 29-04-PLAN.md (QUAL-07 HurstExponentPlugin I4)
-last_updated: "2026-03-13T09:08:26.790Z"
+stopped_at: Completed 29-05-PLAN.md (QUAL-08 ShannonEntropyPlugin + quality multiplier wiring)
+last_updated: "2026-03-13T09:17:35.219Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 29-renaissance-signal-quality P02 | 12 | 2 tasks | 4 files |
 | Phase 29-renaissance-signal-quality P03 | 15 | 2 tasks | 2 files |
 | Phase 29-renaissance-signal-quality P04 | 251 | 2 tasks | 4 files |
+| Phase 29-renaissance-signal-quality P05 | 7 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,8 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 29-03]: Alpha decay (QUAL-02) applied BEFORE aggregate() — _apply_alpha_decay() is a module-level helper; _setup_last_fire keyed by (symbol, tf, plugin, direction)
 - [Phase 29-03]: Freshness decay (QUAL-03) is in-memory only — original confidence in signal_ledger never mutated; FRESHNESS_HALF_LIFE_BARS: 1m=20, 5m=10, 15m=6, 1h=4
 - [Phase 29-04]: HurstExponent R/S uses last-64-bar slice for consistent rolling estimate; quality thresholds from RESEARCH.md (trend>=0.65->1.0, mr<=0.35->1.0); register_all_plugins() and TIER_I4 updated atomically to avoid validate_tier() crash
+- [Phase 29-05]: Quality multipliers applied BEFORE adjusted_rank (per RESEARCH.md Pitfall 2) so confident signals still compete first with reduced absolute confidence
+- [Phase 29-05]: TREND_SETUPS frozenset at aggregator module level routes hurst_trend_quality vs hurst_mr_quality per signal; features=None is strict no-op
 
 ### Pending Todos (addressed in v1.8)
 
@@ -113,6 +116,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-13T09:08:26.788Z
-Stopped at: Completed 29-04-PLAN.md (QUAL-07 HurstExponentPlugin I4)
+Last session: 2026-03-13T09:17:35.217Z
+Stopped at: Completed 29-05-PLAN.md (QUAL-08 ShannonEntropyPlugin + quality multiplier wiring)
 Resume file: None

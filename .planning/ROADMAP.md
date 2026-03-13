@@ -9,7 +9,7 @@
 - ✅ **v1.4 Quant Foundation** — Phases 12-17 (shipped 2026-03-07)
 - ✅ **v1.5 Production Hardening** — Phases 18-22 (shipped 2026-03-10)
 - ✅ **v1.6 Signal Quality** — Phases 23-24 (shipped 2026-03-10)
-- 🚧 **v1.7 Data Integrity** — Phases 25-27 (in progress)
+- ✅ **v1.7 Data Integrity** — Phases 25-27 (shipped 2026-03-12)
 
 ## Phases
 
@@ -96,13 +96,16 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 Full details: `.planning/milestones/v1.6-ROADMAP.md`
 </details>
 
-### 🚧 v1.7 Data Integrity (In Progress)
+<details>
+<summary>✅ v1.7 Data Integrity (Phases 25-27) — SHIPPED 2026-03-12</summary>
 
 **Milestone Goal:** Eliminate the two largest gaps in ML training data quality — NULL CIS fields on backfilled signals, and the 50-min cold-start signal blindness window after service restarts. Also close the signal lifecycle loop so the dashboard reflects signal outcomes in real time.
 
 - [x] **Phase 25: CIS Data Repair** — Fix backfill code to populate CIS fields; audit + repair NULL CIS rows in signal_ledger (completed 2026-03-11)
 - [x] **Phase 26: Signal Generator Warmup** — Seed bar_history from intelligence_features on startup; eliminate 50-min warmup wait (completed 2026-03-11)
 - [x] **Phase 27: Signal Lifecycle Stream Events** — Publish terminal signal events to Redis stream; SSE snapshot age filter; dashboard resolved state with outcome badge (completed 2026-03-12)
+
+</details>
 
 ### 🔲 v1.8 Signal Intelligence (Planned)
 
@@ -259,7 +262,7 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-26.
+Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-27 shipped. v1.8: phase 28 complete, phase 29 in progress.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -297,8 +300,8 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 22. I8 Narrative Three-Tier Redesign | v1.5 | 7/7 | Complete | 2026-03-10 |
 | 23. Signal Generator Gate | v1.6 | 3/3 | Complete | 2026-03-10 |
 | 24. Second-Derivative Acceleration | v1.6 | 7/7 | Complete | 2026-03-10 |
-| 25. CIS Data Repair | 2/2 | Complete    | 2026-03-11 | - |
-| 26. Signal Generator Warmup | 1/1 | Complete    | 2026-03-11 | - |
-| 27. Signal Lifecycle Stream Events | 10/10 | Complete    | 2026-03-13 | - |
-| 28. Dashboard Completion | 7/7 | Complete    | 2026-03-13 | — |
-| 29. Renaissance Signal Quality | 4/7 | In Progress|  | — |
+| 25. CIS Data Repair | v1.7 | 2/2 | Complete | 2026-03-11 |
+| 26. Signal Generator Warmup | v1.7 | 1/1 | Complete | 2026-03-11 |
+| 27. Signal Lifecycle Stream Events | v1.7 | 10/10 | Complete | 2026-03-12 |
+| 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
+| 29. Renaissance Signal Quality | 5/7 | In Progress|  | — |

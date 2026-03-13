@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.20.0
-Last Updated: 2026-03-11
-Status: I1-I8 pipeline complete — 95 plugins + 2 aggregation components + feature store + typed intelligence bus, 1503 passing, 139 ruff errors (E501 line-too-long, 41 fixable with --fix), 24 contracts
+Version: 5.21.0
+Last Updated: 2026-03-13
+Status: I1-I8 pipeline complete — 101 plugins + 2 aggregation components + feature store + typed intelligence bus, 1613 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -184,7 +184,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Plugin System
 
-91 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+101 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
@@ -234,6 +234,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **Dashboard**
 - **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
 - **`format.ts` timing utils**: `fmtTimeHMS(iso)` → `HH:MM:SS` or null (guards invalid dates); `fmtLagSeconds(lagS)` → `"+1.2s"` or null (guards NaN).
+- **`intelligence_i7` SSE domain**: `intelligence_i7:SYMBOL:TF` stream is subscribed in `_build_stream_list()` (alongside `intelligence:`); event name is `signal_scorecard`. Check must appear before `intelligence:` startswith check to prevent shadowing.
+- **`signal_scorecard` event payload**: `{"ts": "...", "symbol": "ES", "tf": "1m", "data": "[{...}]"}` where `data` is a JSON-encoded string of `RankedSignal[]`. Parse with `JSON.parse(String(payload.data || "[]"))`.
+- **`GET /api/signals/recent`**: `?symbol=&timeframe=&limit=` — returns `signal_ledger` rows with `setup_performance` LEFT JOIN, ordered by `computed_at DESC`. Drill panel fetches on mount and merges with SSE history deduplicated by `signal_id` (SSE version wins on conflict).
 
 ## System Access
 
@@ -245,9 +248,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1503 passing (Phase 26: +3 new tests, fixed 3 test bugs)
-I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair infrastructure
-**v1.5 SHIPPED 2026-03-10** · **v1.6 SHIPPED 2026-03-10** — see `.planning/ROADMAP.md`
+**Tests:** 1613 passing (Phase 28: +110 new tests across phases 27–28)
+I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair infrastructure + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips)
+**v1.7 SHIPPED 2026-03-12** — see `.planning/ROADMAP.md`
 
 ## Roadmap Position
 
