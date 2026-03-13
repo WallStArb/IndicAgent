@@ -4,10 +4,7 @@ Unit tests for src/api/utils.py — shared API route utilities.
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from src.api.utils import get_settings, parse_jsonb, resolve_contract
-
 
 # ---------------------------------------------------------------------------
 # get_settings

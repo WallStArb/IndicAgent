@@ -37,15 +37,14 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
-    intelligence_i7 as sk_intelligence_i7,
-)
-from src.core.stream_keys import (
     drift_ks,
     quote_latest,
     setup_performance_weights_cache,
     signals_aggregated,
 )
-from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+from src.core.stream_keys import (
+    intelligence_i7 as sk_intelligence_i7,
+)
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
@@ -53,6 +52,7 @@ from src.intelligence.schemas import IntelligenceEvent
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_ledger import LedgerEntry, insert_signals
 from src.intelligence.trading.trade_framer import frame_trade
+from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     BAR_TO_SIGNAL_LATENCY,
     counter,
@@ -470,7 +470,7 @@ class SignalGeneratorService:
         try:
             _settings = Settings()
         except Exception as e:
-            logger.warning("Settings() failed in _load_config — using hardcoded defaults", error=str(e))
+            logger.warning("Settings() failed in _load_config — using defaults", error=str(e))
             _settings = None
 
         default_config: dict[str, Any] = {
