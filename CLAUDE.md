@@ -2,7 +2,7 @@
 
 Version: 5.21.0
 Last Updated: 2026-03-13
-Status: I1-I8 pipeline complete — 101 plugins + 2 aggregation components + feature store + typed intelligence bus, 1659 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 24 contracts
+Status: I1-I8 pipeline complete — 103 plugins + 2 aggregation components + feature store + typed intelligence bus + drift detection, 1659 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -248,9 +248,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1613 passing (Phase 28: +110 new tests across phases 27–28)
-I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair infrastructure + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips)
-**v1.7 SHIPPED 2026-03-12** — see `.planning/ROADMAP.md`
+**Tests:** 1659 passing (Phase 29: +109 new tests across phases 28–29)
+I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips) + Renaissance quality gates (Hurst/Shannon I4, alpha decay, freshness decay, KS+CUSUM drift detection)
+**v1.8 SHIPPED 2026-03-13** — see `.planning/ROADMAP.md`
 
 ## Roadmap Position
 
@@ -261,9 +261,10 @@ I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS ag
 - v1.4 SHIPPED 2026-03-07 — milestone archived (`de075f7`), tagged `v1.4`
 - v1.5 SHIPPED 2026-03-07 — milestone archived (`c927b3e`), tagged `v1.5`
 - v1.6 SHIPPED 2026-03-10 — milestone archived, tagged `v1.6`
-- **v1.7 SHIPPED 2026-03-11** — milestone archived, tagged `v1.7`
+- v1.7 SHIPPED 2026-03-12 — milestone archived, tagged `v1.7`
+- **v1.8 SHIPPED 2026-03-13** — milestone archived, tagged `v1.8`
 
-- Next: `/gsd:new-milestone` to define v1.8
+- Next: `/gsd:new-milestone` to define v1.9
 
 ## Key References
 
