@@ -110,6 +110,23 @@ class SubscriptionManager:
         self._max = max_subscriptions
         self._active: set[str] = set()
 
+        # Lazy import to avoid circular imports and allow tests without Prometheus
+        try:
+            from prometheus_client import Gauge, REGISTRY
+            # Avoid duplicate registration
+            if "provider_active_subscriptions" not in REGISTRY._names_to_collectors:
+                self._gauge = Gauge(
+                    "provider_active_subscriptions",
+                    "Active data subscriptions per provider",
+                    ["provider"],
+                )
+            else:
+                self._gauge = REGISTRY._names_to_collectors.get(
+                    "provider_active_subscriptions"
+                )
+        except Exception:
+            self._gauge = None
+
     def subscribe(self, symbol: str) -> None:
         if symbol in self._active:
             return  # idempotent
@@ -119,9 +136,13 @@ class SubscriptionManager:
                 f"(attempted to add {symbol!r})"
             )
         self._active.add(symbol)
+        if self._gauge:
+            self._gauge.labels(provider=self._provider_name).set(self.count)
 
     def unsubscribe(self, symbol: str) -> None:
         self._active.discard(symbol)
+        if self._gauge:
+            self._gauge.labels(provider=self._provider_name).set(self.count)
 
     @property
     def count(self) -> int:
