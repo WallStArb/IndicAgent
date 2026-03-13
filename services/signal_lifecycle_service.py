@@ -40,7 +40,6 @@ from src.intelligence.trading.lifecycle_tracker import (
 from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
 from src.observability.metrics import counter, gauge, start_metrics_server
 
-
 # QUAL-03: freshness decay half-life — bars after which an active signal's effective
 # confidence halves. Applied in-memory per bar; original confidence in signal_ledger
 # is NEVER mutated (it is ground truth for ML training).
@@ -288,6 +287,10 @@ class SignalLifecycleService:
                 "bars_elapsed": computed_bars,
             }
 
+            # QUAL-03: compute effective_confidence in-memory — never written to signal_ledger
+            freshness = _compute_freshness_decay(bars_since=computed_bars, timeframe=timeframe)
+            effective_confidence = float(sig.get("confidence") or 1.0) * freshness
+
             current_mae = self._mae.get(sid, 0.0)
             current_mfe = self._mfe.get(sid, 0.0)
 
@@ -359,9 +362,8 @@ class SignalLifecycleService:
                     if outcome is None:
                         outcome = _classify_stop_outcome(current_mfe, bit)
 
-                    confidence = float(sig.get("confidence") or 1.0)
                     signal_quality = max(
-                        0.0, round((transition.pnl_r or 0.0) * confidence, 4)
+                        0.0, round((transition.pnl_r or 0.0) * effective_confidence, 4)
                     )
 
                     # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
@@ -481,9 +483,8 @@ class SignalLifecycleService:
                 if outcome is None:
                     outcome = _classify_stop_outcome(current_mfe, bit)
 
-                # Compute signal_quality
-                confidence = float(sig.get("confidence") or 1.0)
-                signal_quality = max(0.0, round((transition.pnl_r or 0.0) * confidence, 4))
+                # Compute signal_quality (QUAL-03: uses effective_confidence, not raw stored value)
+                signal_quality = max(0.0, round((transition.pnl_r or 0.0) * effective_confidence, 4))
 
                 # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
                 if self.redis_client:
@@ -584,6 +585,7 @@ class SignalLifecycleService:
             port=self.config["redis"]["port"],
             db=self.config["redis"]["db"],
             decode_responses=False,
+            max_connections=20,
         )
         await self.redis_client.ping()
 
