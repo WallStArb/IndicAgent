@@ -1,5 +1,24 @@
 # Milestones
 
+## v1.8 Signal Intelligence (Shipped: 2026-03-13)
+
+**Phases completed:** 2 phases (28-29), 15 plans
+**Timeline:** 2026-03-12 → 2026-03-13 (2 days)
+**Tests:** 1,659 passing · **Ruff:** 167 errors (E501 line-too-long, non-blocking) · **Plugins:** 103 (101 + 2 agg)
+**LOC:** ~69,326 Python · ~8,654 TypeScript · **Files changed:** 147
+
+**Key accomplishments:**
+- Signal Scorecard panel: full I7 signal competition in dashboard — all ranked signals with confidence, direction, composite rank, suppression labels, and regime eligibility via SSE `signal_scorecard` event (Phase 28)
+- DB signal history in drill panel: `signal_ledger` history loaded on mount, merged with live SSE, deduplicated by `signal_id`; `GET /api/signals/recent` endpoint (Phase 28)
+- GARCH/Kalman I4 fields + SMC detail surfaced: volatility regime context + BSL/SSL dist_atr/touches/significance + premium/discount in drill panel (Phase 28)
+- Tier tooltips: I1–I8 tier labels show hover explanations for each intelligence tier (Phase 28)
+- CIS constituent contributions: per-setup feature score breakdown on every CIS computation — enables future attribution analysis without recomputation (Phase 29)
+- Alpha decay + freshness decay: repeated same-setup signals down-weighted; active signal confidence decays as `exp(-λ × bars_since_fire)` — in-memory, ML ground truth preserved (Phase 29)
+- HurstExponentPlugin + ShannonEntropyPlugin (I4): Hurst suppresses setups in wrong regime (H>0.65 mean-reversion, H<0.45 trend); Shannon entropy reduces confidence 30–50% during noisy market periods (Phase 29)
+- KS + CUSUM drift detection: `drift_monitor_service` background job monitors feature distribution drift (p<0.05) and per-setup win rate degradation; `/api/drift` endpoint exposed; `drift_monitor` TimescaleDB hypertable (Phase 29)
+
+---
+
 ## v1.5 Production Hardening (Shipped: 2026-03-10)
 
 **Phases completed:** 5 phases (18-22), 25 plans

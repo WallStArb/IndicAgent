@@ -2,28 +2,42 @@
 
 ## What This Is
 
-IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 91 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store with complete i7/i8/days_to_expiry enrichment. Signal integrity is enforced via regime-aware gating; setup performance feeds back adaptively into aggregator rankings. A live React dashboard displays all tiers in real time via SSE.
+IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 103 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store with complete i7/i8/days_to_expiry enrichment. Signal integrity is enforced via regime-aware gating, Hurst/Shannon entropy quality gates, and freshness decay; setup performance feeds back adaptively into aggregator rankings. A live React dashboard displays all tiers in real time via SSE including Signal Scorecard, signal history, GARCH/Kalman context, and SMC detail fields. A drift detection service monitors feature distribution health and per-setup win rate degradation.
 
 ## Core Value
 
 Every intelligence output — indicator, pattern, signal, narrative — flows through one canonical typed bus that both internal and external consumers can trust.
-
-## Current Milestone: v1.8 Signal Intelligence
-
-**Goal:** Close the feedback loop on signal quality — show outcomes in real time, gate signals on regime type and market quality, and expand pattern coverage with 18 new candlestick detectors.
-
-**Target features:**
-- Signal lifecycle stream events: dashboard shows resolved outcomes (EXPIRED, STOPPED, T1 HIT, etc.) in real time; stale signals never replay on reconnect
-- Dashboard completion: I7 all-ranked Signal Scorecard panel, drill panel signal history from DB, GARCH/Kalman/SMC field gaps, tier tooltips
-- Renaissance signal quality gates: constituent_contributions fix, alpha decay, signal freshness, recycling window, volume confidence, killzone gating, Hurst exponent regime type, Shannon entropy market quality gate
-- LLM call tracking: real token counts, error details, fill cis_score/zone fields, request params
-- Candlestick expansion: 18 new patterns (Tier 1 + Tier 2) added to I5 + I7; Tier 3 deferred (gap-dependent, poor futures applicability)
 
 ## Requirements
 
 ### Validated
 
 (Shipped and verified in production)
+
+**v1.8 Signal Intelligence (2026-03-13):**
+- ✓ Signal Scorecard panel: I7 all-ranked signals with confidence, direction, composite rank, suppression labels via SSE `signal_scorecard` event — v1.8
+- ✓ Drill panel DB signal history: `signal_ledger` loaded on mount, merged with SSE, deduplicated by `signal_id`; `GET /api/signals/recent` — v1.8
+- ✓ GARCH/Kalman I4 fields + SMC BSL/SSL detail + premium/discount surfaced in drill panel — v1.8
+- ✓ Tier tooltips: I1–I8 labels show hover explanations — v1.8
+- ✓ CIS constituent contributions JSONB: per-setup feature score breakdown on every computation — v1.8
+- ✓ Alpha decay (QUAL-02): repeated same-setup same-direction signals down-weighted within `alpha_half_life` bars — v1.8
+- ✓ Freshness decay (QUAL-03): active signal confidence decays as `exp(-λ × bars_since_fire)`; in-memory, ML ground truth unchanged — v1.8
+- ✓ Per-setup cooldown (QUAL-04): same setup/direction blocked within `_SIGNAL_COOLDOWN_BARS` (1m=3, 5m+=2) — v1.8
+- ✓ rel_volume CIS boost/suppress (QUAL-05): rel_volume > 1.5 → boost, < 0.5 → suppress in momentum bucket — v1.8
+- ✓ Killzone CIS gate (QUAL-06): confidence boosted during London/NY opens, reduced in dead sessions — v1.8
+- ✓ HurstExponentPlugin I4 (QUAL-07): H > 0.65 suppresses mean-reversion; H < 0.45 suppresses trend setups — v1.8
+- ✓ ShannonEntropyPlugin I4 (QUAL-08): high entropy reduces all signal confidence 30–50% as universal noise gate — v1.8
+- ✓ KS drift detection (QUAL-09): background `drift_monitor_service` compares feature distributions to baseline; emits flag when p < 0.05; `drift_monitor` hypertable — v1.8
+- ✓ CUSUM drift detection (QUAL-10): detects per-setup win rate degradation vs baseline; `CUSUMMonitor` wired into `weight_updater`; `/api/drift` endpoint — v1.8
+
+**v1.7 Data Integrity (2026-03-12):**
+- ✓ `historical_backfill.py` passes `features=` kwarg → CIS fields populated on new backfill runs — v1.7
+- ✓ `repair_cis_nulls.py` audit+repair script: NULL count query, batch UPDATE recoverable rows, log orphans — v1.7 (code complete; infra execution blocked by PostgreSQL shared memory)
+- ✓ Signal generator DB seed: `_seed_bar_history_from_db()` seeds bar_history from `intelligence_features` at startup; eliminates 50-min warmup wait — v1.7
+- ✓ `_publish_terminal_event()` in `signal_lifecycle_service`: direction=0 event with signal_id/status/outcome/exit_price on every exit — v1.7
+- ✓ SSE snapshot age filter: entries older than `2×TF` skipped on reconnect — v1.7
+- ✓ `GET /api/signals/{symbol}?timeframe=` correctly filters to specific TF (was silently ignored) — v1.7
+- ✓ Dashboard resolved signal state: dimmed + outcome badge (EXPIRED/STOPPED/T1 HIT/T1+T2 HIT/FULL TARGET) matched by signal_id — v1.7
 
 **v1.6 Signal Quality (2026-03-10):**
 - ✓ Signal generator onset detection: `_check_gate()` suppresses repeated fires when condition is already true — only onset triggers a signal — v1.6
@@ -119,28 +133,30 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v1.5 shipped 2026-03-10)
+### Current State (v1.8 shipped 2026-03-13)
 
-- 91 plugins + 2 aggregation components (I1: 24, I2: 8, I3: 3, I4: 5, I5: 24, SMC: 11+1 confluence, I7: 17 setups + 2 agg)
-- 1,318 unit tests passing · Ruff: 74 errors (E501 line-too-long, non-blocking)
-- 10 active systemd services + weight-updater timer
+- 103 plugins + 2 aggregation components (I1: 24, I2: 8, I3: 3, I4: 7, I5: 24, SMC: 11+1 confluence, I7: 17 setups + 2 agg); +2 I4 plugins: HurstExponentPlugin, ShannonEntropyPlugin
+- 1,659 unit tests passing · Ruff: 167 errors (E501 line-too-long, non-blocking)
+- 11 active systemd services + weight-updater timer (new: `indicagent-drift-monitor`)
 - `intelligence_features`: complete feature vectors per bar — i7/i8 JSONB + days_to_expiry live
-- `signal_ledger`: labeled outcome data accumulating (8-class, MAE/MFE, regime status)
+- `signal_ledger`: labeled outcome data accumulating (8-class, MAE/MFE, regime status); constituent_contributions JSONB in CIS
 - `setup_performance`: rolling 30-day setup analytics feeding adaptive aggregator weights
 - `llm_calls`: full LLM audit log — narrative_short + narrative_deep paths captured, outcome back-fill live
 - `llm_model_scores`: per-model win rate/avg_pnl_r/p-value refreshed every 15 min
-- Three-tier I8: action_tag (instant) + narrative_short (~500ms) + narrative_deep (~5-8s) running live
-- Production hardening: epsilon tolerance, configurable timeouts, asyncio locks, circuit breakers, retry utils all live
+- `drift_monitor` hypertable: KS p-values per feature tracked over time; CUSUM alerting for win rate drift
+- Dashboard: Signal Scorecard (I7 all-ranked), signal history from DB + SSE, GARCH/Kalman/SMC fields, tier tooltips, resolved outcome badges
+- Signal quality layer: alpha decay, freshness decay, per-setup cooldown, vol/killzone CIS gates, Hurst/Shannon I4 gates
 
 **Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), DragonflyDB (:6379), IBKR TWS at 10.0.0.33:7497
 
 **Known issues / tech debt:**
 - indicagent-timeframes.service — legacy, import bug (src.data → src.core), non-blocking
 - feature_writer_service base loop still uses sequential stream polling (enrich loop is concurrent); pre-existing todo
-- ai_narrative_service._per_signal_timeout bypasses Settings.llm_timeout_sec at runtime (v1.5 tech debt, AI-01/AI-02 partial)
-- signal_generator: plugins fire every bar a condition is true (no onset detection); 4h/1d TFs missing from market_analysis + signal_generator — research todo active
+- CIS NULL repair: `repair_cis_nulls.py` code complete + tested; blocked by PostgreSQL shared memory error on 1.8M row JOIN; batch-by-symbol workaround not yet attempted
+- SIG requirements (SIG-01 to SIG-05): delivered in v1.7 but never checked off in REQUIREMENTS.md (now archived)
+- 24 systemd service contracts registered (CLAUDE.md)
 
-**Next milestone candidates:** Dashboard Complete (I7 all_ranked panel, signal history), ML Scoring Model (needs ~90 days labeled outcomes), Auth + External Access
+**Next milestone candidates:** LLM call tracking improvements, candlestick pattern expansion (18 patterns), ML scoring model (needs ~90 days labeled outcomes), Auth + External Access
 
 ## Key Decisions
 
@@ -169,6 +185,11 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 | Module-level circuit breaker singletons (IBKR + LLM) | Failure history must persist across chain iterations; module scope is natural singleton for one connection (IBKR) or provider pool (LLM) | ✓ Good — state transitions emit Prometheus metrics |
 | Three-tier I8 narrative: action_tag + short + deep | Single blocking LLM call per signal left dashboard waiting; tier separation delivers instant tag, fast short, deferred deep independently | ✓ Good — concurrent asyncio.create_task() fires both without blocking processing loop |
 | narrative_short/narrative_deep as independent stream messages | Routing in dashboard and llm_writer_service based on narrative_type field; no coupling between tier arrivals | ✓ Good — spread-merge SSE pattern handles async arrival; backward-compat via narrative alias |
+| Freshness decay in-memory only; ML ground truth never mutated | Decaying signal_ledger.confidence would corrupt the labeled training dataset — future ML must compute decay at inference time | ✓ Good — original confidence preserved; decay_half_life constants documented for replay |
+| intelligence_i7 SSE domain check before intelligence: check | startswith("intelligence:") would shadow intelligence_i7: stream — ordering is load-bearing | ✓ Good — explicit ordering in known_domains + test coverage prevents regression |
+| CIS bucket methods return (float, dict) tuple | Constituent contributions needed without changing public score() signature; tuple return unpacks cleanly | ✓ Good — zero consumer breakage; contribution keys use feature names for direct attribution |
+| KS drift in "warming up" state until baseline fills | Cannot compute meaningful KS p-values without a reference window; warming-up state is explicit vs silent wrong results | ✓ Good — service self-reports warming_up=True until baseline_size bars accumulated |
+| CUSUM integrated into weight_updater (not separate service) | Weight update job already reads setup_performance; CUSUM requires the same data; single process avoids scheduling drift | ✓ Good — CUSUM runs at same 15-min cadence as weight updates |
 
 ## Constraints
 
@@ -178,4 +199,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
 ---
-*Last updated: 2026-03-10 after v1.7 milestone start*
+*Last updated: 2026-03-13 after v1.8 milestone*
