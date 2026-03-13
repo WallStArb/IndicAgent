@@ -180,3 +180,8 @@ def narratives_pattern(env_prefix: str) -> str:
 def drift_ks(env_prefix: str, symbol: str, tf: str) -> str:
     """Redis key for KS drift state per symbol/TF. Written by drift_monitor_service."""
     return f"{env_prefix}drift:ks:{symbol}:{tf}"
+
+
+def drift_cusum(env_prefix: str, setup_plugin: str) -> str:
+    """Redis key for CUSUM drift state per setup_plugin. Written by CUSUMMonitor."""
+    return f"{env_prefix}drift:cusum:{setup_plugin}"
