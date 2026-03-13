@@ -374,3 +374,130 @@ def test_cis_score_value_unchanged_after_contributions_refactor():
     expected_raw = sum(BOOTSTRAP_WEIGHTS[b] * result.bucket_scores[b] for b in BUCKET_NAMES)
     expected_cis = round(max(-1.0, min(1.0, expected_raw)), 4)
     assert result.cis_score == pytest.approx(expected_cis, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# QUAL-05: rel_volume sub-term in CIS momentum bucket
+# ---------------------------------------------------------------------------
+
+
+class TestRelVolumeMomentumSubterm:
+    """QUAL-05: rel_volume wired into _momentum() as additive sub-term."""
+
+    @pytest.mark.unit
+    def test_high_rel_volume_boosts_momentum_score(self):
+        """rel_volume=2.0 → momentum bucket score higher than rel_volume=1.0 (baseline)."""
+        base_features = {
+            "rsi_14": 50.0,  # neutral RSI
+            "macd_histogram_12_26_9": 0.0,  # neutral MACD
+            "roc_14": 0.0,  # neutral ROC
+            "momentum_bias": 0.0,  # neutral bias
+        }
+        high_vol = dict(base_features, rel_volume=2.0)
+        baseline = dict(base_features, rel_volume=1.0)
+
+        scorer = CISScorer()
+        score_high = scorer.score(high_vol, {}).bucket_scores["momentum"]
+        score_baseline = scorer.score(baseline, {}).bucket_scores["momentum"]
+
+        assert score_high > score_baseline, (
+            f"Expected momentum score with rel_volume=2.0 ({score_high}) "
+            f"to be higher than rel_volume=1.0 ({score_baseline})"
+        )
+
+    @pytest.mark.unit
+    def test_low_rel_volume_suppresses_momentum_score(self):
+        """rel_volume=0.3 → momentum bucket score lower than rel_volume=1.0 (baseline)."""
+        base_features = {
+            "rsi_14": 50.0,
+            "macd_histogram_12_26_9": 0.0,
+            "roc_14": 0.0,
+            "momentum_bias": 0.0,
+        }
+        low_vol = dict(base_features, rel_volume=0.3)
+        baseline = dict(base_features, rel_volume=1.0)
+
+        scorer = CISScorer()
+        score_low = scorer.score(low_vol, {}).bucket_scores["momentum"]
+        score_baseline = scorer.score(baseline, {}).bucket_scores["momentum"]
+
+        assert score_low < score_baseline, (
+            f"Expected momentum score with rel_volume=0.3 ({score_low}) "
+            f"to be lower than rel_volume=1.0 ({score_baseline})"
+        )
+
+    @pytest.mark.unit
+    def test_rel_volume_subterm_in_contributions(self):
+        """constituent_contributions['momentum'] contains 'rel_volume' key."""
+        scorer = CISScorer()
+        result = scorer.score({"rel_volume": 1.5}, {})
+        contribs = result.constituent_contributions["momentum"]
+        assert "rel_volume" in contribs, (
+            f"Expected 'rel_volume' in momentum contributions, got {list(contribs)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# QUAL-06: killzone sub-term in CIS regime bucket
+# ---------------------------------------------------------------------------
+
+
+class TestKillzoneRegimeSubterm:
+    """QUAL-06: killzone context wired into _regime() as additive sub-term."""
+
+    @pytest.mark.unit
+    def test_active_killzone_boosts_regime_score(self):
+        """in_london_killzone=1.0 → regime bucket score higher than no killzone (dead session)."""
+        # Use a trend-positive base so regime has a positive direction to boost
+        base_features = {
+            "hmm_prob_trending_up": 0.6,
+            "hmm_prob_trending_down": 0.2,
+            "cp_probability": 0.2,
+            "ctf_regime_agreement": 0.4,
+            "vol_regime": 0.2,
+            "in_london_killzone": 0.0,
+            "in_ny_killzone": 0.0,
+        }
+        kz_features = dict(base_features, in_london_killzone=1.0)
+
+        scorer = CISScorer()
+        score_kz = scorer.score(kz_features, {}).bucket_scores["regime"]
+        score_no_kz = scorer.score(base_features, {}).bucket_scores["regime"]
+
+        assert score_kz > score_no_kz, (
+            f"Expected regime score with killzone ({score_kz}) "
+            f"to be higher than without killzone ({score_no_kz})"
+        )
+
+    @pytest.mark.unit
+    def test_dead_session_suppresses_regime_score(self):
+        """Both killzones=0.0 → regime bucket score lower than active killzone baseline."""
+        kz_features = {
+            "hmm_prob_trending_up": 0.6,
+            "hmm_prob_trending_down": 0.2,
+            "cp_probability": 0.2,
+            "ctf_regime_agreement": 0.4,
+            "vol_regime": 0.2,
+            "in_london_killzone": 1.0,
+            "in_ny_killzone": 0.0,
+        }
+        no_kz_features = dict(kz_features, in_london_killzone=0.0)
+
+        scorer = CISScorer()
+        score_kz = scorer.score(kz_features, {}).bucket_scores["regime"]
+        score_no_kz = scorer.score(no_kz_features, {}).bucket_scores["regime"]
+
+        assert score_no_kz < score_kz, (
+            f"Expected dead session regime score ({score_no_kz}) "
+            f"to be lower than killzone-active score ({score_kz})"
+        )
+
+    @pytest.mark.unit
+    def test_killzone_subterm_in_contributions(self):
+        """constituent_contributions['regime'] contains 'killzone' key."""
+        scorer = CISScorer()
+        result = scorer.score({"in_london_killzone": 1.0}, {})
+        contribs = result.constituent_contributions["regime"]
+        assert "killzone" in contribs, (
+            f"Expected 'killzone' in regime contributions, got {list(contribs)}"
+        )
