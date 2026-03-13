@@ -178,6 +178,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **VACUUM:** Cannot run inside a transaction block — use a standalone `psql -c "VACUUM ..."` command
 - **Autovacuum on hypertables:** `ALTER TABLE hypertable SET (autovacuum_...)` only applies to new chunks. Cover existing chunks by iterating `timescaledb_information.chunks`: `FOR r IN SELECT chunk_schema, chunk_name FROM timescaledb_information.chunks WHERE hypertable_name = '...' AND hypertable_schema = 'public' LOOP EXECUTE format('ALTER TABLE %I.%I SET (...)', r.chunk_schema, r.chunk_name); END LOOP` — use `record` type (not `text`) to avoid ambiguous column name conflicts with `chunk_name`
 - **pg_stat_statements:** Enabled (2026-03-05). Slow query analysis: `SELECT calls, round(mean_exec_time::numeric,2) AS mean_ms, query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10`
+- **`pg_stat_user_indexes.idx_scan` is always 0 for hypertable parents** — chunk-level indexes are tracked separately. Never use idx_scan=0 to identify unused indexes on hypertables; use pg_stat_statements and EXPLAIN instead.
+- **`pg_class` shows near-zero size for hypertable parents** — use `hypertable_size('table')` for real sizes and `timescaledb_information.hypertables` for num_chunks.
+- **Applying psql migrations via `docker exec`**: `docker exec timescaledb psql ... -f /dev/stdin <<'EOF'` does NOT work. Always `docker cp file.sql timescaledb:/tmp/file.sql` then `docker exec timescaledb psql -U postgres -d indicagent -f /tmp/file.sql`.
 
 ## Plugin System
 
@@ -189,6 +192,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ## Development Standards
 
 **Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
+- **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
 
 
 ### Key Rules
@@ -196,6 +200,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **Core Patterns**
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
+- **API route Settings cache**: `_resolve_contract()` in API routes must use `@lru_cache(maxsize=1)` on `_get_settings()` — not `Settings()` fresh per call. See `sse.py` for the canonical pattern.
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests are CI-clean; integration requires live infra.
 - **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
@@ -216,6 +221,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
 
 **Signal Logic**
+- **Terminal event payload**: `_publish_terminal_event` sends both `status` and `outcome` fields (identical values). Dashboard must read `payload.outcome` — `payload.status` works today but is semantically wrong and fragile if the two ever diverge.
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
