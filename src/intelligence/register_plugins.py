@@ -16,6 +16,7 @@ from .confluence.cross_timeframe import plugin as ctf_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
+from .context.shannon_entropy import plugin as shannon_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.mtf_volatility import plugin as mtf_vol_plugin
 from .context.session_context import plugin as session_ctx_plugin
@@ -160,6 +161,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(momentum_ctx_plugin)
     registry.register_pattern(garch_vol_plugin)
     registry.register_pattern(hurst_plugin)
+    registry.register_pattern(shannon_plugin)
     registry.register_pattern(kalman_trend_plugin)
     registry.register_pattern(session_ctx_plugin)
     registry.register_pattern(mtf_vol_plugin)
@@ -275,6 +277,7 @@ TIER_I4: list[str] = [
     momentum_ctx_plugin.name,
     garch_vol_plugin.name,
     hurst_plugin.name,
+    shannon_plugin.name,
     kalman_trend_plugin.name,
     session_ctx_plugin.name,
     mtf_vol_plugin.name,

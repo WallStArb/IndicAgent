@@ -37,6 +37,20 @@ SETUP_PRIORITY: dict[str, int] = {
 _CONFIDENCE_BOOST_PER_AGREE = 0.05
 _REGIME_TIEBREAK_THRESHOLD = 0.4
 
+# Trend setup names (I7 plugins that require a trending market for edge).
+# Mean-reversion setups: all TIER_I7 names NOT in this set.
+# Used by _build_all_ranked() to route hurst_trend_quality vs hurst_mr_quality.
+TREND_SETUPS: frozenset[str] = frozenset({
+    "trad_TrendFollowing",
+    "trad_LiquiditySweepReclaim",
+    "trad_MTFAlignment",
+    "trad_MomentumBreakout",
+    "trad_SqueezeExpansion",
+    "trad_LiquidityHunt",
+    "trad_RegimeTransition",
+    "trad_GapAnalysisSetup",
+})
+
 
 @dataclass
 class AggregatedResult:
@@ -157,7 +171,7 @@ def aggregate(
         s for s in signals
         if s.get("direction") != 0 and s.get("signal_type") != "none"
     ]
-    all_ranked = _build_all_ranked(all_fired, perf_weights=perf_weights)
+    all_ranked = _build_all_ranked(all_fired, perf_weights=perf_weights, features=features)
     active = [s for s in all_ranked if s.get("regime_eligible", True)]
 
     # Attach CIS metadata to result (even if no signal)
@@ -351,6 +365,7 @@ def _aggregate_fallback(
 def _build_all_ranked(
     fired: list[dict],
     perf_weights: dict[str, float] | None = None,
+    features: dict[str, Any] | None = None,
 ) -> list[dict]:
     """Build ranked list of all fired signals (eligible + suppressed).
 
@@ -364,6 +379,11 @@ def _build_all_ranked(
       adjusted_rank is set to a negative SETUP_PRIORITY value so ascending sort
       still puts the highest-priority setup first.
 
+    When features is provided:
+      Each signal's confidence is multiplied by hurst_q * entropy_q BEFORE
+      adjusted_rank assignment.  Trend setups use hurst_trend_quality; mean-
+      reversion setups use hurst_mr_quality.  Both default to 1.0 when absent.
+
     composite_rank is always assigned 1-based by SETUP_PRIORITY desc for observability.
     """
     # 1. Sort by SETUP_PRIORITY descending to assign composite_rank (observability only)
@@ -374,18 +394,31 @@ def _build_all_ranked(
     )
     with_ranks = [{**sig, "composite_rank": i + 1} for i, sig in enumerate(priority_sorted)]
 
+    # 1b. Apply quality multipliers (Hurst × Entropy) before adjusted_rank assignment.
+    #     CRITICAL: applied BEFORE step 2 so confident signals still compete first,
+    #     just with reduced absolute confidence (per RESEARCH.md Pitfall 2).
+    if features:
+        for sig in with_ranks:
+            plugin_name = sig.get("setup_plugin", "")
+            hurst_field = (
+                "hurst_trend_quality" if plugin_name in TREND_SETUPS else "hurst_mr_quality"
+            )
+            hurst_q = float(features.get(hurst_field, 1.0))
+            entropy_q = float(features.get("entropy_quality", 1.0))
+            sig["confidence"] = round(float(sig.get("confidence", 0.0)) * hurst_q * entropy_q, 4)
+
     # 2. Assign adjusted_rank
     weights = perf_weights or {}
     for sig in with_ranks:
-        plugin = sig.get("setup_plugin", "")
+        plugin_name = sig.get("setup_plugin", "")
         if weights:
             # perf_multiplier is the primary key (ascending: 0.5=best, 1.5=worst).
-            multiplier = weights.get(plugin, 1.0)
+            multiplier = weights.get(plugin_name, 1.0)
             sig["adjusted_rank"] = round(multiplier, 4)
         else:
             # No perf data: sort by SETUP_PRIORITY descending.
             # Negate so ascending sort puts highest-priority first.
-            sig["adjusted_rank"] = round(-SETUP_PRIORITY.get(plugin, 0), 4)
+            sig["adjusted_rank"] = round(-SETUP_PRIORITY.get(plugin_name, 0), 4)
 
     # 3. Sort ascending by (adjusted_rank, -priority) — tiebreak preserves SETUP_PRIORITY order.
     return sorted(
