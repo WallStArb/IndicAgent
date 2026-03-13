@@ -138,50 +138,33 @@ Incremental computation — each bar updates indicator state without recomputing
 
 **I2 — Composite Events (11 plugins)**
 
-Discrete signal events derived from I1: MACD crossovers, RSI threshold crossings, Stochastic events, ADX trend transitions, volume surge detection, Donchian position. Three plugins add second-derivative intelligence:
-
-- **MomentumAcceleration** — detects momentum inflection points *before* they complete, using rate-of-change on RSI, MACD, and ROC
-- **DerivativeOscillator** — extracts velocity and curvature from momentum oscillators to distinguish accelerating from decelerating trends
-- **ExhaustionScore** — composite scoring across volume, RSI extreme, reversal candlestick, and ATR spike to identify when a trend is running out of fuel
-- **AccelerationRegime** — classifies the current acceleration state: accelerating up / decelerating up / flat / decelerating down / accelerating down
+Discrete events derived from I1 outputs — crossovers, threshold crossings, volume surges. The standout plugins here are second-derivative: **MomentumAcceleration** detects inflection points *before* they complete using rate-of-change on RSI, MACD, and ROC; **ExhaustionScore** composites volume, RSI extreme, reversal candlestick, and ATR spike to identify when a trend is running out of fuel — a leading indicator for regime transition.
 
 **I3 — Market Structure (8 plugins)**
 
-Price action context above the indicator level. Swing high/low detection, support/resistance zones derived from historical price action, trend structure classification, Market Profile (volume distribution across price levels — POC, value area, thin/thick zones), session levels (prior day high/low/close, overnight levels), Anchored VWAP, Fibonacci retracement zones, and SwingMomentum — links momentum readings directly to structural swing context, giving I5 divergence plugins a richer foundation.
+Price action context above the indicator level: swing detection, S/R zones, Market Profile (volume distribution → POC, value area), Anchored VWAP, Fibonacci, session levels. **SwingMomentum** links live momentum readings directly to structural swing context — giving I5 divergence plugins a richer foundation to confirm or reject.
 
 **I4 — Regime Classification (7 plugins)**
 
-The statistical layer. Three models run in parallel, each answering a different question:
+The statistical core. Six models answer distinct questions about market state — see the [regime model stack](#the-regime-model-stack) below for the full breakdown. The two v1.8 additions are the most distinctive:
 
-- **GARCH** — models volatility clustering. Outputs a time-varying volatility regime (low / normal / elevated / extreme) that gates which setup types are eligible: breakouts require expanding vol; mean-reversion requires contained vol.
-- **Kalman filter** — separates underlying trend from noise using recursive Bayesian estimation. Adapts its smoothing coefficient to the current signal-to-noise ratio. Faster to respond to genuine regime shifts than a moving average, without overreacting to noise bars.
-- **HMM** (Hidden Markov Model) — models the market as one of three hidden states (trending up / trending down / ranging). Outputs a probability *distribution* — not just a classification — for every bar. The distribution, not the argmax, feeds into the CIS Regime bucket and signal gate.
-
-Also in I4: SessionContext (time-of-day regime classification) and MTFVolatility (cross-timeframe volatility comparison).
-
-**Renaissance quality layer — I4 signal fidelity (v1.8):**
-
-- **Hurst Exponent** — classifies regime persistence quantitatively. H > 0.6 indicates a trending, persistent market; H < 0.4 indicates mean-reverting behaviour. Signals running against their persistence class are filtered before reaching I7.
-- **Shannon Entropy** — measures market predictability from the information-theoretic perspective. High entropy signals a noisy, low-conviction environment; the value feeds a quality multiplier in CIS ranking that discounts signals generated when the market is least predictable.
+- **Hurst Exponent** — quantifies regime *persistence*. H > 0.6 = trending market; H < 0.4 = mean-reverting. Signals running against their persistence class are filtered before reaching I7.
+- **Shannon Entropy** — quantifies market *predictability* from an information-theoretic standpoint. High entropy = noisy, low-conviction environment. Feeds a quality multiplier into CIS ranking that discounts signals generated when the market is least predictable.
 
 ### Layer 3: Pattern Intelligence
 
 **I5 — Pattern Detection (14 plugins)**
 
-RSI divergence (leading reversal signal), volatility squeeze (Bollinger inside Keltner — compression preceding expansion), chart pattern completion (head and shoulders, double top/bottom, triangle breakouts, flag/pennant, cup and handle, measured move), volume profile analysis, trend confluence scoring, key level reactions.
+Discrete pattern recognition on the mathematical foundation: RSI divergence (price and RSI diverging — a leading reversal signal), volatility squeeze (Bollinger Bands inside Keltner Channels — compression that precedes expansion), and completed chart patterns (H&S, double top/bottom, triangles, flags, cup and handle, measured move). All 14 feed directly into I6 confluence scoring.
 
 **I6 SMC — Smart Money Concepts (13 plugins + 1 confluence aggregator)**
 
-Institutional order flow analysis — interpreting price action as the footprint of large participants:
+Institutional order flow analysis — the interpretation of price action as the footprint of large participants. The most analytically significant plugins:
 
-- **BOS/CHoCH** — Break of Structure (continuation) and Change of Character (reversal signal at swing structure break)
-- **FVG** — Fair Value Gap: 3-candle imbalance where price moved faster than liquidity allowed. Tracked by type, fill status, and freshness. Price tends to return to fill them.
-- **Order blocks** — the last candle before a strong impulsive move; the area where institutional orders were placed. Used as entry zones.
-- **Liquidity pools** — clusters of stop orders above swing highs or below swing lows. Institutional flow targets these before reversing.
-- **ICT Killzones** — London open, New York open, London close. Setups within these windows carry higher conviction.
-- **AMD cycles** — Accumulation / Manipulation / Distribution. Identifies where in the intraday cycle the current session sits.
-- **BOCPD** — Bayesian Online Changepoint Detection. Detects the moment statistical properties of the price series change — the transition event itself, before a new HMM state is confirmed.
-- **Cross-timeframe confluence** — synthesizes SMC signals across all 6 timeframes into a single directional score.
+- **BOS/CHoCH** — Break of Structure (trend continuation confirmed) vs. Change of Character (swing structure broken *against* the trend — the earliest structural reversal signal in the pipeline)
+- **FVG** (Fair Value Gap) — a 3-candle price imbalance where liquidity was left unfilled. Tracked by type, fill status, and freshness; price has a measurable tendency to return and fill them
+- **BOCPD** (Bayesian Online Changepoint Detection) — detects the moment the *statistical properties* of the price series shift, in real time and without hindsight. Unlike HMM which classifies into known states, BOCPD detects the transition event itself — before a new regime is confirmed
+- **Liquidity pools · Order blocks · ICT Killzones · AMD cycles** — complete institutional order flow model; cross-timeframe confluence aggregates all 6 timeframes into a single directional score
 
 **I7 — Trading Setups (17 plugins + CIS aggregator)**
 
@@ -322,16 +305,16 @@ Any HTTP client — a Python trading bot, a Jupyter notebook, an alert engine, a
 
 ### The regime model stack
 
-Four statistical models run in parallel at I4 and I6, each answering a different question:
+Six models run across I4 and I6, each answering a distinct question about market state:
 
 | Model | Question | Output |
 |-------|----------|--------|
-| **GARCH** | Is volatility expanding or contracting? | Volatility regime class + sigma estimate |
-| **Kalman filter** | What is the underlying trend, separate from noise? | Smooth trend slope estimate |
-| **HMM** | Which hidden market state is most probable? | Probability distribution over 3 states |
-| **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar |
-| **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class |
-| **Shannon Entropy** | How predictable is the current price series? | Entropy score + quality multiplier |
+| **GARCH** | Is volatility expanding or contracting? | Volatility regime (low / normal / elevated / extreme) + sigma estimate |
+| **Kalman filter** | What is the true underlying trend, separate from noise? | Smooth trend slope — adapts to current signal-to-noise ratio |
+| **HMM** | Which hidden market state is most probable? | Probability *distribution* over 3 states — not just an argmax |
+| **BOCPD** | Is a new regime beginning right now? | Changepoint probability per bar — detects transitions before HMM confirms |
+| **Hurst Exponent** | Is this market persistent or mean-reverting? | H-value + persistence class — gates signal direction vs. regime |
+| **Shannon Entropy** | How predictable is the current price series? | Entropy score — feeds CIS quality multiplier |
 
 ### The LLM chain
 
@@ -341,7 +324,9 @@ Four statistical models run in parallel at I4 and I6, each answering a different
 
 Every call — success or failure — written to `llm_calls` (TimescaleDB hypertable). Per-model win rates and average P&L ratios tracked in `llm_model_scores`, refreshed every 15 minutes.
 
-### Machine Learning Layer (MLAgent — next milestone)
+### Machine Learning Layer (MLAgent)
+
+> **Planned — next milestone.** The feature store and signal ledger are already accumulating the labeled training data this will consume.
 
 The CIS learning loop closes at the weight level. MLAgent closes it at the model level — replacing hand-tuned weights with a full ensemble trained on labeled signal outcomes.
 
@@ -353,9 +338,17 @@ Layer 2: Scoring       — per-regime × per-setup LightGBM ensemble scores ever
 Layer 3: Feedback Loop — outcomes retrain the model; drift triggers automatic retraining
 ```
 
-Five-agent LangGraph architecture: Orchestrator (deterministic) · Data Quality Agent · Discovery Agent (LLM-guided IC + tsfresh feature extraction) · Training Agent (deterministic, shadow mode gate) · Monitoring Agent (Evidently drift, CUSUM, circuit breaker).
+**Five-agent LangGraph architecture:**
 
-No model reaches production without `p < 0.05` with sufficient N. Borderline p-values pause the graph and require human approval via LangGraph `interrupt()`. Every HITL decision logged with approver, timestamp, and reasoning.
+| Agent | Role | Type |
+|-------|------|------|
+| **Orchestrator** | Routes work, decides retrain / promote / escalate based on monitoring signals | Deterministic |
+| **Data Quality Agent** | Validates training data integrity before any model runs | Deterministic |
+| **Discovery Agent** | IC analysis (alphalens), tsfresh feature extraction, regime-conditional IC, cross-asset lag correlation | LLM-guided |
+| **Training Agent** | LightGBM ensemble per segment (regime × setup × TF), time-series CV, shadow mode gate | Deterministic |
+| **Monitoring Agent** | Evidently drift detection (KS/PSI/Wasserstein), CUSUM degradation, circuit breaker | Event-driven |
+
+No model reaches production without `p < 0.05` with sufficient N. Borderline p-values pause the graph and require human approval via LangGraph `interrupt()` — a dashboard alert presents the full model comparison; 4-hour timeout defaults to reject. Every HITL decision logged with approver, timestamp, and reasoning.
 
 **ML stack:** `langgraph` + `langchain` (agent orchestration, already in stack) · `langfuse` self-hosted (agent observability, OTEL bridge to Grafana) · `guardrails-ai` (LLM output validation against Pydantic schemas) · `scipy` + `alphalens-reloaded` (IC/ICIR analysis per feature per regime) · `tsfresh` (700+ statistical features extracted automatically from any time series) · `evidently` (KS/PSI/Wasserstein drift detection, self-hosted) · `polars` (Rust dataframes, 10–100× faster than pandas for feature matrix construction) · `lightgbm` (the model — tabular data champion) · `shap` (TreeSHAP explainability per signal) · `optuna` (Bayesian hyperparameter optimisation) · `statsmodels` (CUSUM, time-series statistics) · `mlflow` self-hosted (model registry, experiment tracking) · `river` (online/incremental learning between retrains).
 
