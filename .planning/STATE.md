@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Signal Intelligence
 status: Defining requirements
-stopped_at: Completed 29-06-PLAN.md (QUAL-09 KS drift monitor + signal_generator penalty)
-last_updated: "2026-03-13T13:11:23.247Z"
+stopped_at: Completed 29-07-PLAN.md (QUAL-10 CUSUM monitor + perf_multiplier response + GET /api/drift)
+last_updated: "2026-03-13T13:19:20.423Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
   percent: 0
 ---
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 29-renaissance-signal-quality P04 | 251 | 2 tasks | 4 files |
 | Phase 29-renaissance-signal-quality P05 | 7 | 2 tasks | 7 files |
 | Phase 29-renaissance-signal-quality P06 | 30 | 3 tasks | 9 files |
+| Phase 29-renaissance-signal-quality P07 | 6 | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,8 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 29-05]: TREND_SETUPS frozenset at aggregator module level routes hurst_trend_quality vs hurst_mr_quality per signal; features=None is strict no-op
 - [Phase 29-06]: drift_penalty read per bar in _read_drift_penalty() — one Redis GET per bar, negligible overhead; drift_monitor_service runs KSDriftMonitor.run_forever() every 4h for all active symbol/TF pairs
 - [Phase 29-06]: Recovery mechanic: 2 consecutive clean KS cycles delete Redis key (full restore to 'none'); severity string not granular enough for partial penalty fade — clean count tracked in-memory
+- [Phase 29-07]: CUSUM adjustment applied after base perf_multiplier in setup_performance_updater — single Redis write point; drift_monitor_service never touches perf_weights directly
+- [Phase 29-07]: CUSUM floor=0.30 prevents complete suppression of any setup regardless of drift severity
 
 ### Pending Todos (addressed in v1.8)
 
@@ -119,6 +122,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-13T13:11:23.245Z
-Stopped at: Completed 29-06-PLAN.md (QUAL-09 KS drift monitor + signal_generator penalty)
+Last session: 2026-03-13T13:19:20.422Z
+Stopped at: Completed 29-07-PLAN.md (QUAL-10 CUSUM monitor + perf_multiplier response + GET /api/drift)
 Resume file: None

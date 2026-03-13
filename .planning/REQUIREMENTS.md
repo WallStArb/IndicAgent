@@ -35,7 +35,7 @@
 - [x] **QUAL-07**: `HurstExponentPlugin` (I4) computes rolling Hurst exponent; H > 0.65 suppresses mean-reversion setups; H < 0.45 suppresses trend setups
 - [x] **QUAL-08**: `ShannonEntropyPlugin` (I4) computes rolling return entropy; high entropy reduces all signal confidence by 30–50% as a universal noise gate
 - [x] **QUAL-09**: KS distribution drift detection — periodic background job comparing current I1/I4 feature distributions to a baseline reference window; emits monitoring flag when KS p-value < 0.05 on key features; operates in "warming up" state until baseline window is filled
-- [ ] **QUAL-10**: CUSUM performance drift detection — detects when per-setup win rates are degrading relative to historical baseline; alerts before losses accumulate; uses `setup_performance` data (setups with N≥30 already active)
+- [x] **QUAL-10**: CUSUM performance drift detection — detects when per-setup win rates are degrading relative to historical baseline; alerts before losses accumulate; uses `setup_performance` data (setups with N≥30 already active)
 
 ### LLM Call Tracking (Phase 31)
 
@@ -121,7 +121,7 @@
 | QUAL-07 | Phase 29 | Complete |
 | QUAL-08 | Phase 29 | Complete |
 | QUAL-09 | Phase 29 | Complete |
-| QUAL-10 | Phase 29 | Pending |
+| QUAL-10 | Phase 29 | Complete |
 | LLM-01 | Phase 31 | Pending |
 | LLM-02 | Phase 31 | Pending |
 | LLM-03 | Phase 31 | Pending |
