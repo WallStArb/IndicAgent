@@ -112,6 +112,54 @@
 
 ---
 
+## Milestone: v1.8 — Signal Intelligence
+
+**Shipped:** 2026-03-13
+**Phases:** 2 (28-29) | **Plans:** 15 | **Timeline:** 2 days (2026-03-12 → 2026-03-13)
+
+### What Was Built
+
+- Signal Scorecard panel: I7 all-ranked signals with confidence, direction, composite rank, and suppression labels wired to SSE `signal_scorecard` event and drill panel
+- DB signal history in drill panel: `signal_ledger` loaded on mount, merged with live SSE, deduplicated by `signal_id`; `GET /api/signals/recent` backend endpoint
+- GARCH/Kalman I4 fields + SMC BSL/SSL detail + premium/discount: full I4 context and smart money structure surfaced in drill panel
+- Tier tooltips: I1–I8 labels show hover explanations for each intelligence tier
+- CIS constituent contributions: 6 bucket methods refactored to return (float, dict); per-setup feature contributions stored in JSONB — attribution analysis enabled without recomputation
+- Alpha decay (QUAL-02) + freshness decay (QUAL-03): same-setup signals down-weighted when fired repeatedly; active signal confidence decays exponentially — both in-memory, ML labels untouched
+- HurstExponentPlugin + ShannonEntropyPlugin (I4): two new quality gate plugins; Hurst enforces regime-type alignment, Shannon entropy gates noise market periods
+- KS + CUSUM drift detection: `drift_monitor_service` with `drift_monitor` TimescaleDB hypertable; CUSUM integrated into `weight_updater`; `/api/drift` endpoint
+
+### What Worked
+
+- Phase 28 (dashboard) executed very fast — frontend changes cleanly mapped to SSE types and API endpoints already in place from v1.7
+- Bucket method tuple-return refactor (Phase 29-01) was surgical — zero consumer breakage because public `score()` signature unchanged
+- TDD RED/GREEN on every plan maintained; integration tests caught the QUAL-03 freshness wiring gap that unit tests missed (leading to gap-closure plan 29-08)
+- Splitting drift detection into KS (29-06) and CUSUM (29-07) plans kept complexity manageable; CUSUM reusing `weight_updater` scheduling was elegant
+
+### What Was Inefficient
+
+- QUAL-03 (freshness decay) required a gap-closure plan (29-08) because the initial implementation wired the signal generator side but not the lifecycle service side — the integration gap wasn't caught until a post-phase integration test
+- SIG-01 to SIG-05 requirements were included in the v1.8 REQUIREMENTS.md but delivered in v1.7 — never marked complete before archival; caused confusion in requirements count
+
+### Patterns Established
+
+- **intelligence_i7 domain before intelligence domain**: SSE domain routing requires explicit ordering; `startswith` shadowing is non-obvious — always add the more-specific domain first with a test
+- **Bucket method tuple return**: `(score, contributions)` unpacking keeps caller code readable; contribution keys use feature/plugin names for direct attribution at signal time
+- **Gap-closure plans within a phase**: 29-08 followed same pattern as v1.4 GAP plans — retroactive gap closure without renumbering; clean, documented extension pattern
+- **CUSUM in weight_updater**: performance drift detection collocated with the weight update job; same data, same cadence, no scheduler drift
+
+### Key Lessons
+
+1. **Integration tests reveal wiring gaps unit tests miss**: QUAL-03 freshness decay unit tests passed but the service-level integration showed the lifecycle wire was incomplete. Integration tests for multi-service contracts are not optional.
+2. **Requirements.md needs milestone-scoped discipline**: Including requirements for phases from a prior milestone (SIG-01 to SIG-05 for Phase 27) created confusion. Each REQUIREMENTS.md should include only requirements for phases in *this* milestone.
+3. **Dashboard completeness pays forward**: Phase 28 was fast because the SSE infrastructure (Phase 27) and DB schema were already in place. Completing infrastructure phases before UI phases is the right sequencing.
+
+### Cost Observations
+
+- Sessions: ~4-5 across 2 days
+- Notable: Two-phase milestone (28 + 29) executed in record time relative to complexity; Phase 29's 10 quality requirements across 8 plans shipped in ~1 day
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -124,6 +172,9 @@
 | v1.3 | 4 | ~10 | I7 plugin additions; Signal Lifecycle redesign |
 | v1.4 | 6 | 29 | Regime gating, feedback loops, statistical validation, LLM audit |
 | v1.5 | 5 | 25 | Production hardening: float safety, locks, circuit breakers, efficiency, three-tier I8 |
+| v1.6 | 2 | 10 | Signal quality: onset detection, flip suppression, HMA, 2nd-derivative I2/I3 |
+| v1.7 | 3 | 13 | Data integrity: CIS repair, warmup seed, lifecycle stream events + dashboard outcomes |
+| v1.8 | 2 | 15 | Signal intelligence: dashboard completion + Renaissance quality gates + drift detection |
 
 ### Cumulative Quality
 
@@ -135,6 +186,9 @@
 | v1.3 | 1083 | 0 | 88 + 2 agg |
 | v1.4 | 1286 | 34 (E501 only) | 91 + 2 agg |
 | v1.5 | 1318 | 74 (E501 only) | 91 + 2 agg |
+| v1.6 | ~1400 | 74 | 93 + 2 agg |
+| v1.7 | ~1550 | 167 | 101 + 2 agg |
+| v1.8 | 1659 | 167 | 103 + 2 agg |
 
 ### Top Lessons (Verified Across Milestones)
 

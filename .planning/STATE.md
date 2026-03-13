@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Signal Intelligence
-status: Defining requirements
-stopped_at: Completed 29-08-PLAN.md (QUAL-03 freshness decay wired into _evaluate_signals_against_bar)
-last_updated: "2026-03-13T15:13:52.391Z"
-last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
+status: Complete — archived
+stopped_at: v1.8 archived 2026-03-13; ready for /gsd:new-milestone
+last_updated: "2026-03-13T15:24:06.662Z"
+last_activity: 2026-03-13 — v1.8 Signal Intelligence milestone complete, archived, tagged v1.8
 progress:
-  total_phases: 5
+  total_phases: 2
   completed_phases: 2
   total_plans: 15
   completed_plans: 15
-  percent: 0
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-11)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.8 Signal Intelligence — defining requirements
+**Current focus:** v1.8 archived — run /gsd:new-milestone to define v1.9
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: v1.8 complete ✅
 Plan: —
-Status: Defining requirements
-Last activity: 2026-03-11 — Milestone v1.8 started, requirements defined
+Status: Complete — archived 2026-03-13
+Last activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
 
-Progress: [░░░░░░░░░░] 0% (v1.8)
+Progress: [██████████] 100% (v1.8 shipped)
 
 ## Performance Metrics
 
