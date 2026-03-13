@@ -881,3 +881,145 @@ async def test_seed_bar_history_from_db_empty_result():
 
     # Verify bar_history remains empty
     assert "ES:1m" not in svc.bar_history or len(svc.bar_history.get("ES:1m", [])) == 0
+
+
+# ---------------------------------------------------------------------------
+# QUAL-04: Per-setup cooldown gate
+# ---------------------------------------------------------------------------
+
+
+def _make_svc_with_cooldown():
+    """Build a minimal SignalGeneratorService instance with _setup_cooldown initialized."""
+    import collections
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._setup_cooldown = {}
+    svc.logger = MagicMock()
+    return svc
+
+
+def _make_signal(plugin: str, direction: int) -> dict:
+    """Build a minimal signal dict for cooldown tests."""
+    return {
+        "setup_plugin": plugin,
+        "direction": direction,
+        "signal_type": f"{plugin}_{direction}",
+        "confidence": 0.75,
+        "entry_price": 5100.0,
+    }
+
+
+class TestSetupCooldownGate:
+    """QUAL-04: per-setup (symbol, tf, plugin, direction) cooldown gate."""
+
+    def test_cooldown_blocks_same_setup_direction_within_window(self):
+        """Same setup+direction fired at bar N is blocked at bar N+1 (cooldown=2)."""
+        from datetime import datetime, timezone
+
+        svc = _make_svc_with_cooldown()
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)  # 1 bar later (1m)
+
+        # Fire signal at bar N
+        sig = _make_signal("trad_TrendFollowing", 1)
+        accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig], base_ts)
+        assert len(accepted) == 1, "First fire should be accepted"
+
+        # Try same setup+direction 1 bar later (within cooldown=3 bars for 1m)
+        blocked = svc._filter_setup_cooldown("ESH6", "1m", [sig], next_ts)
+        assert len(blocked) == 0, (
+            f"Same setup+direction within cooldown window should be blocked, got {blocked}"
+        )
+
+    def test_cooldown_allows_different_setup_same_direction(self):
+        """Different setup same direction at bar N+1 is NOT blocked (cooldown is per-plugin)."""
+        from datetime import datetime, timezone
+
+        svc = _make_svc_with_cooldown()
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)
+
+        # Fire TrendFollowing at bar N
+        sig_trend = _make_signal("trad_TrendFollowing", 1)
+        svc._filter_setup_cooldown("ESH6", "1m", [sig_trend], base_ts)
+
+        # Different setup (MeanReversion) at bar N+1 — should NOT be blocked
+        sig_mean = _make_signal("trad_MeanReversion", 1)
+        accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig_mean], next_ts)
+        assert len(accepted) == 1, (
+            f"Different setup should not be blocked by TrendFollowing cooldown, got {accepted}"
+        )
+
+    def test_cooldown_allows_same_setup_opposite_direction(self):
+        """Same setup opposite direction at bar N+1 is NOT blocked."""
+        from datetime import datetime, timezone
+
+        svc = _make_svc_with_cooldown()
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)
+
+        # Fire bullish at bar N
+        sig_bull = _make_signal("trad_TrendFollowing", 1)
+        svc._filter_setup_cooldown("ESH6", "1m", [sig_bull], base_ts)
+
+        # Opposite direction (bearish) at bar N+1 — different key → NOT blocked
+        sig_bear = _make_signal("trad_TrendFollowing", -1)
+        accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig_bear], next_ts)
+        assert len(accepted) == 1, (
+            f"Opposite direction should not be blocked, got {accepted}"
+        )
+
+    def test_cooldown_expires_after_n_bars(self):
+        """Cooldown expires after _SIGNAL_COOLDOWN_BARS — fires again at bar N+cooldown."""
+        from datetime import datetime, timezone
+
+        from services.signal_generator_service import _SIGNAL_COOLDOWN_BARS
+
+        svc = _make_svc_with_cooldown()
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+
+        # Fire signal at bar N
+        sig = _make_signal("trad_TrendFollowing", 1)
+        svc._filter_setup_cooldown("ESH6", "1m", [sig], base_ts)
+
+        # Advance exactly _SIGNAL_COOLDOWN_BARS["1m"] worth of seconds
+        cooldown_bars = _SIGNAL_COOLDOWN_BARS["1m"]  # expect 3 for 1m
+        expired_ts = datetime(
+            2026, 3, 10, 10, cooldown_bars, 0, tzinfo=timezone.utc
+        )  # 3 bars = 3 min on 1m
+
+        accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig], expired_ts)
+        assert len(accepted) == 1, (
+            f"Signal should be accepted after {cooldown_bars} bars, got {accepted}"
+        )
+
+    def test_cooldown_keyed_by_symbol_tf_plugin_direction(self):
+        """Cooldown state is keyed by (symbol, tf, plugin, direction) — different symbol unaffected."""
+        from datetime import datetime, timezone
+
+        svc = _make_svc_with_cooldown()
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)
+
+        # Fire signal on ESH6
+        sig = _make_signal("trad_TrendFollowing", 1)
+        svc._filter_setup_cooldown("ESH6", "1m", [sig], base_ts)
+
+        # Same plugin+direction but different symbol — should NOT be blocked
+        accepted = svc._filter_setup_cooldown("NQH6", "1m", [sig], next_ts)
+        assert len(accepted) == 1, (
+            f"Different symbol should not be blocked by ESH6 cooldown, got {accepted}"
+        )
+
+    def test_filter_setup_cooldown_constant_exists(self):
+        """_SIGNAL_COOLDOWN_BARS constant exists and has expected TF keys."""
+        from services.signal_generator_service import _SIGNAL_COOLDOWN_BARS
+
+        assert isinstance(_SIGNAL_COOLDOWN_BARS, dict)
+        assert "1m" in _SIGNAL_COOLDOWN_BARS
+        assert "5m" in _SIGNAL_COOLDOWN_BARS
+        assert "15m" in _SIGNAL_COOLDOWN_BARS
+        assert "1h" in _SIGNAL_COOLDOWN_BARS
+        assert _SIGNAL_COOLDOWN_BARS["1m"] >= 2  # must gate at least 2 bars
