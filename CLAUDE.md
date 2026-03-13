@@ -197,6 +197,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ### Key Rules
 
+**Documentation Framing**
+- **Data source language**: IndicAgent is provider-agnostic — docs/READMEs must not describe it as "IBKR-powered" or tie the product identity to any specific broker. Use "real-time market data" or "any real-time source". IBKR is the current implementation detail and belongs only in technical/operational sections.
+
 **Core Patterns**
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
