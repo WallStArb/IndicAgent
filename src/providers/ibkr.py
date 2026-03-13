@@ -290,6 +290,7 @@ class IBKRProvider:
             contract = ContFuture(symbol=base, exchange=exchange)
             what_to_show = "ADJUSTED_LAST"
             source_tag = "ibkr_continuous_adj"
+            use_rth = False
         else:
             contract = named_contract
             sec_type = getattr(named_contract, "secType", "")
@@ -300,6 +301,7 @@ class IBKRProvider:
             else:
                 what_to_show = "TRADES"
             source_tag = "ibkr_named"
+            use_rth = sec_type == "STK"
 
         all_bars: list[OHLCVBar] = []
 
@@ -361,7 +363,7 @@ class IBKRProvider:
                     durationStr=duration_str,
                     barSizeSetting=_TF_TO_IB[timeframe],
                     whatToShow=what_to_show,
-                    useRTH=False,
+                    useRTH=use_rth,
                     formatDate=1,
                 )
 
@@ -411,6 +413,12 @@ class IBKRProvider:
                 contract = Forex(pair=instrument.symbol)
             elif instrument.asset_class == AssetClass.CRYPTO:
                 contract = Contract(secType="CRYPTO", symbol=instrument.base, currency="USD")
+            elif instrument.asset_class == AssetClass.EQUITY:
+                contract = Stock(
+                    symbol=instrument.symbol,
+                    exchange=instrument.exchange or "SMART",
+                    currency="USD",
+                )
             else:
                 contract = Stock(symbol=instrument.symbol, exchange=instrument.exchange)
 
