@@ -40,10 +40,12 @@ from src.core.stream_keys import (
     intelligence_i7 as sk_intelligence_i7,
 )
 from src.core.stream_keys import (
+    drift_ks,
     quote_latest,
     setup_performance_weights_cache,
     signals_aggregated,
 )
+from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
@@ -378,6 +380,7 @@ class SignalGeneratorService:
     # Required by the __new__ test pattern (CLAUDE.md): attributes accessed via
     # hasattr() on bare __new__ instances must be defined at class level.
     _perf_weights: dict[str, float] = {}  # noqa: RUF012
+    _drift_penalties: dict[tuple[str, str], float] = {}  # noqa: RUF012
 
     def __init__(self, config_file: str | None = None):
         self.running = False
@@ -412,6 +415,9 @@ class SignalGeneratorService:
         # Loaded from Redis at startup and refreshed every 60 min by
         # _perf_weights_refresh_loop(). Empty dict = neutral (all multipliers=1.0).
         self._perf_weights: dict[str, float] = {}
+        # QUAL-09: KS drift penalty cache — (symbol, tf) → float penalty [0.70, 1.0].
+        # Read from Redis per bar evaluation. Absent key → penalty=1.0 (no drift).
+        self._drift_penalties: dict[tuple[str, str], float] = {}
         # Gate dict: tracks last published signal per (symbol, timeframe) to prevent
         # condition re-fires (cooldown) and direction flips before prior signal resolves.
         # In-memory only — resets on service restart (first signal post-restart publishes).
@@ -862,12 +868,18 @@ class SignalGeneratorService:
         # regime_data is None if authority TF not yet seen → aggregate() skips gate.
         authority_tf = _REGIME_AUTHORITY_TF.get(timeframe, timeframe)
         regime_data = self._regime_cache.get(symbol, {}).get(authority_tf)
+
+        # QUAL-09: Read KS drift penalty from Redis for this symbol/TF.
+        # One Redis GET per bar evaluation — negligible overhead.
+        drift_penalty = await self._read_drift_penalty(symbol, timeframe)
+
         result = aggregate(
             raw_signals,
             trend_regime=trend_regime,
             features=features,
             regime_data=regime_data,
             perf_weights=self._perf_weights,
+            drift_penalty=drift_penalty,
         )
 
         # Apply structural trade framing to the winning signal
@@ -1197,6 +1209,24 @@ class SignalGeneratorService:
             self.logger.debug("Perf weights loaded", n_setups=len(self._perf_weights))
         except Exception as e:
             self.logger.warning("Failed to load perf weights", error=str(e))
+
+    async def _read_drift_penalty(self, symbol: str, timeframe: str) -> float:
+        """QUAL-09: Read KS drift penalty from Redis for this symbol/TF.
+
+        Returns DRIFT_PENALTIES[severity] where severity is from the drift:ks:SYMBOL:TF key.
+        Falls back to 1.0 (no penalty) when key is absent or Redis is unavailable.
+        """
+        if not self.redis_client:
+            return 1.0
+        try:
+            key = drift_ks(self.env_prefix, symbol, timeframe)
+            raw = await self.redis_client.get(key)
+            if raw is None:
+                return 1.0
+            severity = raw.decode() if isinstance(raw, bytes) else str(raw)
+            return DRIFT_PENALTIES.get(severity, 1.0)
+        except Exception:
+            return 1.0
 
     async def _perf_weights_refresh_loop(self) -> None:
         """Refresh perf weights from Redis every 60 minutes."""
