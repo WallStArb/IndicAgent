@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..core import DatabaseManager, RedisStreamsManager
 from . import dependencies
-from .routes import features, health, indicators, instruments, market_data, signals, sse
+from .routes import drift, features, health, indicators, instruments, market_data, signals, sse
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +88,7 @@ app.include_router(instruments.router, prefix="/api", tags=["instruments"])
 app.include_router(sse.router, prefix="/api/sse", tags=["sse"])
 app.include_router(features.router, prefix="/api", tags=["features"])
 app.include_router(signals.router, prefix="/api", tags=["signals"])
+app.include_router(drift.router, prefix="/api/drift", tags=["drift"])
 
 
 @app.get("/")
