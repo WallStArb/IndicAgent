@@ -7,7 +7,7 @@ import { fmtPrice, fmtNum, fmtPriceRange, fmtMinutesHM, fmtTimeHMS, fmtLagSecond
 import { deriveBarCloseIso, TF_OFFSETS } from "@/lib/timeframe-utils";
 import { Tooltip, type TooltipContent } from "@/components/tooltip";
 import { useMemo, useState, useEffect } from "react";
-import { OutcomeBadge } from "@/components/signal-panel";
+import { OutcomeBadge } from "@/components/outcome-badge";
 import { TierTooltip } from "@/components/tier-tooltip";
 import { SignalScorecard } from "@/components/signal-scorecard";
 import {
@@ -322,18 +322,22 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
   const [windowSummary, setWindowSummary] = useState<SignalWindowSummary | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
     fetch(
-      `${base}/api/signals/recent?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=20`
+      `${base}/api/signals/recent?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=20`,
+      { signal: controller.signal }
     )
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then((body: { signals: DbSignalRow[]; summary: SignalWindowSummary }) => {
         setDbSignals(body.signals.map(row => dbRowToSignalData(row, symbol)));
         setWindowSummary(body.summary);
       })
-      .catch(() => {
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") return;
         // non-fatal — SSE history still works, summary stays null
       });
+    return () => controller.abort();
   }, [symbol, timeframe]);
 
   // Merge DB signals with SSE history — SSE wins on same signal_id (more up-to-date lifecycle state)

@@ -6,7 +6,7 @@ import { fmtPrice, fmtPriceRange, fmtNum, fmtTimeHMS, fmtLagSeconds, pipelineLag
 import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
-import { OutcomeBadge } from "@/components/signal-panel";
+import { OutcomeBadge } from "@/components/outcome-badge";
 
 interface SignalBannerProps {
   signal: SignalData | null;
@@ -64,24 +64,24 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
           <span className="text-[0.65rem] font-data" style={{ color }}>
             @ {fmtPrice(signal.entry_price)}
           </span>
-          <span className="text-[0.6rem] text-[var(--text-muted)]">
+          <span className="text-[0.6rem] font-data text-[var(--text-secondary)]">
             ({fmtNum(signal.confidence * 100, 0)}% {fmtSignalType(signal.signal_type)})
           </span>
-          <span className="text-[0.6rem] text-[var(--text-muted)]">
+          <span className="text-[0.6rem] font-data text-[var(--text-secondary)]">
             | SL: {fmtPrice(signal.stop_loss)}
           </span>
           {signal.profit_target != null && (
-            <span className="text-[0.6rem] text-[var(--text-muted)]">
+            <span className="text-[0.6rem] font-data text-[var(--text-secondary)]">
               | T1: {fmtPrice(signal.profit_target)}
               {signal.rr_t1 != null && ` (${fmtNum(signal.rr_t1, 1)}R)`}
             </span>
           )}
-          <ChevronRight size={10} className="ml-auto text-[var(--text-muted)]" />
+          <ChevronRight size={10} className="ml-auto text-[var(--text-secondary)]" />
         </div>
 
         {/* Line 2: zone + timing context */}
         {hasLine2 && (
-          <div className="flex items-center gap-1 text-[0.55rem] font-data text-[var(--text-muted)] opacity-70 mt-0.5">
+          <div className="flex items-center gap-1 text-[0.55rem] font-data text-[var(--text-secondary)] mt-0.5">
             {hasZone && (
               <span>Zone: {fmtPriceRange(signal.entry_zone_low!, signal.entry_zone_high!)}</span>
             )}
