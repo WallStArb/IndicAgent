@@ -1,7 +1,6 @@
 import asyncio
 import functools
 import json
-import re
 import time
 from collections.abc import AsyncGenerator
 
@@ -9,7 +8,6 @@ import structlog
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ...config.settings import Settings
 from ...core.stream_keys import indicators as sk_indicators
 from ...core.stream_keys import intelligence as sk_intelligence
 from ...core.stream_keys import intelligence_i7 as sk_intelligence_i7
@@ -20,6 +18,8 @@ from ...core.stream_keys import narratives_group as sk_narratives_group
 from ...core.stream_keys import signals_aggregated as sk_signals_aggregated
 from ...core.stream_keys import system_events as sk_system_events
 from .. import dependencies
+from ..utils import get_settings as _get_settings
+from ..utils import resolve_contract as _resolve_contract
 
 logger = structlog.get_logger(__name__)
 
@@ -68,37 +68,6 @@ def _signal_entry_stale(stream_name: str, entry_id: str | bytes) -> bool:
     except (ValueError, IndexError):
         return False
     return (time.time() * 1000 - entry_unix_ms) / 1000 > max_age_s
-
-
-# Cached settings — avoids re-parsing env/config on every SSE connection.
-_settings: Settings | None = None
-
-
-def _get_settings() -> Settings:
-    global _settings
-    if _settings is None:
-        _settings = Settings()
-    return _settings
-
-
-def _resolve_contract(symbol: str) -> str:
-    """Map base symbol (ES) to active contract code (ESH6).
-
-    Accepts both base symbols and contract codes. If the symbol is already
-    a contract code (contains a digit), return it as-is.
-    """
-    if any(ch.isdigit() for ch in symbol):
-        return symbol  # Already a contract code
-    settings = _get_settings()
-    for c in settings.contracts:
-        if c.base == symbol:
-            return c.symbol
-    # Fallback: match by stripping expiry suffix (e.g., "VX" matches "VXH6" when base is "VIX")
-    for c in settings.contracts:
-        m = re.match(r"^([A-Z0-9]{1,4}?)[A-Z]\d+$", c.symbol)
-        if m and m.group(1) == symbol:
-            return c.symbol
-    return symbol  # Fallback: use as-is
 
 
 def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:
