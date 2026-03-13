@@ -26,7 +26,8 @@ class TestNYSEIsOpen:
         assert self.session.is_open(utc(2026, 3, 10, 14, 30)) is True
 
     def test_closed_before_930_et(self):
-        assert self.session.is_open(utc(2026, 3, 10, 14, 29)) is False
+        # 2026-03-10 is post-DST (EDT, UTC-4); 9:29 EDT = 13:29 UTC
+        assert self.session.is_open(utc(2026, 3, 10, 13, 29)) is False
 
     def test_closed_at_1600_et(self):
         # 16:00 ET = 21:00 UTC
@@ -131,7 +132,7 @@ class TestElapsedFraction:
         from src.core.models import EXCHANGE_SESSIONS
         nyse = EXCHANGE_SESSIONS["nyse"]
         # Before open
-        assert nyse.elapsed_fraction(utc(2026, 3, 10, 14, 0)) is None  # 09:00 ET — before 09:30
+        assert nyse.elapsed_fraction(utc(2026, 3, 10, 13, 0)) is None  # 09:00 EDT — before 09:30 (post-DST: UTC-4)
 
     def test_open_returns_0_at_open(self):
         from src.core.models import EXCHANGE_SESSIONS
