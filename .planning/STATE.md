@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.8
 milestone_name: Signal Intelligence
 status: Defining requirements
-stopped_at: Completed 29-05-PLAN.md (QUAL-08 ShannonEntropyPlugin + quality multiplier wiring)
-last_updated: "2026-03-13T09:17:35.219Z"
+stopped_at: Completed 29-06-PLAN.md (QUAL-09 KS drift monitor + signal_generator penalty)
+last_updated: "2026-03-13T13:11:23.247Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 | Phase 29-renaissance-signal-quality P03 | 15 | 2 tasks | 2 files |
 | Phase 29-renaissance-signal-quality P04 | 251 | 2 tasks | 4 files |
 | Phase 29-renaissance-signal-quality P05 | 7 | 2 tasks | 7 files |
+| Phase 29-renaissance-signal-quality P06 | 30 | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,8 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 29-04]: HurstExponent R/S uses last-64-bar slice for consistent rolling estimate; quality thresholds from RESEARCH.md (trend>=0.65->1.0, mr<=0.35->1.0); register_all_plugins() and TIER_I4 updated atomically to avoid validate_tier() crash
 - [Phase 29-05]: Quality multipliers applied BEFORE adjusted_rank (per RESEARCH.md Pitfall 2) so confident signals still compete first with reduced absolute confidence
 - [Phase 29-05]: TREND_SETUPS frozenset at aggregator module level routes hurst_trend_quality vs hurst_mr_quality per signal; features=None is strict no-op
+- [Phase 29-06]: drift_penalty read per bar in _read_drift_penalty() — one Redis GET per bar, negligible overhead; drift_monitor_service runs KSDriftMonitor.run_forever() every 4h for all active symbol/TF pairs
+- [Phase 29-06]: Recovery mechanic: 2 consecutive clean KS cycles delete Redis key (full restore to 'none'); severity string not granular enough for partial penalty fade — clean count tracked in-memory
 
 ### Pending Todos (addressed in v1.8)
 
@@ -116,6 +119,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-13T09:17:35.217Z
-Stopped at: Completed 29-05-PLAN.md (QUAL-08 ShannonEntropyPlugin + quality multiplier wiring)
+Last session: 2026-03-13T13:11:23.245Z
+Stopped at: Completed 29-06-PLAN.md (QUAL-09 KS drift monitor + signal_generator penalty)
 Resume file: None
