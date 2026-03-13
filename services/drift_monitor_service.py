@@ -28,6 +28,7 @@ import structlog
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
+from src.monitoring.cusum_monitor import CUSUMMonitor
 from src.monitoring.ks_drift_monitor import KSDriftMonitor
 from src.observability.metrics import counter, gauge, start_metrics_server
 
@@ -85,6 +86,7 @@ class DriftMonitorService:
                 "symbols": get_active_contracts(),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "ks_interval_seconds": 4 * 3600,  # 4 hours
+                "cusum_interval_seconds": 3600,  # 1 hour
             },
             "metrics_port": 9118,
             "logging": {
@@ -168,6 +170,29 @@ class DriftMonitorService:
             self.logger.error("KS monitor task failed", error=str(exc))
             raise
 
+    async def _cusum_task(self) -> None:
+        """Run CUSUMMonitor.run_forever() until shutdown."""
+        if not self.db_manager or not self.redis_client:
+            self.logger.warning("CUSUM task: DB or Redis unavailable — skipping")
+            return
+
+        interval = self.config["service"]["cusum_interval_seconds"]
+
+        monitor = CUSUMMonitor(
+            db_pool=self.db_manager.pool,
+            redis_client=self.redis_client,
+            env_prefix=self.env_prefix,
+        )
+
+        try:
+            await monitor.run_forever(interval_seconds=interval)
+        except asyncio.CancelledError:
+            self.logger.info("CUSUM monitor task cancelled")
+        except Exception as exc:
+            self.error_count_total.inc()
+            self.logger.error("CUSUM monitor task failed", error=str(exc))
+            raise
+
     async def start(self) -> None:
         self.logger.info(
             "Starting Drift Monitor Service",
@@ -181,6 +206,7 @@ class DriftMonitorService:
             self.running = True
             tasks = [
                 asyncio.create_task(self._ks_task()),
+                asyncio.create_task(self._cusum_task()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
             self.logger.info("Drift Monitor Service started", service="drift_monitor")

@@ -28,6 +28,7 @@ from typing import Any
 
 import numpy as np
 
+from src.core import stream_keys
 from src.core.stream_keys import setup_performance_weights_cache
 
 logger = logging.getLogger(__name__)
@@ -182,8 +183,32 @@ async def run_setup_performance_update(
             s["sharpe_ratio"],
         )
 
-    # Compute perf multipliers and write to Redis
+    # Compute perf multipliers (base from setup_performance table)
     perf_weights = _compute_perf_multipliers(stats)
+
+    # Apply CUSUM penalty adjustments (multiplicative, floor at 0.30)
+    # CRITICAL: This is the ONLY place that writes perf_weights to Redis.
+    # drift_monitor_service writes CUSUM state; we read and apply it here.
+    CUSUM_ADJUSTMENT: dict[str, float] = {"warning": 0.85, "critical": 0.70}
+    CUSUM_MULTIPLIER_FLOOR: float = 0.30
+
+    for plugin in list(perf_weights.keys()):
+        cusum_key = stream_keys.drift_cusum(env_prefix, plugin)
+        raw = await redis_client.get(cusum_key)
+        if raw:
+            severity = raw.decode() if isinstance(raw, bytes) else raw
+            factor = CUSUM_ADJUSTMENT.get(severity, 1.0)
+            if factor < 1.0:
+                adjusted = round(perf_weights[plugin] * factor, 4)
+                perf_weights[plugin] = max(CUSUM_MULTIPLIER_FLOOR, adjusted)
+                logger.info(
+                    "setup_performance: CUSUM penalty applied",
+                    plugin=plugin,
+                    severity=severity,
+                    factor=factor,
+                    adjusted_weight=perf_weights[plugin],
+                )
+
     key = setup_performance_weights_cache(env_prefix)
     await redis_client.set(key, json.dumps(perf_weights))
 
