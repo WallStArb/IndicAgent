@@ -6,11 +6,8 @@ purposes) is computed with the exponential decay factor.
 """
 
 import math
-from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,7 +97,6 @@ class TestEffectiveConfidenceComputation:
     def test_effective_confidence_at_zero_bars_equals_stored(self):
         """At bars_since=0, effective_confidence == stored_confidence."""
         from services.signal_lifecycle_service import (
-            FRESHNESS_HALF_LIFE_BARS,
             _compute_freshness_decay,
         )
 
@@ -170,3 +166,177 @@ class TestEffectiveConfidenceComputation:
         # Should not raise; uses fallback half_life
         freshness = _compute_freshness_decay(bars_since=5, timeframe="4h")
         assert 0.0 < freshness <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: _compute_freshness_decay() wired into _evaluate_signals_against_bar()
+# ---------------------------------------------------------------------------
+
+
+class TestFreshnessDecayWiring:
+    """Integration tests confirming _compute_freshness_decay() is called inside
+    _evaluate_signals_against_bar() and that effective_confidence is used at
+    both exit paths.
+
+    Test A (RED → GREEN): signal_quality at exit must reflect effective_confidence
+    (decayed by freshness), not raw stored confidence.
+
+    Test B (GREEN throughout): update_signal_status is never called with a
+    'confidence' keyword argument — stored DB value is immutable.
+    """
+
+    def _make_service(self):
+        """Build a SignalLifecycleService instance via __new__ (bypasses __init__)."""
+        from unittest.mock import MagicMock
+
+        from services.signal_lifecycle_service import SignalLifecycleService
+
+        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc.db_manager = MagicMock()
+        svc.active_signals_count = MagicMock()
+        svc.point_values = {"ES": 50.0}
+        svc._mae = {}
+        svc._mfe = {}
+        svc._activated_at = {}
+        svc.redis_client = None
+        svc.env_prefix = "test:"
+        svc.lifecycle_transitions_total = MagicMock()
+        svc.logger = MagicMock()
+        return svc
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_freshness_decay_called_in_active_exit(self):
+        """signal_quality at exit uses effective_confidence (decayed), not raw confidence.
+
+        Signal fires at half_life bars before bar_time on 1m TF.
+        With confidence=1.0 and freshness≈0.5, signal_quality should be ≈ pnl_r * 0.5.
+        Before the fix: signal_quality == pnl_r * 1.0 → test FAILS (RED).
+        After the fix: signal_quality == pnl_r * 0.5 → test PASSES (GREEN).
+        """
+        from datetime import timedelta
+        from unittest.mock import AsyncMock, patch
+        from datetime import datetime, timezone
+
+        from services.signal_lifecycle_service import FRESHNESS_HALF_LIFE_BARS
+
+        svc = self._make_service()
+
+        tf = "1m"
+        half_life = FRESHNESS_HALF_LIFE_BARS[tf]  # 20
+        bar_time = datetime(2026, 3, 13, 12, 0, 0, tzinfo=timezone.utc)
+        signal_ts = bar_time - timedelta(seconds=half_life * 60)  # exactly half_life bars ago
+
+        signal_id = "test-fresh-001"
+        svc._activated_at[signal_id] = signal_ts
+
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 4000.0,
+            "stop_loss": 3990.0,
+            "targets": [4010.0, 4020.0],
+            "entry_zone_low": 3998.0,
+            "entry_zone_high": 4002.0,
+            "confidence": 1.0,
+            "timeframe": tf,
+            "symbol": "ES",
+            "timestamp": signal_ts,
+            "ttl_bars": 100,
+        }
+
+        # Bar that triggers target_1 hit (high=4015 >= target_1=4010) → positive pnl_r
+        bar = {"high": 4015.0, "low": 4001.0, "close": 4012.0}
+
+        with patch(
+            "services.signal_lifecycle_service.update_signal_status",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            await svc._evaluate_signals_against_bar(
+                symbol="ES",
+                timeframe=tf,
+                bar=bar,
+                bar_time=bar_time,
+                all_active=[sig],
+            )
+
+        assert mock_update.called, "update_signal_status must be called on exit"
+        kwargs = mock_update.call_args.kwargs
+        signal_quality = kwargs.get("signal_quality")
+        pnl_r = kwargs.get("pnl_r")
+
+        assert signal_quality is not None, "signal_quality must be set on exit"
+        assert pnl_r is not None, "pnl_r must be set on exit"
+
+        # At half_life bars, freshness ≈ 0.5; effective_confidence = 1.0 * 0.5 = 0.5
+        # signal_quality should ≈ pnl_r * 0.5 (not pnl_r * 1.0)
+        expected = max(0.0, round(float(pnl_r) * 0.5, 4))
+        assert signal_quality == pytest.approx(expected, abs=0.05), (
+            f"signal_quality={signal_quality} should be ≈ pnl_r*0.5={expected} "
+            f"(pnl_r={pnl_r}); got pnl_r*1.0={max(0.0, round(float(pnl_r)*1.0, 4))} instead"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_freshness_decay_does_not_mutate_signal_ledger_confidence(self):
+        """update_signal_status must never receive a 'confidence' keyword argument.
+
+        The stored confidence in signal_ledger is ground truth for ML training
+        and must never be overwritten with effective_confidence.
+
+        This test should PASS both before and after the fix.
+        """
+        from datetime import timedelta
+        from unittest.mock import AsyncMock, patch
+        from datetime import datetime, timezone
+
+        from services.signal_lifecycle_service import FRESHNESS_HALF_LIFE_BARS
+
+        svc = self._make_service()
+
+        tf = "1m"
+        half_life = FRESHNESS_HALF_LIFE_BARS[tf]
+        bar_time = datetime(2026, 3, 13, 12, 0, 0, tzinfo=timezone.utc)
+        signal_ts = bar_time - timedelta(seconds=half_life * 60)
+
+        signal_id = "test-fresh-002"
+        svc._activated_at[signal_id] = signal_ts
+
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 4000.0,
+            "stop_loss": 3990.0,
+            "targets": [4010.0, 4020.0],
+            "entry_zone_low": 3998.0,
+            "entry_zone_high": 4002.0,
+            "confidence": 0.85,
+            "timeframe": tf,
+            "symbol": "ES",
+            "timestamp": signal_ts,
+            "ttl_bars": 100,
+        }
+
+        bar = {"high": 4015.0, "low": 4001.0, "close": 4012.0}
+
+        with patch(
+            "services.signal_lifecycle_service.update_signal_status",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            await svc._evaluate_signals_against_bar(
+                symbol="ES",
+                timeframe=tf,
+                bar=bar,
+                bar_time=bar_time,
+                all_active=[sig],
+            )
+
+        assert mock_update.called, "update_signal_status must be called on exit"
+        kwargs = mock_update.call_args.kwargs
+
+        assert "confidence" not in kwargs, (
+            f"update_signal_status must NOT receive 'confidence' kwarg — "
+            f"stored DB confidence is immutable. Got kwargs keys: {list(kwargs.keys())}"
+        )
