@@ -149,10 +149,9 @@ class SessionContextPlugin:
         # --- Market overlap flags (data-driven from MARKET_OVERLAPS) ---
         overlap_flags: dict[str, float] = {}
         for overlap_name, (ex_a, ex_b) in MARKET_OVERLAPS.items():
-            both_open = (
-                SESSION_REGISTRY[ex_a].is_open(ts)
-                and SESSION_REGISTRY[ex_b].is_open(ts)
-            )
+            sess_a = SESSION_REGISTRY.get(ex_a)
+            sess_b = SESSION_REGISTRY.get(ex_b)
+            both_open = bool(sess_a and sess_b and sess_a.is_open(ts) and sess_b.is_open(ts))
             overlap_flags[f"session_{overlap_name}_overlap"] = 1.0 if both_open else 0.0
 
         # --- Instrument sub-session (requires __instrument__ in frames) ---
@@ -202,6 +201,8 @@ class SessionContextPlugin:
             return defaults
 
         session: TradingSession = instrument.trading_session
+        if session is None:
+            return defaults
         elapsed = session.elapsed_fraction(ts)
 
         if elapsed is None:

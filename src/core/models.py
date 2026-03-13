@@ -90,6 +90,8 @@ class TradingSession:
                 elapsed -= max(0.0, (be_dt - bs_dt).total_seconds())
             elif bs_dt < t_dt:
                 elapsed -= (t_dt - bs_dt).total_seconds()
+        if session_total <= 0:
+            return None
         return max(0.0, min(1.0, elapsed / session_total))
 
 

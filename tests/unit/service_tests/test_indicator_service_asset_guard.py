@@ -70,7 +70,7 @@ class TestIndicatorServiceInstrumentMap:
 
 
 class TestMarketAnalysisServiceInstrumentMap:
-    def test_market_analysis_has_instrument_map(self):
+    def test_market_analysis_lacks_instrument_map_on_new_instance(self):
         from services.market_analysis_service import MarketAnalysisService
         svc = MarketAnalysisService.__new__(MarketAnalysisService)
         with pytest.raises(AttributeError):
