@@ -5,9 +5,7 @@ Provides access to signal_ledger with optional JOIN to intelligence_features
 for full feature context at signal time.
 """
 
-import json
 from datetime import datetime
-from functools import lru_cache
 from typing import Any
 
 import structlog
@@ -15,38 +13,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...core.database_manager import DatabaseManager
 from ..dependencies import get_db_manager
+from ..utils import parse_jsonb as _parse_jsonb
+from ..utils import resolve_contract as _resolve_contract
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
-
-
-@lru_cache(maxsize=1)
-def _get_settings():
-    from ...config.settings import Settings
-    return Settings()
-
-
-def _resolve_contract(symbol: str) -> str:
-    """Map base symbol (ES) to active contract code (ESH6)."""
-    if any(ch.isdigit() for ch in symbol):
-        return symbol
-    for c in _get_settings().contracts:
-        if c.base == symbol:
-            return c.symbol
-    return symbol
-
-
-def _parse_jsonb(value: Any) -> Any:
-    """Parse asyncpg JSONB string to dict. Returns None if value is None."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, ValueError):
-            return None
-    return value
 
 
 def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
@@ -103,13 +75,13 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
             signal["features"] = None
         else:
             signal["features"] = {
-                "bar": _parse_jsonb(row["bar"]),
-                "i1": _parse_jsonb(row["i1"]),
-                "i3": _parse_jsonb(row["i3"]),
-                "i4": _parse_jsonb(row["i4"]),
-                "i5": _parse_jsonb(row["i5"]),
-                "smc": _parse_jsonb(row["smc"]),
-                "i6": _parse_jsonb(row["i6"]),
+                "bar": _parse_jsonb(row["bar"], default=None),
+                "i1": _parse_jsonb(row["i1"], default=None),
+                "i3": _parse_jsonb(row["i3"], default=None),
+                "i4": _parse_jsonb(row["i4"], default=None),
+                "i5": _parse_jsonb(row["i5"], default=None),
+                "smc": _parse_jsonb(row["smc"], default=None),
+                "i6": _parse_jsonb(row["i6"], default=None),
             }
     return signal
 
