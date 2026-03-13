@@ -166,6 +166,11 @@ MARKET_CONDITIONS_GAUGE = Gauge(
     "Current market condition classification (0=ranging, 1=trending, 2=volatile)",
     ["symbol", "timeframe"],
 )
+PROVIDER_ACTIVE_SUBSCRIPTIONS = Gauge(
+    "provider_active_subscriptions",
+    "Active data subscriptions per provider",
+    ["provider"],
+)
 
 # Asset-class filtering metrics
 PLUGIN_SKIPPED_TOTAL = Counter(

@@ -37,6 +37,7 @@ from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     min_bars_for_tf,
     setup_service_logging,
+    should_skip_plugin,
 )
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
@@ -210,7 +211,6 @@ class MarketAnalysisService:
         features: dict[str, Any] = dict(frames.get("features", {}))
         frames["features"] = features
 
-        from src.core.models import AssetClass
         instrument = self._instrument_map.get(symbol)
         if instrument:
             frames["__instrument__"] = instrument
@@ -220,12 +220,7 @@ class MarketAnalysisService:
                 t0 = time.time()
                 try:
                     p = self._plugin_cache[pname]
-                    allowed = getattr(p, "valid_asset_classes", frozenset(AssetClass))
-                    if instrument and instrument.asset_class not in allowed:
-                        self.plugin_skipped_total.labels(
-                            plugin_name=pname,
-                            asset_class=instrument.asset_class.value,
-                        ).inc()
+                    if should_skip_plugin(p, instrument, self.plugin_skipped_total, pname):
                         continue
                     state_key = (pname, symbol, timeframe)
                     async with self._get_state_lock(state_key):
