@@ -14,9 +14,9 @@
 
 ## What It Is
 
-IndicAgent is a stream-native market intelligence engine. 103 plugins execute in dependency order across 8 intelligence tiers — from raw indicators through statistical regime models to AI narrative synthesis — and every output is published to a durable, replayable event bus. Any HTTP client can subscribe to live intelligence over SSE or pull it over REST. No internal access. No pipeline changes required.
+IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, drift-corrected — in under 10ms. 103 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event bus. Any HTTP client subscribes to live intelligence over SSE or pulls over REST with no pipeline changes required.
 
-The pipeline processes bars across 24 instruments and 6 timeframes in under 10ms end-to-end. The bottleneck is the data feed, not the compute.
+Signals don't fire on a single indicator. The CIS scorer requires cross-tier agreement from at least 3 of 6 independent evidence buckets. Regime conflicts veto. Signals that age lose confidence explicitly. Every winner and every counterfactual lands in the feature store with its full I1–I8 context — the system accumulates its own labeled training dataset with every bar it processes.
 
 ---
 
@@ -337,6 +337,19 @@ Layer 1: Discovery     — automated IC analysis finds which features actually p
 Layer 2: Scoring       — per-regime × per-setup LightGBM ensemble scores every signal
 Layer 3: Feedback Loop — outcomes retrain the model; drift triggers automatic retraining
 ```
+
+**The dataset it consumes — already accumulating:**
+
+| Table | Stores | MLAgent role |
+|-------|--------|-------------|
+| `intelligence_features` | Full I1–I8 feature vector per bar (tiered JSONB) | Training inputs |
+| `signal_ledger` | I7 signal + 8-class lifecycle outcome, MAE, MFE, bars-in-trade | Training targets |
+| `llm_calls` | Every LLM invocation with back-filled signal outcome | LLM model scoring |
+| `drift_monitor` | KS statistics + CUSUM state per setup/TF | Drift detection source |
+| `setup_performance` | Per-setup rolling 30d win rate, avg P&L R, Sharpe | Performance baseline |
+| `cis_weights` | Adaptive bucket weights, versioned | Model deployment output |
+
+Every bar the live pipeline processes adds a row to `intelligence_features`. Every signal that resolves adds an outcome row to `signal_ledger`. MLAgent consumes this dataset — the platform has been building it since day one.
 
 **Five-agent LangGraph architecture:**
 
