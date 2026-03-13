@@ -68,6 +68,11 @@ I7_PLUGINS = TIER_I7
 MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 # TF_SECONDS imported from src.core.service_utils (shared with signal_lifecycle_service)
 
+# QUAL-04: per-setup cooldown — prevents same setup/direction recycling within N bars.
+# Keyed by (symbol, tf, setup_plugin, direction); independent of the bar-level _signal_gate.
+# Day-trading focus: 1m=3 bars (3 min), higher TFs=2 bars (matches MIN_BARS_BETWEEN_SIGNALS pattern).
+_SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
+
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.
 # If the authority TF stream is not subscribed, cache entry is absent → gate skipped.
@@ -380,6 +385,10 @@ class SignalGeneratorService:
         # condition re-fires (cooldown) and direction flips before prior signal resolves.
         # In-memory only — resets on service restart (first signal post-restart publishes).
         self._signal_gate: dict[tuple[str, str], dict] = {}
+        # QUAL-04: per-setup cooldown — keyed by (symbol, tf, setup_plugin, direction).
+        # Value = datetime when the cooldown was set (used with TF_SECONDS to compute
+        # bars elapsed at filter time). Independent of _signal_gate (aggregated-winner level).
+        self._setup_cooldown: dict[tuple[str, str, str, int], datetime] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -501,6 +510,55 @@ class SignalGeneratorService:
             "signal_id": signal_id,
             "resolved": False,
         }
+
+    def _filter_setup_cooldown(
+        self,
+        symbol: str,
+        tf: str,
+        signals: list[dict],
+        timestamp: datetime,
+    ) -> list[dict]:
+        """QUAL-04: Filter signals blocked by per-setup cooldown gate.
+
+        Prevents same setup/direction from recycling within _SIGNAL_COOLDOWN_BARS bars.
+        Runs before aggregation (before alpha decay path) so blocked signals never enter ranking.
+
+        The cooldown dict stores the fire timestamp per (symbol, tf, plugin, direction).
+        At filter time, bars_elapsed is computed from (timestamp - fired_at) / tf_seconds.
+        A signal is blocked if bars_elapsed < _SIGNAL_COOLDOWN_BARS[tf].
+
+        Returns the subset of signals that passed the gate.
+        """
+        tf_secs = TF_SECONDS.get(tf, 60)
+        cooldown_bars = _SIGNAL_COOLDOWN_BARS.get(tf, 2)
+
+        accepted = []
+        for sig in signals:
+            plugin = sig.get("setup_plugin", "")
+            direction = int(sig.get("direction", 0))
+            key = (symbol, tf, plugin, direction)
+
+            fired_at = self._setup_cooldown.get(key)
+            if fired_at is not None:
+                bars_elapsed = (timestamp - fired_at).total_seconds() / tf_secs
+                if bars_elapsed < cooldown_bars:
+                    # Blocked by cooldown — skip before alpha decay
+                    self.logger.debug(
+                        "Signal cooldown-blocked",
+                        symbol=symbol,
+                        tf=tf,
+                        plugin=plugin,
+                        direction=direction,
+                        bars_elapsed=round(bars_elapsed, 2),
+                        cooldown_bars=cooldown_bars,
+                    )
+                    continue
+
+            accepted.append(sig)
+            # Register/refresh cooldown for this setup+direction
+            self._setup_cooldown[key] = timestamp
+
+        return accepted
 
     async def _resolution_listener_loop(self) -> None:
         """Monitor own output streams for direction=0 lifecycle exit events.
@@ -745,6 +803,9 @@ class SignalGeneratorService:
         calc_start = time.time()
 
         raw_signals = self._run_setup_plugins(frames)
+        # QUAL-04: per-setup cooldown — strip same setup/direction within N bars.
+        # Runs before aggregation so blocked signals never enter alpha decay path.
+        raw_signals = self._filter_setup_cooldown(symbol, timeframe, raw_signals, timestamp)
         trend_regime = float(features.get("trend_regime", 0.0))
         # Look up authority TF regime data for slow-clock gating (SIGINT-04).
         # regime_data is None if authority TF not yet seen → aggregate() skips gate.
