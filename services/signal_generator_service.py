@@ -8,7 +8,7 @@ aggregates signals, inserts all to signal_ledger, publishes winner to
 signals:SYMBOL:TF:aggregated.
 
 Lifecycle tracking (pending→active→exit, P&L) is handled separately by
-signal_tracker_service, which subscribes to market:SYMBOL:1m directly.
+signal_lifecycle_service, which subscribes to market:SYMBOL:1m directly.
 """
 
 from __future__ import annotations
@@ -73,6 +73,12 @@ MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 # Day-trading focus: 1m=3 bars (3 min), higher TFs=2 bars (matches MIN_BARS_BETWEEN_SIGNALS pattern).
 _SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 
+# QUAL-02: alpha decay half-life — bars after which a repeated same-setup/direction signal
+# has its confidence multiplied by max(0.0, 1.0 - bars_since / half_life).
+# Starting values — replace with learned values after 90 days of outcome data.
+# Regress half-life against Sharpe per TF when data justifies it.
+ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 6, "15m": 4, "1h": 3}
+
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.
 # If the authority TF stream is not subscribed, cache entry is absent → gate skipped.
@@ -100,6 +106,31 @@ MARKET_CONTEXT_KEYS: tuple[str, ...] = (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _apply_alpha_decay(
+    sig: dict,
+    tf: str,
+    last_fire_state: dict | None,
+) -> None:
+    """QUAL-02: Apply alpha decay to signal confidence in-place.
+
+    If the same setup/direction fired recently (within ALPHA_HALF_LIFE_BARS bars),
+    the repeated fire carries less information value. Confidence is multiplied by:
+        multiplier = max(0.0, 1.0 - bars_since / half_life)
+
+    Args:
+        sig: Signal dict — confidence is mutated in place.
+        tf: Timeframe string used to look up half-life.
+        last_fire_state: Dict with "bars_since" key from _setup_last_fire, or None
+            if this is the first fire for this setup/direction (no decay applied).
+    """
+    if last_fire_state is None:
+        return  # First fire — no decay
+    bars_since = last_fire_state.get("bars_since", 0)
+    half_life = ALPHA_HALF_LIFE_BARS.get(tf, 6)
+    multiplier = max(0.0, 1.0 - bars_since / half_life)
+    sig["confidence"] = round(float(sig.get("confidence", 0.0)) * multiplier, 4)
 
 
 def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent | None:
@@ -389,6 +420,10 @@ class SignalGeneratorService:
         # Value = datetime when the cooldown was set (used with TF_SECONDS to compute
         # bars elapsed at filter time). Independent of _signal_gate (aggregated-winner level).
         self._setup_cooldown: dict[tuple[str, str, str, int], datetime] = {}
+        # QUAL-02: alpha decay state — keyed by (symbol, tf, setup_plugin, direction).
+        # Value = {"bars_since": int} — incremented each bar for that (symbol, tf).
+        # Reset to {"bars_since": 0} after each fire. Separate from _setup_cooldown.
+        self._setup_last_fire: dict[tuple[str, str, str, int], dict] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -806,6 +841,22 @@ class SignalGeneratorService:
         # QUAL-04: per-setup cooldown — strip same setup/direction within N bars.
         # Runs before aggregation so blocked signals never enter alpha decay path.
         raw_signals = self._filter_setup_cooldown(symbol, timeframe, raw_signals, timestamp)
+
+        # QUAL-02: alpha decay — increment bars_since for all tracked (symbol, tf) entries,
+        # then apply decay to each signal's confidence BEFORE calling aggregate().
+        # This preserves original confidence in signal_ledger (ledger uses post-decay values
+        # from signal dicts, which are snapshots at fire time).
+        for key in list(self._setup_last_fire):
+            if key[0] == symbol and key[1] == timeframe:
+                self._setup_last_fire[key]["bars_since"] = (
+                    self._setup_last_fire[key].get("bars_since", 0) + 1
+                )
+        for sig in raw_signals:
+            plugin = sig.get("setup_plugin", "")
+            direction = int(sig.get("direction", 0))
+            key = (symbol, timeframe, plugin, direction)
+            _apply_alpha_decay(sig, timeframe, self._setup_last_fire.get(key))
+
         trend_regime = float(features.get("trend_regime", 0.0))
         # Look up authority TF regime data for slow-clock gating (SIGINT-04).
         # regime_data is None if authority TF not yet seen → aggregate() skips gate.
@@ -977,6 +1028,12 @@ class SignalGeneratorService:
                 _sig_id = message.get("signal_id", "")
                 _pub_direction = int(result.selected_signal.get("direction", 0))
                 self._update_gate(symbol, timeframe, _pub_direction, timestamp, _sig_id)
+                # QUAL-02: record alpha decay fire state for the published setup.
+                # Reset bars_since=0 so the next fire for this setup starts fresh decay.
+                _pub_plugin = result.selected_signal.get("setup_plugin", "")
+                if _pub_plugin:
+                    _decay_key = (symbol, timeframe, _pub_plugin, _pub_direction)
+                    self._setup_last_fire[_decay_key] = {"bars_since": 0}
 
         # DB INSERT SECOND (cold tier)
         if entries and self.db_manager:
