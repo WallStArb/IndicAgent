@@ -2,7 +2,7 @@
 
 Version: 5.21.0
 Last Updated: 2026-03-13
-Status: I1-I8 pipeline complete — 101 plugins + 2 aggregation components + feature store + typed intelligence bus, 1613 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 24 contracts
+Status: I1-I8 pipeline complete — 101 plugins + 2 aggregation components + feature store + typed intelligence bus, 1659 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 24 contracts
 
 This file provides guidance to Claude Code when working in this repository.
 

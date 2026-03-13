@@ -1,12 +1,12 @@
 # Dashboard Intelligence Field Gaps
 
 **Filed:** 2026-03-06
-**Updated:** 2026-03-07 — bulk complete (commit `c64f9df`)
+**Updated:** 2026-03-12 — Phase 28 complete (I4 GARCH/Kalman, SMC BSL/SSL detail, I7 Signal Scorecard)
 **Context:** Audit after signal timing visibility work (v1.4 phase)
 
 The backend computes far more than the dashboard currently surfaces.
 All data is already in the `intelligence:SYMBOL:TF` SSE stream — no backend changes needed
-for I3/I4/I5/SMC/I6 gaps. I7 enrichment requires SSE route change.
+for I3/I4/I5/SMC/I6 gaps. I7 enrichment done (Phase 28).
 
 ## ~~I1 — Missing from hook mapping~~ ✅ DONE
 - ~~`adx_14` + `plus_di_14` / `minus_di_14` — trend strength + direction components~~ ✅
@@ -23,11 +23,11 @@ for I3/I4/I5/SMC/I6 gaps. I7 enrichment requires SSE route change.
 - Weekly pivots: `weekly_pivot`, `weekly_r1/r2/s1/s2`
 - VWAP stack: `session_vwap`, `swing_vwap`, `weekly_vwap`, `vwap_alignment_score`, `above_*_vwap`
 
-## I4 — Not surfaced
-- GARCH: `garch_sigma`, `garch_vol_ratio`, `garch_vol_regime`, `garch_shock`
-- Kalman: `kalman_trend`, `kalman_slope`, `kalman_price_position`, `kalman_uncertainty`
+## ~~I4 — Not surfaced~~ ✅ DONE (Phase 28)
+- ~~GARCH: `garch_sigma`, `garch_vol_ratio`, `garch_vol_regime`, `garch_shock`~~ ✅
+- ~~Kalman: `kalman_trend`, `kalman_slope`, `kalman_price_position`, `kalman_uncertainty`~~ ✅
 - ~~Session/killzone timing: `in_london_killzone`, `in_ny_killzone`, `minutes_to_ny_open`, `bars_since_session_start`, `is_monday/friday`~~ ✅ (via SMC drill panel)
-- MTF vol: `mtf_vol_expansion_15m`, `mtf_vol_expansion_1h`, `vol_divergence_score`
+- MTF vol: `mtf_vol_expansion_15m`, `mtf_vol_expansion_1h`, `vol_divergence_score` — deferred
 
 ## I5 — Not surfaced
 - Chart patterns: `dt_db_pattern`, `hs_pattern`, `tri_pattern`, `flag_pattern`, `pennant_pattern`, `cup_handle_pattern`, `abcd_pattern_active/direction`
@@ -39,15 +39,20 @@ for I3/I4/I5/SMC/I6 gaps. I7 enrichment requires SSE route change.
 - ~~Killzones: `in_asia/london/ny_am/ny_pm_killzone`, `killzone_name`, `minutes_until_next_killzone`~~ ✅
 - ~~AMD phase: `amd_phase` (accumulation/manipulation/distribution), `amd_manipulation_detected`~~ ✅
 - ~~Breaker blocks: `breaker_block_active/type/top/bottom/dist_atr`~~ ✅
-- BSL/SSL details: `bsl_dist_atr/touches/significance`, `ssl_dist_atr/touches/significance`
-- Premium/discount: `price_in_premium`, `premium_discount_pct`, `equilibrium_level`
+- ~~BSL/SSL details: `bsl_dist_atr/touches/significance`, `ssl_dist_atr/touches/significance`~~ ✅ (Phase 28)
+- ~~Premium/discount: `price_in_premium`, `premium_discount_pct`, `equilibrium_level`~~ ✅ (Phase 28)
 
 ## I6 — Partial (only ctf_score shown)
 - `i6_smc_bos_alignment`, `i6_fvg_tf_alignment`, `i6_ob_tf_alignment`, `i6_i2_event_score`
 - `ctf_highest_aligned_tf`
 
-## I7 enrichment — REMAINING (requires new SSE route)
-- `intelligence_i7:SYMBOL:TF` stream not subscribed in SSE route
-- No plugin competition view: `all_ranked` list with `composite_rank`, `regime_eligible`, `suppression_reason` per plugin
-- **Work needed:** new SSE domain + SymbolData field + new UI component (e.g. "Signal Scorecard")
-- This is the only remaining item from the original gap audit
+## ~~I7 enrichment~~ ✅ DONE (Phase 28)
+- ~~`intelligence_i7:SYMBOL:TF` stream not subscribed in SSE route~~ ✅
+- ~~Plugin competition view: `all_ranked` list with `composite_rank`, `regime_eligible`, `suppression_reason` per plugin~~ ✅ (Signal Scorecard component)
+- ~~New SSE domain + SymbolData field + new UI component~~ ✅
+
+## Remaining (deferred)
+- I3 Fib/Value Area/Session levels/Weekly pivots/VWAP stack — needs new collapsible section layout
+- I5 Chart patterns + candlestick details — needs visual layout decisions
+- I6 confluence breakdown (`i6_smc_bos_alignment`, `i6_fvg_tf_alignment`, etc.) — partial
+- I4 MTF vol divergence scores — needs cross-TF data flow design
