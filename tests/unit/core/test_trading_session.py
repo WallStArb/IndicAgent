@@ -30,7 +30,7 @@ class TestNYSEIsOpen:
         assert self.session.is_open(utc(2026, 3, 10, 13, 29)) is False
 
     def test_closed_at_1600_et(self):
-        # 16:00 ET = 21:00 UTC
+        # 2026-03-10 post-DST (EDT, UTC-4); 17:00 EDT = 21:00 UTC — one hour past close
         assert self.session.is_open(utc(2026, 3, 10, 21, 0)) is False
 
     def test_closed_on_saturday(self):
