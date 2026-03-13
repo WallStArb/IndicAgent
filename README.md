@@ -4,13 +4,43 @@
 
 **Version:** v1.7 | **Status:** Operational | 96 plugins · 24 instruments · 1503 tests
 
-> **TLDR:** IndicAgent is a real-time market intelligence platform built on a shared, durable event bus. Every tick, every signal, and every intelligence output flows through that bus. An 8-tier pipeline runs 96 plugins in a dependency-ordered DAG where each tier builds on the outputs of the tier below — raw indicators and market structure feed into adaptive statistical models (HMM, GARCH, Kalman, BOCPD) and Smart Money Concepts, which feed into cross-timeframe confluence scoring and AI narrative synthesis. Every output is encoded into a canonical typed schema, published to the bus, and persisted to a feature store, creating a learning loop where signal outcomes feed back into model weights without manual retuning. The primary goal is alpha generation: every design decision — from the CIS 6-bucket aggregator to the outcome-labeled feature store — is oriented toward identifying edges that are statistically significant, regime-specific, and improvable over time. New data domains and product layers attach as independent services that subscribe to existing streams and publish their own, with no changes to anything already running.
+> **TLDR:** IndicAgent is an institutional-grade market intelligence platform designed to produce and deliver intelligence — not just compute it. It is built API-first: every signal, indicator value, regime classification, and AI narrative the pipeline produces is immediately available to any external application via REST endpoints and real-time Server-Sent Events (SSE) streams. A trading system, alert engine, research notebook, or custom dashboard can subscribe to live intelligence over standard HTTP — no internal access required. The intelligence itself is built to institutional standards: an 8-tier pipeline runs 96 plugins in a dependency-ordered DAG where each tier builds on the outputs of the tier below — raw indicators and market structure feed into adaptive statistical models (HMM, GARCH, Kalman, BOCPD) and Smart Money Concepts, which feed into cross-timeframe confluence scoring and AI narrative synthesis. Every output is encoded into a canonical typed schema, published to the event bus, and persisted to a feature store, creating a learning loop where signal outcomes feed back into model weights without manual retuning. The primary goal is alpha generation: every design decision — from the CIS 6-bucket aggregator to the outcome-labeled feature store — is oriented toward identifying edges that are statistically significant, regime-specific, and improvable over time.
 
 ---
 
 ![IndicAgent](hero-readme.png)
 
 ![IndicAgent Dashboard](dashboard-readme.png)
+
+---
+
+## Built to Be Consumed
+
+IndicAgent produces institutional-grade intelligence. The API layer is how that intelligence reaches external applications.
+
+Two integration patterns are available over standard HTTP — no internal access, no Redis subscription, no pipeline changes required:
+
+**REST endpoints** — pull-based access to historical and current intelligence:
+
+| Endpoint | What it returns |
+|----------|----------------|
+| `GET /api/signals` | Signal history with optional full feature context at signal time |
+| `GET /api/features` | Full I1–I8 feature vectors per bar, per symbol, per timeframe |
+| `GET /api/market-data` | OHLCV history for any instrument/timeframe |
+| `GET /api/instruments` | Active instrument list with contract metadata |
+| `GET /indicators/available` | All 96 plugins and their tier assignments |
+
+**SSE streams** — push-based, real-time intelligence delivery over persistent HTTP connections:
+
+| Stream | What it pushes |
+|--------|---------------|
+| `intelligence` | Full typed intelligence event per bar (complete I1–I8 payload) |
+| `signals` | I7 aggregated signals as they fire |
+| `indicators` | Raw I1 indicator values per bar |
+| `narratives` | I8 LLM narrative text per signal |
+| `ticks` | Live tick stream for price display |
+
+Any HTTP client — a Python trading bot, a Jupyter notebook, a custom dashboard, an alert engine, a downstream product — connects to an SSE endpoint and receives the same institutional-grade intelligence the internal pipeline produces, in real time, with no effect on pipeline throughput.
 
 ---
 
@@ -394,8 +424,9 @@ In each case: subscribe to the streams you need, publish what you produce. Risk 
 | **Data out** | Redis Streams (bars, indicators, intelligence, signals, narratives); TimescaleDB feature store |
 | **Intelligence** | 96 plugins: I1 (26), I2 (11), I3 (8), I4 (7), I5 (14), I6 SMC (13), I6 confluence (1), I7 setups (17) + 2 aggregation components; CIS scorer; I8 LLM narrative chain |
 | **Stack** | Python 3.13, FastAPI, LangGraph, DragonflyDB (Redis-compatible), Redpanda (Kafka-compatible), TimescaleDB, Prometheus, Grafana, Next.js 16.1 / React 19.2 |
+| **API** | REST endpoints + SSE streams; institutional-grade intelligence accessible to any HTTP client |
 | **Deployment** | 10 systemd services; FastAPI + SSE consumer layer; Prometheus metrics per service |
-| **Tests** | 1485 passing (unit + integration) |
+| **Tests** | 1503 passing (unit + integration) |
 
 ### Supported Instruments (24)
 
@@ -420,14 +451,15 @@ In each case: subscribe to the streams you need, publish what you produce. Risk 
 
 ## Current Status
 
-**v1.6 Signal Quality — shipped.**
+**v1.7 Renaissance Signal Quality — shipped.**
 
 - **I1–I8 pipeline:** Fully operational. 96 plugins (I1:25, I2:11, I3:8, I4:7, I5:14, I6 SMC:13, I6 confluence:1, I7:17) + 2 aggregation components, typed intelligence bus, feature store, CIS scorer.
-- **v1.5 delivered:** Efficiency optimizations (multi-stream xreadgroup, plugin state caching), narrative three-tier redesign (I8), pipeline hardening.
-- **v1.6 delivered:** Phase 23 Signal Generator Gate (confidence/regime/quality gates with hard drop paths), Phase 24 Second-Derivative Acceleration (MomentumAcceleration plugin — inflection detection before confirmation).
+- **v1.6 delivered:** Signal Generator Gate (confidence/regime/quality gates with hard drop paths), Second-Derivative Acceleration (MomentumAcceleration plugin — inflection detection before confirmation).
+- **v1.7 delivered:** Renaissance Signal Quality milestone — advanced signal quality plugins including HurstExponentPlugin (QUAL-07) and related signal fidelity improvements across the I4 context layer.
+- **API layer:** REST endpoints for signals, features, market data, and instruments. SSE streams for real-time intelligence push to any HTTP client over standard HTTP — no internal access required.
 - **Dashboard:** Live: price hero, multi-TF intelligence panels, SMC panel (HMM regime, BSL/SSL zones), I7 signal drill panel (entry/SL/TP/RR), AI narrative cards, pipeline lag and staleness ratio per signal.
 - **AI Narratives:** Per-signal via ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; per-regime model routing; full `llm_calls` audit trail.
-- **Next:** See [Roadmap](.planning/ROADMAP.md) for v1.7 backlog.
+- **Next:** `/gsd:new-milestone` to define v1.8. See [Roadmap](.planning/ROADMAP.md).
 
 ---
 
