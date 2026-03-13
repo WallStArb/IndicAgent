@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AssetClass(StrEnum):
@@ -163,6 +163,18 @@ class Instrument(BaseModel):
     point_value: float = 0
     # Escape hatch for provider-specific metadata
     provider_meta: dict = {}
+    session_id: str = "futures_24_5"
+
+    @field_validator("session_id")
+    @classmethod
+    def _validate_session_id(cls, v: str) -> str:
+        if v not in SESSION_REGISTRY:
+            raise ValueError(f"Unknown session_id {v!r}. Known: {list(SESSION_REGISTRY)}")
+        return v
+
+    @property
+    def trading_session(self) -> TradingSession:
+        return SESSION_REGISTRY[self.session_id]
 
 
 class DataSource(StrEnum):
