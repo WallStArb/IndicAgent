@@ -525,3 +525,74 @@ class TestShadowSignals:
         assert len(result.all_ranked) == 2, (
             f"Expected exactly 2 signals in all_ranked, got {len(result.all_ranked)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 Plan 03 — QUAL-02 Alpha decay
+# Tests for _apply_alpha_decay() in signal_generator_service.
+# Decay is applied to signals BEFORE calling aggregate() — not inside it.
+# ---------------------------------------------------------------------------
+
+
+def _make_alpha_decay_state(bars_since: int) -> dict:
+    """Build a _setup_last_fire state dict with the given bars_since value."""
+    return {"bars_since": bars_since}
+
+
+class TestAlphaDecay:
+    """Alpha decay: confidence *= max(0.0, 1.0 - bars_since / half_life)."""
+
+    @pytest.mark.unit
+    def test_half_life_bars_since_halves_confidence(self):
+        """bars_since=5, half_life=10 → multiplier=0.5 → confidence halved."""
+        from services.signal_generator_service import ALPHA_HALF_LIFE_BARS, _apply_alpha_decay
+
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        last_fire_state = _make_alpha_decay_state(bars_since=5)
+        _apply_alpha_decay(sig, "5m", last_fire_state)
+        half_life = ALPHA_HALF_LIFE_BARS["5m"]  # 6
+        expected_multiplier = max(0.0, 1.0 - 5 / half_life)
+        assert sig["confidence"] == pytest.approx(0.8 * expected_multiplier, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_first_fire_no_state_leaves_confidence_unchanged(self):
+        """No _setup_last_fire entry (first fire) → confidence unchanged."""
+        from services.signal_generator_service import _apply_alpha_decay
+
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.75)
+        original_confidence = sig["confidence"]
+        _apply_alpha_decay(sig, "1m", None)
+        assert sig["confidence"] == pytest.approx(original_confidence, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_bars_since_at_or_beyond_half_life_zeroes_confidence(self):
+        """bars_since >= half_life → multiplier clamped to 0.0 → confidence = 0.0."""
+        from services.signal_generator_service import ALPHA_HALF_LIFE_BARS, _apply_alpha_decay
+
+        half_life = ALPHA_HALF_LIFE_BARS["1m"]  # 10
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.9)
+        last_fire_state = _make_alpha_decay_state(bars_since=half_life)  # exactly at half_life
+        _apply_alpha_decay(sig, "1m", last_fire_state)
+        assert sig["confidence"] == pytest.approx(0.0, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_bars_since_beyond_half_life_also_clamped(self):
+        """bars_since > half_life → multiplier clamped to 0.0 (no negative confidence)."""
+        from services.signal_generator_service import ALPHA_HALF_LIFE_BARS, _apply_alpha_decay
+
+        half_life = ALPHA_HALF_LIFE_BARS["5m"]  # 6
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        last_fire_state = _make_alpha_decay_state(bars_since=half_life + 3)
+        _apply_alpha_decay(sig, "5m", last_fire_state)
+        assert sig["confidence"] == pytest.approx(0.0, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_bars_since_zero_leaves_confidence_unchanged(self):
+        """bars_since=0 → multiplier=1.0 → confidence unchanged (just fired)."""
+        from services.signal_generator_service import _apply_alpha_decay
+
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.7)
+        original_confidence = sig["confidence"]
+        last_fire_state = _make_alpha_decay_state(bars_since=0)
+        _apply_alpha_decay(sig, "1m", last_fire_state)
+        assert sig["confidence"] == pytest.approx(original_confidence, abs=0.0001)
