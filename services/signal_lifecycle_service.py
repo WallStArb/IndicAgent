@@ -12,6 +12,7 @@ Replaces signal_tracker_service. Extends lifecycle tracking with:
 
 import asyncio
 import json
+import math
 import os
 import signal
 import sys
@@ -38,6 +39,32 @@ from src.intelligence.trading.lifecycle_tracker import (
 )
 from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
 from src.observability.metrics import counter, gauge, start_metrics_server
+
+
+# QUAL-03: freshness decay half-life — bars after which an active signal's effective
+# confidence halves. Applied in-memory per bar; original confidence in signal_ledger
+# is NEVER mutated (it is ground truth for ML training).
+# Tune after 90 days outcome data.
+FRESHNESS_HALF_LIFE_BARS: dict[str, int] = {"1m": 20, "5m": 10, "15m": 6, "1h": 4}
+
+
+def _compute_freshness_decay(bars_since: int, timeframe: str) -> float:
+    """QUAL-03: Compute exponential freshness decay factor.
+
+    Returns a value in (0, 1] representing how fresh the signal is.
+    At bars_since=0 → 1.0 (fully fresh).
+    At bars_since=half_life → ~0.5 (half-life property of exponential decay).
+
+    Args:
+        bars_since: Bars elapsed since signal fire (from _bars_elapsed()).
+        timeframe: Timeframe string for half-life lookup.
+
+    Returns:
+        float in (0, 1] — multiply by stored_confidence to get effective_confidence.
+    """
+    half_life = FRESHNESS_HALF_LIFE_BARS.get(timeframe, 10)
+    lambda_decay = math.log(2) / half_life
+    return math.exp(-lambda_decay * bars_since)
 
 
 def _bars_elapsed(signal_timestamp: datetime, current_bar_time: datetime, timeframe: str) -> int:
