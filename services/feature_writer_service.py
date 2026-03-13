@@ -214,7 +214,8 @@ class FeatureWriterService:
         try:
             _s = Settings()
             self._env_prefix: str = f"{_s.env_name}:" if _s.env_name else ""
-        except Exception:
+        except Exception as e:
+            self.logger.warning("Settings() failed — defaulting env_prefix to empty string", error=str(e))
             self._env_prefix = ""
 
         # Prometheus metrics
@@ -257,7 +258,8 @@ class FeatureWriterService:
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         try:
             _settings = Settings()
-        except Exception:
+        except Exception as e:
+            logger.warning("Settings() failed in _load_config — using hardcoded defaults", error=str(e))
             _settings = None
 
         default_config: dict[str, Any] = {
