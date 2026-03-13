@@ -39,11 +39,11 @@ class TestI7Registration:
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 25 indicators + 71 patterns = 96 total (phase 24-06 adds HMA to I1)."""
+        """Should have 25 indicators + 72 patterns = 97 total (29-04 adds HurstExponent to I4)."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 96, f"Expected 96, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 97, f"Expected 97, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):
