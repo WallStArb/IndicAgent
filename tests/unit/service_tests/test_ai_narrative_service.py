@@ -388,8 +388,9 @@ def test_stream_map_populated_after_setup():
 
 def _make_service_new():
     """Build AINarrativeService via __new__ (bypass __init__ to avoid LLM chain setup)."""
-    from services.ai_narrative_service import AINarrativeService
     import asyncio
+
+    from services.ai_narrative_service import AINarrativeService
 
     svc = AINarrativeService.__new__(AINarrativeService)
     svc.logger = MagicMock()

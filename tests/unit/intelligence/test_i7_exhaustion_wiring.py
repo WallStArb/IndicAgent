@@ -21,7 +21,6 @@ import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
-
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 

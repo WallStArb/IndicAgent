@@ -310,6 +310,7 @@ class FeatureWriterService:
             port=self.config["redis"]["port"],
             db=self.config["redis"].get("db", 0),
             decode_responses=False,
+            max_connections=20,
         )
         await self.redis_client.ping()
         self.logger.info("Connected to Redis")

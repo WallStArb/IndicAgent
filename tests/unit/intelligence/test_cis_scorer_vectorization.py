@@ -16,10 +16,8 @@ from src.intelligence.trading.cis_scorer import (
     BUCKET_NOISE_FLOOR,
     CIS_FIRE_THRESHOLD,
     CISScorer,
-    EPSILON_TOLERANCE,
 )
 from src.intelligence.utils import clamp
-
 
 # ---------------------------------------------------------------------------
 # Reference scalar implementation (mirrors original pre-vectorization code)

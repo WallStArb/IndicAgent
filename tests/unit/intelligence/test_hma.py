@@ -12,7 +12,6 @@ import pytest
 from src.intelligence.indicators.hma import HMAPlugin
 from tests.unit.intelligence.helpers import make_ohlcv
 
-
 # ── plugin contract tests ─────────────────────────────────────────────────────
 
 

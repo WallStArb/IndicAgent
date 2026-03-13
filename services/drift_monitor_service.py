@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import signal
 import sys
 from datetime import UTC, datetime
@@ -123,6 +122,7 @@ class DriftMonitorService:
             port=self.config["redis"]["port"],
             db=self.config["redis"]["db"],
             decode_responses=True,
+            max_connections=20,
         )
         await self.redis_client.ping()
         self.logger.info("Redis connected")

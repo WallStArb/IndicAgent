@@ -4,13 +4,10 @@ Tests mock psycopg2 connections and CISScorer — no live DB required.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 # Import the script's pure functions for testing
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))

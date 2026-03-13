@@ -11,7 +11,6 @@ Errors are always recorded without sampling.
 from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -186,7 +185,6 @@ class TestIndicatorServiceSamplingIntegration:
         import asyncio
 
         from services.indicator_service import IndicatorService
-        from src.core.service_utils import PLUGIN_METRICS_SAMPLE_RATE
 
         svc = IndicatorService.__new__(IndicatorService)
         svc._i1_call_counts = defaultdict(int)

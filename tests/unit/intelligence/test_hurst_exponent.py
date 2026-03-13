@@ -27,7 +27,6 @@ from src.intelligence.context.hurst_exponent import (
 )
 from src.intelligence.register_plugins import TIER_I4
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

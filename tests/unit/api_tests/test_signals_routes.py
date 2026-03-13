@@ -12,7 +12,7 @@ Covers:
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -195,7 +195,6 @@ class TestGetSignalsTimeframeFilter:
 def _make_recent_signal_row(**overrides):
     """Minimal signal row for /api/signals/recent fetch() return value."""
     import uuid
-    from datetime import timezone
 
     base = _DictRow({
         "signal_id": uuid.uuid4(),
@@ -209,7 +208,7 @@ def _make_recent_signal_row(**overrides):
         "outcome": "ttl_expired_ahead",
         "exit_price": None,
         "pnl_r": None,
-        "signal_computed_at": datetime(2026, 3, 11, 14, 23, 45, tzinfo=timezone.utc),
+        "signal_computed_at": datetime(2026, 3, 11, 14, 23, 45, tzinfo=UTC),
         "timeframe": "1m",
         "setup_win_rate": 0.58,
         "setup_avg_pnl_r": 0.38,

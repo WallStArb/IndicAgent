@@ -7,7 +7,6 @@ src/intelligence/structure/swing_momentum.py.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from src.intelligence.structure.swing_momentum import SwingMomentumPlugin
 from tests.unit.intelligence.helpers import make_ohlcv

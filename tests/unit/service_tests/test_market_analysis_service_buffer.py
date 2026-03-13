@@ -7,7 +7,6 @@ not on every bar append. Uses __new__() bypass pattern to avoid __init__ side ef
 from collections import defaultdict, deque
 
 import pandas as pd
-import pytest
 
 
 def _make_svc(maxlen: int = 200):

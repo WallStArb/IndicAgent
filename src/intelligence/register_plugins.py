@@ -16,10 +16,10 @@ from .confluence.cross_timeframe import plugin as ctf_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
-from .context.shannon_entropy import plugin as shannon_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
 from .context.mtf_volatility import plugin as mtf_vol_plugin
 from .context.session_context import plugin as session_ctx_plugin
+from .context.shannon_entropy import plugin as shannon_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
 from .indicators.ac_oscillator import plugin as ac_osc_plugin

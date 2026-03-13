@@ -6,12 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.core.stream_keys import drift_cusum
 from src.monitoring.cusum_monitor import (
     CUSUMMonitor,
     _compute_cusum,
 )
-from src.core.stream_keys import drift_cusum
-
 
 # ---------------------------------------------------------------------------
 # Tests: _compute_cusum() pure function

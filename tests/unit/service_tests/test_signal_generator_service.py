@@ -655,12 +655,10 @@ def test_gate_flip_allowed_after_resolution():
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_success():
     """Seeding populates bar_history with bars from intelligence_features."""
-    import asyncio
     import collections
     from unittest.mock import AsyncMock, patch
 
     from services.signal_generator_service import SignalGeneratorService
-    from src.core.service_utils import min_bars_for_tf
 
     # Mock service setup
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
@@ -704,7 +702,6 @@ async def test_seed_bar_history_from_db_success():
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_multiple_symbols():
     """Seeding handles multiple symbols and timeframes."""
-    import asyncio
     import collections
     from unittest.mock import AsyncMock, patch
 
@@ -762,7 +759,6 @@ async def test_seed_bar_history_from_db_multiple_symbols():
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_partial_data():
     """Seeding handles partial data (less than min_bars_for_tf)."""
-    import asyncio
     import collections
     from unittest.mock import AsyncMock, patch
 
@@ -795,9 +791,9 @@ async def test_seed_bar_history_from_db_partial_data():
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_unavailable():
     """Seeding gracefully degrades when DB is unavailable."""
-    import asyncio
     import collections
     from unittest.mock import AsyncMock, patch
+
     import psycopg2
 
     from services.signal_generator_service import SignalGeneratorService
@@ -830,7 +826,6 @@ async def test_seed_bar_history_from_db_unavailable():
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_no_db_manager():
     """Seeding handles None db_manager gracefully."""
-    import asyncio
     import collections
     from unittest.mock import patch
 
@@ -857,7 +852,6 @@ async def test_seed_bar_history_from_db_no_db_manager():
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_empty_result():
     """Seeding handles empty DB result set."""
-    import asyncio
     import collections
     from unittest.mock import AsyncMock, patch
 
@@ -890,7 +884,6 @@ async def test_seed_bar_history_from_db_empty_result():
 
 def _make_svc_with_cooldown():
     """Build a minimal SignalGeneratorService instance with _setup_cooldown initialized."""
-    import collections
 
     from services.signal_generator_service import SignalGeneratorService
 
@@ -916,11 +909,11 @@ class TestSetupCooldownGate:
 
     def test_cooldown_blocks_same_setup_direction_within_window(self):
         """Same setup+direction fired at bar N is blocked at bar N+1 (cooldown=2)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         svc = _make_svc_with_cooldown()
-        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
-        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)  # 1 bar later (1m)
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=UTC)  # 1 bar later (1m)
 
         # Fire signal at bar N
         sig = _make_signal("trad_TrendFollowing", 1)
@@ -935,11 +928,11 @@ class TestSetupCooldownGate:
 
     def test_cooldown_allows_different_setup_same_direction(self):
         """Different setup same direction at bar N+1 is NOT blocked (cooldown is per-plugin)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         svc = _make_svc_with_cooldown()
-        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
-        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=UTC)
 
         # Fire TrendFollowing at bar N
         sig_trend = _make_signal("trad_TrendFollowing", 1)
@@ -954,11 +947,11 @@ class TestSetupCooldownGate:
 
     def test_cooldown_allows_same_setup_opposite_direction(self):
         """Same setup opposite direction at bar N+1 is NOT blocked."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         svc = _make_svc_with_cooldown()
-        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
-        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=UTC)
 
         # Fire bullish at bar N
         sig_bull = _make_signal("trad_TrendFollowing", 1)
@@ -973,12 +966,12 @@ class TestSetupCooldownGate:
 
     def test_cooldown_expires_after_n_bars(self):
         """Cooldown expires after _SIGNAL_COOLDOWN_BARS — fires again at bar N+cooldown."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from services.signal_generator_service import _SIGNAL_COOLDOWN_BARS
 
         svc = _make_svc_with_cooldown()
-        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
 
         # Fire signal at bar N
         sig = _make_signal("trad_TrendFollowing", 1)
@@ -987,7 +980,7 @@ class TestSetupCooldownGate:
         # Advance exactly _SIGNAL_COOLDOWN_BARS["1m"] worth of seconds
         cooldown_bars = _SIGNAL_COOLDOWN_BARS["1m"]  # expect 3 for 1m
         expired_ts = datetime(
-            2026, 3, 10, 10, cooldown_bars, 0, tzinfo=timezone.utc
+            2026, 3, 10, 10, cooldown_bars, 0, tzinfo=UTC
         )  # 3 bars = 3 min on 1m
 
         accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig], expired_ts)
@@ -997,11 +990,11 @@ class TestSetupCooldownGate:
 
     def test_cooldown_keyed_by_symbol_tf_plugin_direction(self):
         """Cooldown state is keyed by (symbol, tf, plugin, direction) — different symbol unaffected."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         svc = _make_svc_with_cooldown()
-        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=timezone.utc)
-        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=timezone.utc)
+        base_ts = datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC)
+        next_ts = datetime(2026, 3, 10, 10, 1, 0, tzinfo=UTC)
 
         # Fire signal on ESH6
         sig = _make_signal("trad_TrendFollowing", 1)

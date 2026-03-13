@@ -9,8 +9,7 @@ Tests verify:
 """
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,7 +22,6 @@ from src.intelligence.llm_providers import (
     _call_llm_with_circuit_breaker,
     _llm_circuit_breaker,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
