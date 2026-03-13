@@ -32,7 +32,7 @@
 - [x] **QUAL-04**: Per-setup cooldown window prevents the same setup firing in the same direction within `_SIGNAL_COOLDOWN_BARS` (3 bars for 1m, 2 bars for 5m+)
 - [x] **QUAL-05**: `rel_volume` (already in I1) wired into CIS momentum bucket: boost when `rel_volume > 1.5`, suppress when `< 0.5`
 - [x] **QUAL-06**: Killzone context wired as CIS time-of-day gate: confidence boosted during killzone opens (London/NY), reduced in dead sessions
-- [ ] **QUAL-07**: `HurstExponentPlugin` (I4) computes rolling Hurst exponent; H > 0.65 suppresses mean-reversion setups; H < 0.45 suppresses trend setups
+- [x] **QUAL-07**: `HurstExponentPlugin` (I4) computes rolling Hurst exponent; H > 0.65 suppresses mean-reversion setups; H < 0.45 suppresses trend setups
 - [ ] **QUAL-08**: `ShannonEntropyPlugin` (I4) computes rolling return entropy; high entropy reduces all signal confidence by 30–50% as a universal noise gate
 - [ ] **QUAL-09**: KS distribution drift detection — periodic background job comparing current I1/I4 feature distributions to a baseline reference window; emits monitoring flag when KS p-value < 0.05 on key features; operates in "warming up" state until baseline window is filled
 - [ ] **QUAL-10**: CUSUM performance drift detection — detects when per-setup win rates are degrading relative to historical baseline; alerts before losses accumulate; uses `setup_performance` data (setups with N≥30 already active)
@@ -118,7 +118,7 @@
 | QUAL-04 | Phase 29 | Complete |
 | QUAL-05 | Phase 29 | Complete |
 | QUAL-06 | Phase 29 | Complete |
-| QUAL-07 | Phase 29 | Pending |
+| QUAL-07 | Phase 29 | Complete |
 | QUAL-08 | Phase 29 | Pending |
 | QUAL-09 | Phase 29 | Pending |
 | QUAL-10 | Phase 29 | Pending |
