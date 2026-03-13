@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: Data Integrity
 status: Defining requirements
-stopped_at: Completed 28-05-PLAN.md (DB signal history + summary line + setup perf in drill panel)
-last_updated: "2026-03-12T21:38:58.643Z"
+stopped_at: Completed 27-10-PLAN.md (dashboard signalsHistory update on terminal events)
+last_updated: "2026-03-13T02:08:33.023Z"
 last_activity: 2026-03-11 — Milestone v1.8 started, requirements defined
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 24
-  completed_plans: 16
+  completed_plans: 18
   percent: 0
 ---
 
@@ -89,6 +89,7 @@ Progress: [░░░░░░░░░░] 0% (v1.8)
 - [Phase 28-06]: GARCH regime amber styling uses pipeline-classified garch_vol_regime===2, never hardcoded threshold — UI is passive consumer of pipeline decisions
 - [Phase 28-03]: SignalScorecard handles undefined data gracefully — empty state renders at component level, no guard needed at call site
 - [Phase 28-dashboard-completion]: [Phase 28-05]: DB+SSE merge — DB provides history on fresh load; SSE provides live updates; deduplicate by signal_id with SSE winning
+- [Phase 27-signal-lifecycle-stream-events]: Plan 27-10: REST seed (fetchActiveSignals) reverted — 27-09 SSE snapshot fix already seeds signalsByTf on mount; setSignalsHistory updated in dir===0 branch to propagate OutcomeBadge for resolved signals
 
 ### Pending Todos (addressed in v1.8)
 
@@ -104,6 +105,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-12T21:38:58.642Z
-Stopped at: Completed 28-05-PLAN.md (DB signal history + summary line + setup perf in drill panel)
+Last session: 2026-03-13T02:08:33.022Z
+Stopped at: Completed 27-10-PLAN.md (dashboard signalsHistory update on terminal events)
 Resume file: None
