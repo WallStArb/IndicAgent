@@ -4,9 +4,8 @@ Core data models for the Multi-Timeframe Trading Signal Platform.
 
 from dataclasses import dataclass
 from datetime import date as _date
-from datetime import datetime
+from datetime import datetime, time
 from datetime import datetime as _datetime
-from datetime import time
 from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -22,6 +21,9 @@ class AssetClass(StrEnum):
     CRYPTO = "crypto"
     FX = "fx"
     OPTION = "option"
+
+
+_ALL_ASSET_CLASSES: frozenset["AssetClass"] = frozenset(AssetClass)
 
 
 @dataclass(frozen=True)

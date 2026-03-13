@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..plugins import InputSpec
 from src.core.models import (
     CONTINUOUS_SESSIONS,
     EXCHANGE_SESSIONS,
@@ -13,6 +12,8 @@ from src.core.models import (
     SESSION_REGISTRY,
     TradingSession,
 )
+
+from ..plugins import InputSpec
 
 # --- Legacy ET session windows (local wall-clock, preserved for backward compat) ---
 
@@ -177,9 +178,8 @@ class SessionContextPlugin:
             **exchange_flags,
             # Break flags
             **break_flags,
-            # Overlap flags
-            "session_tokyo_london_overlap": overlap_flags.get("session_tokyo_london_overlap", 0.0),
-            "session_ny_sydney_overlap":    overlap_flags.get("session_ny_sydney_overlap", 0.0),
+            # Overlap flags — all 3; london_ny also in legacy 12 above (last write wins)
+            **overlap_flags,
             # Sub-session
             **sub_session,
         }

@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -67,6 +68,29 @@ def bar_close_ts(ts: datetime, tf: str) -> datetime:
     Unknown timeframes return ts unchanged (zero offset).
     """
     return ts + timedelta(seconds=TF_DURATIONS.get(tf, 0))
+
+
+def should_skip_plugin(
+    plugin: Any,
+    instrument: Any | None,
+    skipped_counter: Any,
+    plugin_name: str,
+) -> bool:
+    """Return True (and increment counter) if plugin should be skipped for this asset class.
+
+    Pass plugin_name explicitly since not all plugins expose .name at call-site.
+    """
+    if instrument is None:
+        return False
+    from src.core.models import _ALL_ASSET_CLASSES
+    allowed: frozenset = getattr(plugin, "valid_asset_classes", _ALL_ASSET_CLASSES)
+    if instrument.asset_class not in allowed:
+        skipped_counter.labels(
+            plugin_name=plugin_name,
+            asset_class=instrument.asset_class.value,
+        ).inc()
+        return True
+    return False
 
 
 def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:

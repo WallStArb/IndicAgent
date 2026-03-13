@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from src.core.models import Instrument
+from src.observability.metrics import PROVIDER_ACTIVE_SUBSCRIPTIONS
 
 
 class Tick(BaseModel):
@@ -110,22 +111,7 @@ class SubscriptionManager:
         self._max = max_subscriptions
         self._active: set[str] = set()
 
-        # Lazy import to avoid circular imports and allow tests without Prometheus
-        try:
-            from prometheus_client import Gauge, REGISTRY
-            # Avoid duplicate registration
-            if "provider_active_subscriptions" not in REGISTRY._names_to_collectors:
-                self._gauge = Gauge(
-                    "provider_active_subscriptions",
-                    "Active data subscriptions per provider",
-                    ["provider"],
-                )
-            else:
-                self._gauge = REGISTRY._names_to_collectors.get(
-                    "provider_active_subscriptions"
-                )
-        except Exception:
-            self._gauge = None
+        self._gauge = PROVIDER_ACTIVE_SUBSCRIPTIONS
 
     def subscribe(self, symbol: str) -> None:
         if symbol in self._active:
