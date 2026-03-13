@@ -593,7 +593,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           const resolvedSignal: SignalData = {
             ...currentSignal,
             resolved: true,
-            outcome: String(payload.status),
+            outcome: String(payload.outcome || payload.status),
             exit_price: _parseOptFloat(payload.exit_price) ?? undefined,
           };
           return {
@@ -617,7 +617,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               ? {
                   ...entry,
                   resolved: true,
-                  outcome: String(payload.status),
+                  outcome: String(payload.outcome || payload.status),
                   exit_price: _parseOptFloat(payload.exit_price) ?? undefined,
                 }
               : entry

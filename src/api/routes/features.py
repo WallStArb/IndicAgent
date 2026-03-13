@@ -11,6 +11,7 @@ as a {symbol} path parameter.
 import io
 import json
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 import pandas as pd
@@ -28,14 +29,17 @@ router = APIRouter()
 MAX_EXPORT_ROWS = 100_000
 
 
+@lru_cache(maxsize=1)
+def _get_settings():
+    from ...config.settings import Settings
+    return Settings()
+
+
 def _resolve_contract(symbol: str) -> str:
     """Map base symbol (ES) to active contract code (ESH6), same as sse.py."""
     if any(ch.isdigit() for ch in symbol):
         return symbol
-    from ...config.settings import Settings
-
-    settings = Settings()
-    for c in settings.contracts:
+    for c in _get_settings().contracts:
         if c.base == symbol:
             return c.symbol
     return symbol

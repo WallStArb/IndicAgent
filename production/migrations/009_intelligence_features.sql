@@ -1,6 +1,6 @@
 -- intelligence_features hypertable — tiered JSONB feature store
--- Version: 1.0.0
--- Last Updated: 2026-02-23
+-- Version: 1.1.0
+-- Last Updated: 2026-03-11
 -- Status: Current
 --
 -- Purpose:
@@ -15,6 +15,10 @@
 --   - compress_orderby = 'ts ASC' — forward scan performance (see migration 007)
 --   - NOT NULL DEFAULT '{}' on all JSONB tiers — GIN indexes safe, no column-level NULLs
 --   - ON CONFLICT (ts, symbol, tf) DO NOTHING in INSERT SQL — idempotent writes
+--   - NO GIN indexes on i1–i8 tiers — no production query uses JSONB @> filtering.
+--     GIN maintenance on a 1661 MB / 379-chunk hypertable adds write overhead for
+--     zero benefit. Add per-tier GIN only when a concrete analytics query requires it.
+--     (i1–i6 GINs removed 2026-03-11 via migration 025; i7/i8 columns do not exist)
 
 CREATE TABLE IF NOT EXISTS intelligence_features (
     ts              TIMESTAMPTZ     NOT NULL,
@@ -44,15 +48,6 @@ SELECT create_hypertable(
 -- Composite index for common query pattern: symbol + timeframe + time range
 CREATE INDEX IF NOT EXISTS idx_intel_features_sym_tf_ts
     ON intelligence_features (symbol, tf, ts DESC);
-
--- GIN indexes for per-tier JSONB field queries
--- Examples: WHERE i4 @> '{"garch_vol_regime": 1}', WHERE i5 @> '{"kalman_trend": "up"}'
-CREATE INDEX IF NOT EXISTS idx_intel_features_i1_gin  ON intelligence_features USING GIN (i1);
-CREATE INDEX IF NOT EXISTS idx_intel_features_i3_gin  ON intelligence_features USING GIN (i3);
-CREATE INDEX IF NOT EXISTS idx_intel_features_i4_gin  ON intelligence_features USING GIN (i4);
-CREATE INDEX IF NOT EXISTS idx_intel_features_i5_gin  ON intelligence_features USING GIN (i5);
-CREATE INDEX IF NOT EXISTS idx_intel_features_smc_gin ON intelligence_features USING GIN (smc);
-CREATE INDEX IF NOT EXISTS idx_intel_features_i6_gin  ON intelligence_features USING GIN (i6);
 
 -- Compression: segment by symbol+tf, order ASC (never DESC — see migration 007)
 ALTER TABLE intelligence_features SET (
