@@ -9,9 +9,7 @@ as a {symbol} path parameter.
 """
 
 import io
-import json
 from datetime import datetime
-from functools import lru_cache
 from typing import Any
 
 import pandas as pd
@@ -21,40 +19,14 @@ from fastapi.responses import Response
 
 from ...core.database_manager import DatabaseManager
 from ..dependencies import get_db_manager
+from ..utils import parse_jsonb as _parse_jsonb
+from ..utils import resolve_contract as _resolve_contract
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
 MAX_EXPORT_ROWS = 100_000
-
-
-@lru_cache(maxsize=1)
-def _get_settings():
-    from ...config.settings import Settings
-    return Settings()
-
-
-def _resolve_contract(symbol: str) -> str:
-    """Map base symbol (ES) to active contract code (ESH6), same as sse.py."""
-    if any(ch.isdigit() for ch in symbol):
-        return symbol
-    for c in _get_settings().contracts:
-        if c.base == symbol:
-            return c.symbol
-    return symbol
-
-
-def _parse_jsonb(value: Any) -> Any:
-    """Parse asyncpg JSONB string to dict. Returns {} on None or parse failure."""
-    if value is None:
-        return {}
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, ValueError):
-            return {}
-    return value  # already dict (asyncpg may parse in future)
 
 
 # IMPORTANT: /features/export must be registered BEFORE /features/{symbol}/{timeframe}
@@ -101,7 +73,7 @@ async def export_features(
                 "schema_version": row["schema_version"],
             }
             for tier in ["bar", "i1", "i3", "i4", "i5", "smc", "i6"]:
-                tier_data = _parse_jsonb(row[tier])
+                tier_data = _parse_jsonb(row[tier], default={})
                 for k, v in tier_data.items():
                     record[f"{tier}_{k}"] = v
             records.append(record)
@@ -167,13 +139,13 @@ async def get_features(
                     "platform": row["platform"],
                     "source": row["source"],
                     "schema_version": row["schema_version"],
-                    "bar": _parse_jsonb(row["bar"]),
-                    "i1": _parse_jsonb(row["i1"]),
-                    "i3": _parse_jsonb(row["i3"]),
-                    "i4": _parse_jsonb(row["i4"]),
-                    "i5": _parse_jsonb(row["i5"]),
-                    "smc": _parse_jsonb(row["smc"]),
-                    "i6": _parse_jsonb(row["i6"]),
+                    "bar": _parse_jsonb(row["bar"], default={}),
+                    "i1": _parse_jsonb(row["i1"], default={}),
+                    "i3": _parse_jsonb(row["i3"], default={}),
+                    "i4": _parse_jsonb(row["i4"], default={}),
+                    "i5": _parse_jsonb(row["i5"], default={}),
+                    "smc": _parse_jsonb(row["smc"], default={}),
+                    "i6": _parse_jsonb(row["i6"], default={}),
                 }
             )
 
