@@ -1,5 +1,4 @@
 """Tests for SSE snapshot age filter on signal streams."""
-import importlib
 import inspect
 import time
 

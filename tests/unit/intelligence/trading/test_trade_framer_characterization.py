@@ -8,7 +8,6 @@ import pytest
 
 from src.intelligence.trading.trade_framer import (
     ATR_EMERGENCY_FALLBACK_PCT,
-    EPSILON_TOLERANCE,
     frame_trade,
 )
 

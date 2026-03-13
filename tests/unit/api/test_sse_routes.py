@@ -10,8 +10,6 @@ Verifies:
 """
 import time
 
-import pytest
-
 from src.api.routes.sse import _TF_MINUTES, _signal_entry_stale, _signal_max_age_s
 
 

@@ -1,6 +1,6 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (91 total + 2 aggregation)
+## Plugin Tiers (101 total + 2 aggregation)
 
 ### I1 Technical Indicators (24) — incremental `compute_next()`
 Trend, Momentum, Volatility, Volume. Full list: `TIER_I1` in `register_plugins.py`.

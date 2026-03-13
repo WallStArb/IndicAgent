@@ -7,10 +7,8 @@ Uses __new__ pattern to bypass __init__ — avoids full service initialization.
 """
 
 from collections import OrderedDict, defaultdict
-from unittest.mock import MagicMock
 
 import pandas as pd
-import pytest
 
 
 def _make_service():

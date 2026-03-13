@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     redis_host: str = Field(default="localhost")
     redis_port: int = Field(default=6379)
     redis_db: int = Field(default=0)
-    redis_max_connections: int = Field(default=100)
+    redis_max_connections: int = Field(default=20)
 
     # IBKR
     ib_host: str = Field(

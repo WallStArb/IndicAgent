@@ -6,7 +6,7 @@ Covers:
 """
 
 import asyncio
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,7 +14,6 @@ from src.core.retry_utils import (
     exponential_backoff_with_jitter,
     retry_with_backoff,
 )
-
 
 # ---------------------------------------------------------------------------
 # exponential_backoff_with_jitter

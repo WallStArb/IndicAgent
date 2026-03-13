@@ -1,9 +1,9 @@
 import json
 import sys
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
@@ -12,7 +12,7 @@ def test_aggregate_bars_from_1m_5m_groups_correctly():
     """Five 1m bars in the same 5m window produce one aggregated bar."""
     from production.scripts.historical_backfill import aggregate_bars_from_1m
 
-    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = [
         {"timestamp": base.replace(minute=30 + i), "open": 100 + i, "high": 105 + i,
          "low": 99 + i, "close": 101 + i, "volume": 10}
@@ -34,7 +34,7 @@ def test_aggregate_bars_from_1m_splits_across_windows():
     """Bars spanning two 5m windows produce two aggregated bars."""
     from production.scripts.historical_backfill import aggregate_bars_from_1m
 
-    base = datetime(2026, 3, 7, 9, 33, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 3, 7, 9, 33, 0, tzinfo=UTC)
     bars = [
         {"timestamp": base.replace(minute=33), "open": 100, "high": 102, "low": 99, "close": 101, "volume": 5},
         {"timestamp": base.replace(minute=34), "open": 101, "high": 103, "low": 100, "close": 102, "volume": 5},
@@ -51,14 +51,14 @@ def test_aggregate_bars_from_1m_daily_floors_to_midnight():
     from production.scripts.historical_backfill import aggregate_bars_from_1m
 
     bars = [
-        {"timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=timezone.utc), "open": 100, "high": 105,
+        {"timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=UTC), "open": 100, "high": 105,
          "low": 99, "close": 104, "volume": 100},
-        {"timestamp": datetime(2026, 3, 7, 15, 0, tzinfo=timezone.utc), "open": 104, "high": 106,
+        {"timestamp": datetime(2026, 3, 7, 15, 0, tzinfo=UTC), "open": 104, "high": 106,
          "low": 103, "close": 105, "volume": 200},
     ]
     result = aggregate_bars_from_1m(bars, "1d")
     assert len(result) == 1
-    assert result[0]["timestamp"] == datetime(2026, 3, 7, 0, 0, tzinfo=timezone.utc)
+    assert result[0]["timestamp"] == datetime(2026, 3, 7, 0, 0, tzinfo=UTC)
     assert result[0]["volume"] == 300
 
 
@@ -66,7 +66,7 @@ def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
     """None volume values (FX has no volume) are treated as 0."""
     from production.scripts.historical_backfill import aggregate_bars_from_1m
 
-    base = datetime(2026, 3, 7, 9, 30, tzinfo=timezone.utc)
+    base = datetime(2026, 3, 7, 9, 30, tzinfo=UTC)
     bars = [
         {"timestamp": base, "open": 1.10, "high": 1.11, "low": 1.09, "close": 1.105, "volume": None},
         {"timestamp": base.replace(minute=31), "open": 1.105, "high": 1.112, "low": 1.104, "close": 1.11, "volume": None},
@@ -82,7 +82,7 @@ def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
 
 def _make_bar_history(n: int = 55) -> deque:
     """Return a deque of n minimal bar dicts for testing."""
-    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = deque(maxlen=200)
     for i in range(n):
         bars.append({
@@ -99,7 +99,6 @@ def _make_bar_history(n: int = 55) -> deque:
 def test_run_i7_and_persist_populates_cis_fields():
     """CIS fields from AggregatedResult flow through _build_ledger_entries into LedgerEntry."""
     from production.scripts.historical_backfill import (
-        _build_ledger_entries,
         run_i7_and_persist,
     )
     from src.intelligence.trading.aggregator import AggregatedResult
@@ -120,7 +119,7 @@ def test_run_i7_and_persist_populates_cis_fields():
     )
 
     features = {"trend_regime": 1.0}
-    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     captured_entries: list = []
 
@@ -168,7 +167,7 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
     )
 
     features = {"trend_regime": 1.0, "some_feature": 42.0}
-    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     mock_plugin = MagicMock()
     mock_plugin.compute_full.return_value = {"direction": 1}
@@ -192,7 +191,7 @@ def test_insert_signals_sync_writes_cis_fields():
     from production.scripts.historical_backfill import _insert_signals_sync
     from src.intelligence.trading.signal_ledger import LedgerEntry
 
-    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     entry = LedgerEntry(
         signal_id="00000000-0000-0000-0000-000000000001",
         timestamp=ts,
@@ -252,7 +251,7 @@ def test_run_i7_and_persist_cis_null_when_no_raw_signals():
     from production.scripts.historical_backfill import run_i7_and_persist
 
     features = {"trend_regime": 0.0}
-    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
 
     # Plugin returns direction=0 → no signal → raw_signals stays empty
     mock_plugin = MagicMock()

@@ -177,13 +177,13 @@ WHERE signal_id = $1::uuid
 
 _SELECT_ACTIVE_SQL = """
 SELECT * FROM signal_ledger
-WHERE status IN ('pending', 'active', 'regime_suppressed')
+WHERE status IN ('pending', 'active', 'regime_suppressed') AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
 
 _SELECT_ACTIVE_BY_SYMBOL_SQL = """
 SELECT * FROM signal_ledger
-WHERE status IN ('pending', 'active', 'regime_suppressed') AND symbol = $1
+WHERE status IN ('pending', 'active', 'regime_suppressed') AND symbol = $1 AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
 
