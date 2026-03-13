@@ -4,7 +4,9 @@ import pytest
 
 from src.intelligence.trading.aggregator import (
     SETUP_PRIORITY,
+    TREND_SETUPS,
     AggregatedResult,
+    _build_all_ranked,
     aggregate,
 )
 
@@ -596,3 +598,74 @@ class TestAlphaDecay:
         last_fire_state = _make_alpha_decay_state(bars_since=0)
         _apply_alpha_decay(sig, "1m", last_fire_state)
         assert sig["confidence"] == pytest.approx(original_confidence, abs=0.0001)
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 Plan 05 — QUAL-08: Quality multiplier wiring in _build_all_ranked()
+# Tests for Hurst × Entropy gate applied per-signal before adjusted_rank.
+# ---------------------------------------------------------------------------
+
+
+class TestQualityMultiplierWiring:
+    """_build_all_ranked() applies hurst_q * entropy_q multiplier to each signal confidence.
+
+    Trend setups use hurst_trend_quality; mean-reversion setups use hurst_mr_quality.
+    features=None leaves confidence unchanged (backwards compatible).
+    """
+
+    @pytest.mark.unit
+    def test_trend_setup_confidence_reduced_by_quality_multipliers(self):
+        """Trend setup confidence = original * hurst_trend_quality * entropy_quality."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        sig["regime_eligible"] = True
+        features = {"hurst_trend_quality": 0.5, "entropy_quality": 0.8}
+        ranked = _build_all_ranked([sig], features=features)
+        expected = round(0.8 * 0.5 * 0.8, 4)
+        assert ranked[0]["confidence"] == pytest.approx(expected, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_features_none_leaves_confidence_unchanged(self):
+        """features=None (default) → quality multiplier skipped, confidence unchanged."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.75)
+        sig["regime_eligible"] = True
+        ranked = _build_all_ranked([sig], features=None)
+        assert ranked[0]["confidence"] == pytest.approx(0.75, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_missing_hurst_quality_defaults_to_1_0(self):
+        """features dict missing 'hurst_trend_quality' → default 1.0, only entropy applied."""
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        sig["regime_eligible"] = True
+        features = {"entropy_quality": 0.6}  # no hurst keys
+        ranked = _build_all_ranked([sig], features=features)
+        expected = round(0.8 * 1.0 * 0.6, 4)
+        assert ranked[0]["confidence"] == pytest.approx(expected, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_mean_reversion_setup_uses_hurst_mr_quality(self):
+        """MeanReversion setup uses hurst_mr_quality, not hurst_trend_quality."""
+        sig = _signal("trad_MeanReversion", -1, confidence=0.9)
+        sig["regime_eligible"] = True
+        features = {
+            "hurst_trend_quality": 0.3,  # should NOT apply to MR setups
+            "hurst_mr_quality": 0.7,
+            "entropy_quality": 1.0,
+        }
+        ranked = _build_all_ranked([sig], features=features)
+        expected = round(0.9 * 0.7 * 1.0, 4)
+        assert ranked[0]["confidence"] == pytest.approx(expected, abs=0.0001)
+
+    @pytest.mark.unit
+    def test_trend_setups_constant_contains_trend_following(self):
+        """TREND_SETUPS frozenset contains 'trad_TrendFollowing'."""
+        assert "trad_TrendFollowing" in TREND_SETUPS
+
+    @pytest.mark.unit
+    def test_mean_reversion_not_in_trend_setups(self):
+        """trad_MeanReversion is NOT in TREND_SETUPS (it is a mean-reversion setup)."""
+        assert "trad_MeanReversion" not in TREND_SETUPS
+
+    @pytest.mark.unit
+    def test_trend_setups_is_frozenset(self):
+        """TREND_SETUPS is a frozenset."""
+        assert isinstance(TREND_SETUPS, frozenset)
