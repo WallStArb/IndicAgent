@@ -175,3 +175,8 @@ def patterns_pattern(env_prefix: str) -> str:
 
 def narratives_pattern(env_prefix: str) -> str:
     return f"{env_prefix}narratives:*:*"
+
+
+def drift_ks(env_prefix: str, symbol: str, tf: str) -> str:
+    """Redis key for KS drift state per symbol/TF. Written by drift_monitor_service."""
+    return f"{env_prefix}drift:ks:{symbol}:{tf}"
