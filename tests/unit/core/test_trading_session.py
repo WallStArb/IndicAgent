@@ -22,8 +22,8 @@ class TestNYSEIsOpen:
         self.session = EXCHANGE_SESSIONS["nyse"]
 
     def test_open_at_930_et(self):
-        # 2026-03-10 is Tuesday; 09:30 ET = 14:30 UTC (EST, UTC-5)
-        assert self.session.is_open(utc(2026, 3, 10, 14, 30)) is True
+        # 2026-03-10 is Tuesday (post-DST, EDT UTC-4); 09:30 EDT = 13:30 UTC
+        assert self.session.is_open(utc(2026, 3, 10, 13, 30)) is True
 
     def test_closed_before_930_et(self):
         # 2026-03-10 is post-DST (EDT, UTC-4); 9:29 EDT = 13:29 UTC
@@ -64,7 +64,8 @@ class TestFutures245IsOpen:
         self.session = CONTINUOUS_SESSIONS["futures_24_5"]
 
     def test_open_at_open_time(self):
-        # Sunday 2026-03-08 18:00 Chicago (CST UTC-6) = Sunday 00:00 UTC 2026-03-09
+        # Session uses Etc/GMT+6 (fixed UTC-6, no DST — CME quotes in CST year-round)
+        # Sunday 2026-03-08 18:00 CST (fixed UTC-6) = Sunday 00:00 UTC 2026-03-09
         assert self.session.is_open(utc(2026, 3, 9, 0, 0)) is True
 
     def test_closed_after_close_time(self):

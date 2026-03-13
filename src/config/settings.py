@@ -217,27 +217,27 @@ class Settings(BaseSettings):
             ),
             # ETFs — Pilot 5 (equity expansion phase A)
             Instrument(
-                symbol="SPY", asset_class=AssetClass.EQUITY, exchange="SMART",
+                symbol="SPY", base="SPY", asset_class=AssetClass.EQUITY, exchange="SMART",
                 session_id="nyse", point_value=1.0, tick_size=0.01,
                 name="SPDR S&P 500 ETF", sector="equity",
             ),
             Instrument(
-                symbol="XLF", asset_class=AssetClass.EQUITY, exchange="SMART",
+                symbol="XLF", base="XLF", asset_class=AssetClass.EQUITY, exchange="SMART",
                 session_id="nyse", point_value=1.0, tick_size=0.01,
                 name="Financial Select Sector SPDR", sector="equity",
             ),
             Instrument(
-                symbol="TLT", asset_class=AssetClass.EQUITY, exchange="SMART",
+                symbol="TLT", base="TLT", asset_class=AssetClass.EQUITY, exchange="SMART",
                 session_id="nyse", point_value=1.0, tick_size=0.01,
                 name="iShares 20+ Year Treasury Bond ETF", sector="equity",
             ),
             Instrument(
-                symbol="GLD", asset_class=AssetClass.EQUITY, exchange="SMART",
+                symbol="GLD", base="GLD", asset_class=AssetClass.EQUITY, exchange="SMART",
                 session_id="nyse", point_value=1.0, tick_size=0.01,
                 name="SPDR Gold Shares", sector="equity",
             ),
             Instrument(
-                symbol="SMH", asset_class=AssetClass.EQUITY, exchange="SMART",
+                symbol="SMH", base="SMH", asset_class=AssetClass.EQUITY, exchange="SMART",
                 session_id="nyse", point_value=1.0, tick_size=0.01,
                 name="VanEck Semiconductor ETF", sector="equity",
             ),
