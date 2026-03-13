@@ -710,6 +710,24 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
             },
           };
         });
+        // Update signalsHistory so RecentSignalCard can show OutcomeBadge.
+        // Unconditional: updates history even when setSymbolData was a no-op
+        // (stale resolved event where active signal was already replaced by a newer birth).
+        setSignalsHistory((prev) => {
+          const symHistory = prev[sym];
+          if (!symHistory) return prev;
+          const updated = symHistory.map((entry) =>
+            entry.signal_id === resolvedId
+              ? {
+                  ...entry,
+                  resolved: true,
+                  outcome: String(payload.status),
+                  exit_price: _parseOptFloat(payload.exit_price) ?? undefined,
+                }
+              : entry
+          );
+          return { ...prev, [sym]: updated };
+        });
         touch();
         return;
       }
