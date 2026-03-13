@@ -159,6 +159,11 @@ class IndicatorService:
         settings = Settings()
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
 
+        # Build instrument map for asset-class guard
+        self._instrument_map: dict[str, Any] = {
+            inst.symbol: inst for inst in settings.contracts
+        }
+
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
         self._stream_map: dict[str, tuple[str, str]] = {}
@@ -176,6 +181,26 @@ class IndicatorService:
             "indicator_errors_total",
             "Total errors in indicator service",
         )
+
+        from prometheus_client import Counter as _Counter, REGISTRY as _REGISTRY
+        try:
+            self.plugin_skipped_total = _Counter(
+                "plugin_skipped_total",
+                "Total plugin invocations skipped due to asset class",
+                ["plugin_name", "asset_class"],
+            )
+        except ValueError:
+            self.plugin_skipped_total = _REGISTRY._names_to_collectors.get("plugin_skipped_total")
+        try:
+            self.bars_processed_labeled_total = _Counter(
+                "indicator_bars_processed_labeled_total",
+                "Bars processed by indicator service (labeled by symbol and tf)",
+                ["symbol", "tf"],
+            )
+        except ValueError:
+            self.bars_processed_labeled_total = _REGISTRY._names_to_collectors.get(
+                "indicator_bars_processed_labeled_total"
+            )
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -232,11 +257,22 @@ class IndicatorService:
         self, frames: dict[str, Any], symbol: str, timeframe: str
     ) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
+        from src.core.models import AssetClass
+        instrument = self._instrument_map.get(symbol)
+        if instrument:
+            frames["__instrument__"] = instrument
         features: dict[str, Any] = {}
         for plugin_name in I1_PLUGINS:
             t0 = time.time()
             try:
                 p = self._i1_plugin_cache[plugin_name]
+                allowed = getattr(p, "valid_asset_classes", frozenset(AssetClass))
+                if instrument and instrument.asset_class not in allowed:
+                    self.plugin_skipped_total.labels(
+                        plugin_name=plugin_name,
+                        asset_class=instrument.asset_class.value,
+                    ).inc()
+                    continue
                 state_key = (plugin_name, symbol, timeframe)
                 async with self._get_state_lock(state_key):
                     p._state = self._i1_plugin_states.setdefault(state_key, {})

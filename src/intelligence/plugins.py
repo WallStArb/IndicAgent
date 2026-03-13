@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from re import Pattern as RePattern
 from typing import Any, ClassVar, Protocol
 
+from src.core.models import AssetClass
+
 
 @dataclass
 class InputSpec:
@@ -20,6 +22,7 @@ class IndicatorPlugin(Protocol):
     supports_incremental: ClassVar[bool]
     capability_tags: ClassVar[set[str]]
     inputs: ClassVar[list[InputSpec]]
+    valid_asset_classes: ClassVar[frozenset[AssetClass]]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -33,6 +36,7 @@ class PatternPlugin(Protocol):
     supports_incremental: ClassVar[bool]
     capability_tags: ClassVar[set[str]]
     inputs: ClassVar[list[InputSpec]]
+    valid_asset_classes: ClassVar[frozenset[AssetClass]]
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
 
