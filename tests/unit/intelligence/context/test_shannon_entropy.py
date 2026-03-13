@@ -47,16 +47,15 @@ class TestShannonEntropyComputeFull:
 
     @pytest.mark.unit
     def test_structured_series_returns_low_entropy(self):
-        """Uniform return series (structured market) returns shannon_entropy close to 0.0."""
+        """Constant price (zero variance) returns shannon_entropy close to 0.0."""
         from src.intelligence.context.shannon_entropy import plugin
 
-        # Perfectly uniform returns: all close values increase by 1.0 → identical log returns
-        # With identical returns, all histogram counts fall into one bin → near-zero entropy
-        close = np.array([100.0 + i for i in range(50)])  # linear price series
+        # Flat prices → all log-returns = 0 → single bin occupied → near-zero entropy
+        close = np.full(50, 100.0)
         result = plugin.compute_full(_make_frames(close))
         assert "shannon_entropy" in result
         assert result["shannon_entropy"] < 0.3, (
-            f"Expected low entropy for uniform series, got {result['shannon_entropy']}"
+            f"Expected low entropy for flat price series, got {result['shannon_entropy']}"
         )
 
     @pytest.mark.unit
