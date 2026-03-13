@@ -213,6 +213,8 @@ class TestMarketAnalysisServiceSamplingIntegration:
         svc._plugin_states_locks = {}
         svc.logger = MagicMock()
         svc.intelligence_cache = defaultdict(dict)
+        svc._instrument_map = {}
+        svc.plugin_skipped_total = MagicMock()
 
         mock_plugin = MagicMock()
         mock_plugin._state = {}
@@ -257,6 +259,8 @@ class TestMarketAnalysisServiceSamplingIntegration:
         svc._plugin_states_locks = {}
         svc.logger = MagicMock()
         svc.intelligence_cache = defaultdict(dict)
+        svc._instrument_map = {}
+        svc.plugin_skipped_total = MagicMock()
 
         error_plugin = MagicMock()
         error_plugin._state = {}
