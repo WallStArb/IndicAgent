@@ -124,6 +124,7 @@ def aggregate(
     features: dict[str, Any] | None = None,
     regime_data: dict[str, Any] | None = None,
     perf_weights: dict[str, float] | None = None,
+    drift_penalty: float = 1.0,
 ) -> AggregatedResult:
     """Aggregate signals from trading setup plugins into a single result.
 
@@ -171,7 +172,9 @@ def aggregate(
         s for s in signals
         if s.get("direction") != 0 and s.get("signal_type") != "none"
     ]
-    all_ranked = _build_all_ranked(all_fired, perf_weights=perf_weights, features=features)
+    all_ranked = _build_all_ranked(
+        all_fired, perf_weights=perf_weights, features=features, drift_penalty=drift_penalty
+    )
     active = [s for s in all_ranked if s.get("regime_eligible", True)]
 
     # Attach CIS metadata to result (even if no signal)
@@ -366,6 +369,7 @@ def _build_all_ranked(
     fired: list[dict],
     perf_weights: dict[str, float] | None = None,
     features: dict[str, Any] | None = None,
+    drift_penalty: float = 1.0,
 ) -> list[dict]:
     """Build ranked list of all fired signals (eligible + suppressed).
 
@@ -383,6 +387,11 @@ def _build_all_ranked(
       Each signal's confidence is multiplied by hurst_q * entropy_q BEFORE
       adjusted_rank assignment.  Trend setups use hurst_trend_quality; mean-
       reversion setups use hurst_mr_quality.  Both default to 1.0 when absent.
+
+    When drift_penalty < 1.0 (QUAL-09 KS drift):
+      Applied AFTER Hurst × Entropy multipliers and BEFORE adjusted_rank assignment.
+      DRIFT_PENALTIES: none=1.0, warning=0.85, critical=0.70.
+      When "none" (default 1.0), confidence is unchanged.
 
     composite_rank is always assigned 1-based by SETUP_PRIORITY desc for observability.
     """
@@ -406,6 +415,13 @@ def _build_all_ranked(
             hurst_q = float(features.get(hurst_field, 1.0))
             entropy_q = float(features.get("entropy_quality", 1.0))
             sig["confidence"] = round(float(sig.get("confidence", 0.0)) * hurst_q * entropy_q, 4)
+
+    # 1c. Apply KS drift penalty (QUAL-09) after Hurst × Entropy, before adjusted_rank.
+    #     penalty=1.0 (severity="none") is a no-op. Applies uniformly to all signals
+    #     on this symbol/TF when the feature distribution has shifted from baseline.
+    if drift_penalty != 1.0:
+        for sig in with_ranks:
+            sig["confidence"] = round(float(sig.get("confidence", 0.0)) * drift_penalty, 4)
 
     # 2. Assign adjusted_rank
     weights = perf_weights or {}
