@@ -357,6 +357,10 @@ Five-agent LangGraph architecture: Orchestrator (deterministic) · Data Quality 
 
 No model reaches production without `p < 0.05` with sufficient N. Borderline p-values pause the graph and require human approval via LangGraph `interrupt()`. Every HITL decision logged with approver, timestamp, and reasoning.
 
+**ML stack:** `langgraph` + `langchain` (agent orchestration, already in stack) · `langfuse` self-hosted (agent observability, OTEL bridge to Grafana) · `guardrails-ai` (LLM output validation against Pydantic schemas) · `scipy` + `alphalens-reloaded` (IC/ICIR analysis per feature per regime) · `tsfresh` (700+ statistical features extracted automatically from any time series) · `evidently` (KS/PSI/Wasserstein drift detection, self-hosted) · `polars` (Rust dataframes, 10–100× faster than pandas for feature matrix construction) · `lightgbm` (the model — tabular data champion) · `shap` (TreeSHAP explainability per signal) · `optuna` (Bayesian hyperparameter optimisation) · `statsmodels` (CUSUM, time-series statistics) · `mlflow` self-hosted (model registry, experiment tracking) · `river` (online/incremental learning between retrains).
+
+**Explicitly not added:** PyTorch/TensorFlow (tree ensembles dominate tabular benchmarks) · Feast (TimescaleDB is the feature store) · Weights & Biases (cloud/paid — MLflow is the open standard) · Ray/Dask (overkill for current data volume).
+
 → [MLAgent Design](docs/ideas/ml-learning-machine.md)
 
 ---
