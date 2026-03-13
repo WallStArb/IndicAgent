@@ -41,6 +41,8 @@ from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import (
     BAR_TO_I1_LATENCY,
+    INDICATOR_BARS_PROCESSED_LABELED_TOTAL,
+    PLUGIN_SKIPPED_TOTAL,
     counter,
     gauge,
     record_plugin_execution,
@@ -182,25 +184,8 @@ class IndicatorService:
             "Total errors in indicator service",
         )
 
-        from prometheus_client import Counter as _Counter, REGISTRY as _REGISTRY
-        try:
-            self.plugin_skipped_total = _Counter(
-                "plugin_skipped_total",
-                "Total plugin invocations skipped due to asset class",
-                ["plugin_name", "asset_class"],
-            )
-        except ValueError:
-            self.plugin_skipped_total = _REGISTRY._names_to_collectors.get("plugin_skipped_total")
-        try:
-            self.bars_processed_labeled_total = _Counter(
-                "indicator_bars_processed_labeled_total",
-                "Bars processed by indicator service (labeled by symbol and tf)",
-                ["symbol", "tf"],
-            )
-        except ValueError:
-            self.bars_processed_labeled_total = _REGISTRY._names_to_collectors.get(
-                "indicator_bars_processed_labeled_total"
-            )
+        self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
+        self.bars_processed_labeled_total = INDICATOR_BARS_PROCESSED_LABELED_TOTAL
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
