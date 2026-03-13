@@ -249,6 +249,7 @@ class CISScorer:
           - roc_14 sign                                0.20
           - momentum_bias                              0.15
           - DivergenceStack plugin direction * conf    0.10
+          - rel_volume sub-term (supplemental, additive) ±0.05
         """
         rsi = self._fval(f, "rsi_14", default=50.0)
         rsi_dir = (rsi - 50.0) / 50.0  # maps [0,100] → [-1,+1]
@@ -261,19 +262,25 @@ class CISScorer:
 
         d, c = self._plug(po, "trad_DivergenceStack")
 
+        # QUAL-05: rel_volume sub-term — maps [0,2] → [-0.05, +0.05] via clamp.
+        # default=1.0 so missing rel_volume contributes exactly 0.0 (neutral).
+        rel_vol = self._fval(f, "rel_volume", default=1.0)
+        c_rel_vol = 0.05 * clamp((rel_vol - 1.0) / 1.0)
+
         c_rsi = 0.30 * clamp(rsi_dir)
         c_macd = 0.25 * macd_dir
         c_roc = 0.20 * roc_dir
         c_momentum_bias = 0.15 * clamp(self._fval(f, "momentum_bias"))
         c_divergence = 0.10 * float(d) * float(c)
 
-        score = c_rsi + c_macd + c_roc + c_momentum_bias + c_divergence
+        score = c_rsi + c_macd + c_roc + c_momentum_bias + c_divergence + c_rel_vol
         contrib = {
             "rsi_14": float(c_rsi),
             "macd_histogram_12_26_9": float(c_macd),
             "roc_14": float(c_roc),
             "momentum_bias": float(c_momentum_bias),
             "trad_DivergenceStack": float(c_divergence),
+            "rel_volume": float(c_rel_vol),
         }
         return clamp(score), contrib
 
@@ -379,6 +386,7 @@ class CISScorer:
           - ctf_regime_agreement                             0.20
           - vol_regime inverted (high vol = bearish for CIS) 0.20
           - RegimeTransition plugin direction * conf          0.10
+          - killzone sub-term (supplemental, additive)        ±0.05
         """
         hmm_dir = (
             self._fval(f, "hmm_prob_trending_up")
@@ -392,18 +400,28 @@ class CISScorer:
 
         d, c = self._plug(po, "trad_RegimeTransition")
 
+        # QUAL-06: killzone sub-term — active London or NY killzone gets slight boost (+0.05);
+        # dead session (no killzone active) gets slight suppression (-0.01).
+        # Uses max() to handle case where both killzones could be active simultaneously.
+        in_kz = max(
+            self._fval(f, "in_london_killzone"),
+            self._fval(f, "in_ny_killzone"),
+        )
+        c_killzone = 0.05 * (1.0 if in_kz > 0.5 else -0.2)
+
         c_hmm = 0.35 * clamp(hmm_dir)
         c_cp = 0.15 * cp_contribution
         c_ctf_regime = 0.20 * clamp(self._fval(f, "ctf_regime_agreement"))
         c_vol_regime = 0.20 * clamp(self._fval(f, "vol_regime") * -1.0)
         c_regime_transition = 0.10 * float(d) * float(c)
 
-        score = c_hmm + c_cp + c_ctf_regime + c_vol_regime + c_regime_transition
+        score = c_hmm + c_cp + c_ctf_regime + c_vol_regime + c_regime_transition + c_killzone
         contrib = {
             "hmm_prob_trending_up": float(c_hmm),
             "cp_probability": float(c_cp),
             "ctf_regime_agreement": float(c_ctf_regime),
             "vol_regime": float(c_vol_regime),
             "trad_RegimeTransition": float(c_regime_transition),
+            "killzone": float(c_killzone),
         }
         return clamp(score), contrib
