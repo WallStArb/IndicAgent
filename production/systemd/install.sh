@@ -19,6 +19,7 @@ SERVICES=(
     indicagent-llm-writer.service
     indicagent-api.service
     indicagent-weight-updater.service
+    indicagent-timeframes.service
 )
 
 TIMER="indicagent-weight-updater.timer"

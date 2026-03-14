@@ -1,0 +1,22 @@
+[Unit]
+Description=IndicAgent Timeframes Builder Service — 1m bars to 5m/15m/1h/4h/1d
+After=network-online.target indicagent-tws.service
+Wants=indicagent-tws.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/timeframes_builder_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-timeframes
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
