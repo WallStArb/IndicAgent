@@ -33,12 +33,12 @@ async def test_create_topics_calls_admin_client() -> None:
 
 @pytest.mark.asyncio
 async def test_create_topics_idempotent() -> None:
-    """TopicExistsException (and 'already exists' errors) are caught and do not raise."""
-    from aiokafka.errors import TopicExistsException
+    """TopicAlreadyExistsError (and 'already exists' errors) are caught and do not raise."""
+    from aiokafka.errors import TopicAlreadyExistsError
 
     mock_admin = AsyncMock()
     mock_admin.start = AsyncMock()
-    mock_admin.create_topics = AsyncMock(side_effect=TopicExistsException())
+    mock_admin.create_topics = AsyncMock(side_effect=TopicAlreadyExistsError())
     mock_admin.close = AsyncMock()
 
     with patch(
