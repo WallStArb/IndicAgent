@@ -6,7 +6,10 @@ Only setups with sample_size >= MIN_SAMPLE_SIZE (30) are included.
 
 Writes results to:
   - setup_performance table (upsert, nightly)
-  - Redis: {env_prefix}setup_performance:weights (JSON dict of perf_multipliers)
+
+Phase 30: Redis write removed. signal_generator_service reads perf_weights
+directly from setup_performance table via _load_perf_weights_from_db().
+CUSUM adjustments are also applied from drift_state table (not Redis).
 
 Perf multiplier formula (FEED-03 consumption):
   sorted by sharpe_ratio ascending → rank 0..n-1
@@ -20,16 +23,12 @@ If n_eligible == 1, perf_multiplier = 1.0 for the sole eligible setup.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
-
-from src.core import stream_keys
-from src.core.stream_keys import setup_performance_weights_cache
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +122,13 @@ def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, float]:
 
 async def run_setup_performance_update(
     db_manager: Any,
-    redis_client: Any,
-    env_prefix: str,  # Required — no default. Callers must be explicit.
+    redis_client: Any = None,  # Ignored in Phase 30 — Redis removed
+    env_prefix: str = "",  # Retained for API compatibility — no longer used
 ) -> dict[str, float]:
-    """Query DB, compute stats, upsert setup_performance, write Redis.
+    """Query DB, compute stats, upsert setup_performance table.
+
+    Phase 30: Redis write removed. signal_generator_service reads perf_weights
+    directly from setup_performance table via _load_perf_weights_from_db().
 
     Returns perf_weights dict (empty if no eligible setups).
 
@@ -135,10 +137,9 @@ async def run_setup_performance_update(
     db_manager:
         DatabaseManager instance with execute_query / execute_command methods.
     redis_client:
-        Async redis client with .set() method.
+        Ignored (retained for backwards-compatible call sites). Phase 30 removed Redis.
     env_prefix:
-        Environment prefix for Redis key construction (e.g. "development:").
-        Required — no default value to prevent silent unqualified-key writes.
+        Ignored (retained for backwards-compatible call sites). Phase 30 removed Redis.
     """
     rows = await db_manager.execute_query(
         """
@@ -186,35 +187,13 @@ async def run_setup_performance_update(
     # Compute perf multipliers (base from setup_performance table)
     perf_weights = _compute_perf_multipliers(stats)
 
-    # Apply CUSUM penalty adjustments (multiplicative, floor at 0.30)
-    # CRITICAL: This is the ONLY place that writes perf_weights to Redis.
-    # drift_monitor_service writes CUSUM state; we read and apply it here.
-    CUSUM_ADJUSTMENT: dict[str, float] = {"warning": 0.85, "critical": 0.70}
-    CUSUM_MULTIPLIER_FLOOR: float = 0.30
-
-    for plugin in list(perf_weights.keys()):
-        cusum_key = stream_keys.drift_cusum(env_prefix, plugin)
-        raw = await redis_client.get(cusum_key)
-        if raw:
-            severity = raw.decode() if isinstance(raw, bytes) else raw
-            factor = CUSUM_ADJUSTMENT.get(severity, 1.0)
-            if factor < 1.0:
-                adjusted = round(perf_weights[plugin] * factor, 4)
-                perf_weights[plugin] = max(CUSUM_MULTIPLIER_FLOOR, adjusted)
-                logger.info(
-                    "setup_performance: CUSUM penalty applied",
-                    plugin=plugin,
-                    severity=severity,
-                    factor=factor,
-                    adjusted_weight=perf_weights[plugin],
-                )
-
-    key = setup_performance_weights_cache(env_prefix)
-    await redis_client.set(key, json.dumps(perf_weights))
+    # Phase 30: CUSUM penalty adjustments and Redis write removed.
+    # signal_generator_service._load_perf_weights_from_db() reads directly from
+    # setup_performance table. CUSUM state is in drift_state table (read by
+    # signal_generator_service via _refresh_drift_penalties_from_db()).
 
     logger.info(
-        "setup_performance: upserted %d setups, wrote perf_weights to %s",
+        "setup_performance: upserted %d setups",
         len(stats),
-        key,
     )
     return perf_weights

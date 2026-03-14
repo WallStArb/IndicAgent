@@ -18,7 +18,12 @@ import structlog
 
 from src.config.settings import Settings
 from src.core.service_utils import TF_DURATIONS
-from src.core.stream_keys import get_stream_maxlen, market
+from src.core.stream_keys import market
+
+# get_stream_maxlen removed in Phase 30 — legacy Redis xadd path uses hardcoded values
+_MARKET_STREAM_MAXLEN: dict[str, int] = {
+    "1m": 2000, "5m": 1000, "15m": 1000, "1h": 1000,
+}
 
 logger = structlog.get_logger(__name__)
 
@@ -423,7 +428,7 @@ class TimeframeBuilder:
 
         redis = self._streams_manager.redis_client
         stream_key = market(self._env_prefix, symbol, timeframe)
-        maxlen = get_stream_maxlen(timeframe, "market")
+        maxlen = _MARKET_STREAM_MAXLEN.get(timeframe, 500)
 
 
 

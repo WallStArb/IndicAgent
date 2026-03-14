@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.core.stream_keys import drift_cusum
 from src.monitoring.cusum_monitor import (
     CUSUMMonitor,
     _compute_cusum,
@@ -58,22 +57,8 @@ def test_compute_cusum_winning_streak_returns_info():
     )
 
 
-# ---------------------------------------------------------------------------
-# Tests: drift_cusum() stream key
-# ---------------------------------------------------------------------------
-
-
-def test_drift_cusum_key_format():
-    """drift_cusum() returns correct namespaced key."""
-    key = drift_cusum("development:", "trad_TrendFollowing")
-    assert key == "development:drift:cusum:trad_TrendFollowing"
-
-
-def test_drift_cusum_key_empty_prefix():
-    """drift_cusum() with empty prefix works."""
-    key = drift_cusum("", "trad_MeanReversion")
-    assert key == "drift:cusum:trad_MeanReversion"
-
+# drift_cusum() stream key tests removed — function removed in Phase 30.
+# CUSUM state is now in drift_state DB table (symbol=setup_plugin, tf='_cusum').
 
 # ---------------------------------------------------------------------------
 # Tests: CUSUMMonitor.check_setup()

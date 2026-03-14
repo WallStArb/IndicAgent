@@ -1,21 +1,25 @@
 """
-Stream key helpers, Kafka topic builders, and retention policies.
+Stream key helpers and Kafka topic builders.
 
-Version: 2.0.0
+Version: 3.0.0
 Last Updated: 2026-03-14
-Status: Current ✅
+Status: Phase 30 complete — DragonflyDB retired ✅
 
-Centralizes stream name construction and maxlen policies to ensure consistency
-across publishers and consumers.
+Kafka topic builder functions (topic_*) are the primary API.
+Legacy Redis key helpers retained for sse.py backward compat:
+  live_tick, market, indicators, intelligence, intelligence_i7, intelligence_i8,
+  signals, signals_aggregated, narratives, narratives_group, system_events,
+  llm_calls_stream, llm_outcomes_stream, prefix, patterns_pattern
 
-Phase 30 dual-run: Kafka topic builder functions (topic_* and env_prefix) are
-added at the top. The existing Redis key functions remain intact and will be
-removed in Plan 5 once DragonflyDB is retired.
+Removed in Phase 30 (no remaining callers in services or API):
+  quote_latest, llm_scores_cache, setup_performance_weights_cache,
+  drift_ks, drift_cusum, get_stream_maxlen,
+  ticks_pattern, market_pattern, indicators_pattern,
+  intelligence_pattern, intelligence_i7_pattern, intelligence_i8_pattern,
+  signals_pattern, narratives_pattern
 """
 
 from __future__ import annotations
-
-from typing import Literal
 
 # ---------------------------------------------------------------------------
 # Kafka topic builders (Phase 30+)
@@ -112,11 +116,6 @@ def live_tick(env_prefix: str, symbol: str) -> str:
     return f"{env_prefix}ticks:{symbol}:live"
 
 
-def quote_latest(env_prefix: str, symbol: str) -> str:
-    """Hash key for latest bid/ask snapshot. Written by AsyncTickPublisher."""
-    return f"{env_prefix}price:{symbol}:latest"
-
-
 def market(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}market:{symbol}:{timeframe}"
 
@@ -174,104 +173,7 @@ def system_events(env_prefix: str) -> str:
     return f"{env_prefix}system:events"
 
 
-def llm_scores_cache(env_prefix: str, call_type: str, regime: str) -> str:
-    """Redis HSET key for model score blobs keyed by model name."""
-    return f"{env_prefix}llm_scores:{call_type}:{regime}"
-
-
-def setup_performance_weights_cache(env_prefix: str) -> str:
-    """Redis string key for JSON perf multiplier dict keyed by setup_plugin.
-
-    Written nightly by run_setup_performance_update().
-    Read at startup + every 60 min by signal_generator_service.
-    Format: {"trad_TrendFollowing": 0.85, "trad_MeanReversion": 1.15, ...}
-    Only setups with sample_size >= 30 appear (FEED-02 promotion gate).
-    """
-    return f"{env_prefix}setup_performance:weights"
-
-
-def get_stream_maxlen(
-    timeframe: str,
-    kind: Literal[
-        "ticks", "market", "indicators", "intelligence",
-        "intelligence_i7", "intelligence_i8",
-        "signals", "signals_aggregated", "narratives", "narratives_group",
-        "llm_calls", "llm_outcomes", "system_events",
-    ],
-) -> int:
-    if kind == "ticks":
-        return 20000
-    if kind == "market":
-        if timeframe == "1m":
-            return 2000
-        if timeframe in {"5m", "15m", "1h"}:
-            return 1000
-        return 500
-    if kind == "indicators":
-        return 1000
-    if kind == "intelligence":
-        return 1000
-    if kind in {"intelligence_i7", "intelligence_i8"}:
-        return 200
-    if kind == "signals":
-        return 500
-    if kind == "signals_aggregated":
-        return 200
-    if kind == "narratives":
-        return 100
-    if kind == "narratives_group":
-        return 50
-    if kind == "llm_calls":
-        return 500
-    if kind == "llm_outcomes":
-        return 200
-    if kind == "system_events":
-        return 50
-    return 1000
-
-
-# Pattern helpers for wildcard subscriptions
-def ticks_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}ticks:*:live"
-
-
-def market_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}market:*:*"
-
-
-def indicators_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}indicators:*:*"
-
-
-def intelligence_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}intelligence:*:*"
-
-
-def intelligence_i7_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}intelligence_i7:*:*"
-
-
-def intelligence_i8_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}intelligence_i8:*:*"
-
-
-def signals_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}signals:*:*"
-
-
-def patterns_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}patterns:*"
-
-
-def narratives_pattern(env_prefix: str) -> str:
-    return f"{env_prefix}narratives:*:*"
-
-
-def drift_ks(env_prefix: str, symbol: str, tf: str) -> str:
-    """Redis key for KS drift state per symbol/TF. Written by drift_monitor_service."""
-    return f"{env_prefix}drift:ks:{symbol}:{tf}"
-
-
-def drift_cusum(env_prefix: str, setup_plugin: str) -> str:
-    """Redis key for CUSUM drift state per setup_plugin. Written by CUSUMMonitor."""
-    return f"{env_prefix}drift:cusum:{setup_plugin}"
+# Pattern helpers (ticks_pattern, market_pattern, etc.) removed in Phase 30.
+# No remaining callers in services/ or src/api/.
+# drift_ks and drift_cusum removed in Phase 30 — replaced by drift_state DB table.
+# See production/migrations/030_drift_state.sql.

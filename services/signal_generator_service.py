@@ -39,7 +39,6 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
     message_key,
-    setup_performance_weights_cache,
     topic_intelligence,
     topic_intelligence_i7,
     topic_market_ticks,
@@ -1211,16 +1210,38 @@ class SignalGeneratorService:
                 await asyncio.sleep(5)
 
     async def _load_perf_weights(self) -> None:
-        """Load perf multiplier dict from Redis. No-op if key missing."""
-        key = setup_performance_weights_cache(self.env_prefix)
+        """Load perf multiplier dict from setup_performance DB table.
+
+        Phase 30: Replaces Redis GET setup_performance:weights with direct DB query.
+        Reads win_rate and avg_pnl_r for setups with sample_size >= 30 and builds
+        the perf_weights dict in the same format as the old Redis-cached version.
+        """
+        if not self.db_manager:
+            self.logger.debug("_load_perf_weights: no db_manager — skipping")
+            return
+        query = """
+            SELECT setup_plugin, win_rate, avg_pnl_r
+            FROM setup_performance
+            WHERE sample_size >= 30
+        """  # noqa: S608
         try:
-            raw = await self.redis_client.get(key)
-            if raw is None:
+            async with self.db_manager.pool.acquire() as conn:
+                rows = await conn.fetch(query)
+            if not rows:
+                self.logger.debug("Perf weights: no eligible setups in setup_performance")
                 return
-            self._perf_weights = json.loads(raw)
-            self.logger.debug("Perf weights loaded", n_setups=len(self._perf_weights))
-        except Exception as e:
-            self.logger.warning("Failed to load perf weights", error=str(e))
+            # Build perf_weights dict in the same format as the old Redis-cached version.
+            # Rank by avg_pnl_r descending to compute perf_multiplier in [0.5, ~1.5].
+            n = len(rows)
+            sorted_rows = sorted(rows, key=lambda r: float(r["avg_pnl_r"] or 0), reverse=True)
+            weights: dict[str, float] = {}
+            for rank, row in enumerate(sorted_rows):
+                multiplier = 0.5 + ((n - 1 - rank) / n) if n > 1 else 1.0
+                weights[row["setup_plugin"]] = round(multiplier, 4)
+            self._perf_weights = weights
+            self.logger.debug("Perf weights loaded from DB", n_setups=len(weights))
+        except Exception as exc:
+            self.logger.warning("Failed to load perf weights from DB", error=str(exc))
 
     async def _refresh_drift_penalties_from_db(self) -> None:
         """QUAL-09: Load KS drift penalties from drift_state DB table into _drift_penalties dict.

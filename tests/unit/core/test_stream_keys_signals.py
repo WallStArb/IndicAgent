@@ -1,5 +1,5 @@
 """Tests for signal stream key helpers."""
-from src.core.stream_keys import get_stream_maxlen, signals, signals_pattern
+from src.core.stream_keys import signals
 
 
 def test_signals_key_with_prefix():
@@ -9,10 +9,5 @@ def test_signals_key_with_prefix():
 def test_signals_key_no_prefix():
     assert signals("", "NQ", "1h") == "signals:NQ:1h"
 
-
-def test_signals_pattern():
-    assert signals_pattern("dev:") == "dev:signals:*:*"
-
-
-def test_signals_maxlen():
-    assert get_stream_maxlen("1m", "signals") == 500
+# test_signals_pattern removed — signals_pattern removed in Phase 30 (DragonflyDB retired)
+# test_signals_maxlen removed — get_stream_maxlen removed in Phase 30 (DragonflyDB retired)
