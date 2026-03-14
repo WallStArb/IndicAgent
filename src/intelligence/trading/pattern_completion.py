@@ -5,6 +5,7 @@ Checks dt_db (double top/bottom), hs (head and shoulders), then triangle.
 Takes highest-confidence pattern if multiple fire.
 Evidence contributor for CIS bucket scorer — Phase B input.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,10 +26,18 @@ class PatternCompletionPlugin:
     """
 
     name: str = "trad_PatternCompletion"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "pattern", "structure"})

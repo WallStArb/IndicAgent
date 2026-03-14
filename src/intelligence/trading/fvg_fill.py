@@ -5,6 +5,7 @@ Direction: +1 for bull FVG (price seeks to fill upside gap), -1 for bear FVG.
 Confidence scales with open FVG count — more open FVGs = stronger magnetic pull.
 Evidence contributor for CIS bucket scorer — Phase B input.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,10 +26,18 @@ class FVGFillPlugin:
     """
 
     name: str = "trad_FVGFill"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "fvg", "institutional"})

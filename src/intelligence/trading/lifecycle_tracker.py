@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2   # bars_in_trade <= this → stopped_at_entry
+OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2  # bars_in_trade <= this → stopped_at_entry
 
 
 @dataclass
@@ -98,15 +98,22 @@ def evaluate_signal(
         )
 
     if status == "pending":
-        return _check_zone_activation(
-            sid, direction, zone_low, zone_high, high, low, bars
-        )
+        return _check_zone_activation(sid, direction, zone_low, zone_high, high, low, bars)
 
     if status == "active":
         return _check_active_exit(
-            sid, direction, entry, stop, targets,
-            high, low, close, risk, point_value,
-            current_mae, current_mfe,
+            sid,
+            direction,
+            entry,
+            stop,
+            targets,
+            high,
+            low,
+            close,
+            risk,
+            point_value,
+            current_mae,
+            current_mfe,
         )
 
     return None
@@ -133,16 +140,16 @@ def _check_zone_activation(
         # Long: price falls into zone from above; activation = first touch of zone_high
         activation_price = min(high, zone_high)
         # zone_entry_pct: 0.0 = proximal (zone_high), 1.0 = distal (zone_low)
-        zone_entry_pct = round(
-            (zone_high - activation_price) / zone_span, 4
-        ) if zone_span > 0 else 0.5
+        zone_entry_pct = (
+            round((zone_high - activation_price) / zone_span, 4) if zone_span > 0 else 0.5
+        )
     else:
         # Short: price rises into zone from below; activation = first touch of zone_low
         activation_price = max(low, zone_low)
         # zone_entry_pct: 0.0 = proximal (zone_low), 1.0 = distal (zone_high)
-        zone_entry_pct = round(
-            (activation_price - zone_low) / zone_span, 4
-        ) if zone_span > 0 else 0.5
+        zone_entry_pct = (
+            round((activation_price - zone_low) / zone_span, 4) if zone_span > 0 else 0.5
+        )
 
     return Transition(
         signal_id=sid,
@@ -170,23 +177,50 @@ def _check_active_exit(
     """Check if an active signal should exit; returns None if still in trade."""
     # Stop loss check first (conservative: stop before target on same bar)
     if direction == 1 and low <= stop:
-        return _make_exit(sid, "stopped_out", "stop_loss", stop,
-                          entry, direction, risk, point_value,
-                          current_mae, current_mfe)
+        return _make_exit(
+            sid,
+            "stopped_out",
+            "stop_loss",
+            stop,
+            entry,
+            direction,
+            risk,
+            point_value,
+            current_mae,
+            current_mfe,
+        )
     if direction == -1 and high >= stop:
-        return _make_exit(sid, "stopped_out", "stop_loss", stop,
-                          entry, direction, risk, point_value,
-                          current_mae, current_mfe)
+        return _make_exit(
+            sid,
+            "stopped_out",
+            "stop_loss",
+            stop,
+            entry,
+            direction,
+            risk,
+            point_value,
+            current_mae,
+            current_mfe,
+        )
 
     # Target checks (highest target first for maximum credit)
     for i in range(len(targets) - 1, -1, -1):
         target = targets[i]
-        hit = (direction == 1 and high >= target) or \
-              (direction == -1 and low <= target)
+        hit = (direction == 1 and high >= target) or (direction == -1 and low <= target)
         if hit:
-            return _make_exit(sid, f"target_{i + 1}_hit", f"target_{i + 1}", target,
-                              entry, direction, risk, point_value,
-                              current_mae, current_mfe, target_index=i)
+            return _make_exit(
+                sid,
+                f"target_{i + 1}_hit",
+                f"target_{i + 1}",
+                target,
+                entry,
+                direction,
+                risk,
+                point_value,
+                current_mae,
+                current_mfe,
+                target_index=i,
+            )
 
     return None
 

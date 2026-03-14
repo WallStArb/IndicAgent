@@ -4,6 +4,7 @@ Fires when price enters a fresh/tested S/D zone and shows rejection.
 Highest confidence when the full ICT Act 1-2-3 model is confirmed:
   sweep (Act 1) → FVG displacement (Act 2) → zone retest (Act 3).
 """
+
 from __future__ import annotations
 
 import math
@@ -20,10 +21,17 @@ class SupplyDemandSetupPlugin:
     """I7 signal: price enters institutional S/D zone + rejection confirmation."""
 
     name: str = "trad_SupplyDemandSetup"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "zones", "smc"})
@@ -53,15 +61,15 @@ class SupplyDemandSetupPlugin:
         if in_demand == 1.0:
             direction = 1
             freshness = float(features.get("demand_freshness", 0.0))
-            strength  = float(features.get("demand_strength", 0.0))
+            strength = float(features.get("demand_strength", 0.0))
             zone_high = float(features.get("nearest_demand_high", 0.0))
-            zone_low  = float(features.get("nearest_demand_low", 0.0))
+            zone_low = float(features.get("nearest_demand_low", 0.0))
         else:
             direction = -1
             freshness = float(features.get("supply_freshness", 0.0))
-            strength  = float(features.get("supply_strength", 0.0))
+            strength = float(features.get("supply_strength", 0.0))
             zone_high = float(features.get("nearest_supply_high", 0.0))
-            zone_low  = float(features.get("nearest_supply_low", 0.0))
+            zone_low = float(features.get("nearest_supply_low", 0.0))
 
         # Gate 3: freshness threshold
         if freshness < self.MIN_FRESHNESS:
@@ -71,7 +79,7 @@ class SupplyDemandSetupPlugin:
         close_arr = df["close"].to_numpy(dtype=float)
         if atr <= 0:
             high_arr = df["high"].to_numpy(dtype=float)
-            low_arr  = df["low"].to_numpy(dtype=float)
+            low_arr = df["low"].to_numpy(dtype=float)
             atr = float(np.mean(high_arr[-14:] - low_arr[-14:]))
         if atr <= 0:
             return self._no_signal()
@@ -113,15 +121,14 @@ class SupplyDemandSetupPlugin:
             confidence -= 0.06
 
         # *** ACT 1-2-3 MODEL ***
-        sweep_det    = float(features.get("sweep_detected", 0.0))
-        sweep_recl   = float(features.get("sweep_reclaimed", 0.0))
-        sweep_type   = float(features.get("sweep_type", 0.0))
-        fvg_type     = float(features.get("fvg_type", 0.0))
+        sweep_det = float(features.get("sweep_detected", 0.0))
+        sweep_recl = float(features.get("sweep_reclaimed", 0.0))
+        sweep_type = float(features.get("sweep_type", 0.0))
+        fvg_type = float(features.get("fvg_type", 0.0))
 
         act1 = sweep_det == 1.0 and sweep_recl == 1.0
-        act1_dir = (
-            (direction == 1 and sweep_type == 1.0)
-            or (direction == -1 and sweep_type == -1.0)
+        act1_dir = (direction == 1 and sweep_type == 1.0) or (
+            direction == -1 and sweep_type == -1.0
         )
         act2 = fvg_type == float(direction)
 
@@ -138,16 +145,20 @@ class SupplyDemandSetupPlugin:
             supporting.append("fvg_displacement")
 
         # Order block fully contained within zone
-        ob_type   = float(features.get("ob_type", 0.0))
-        ob_top    = float(features.get("ob_top", 0.0))
+        ob_type = float(features.get("ob_type", 0.0))
+        ob_top = float(features.get("ob_top", 0.0))
         ob_bottom = float(features.get("ob_bottom", 0.0))
-        if (ob_type == float(direction) and
-                ob_top > 0 and ob_bottom >= zone_low and ob_top <= zone_high):
+        if (
+            ob_type == float(direction)
+            and ob_top > 0
+            and ob_bottom >= zone_low
+            and ob_top <= zone_high
+        ):
             confidence += 0.08
             supporting.append("ob_zone_overlap")
 
         choch = float(features.get("choch_detected", 0.0))
-        bos   = float(features.get("bos_detected", 0.0))
+        bos = float(features.get("bos_detected", 0.0))
         bos_dir = float(features.get("bos_direction", 0.0))
         if choch == 1.0:
             confidence += 0.09

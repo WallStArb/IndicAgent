@@ -17,6 +17,7 @@ Usage:
     from src.intelligence.weight_updater import compute_new_weights
     result = compute_new_weights(resolved_signals)
 """
+
 from __future__ import annotations
 
 import json
@@ -42,7 +43,7 @@ class WeightUpdateResult:
     """Result of a weight computation run."""
 
     n_resolved: int
-    weights_type: str          # 'designed' | 'learned' | 'blended'
+    weights_type: str  # 'designed' | 'learned' | 'blended'
     weights: dict[str, float]
     signal_quality_mean: float
     did_retrain: bool
@@ -78,7 +79,8 @@ def compute_new_weights(
     """
     # Filter to rows with both bucket_scores and signal_quality
     valid = [
-        s for s in resolved_signals
+        s
+        for s in resolved_signals
         if s.get("bucket_scores") is not None and s.get("signal_quality") is not None
     ]
     n = len(valid)
@@ -130,8 +132,7 @@ def compute_new_weights(
         designed_arr = np.array([BOOTSTRAP_WEIGHTS[b] for b in bucket_list])
         learned_arr_blend = np.array([learned_weights[b] for b in bucket_list])
         blended_arr = (
-            BLEND_DESIGNED_RATIO * designed_arr
-            + (1 - BLEND_DESIGNED_RATIO) * learned_arr_blend
+            BLEND_DESIGNED_RATIO * designed_arr + (1 - BLEND_DESIGNED_RATIO) * learned_arr_blend
         )
         blended_arr = _clip_and_renormalize(blended_arr)
         final_weights = {b: float(blended_arr[i]) for i, b in enumerate(bucket_list)}
@@ -157,16 +158,14 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
     db_manager:
         DatabaseManager instance with execute_query / execute_command methods.
     """
-    rows = await db_manager.execute_query(
-        """
+    rows = await db_manager.execute_query("""
         SELECT bucket_scores, signal_quality, confidence
         FROM signal_ledger
         WHERE signal_quality IS NOT NULL
           AND bucket_scores IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 10000
-        """
-    )
+        """)
     if not rows:
         return None
 
@@ -231,25 +230,17 @@ if __name__ == "__main__":
             print("CIS weights: no update needed (insufficient resolved signals)")
 
         # New: setup performance update (FEED-01)
-        import redis.asyncio as aioredis  # noqa: E402
-
-        from src.core.stream_keys import prefix  # noqa: E402
         from src.intelligence.setup_performance_updater import (  # noqa: E402
             run_setup_performance_update,
         )
 
-        redis_client = aioredis.from_url(settings.redis_url)
-        env_prefix = prefix(settings.env)
-        try:
-            perf_weights = await run_setup_performance_update(db, redis_client, env_prefix)
-            if perf_weights:
-                print(f"Setup performance weights updated: {len(perf_weights)} eligible setups")
-                for plugin, multiplier in perf_weights.items():
-                    print(f"  {plugin}: {multiplier:.3f}")
-            else:
-                print("Setup performance: no eligible setups (n<30 for all)")
-        finally:
-            await redis_client.aclose()
+        perf_weights = await run_setup_performance_update(db)
+        if perf_weights:
+            print(f"Setup performance weights updated: {len(perf_weights)} eligible setups")
+            for plugin, multiplier in perf_weights.items():
+                print(f"  {plugin}: {multiplier:.3f}")
+        else:
+            print("Setup performance: no eligible setups (n<30 for all)")
 
         await db.close()
 

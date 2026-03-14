@@ -23,11 +23,21 @@ class GapAnalysisSetupPlugin:
     """
 
     name: str = "trad_GapAnalysisSetup"
-    outputs: frozenset[str] = frozenset({
-        "signal_type", "direction", "bias", "gap_size_atr", "confidence",
-        "entry_type", "entry_price", "stop_loss", "targets",
-        "regime_context", "supporting_factors",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "bias",
+            "gap_size_atr",
+            "confidence",
+            "entry_type",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "gap"})

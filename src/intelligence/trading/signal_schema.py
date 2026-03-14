@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-REQUIRED_SIGNAL_FIELDS = frozenset({
-    "type", "symbol", "timeframe", "timestamp", "signal_type",
-    "setup_plugin", "direction", "entry_price", "stop_loss", "targets",
-    "confidence", "risk_reward_ratio", "regime_context", "confluence_score",
-    "supporting_factors", "invalidation_conditions", "ttl_bars",
-})
+REQUIRED_SIGNAL_FIELDS = frozenset(
+    {
+        "type",
+        "symbol",
+        "timeframe",
+        "timestamp",
+        "signal_type",
+        "setup_plugin",
+        "direction",
+        "entry_price",
+        "stop_loss",
+        "targets",
+        "confidence",
+        "risk_reward_ratio",
+        "regime_context",
+        "confluence_score",
+        "supporting_factors",
+        "invalidation_conditions",
+        "ttl_bars",
+    }
+)
 
 
 def validate_signal(signal: dict) -> bool:

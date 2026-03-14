@@ -1,4 +1,5 @@
 """I7 CandlestickPatternSetup — confluence-gated candlestick setup consuming I5 outputs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,17 +30,19 @@ class CandlestickPatternSetupPlugin:
     """
 
     name: str = "trad_CandlestickPatternSetup"
-    outputs: frozenset[str] = frozenset({
-        "signal_type",
-        "direction",
-        "entry_price",
-        "stop_loss",
-        "targets",
-        "confidence",
-        "confluence_score",
-        "regime_context",
-        "supporting_factors",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "confluence_score",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "pattern", "structure"})
@@ -134,9 +137,7 @@ class CandlestickPatternSetupPlugin:
 
         # Filter candidates to those agreeing with trend direction
         trend_dir = 1 if trend_regime > 0 else -1
-        matching = [
-            (r, d, n, bc, sr) for (r, d, n, bc, sr) in candidates if d == trend_dir
-        ]
+        matching = [(r, d, n, bc, sr) for (r, d, n, bc, sr) in candidates if d == trend_dir]
         if not matching:
             return self._no_signal()
 
@@ -160,7 +161,11 @@ class CandlestickPatternSetupPlugin:
             if isinstance(nearest_support, (int, float)) and nearest_support > 0:
                 if abs(price - nearest_support) <= sr_threshold:
                     sr_confirms = True
-            if not sr_confirms and isinstance(nearest_resistance, (int, float)) and nearest_resistance > 0:  # noqa: E501
+            if (
+                not sr_confirms
+                and isinstance(nearest_resistance, (int, float))
+                and nearest_resistance > 0
+            ):  # noqa: E501
                 if abs(price - nearest_resistance) <= sr_threshold:
                     sr_confirms = True
 

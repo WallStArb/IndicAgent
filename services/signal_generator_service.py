@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import signal
 import sys
 import time
@@ -70,7 +69,7 @@ MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 
 # QUAL-04: per-setup cooldown — prevents same setup/direction recycling within N bars.
 # Keyed by (symbol, tf, setup_plugin, direction); independent of the bar-level _signal_gate.
-# Day-trading focus: 1m=3 bars (3 min), higher TFs=2 bars (matches MIN_BARS_BETWEEN_SIGNALS pattern).
+# Day-trading focus: 1m=3 bars (3 min), higher TFs=2 bars (matches MIN_BARS_BETWEEN_SIGNALS).
 _SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 
 # QUAL-02: alpha decay half-life — bars after which a repeated same-setup/direction signal
@@ -263,8 +262,9 @@ def build_ledger_entries(
     if not result.all_ranked:
         return []
 
-    market_ctx = {k: features.get(k, None) for k in MARKET_CONTEXT_KEYS
-                  if features.get(k) is not None}
+    market_ctx = {
+        k: features.get(k, None) for k in MARKET_CONTEXT_KEYS if features.get(k) is not None
+    }
 
     _quote = quote or {}
     entries = []
@@ -273,7 +273,7 @@ def build_ledger_entries(
         is_regime_eligible = sig.get("regime_eligible", True)
         # Regime-suppressed signals persist to ledger for observability, not selection.
         # was_selected is always False for regime-suppressed signals.
-        was_selected = (rank == 1 and result.selected_signal is not None and is_regime_eligible)
+        was_selected = rank == 1 and result.selected_signal is not None and is_regime_eligible
         # Determine status based on regime eligibility
         entry_status = "pending" if is_regime_eligible else "regime_suppressed"
         direction = int(sig.get("direction", 0))
@@ -282,45 +282,47 @@ def build_ledger_entries(
         ask = _quote.get("ask")
         bid = _quote.get("bid")
         market_price = ask if direction == 1 else bid
-        entries.append(LedgerEntry(
-            signal_id=str(uuid4()),
-            timestamp=timestamp,
-            symbol=symbol,
-            timeframe=timeframe,
-            setup_plugin=sig.get("setup_plugin", "unknown"),
-            signal_type=sig.get("signal_type", "unknown"),
-            direction=direction,
-            entry_price=float(sig.get("entry_price", 0.0)),
-            stop_loss=float(sig.get("stop_loss", 0.0)),
-            targets=[float(t) for t in sig.get("targets", [])],
-            confidence=float(sig.get("confidence", 0.0)),
-            confluence_score=float(sig.get("confluence_score", 0.0)),
-            regime_context=str(sig.get("regime_context", "")),
-            supporting_factors=list(sig.get("supporting_factors", [])),
-            was_selected=was_selected,
-            num_signals_bar=result.num_signals_fired,
-            num_agreeing=result.num_agreeing,
-            num_conflicting=result.num_conflicting,
-            resolution_method=result.resolution_method,
-            composite_rank=rank,
-            market_context=market_ctx,
-            status=entry_status,
-            feature_ts=timestamp,
-            feature_tf=timeframe,
-            cis_score=result.cis_score,
-            bucket_scores=result.bucket_scores,
-            weights_version=result.weights_version,
-            signal_quality=None,
-            signal_computed_at=signal_computed_at,
-            # Institutional lifecycle fields
-            determined_at=determined_at,
-            ask_at_signal=ask,
-            bid_at_signal=bid,
-            market_price_at_signal=market_price,
-            entry_zone_low=zone_low,
-            entry_zone_high=zone_high,
-            zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
-        ))
+        entries.append(
+            LedgerEntry(
+                signal_id=str(uuid4()),
+                timestamp=timestamp,
+                symbol=symbol,
+                timeframe=timeframe,
+                setup_plugin=sig.get("setup_plugin", "unknown"),
+                signal_type=sig.get("signal_type", "unknown"),
+                direction=direction,
+                entry_price=float(sig.get("entry_price", 0.0)),
+                stop_loss=float(sig.get("stop_loss", 0.0)),
+                targets=[float(t) for t in sig.get("targets", [])],
+                confidence=float(sig.get("confidence", 0.0)),
+                confluence_score=float(sig.get("confluence_score", 0.0)),
+                regime_context=str(sig.get("regime_context", "")),
+                supporting_factors=list(sig.get("supporting_factors", [])),
+                was_selected=was_selected,
+                num_signals_bar=result.num_signals_fired,
+                num_agreeing=result.num_agreeing,
+                num_conflicting=result.num_conflicting,
+                resolution_method=result.resolution_method,
+                composite_rank=rank,
+                market_context=market_ctx,
+                status=entry_status,
+                feature_ts=timestamp,
+                feature_tf=timeframe,
+                cis_score=result.cis_score,
+                bucket_scores=result.bucket_scores,
+                weights_version=result.weights_version,
+                signal_quality=None,
+                signal_computed_at=signal_computed_at,
+                # Institutional lifecycle fields
+                determined_at=determined_at,
+                ask_at_signal=ask,
+                bid_at_signal=bid,
+                market_price_at_signal=market_price,
+                entry_zone_low=zone_low,
+                entry_zone_high=zone_high,
+                zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
+            )
+        )
     return entries
 
 
@@ -349,18 +351,20 @@ def _build_i7_payload(
             and sig.get("regime_eligible", True)
         )
         targets = sig.get("targets") or []
-        signals_out.append({
-            "setup_type": sig.get("signal_type", "unknown"),
-            "confidence": float(sig.get("confidence", 0.0)),
-            "direction": int(sig.get("direction", 0)),
-            "regime_eligible": bool(sig.get("regime_eligible", True)),
-            "suppression_reason": sig.get("suppression_reason"),
-            "entry": float(sig.get("entry_price", 0.0)),
-            "stop": float(sig.get("stop_loss", 0.0)),
-            "target": float(targets[0]) if targets and targets[0] is not None else None,
-            "composite_rank": int(sig.get("composite_rank", 99)),
-            "is_winner": is_winner,
-        })
+        signals_out.append(
+            {
+                "setup_type": sig.get("signal_type", "unknown"),
+                "confidence": float(sig.get("confidence", 0.0)),
+                "direction": int(sig.get("direction", 0)),
+                "regime_eligible": bool(sig.get("regime_eligible", True)),
+                "suppression_reason": sig.get("suppression_reason"),
+                "entry": float(sig.get("entry_price", 0.0)),
+                "stop": float(sig.get("stop_loss", 0.0)),
+                "target": float(targets[0]) if targets and targets[0] is not None else None,
+                "composite_rank": int(sig.get("composite_rank", 99)),
+                "is_winner": is_winner,
+            }
+        )
 
     return {
         "ts": timestamp.isoformat(),
@@ -545,7 +549,9 @@ class SignalGeneratorService:
 
         return False
 
-    def _update_gate(self, symbol: str, tf: str, direction: int, timestamp: datetime, signal_id: str) -> None:
+    def _update_gate(
+        self, symbol: str, tf: str, direction: int, timestamp: datetime, signal_id: str
+    ) -> None:
         """Record gate state after a signal is successfully published to the stream."""
         self._signal_gate[(symbol, tf)] = {
             "direction": direction,
@@ -675,7 +681,9 @@ class SignalGeneratorService:
         import asyncio
 
         if not self.db_manager:
-            self.logger.warning("DB seed failed - falling back to live warmup", reason="no db_manager")
+            self.logger.warning(
+                "DB seed failed - falling back to live warmup", reason="no db_manager"
+            )
             return
 
         active_contracts = get_active_contracts()
@@ -697,11 +705,7 @@ class SignalGeneratorService:
             return symbol, tf, result or []
 
         try:
-            tasks = [
-                _fetch_one(symbol, tf)
-                for symbol in active_contracts
-                for tf in timeframes
-            ]
+            tasks = [_fetch_one(symbol, tf) for symbol in active_contracts for tf in timeframes]
             results = await asyncio.gather(*tasks)
 
             for symbol, tf, rows in results:
@@ -711,14 +715,16 @@ class SignalGeneratorService:
                 # DB returns DESC (newest first); reverse to append oldest→newest
                 for row in reversed(rows):
                     bar_json = row["bar"]
-                    self.bar_history[key].append({
-                        "open": bar_json.get("o"),
-                        "high": bar_json.get("h"),
-                        "low": bar_json.get("l"),
-                        "close": bar_json.get("c"),
-                        "volume": bar_json.get("v"),
-                        "timestamp": row["ts"],
-                    })
+                    self.bar_history[key].append(
+                        {
+                            "open": bar_json.get("o"),
+                            "high": bar_json.get("h"),
+                            "low": bar_json.get("l"),
+                            "close": bar_json.get("c"),
+                            "volume": bar_json.get("v"),
+                            "timestamp": row["ts"],
+                        }
+                    )
                     seeded_count += 1
 
             self.logger.info(
@@ -750,10 +756,13 @@ class SignalGeneratorService:
             auto_offset_reset="latest",
         )
         await self._kafka_consumer.start()
-        self.logger.info("Kafka consumer started", topics=[
-            topic_intelligence(self.env_name),
-            topic_market_ticks(self.env_name),
-        ])
+        self.logger.info(
+            "Kafka consumer started",
+            topics=[
+                topic_intelligence(self.env_name),
+                topic_market_ticks(self.env_name),
+            ],
+        )
 
         self._kafka_producer = KafkaProducerClient(self._kafka_bootstrap)
         await self._kafka_producer.start()
@@ -889,21 +898,23 @@ class SignalGeneratorService:
                     num_conflicting=result.num_conflicting,
                 )
             else:
-                result.selected_signal.update({
-                    "entry_price":    frame.entry,
-                    "entry_type":     frame.entry_type,
-                    "stop_loss":      frame.stop,
-                    "stop_type":      frame.stop_type,
-                    "targets":        [t.price for t in frame.targets],
-                    "target_labels":  [t.label for t in frame.targets],
-                    "target_types":   [t.level_type for t in frame.targets],
-                    "rr_t1":          frame.rr_t1,
-                    "rr_t2":          frame.rr_t2,
-                    "rr_t3":          frame.rr_t3,
-                    "framing_method": frame.method,
-                    "entry_zone_low":  frame.zone_low,
-                    "entry_zone_high": frame.zone_high,
-                })
+                result.selected_signal.update(
+                    {
+                        "entry_price": frame.entry,
+                        "entry_type": frame.entry_type,
+                        "stop_loss": frame.stop,
+                        "stop_type": frame.stop_type,
+                        "targets": [t.price for t in frame.targets],
+                        "target_labels": [t.label for t in frame.targets],
+                        "target_types": [t.level_type for t in frame.targets],
+                        "rr_t1": frame.rr_t1,
+                        "rr_t2": frame.rr_t2,
+                        "rr_t3": frame.rr_t3,
+                        "framing_method": frame.method,
+                        "entry_zone_low": frame.zone_low,
+                        "entry_zone_high": frame.zone_high,
+                    }
+                )
 
         signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
         determined_at = signal_computed_at  # same wall-clock snapshot
@@ -920,7 +931,11 @@ class SignalGeneratorService:
             )
 
         entries = build_ledger_entries(
-            result, symbol, timeframe, timestamp, features,
+            result,
+            symbol,
+            timeframe,
+            timestamp,
+            features,
             signal_computed_at=signal_computed_at,
             quote=live_quote,
             determined_at=determined_at,
@@ -955,10 +970,7 @@ class SignalGeneratorService:
         published_signal = False
         if result.selected_signal and self._kafka_producer:
             sig = result.selected_signal
-            message = {
-                k: str(v) for k, v in sig.items()
-                if isinstance(v, (str, int, float, bool))
-            }
+            message = {k: str(v) for k, v in sig.items() if isinstance(v, (str, int, float, bool))}
             # Promote individual targets as scalar fields
             targets = sig.get("targets") or []
             target_labels = sig.get("target_labels") or []
@@ -1115,7 +1127,12 @@ class SignalGeneratorService:
             }
 
             await self._process_bar(
-                symbol, timeframe, bar, features, frames, timestamp,
+                symbol,
+                timeframe,
+                bar,
+                features,
+                frames,
+                timestamp,
                 bar_close_ts=event.bar_close_ts,
                 source=event.source,
             )
@@ -1251,9 +1268,7 @@ class SignalGeneratorService:
                 severity = row["ks_severity"]
                 new_penalties[(row["symbol"], row["tf"])] = DRIFT_PENALTIES.get(severity, 1.0)
             self._drift_penalties = new_penalties
-            self.logger.debug(
-                "drift_penalties refreshed from DB", n_entries=len(new_penalties)
-            )
+            self.logger.debug("drift_penalties refreshed from DB", n_entries=len(new_penalties))
         except Exception as exc:
             self.logger.warning("Failed to refresh drift_penalties from DB", error=str(exc))
 

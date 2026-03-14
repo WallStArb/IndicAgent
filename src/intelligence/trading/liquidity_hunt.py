@@ -4,6 +4,7 @@ Gates on smc_LiquidityPools significance >= 0.60 AND smc_LiquiditySweeps reclaim
 Only fires when the sweep was at a meaningful institutional level — not random swings.
 Direction: BSL sweep → short, SSL sweep → long.
 """
+
 from __future__ import annotations
 
 import math
@@ -21,10 +22,17 @@ class LiquidityHuntPlugin:
     """I7 signal: sweep of named liquidity pool + reversal confirmation."""
 
     name: str = "trad_LiquidityHunt"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 30
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "liquidity"})
@@ -44,19 +52,19 @@ class LiquidityHuntPlugin:
         ssl_sig = float(features.get("ssl_significance", 0.0))
 
         # Gate 1: sweep must be detected and reclaimed
-        sweep_detected  = float(features.get("sweep_detected", 0.0))
+        sweep_detected = float(features.get("sweep_detected", 0.0))
         sweep_reclaimed = float(features.get("sweep_reclaimed", 0.0))
         if sweep_detected != 1.0 or sweep_reclaimed != 1.0:
             return self._no_signal()
 
-        sweep_type  = float(features.get("sweep_type", 0.0))
+        sweep_type = float(features.get("sweep_type", 0.0))
         sweep_level = float(features.get("sweep_level", 0.0))
-        bsl_level   = float(features.get("bsl_level", 0.0))
-        ssl_level   = float(features.get("ssl_level", 0.0))
-        atr         = float(features.get("atr_14", 0.0))
+        bsl_level = float(features.get("bsl_level", 0.0))
+        ssl_level = float(features.get("ssl_level", 0.0))
+        atr = float(features.get("atr_14", 0.0))
 
         high = df["high"].to_numpy(dtype=float)
-        low  = df["low"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
         close = df["close"].to_numpy(dtype=float)
 
         if atr <= 0:
@@ -70,11 +78,11 @@ class LiquidityHuntPlugin:
         hit_ssl = ssl_level > 0 and abs(sweep_level - ssl_level) <= tol
 
         if sweep_type < 0 and hit_bsl:
-            direction = -1       # BSL swept → smart money sells → short
+            direction = -1  # BSL swept → smart money sells → short
             significance = bsl_sig
             swept_level = bsl_level
         elif sweep_type > 0 and hit_ssl:
-            direction = 1        # SSL swept → smart money buys → long
+            direction = 1  # SSL swept → smart money buys → long
             significance = ssl_sig
             swept_level = ssl_level
         else:
@@ -140,7 +148,7 @@ class LiquidityHuntPlugin:
             supporting.append("order_block_aligned")
 
         choch = float(features.get("choch_detected", 0.0))
-        bos   = float(features.get("bos_detected", 0.0))
+        bos = float(features.get("bos_detected", 0.0))
         bos_dir = float(features.get("bos_direction", 0.0))
         if choch == 1.0:
             confidence += 0.10

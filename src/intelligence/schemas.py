@@ -143,7 +143,7 @@ class I2Events(BaseModel):
 
     # Bridge composites — translate I1 price-relative outputs into directional signals
     donchian_position_20: float | None = None  # DonchianPosition composite
-    obv_slope_sign: float | None = None        # OBVMomentum composite
+    obv_slope_sign: float | None = None  # OBVMomentum composite
 
 
 class I3Structure(BaseModel):
@@ -170,8 +170,8 @@ class I3Structure(BaseModel):
     swing_low_idx: float | None = None
     swing_pattern: float | None = None
     # 1.0=uptrend (HH+HL), -1.0=downtrend (LH+LL), 0.0=mixed
-    swing_high_type: float | None = None      # 1.0=HH, -1.0=LH, 0.0=none
-    swing_low_type: float | None = None       # 1.0=HL, -1.0=LL, 0.0=none
+    swing_high_type: float | None = None  # 1.0=HH, -1.0=LH, 0.0=none
+    swing_low_type: float | None = None  # 1.0=HL, -1.0=LL, 0.0=none
     swing_high_age_bars: float | None = None
     swing_low_age_bars: float | None = None
 
@@ -187,7 +187,7 @@ class I3Structure(BaseModel):
     support_age_bars: float | None = None
 
     # TrendStructurePlugin outputs
-    trend_direction: float | None = None      # -1.0/0.0/1.0 numeric
+    trend_direction: float | None = None  # -1.0/0.0/1.0 numeric
     trend_strength: float | None = None
     trend_leg_count: float | None = None
     structure_integrity: float | None = None
@@ -294,7 +294,7 @@ class I4Context(BaseModel):
     # GARCHVolatilityPlugin outputs
     garch_sigma: float | None = None
     garch_vol_ratio: float | None = None
-    garch_vol_regime: int | None = None       # int: 0/1/2 regime levels, NOT float
+    garch_vol_regime: int | None = None  # int: 0/1/2 regime levels, NOT float
     garch_shock: float | None = None
 
     # KalmanTrendPlugin outputs
@@ -351,8 +351,8 @@ class I5Patterns(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # RSIDivergencePlugin outputs
-    rsi_div_bullish: float | None = None      # confidence score 0.0–1.0 (not a boolean flag)
-    rsi_div_bearish: float | None = None      # confidence score 0.0–1.0
+    rsi_div_bullish: float | None = None  # confidence score 0.0–1.0 (not a boolean flag)
+    rsi_div_bearish: float | None = None  # confidence score 0.0–1.0
     rsi_div_strength: float | None = None
 
     # BollingerSqueezePlugin outputs
@@ -370,8 +370,8 @@ class I5Patterns(BaseModel):
     meanrev_confluence_agreement: float | None = None
 
     # VolumeDivergencePlugin outputs
-    vol_div_bullish: float | None = None      # confidence score 0.0–1.0 (not a boolean flag)
-    vol_div_bearish: float | None = None      # confidence score 0.0–1.0
+    vol_div_bullish: float | None = None  # confidence score 0.0–1.0 (not a boolean flag)
+    vol_div_bearish: float | None = None  # confidence score 0.0–1.0
     vol_div_strength: float | None = None
 
     # DoubleTBPlugin outputs (double top/bottom)
@@ -401,7 +401,7 @@ class I5Patterns(BaseModel):
     tri_upper_slope: float | None = None
     tri_lower_slope: float | None = None
     tri_apex_bars: float | None = None
-    tri_breakout_bias: float | None = None    # -1/0/1
+    tri_breakout_bias: float | None = None  # -1/0/1
     tri_confidence: float | None = None
 
     # CandlestickPatternsPlugin outputs (19 total fields)
@@ -480,15 +480,15 @@ class SMCContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # BOSCHoCHPlugin outputs
-    bos_detected: float | None = None         # 0.0/1.0 flag (plugin returns float, not bool)
-    bos_direction: int | None = None          # -1/0/1
+    bos_detected: float | None = None  # 0.0/1.0 flag (plugin returns float, not bool)
+    bos_direction: int | None = None  # -1/0/1
     bos_level: float | None = None
-    choch_detected: float | None = None       # 0.0/1.0 flag
-    choch_direction: int | None = None        # -1/0/1
-    smc_trend_direction: int | None = None    # renamed from trend_direction to avoid I3 collision
+    choch_detected: float | None = None  # 0.0/1.0 flag
+    choch_direction: int | None = None  # -1/0/1
+    smc_trend_direction: int | None = None  # renamed from trend_direction to avoid I3 collision
 
     # FairValueGapPlugin outputs
-    fvg_type: int | None = None               # -1/0/1
+    fvg_type: int | None = None  # -1/0/1
     fvg_top: float | None = None
     fvg_bottom: float | None = None
     fvg_midpoint: float | None = None
@@ -496,29 +496,29 @@ class SMCContext(BaseModel):
     fvg_open_count: int | None = None
 
     # OrderBlocksPlugin outputs
-    ob_type: int | None = None                # -1/0/1
+    ob_type: int | None = None  # -1/0/1
     ob_top: float | None = None
     ob_bottom: float | None = None
     ob_strength: float | None = None
-    ob_mitigated: float | None = None         # 0.0/1.0 flag
+    ob_mitigated: float | None = None  # 0.0/1.0 flag
     ob_distance_pct: float | None = None
 
     # LiquiditySweepsPlugin outputs
-    sweep_detected: float | None = None       # 0.0/1.0 flag
-    sweep_type: int | None = None             # -1/0/1
+    sweep_detected: float | None = None  # 0.0/1.0 flag
+    sweep_type: int | None = None  # -1/0/1
     sweep_level: float | None = None
     sweep_depth_pct: float | None = None
-    sweep_reclaimed: float | None = None      # 0.0/1.0 flag
+    sweep_reclaimed: float | None = None  # 0.0/1.0 flag
 
     # BOCPDChangePointPlugin outputs
     cp_probability: float | None = None
     cp_raw_probability: float | None = None
     cp_run_length: float | None = None
     cp_confirmation: float | None = None
-    cp_detected: float | None = None          # 0.0/1.0 detection flag
+    cp_detected: float | None = None  # 0.0/1.0 detection flag
 
     # HMMRegimePlugin outputs
-    hmm_regime: float | None = None           # 0=ranging, 1=trending-up, 2=trending-down
+    hmm_regime: float | None = None  # 0=ranging, 1=trending-up, 2=trending-down
     hmm_regime_prob: float | None = None
     hmm_prob_ranging: float | None = None
     hmm_prob_trending_up: float | None = None
@@ -527,7 +527,7 @@ class SMCContext(BaseModel):
 
     # LiquidityPoolsPlugin outputs
     bsl_level: float | None = None
-    bsl_type: float | None = None             # significance score (float encoding)
+    bsl_type: float | None = None  # significance score (float encoding)
     bsl_significance: float | None = None
     bsl_dist_atr: float | None = None
     bsl_touches: float | None = None
@@ -536,8 +536,8 @@ class SMCContext(BaseModel):
     ssl_significance: float | None = None
     ssl_dist_atr: float | None = None
     ssl_touches: float | None = None
-    price_in_premium: float | None = None     # 0.0/1.0 flag
-    premium_position: float | None = None     # -1.0 to 1.0
+    price_in_premium: float | None = None  # 0.0/1.0 flag
+    premium_position: float | None = None  # -1.0 to 1.0
     pool_count: float | None = None
 
     # SupplyDemandZonesPlugin outputs
@@ -546,13 +546,13 @@ class SMCContext(BaseModel):
     demand_freshness: float | None = None
     demand_strength: float | None = None
     demand_dist_atr: float | None = None
-    in_demand_zone: float | None = None       # 0.0/1.0 flag
+    in_demand_zone: float | None = None  # 0.0/1.0 flag
     nearest_supply_high: float | None = None
     nearest_supply_low: float | None = None
     supply_freshness: float | None = None
     supply_strength: float | None = None
     supply_dist_atr: float | None = None
-    in_supply_zone: float | None = None       # 0.0/1.0 flag
+    in_supply_zone: float | None = None  # 0.0/1.0 flag
     active_demand_zones: float | None = None
     active_supply_zones: float | None = None
 
@@ -566,19 +566,19 @@ class SMCContext(BaseModel):
     minutes_until_next_killzone: float | None = None
 
     # AMDCyclePlugin outputs
-    amd_phase: str | None = None          # "accumulation"/"manipulation"/"distribution"/"unknown"
+    amd_phase: str | None = None  # "accumulation"/"manipulation"/"distribution"/"unknown"
     amd_manipulation_detected: float | None = None
     amd_distribution_direction: float | None = None  # -1/0/1
 
     # BreakerBlocksPlugin outputs
     breaker_block_active: float | None = None
-    breaker_block_type: float | None = None       # -1 (bearish breaker) / +1 (bullish breaker)
+    breaker_block_type: float | None = None  # -1 (bearish breaker) / +1 (bullish breaker)
     breaker_block_top: float | None = None
     breaker_block_bottom: float | None = None
     breaker_dist_atr: float | None = None
 
     # MitigationBlocksPlugin outputs
-    ob_mitigation_status: str | None = None   # "fresh"/"partial"/"void"
+    ob_mitigation_status: str | None = None  # "fresh"/"partial"/"void"
     ob_mitigation_pct: float | None = None
 
     # PremiumDiscountPlugin outputs
@@ -627,14 +627,14 @@ class IntelligenceEvent(BaseModel):
     ts: datetime
     symbol: str
     tf: str
-    platform: str = "futures"               # Multi-platform prep; always "futures" for now
+    platform: str = "futures"  # Multi-platform prep; always "futures" for now
     source: Literal["live", "backfill"] = "live"
 
     # Pipeline timing fields — enable lag measurement from bar close to signal.
     # bar_close_ts is always set (live + backfill); computed_at fields are live-only.
-    bar_close_ts: datetime | None = None      # Actual close (differs from ts for 5m+)
-    i1_computed_at: datetime | None = None    # When indicator_service finished I1
-    computed_at: datetime | None = None       # When market_analysis_service built event
+    bar_close_ts: datetime | None = None  # Actual close (differs from ts for 5m+)
+    i1_computed_at: datetime | None = None  # When indicator_service finished I1
+    computed_at: datetime | None = None  # When market_analysis_service built event
 
     bar: OHLCVBar
     i1: I1Indicators

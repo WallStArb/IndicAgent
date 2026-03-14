@@ -240,9 +240,7 @@ class KSDriftMonitor:
     # DB fetch
     # ------------------------------------------------------------------
 
-    async def _fetch_windows(
-        self, symbol: str, tf: str
-    ) -> tuple[list[dict], list[dict]]:
+    async def _fetch_windows(self, symbol: str, tf: str) -> tuple[list[dict], list[dict]]:
         """Fetch reference and current windows from intelligence_features."""
         now = datetime.now(tz=UTC)
         ref_cutoff = now - timedelta(days=KS_REFERENCE_WINDOW_DAYS)
@@ -261,12 +259,8 @@ class KSDriftMonitor:
         """  # noqa: S608
 
         async with self.db_pool.acquire() as conn:
-            reference_rows = await conn.fetch(
-                query, symbol, tf, ref_cutoff, cur_cutoff
-            )
-            current_rows = await conn.fetch(
-                query, symbol, tf, cur_cutoff, now
-            )
+            reference_rows = await conn.fetch(query, symbol, tf, ref_cutoff, cur_cutoff)
+            current_rows = await conn.fetch(query, symbol, tf, cur_cutoff, now)
 
         return list(reference_rows), list(current_rows)
 
@@ -274,9 +268,7 @@ class KSDriftMonitor:
     # Redis key management + recovery
     # ------------------------------------------------------------------
 
-    async def _write_drift_key(
-        self, symbol: str, tf: str, result: DriftCheckResult
-    ) -> None:
+    async def _write_drift_key(self, symbol: str, tf: str, result: DriftCheckResult) -> None:
         """Write severity to drift_state DB table. Manage recovery mechanic.
 
         Phase 30: Writes to drift_state DB table instead of Redis.
@@ -295,9 +287,7 @@ class KSDriftMonitor:
                 # Fully recovered — write 'none' to DB
                 await self._upsert_drift_state(symbol, tf, "none")
                 self._clean_cycles.pop(pair, None)
-                self.logger.info(
-                    "KS drift recovered", symbol=symbol, timeframe=tf
-                )
+                self.logger.info("KS drift recovered", symbol=symbol, timeframe=tf)
             # else: leave existing row in place (partial recovery — not yet clean enough)
         else:
             # Drift detected — reset clean counter, upsert new severity

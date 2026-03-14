@@ -95,14 +95,12 @@ def check_database(settings: Settings) -> None:
     try:
         with contextlib.closing(psycopg2.connect(settings.database_url)) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
+                cur.execute("""
                     SELECT symbol, timeframe, COUNT(*) AS cnt, MAX(timestamp) AS last_ts
                     FROM market_data_ohlcv
                     GROUP BY symbol, timeframe
                     ORDER BY symbol, timeframe
-                    """
-                )
+                    """)
                 rows = cur.fetchall()
         if not rows:
             print("  No rows in market_data_ohlcv.")

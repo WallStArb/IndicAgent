@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """One-off script to request a quote from IBKR for a given symbol (e.g. VXJ6)."""
+
 from __future__ import annotations
 
 import asyncio

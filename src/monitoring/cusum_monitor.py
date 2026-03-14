@@ -171,7 +171,7 @@ class CUSUMMonitor:
         baseline = pnl_r_series[:_BASELINE_WINDOW]
         mu0 = sum(baseline) / len(baseline)
         variance = sum((x - mu0) ** 2 for x in baseline) / max(len(baseline) - 1, 1)
-        sigma0 = variance ** 0.5
+        sigma0 = variance**0.5
 
         s_pos, s_neg, severity = _compute_cusum(pnl_r_series, mu0=mu0, sigma0=sigma0)
 

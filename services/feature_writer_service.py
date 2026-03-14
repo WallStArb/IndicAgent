@@ -73,23 +73,6 @@ logger = structlog.get_logger(__name__)
 
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
-def _get_field(payload: dict, key: str) -> bytes | str:
-    """Dual-mode field access: supports both str keys (Kafka JSON) and bytes keys (test fixtures).
-
-    Returns the value for the given key, checking both str and bytes forms.
-    Returns b'' (bytes) if not found (backwards compat with existing callers that call .decode()).
-    """
-    # Try string key first (Kafka JSON payload)
-    if key in payload:
-        v = payload[key]
-        return v.encode() if isinstance(v, str) else v
-    # Try bytes key (legacy Redis / test fixture format)
-    bkey = key.encode() if isinstance(key, str) else key
-    if bkey in payload:
-        v = payload[bkey]
-        return v if isinstance(v, bytes) else str(v).encode()
-    return b""
-
 
 def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
     """Parse intelligence stream/topic message into typed IntelligenceEvent.
@@ -202,17 +185,19 @@ def _event_to_insert_params(
         json.dumps(event.i5.model_dump(exclude_none=True)),
         json.dumps(event.smc.model_dump(exclude_none=True)),
         json.dumps(event.i6.model_dump(exclude_none=True)),
-        event.bar_close_ts,    # $15 — always set for live; also set for backfill
+        event.bar_close_ts,  # $15 — always set for live; also set for backfill
         event.i1_computed_at,  # $16 — None for backfill
-        event.computed_at,     # $17 — None for backfill
-        days,                  # $18 — days_to_expiry
+        event.computed_at,  # $17 — None for backfill
+        days,  # $18 — days_to_expiry
     )
 
 
 # ── Service class ─────────────────────────────────────────────────────────────
 
+
 class FeatureWriterService:
-    """Async Kafka consumer service: intelligence topic → buffer → batch INSERT to intelligence_features."""
+    """Async Kafka consumer service: intelligence topic → buffer → batch INSERT to
+    intelligence_features."""
 
     def __init__(self, config_file: str | None = None):
         self.running = False
@@ -279,9 +264,7 @@ class FeatureWriterService:
             _settings = None
 
         default_config: dict[str, Any] = {
-            "database": {
-                "dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"
-            },
+            "database": {"dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"},
             "service": {
                 "symbols": get_active_contracts(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
@@ -490,7 +473,9 @@ class FeatureWriterService:
                 "model": str(payload.get("model") or payload.get(b"model", b"unknown")),
                 "confidence": str(payload.get("confidence") or payload.get(b"confidence", b"0.0")),
                 "summary": str(payload.get("summary") or payload.get(b"summary", b"")),
-                "generated_at": str(payload.get("generated_at") or payload.get(b"generated_at", b"")),
+                "generated_at": str(
+                    payload.get("generated_at") or payload.get(b"generated_at", b"")
+                ),
             }
             await self.db_manager.execute_batch(
                 _UPSERT_I8_SQL, [(ts_raw, symbol, timeframe, json.dumps(i8_payload))]
@@ -518,6 +503,7 @@ class FeatureWriterService:
                 key_str = key if isinstance(key, str) else (key.decode() if key else "")
                 parts = key_str.split(":")
                 if len(parts) != 2:
+                    self.logger.warning("Skipping message with malformed key", key=key_str)
                     continue
                 symbol, timeframe = parts
 
@@ -599,6 +585,7 @@ class FeatureWriterService:
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
+
 
 async def main() -> None:
     import argparse

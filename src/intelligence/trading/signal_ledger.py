@@ -49,9 +49,9 @@ class LedgerEntry:
     feature_ts: datetime | None = None
     feature_tf: str | None = None
     # CIS fields — populated by CIS aggregator at signal fire time (Phase 7)
-    cis_score: float | None = None       # CIS composite score in [-1.0, +1.0]
-    bucket_scores: dict | None = None    # {"trend": 0.4, ...} — serialised to JSONB
-    weights_version: int | None = None   # FK to cis_weights.version; 0 = bootstrap
+    cis_score: float | None = None  # CIS composite score in [-1.0, +1.0]
+    bucket_scores: dict | None = None  # {"trend": 0.4, ...} — serialised to JSONB
+    weights_version: int | None = None  # FK to cis_weights.version; 0 = bootstrap
     signal_quality: float | None = None  # populated by signal_lifecycle on exit
     signal_computed_at: datetime | None = None  # when signal_generator fired; NULL for backfill
     # Institutional lifecycle fields — all nullable; populated progressively
@@ -104,20 +104,20 @@ class LedgerEntry:
             self.composite_rank,
             json.dumps(self.market_context),
             self.status,
-            self.feature_ts,           # $23 — TIMESTAMPTZ, nullable
-            self.feature_tf,           # $24 — TEXT, nullable
-            self.cis_score,            # $25 — FLOAT, nullable
+            self.feature_ts,  # $23 — TIMESTAMPTZ, nullable
+            self.feature_tf,  # $24 — TEXT, nullable
+            self.cis_score,  # $25 — FLOAT, nullable
             json.dumps(self.bucket_scores) if self.bucket_scores is not None else None,  # $26
-            self.weights_version,      # $27 — INTEGER, nullable
-            self.signal_quality,       # $28 — FLOAT, nullable
-            self.signal_computed_at,   # $29 — TIMESTAMPTZ, nullable
-            self.determined_at,        # $30
-            self.ask_at_signal,        # $31
-            self.bid_at_signal,        # $32
+            self.weights_version,  # $27 — INTEGER, nullable
+            self.signal_quality,  # $28 — FLOAT, nullable
+            self.signal_computed_at,  # $29 — TIMESTAMPTZ, nullable
+            self.determined_at,  # $30
+            self.ask_at_signal,  # $31
+            self.bid_at_signal,  # $32
             self.market_price_at_signal,  # $33
-            self.entry_zone_low,       # $34
-            self.entry_zone_high,      # $35
-            self.zone_valid_at_signal, # $36
+            self.entry_zone_low,  # $34
+            self.entry_zone_high,  # $35
+            self.zone_valid_at_signal,  # $36
             json.dumps(self.cis_attribution) if self.cis_attribution is not None else None,  # $37
         )
 
@@ -224,11 +224,23 @@ async def update_signal_status(
     """Update a signal's lifecycle status and optional exit fields."""
     await db_manager.execute_command(
         _UPDATE_STATUS_SQL,
-        signal_id, status,
-        activated_at, exit_at, exit_price, exit_reason,
-        pnl_ticks, pnl_r, pnl_dollars, signal_quality,
-        activation_price, zone_entry_pct, bars_to_activation,
-        mae, mfe, bars_in_trade, outcome,
+        signal_id,
+        status,
+        activated_at,
+        exit_at,
+        exit_price,
+        exit_reason,
+        pnl_ticks,
+        pnl_r,
+        pnl_dollars,
+        signal_quality,
+        activation_price,
+        zone_entry_pct,
+        bars_to_activation,
+        mae,
+        mfe,
+        bars_in_trade,
+        outcome,
     )
     logger.info("Updated signal status", signal_id=signal_id, status=status)
 

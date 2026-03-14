@@ -60,11 +60,11 @@ BOOTSTRAP_WEIGHTS: dict[str, float] = {
 class CISResult:
     """Output of a CISScorer.score() call."""
 
-    cis_score: float          # clamp(sum(w*s), -1.0, 1.0)
-    direction: int            # -1 (bearish fire), 0 (no fire), +1 (bullish fire)
+    cis_score: float  # clamp(sum(w*s), -1.0, 1.0)
+    direction: int  # -1 (bearish fire), 0 (no fire), +1 (bullish fire)
     bucket_scores: dict[str, float]
-    weights_version: int      # 0 = bootstrap; positive = learned from cis_weights table
-    buckets_agreeing: int     # count of buckets agreeing with the CIS direction
+    weights_version: int  # 0 = bootstrap; positive = learned from cis_weights table
+    buckets_agreeing: int  # count of buckets agreeing with the CIS direction
     # Per-constituent contributions to final CIS score
     # {bucket: {signal_name: actual_contribution_to_cis_score}}
     constituent_contributions: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -222,7 +222,9 @@ class CISScorer:
           - trend_confluence_score 0.10 (I6 confluence)
         """
         slope = self._fval(f, "kalman_slope")
-        slope_dir = 1.0 if slope > EPSILON_TOLERANCE else (-1.0 if slope < -EPSILON_TOLERANCE else 0.0)
+        slope_dir = (
+            1.0 if slope > EPSILON_TOLERANCE else (-1.0 if slope < -EPSILON_TOLERANCE else 0.0)
+        )
 
         c_trend_regime = 0.35 * clamp(self._fval(f, "trend_regime"))
         c_kalman_slope = 0.20 * slope_dir
@@ -388,10 +390,7 @@ class CISScorer:
           - RegimeTransition plugin direction * conf          0.10
           - killzone sub-term (supplemental, additive)        ±0.05
         """
-        hmm_dir = (
-            self._fval(f, "hmm_prob_trending_up")
-            - self._fval(f, "hmm_prob_trending_down")
-        )
+        hmm_dir = self._fval(f, "hmm_prob_trending_up") - self._fval(f, "hmm_prob_trending_down")
 
         # Changepoint probability > 0.5 signals imminent regime change → uncertain direction (0).
         # When cp <= 0.5 (stable regime), reinforce HMM direction scaled by stability.

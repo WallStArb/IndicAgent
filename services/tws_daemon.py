@@ -142,9 +142,7 @@ class TwsDaemon:
 
     def connect_tws(self) -> bool:
         try:
-            self.provider = IBKRProvider(
-                host=self.host, port=self.port, client_id=self.client_id
-            )
+            self.provider = IBKRProvider(host=self.host, port=self.port, client_id=self.client_id)
             if self.loop:
                 fut = asyncio.run_coroutine_threadsafe(self.provider.connect(), self.loop)
                 connected = fut.result(timeout=30)
@@ -191,9 +189,7 @@ class TwsDaemon:
                     break
                 try:
                     tick_dict = {
-                        k: str(v)
-                        for k, v in tick.model_dump(mode="json").items()
-                        if v is not None
+                        k: str(v) for k, v in tick.model_dump(mode="json").items() if v is not None
                     }
                     await self._kafka_producer.publish(
                         topic_market_ticks(self.env_name),
@@ -247,9 +243,7 @@ class TwsDaemon:
                 asyncio.set_event_loop(loop)
                 loop.run_forever()
 
-            self.loop_thread = threading.Thread(
-                target=_run_loop, args=(self.loop,), daemon=True
-            )
+            self.loop_thread = threading.Thread(target=_run_loop, args=(self.loop,), daemon=True)
             self.loop_thread.start()
 
             # Start Kafka producer in the async loop
@@ -344,9 +338,7 @@ class TwsDaemon:
         fut = asyncio.run_coroutine_threadsafe(_gather_all(), self.loop)
         fut.result(timeout=30)
 
-    async def _fetch_bars_for_symbol(
-        self, symbol: str, start: datetime, now: datetime
-    ) -> int:
+    async def _fetch_bars_for_symbol(self, symbol: str, start: datetime, now: datetime) -> int:
         """Fetch 1-minute bars for a symbol and publish to Redpanda market.bars.
 
         Returns count of newly published bars (0 if all were duplicates).
