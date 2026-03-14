@@ -22,6 +22,7 @@ from src.intelligence.setup_performance_updater import compute_setup_performance
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_resolved_signal(
     setup_plugin: str,
     pnl_r: float | None,
@@ -48,6 +49,7 @@ def _recent_signals(plugin: str, pnl_r_values: list[float | None]) -> list[dict]
 # Module import test (fails RED with ImportError)
 # ---------------------------------------------------------------------------
 
+
 class TestModuleImport:
     @pytest.mark.unit
     def test_setup_performance_updater_module_importable(self):
@@ -62,6 +64,7 @@ class TestModuleImport:
 # ---------------------------------------------------------------------------
 # FEED-01: compute_setup_performance output shape and correctness
 # ---------------------------------------------------------------------------
+
 
 class TestComputeSetupPerformanceBasicBehavior:
     @pytest.mark.unit
@@ -106,6 +109,7 @@ class TestComputeSetupPerformanceBasicBehavior:
     def test_compute_setup_performance_sharpe_ratio_nonzero(self):
         """30 signals with varying pnl_r → sharpe_ratio is a float (mean/std)."""
         import random
+
         random.seed(42)
         pnl_rs = [round(random.gauss(0.3, 1.0), 4) for _ in range(30)]
         signals = _recent_signals("trad_TrendFollowing", pnl_rs)
@@ -128,6 +132,7 @@ class TestComputeSetupPerformanceBasicBehavior:
 # FEED-02: Promotion gate — n < 30 is excluded
 # ---------------------------------------------------------------------------
 
+
 class TestPromotionGate:
     @pytest.mark.unit
     def test_compute_setup_performance_below_threshold_returns_empty(self):
@@ -149,6 +154,7 @@ class TestPromotionGate:
 # ---------------------------------------------------------------------------
 # Rolling 30-day window and null handling
 # ---------------------------------------------------------------------------
+
 
 class TestWindowAndNullHandling:
     @pytest.mark.unit

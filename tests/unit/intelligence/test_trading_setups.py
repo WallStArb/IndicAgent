@@ -190,7 +190,7 @@ class TestMeanReversion:
             "rsi_div_bearish": 0.0,
             "bb_middle": 5000.0,
             "atr_14": 10.0,
-            "kalman_price_position": 0.5,   # < 1.0 — near fair value
+            "kalman_price_position": 0.5,  # < 1.0 — near fair value
         }
         plugin = MeanReversionPlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -253,12 +253,14 @@ class TestLiquiditySweepReclaim:
         """Bullish sweep + reclaimed + FVG → long signal."""
         from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
 
-        close = np.concatenate([
-            np.full(60, 5050.0),
-            np.array([5020.0, 5010.0, 5000.0]),
-            np.array([5030.0, 5045.0, 5055.0]),
-            np.full(34, 5060.0),
-        ])
+        close = np.concatenate(
+            [
+                np.full(60, 5050.0),
+                np.array([5020.0, 5010.0, 5000.0]),
+                np.array([5030.0, 5045.0, 5055.0]),
+                np.full(34, 5060.0),
+            ]
+        )
         df = make_ohlcv(close)
         features = {
             "sweep_detected": 1.0,
@@ -379,10 +381,12 @@ class TestSqueezeExpansion:
         """Squeeze resolved + volume expansion + bullish momentum → long signal."""
         from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
 
-        close = np.concatenate([
-            np.full(80, 5050.0) + np.random.default_rng(0).normal(0, 2, 80),
-            np.linspace(5055, 5090, 20),
-        ])
+        close = np.concatenate(
+            [
+                np.full(80, 5050.0) + np.random.default_rng(0).normal(0, 2, 80),
+                np.linspace(5055, 5090, 20),
+            ]
+        )
         volume = np.concatenate([np.full(80, 1000.0), np.full(20, 2500.0)])
         df = make_ohlcv(close, volume)
         features = {
@@ -446,10 +450,12 @@ class TestSqueezeExpansion:
         """garch_vol_regime=3 (extreme) — squeeze breakout blocked regardless of setup quality."""
         from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
 
-        close = np.concatenate([
-            np.full(80, 5050.0) + np.random.default_rng(20).normal(0, 2, 80),
-            np.linspace(5055, 5090, 20),
-        ])
+        close = np.concatenate(
+            [
+                np.full(80, 5050.0) + np.random.default_rng(20).normal(0, 2, 80),
+                np.linspace(5055, 5090, 20),
+            ]
+        )
         volume = np.concatenate([np.full(80, 1000.0), np.full(20, 2500.0)])
         df = make_ohlcv(close, volume)
         features = {
@@ -462,7 +468,7 @@ class TestSqueezeExpansion:
             "bb_middle": 5050.0,
             "atr_14": 8.0,
             "volume_sma_20": 1000.0,
-            "garch_vol_regime": 3,    # extreme vol — should block
+            "garch_vol_regime": 3,  # extreme vol — should block
         }
         plugin = SqueezeExpansionPlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -474,10 +480,12 @@ class TestSqueezeExpansion:
         """garch_vol_regime=2 (high, not extreme) — squeeze breakout allowed."""
         from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
 
-        close = np.concatenate([
-            np.full(80, 5050.0) + np.random.default_rng(21).normal(0, 2, 80),
-            np.linspace(5055, 5090, 20),
-        ])
+        close = np.concatenate(
+            [
+                np.full(80, 5050.0) + np.random.default_rng(21).normal(0, 2, 80),
+                np.linspace(5055, 5090, 20),
+            ]
+        )
         volume = np.concatenate([np.full(80, 1000.0), np.full(20, 2500.0)])
         df = make_ohlcv(close, volume)
         features = {
@@ -490,7 +498,7 @@ class TestSqueezeExpansion:
             "bb_middle": 5050.0,
             "atr_14": 8.0,
             "volume_sma_20": 1000.0,
-            "garch_vol_regime": 2,    # high but not extreme — should pass
+            "garch_vol_regime": 2,  # high but not extreme — should pass
         }
         plugin = SqueezeExpansionPlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -502,10 +510,12 @@ class TestSqueezeExpansion:
         """No garch_vol_regime key — gate defaults to regime=1, signal fires normally."""
         from src.intelligence.trading.squeeze_expansion import SqueezeExpansionPlugin
 
-        close = np.concatenate([
-            np.full(80, 5050.0) + np.random.default_rng(22).normal(0, 2, 80),
-            np.linspace(5055, 5090, 20),
-        ])
+        close = np.concatenate(
+            [
+                np.full(80, 5050.0) + np.random.default_rng(22).normal(0, 2, 80),
+                np.linspace(5055, 5090, 20),
+            ]
+        )
         volume = np.concatenate([np.full(80, 1000.0), np.full(20, 2500.0)])
         df = make_ohlcv(close, volume)
         features = {
@@ -540,7 +550,7 @@ class TestLiquidityHunt:
             "ssl_level": 4980.0,
             "ssl_significance": 0.85,
             "sweep_detected": 1.0,
-            "sweep_type": -1.0,        # bearish sweep (BSL swept)
+            "sweep_type": -1.0,  # bearish sweep (BSL swept)
             "sweep_level": bsl_level,
             "sweep_reclaimed": 1.0,
             "price_in_premium": 1.0,
@@ -564,7 +574,7 @@ class TestLiquidityHunt:
             "ssl_level": ssl_level,
             "ssl_significance": significance,
             "sweep_detected": 1.0,
-            "sweep_type": 1.0,         # bullish sweep (SSL swept)
+            "sweep_type": 1.0,  # bullish sweep (SSL swept)
             "sweep_level": ssl_level,
             "sweep_reclaimed": 1.0,
             "price_in_premium": 0.0,
@@ -583,6 +593,7 @@ class TestLiquidityHunt:
     def test_bsl_sweep_generates_short(self):
         """BSL swept + reclaimed + significance >= 0.60 → short signal."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
@@ -596,6 +607,7 @@ class TestLiquidityHunt:
     def test_ssl_sweep_generates_long(self):
         """SSL swept + reclaimed + significance >= 0.60 → long signal."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
@@ -607,6 +619,7 @@ class TestLiquidityHunt:
     def test_no_signal_low_significance(self):
         """Significance < 0.60 → no signal (random swing, not named level)."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         features = self._features_bsl_swept(significance=0.45)
@@ -618,6 +631,7 @@ class TestLiquidityHunt:
     def test_no_signal_sweep_not_reclaimed(self):
         """sweep_reclaimed=0 → no signal (breakout not a hunt)."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         features = self._features_bsl_swept()
@@ -629,6 +643,7 @@ class TestLiquidityHunt:
     def test_confidence_higher_for_pwh_than_pdh(self):
         """PWH level (significance=1.0) → higher confidence than PDH (0.85)."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
@@ -644,11 +659,12 @@ class TestLiquidityHunt:
     def test_fvg_boosts_confidence(self):
         """FVG in sweep direction adds confidence boost."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
         f_no_fvg = self._features_bsl_swept()
-        f_fvg    = {**self._features_bsl_swept(), "fvg_detected": 1.0, "fvg_type": -1.0}
+        f_fvg = {**self._features_bsl_swept(), "fvg_detected": 1.0, "fvg_type": -1.0}
         r1 = plugin.compute_full({"main": df, "features": f_no_fvg})
         r2 = plugin.compute_full({"main": df, "features": f_fvg})
         if r1.get("direction") == -1 and r2.get("direction") == -1:
@@ -657,10 +673,11 @@ class TestLiquidityHunt:
     def test_opposing_zone_penalizes_confidence(self):
         """Hunting short but entering demand zone → confidence penalty."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquidityHuntPlugin()
-        f_clean    = self._features_bsl_swept()
+        f_clean = self._features_bsl_swept()
         f_opposing = {**self._features_bsl_swept(), "in_demand_zone": 1.0}
         r1 = plugin.compute_full({"main": df, "features": f_clean})
         r2 = plugin.compute_full({"main": df, "features": f_opposing})
@@ -670,6 +687,7 @@ class TestLiquidityHunt:
     def test_has_two_targets(self):
         """Signal output includes at least 2 price targets."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = LiquidityHuntPlugin()
         result = plugin.compute_full({"main": df, "features": self._features_bsl_swept()})
@@ -679,6 +697,7 @@ class TestLiquidityHunt:
     def test_insufficient_data_returns_no_signal(self):
         """Too few bars → no signal."""
         from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
+
         df = make_ohlcv(np.full(5, 5000.0))
         plugin = LiquidityHuntPlugin()
         result = plugin.compute_full({"main": df, "features": {}})
@@ -698,11 +717,11 @@ class TestSupplyDemandSetup:
             "demand_freshness": freshness,
             "demand_strength": strength,
             "nearest_demand_high": 5010.0,
-            "nearest_demand_low":  4990.0,
+            "nearest_demand_low": 4990.0,
             "supply_freshness": 0.0,
             "supply_strength": 0.0,
             "nearest_supply_high": 5100.0,
-            "nearest_supply_low":  5090.0,
+            "nearest_supply_low": 5090.0,
             "price_in_premium": 0.0,  # discount = demand zone stronger
             "atr_14": 10.0,
             "fvg_detected": 0.0,
@@ -721,7 +740,7 @@ class TestSupplyDemandSetup:
         if act123:
             f["sweep_detected"] = 1.0
             f["sweep_reclaimed"] = 1.0
-            f["sweep_type"] = 1.0    # bullish sweep → long
+            f["sweep_type"] = 1.0  # bullish sweep → long
             f["fvg_detected"] = 1.0
             f["fvg_type"] = 1.0
         return f
@@ -733,11 +752,11 @@ class TestSupplyDemandSetup:
             "demand_freshness": 0.0,
             "demand_strength": 0.0,
             "nearest_demand_high": 4910.0,
-            "nearest_demand_low":  4900.0,
+            "nearest_demand_low": 4900.0,
             "supply_freshness": freshness,
             "supply_strength": strength,
             "nearest_supply_high": 5010.0,
-            "nearest_supply_low":  4990.0,
+            "nearest_supply_low": 4990.0,
             "price_in_premium": 1.0,  # premium = supply zone stronger
             "atr_14": 10.0,
             "fvg_detected": 0.0,
@@ -757,6 +776,7 @@ class TestSupplyDemandSetup:
     def test_demand_zone_generates_long(self):
         """Price in demand zone + fresh → long signal."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
@@ -769,6 +789,7 @@ class TestSupplyDemandSetup:
     def test_supply_zone_generates_short(self):
         """Price in supply zone + fresh → short signal."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
@@ -780,6 +801,7 @@ class TestSupplyDemandSetup:
     def test_no_signal_when_not_in_zone(self):
         """Price not in any zone → no signal."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         features = self._demand_features(in_zone=0.0)
@@ -790,6 +812,7 @@ class TestSupplyDemandSetup:
     def test_no_signal_mitigated_zone(self):
         """Zone freshness below threshold → no signal."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         features = self._demand_features(freshness=0.1)
@@ -800,6 +823,7 @@ class TestSupplyDemandSetup:
     def test_fresh_zone_higher_confidence_than_tested(self):
         """Fresh zone (1.0) has higher confidence than tested zone (0.5)."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
@@ -815,11 +839,12 @@ class TestSupplyDemandSetup:
     def test_act_123_bonus_applied(self):
         """Sweep + FVG preceding zone entry → act_1_2_3_confirmed bonus."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
         r_plain = plugin.compute_full({"main": df, "features": self._demand_features(act123=False)})
-        r_act   = plugin.compute_full({"main": df, "features": self._demand_features(act123=True)})
+        r_act = plugin.compute_full({"main": df, "features": self._demand_features(act123=True)})
         if r_plain.get("direction") == 1 and r_act.get("direction") == 1:
             assert r_act["confidence"] > r_plain["confidence"]
             assert "act_1_2_3_confirmed" in r_act.get("supporting_factors", [])
@@ -827,11 +852,12 @@ class TestSupplyDemandSetup:
     def test_premium_discount_penalty_applied(self):
         """Demand zone in premium → lower confidence than demand zone in discount."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = SupplyDemandSetupPlugin()
         f_discount = {**self._demand_features(), "price_in_premium": 0.0}  # aligned
-        f_premium  = {**self._demand_features(), "price_in_premium": 1.0}  # opposing
+        f_premium = {**self._demand_features(), "price_in_premium": 1.0}  # opposing
         r1 = plugin.compute_full({"main": df, "features": f_discount})
         r2 = plugin.compute_full({"main": df, "features": f_premium})
         if r1.get("direction") == 1 and r2.get("direction") == 1:
@@ -840,6 +866,7 @@ class TestSupplyDemandSetup:
     def test_has_two_targets(self):
         """Output includes at least 2 price targets."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         df = make_ohlcv(np.full(100, 5000.0))
         plugin = SupplyDemandSetupPlugin()
         result = plugin.compute_full({"main": df, "features": self._demand_features()})
@@ -849,6 +876,7 @@ class TestSupplyDemandSetup:
     def test_insufficient_data_no_signal(self):
         """Too few bars → no signal."""
         from src.intelligence.trading.supply_demand_setup import SupplyDemandSetupPlugin
+
         df = make_ohlcv(np.full(5, 5000.0))
         plugin = SupplyDemandSetupPlugin()
         result = plugin.compute_full({"main": df, "features": {}})
@@ -864,19 +892,26 @@ class TestZoneEnhancements:
     def test_liquidity_sweep_reclaim_boosted_by_named_level(self):
         """LiquiditySweepReclaim gains confidence when sweep was at a named pool level."""
         from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
+
         close = np.full(100, 5000.0)
         df = make_ohlcv(close)
         plugin = LiquiditySweepReclaimPlugin()
 
         base_features = {
-            "sweep_detected": 1.0, "sweep_reclaimed": 1.0,
-            "sweep_type": 1.0, "sweep_level": 4980.0,
-            "atr_14": 10.0, "fvg_detected": 0.0, "fvg_type": 0.0,
-            "ob_detected": 0.0, "ob_type": 0.0, "ctf_score": 0.0,
+            "sweep_detected": 1.0,
+            "sweep_reclaimed": 1.0,
+            "sweep_type": 1.0,
+            "sweep_level": 4980.0,
+            "atr_14": 10.0,
+            "fvg_detected": 0.0,
+            "fvg_type": 0.0,
+            "ob_detected": 0.0,
+            "ob_type": 0.0,
+            "ctf_score": 0.0,
         }
         named_features = {
             **base_features,
-            "ssl_significance": 1.0,   # PWL level
+            "ssl_significance": 1.0,  # PWL level
             "ssl_level": 4980.0,
             "bsl_significance": 0.0,
         }
@@ -895,19 +930,25 @@ class TestZoneEnhancements:
     def test_momentum_breakout_penalized_by_opposing_zone(self):
         """MomentumBreakout long penalized when in_supply_zone=1.0."""
         from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
+
         close = np.linspace(5000, 5100, 100)
         df = make_ohlcv(close)
         plugin = MomentumBreakoutPlugin()
 
         base_features = {
-            "roc_14": 0.8, "atr_14": 10.0, "volume": 2000.0,
-            "bos_detected": 1.0, "bos_direction": 1.0, "bos_level": 5050.0,
-            "trend_regime": 0.6, "ctf_score": 0.0,
+            "roc_14": 0.8,
+            "atr_14": 10.0,
+            "volume": 2000.0,
+            "bos_detected": 1.0,
+            "bos_direction": 1.0,
+            "bos_level": 5050.0,
+            "trend_regime": 0.6,
+            "ctf_score": 0.0,
         }
-        clean_features   = {**base_features, "in_supply_zone": 0.0, "supply_strength": 0.0}
+        clean_features = {**base_features, "in_supply_zone": 0.0, "supply_strength": 0.0}
         opposing_features = {**base_features, "in_supply_zone": 1.0, "supply_strength": 0.8}
 
-        r_clean    = plugin.compute_full({"main": df, "features": clean_features})
+        r_clean = plugin.compute_full({"main": df, "features": clean_features})
         r_opposing = plugin.compute_full({"main": df, "features": opposing_features})
 
         if r_clean.get("direction", 0) == 1 and r_opposing.get("direction", 0) == 1:
@@ -916,20 +957,25 @@ class TestZoneEnhancements:
     def test_trend_following_penalized_by_opposing_zone(self):
         """TrendFollowing long penalized when trending into supply zone."""
         from src.intelligence.trading.trend_following import TrendFollowingPlugin
+
         close = np.linspace(5000, 5200, 100)
         df = make_ohlcv(close)
         plugin = TrendFollowingPlugin()
 
         base_features = {
-            "trend_regime": 0.8, "trend_confidence": 0.75,
-            "swing_pattern": 1.0, "trend_strength": 0.7,
-            "ctf_score": 0.6, "atr_14": 10.0,
-            "sma_20": 5180.0, "ema_21": 5185.0,
+            "trend_regime": 0.8,
+            "trend_confidence": 0.75,
+            "swing_pattern": 1.0,
+            "trend_strength": 0.7,
+            "ctf_score": 0.6,
+            "atr_14": 10.0,
+            "sma_20": 5180.0,
+            "ema_21": 5185.0,
         }
-        clean_features    = {**base_features, "in_supply_zone": 0.0, "supply_strength": 0.0}
+        clean_features = {**base_features, "in_supply_zone": 0.0, "supply_strength": 0.0}
         opposing_features = {**base_features, "in_supply_zone": 1.0, "supply_strength": 0.8}
 
-        r_clean    = plugin.compute_full({"main": df, "features": clean_features})
+        r_clean = plugin.compute_full({"main": df, "features": clean_features})
         r_opposing = plugin.compute_full({"main": df, "features": opposing_features})
 
         if r_clean.get("direction", 0) == 1 and r_opposing.get("direction", 0) == 1:

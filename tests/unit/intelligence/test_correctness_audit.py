@@ -1,4 +1,5 @@
 """Correctness audit tests — known-output bar sequences for all I1-I6 plugins."""
+
 from __future__ import annotations
 
 import inspect
@@ -92,9 +93,7 @@ class TestMACDCorrectness:
         """Histogram = MACD_line - signal_line. Positive when MACD above signal."""
         from src.intelligence.indicators.macd import MACDPlugin
 
-        close = np.concatenate(
-            [np.linspace(5000, 5000, 40), np.linspace(5000, 5200, 20)]
-        )
+        close = np.concatenate([np.linspace(5000, 5000, 40), np.linspace(5000, 5200, 20)])
         df = make_ohlcv(close)
         p = MACDPlugin()
         result = p.compute_full({"main": df})
@@ -604,9 +603,9 @@ class TestHMMCorrectness:
         from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
 
         source = inspect.getsource(HMMRegimePlugin)
-        assert "macd_hist_12_26_9" not in source, (
-            "HMM uses wrong MACD key. Should be macd_histogram_12_26_9"
-        )
+        assert (
+            "macd_hist_12_26_9" not in source
+        ), "HMM uses wrong MACD key. Should be macd_histogram_12_26_9"
 
     def test_hmm_regime_values_are_0_1_or_2(self):
         """HMM regime must be 0, 1, or 2."""

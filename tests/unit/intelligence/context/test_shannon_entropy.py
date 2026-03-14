@@ -54,9 +54,9 @@ class TestShannonEntropyComputeFull:
         close = np.full(50, 100.0)
         result = plugin.compute_full(_make_frames(close))
         assert "shannon_entropy" in result
-        assert result["shannon_entropy"] < 0.3, (
-            f"Expected low entropy for flat price series, got {result['shannon_entropy']}"
-        )
+        assert (
+            result["shannon_entropy"] < 0.3
+        ), f"Expected low entropy for flat price series, got {result['shannon_entropy']}"
 
     @pytest.mark.unit
     def test_chaotic_series_returns_high_entropy(self):
@@ -72,9 +72,9 @@ class TestShannonEntropyComputeFull:
         close = 100.0 * np.exp(np.concatenate([[0.0], np.cumsum(log_returns)]))
         result = plugin.compute_full(_make_frames(close))
         assert "shannon_entropy" in result
-        assert result["shannon_entropy"] > 0.7, (
-            f"Expected high entropy for uniform spread series, got {result['shannon_entropy']}"
-        )
+        assert (
+            result["shannon_entropy"] > 0.7
+        ), f"Expected high entropy for uniform spread series, got {result['shannon_entropy']}"
 
     @pytest.mark.unit
     def test_entropy_output_in_unit_range(self):

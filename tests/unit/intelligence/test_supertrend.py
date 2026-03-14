@@ -16,13 +16,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "up") -> pd.DataFrame
         close = 5000.0 + rng.standard_normal(n) * 0.5
     high = close + rng.uniform(0.5, 2.0, n)
     low = close - rng.uniform(0.5, 2.0, n)
-    return pd.DataFrame({
-        "open": close - rng.uniform(0, 0.5, n),
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": rng.integers(100, 1000, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close - rng.uniform(0, 0.5, n),
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.integers(100, 1000, n).astype(float),
+        }
+    )
 
 
 class TestSupertrend:

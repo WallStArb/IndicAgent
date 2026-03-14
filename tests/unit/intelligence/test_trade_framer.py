@@ -20,6 +20,7 @@ from src.intelligence.trading.trade_framer import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _features(**kwargs) -> dict:
     """Build a minimal features dict, defaulting everything to None."""
     return kwargs
@@ -32,6 +33,7 @@ ATR = 10.0  # $10 ATR — easy to reason about
 # ---------------------------------------------------------------------------
 # Stop hierarchy — longs
 # ---------------------------------------------------------------------------
+
 
 class TestStopHierarchyLong:
     def test_priority1_demand_zone(self):
@@ -82,8 +84,10 @@ class TestStopHierarchyLong:
 
     def test_priority_ordering_demand_over_sweep(self):
         f = _features(
-            in_demand_zone=1.0, nearest_demand_low=4985.0,
-            sweep_detected=1.0, sweep_level=4970.0,
+            in_demand_zone=1.0,
+            nearest_demand_low=4985.0,
+            sweep_detected=1.0,
+            sweep_level=4970.0,
         )
         _, stop_type = _resolve_stop_long(ENTRY, ATR, f)
         assert stop_type == "demand_zone"
@@ -92,6 +96,7 @@ class TestStopHierarchyLong:
 # ---------------------------------------------------------------------------
 # Stop hierarchy — shorts
 # ---------------------------------------------------------------------------
+
 
 class TestStopHierarchyShort:
     def test_priority1_supply_zone(self):
@@ -134,6 +139,7 @@ class TestStopHierarchyShort:
 # Target level collection — longs
 # ---------------------------------------------------------------------------
 
+
 class TestTargetCollectionLong:
     def test_resistance_collected(self):
         stop = ENTRY - ATR * 2.0  # risk = 20
@@ -146,16 +152,18 @@ class TestTargetCollectionLong:
         f_sig = _features(bsl_level=5040.0, bsl_significance=0.6)
         f_insig = _features(bsl_level=5040.0, bsl_significance=0.3)
         assert any(t.level_type == "bsl" for t in _collect_targets_long(ENTRY, stop, ATR, f_sig))
-        assert not any(t.level_type == "bsl"
-                       for t in _collect_targets_long(ENTRY, stop, ATR, f_insig))
+        assert not any(
+            t.level_type == "bsl" for t in _collect_targets_long(ENTRY, stop, ATR, f_insig)
+        )
 
     def test_fvg_collected_only_if_bullish(self):
         stop = ENTRY - ATR * 2.0
         f_bull = _features(fvg_type=1.0, fvg_top=5030.0)
         f_bear = _features(fvg_type=-1.0, fvg_top=5030.0)
         assert any(t.level_type == "fvg" for t in _collect_targets_long(ENTRY, stop, ATR, f_bull))
-        assert not any(t.level_type == "fvg"
-                       for t in _collect_targets_long(ENTRY, stop, ATR, f_bear))
+        assert not any(
+            t.level_type == "fvg" for t in _collect_targets_long(ENTRY, stop, ATR, f_bear)
+        )
 
     def test_too_close_filtered_out(self):
         # Level only ATR×0.3 above entry — below min_level threshold of ATR×0.5
@@ -174,8 +182,8 @@ class TestTargetCollectionLong:
     def test_sorted_nearest_first(self):
         stop = ENTRY - ATR * 2.0
         f = _features(
-            nearest_resistance=5060.0,      # 3R
-            kalman_upper=5030.0,            # 1.5R
+            nearest_resistance=5060.0,  # 3R
+            kalman_upper=5030.0,  # 1.5R
         )
         targets = _collect_targets_long(ENTRY, stop, ATR, f)
         prices = [t.price for t in targets]
@@ -193,6 +201,7 @@ class TestTargetCollectionLong:
 # Target level collection — shorts
 # ---------------------------------------------------------------------------
 
+
 class TestTargetCollectionShort:
     def test_support_collected(self):
         stop = ENTRY + ATR * 2.0  # risk = 20
@@ -205,14 +214,15 @@ class TestTargetCollectionShort:
         f_sig = _features(ssl_level=4960.0, ssl_significance=0.6)
         f_insig = _features(ssl_level=4960.0, ssl_significance=0.3)
         assert any(t.level_type == "ssl" for t in _collect_targets_short(ENTRY, stop, ATR, f_sig))
-        assert not any(t.level_type == "ssl"
-                       for t in _collect_targets_short(ENTRY, stop, ATR, f_insig))
+        assert not any(
+            t.level_type == "ssl" for t in _collect_targets_short(ENTRY, stop, ATR, f_insig)
+        )
 
     def test_sorted_nearest_first(self):
         stop = ENTRY + ATR * 2.0
         f = _features(
-            nearest_support=4940.0,    # 3R
-            kalman_lower=4970.0,       # 1.5R
+            nearest_support=4940.0,  # 3R
+            kalman_lower=4970.0,  # 1.5R
         )
         targets = _collect_targets_short(ENTRY, stop, ATR, f)
         prices = [t.price for t in targets]
@@ -222,6 +232,7 @@ class TestTargetCollectionShort:
 # ---------------------------------------------------------------------------
 # T1/T2/T3 picking
 # ---------------------------------------------------------------------------
+
 
 class TestPickTargets:
     def _make_candidates(self, rrs: list[float], direction: int = 1) -> list[TradeTarget]:
@@ -282,6 +293,7 @@ class TestPickTargets:
 # ---------------------------------------------------------------------------
 # RR gate
 # ---------------------------------------------------------------------------
+
 
 class TestRRGate:
     def test_rejects_when_t1_below_min(self):
@@ -347,6 +359,7 @@ class TestRRGate:
 # ---------------------------------------------------------------------------
 # Entry offset by setup type
 # ---------------------------------------------------------------------------
+
 
 class TestEntryOffset:
     def test_sweep_reclaim_uses_at_reclaim(self):
@@ -419,13 +432,14 @@ class TestEntryOffset:
 # Structural path — full integration
 # ---------------------------------------------------------------------------
 
+
 class TestStructuralIntegration:
     def test_structural_long_with_sr_targets(self):
         f = {
-            "swing_low": 4985.0,          # stop priority 4 → 4985 - 2.5 = 4982.5, risk = 17.5
+            "swing_low": 4985.0,  # stop priority 4 → 4985 - 2.5 = 4982.5, risk = 17.5
             "nearest_resistance": 5035.0,  # 2.0R above entry
-            "kalman_upper": 5070.0,        # 4.0R above entry
-            "bsl_level": 5105.0,           # 6.0R — outside ATR×8 window (10*8=80 → max=5080)
+            "kalman_upper": 5070.0,  # 4.0R above entry
+            "bsl_level": 5105.0,  # 6.0R — outside ATR×8 window (10*8=80 → max=5080)
         }
         frame = frame_trade("trend_long", 1, 5000.0, f, 10.0)
         assert frame.viable
@@ -439,7 +453,7 @@ class TestStructuralIntegration:
             "swing_low": 4985.0,
             "nearest_resistance": 5040.0,
             "kalman_upper": 5070.0,
-            "vwap_upper_2": 5090.0,        # > 4R
+            "vwap_upper_2": 5090.0,  # > 4R
         }
         frame = frame_trade("trend_long", 1, 5000.0, f, 10.0)
         if frame.rr_t3 > 0:
@@ -450,6 +464,7 @@ class TestStructuralIntegration:
 # ---------------------------------------------------------------------------
 # New entry types: at_limit and at_pullback
 # ---------------------------------------------------------------------------
+
 
 class TestResolveEntryNewCases:
     def test_momentum_breakout_long_uses_at_limit(self):

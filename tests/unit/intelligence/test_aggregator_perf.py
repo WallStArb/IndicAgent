@@ -19,6 +19,7 @@ from src.intelligence.trading.aggregator import SETUP_PRIORITY, _build_all_ranke
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _signal(plugin: str, direction: int, confidence: float = 0.7) -> dict:
     """Build a minimal signal dict for aggregation testing."""
     return {
@@ -47,6 +48,7 @@ def _signal(plugin: str, direction: int, confidence: float = 0.7) -> dict:
 # Module import test (passes in RED — existing module is importable)
 # ---------------------------------------------------------------------------
 
+
 class TestModuleImport:
     @pytest.mark.unit
     def test_build_all_ranked_module_importable(self):
@@ -60,6 +62,7 @@ class TestModuleImport:
 # Existing behavior unchanged when perf_weights=None or {} (RED: TypeError expected)
 # ---------------------------------------------------------------------------
 
+
 class TestBuildAllRankedNoPerfWeights:
     @pytest.mark.unit
     def test_build_all_ranked_no_perf_weights_unchanged(self):
@@ -68,9 +71,9 @@ class TestBuildAllRankedNoPerfWeights:
         RED: fails with TypeError because perf_weights kwarg does not exist yet.
         """
         fired = [
-            _signal("trad_MeanReversion", 1),       # SETUP_PRIORITY=1 (lowest)
+            _signal("trad_MeanReversion", 1),  # SETUP_PRIORITY=1 (lowest)
             _signal("trad_LiquiditySweepReclaim", 1),  # SETUP_PRIORITY=5 (highest)
-            _signal("trad_TrendFollowing", 1),       # SETUP_PRIORITY=3
+            _signal("trad_TrendFollowing", 1),  # SETUP_PRIORITY=3
         ]
         result = _build_all_ranked(fired, perf_weights=None)
         # Without perf_weights, LiquiditySweepReclaim (priority=5) should rank first
@@ -95,6 +98,7 @@ class TestBuildAllRankedNoPerfWeights:
 # ---------------------------------------------------------------------------
 # Perf multiplier behavior (RED: TypeError from missing perf_weights kwarg)
 # ---------------------------------------------------------------------------
+
 
 class TestBuildAllRankedPerfMultiplier:
     @pytest.mark.unit
@@ -173,15 +177,15 @@ class TestBuildAllRankedPerfMultiplier:
         RED: fails with TypeError because perf_weights kwarg does not exist yet.
         """
         fired = [
-            _signal("trad_MeanReversion", 1),      # priority=1
-            _signal("trad_TrendFollowing", 1),      # priority=3
+            _signal("trad_MeanReversion", 1),  # priority=1
+            _signal("trad_TrendFollowing", 1),  # priority=3
             _signal("trad_LiquiditySweepReclaim", 1),  # priority=5
         ]
         # Underperformer (LiquiditySweepReclaim) and outperformer (MeanReversion)
         perf_weights = {
-            "trad_MeanReversion": 0.5,        # outperformer: big rank boost
-            "trad_TrendFollowing": 1.0,        # neutral
-            "trad_LiquiditySweepReclaim": 1.5, # underperformer: rank penalty
+            "trad_MeanReversion": 0.5,  # outperformer: big rank boost
+            "trad_TrendFollowing": 1.0,  # neutral
+            "trad_LiquiditySweepReclaim": 1.5,  # underperformer: rank penalty
         }
         result = _build_all_ranked(fired, perf_weights=perf_weights)
         # Verify adjusted_ranks are in ascending order (lower = higher priority = appears first)
@@ -192,6 +196,7 @@ class TestBuildAllRankedPerfMultiplier:
 # ---------------------------------------------------------------------------
 # aggregate() perf_weights kwarg propagation (RED: TypeError expected)
 # ---------------------------------------------------------------------------
+
 
 class TestAggregatePerfWeightsKwarg:
     @pytest.mark.unit
@@ -237,7 +242,7 @@ class TestBuildAllRankedEndToEnd:
           MeanReversion: multiplier=0.5 → ranks first — CORRECT.
         """
         stats = {
-            "trad_MeanReversion": {"sharpe_ratio": 3.0},        # best → multiplier=0.5
+            "trad_MeanReversion": {"sharpe_ratio": 3.0},  # best → multiplier=0.5
             "trad_SqueezeExpansion": {"sharpe_ratio": 1.5},
             "trad_TrendFollowing": {"sharpe_ratio": 1.0},
             "trad_MTFAlignment": {"sharpe_ratio": 0.5},
@@ -246,9 +251,9 @@ class TestBuildAllRankedEndToEnd:
         perf_weights = _compute_perf_multipliers(stats)
         fired = [{"setup_plugin": p, "direction": 1} for p in stats]
         result = _build_all_ranked(fired, perf_weights=perf_weights)
-        assert result[0]["setup_plugin"] == "trad_MeanReversion", (
-            f"Expected trad_MeanReversion (best Sharpe) first, got {result[0]['setup_plugin']}"
-        )
+        assert (
+            result[0]["setup_plugin"] == "trad_MeanReversion"
+        ), f"Expected trad_MeanReversion (best Sharpe) first, got {result[0]['setup_plugin']}"
 
     @pytest.mark.unit
     def test_e2e_worst_sharpe_ranks_last_regardless_of_setup_priority(self):
@@ -268,6 +273,6 @@ class TestBuildAllRankedEndToEnd:
         fired = [{"setup_plugin": p, "direction": 1} for p in stats]
         result = _build_all_ranked(fired, perf_weights=perf_weights)
         got = result[-1]["setup_plugin"]
-        assert got == "trad_LiquiditySweepReclaim", (
-            f"Expected trad_LiquiditySweepReclaim (worst Sharpe) last, got {got}"
-        )
+        assert (
+            got == "trad_LiquiditySweepReclaim"
+        ), f"Expected trad_LiquiditySweepReclaim (worst Sharpe) last, got {got}"

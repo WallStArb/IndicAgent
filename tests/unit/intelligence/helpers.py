@@ -1,4 +1,5 @@
 """Shared test helpers for intelligence plugin tests."""
+
 from __future__ import annotations
 
 import numpy as np

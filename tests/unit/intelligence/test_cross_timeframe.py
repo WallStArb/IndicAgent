@@ -196,8 +196,8 @@ class TestCrossTimeframeConfluence:
         frames = {
             "main": None,
             "features": _bullish_intel(),
-            "intel_5m": _bullish_intel(),      # fresh: bars_since=0 → weight=1.0
-            "intel_1h": _bearish_intel(),       # stale: bars_since=10 → weight≈0.09
+            "intel_5m": _bullish_intel(),  # fresh: bars_since=0 → weight=1.0
+            "intel_1h": _bearish_intel(),  # stale: bars_since=10 → weight≈0.09
             "intel_5m_bars_since": 0,
             "intel_1h_bars_since": 10,
         }

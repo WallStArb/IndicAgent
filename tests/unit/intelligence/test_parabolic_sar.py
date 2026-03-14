@@ -20,11 +20,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFra
     low = close * (1 - spread)
     high = np.maximum(high, close)
     low = np.minimum(low, close)
-    return pd.DataFrame({
-        "open": close, "high": high, "low": low,
-        "close": close,
-        "volume": rng.lognormal(10, 0.5, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.lognormal(10, 0.5, n).astype(float),
+        }
+    )
 
 
 class TestPSAR:

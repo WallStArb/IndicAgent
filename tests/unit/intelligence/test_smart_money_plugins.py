@@ -514,36 +514,50 @@ class TestLiquidityPools:
         eq_high = base_price + atr_approx * 2.0
         high[30] = eq_high
         high[60] = eq_high + atr_approx * 0.1  # slightly different but within tolerance
-        return pd.DataFrame({"open": open_, "high": high, "low": low,
-                              "close": close, "volume": np.full(n, 1000.0)})
+        return pd.DataFrame(
+            {"open": open_, "high": high, "low": low, "close": close, "volume": np.full(n, 1000.0)}
+        )
 
     def _make_daily_df(self, pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0):
         """Create 5-bar 1d DataFrame with distinct PDH/PDL/PWH/PWL."""
         # bars[-5:-2] = prior week extremes, bars[-2] = yesterday, bars[-1] = today
         highs = [pwh, 5150.0, 5120.0, pdh, 5080.0]
-        lows  = [pwl, 4850.0, 4870.0, pdl, 4950.0]
+        lows = [pwl, 4850.0, 4870.0, pdl, 4950.0]
         closes = [5000.0] * 5
-        opens  = [5000.0] * 5
-        return pd.DataFrame({"open": opens, "high": highs, "low": lows,
-                              "close": closes, "volume": [1000.0]*5})
+        opens = [5000.0] * 5
+        return pd.DataFrame(
+            {"open": opens, "high": highs, "low": lows, "close": closes, "volume": [1000.0] * 5}
+        )
 
     def test_returns_all_output_fields(self):
         """Plugin returns all 13 expected output fields."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         df_1m = make_ohlcv(np.linspace(5000, 5100, 150))
         df_1d = self._make_daily_df()
         plugin = LiquidityPoolsPlugin()
         result = plugin.compute_full({"main": df_1m, "1d": df_1d})
         expected_fields = {
-            "bsl_level", "bsl_type", "bsl_significance", "bsl_dist_atr", "bsl_touches",
-            "ssl_level", "ssl_type", "ssl_significance", "ssl_dist_atr", "ssl_touches",
-            "price_in_premium", "premium_position", "pool_count",
+            "bsl_level",
+            "bsl_type",
+            "bsl_significance",
+            "bsl_dist_atr",
+            "bsl_touches",
+            "ssl_level",
+            "ssl_type",
+            "ssl_significance",
+            "ssl_dist_atr",
+            "ssl_touches",
+            "price_in_premium",
+            "premium_position",
+            "pool_count",
         }
         assert expected_fields.issubset(result.keys())
 
     def test_pdh_pdl_detected_from_daily(self):
         """PDH/PDL from yesterday's daily bar → bsl_level=PDH, ssl_level=PDL."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         df_1d = self._make_daily_df(pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0)
         # 1m price between PDH and PDL (no equal highs/lows)
         df_1m = make_ohlcv(np.full(150, 5000.0))
@@ -557,6 +571,7 @@ class TestLiquidityPools:
     def test_pwh_pwl_higher_significance_than_pdh_pdl(self):
         """PWH/PWL have significance 1.0, PDH/PDL have 0.85."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         # Price near PDH — PWH is the nearest level above PDH
         df_1d = self._make_daily_df(pdh=5050.0, pdl=4950.0, pwh=5080.0, pwl=4920.0)
         df_1m = make_ohlcv(np.full(150, 5000.0))
@@ -569,6 +584,7 @@ class TestLiquidityPools:
     def test_equal_highs_detected(self):
         """Two swing highs within ATR*0.75 → equal highs BSL with significance 0.60."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         df_1m = self._make_df_with_equal_highs(base_price=5000.0, atr_approx=10.0)
         df_1d = self._make_daily_df(pdh=5000.0, pdl=4800.0, pwh=5100.0, pwl=4700.0)
         plugin = LiquidityPoolsPlugin()
@@ -579,6 +595,7 @@ class TestLiquidityPools:
     def test_premium_flag_above_midpoint(self):
         """Price above 20-bar range midpoint → price_in_premium=1.0."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         # Price rises strongly — ends in premium territory
         close = np.concatenate([np.full(10, 4900.0), np.full(140, 5100.0)])
         df_1m = make_ohlcv(close)
@@ -590,6 +607,7 @@ class TestLiquidityPools:
     def test_discount_flag_below_midpoint(self):
         """Price below 20-bar range midpoint → price_in_premium=0.0."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         close = np.concatenate([np.full(10, 5100.0), np.full(140, 4900.0)])
         df_1m = make_ohlcv(close)
         df_1d = self._make_daily_df(pdh=5200.0, pdl=4800.0, pwh=5300.0, pwl=4700.0)
@@ -600,6 +618,7 @@ class TestLiquidityPools:
     def test_empty_data_returns_zeros(self):
         """None or insufficient data → empty dict or all-zero output."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         plugin = LiquidityPoolsPlugin()
         assert plugin.compute_full({"main": None}) == {}
         df_small = make_ohlcv(np.full(5, 5000.0))
@@ -609,6 +628,7 @@ class TestLiquidityPools:
     def test_bsl_level_is_above_current_price(self):
         """BSL (buy-side liquidity) must be above current price."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         df_1m = make_ohlcv(np.full(150, 5000.0))
         df_1d = self._make_daily_df(pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0)
         plugin = LiquidityPoolsPlugin()
@@ -619,6 +639,7 @@ class TestLiquidityPools:
     def test_ssl_level_is_below_current_price(self):
         """SSL (sell-side liquidity) must be below current price."""
         from src.intelligence.smart_money.liquidity_pools import LiquidityPoolsPlugin
+
         df_1m = make_ohlcv(np.full(150, 5000.0))
         df_1d = self._make_daily_df(pdh=5100.0, pdl=4900.0, pwh=5200.0, pwl=4800.0)
         plugin = LiquidityPoolsPlugin()
@@ -636,101 +657,114 @@ class TestSupplyDemandZones:
     def _make_dbr(self, n=150, base=5000.0, atr=15.0):
         """Drop-Base-Rally: bearish impulse → tight base → bullish impulse → demand zone."""
         close = np.full(n, base)
-        high  = np.full(n, base + atr * 0.3)
-        low   = np.full(n, base - atr * 0.3)
+        high = np.full(n, base + atr * 0.3)
+        low = np.full(n, base - atr * 0.3)
         open_ = np.full(n, base)
 
         # Bearish impulse: bars 20-23 drop sharply
         for i in range(20, 24):
             close[i] = base - atr * (1 + (i - 20) * 0.7)
-            low[i]   = close[i] - atr * 0.2
-            high[i]  = close[i - 1] if i > 20 else base
+            low[i] = close[i] - atr * 0.2
+            high[i] = close[i - 1] if i > 20 else base
             open_[i] = close[i - 1] if i > 20 else base
 
         # Base: bars 24-26 tight consolidation
         base_price = close[23]
         for i in range(24, 27):
             close[i] = base_price + atr * 0.05 * (i - 24)
-            high[i]  = base_price + atr * 0.25
-            low[i]   = base_price - atr * 0.25
+            high[i] = base_price + atr * 0.25
+            low[i] = base_price - atr * 0.25
             open_[i] = base_price
 
         # Bullish impulse: bars 27-30 rally hard → DBR → demand zone = bars 24-26 range
         rally_start = close[26]
         for i in range(27, 31):
             close[i] = rally_start + atr * 1.8 * (i - 26)
-            high[i]  = close[i] + atr * 0.2
-            low[i]   = close[i - 1] if i > 27 else rally_start
+            high[i] = close[i] + atr * 0.2
+            low[i] = close[i - 1] if i > 27 else rally_start
             open_[i] = close[i - 1] if i > 27 else rally_start
 
         # Bars 31+ stay elevated (zone untested)
         for i in range(31, n):
             close[i] = close[30]
-            high[i]  = close[30] + atr * 0.3
-            low[i]   = close[30] - atr * 0.3
+            high[i] = close[30] + atr * 0.3
+            low[i] = close[30] - atr * 0.3
             open_[i] = close[30]
 
-        return pd.DataFrame({"open": open_, "high": high, "low": low,
-                              "close": close, "volume": np.full(n, 1000.0)})
+        return pd.DataFrame(
+            {"open": open_, "high": high, "low": low, "close": close, "volume": np.full(n, 1000.0)}
+        )
 
     def _make_rbd(self, n=150, base=5000.0, atr=15.0):
         """Rally-Base-Drop: bullish impulse → tight base → bearish impulse → supply zone."""
         close = np.full(n, base)
-        high  = np.full(n, base + atr * 0.3)
-        low   = np.full(n, base - atr * 0.3)
+        high = np.full(n, base + atr * 0.3)
+        low = np.full(n, base - atr * 0.3)
         open_ = np.full(n, base)
 
         # Bullish impulse: bars 20-23
         for i in range(20, 24):
             close[i] = base + atr * (1 + (i - 20) * 0.7)
-            high[i]  = close[i] + atr * 0.2
-            low[i]   = close[i - 1] if i > 20 else base
+            high[i] = close[i] + atr * 0.2
+            low[i] = close[i - 1] if i > 20 else base
             open_[i] = close[i - 1] if i > 20 else base
 
         # Tight base: bars 24-26
         base_price = close[23]
         for i in range(24, 27):
             close[i] = base_price - atr * 0.05 * (i - 24)
-            high[i]  = base_price + atr * 0.25
-            low[i]   = base_price - atr * 0.25
+            high[i] = base_price + atr * 0.25
+            low[i] = base_price - atr * 0.25
             open_[i] = base_price
 
         # Bearish impulse: bars 27-30
         drop_start = close[26]
         for i in range(27, 31):
             close[i] = drop_start - atr * 1.8 * (i - 26)
-            low[i]   = close[i] - atr * 0.2
-            high[i]  = close[i - 1] if i > 27 else drop_start
+            low[i] = close[i] - atr * 0.2
+            high[i] = close[i - 1] if i > 27 else drop_start
             open_[i] = close[i - 1] if i > 27 else drop_start
 
         # Bars 31+ stay depressed
         for i in range(31, n):
             close[i] = close[30]
-            high[i]  = close[30] + atr * 0.3
-            low[i]   = close[30] - atr * 0.3
+            high[i] = close[30] + atr * 0.3
+            low[i] = close[30] - atr * 0.3
             open_[i] = close[30]
 
-        return pd.DataFrame({"open": open_, "high": high, "low": low,
-                              "close": close, "volume": np.full(n, 1000.0)})
+        return pd.DataFrame(
+            {"open": open_, "high": high, "low": low, "close": close, "volume": np.full(n, 1000.0)}
+        )
 
     def test_returns_all_output_fields(self):
         """Plugin returns all 14 expected output fields."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = make_ohlcv(np.full(150, 5000.0))
         plugin = SupplyDemandZonesPlugin()
         result = plugin.compute_full({"main": df})
         expected = {
-            "nearest_demand_high", "nearest_demand_low", "demand_freshness",
-            "demand_strength", "demand_dist_atr", "in_demand_zone",
-            "nearest_supply_high", "nearest_supply_low", "supply_freshness",
-            "supply_strength", "supply_dist_atr", "in_supply_zone",
-            "active_demand_zones", "active_supply_zones",
+            "nearest_demand_high",
+            "nearest_demand_low",
+            "demand_freshness",
+            "demand_strength",
+            "demand_dist_atr",
+            "in_demand_zone",
+            "nearest_supply_high",
+            "nearest_supply_low",
+            "supply_freshness",
+            "supply_strength",
+            "supply_dist_atr",
+            "in_supply_zone",
+            "active_demand_zones",
+            "active_supply_zones",
         }
         assert expected.issubset(result.keys())
 
     def test_dbr_creates_demand_zone(self):
         """Drop-Base-Rally pattern → demand zone detected with freshness=1.0."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = self._make_dbr()
         plugin = SupplyDemandZonesPlugin()
         result = plugin.compute_full({"main": df})
@@ -741,6 +775,7 @@ class TestSupplyDemandZones:
     def test_rbd_creates_supply_zone(self):
         """Rally-Base-Drop pattern → supply zone detected with freshness=1.0."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = self._make_rbd()
         plugin = SupplyDemandZonesPlugin()
         result = plugin.compute_full({"main": df})
@@ -751,6 +786,7 @@ class TestSupplyDemandZones:
     def test_zone_range_covers_base_candles(self):
         """Demand zone high/low brackets the base candle range."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = self._make_dbr(base=5000.0, atr=15.0)
         plugin = SupplyDemandZonesPlugin()
         result = plugin.compute_full({"main": df})
@@ -763,6 +799,7 @@ class TestSupplyDemandZones:
     def test_in_demand_zone_flag(self):
         """When current price is inside demand zone, in_demand_zone=1.0."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = self._make_dbr(base=5000.0, atr=15.0)
         plugin = SupplyDemandZonesPlugin()
         # First establish zone
@@ -775,6 +812,7 @@ class TestSupplyDemandZones:
     def test_no_zones_flat_market(self):
         """Flat market with no impulse → no zones detected."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         close = np.full(150, 5000.0) + np.random.default_rng(99).normal(0, 1, 150)
         df = make_ohlcv(close)
         plugin = SupplyDemandZonesPlugin()
@@ -786,6 +824,7 @@ class TestSupplyDemandZones:
     def test_empty_data_returns_empty(self):
         """None or insufficient data → empty dict."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         plugin = SupplyDemandZonesPlugin()
         assert plugin.compute_full({"main": None}) == {}
         df_small = make_ohlcv(np.full(10, 5000.0))
@@ -794,6 +833,7 @@ class TestSupplyDemandZones:
     def test_demand_strength_boosted_in_discount(self):
         """Demand zone in discount region (price_in_premium=0.0) → strength >= base."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = self._make_dbr()
         plugin = SupplyDemandZonesPlugin()
         result = plugin.compute_full({"main": df, "features": {"price_in_premium": 0.0}})
@@ -803,6 +843,7 @@ class TestSupplyDemandZones:
     def test_supply_zone_high_above_low(self):
         """Supply zone always has high > low."""
         from src.intelligence.smart_money.supply_demand_zones import SupplyDemandZonesPlugin
+
         df = self._make_rbd()
         plugin = SupplyDemandZonesPlugin()
         result = plugin.compute_full({"main": df})

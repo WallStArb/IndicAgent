@@ -11,8 +11,13 @@ from src.intelligence.trading.aggregator import (
 )
 
 
-def _signal(plugin: str, direction: int, confidence: float = 0.7,
-            confluence: float = 0.5, signal_type: str = "test") -> dict:
+def _signal(
+    plugin: str,
+    direction: int,
+    confidence: float = 0.7,
+    confluence: float = 0.5,
+    signal_type: str = "test",
+) -> dict:
     """Build a minimal signal dict for aggregation testing."""
     return {
         "type": "signal.v1",
@@ -437,9 +442,9 @@ class TestShadowSignals:
         sig["regime_type"] = "trend"
         result = aggregate([sig], regime_data=_regime_features(0, prob=0.80, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("regime_eligible") is False, (
-            "Suppressed signal must have regime_eligible=False"
-        )
+        assert (
+            result.all_ranked[0].get("regime_eligible") is False
+        ), "Suppressed signal must have regime_eligible=False"
 
     @pytest.mark.unit
     def test_suppressed_signal_has_suppression_reason(self):
@@ -448,9 +453,9 @@ class TestShadowSignals:
         sig["regime_type"] = "trend"
         result = aggregate([sig], regime_data=_regime_features(0, prob=0.80, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("suppression_reason") == "regime_type", (
-            "Suppressed signal must have suppression_reason='regime_type'"
-        )
+        assert (
+            result.all_ranked[0].get("suppression_reason") == "regime_type"
+        ), "Suppressed signal must have suppression_reason='regime_type'"
 
     @pytest.mark.unit
     def test_suppressed_signal_has_direction_populated(self):
@@ -459,9 +464,9 @@ class TestShadowSignals:
         sig["regime_type"] = "trend"
         result = aggregate([sig], regime_data=_regime_features(0, prob=0.80, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("direction") != 0, (
-            "Shadow signal must retain direction from original setup"
-        )
+        assert (
+            result.all_ranked[0].get("direction") != 0
+        ), "Shadow signal must retain direction from original setup"
 
     @pytest.mark.unit
     def test_eligible_signal_has_regime_eligible_true(self):
@@ -470,9 +475,9 @@ class TestShadowSignals:
         sig["regime_type"] = "trend"
         result = aggregate([sig], regime_data=_regime_features(1, prob=0.80, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("regime_eligible") is True, (
-            "Eligible signal must have regime_eligible=True"
-        )
+        assert (
+            result.all_ranked[0].get("regime_eligible") is True
+        ), "Eligible signal must have regime_eligible=True"
 
     @pytest.mark.unit
     def test_regime_prob_below_threshold_suppresses_all(self):
@@ -482,12 +487,12 @@ class TestShadowSignals:
         # prob=0.55 is below new threshold of 0.60
         result = aggregate([sig], regime_data=_regime_features(1, prob=0.55, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("regime_eligible") is False, (
-            "Signal with prob=0.55 must be suppressed under new threshold of 0.60"
-        )
-        assert result.all_ranked[0].get("suppression_reason") == "regime_prob", (
-            "Suppression due to low regime probability must set reason='regime_prob'"
-        )
+        assert (
+            result.all_ranked[0].get("regime_eligible") is False
+        ), "Signal with prob=0.55 must be suppressed under new threshold of 0.60"
+        assert (
+            result.all_ranked[0].get("suppression_reason") == "regime_prob"
+        ), "Suppression due to low regime probability must set reason='regime_prob'"
 
     @pytest.mark.unit
     def test_regime_duration_below_threshold_suppresses_all(self):
@@ -497,12 +502,12 @@ class TestShadowSignals:
         # duration=4 is above old threshold (3) but below new threshold (5)
         result = aggregate([sig], regime_data=_regime_features(1, prob=0.80, duration=4))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("regime_eligible") is False, (
-            "Signal with duration=4 must be suppressed under new threshold of 5"
-        )
-        assert result.all_ranked[0].get("suppression_reason") == "regime_duration", (
-            "Suppression due to short duration must set reason='regime_duration'"
-        )
+        assert (
+            result.all_ranked[0].get("regime_eligible") is False
+        ), "Signal with duration=4 must be suppressed under new threshold of 5"
+        assert (
+            result.all_ranked[0].get("suppression_reason") == "regime_duration"
+        ), "Suppression due to short duration must set reason='regime_duration'"
 
     @pytest.mark.unit
     def test_any_regime_plugin_eligible_in_any_regime(self):
@@ -512,21 +517,21 @@ class TestShadowSignals:
         # regime=0 (ranging) — any-regime plugin passes regardless
         result = aggregate([sig], regime_data=_regime_features(0, prob=0.80, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
-        assert result.all_ranked[0].get("regime_eligible") is True, (
-            "trad_CHoCHReversal (regime_type='any') must have regime_eligible=True"
-        )
+        assert (
+            result.all_ranked[0].get("regime_eligible") is True
+        ), "trad_CHoCHReversal (regime_type='any') must have regime_eligible=True"
 
     @pytest.mark.unit
     def test_no_duplicate_signals_in_all_ranked(self):
         """One suppressed + one eligible signal both appear exactly once in all_ranked."""
-        trend = _signal("trad_TrendFollowing", 1)   # suppressed in regime=0
+        trend = _signal("trad_TrendFollowing", 1)  # suppressed in regime=0
         trend["regime_type"] = "trend"
-        choch = _signal("trad_CHoCHReversal", 1)     # eligible (any regime)
+        choch = _signal("trad_CHoCHReversal", 1)  # eligible (any regime)
         choch["regime_type"] = "any"
         result = aggregate([trend, choch], regime_data=_regime_features(0, prob=0.80, duration=10))
-        assert len(result.all_ranked) == 2, (
-            f"Expected exactly 2 signals in all_ranked, got {len(result.all_ranked)}"
-        )
+        assert (
+            len(result.all_ranked) == 2
+        ), f"Expected exactly 2 signals in all_ranked, got {len(result.all_ranked)}"
 
 
 # ---------------------------------------------------------------------------

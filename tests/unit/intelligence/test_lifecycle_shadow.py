@@ -84,12 +84,10 @@ class TestShadowSignalVirtualActivation:
             "when price hits stop. Virtual-activation requires this to work "
             "without a prior pending->active transition."
         )
-        assert isinstance(result, Transition), (
-            f"Expected Transition, got {type(result)}"
-        )
-        assert result.new_status == "stopped_out", (
-            f"Expected new_status='stopped_out', got {result.new_status!r}"
-        )
+        assert isinstance(result, Transition), f"Expected Transition, got {type(result)}"
+        assert (
+            result.new_status == "stopped_out"
+        ), f"Expected new_status='stopped_out', got {result.new_status!r}"
 
     @pytest.mark.unit
     def test_shadow_signal_mae_mfe_tracked_from_bar_zero(self):
@@ -104,8 +102,8 @@ class TestShadowSignalVirtualActivation:
         """
         sig = _shadow_signal(direction=1)
         entry = sig["entry_price"]  # 5100.0
-        stop = sig["stop_loss"]     # 5085.0
-        risk = abs(entry - stop)    # 15.0 ticks
+        stop = sig["stop_loss"]  # 5085.0
+        risk = abs(entry - stop)  # 15.0 ticks
 
         # Bar 0: price moves favorably (above entry)
         result_bar0 = evaluate_signal(
@@ -117,9 +115,7 @@ class TestShadowSignalVirtualActivation:
             current_mfe=0.0,
         )
         # No exit yet (stop not hit, target not hit)
-        assert result_bar0 is None, (
-            "Bar 0 favorable movement should not trigger an exit"
-        )
+        assert result_bar0 is None, "Bar 0 favorable movement should not trigger an exit"
 
         # Bar 1: price drops adversely
         result_bar1 = evaluate_signal(
@@ -133,14 +129,14 @@ class TestShadowSignalVirtualActivation:
         assert result_bar1 is not None, "Stop hit on bar 1 must return a Transition"
         # MAE should be negative (adverse = below entry for long)
         assert result_bar1.mae is not None
-        assert result_bar1.mae < 0, (
-            f"MAE must be negative when price moved against direction: {result_bar1.mae}"
-        )
+        assert (
+            result_bar1.mae < 0
+        ), f"MAE must be negative when price moved against direction: {result_bar1.mae}"
         # MFE should be positive (favorable move occurred on bar 0)
         assert result_bar1.mfe is not None
-        assert result_bar1.mfe > 0, (
-            f"MFE must be positive from prior favorable movement: {result_bar1.mfe}"
-        )
+        assert (
+            result_bar1.mfe > 0
+        ), f"MFE must be positive from prior favorable movement: {result_bar1.mfe}"
 
     @pytest.mark.unit
     def test_shadow_signal_status_never_becomes_active(self):
@@ -175,15 +171,15 @@ class TestShadowSignalVirtualActivation:
         }
 
         # Contract: was_selected must be False for any regime_suppressed signal
-        assert shadow_signal_in_db.get("regime_eligible") is False, (
-            "Shadow signal must have regime_eligible=False"
-        )
+        assert (
+            shadow_signal_in_db.get("regime_eligible") is False
+        ), "Shadow signal must have regime_eligible=False"
         assert shadow_signal_in_db.get("was_selected") is False, (
             "Shadow signal must have was_selected=False. "
             "The lifecycle service MUST NOT call update_signal_status with "
             "status='active' for signals where was_selected=False and "
             "status='regime_suppressed'."
         )
-        assert shadow_signal_in_db.get("status") == "regime_suppressed", (
-            "Shadow signal DB status must remain 'regime_suppressed', never 'active'"
-        )
+        assert (
+            shadow_signal_in_db.get("status") == "regime_suppressed"
+        ), "Shadow signal DB status must remain 'regime_suppressed', never 'active'"

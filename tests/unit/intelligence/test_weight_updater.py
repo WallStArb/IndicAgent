@@ -1,4 +1,5 @@
 """Tests for CIS weight updater."""
+
 from __future__ import annotations
 
 import json
@@ -153,10 +154,16 @@ class TestComputeNewWeights:
 
     def test_bucket_scores_as_json_string(self):
         """bucket_scores may arrive as a JSON string from asyncpg JSONB rows."""
-        bs = json.dumps({
-            "trend": 0.4, "momentum": 0.3, "structure": 0.2,
-            "pattern": 0.05, "institutional": 0.2, "regime": 0.15,
-        })
+        bs = json.dumps(
+            {
+                "trend": 0.4,
+                "momentum": 0.3,
+                "structure": 0.2,
+                "pattern": 0.05,
+                "institutional": 0.2,
+                "regime": 0.15,
+            }
+        )
         signals_a = [{"bucket_scores": bs, "signal_quality": 1.5}] * 30
         signals_b = [{"bucket_scores": bs, "signal_quality": 0.2}] * 30
         result = compute_new_weights(signals_a + signals_b)
@@ -174,9 +181,19 @@ class TestComputeNewWeights:
     def test_filters_rows_missing_signal_quality(self):
         """Rows without signal_quality are filtered out."""
         valid = _varied_signals(60)
-        missing = [{"bucket_scores": {"trend": 0.1, "momentum": 0.1, "structure": 0.1,
-                                       "pattern": 0.1, "institutional": 0.1, "regime": 0.1}}
-                   for _ in range(20)]
+        missing = [
+            {
+                "bucket_scores": {
+                    "trend": 0.1,
+                    "momentum": 0.1,
+                    "structure": 0.1,
+                    "pattern": 0.1,
+                    "institutional": 0.1,
+                    "regime": 0.1,
+                }
+            }
+            for _ in range(20)
+        ]
         result = compute_new_weights(valid + missing)
         # Only 60 valid rows — should retrain if non-degenerate
         if result is not None:

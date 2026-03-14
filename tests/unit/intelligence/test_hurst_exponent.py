@@ -31,6 +31,7 @@ from src.intelligence.register_plugins import TIER_I4
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_frames(close: np.ndarray) -> dict:
     """Wrap a close array in the frames dict pattern used by plugins."""
     df = pd.DataFrame({"close": close})
@@ -74,12 +75,15 @@ def _constant_close(n: int = 128) -> np.ndarray:
 # Plugin metadata
 # ---------------------------------------------------------------------------
 
+
 class TestHurstExponentPluginMetadata:
     def test_name(self):
         assert plugin.name == "ctx_HurstExponent"
 
     def test_outputs(self):
-        assert plugin.outputs == frozenset({"hurst_exponent", "hurst_trend_quality", "hurst_mr_quality"})
+        assert plugin.outputs == frozenset(
+            {"hurst_exponent", "hurst_trend_quality", "hurst_mr_quality"}
+        )
 
     def test_min_lookback(self):
         assert plugin.min_lookback == 64
@@ -98,6 +102,7 @@ class TestHurstExponentPluginMetadata:
 # ---------------------------------------------------------------------------
 # compute_full() — edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestComputeFullEdgeCases:
     def test_returns_empty_when_frames_has_no_main(self):
@@ -137,6 +142,7 @@ class TestComputeFullEdgeCases:
 # compute_full() — output fields and value ranges
 # ---------------------------------------------------------------------------
 
+
 class TestComputeFullOutputs:
     def test_all_three_fields_present(self):
         p = HurstExponentPlugin()
@@ -175,6 +181,7 @@ class TestComputeFullOutputs:
 # _hurst_rs() unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestHurstRs:
     def test_returns_05_on_constant_series(self):
         close = _constant_close(64)
@@ -195,6 +202,7 @@ class TestHurstRs:
 # ---------------------------------------------------------------------------
 # Quality mapping functions
 # ---------------------------------------------------------------------------
+
 
 class TestHurstTrendQuality:
     def test_high_quality_for_strong_trend(self):
@@ -252,6 +260,7 @@ class TestHurstMrQuality:
 # Quality consistency — H near 0.5 → both qualities are low-moderate
 # ---------------------------------------------------------------------------
 
+
 class TestQualityConsistency:
     def test_random_walk_both_qualities_moderate(self):
         """H ~ 0.5 → both trend and mr qualities should be between 0.3 and 0.7."""
@@ -264,6 +273,7 @@ class TestQualityConsistency:
 # ---------------------------------------------------------------------------
 # TIER_I4 registration
 # ---------------------------------------------------------------------------
+
 
 class TestTierRegistration:
     def test_tier_i4_includes_ctx_hurst_exponent(self):

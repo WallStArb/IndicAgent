@@ -13,11 +13,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, vol: float = 0.005) -> pd.DataFram
     spread = rng.uniform(0.001, 0.002, n)
     high = close * (1 + spread)
     low = close * (1 - spread)
-    return pd.DataFrame({
-        "open": close, "high": high, "low": low,
-        "close": close,
-        "volume": rng.lognormal(10, 0.5, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.lognormal(10, 0.5, n).astype(float),
+        }
+    )
 
 
 class TestHistoricalVolatility:
@@ -53,13 +57,18 @@ class TestHistoricalVolatility:
         """Vol spike at end of series → ratio > 1.0."""
         rng = np.random.default_rng(0)
         low_ret = rng.normal(0, 0.001, 60)
-        high_ret = rng.normal(0, 0.02, 20)   # 20x vol spike
+        high_ret = rng.normal(0, 0.02, 20)  # 20x vol spike
         returns = np.concatenate([low_ret, high_ret])
         close = 5000.0 * np.cumprod(1 + returns)
-        df = pd.DataFrame({
-            "open": close, "high": close * 1.001, "low": close * 0.999,
-            "close": close, "volume": np.ones(len(returns)) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": np.ones(len(returns)) * 1000,
+            }
+        )
         result = HistoricalVolatilityPlugin().compute_full({"main": df})
         assert result["hv_ratio_20"] > 1.5
 

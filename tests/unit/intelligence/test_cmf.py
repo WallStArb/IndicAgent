@@ -20,13 +20,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFra
     low = close * (1 - spread)
     high = np.maximum(high, close)
     low = np.minimum(low, close)
-    return pd.DataFrame({
-        "open": close * (1 + rng.normal(0, 0.001, n)),
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": rng.lognormal(10, 0.5, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close * (1 + rng.normal(0, 0.001, n)),
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.lognormal(10, 0.5, n).astype(float),
+        }
+    )
 
 
 class TestCMF:
@@ -52,10 +54,15 @@ class TestCMF:
         high = 5001.0 + rng.uniform(0, 1, n)
         low = 4999.0 + rng.uniform(0, 0.1, n)
         close = high - rng.uniform(0.01, 0.05, n)  # close near high
-        df = pd.DataFrame({
-            "open": close, "high": high, "low": low,
-            "close": close, "volume": np.ones(n) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": np.ones(n) * 1000,
+            }
+        )
         result = CMFPlugin().compute_full({"main": df})
         assert result["cmf_20"] > 0.5
 
@@ -66,10 +73,15 @@ class TestCMF:
         high = 5001.0 + rng.uniform(0, 1, n)
         low = 4999.0 + rng.uniform(0, 0.1, n)
         close = low + rng.uniform(0.01, 0.05, n)  # close near low
-        df = pd.DataFrame({
-            "open": close, "high": high, "low": low,
-            "close": close, "volume": np.ones(n) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": np.ones(n) * 1000,
+            }
+        )
         result = CMFPlugin().compute_full({"main": df})
         assert result["cmf_20"] < -0.5
 

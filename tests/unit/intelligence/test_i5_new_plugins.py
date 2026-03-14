@@ -3,6 +3,7 @@
 Covers: CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove,
         VolumeProfile, KeyLevelReaction — plus registration check.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -21,13 +22,16 @@ class TestCandlestickPatterns:
         import pandas as pd
 
         from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
-        df = pd.DataFrame({
-            "open":  [5005.0, 5010.0, 4990.0],
-            "high":  [5008.0, 5015.0, 5025.0],
-            "low":   [5001.0, 4995.0, 4985.0],
-            "close": [5006.0, 5000.0, 5020.0],
-            "volume": [1000.0, 1000.0, 1000.0],
-        })
+
+        df = pd.DataFrame(
+            {
+                "open": [5005.0, 5010.0, 4990.0],
+                "high": [5008.0, 5015.0, 5025.0],
+                "low": [5001.0, 4995.0, 4985.0],
+                "close": [5006.0, 5000.0, 5020.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         assert result.get("engulfing_bull") == 1.0
         assert result.get("engulfing_bear") == 0.0
@@ -39,13 +43,16 @@ class TestCandlestickPatterns:
         import pandas as pd
 
         from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
-        df = pd.DataFrame({
-            "open":  [5005.0, 5005.0, 5005.0],
-            "high":  [5011.0, 5011.0, 5011.0],
-            "low":   [4990.0, 4990.0, 4980.0],
-            "close": [5010.0, 5010.0, 5010.0],
-            "volume": [1000.0, 1000.0, 1000.0],
-        })
+
+        df = pd.DataFrame(
+            {
+                "open": [5005.0, 5005.0, 5005.0],
+                "high": [5011.0, 5011.0, 5011.0],
+                "low": [4990.0, 4990.0, 4980.0],
+                "close": [5010.0, 5010.0, 5010.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         assert result.get("pin_bar_bull") == 1.0
 
@@ -53,15 +60,18 @@ class TestCandlestickPatterns:
         import pandas as pd
 
         from src.intelligence.patterns.candlestick_patterns import CandlestickPatternsPlugin
+
         # Doji: open ≈ close, range exists.
         # min_lookback=3 — prepend a neutral filler bar as pp.
-        df = pd.DataFrame({
-            "open":  [5000.0, 5000.0, 5000.5],
-            "high":  [5010.0, 5010.0, 5010.0],
-            "low":   [4990.0, 4990.0, 4990.0],
-            "close": [5001.0, 5000.0, 5001.0],
-            "volume": [1000.0, 1000.0, 1000.0],
-        })
+        df = pd.DataFrame(
+            {
+                "open": [5000.0, 5000.0, 5000.5],
+                "high": [5010.0, 5010.0, 5010.0],
+                "low": [4990.0, 4990.0, 4990.0],
+                "close": [5001.0, 5000.0, 5001.0],
+                "volume": [1000.0, 1000.0, 1000.0],
+            }
+        )
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         assert result.get("doji_detected") in (0.0, 1.0)
 
@@ -72,9 +82,15 @@ class TestCandlestickPatterns:
         df = make_ohlcv(close)
         result = CandlestickPatternsPlugin().compute_full({"main": df, "features": {}})
         expected = {
-            "engulfing_bull", "engulfing_bear", "pin_bar_bull", "pin_bar_bear",
-            "hammer_detected", "shooting_star_detected", "inside_bar",
-            "outside_bar", "doji_detected",
+            "engulfing_bull",
+            "engulfing_bear",
+            "pin_bar_bull",
+            "pin_bar_bear",
+            "hammer_detected",
+            "shooting_star_detected",
+            "inside_bar",
+            "outside_bar",
+            "doji_detected",
         }
         assert expected.issubset(result.keys())
 
@@ -109,8 +125,10 @@ class TestFlagPennant:
         result = FlagPennantPlugin().compute_full({"main": df, "features": {}})
         if result:
             expected = {
-                "flag_pattern", "pennant_pattern",
-                "flag_breakout_target", "consolidation_compression_ratio",
+                "flag_pattern",
+                "pennant_pattern",
+                "flag_breakout_target",
+                "consolidation_compression_ratio",
             }
             assert expected.issubset(result.keys())
 

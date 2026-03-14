@@ -26,7 +26,7 @@ class TestVWAPDeviation:
         from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
 
         close = np.full(50, 5000.0)
-        close[-1] = 4975.0          # below vwap_lower_2 = 4980
+        close[-1] = 4975.0  # below vwap_lower_2 = 4980
         df = make_ohlcv(close)
         features = _features(price=4975.0)
 
@@ -40,14 +40,14 @@ class TestVWAPDeviation:
         assert result.get("stop_loss") < result["entry_price"]
         targets = result.get("targets", [])
         assert len(targets) == 2
-        assert targets[0] == pytest.approx(5000.0, abs=0.1)   # T1 = vwap
+        assert targets[0] == pytest.approx(5000.0, abs=0.1)  # T1 = vwap
 
     def test_short_signal_above_upper_band(self):
         """Price above vwap_upper_2 → vwap_reversion_short."""
         from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
 
         close = np.full(50, 5000.0)
-        close[-1] = 5025.0          # above vwap_upper_2 = 5020
+        close[-1] = 5025.0  # above vwap_upper_2 = 5020
         df = make_ohlcv(close)
         features = _features(price=5025.0)
 
@@ -59,7 +59,7 @@ class TestVWAPDeviation:
         assert result.get("stop_loss") > result["entry_price"]
         targets = result.get("targets", [])
         assert len(targets) == 2
-        assert targets[0] == pytest.approx(5000.0, abs=0.1)   # T1 = vwap
+        assert targets[0] == pytest.approx(5000.0, abs=0.1)  # T1 = vwap
 
     def test_no_signal_within_bands(self):
         """Price inside ±2σ → no signal."""
@@ -93,8 +93,8 @@ class TestVWAPDeviation:
         from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
 
         plugin = VWAPDeviationPlugin()
-        close_moderate = np.full(50, 4978.0)   # ~2.2σ below
-        close_extreme = np.full(50, 4960.0)    # ~4.0σ below
+        close_moderate = np.full(50, 4978.0)  # ~2.2σ below
+        close_extreme = np.full(50, 4960.0)  # ~4.0σ below
         features_mod = _features(price=4978.0)
         features_ext = _features(price=4960.0)
 
@@ -139,12 +139,12 @@ class TestVWAPDeviation:
 
         vwap, vwap_std = 5000.0, 10.0
         # Place price at exactly 2.0σ below vwap
-        price = vwap - 2.0 * vwap_std   # = 4980.0, exactly at old 2σ boundary
+        price = vwap - 2.0 * vwap_std  # = 4980.0, exactly at old 2σ boundary
         close = np.full(50, vwap)
         close[-1] = price
         df = make_ohlcv(close)
         features = _features(price=price, vwap=vwap, vwap_std=vwap_std)
-        features["garch_vol_regime"] = 2   # high vol — threshold raised to 2.5σ
+        features["garch_vol_regime"] = 2  # high vol — threshold raised to 2.5σ
 
         plugin = VWAPDeviationPlugin()
         result = plugin.compute_full({"main": df, "features": features})
@@ -157,7 +157,7 @@ class TestVWAPDeviation:
         from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
 
         vwap, vwap_std = 5000.0, 10.0
-        price = vwap - 2.6 * vwap_std   # = 4974.0, above 2.5σ threshold
+        price = vwap - 2.6 * vwap_std  # = 4974.0, above 2.5σ threshold
         close = np.full(50, vwap)
         close[-1] = price
         df = make_ohlcv(close)
@@ -175,12 +175,12 @@ class TestVWAPDeviation:
         from src.intelligence.trading.vwap_deviation import VWAPDeviationPlugin
 
         vwap, vwap_std = 5000.0, 10.0
-        price = vwap + 2.9 * vwap_std   # = 5029.0, below 3.0σ threshold
+        price = vwap + 2.9 * vwap_std  # = 5029.0, below 3.0σ threshold
         close = np.full(50, vwap)
         close[-1] = price
         df = make_ohlcv(close)
         features = _features(price=price, vwap=vwap, vwap_std=vwap_std)
-        features["garch_vol_regime"] = 3   # extreme vol — threshold raised to 3.0σ
+        features["garch_vol_regime"] = 3  # extreme vol — threshold raised to 3.0σ
 
         plugin = VWAPDeviationPlugin()
         result = plugin.compute_full({"main": df, "features": features})

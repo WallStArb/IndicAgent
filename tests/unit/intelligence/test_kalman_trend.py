@@ -1,6 +1,5 @@
 """Tests for Kalman filter trend plugin."""
 
-
 import numpy as np
 import pandas as pd
 
@@ -13,13 +12,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, trend: float = 0.5) -> pd.DataFram
     close = 5000.0 + np.arange(n) * trend + np.cumsum(rng.standard_normal(n))
     high = close + rng.uniform(0.5, 2.0, n)
     low = close - rng.uniform(0.5, 2.0, n)
-    return pd.DataFrame({
-        "open": close - rng.uniform(0, 0.5, n),
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": rng.integers(100, 1000, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close - rng.uniform(0, 0.5, n),
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.integers(100, 1000, n).astype(float),
+        }
+    )
 
 
 class TestKalmanTrend:
@@ -28,8 +29,13 @@ class TestKalmanTrend:
         plugin = KalmanTrendPlugin()
         result = plugin.compute_full({"main": _make_ohlcv()})
         for key in [
-            "kalman_trend", "kalman_slope", "kalman_price_position",
-            "kalman_uncertainty", "kalman_upper", "kalman_lower", "kalman_gain",
+            "kalman_trend",
+            "kalman_slope",
+            "kalman_price_position",
+            "kalman_uncertainty",
+            "kalman_upper",
+            "kalman_lower",
+            "kalman_gain",
         ]:
             assert key in result, f"Missing key: {key}"
 

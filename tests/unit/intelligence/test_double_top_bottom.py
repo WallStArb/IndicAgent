@@ -11,20 +11,24 @@ from src.intelligence.patterns.double_top_bottom import DoubleTBPlugin
 
 def _make_frames(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> dict:
     n = len(close)
-    return {"main": pd.DataFrame({
-        "open": close,
-        "high": high,
-        "close": close,
-        "low": low,
-        "volume": np.ones(n) * 1000,
-    })}
+    return {
+        "main": pd.DataFrame(
+            {
+                "open": close,
+                "high": high,
+                "close": close,
+                "low": low,
+                "volume": np.ones(n) * 1000,
+            }
+        )
+    }
 
 
 def _base(n: int = 80) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Flat arrays at 5000. find_peaks finds no peaks (all equal, no strict inequality)."""
     close = np.full(n, 5000.0)
-    high = close + 1.0   # 5001 everywhere
-    low = close - 1.0    # 4999 everywhere
+    high = close + 1.0  # 5001 everywhere
+    low = close - 1.0  # 4999 everywhere
     return close.copy(), high.copy(), low.copy()
 
 
@@ -36,8 +40,14 @@ def _inject_peak(high: np.ndarray, bar: int, peak_price: float, shoulder: float 
             high[i] = shoulder
 
 
-def _inject_trough(low: np.ndarray, close: np.ndarray, high: np.ndarray,
-                   bar: int, trough_price: float, shoulder: float = 4985.0) -> None:
+def _inject_trough(
+    low: np.ndarray,
+    close: np.ndarray,
+    high: np.ndarray,
+    bar: int,
+    trough_price: float,
+    shoulder: float = 4985.0,
+) -> None:
     """Place a clean trough at `bar`."""
     low[bar] = trough_price
     close[bar] = trough_price + 1.0
@@ -52,7 +62,7 @@ def _inject_trough(low: np.ndarray, close: np.ndarray, high: np.ndarray,
 class TestDoubleTBInsufficientData:
     def test_returns_empty_when_too_few_bars(self):
         plugin = DoubleTBPlugin()
-        close, high, low = _base(50)   # min_lookback is 60
+        close, high, low = _base(50)  # min_lookback is 60
         result = plugin.compute_full(_make_frames(high, low, close))
         assert result == {}
 

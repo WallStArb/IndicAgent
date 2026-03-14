@@ -13,13 +13,15 @@ def make_ohlcv(n: int, base: float = 100.0, seed: int = 42) -> pd.DataFrame:
     lows = closes - rng.uniform(0.1, 0.5, n)
     opens = closes + rng.normal(0, 0.2, n)
     vols = rng.uniform(1000, 5000, n)
-    return pd.DataFrame({
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": closes,
-        "volume": vols,
-    })
+    return pd.DataFrame(
+        {
+            "open": opens,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume": vols,
+        }
+    )
 
 
 class TestACOscillatorPlugin:
@@ -84,12 +86,14 @@ class TestACOscillatorPlugin:
         lows = closes - 0.5
         opens = closes
         vols = np.ones(n) * 1000.0
-        df = pd.DataFrame({
-            "open": opens,
-            "high": highs,
-            "low": lows,
-            "close": closes,
-            "volume": vols,
-        })
+        df = pd.DataFrame(
+            {
+                "open": opens,
+                "high": highs,
+                "low": lows,
+                "close": closes,
+                "volume": vols,
+            }
+        )
         result = plugin.compute_full({"main": df})
         assert result["ao"] > 0, f"Expected ao > 0 for uptrend, got {result['ao']}"

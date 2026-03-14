@@ -21,11 +21,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFra
     low = close * (1 - spread)
     high = np.maximum(high, close)
     low = np.minimum(low, close)
-    return pd.DataFrame({
-        "open": close, "high": high, "low": low,
-        "close": close,
-        "volume": rng.lognormal(10, 0.5, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.lognormal(10, 0.5, n).astype(float),
+        }
+    )
 
 
 class TestChandelier:
@@ -60,10 +64,15 @@ class TestChandelier:
         close = np.full(n, 5000.0)
         high = np.full(n, 5010.0)
         low = np.full(n, 4990.0)
-        df = pd.DataFrame({
-            "open": close, "high": high, "low": low,
-            "close": close, "volume": np.ones(n) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": np.ones(n) * 1000,
+            }
+        )
         result = ChandelierPlugin().compute_full({"main": df})
         assert result["chandelier_long_22"] == pytest.approx(4950.0, abs=1.0)
         assert result["chandelier_short_22"] == pytest.approx(5050.0, abs=1.0)

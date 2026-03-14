@@ -2,6 +2,7 @@
 
 All tests fail with ImportError because the plugin does not exist yet.
 """
+
 from __future__ import annotations
 
 import numpy as np

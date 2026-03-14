@@ -4,6 +4,7 @@
 All tests FAIL with ImportError until Plan 04 creates
 src/intelligence/structure/swing_momentum.py.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -85,7 +86,7 @@ def test_amplitude_expanding_true_when_monotonically_increasing():
     # Linearly growing amplitude across swings
     n = 200
     t = np.linspace(0, 4 * np.pi, n)
-    envelope = np.linspace(5.0, 50.0, n)   # growing amplitude
+    envelope = np.linspace(5.0, 50.0, n)  # growing amplitude
     closes = 5000.0 + envelope * np.sin(t)
     df = make_ohlcv(closes)
     result = plugin.compute_full({"main": df, "features": {}})

@@ -92,8 +92,14 @@ class TestLedgerEntry:
         """LedgerEntry with CIS fields — bucket_scores serialized to JSON string at index 25."""
         entry = _make_entry(
             cis_score=0.47,
-            bucket_scores={"trend": 0.4, "momentum": 0.3, "structure": 0.2,
-                           "pattern": 0.0, "institutional": 0.5, "regime": 0.3},
+            bucket_scores={
+                "trend": 0.4,
+                "momentum": 0.3,
+                "structure": 0.2,
+                "pattern": 0.0,
+                "institutional": 0.5,
+                "regime": 0.3,
+            },
             weights_version=0,
             signal_quality=None,
         )
@@ -155,13 +161,24 @@ class TestLedgerEntryNewFields:
         entry = LedgerEntry(
             signal_id="test-uuid",
             timestamp=datetime.now(UTC),
-            symbol="ES", timeframe="5m",
-            setup_plugin="TrendFollowing", signal_type="trend_long",
-            direction=1, entry_price=5100.0, stop_loss=5085.0,
-            targets=[5115.0], confidence=0.8, confluence_score=0.7,
-            regime_context="trending", supporting_factors=[],
-            was_selected=True, num_signals_bar=1, num_agreeing=1,
-            num_conflicting=0, resolution_method="sole", composite_rank=1,
+            symbol="ES",
+            timeframe="5m",
+            setup_plugin="TrendFollowing",
+            signal_type="trend_long",
+            direction=1,
+            entry_price=5100.0,
+            stop_loss=5085.0,
+            targets=[5115.0],
+            confidence=0.8,
+            confluence_score=0.7,
+            regime_context="trending",
+            supporting_factors=[],
+            was_selected=True,
+            num_signals_bar=1,
+            num_agreeing=1,
+            num_conflicting=0,
+            resolution_method="sole",
+            composite_rank=1,
         )
         params = entry.to_insert_params()
         assert len(params) == 37  # 29 existing + 7 new fire-time fields + cis_attribution
@@ -171,12 +188,24 @@ def test_ledger_entry_has_cis_attribution_field():
     entry = LedgerEntry(
         signal_id="test-id",
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-        symbol="ES", timeframe="1m", setup_plugin="test", signal_type="test",
-        direction=1, entry_price=5000.0, stop_loss=4990.0, targets=[5010.0],
-        confidence=0.8, confluence_score=0.7, regime_context="trending",
-        supporting_factors=[], was_selected=True,
-        num_signals_bar=1, num_agreeing=1, num_conflicting=0,
-        resolution_method="solo", composite_rank=1,
+        symbol="ES",
+        timeframe="1m",
+        setup_plugin="test",
+        signal_type="test",
+        direction=1,
+        entry_price=5000.0,
+        stop_loss=4990.0,
+        targets=[5010.0],
+        confidence=0.8,
+        confluence_score=0.7,
+        regime_context="trending",
+        supporting_factors=[],
+        was_selected=True,
+        num_signals_bar=1,
+        num_agreeing=1,
+        num_conflicting=0,
+        resolution_method="solo",
+        composite_rank=1,
         cis_attribution={"momentum": {"rsi_14": 0.038, "williams_r_14": 0.011}},
     )
     assert entry.cis_attribution == {"momentum": {"rsi_14": 0.038, "williams_r_14": 0.011}}
@@ -186,16 +215,28 @@ def test_ledger_entry_to_insert_params_includes_attribution():
     entry = LedgerEntry(
         signal_id="test-id",
         timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-        symbol="ES", timeframe="1m", setup_plugin="test", signal_type="test",
-        direction=1, entry_price=5000.0, stop_loss=4990.0, targets=[],
-        confidence=0.8, confluence_score=0.7, regime_context="",
-        supporting_factors=[], was_selected=True,
-        num_signals_bar=1, num_agreeing=1, num_conflicting=0,
-        resolution_method="solo", composite_rank=1,
+        symbol="ES",
+        timeframe="1m",
+        setup_plugin="test",
+        signal_type="test",
+        direction=1,
+        entry_price=5000.0,
+        stop_loss=4990.0,
+        targets=[],
+        confidence=0.8,
+        confluence_score=0.7,
+        regime_context="",
+        supporting_factors=[],
+        was_selected=True,
+        num_signals_bar=1,
+        num_agreeing=1,
+        num_conflicting=0,
+        resolution_method="solo",
+        composite_rank=1,
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 37   # was 36, now 37
+    assert len(params) == 37  # was 36, now 37
     assert '"psar_direction"' in params[36]  # last param is JSON string
 
 
@@ -245,7 +286,10 @@ class TestUpdateSignalStatus:
         db = AsyncMock()
         activated = datetime(2026, 2, 16, 14, 35, 0, tzinfo=UTC)
         await update_signal_status(
-            db, "some-uuid", status="active", activated_at=activated,
+            db,
+            "some-uuid",
+            status="active",
+            activated_at=activated,
         )
 
         db.execute_command.assert_awaited_once()

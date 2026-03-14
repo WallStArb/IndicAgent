@@ -1,4 +1,5 @@
 """Test suite for SessionExtremesSetup — I7 Asian-session fade plugin (Phase 11)."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,7 +25,7 @@ def make_frames(
     session_london: float = 1.0,
     session_ny: float = 0.0,
     trend_regime: float = -0.6,  # bearish (fade-high default)
-    rsi_14: float = 70.0,        # overbought
+    rsi_14: float = 70.0,  # overbought
     high_volume: bool = False,
     n: int = 60,
 ) -> dict:
@@ -98,8 +99,8 @@ class TestSess02SessionWindowGate:
             close=4992.0,
             session_london=0.0,
             session_ny=1.0,
-            trend_regime=0.6,   # bullish for fade-low
-            rsi_14=30.0,        # oversold
+            trend_regime=0.6,  # bullish for fade-low
+            rsi_14=30.0,  # oversold
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none"
@@ -115,8 +116,8 @@ class TestSess03ConfirmingFactorGate:
         """Price near asian_high, but no confirming factors."""
         return make_frames(
             close=5009.0,
-            trend_regime=0.0,   # flat — no trend align
-            rsi_14=50.0,        # neutral RSI
+            trend_regime=0.0,  # flat — no trend align
+            rsi_14=50.0,  # neutral RSI
             high_volume=False,
         )
 
@@ -141,9 +142,9 @@ class TestSess03ConfirmingFactorGate:
     def test_fires_with_volume_spike_only(self):
         frames = make_frames(
             close=5009.0,
-            trend_regime=0.0,   # flat
+            trend_regime=0.0,  # flat
             rsi_14=50.0,
-            high_volume=True,   # spike
+            high_volume=True,  # spike
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none"
@@ -152,8 +153,8 @@ class TestSess03ConfirmingFactorGate:
     def test_fires_with_rsi_extreme_only(self):
         frames = make_frames(
             close=5009.0,
-            trend_regime=0.0,   # flat
-            rsi_14=72.0,        # overbought > 65
+            trend_regime=0.0,  # flat
+            rsi_14=72.0,  # overbought > 65
             high_volume=False,
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
@@ -261,9 +262,17 @@ class TestSignalFields:
 
     def test_complete_output_fields(self):
         expected = {
-            "signal_type", "direction", "bias", "proximity_atr",
-            "confidence", "entry_type", "entry_price", "stop_loss",
-            "targets", "regime_context", "supporting_factors",
+            "signal_type",
+            "direction",
+            "bias",
+            "proximity_atr",
+            "confidence",
+            "entry_type",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "regime_context",
+            "supporting_factors",
         }
         frames = make_frames(close=5009.0)
         result = SessionExtremesSetupPlugin().compute_full(frames)
@@ -394,8 +403,8 @@ class TestEdgeCases:
             close=5001.0,
             asian_high=5002.0,
             asian_low=5000.5,
-            trend_regime=0.6,   # bullish — aligns with fade-low (long)
-            rsi_14=30.0,        # oversold — aligns with fade-low (long)
+            trend_regime=0.6,  # bullish — aligns with fade-low (long)
+            rsi_14=30.0,  # oversold — aligns with fade-low (long)
         )
         result = SessionExtremesSetupPlugin().compute_full(frames)
         assert result.get("signal_type") != "none", "Expected signal to fire"

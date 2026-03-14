@@ -6,12 +6,16 @@ from src.intelligence.plugins import PluginRegistry
 def _make_registry_with(indicator_names=(), pattern_names=()):
     reg = PluginRegistry()
     for n in indicator_names:
+
         class FakePlugin:
             name = n
+
         reg.indicators[n] = FakePlugin()
     for n in pattern_names:
+
         class FakePlugin:
             name = n
+
         reg.patterns[n] = FakePlugin()
     return reg
 
@@ -55,9 +59,14 @@ def test_tier_constants_are_lists_of_strings():
         TIER_I7,
         TIER_SMC,
     )
+
     for tier_name, lst in [
-        ("TIER_I1", TIER_I1), ("TIER_I3", TIER_I3), ("TIER_I4", TIER_I4),
-        ("TIER_I5", TIER_I5), ("TIER_SMC", TIER_SMC), ("TIER_I6", TIER_I6),
+        ("TIER_I1", TIER_I1),
+        ("TIER_I3", TIER_I3),
+        ("TIER_I4", TIER_I4),
+        ("TIER_I5", TIER_I5),
+        ("TIER_SMC", TIER_SMC),
+        ("TIER_I6", TIER_I6),
         ("TIER_I7", TIER_I7),
     ]:
         assert isinstance(lst, list), f"{tier_name} must be a list"
@@ -80,6 +89,7 @@ def test_tier_constants_match_registry():
         TIER_SMC,
         register_all_plugins,
     )
+
     reg = PluginRegistry()
     original_plugins = plugins_module.registry
     original_rp = rp_module.registry
@@ -88,8 +98,12 @@ def test_tier_constants_match_registry():
     try:
         register_all_plugins()
         for tier_name, tier_list in [
-            ("TIER_I1", TIER_I1), ("TIER_I3", TIER_I3), ("TIER_I4", TIER_I4),
-            ("TIER_I5", TIER_I5), ("TIER_SMC", TIER_SMC), ("TIER_I6", TIER_I6),
+            ("TIER_I1", TIER_I1),
+            ("TIER_I3", TIER_I3),
+            ("TIER_I4", TIER_I4),
+            ("TIER_I5", TIER_I5),
+            ("TIER_SMC", TIER_SMC),
+            ("TIER_I6", TIER_I6),
             ("TIER_I7", TIER_I7),
         ]:
             reg.validate_tier(tier_list, tier_name)
@@ -100,14 +114,17 @@ def test_tier_constants_match_registry():
 
 def test_tier_i1_has_25_plugins():
     from src.intelligence.register_plugins import TIER_I1
+
     assert len(TIER_I1) == 25, f"Expected 25 I1 plugins, got {len(TIER_I1)}: {TIER_I1}"
 
 
 def test_tier_smc_has_13_plugins():
     from src.intelligence.register_plugins import TIER_SMC
+
     assert len(TIER_SMC) == 13, f"Expected 13 SMC plugins, got {len(TIER_SMC)}: {TIER_SMC}"
 
 
 def test_tier_i7_has_17_plugins():
     from src.intelligence.register_plugins import TIER_I7
+
     assert len(TIER_I7) == 17, f"Expected 17 I7 plugins, got {len(TIER_I7)}: {TIER_I7}"

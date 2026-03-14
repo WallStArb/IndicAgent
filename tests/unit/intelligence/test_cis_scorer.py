@@ -61,24 +61,26 @@ def _bullish_features() -> dict:
 def _bearish_features() -> dict:
     """Return a features dict that should produce a clearly bearish CIS."""
     f = _bullish_features()
-    f.update({
-        "trend_regime": -0.8,
-        "kalman_slope": -0.5,
-        "smc_trend_direction": -1,
-        "ctf_trend_alignment": -0.8,
-        "trend_confluence_score": -0.7,
-        "rsi_14": 30.0,
-        "macd_hist_12_26_9": -0.5,
-        "roc_14": -2.0,
-        "momentum_bias": -0.6,
-        "bos_direction": -1,
-        "ob_type": -1,
-        "fvg_type": -1,
-        "in_demand_zone": 0.0,
-        "in_supply_zone": 1.0,
-        "hmm_prob_trending_up": 0.1,
-        "hmm_prob_trending_down": 0.7,
-    })
+    f.update(
+        {
+            "trend_regime": -0.8,
+            "kalman_slope": -0.5,
+            "smc_trend_direction": -1,
+            "ctf_trend_alignment": -0.8,
+            "trend_confluence_score": -0.7,
+            "rsi_14": 30.0,
+            "macd_hist_12_26_9": -0.5,
+            "roc_14": -2.0,
+            "momentum_bias": -0.6,
+            "bos_direction": -1,
+            "ob_type": -1,
+            "fvg_type": -1,
+            "in_demand_zone": 0.0,
+            "in_supply_zone": 1.0,
+            "hmm_prob_trending_up": 0.1,
+            "hmm_prob_trending_down": 0.7,
+        }
+    )
     return f
 
 
@@ -165,9 +167,7 @@ class TestCISInvariants:
         scorer = CISScorer()
         features = _bullish_features()
         result = scorer.score(features, {})
-        expected_raw = sum(
-            BOOTSTRAP_WEIGHTS[b] * result.bucket_scores[b] for b in BUCKET_NAMES
-        )
+        expected_raw = sum(BOOTSTRAP_WEIGHTS[b] * result.bucket_scores[b] for b in BUCKET_NAMES)
         # Allow small rounding tolerance
         assert abs(result.cis_score - round(max(-1.0, min(1.0, expected_raw)), 4)) < 1e-6
 
@@ -182,8 +182,14 @@ class TestCISInvariants:
     @pytest.mark.unit
     def test_bucket_names_complete(self):
         """BUCKET_NAMES contains exactly the 6 expected names."""
-        assert set(BUCKET_NAMES) == {"trend", "momentum", "structure", "pattern",
-                                      "institutional", "regime"}
+        assert set(BUCKET_NAMES) == {
+            "trend",
+            "momentum",
+            "structure",
+            "pattern",
+            "institutional",
+            "regime",
+        }
 
     @pytest.mark.unit
     def test_bootstrap_weights_sum_to_one(self):
@@ -332,10 +338,12 @@ def test_constituent_contributions_momentum_has_rsi_and_macd():
     features = {"rsi_14": 65.0, "macd_histogram_12_26_9": 0.3}
     result = scorer.score(features, {})
     contribs = result.constituent_contributions["momentum"]
-    assert "rsi_14" in contribs, f"Expected 'rsi_14' in momentum contributions, got {list(contribs)}"
-    assert "macd_histogram_12_26_9" in contribs, (
-        f"Expected 'macd_histogram_12_26_9' in momentum contributions, got {list(contribs)}"
-    )
+    assert (
+        "rsi_14" in contribs
+    ), f"Expected 'rsi_14' in momentum contributions, got {list(contribs)}"
+    assert (
+        "macd_histogram_12_26_9" in contribs
+    ), f"Expected 'macd_histogram_12_26_9' in momentum contributions, got {list(contribs)}"
 
 
 def test_constituent_contributions_all_six_buckets_present():
@@ -360,7 +368,9 @@ def test_bucket_scores_are_floats_not_tuples():
     scorer = CISScorer()
     result = scorer.score(_bullish_features(), {})
     for bucket, score in result.bucket_scores.items():
-        assert isinstance(score, float), f"bucket_scores['{bucket}'] is {type(score)}, expected float"
+        assert isinstance(
+            score, float
+        ), f"bucket_scores['{bucket}'] is {type(score)}, expected float"
 
 
 def test_cis_score_value_unchanged_after_contributions_refactor():
@@ -371,6 +381,7 @@ def test_cis_score_value_unchanged_after_contributions_refactor():
     result = scorer.score(features, {})
     # Compute expected raw from bucket scores (same formula as score())
     from src.intelligence.trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES  # noqa: PLC0415
+
     expected_raw = sum(BOOTSTRAP_WEIGHTS[b] * result.bucket_scores[b] for b in BUCKET_NAMES)
     expected_cis = round(max(-1.0, min(1.0, expected_raw)), 4)
     assert result.cis_score == pytest.approx(expected_cis, abs=1e-6)
@@ -432,9 +443,9 @@ class TestRelVolumeMomentumSubterm:
         scorer = CISScorer()
         result = scorer.score({"rel_volume": 1.5}, {})
         contribs = result.constituent_contributions["momentum"]
-        assert "rel_volume" in contribs, (
-            f"Expected 'rel_volume' in momentum contributions, got {list(contribs)}"
-        )
+        assert (
+            "rel_volume" in contribs
+        ), f"Expected 'rel_volume' in momentum contributions, got {list(contribs)}"
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +509,6 @@ class TestKillzoneRegimeSubterm:
         scorer = CISScorer()
         result = scorer.score({"in_london_killzone": 1.0}, {})
         contribs = result.constituent_contributions["regime"]
-        assert "killzone" in contribs, (
-            f"Expected 'killzone' in regime contributions, got {list(contribs)}"
-        )
+        assert (
+            "killzone" in contribs
+        ), f"Expected 'killzone' in regime contributions, got {list(contribs)}"
