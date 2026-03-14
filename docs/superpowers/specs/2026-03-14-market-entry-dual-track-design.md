@@ -81,6 +81,9 @@ market_entry_mae            DOUBLE PRECISION  -- max adverse excursion, market t
 market_entry_mfe            DOUBLE PRECISION  -- max favorable excursion, market track
 market_entry_bars_in_trade  INTEGER           -- bars from fill to exit
 market_entry_outcome        TEXT              -- same taxonomy as 'outcome'
+market_entry_gap_bars       INTEGER           -- NULL for live signals; replay only: bars between signal fire and bar N+1
+                                              --   (gap > 0 means fill was at a delayed open, not the immediate next bar)
+                                              -- Persisted so gap-affected fills can be filtered from ML training sets
 ```
 
 **Full schema addition (Migration 031):**
@@ -92,18 +95,19 @@ ALTER TABLE signal_ledger
   ADD COLUMN IF NOT EXISTS market_entry_mae            DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS market_entry_mfe            DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS market_entry_bars_in_trade  INTEGER,
-  ADD COLUMN IF NOT EXISTS market_entry_outcome        TEXT;
+  ADD COLUMN IF NOT EXISTS market_entry_outcome        TEXT,
+  ADD COLUMN IF NOT EXISTS market_entry_gap_bars       INTEGER;  -- NULL for live; set by replay when N+1 bar was delayed
 
 -- Analytics index mirroring idx_ledger_outcome
 CREATE INDEX idx_ledger_market_outcome
 ON signal_ledger (market_entry_outcome, setup_plugin, timeframe)
 WHERE market_entry_outcome IS NOT NULL;
 
--- Drop redundant index (covered by idx_ledger_symbol_tf_ts + idx_ledger_open_signals)
-DROP INDEX IF EXISTS idx_ledger_sym_ts;
 ```
 
-**7 new columns. 1 new index. 1 index dropped.**
+**8 new columns. 1 new index.**
+
+Note: `idx_ledger_sym_ts` is NOT dropped in this migration — it may be used by API query paths. Audit index usage via `pg_stat_user_indexes` + `pg_stat_statements` separately before removing.
 
 ---
 
@@ -122,6 +126,7 @@ class MarketTransition:
     mae: float = 0.0
     mfe: float = 0.0
     outcome: str | None = None  # None = still running
+    gap_bars: int | None = None  # replay only; None for live signals
 ```
 
 `evaluate_market_entry(signal, *, market_entry_price, high, low, close, current_mae, current_mfe)`:
@@ -139,7 +144,12 @@ Replace monolithic `update_signal_status()` with three purpose-built functions:
 ```python
 record_activation(db, signal_id, *, activated_at, activation_price, zone_entry_pct, bars_to_activation)
 record_zone_resolution(db, signal_id, *, status, exit_at, exit_price, exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality, mae, mfe, bars_in_trade, outcome)
-record_market_resolution(db, signal_id, *, market_entry_exit_price, market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome)
+record_market_resolution(db, signal_id, *, market_entry_exit_price, market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome, market_entry_gap_bars=None)
+record_zone_resolution_with_activation(db, signal_id, *, activated_at, activation_price, zone_entry_pct, bars_to_activation,
+                                        status, exit_at, exit_price, exit_reason, pnl_ticks, pnl_r, pnl_dollars,
+                                        signal_quality, mae, mfe, bars_in_trade, outcome)
+  # Atomic single-SQL write for same-bar activation + immediate exit.
+  # Prevents crash window where signal is left in 'active' with activated_at set but no exit_at.
 ```
 
 Each function writes ONLY its own columns via targeted SQL. No cross-contamination.
@@ -159,25 +169,36 @@ Set on `LedgerEntry`. No fallback — NULL is honest.
 
 **New in-memory state:**
 ```python
-self._market_mae: dict[str, float] = {}   # parallel to _mae
-self._market_mfe: dict[str, float] = {}   # parallel to _mfe
-# No _market_activated_at — bars_in_trade = bars_elapsed - 1 at exit
+self._market_mae: dict[str, float] = {}          # parallel to _mae
+self._market_mfe: dict[str, float] = {}          # parallel to _mfe
+self._market_activated_at: dict[str, datetime] = {}  # bar_time of first evaluation (bar N+1)
 ```
 
-**Per-bar evaluation loop changes:**
+`market_entry_bars_in_trade` is computed using `_bars_in_trade(_market_activated_at[sid], bar_time, timeframe)` — explicitly `bar_time`, not `datetime.now()`. The existing zone track live code uses `now` (processing-time), which introduces a subtle lag. Both tracks in this implementation MUST use `bar_time` for `_bars_in_trade`. As a same-PR cleanup, update the zone track `_bars_in_trade` call to also use `bar_time` — this corrects the existing inconsistency and keeps both tracks comparable. `_market_activated_at[sid]` is set to `bar_time` on the first bar a signal enters the market evaluation loop.
+
+**Per-bar evaluation order (market BEFORE zone on every bar):**
+
 1. Read `market_entry_price` from signal dict (already in DB from Phase 1)
-2. If `market_entry_price IS NOT NULL` and market track not yet resolved:
+2. **Market track first:** If `market_entry_price IS NOT NULL` and `sid not in resolved_market`:
+   - Initialize `_market_activated_at[sid] = bar_time` on first bar
    - Call `evaluate_market_entry()` with `_market_mae[sid]`, `_market_mfe[sid]`
    - Update `_market_mae[sid]`, `_market_mfe[sid]` each bar
-   - If `MarketTransition.outcome IS NOT NULL`: call `record_market_resolution()`, clean up `_market_mae/_market_mfe[sid]`
-3. Zone track continues independently on same bar as always
-4. When zone track resolves: call `record_activation()` (if applicable) + `record_zone_resolution()`, clean up all remaining state for sid
+   - If `MarketTransition.outcome IS NOT NULL`:
+     - Compute `market_entry_bars_in_trade = _bars_in_trade(_market_activated_at[sid], bar_time, tf)`
+     - Call `record_market_resolution()`, clean up `_market_mae/_market_mfe/_market_activated_at[sid]`
+3. **Zone track second:** evaluate zone track as before
+4. **Zone track resolves:** Before writing `exit_at` via `record_zone_resolution()`, if market track is somehow still open (defensive — should not occur with identical TTL), force-resolve market track using `close` as exit price, then write zone resolution. This ensures `exit_at IS NOT NULL` never appears before both tracks are resolved.
+5. Clean up all remaining state for sid after zone resolution
 
-**Independent timeline handling:** Market track can resolve before zone track. Zone track resolution determines when signal leaves `get_active_signals()` (via `exit_at IS NOT NULL`). Market track writes and cleans up independently without affecting zone track state.
+**Why market before zone:** Both tracks use identical TTL from the same signal. They will TTL-expire on the same bar. Processing market first, then zone, ensures `record_market_resolution()` is always called before `record_zone_resolution()` writes `exit_at`. Once `exit_at` is written the signal leaves `get_active_signals()` — market track data must be persisted first.
 
-**Regime_suppressed signals:** Receive market track evaluation identically to pending/active signals. Their existing counterfactual `pnl_r` (virtual activation at bar close) and new `market_entry_pnl_r` (tick fill) are meaningfully different and both captured.
+**Atomicity on same-bar activation + immediate exit:** If a signal activates AND immediately exits on the same bar (e.g., zone entered and stop hit on same bar), call a combined `record_zone_resolution_with_activation()` that writes both in a single SQL statement. This avoids a crash window between the two writes that would leave a signal stuck in `active` status with `activated_at` set but no `exit_at`.
 
-**Pre-existing limitation (document, do not fix in this plan):** `_mae`/`_mfe` and `_market_mae`/`_market_mfe` reset to 0.0 on service restart since MAE/MFE are not checkpointed mid-signal. Final excursions underestimate true extremes for signals spanning a service restart.
+**Stop outcome classification:** `_classify_stop_outcome(market_mfe, market_entry_bars_in_trade)` is called identically for the market track using `market_entry_bars_in_trade` and `_market_mfe[sid]`. Same `OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2` threshold applies.
+
+**Regime_suppressed signals:** Receive market track evaluation identically to pending/active signals. Their existing counterfactual `pnl_r` (virtual activation at bar close using `entry_price`) and new `market_entry_pnl_r` (tick fill at `ask/bid`) are meaningfully different and both captured.
+
+**Pre-existing limitation (document, do not fix in this plan):** `_mae`/`_mfe` and market track equivalents reset to 0.0 on service restart since MAE/MFE are not checkpointed mid-signal. Final excursions underestimate true extremes for signals spanning a service restart.
 
 ---
 
@@ -191,16 +212,29 @@ self._market_mfe: dict[str, float] = {}   # parallel to _mfe
 For each symbol + timeframe (up to 240 iterations, parallelized):
 
   1. VALIDATE mode (run first if --validate):
-     - Sample 100 already-resolved signals with known outcomes
-     - Run replay evaluation against their historical bars
-     - Compare computed vs stored outcomes
-     - Report match rate — block proceed if < 100% on unambiguous cases
-     - Produce discrepancy report: signal_id, live_outcome, replay_outcome, diff
+     - Sample 100 already-resolved signals with known zone outcomes (status not in ('pending', 'regime_suppressed'))
+     - Run replay evaluation against their historical bars using the same evaluate_signal() / evaluate_market_entry() functions
+     - Fields compared:
+         Zone track: `outcome` (exact string match), `exit_price` (±0.5 tick tolerance), `pnl_r` (±0.01 tolerance)
+         Market track: `market_entry_outcome` (exact), `market_entry_pnl_r` (±0.01)
+     - **Cold-start limitation:** On the first run of this feature, existing resolved signals will have NULL `market_entry_outcome`
+       (the live service had no market track before this ships). Validate mode skips market track comparison when
+       `market_entry_outcome IS NULL` for all sampled signals and logs: "Market track validation skipped — no resolved
+       market outcomes yet. Re-run --validate after live signals accumulate." This is not a failure. The zone track
+       comparison remains fully active and is the primary correctness gate. Post-deployment, once the live service has
+       resolved >100 signals with both tracks, re-run `--validate` to cross-check market track.
+     - Excluded from comparison (ambiguous cases):
+         - Signals where bar N+1 open == stop_loss or open == any target (boundary bar — live and replay may differ by one bar)
+         - Signals where `market_data_ohlcv` has a data gap > 1.5 × tf_seconds after signal.timestamp
+     - Report match rate on non-excluded signals — block proceed if match rate < 100% (zone) or < 100% (market, if any market outcomes present)
+     - Produce discrepancy report: signal_id, field, stored_value, replay_value
 
-  2. Fetch pending signals:
+  2. Fetch unresolved signals (pending + regime_suppressed):
      SELECT * FROM signal_ledger
-     WHERE status = 'pending' AND symbol = $1 AND timeframe = $2
+     WHERE status IN ('pending', 'regime_suppressed') AND symbol = $1 AND timeframe = $2
      ORDER BY timestamp ASC
+     (Regime_suppressed signals are included — per Renaissance principle, every signal outcome is a labeled training sample.
+      Their zone `never_activated` outcome and market `pnl_r` provide a distinct and valuable comparison class.)
 
   3. Stream bars chronologically (server-side cursor):
      DECLARE cursor FOR
@@ -224,9 +258,16 @@ For each symbol + timeframe (up to 240 iterations, parallelized):
        (use bar.timestamp for all temporal fields — NOT datetime.now())
      - Remove fully resolved signals from live_signals
 
-  5. End of bars: remaining live_signals → TTL expiry
-     (bars_elapsed will be huge → TTL fires on next evaluate call if we add a sentinel bar,
-      OR compute final state explicitly)
+  5. End of bars: remaining live_signals → TTL expiry (compute final state explicitly)
+     For each signal still in live_signals:
+       - bars_elapsed = round((last_bar.timestamp - signal.timestamp) / tf_seconds)
+       - If bars_elapsed >= TTL: classify as ttl_expired_ahead (MFE > 0) or ttl_expired_behind (MFE <= 0)
+         using accumulated _zone_mfe / _market_mfe at last bar seen
+       - Zone track: write record_activation() if never activated (with activated_at = None, indicating never-activated),
+         then record_zone_resolution() with outcome = 'never_activated' or TTL outcome
+       - Market track: write record_market_resolution() with TTL outcome using last bar's close as exit_price
+       - Use last_bar.timestamp for all temporal fields, never datetime.now()
+       - Do NOT add a sentinel bar — synthetic data corrupts MAE/MFE accumulation
 
   6. Commit every --batch-size signals (default 500)
 
@@ -237,7 +278,9 @@ For each symbol + timeframe (up to 240 iterations, parallelized):
 
 ### Parallelism
 
-Python `multiprocessing.Pool` with `--workers N` (default 4). Each worker processes one symbol at a time, owns its own DB connection. Workers assigned by symbol to avoid contention. Symbol-level granularity (not TF-level) to balance load across workers.
+Python `multiprocessing.Pool` with `--workers N` (default 4). Each worker owns its own DB connection.
+
+Work is distributed via a shared work queue (not static symbol assignment). The coordinator builds a flat list of `(symbol, timeframe)` tuples ordered by estimated row count descending (largest first, from `pg_class.reltuples` on signal_ledger). Workers pull from the queue one task at a time — a free worker takes the next `(symbol, tf)` pair. This prevents one slow large-symbol job from holding a worker while others are idle. Each `(symbol, tf)` tuple is processed by exactly one worker — no cross-worker state sharing.
 
 ### No-data handling
 
@@ -285,12 +328,14 @@ python production/scripts/lifecycle_replay.py \
 - MAE/MFE tracked correctly across bars
 - `never_activated` never appears in market track outcomes — assert raises/returns None
 
-**Mathematical invariants:**
+**Mathematical invariants (assert on final MarketTransition values only — not intermediate per-bar state):**
 - `MAE ≤ pnl_r ≤ MFE` always — final P&L bounded by excursion range
 - MAE ≤ 0 for losing trades; MFE ≥ 0 for winning trades
 - `pnl_r == (exit_price - market_entry_price) * direction / abs(market_entry_price - stop_loss)` exactly
 - When stop hit: `exit_price == stop_loss` exactly
 - When target hit: `exit_price == targets[i]` exactly
+
+Note: do NOT assert intermediate `_market_mae`/`_market_mfe` values mid-bar-loop — these are internal accumulator state and may not match final written values if the exit bar updates both accumulator and exit price in the same call.
 
 ### `tests/unit/service_tests/test_signal_lifecycle_service.py` — extend
 
@@ -395,6 +440,11 @@ docker exec timescaledb psql -U postgres -d indicagent -c "ANALYZE signal_ledger
 .venv/bin/pytest tests/unit/trading/test_lifecycle_tracker.py \
                  tests/unit/service_tests/test_signal_lifecycle_service.py \
                  tests/unit/scripts/test_lifecycle_replay.py -v
+
+# 9. Post-deployment market track validation (run after live signals accumulate, >100 with both tracks resolved)
+.venv/bin/python production/scripts/lifecycle_replay.py --validate --dry-run
+# On first run this will log "Market track validation skipped — no resolved market outcomes yet" — expected.
+# After live service has processed 100+ signals with market_entry_outcome set, re-run to validate market track.
 ```
 
 ---
@@ -403,9 +453,9 @@ docker exec timescaledb psql -U postgres -d indicagent -c "ANALYZE signal_ledger
 
 | File | Change |
 |---|---|
-| `production/migrations/031_market_entry_dual_track.sql` | New — 7 columns, 1 index, drop redundant index |
+| `production/migrations/031_market_entry_dual_track.sql` | New — 8 columns, 1 new index |
 | `src/intelligence/trading/lifecycle_tracker.py` | Add `MarketTransition` + `evaluate_market_entry()` |
-| `src/intelligence/trading/signal_ledger.py` | Add `market_entry_price` to `LedgerEntry`+`_INSERT_SQL`; add `record_activation()`, `record_zone_resolution()`, `record_market_resolution()`; deprecate `update_signal_status()` |
+| `src/intelligence/trading/signal_ledger.py` | Add `market_entry_price` + `market_entry_gap_bars` to `LedgerEntry`+`_INSERT_SQL`; add `record_activation()`, `record_zone_resolution()`, `record_market_resolution()`, `record_zone_resolution_with_activation()`; deprecate `update_signal_status()` |
 | `services/signal_generator_service.py` | Set `market_entry_price` at INSERT |
 | `services/signal_lifecycle_service.py` | Add `_market_mae/_market_mfe`; parallel market evaluation; independent resolution writes |
 | `production/scripts/lifecycle_replay.py` | New — chronological streaming replay, dual-track, parallel, validated |

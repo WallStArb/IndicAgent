@@ -35,6 +35,7 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.database_manager import DatabaseManager
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
+    SEED_LOOKBACK_MULTIPLIER,
     TF_SECONDS,
     min_bars_for_tf,
     setup_service_logging,
@@ -71,6 +72,13 @@ from src.observability.metrics import (
     record_plugin_execution,
     start_metrics_server,
 )
+
+
+def _as_dict(v: object) -> dict:
+    """Parse a JSONB column that asyncpg may return as a str or dict."""
+    if isinstance(v, str):
+        return json.loads(v) or {}
+    return v or {}
 
 
 class MarketAnalysisService:
@@ -525,7 +533,7 @@ class MarketAnalysisService:
             async with sem:
                 min_bars = min_bars_for_tf(tf) * 2
                 tf_secs = TF_SECONDS.get(tf, 60)
-                lookback_secs = min_bars * tf_secs * 48  # ~2 days for 1m; handles IBKR gaps
+                lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
                 try:
                     rows = await self.db_manager.execute_query(  # type: ignore[union-attr]
                         f"""
@@ -569,13 +577,6 @@ class MarketAnalysisService:
                 # Re-publish the most recent stored IntelligenceEvent
                 latest = rows[0]  # rows are DESC, so first = newest
                 try:
-                    import json as _json
-
-                    def _as_dict(v: object) -> dict:
-                        if isinstance(v, str):
-                            return _json.loads(v) or {}
-                        return v or {}
-
                     bar_json = _as_dict(latest["bar"])
                     event = IntelligenceEvent(
                         ts=latest["ts"],

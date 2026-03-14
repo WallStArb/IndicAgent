@@ -31,6 +31,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
+    SEED_LOOKBACK_MULTIPLIER,
     TF_SECONDS,
     min_bars_for_tf,
     setup_service_logging,
@@ -406,7 +407,7 @@ class IndicatorService:
                 # during IBKR maintenance) while still letting TimescaleDB
                 # exclude most chunks at planning time via the timestamp index.
                 tf_secs = TF_SECONDS.get(tf, 60)
-                lookback_secs = min_bars * tf_secs * 48
+                lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
                 query = f"""
                     SELECT timestamp, open, high, low, close, volume
                     FROM market_data_ohlcv
