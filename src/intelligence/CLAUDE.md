@@ -43,13 +43,12 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
-| 1 | `ZAIProvider` | GLM-5 (Z.ai) | Primary |
-| 2 | `OpenRouterProvider` | 100+ models | Fallback |
-| 3 | `OllamaProvider` | qwen3.5:9b / phi4-mini:3.8b | Offline |
+| 1 | `OpenRouterProvider` | free models | Primary |
+| 2 | `OllamaProvider` | qwen3.5:9b / phi4-mini:3.8b | Offline fallback |
 
 - `LLMChain` tries in order, returns first non-None. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
-- Keys in `.env`: `zai_api_key`, `openrouter_api_key` (empty string → chain skips).
+- Keys in `.env`: `openrouter_api_key` (empty string → chain skips, falls back to Ollama).
 
 **LLM audit streams** (Phase 16): every call → `llm_calls:stream` (maxlen=500); every signal exit → `llm_outcomes:stream` (maxlen=200). `llm_writer_service` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 
