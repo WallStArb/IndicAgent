@@ -29,7 +29,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import pandas as pd
-import redis.asyncio as redis
 import structlog
 from pydantic import ValidationError
 
@@ -392,7 +391,6 @@ class SignalGeneratorService:
         register_all_plugins()
         registry.validate_tier(I7_PLUGINS, "I7")
 
-        self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
@@ -478,7 +476,6 @@ class SignalGeneratorService:
             _settings = None
 
         default_config: dict[str, Any] = {
-            "redis": {"host": "localhost", "port": 6379, "db": 0},
             "database": {
                 "url": (
                     _settings.database_url
@@ -657,17 +654,6 @@ class SignalGeneratorService:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"]["db"],
-            decode_responses=False,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-        self.logger.info("Connected to Redis")
-
     async def _connect_database(self) -> None:
         try:
             self.db_manager = DatabaseManager(self.config["database"]["url"])
@@ -782,8 +768,6 @@ class SignalGeneratorService:
             await self._kafka_consumer.stop()
         if self._kafka_producer:
             await self._kafka_producer.stop()
-        if self.redis_client:
-            await self.redis_client.aclose()
         if self.db_manager:
             await self.db_manager.close()
         self.logger.info("Signal Generator Service stopped")
@@ -1322,7 +1306,6 @@ class SignalGeneratorService:
     async def start(self) -> None:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
         try:
-            await self._connect_redis()
             await self._connect_database()
             # Seed bar_history from intelligence_features (warmup logic)
             await self._seed_bar_history_from_db()
