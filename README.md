@@ -1,6 +1,6 @@
 # IndicAgent Market Intelligence Platform
 
-**v1.8 · 103 plugins · 1659 tests · 24 instruments · <10ms end-to-end**
+**v1.8 · 103 plugins · 1754 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
@@ -39,11 +39,7 @@ The central architectural decision: **everything flows through streams. Services
 
 The unified data bus is the data spine of the platform — the single structure everything attaches to and everything flows through. Every tick ingested, every indicator computed, every regime classified, every signal fired, every AI narrative generated: all of it moves as messages on the bus. No service calls another. No shared database in the hot path. The bus is the only contract between producers and consumers, and that contract is a typed schema.
 
-Two buses, two roles:
-
-**DragonflyDB** (Redis-compatible) on the hot path — sub-millisecond tick ingestion and stream fan-out to all downstream services. Raw market data enters here; every intelligence service reads from here. No database touches the hot path.
-
-**Redpanda** (Kafka-compatible) on the warm path — durable, partitioned, replayable logs. Intelligence outputs land here. Consumer groups ensure at-least-once delivery: if a service disconnects, messages queue. On reconnect, it resumes from its committed offset — nothing lost, nothing skipped.
+**Redpanda** (Kafka-compatible) on the hot path — sub-millisecond tick ingestion and stream fan-out to all downstream services. Raw market data enters here; every intelligence service reads from here. No database touches the hot path. Durable, partitioned, replayable logs — consumer groups ensure at-least-once delivery: if a service disconnects, messages queue. On reconnect, it resumes from its committed offset — nothing lost, nothing skipped.
 
 ### Replay from offset 0
 
@@ -56,7 +52,7 @@ Producers publish. Consumers subscribe. No service knows the others exist.
 Restart `market_analysis_service` to deploy a new plugin: zero effect on `signal_lifecycle_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
 
 ```
-IBKR TWS ──► [DragonflyDB streams] ──► indicator_service
+IBKR TWS ──► [Redpanda topics] ──► indicator_service
                                     ──► market_analysis_service
                                     ──► signal_generator_service ──► signal_lifecycle_service
                                     ──► feature_writer_service
@@ -64,7 +60,7 @@ IBKR TWS ──► [DragonflyDB streams] ──► indicator_service
                                     ──► api_service ──► SSE ──► any HTTP client
 ```
 
-Each arrow is a Redis stream. The streams are the API between services.
+Each arrow is a Redpanda topic. The topics are the API between services.
 
 ### Stream keys
 
@@ -193,7 +189,7 @@ For every signal above confidence 0.7 (on 5m, 15m, 1h timeframes), the AI Narrat
 
 Beyond per-signal narratives: group synthesis at configurable intervals across 6 asset groups (equity indices, energy, metals, rates, FX, crypto).
 
-LLM chain (priority order): **ZAI GLM-5** (primary, cloud) → **OpenRouter** (fallback, 100+ model catalogue) → **Ollama local** (qwen3.5:9b, offline, AMD ROCm GPU). Every call — successful and failed — is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
+LLM chain (priority order): **OpenRouter** (primary, free models, 100+ model catalogue) → **Ollama local** (qwen3.5:9b, offline, AMD ROCm GPU). Every call — successful and failed — is logged to `llm_calls` for full audit. `llm_writer_service` back-fills signal outcomes into `llm_calls` rows as they resolve, linking every LLM call to its eventual outcome.
 
 ---
 
@@ -318,9 +314,8 @@ Six models run across I4 and I6, each answering a distinct question about market
 
 ### The LLM chain
 
-1. **ZAI GLM-5** (primary): production cloud LLM
-2. **OpenRouter** (fallback): 100+ model catalogue, per-regime model routing
-3. **Ollama local** (offline fallback): qwen3.5:9b, AMD ROCm GPU, fully offline
+1. **OpenRouter** (primary): free models, 100+ model catalogue, per-regime model routing
+2. **Ollama local** (offline fallback): qwen3.5:9b, AMD ROCm GPU, fully offline
 
 Every call — success or failure — written to `llm_calls` (TimescaleDB hypertable). Per-model win rates and average P&L ratios tracked in `llm_model_scores`, refreshed every 15 minutes.
 
@@ -413,14 +408,13 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 | | |
 |---|---|
 | **Version** | v1.8 — shipped 2026-03-13 |
-| **Instruments** | 24 — equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) |
+| **Instruments** | 60 — equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) · 38 ETFs |
 | **Plugins** | 103 across I1–I7 + 2 aggregation components |
-| **Tests** | 1659 passing (unit + integration) |
+| **Tests** | 1754 passing (unit + integration) |
 | **Latency** | <10ms bar-to-intelligence, feed-provider bound |
 | **Data in** | IBKR TWS: 100–500+ ticks/sec per instrument |
-| **Data out** | Redis Streams · TimescaleDB feature store · REST API · SSE |
-| **Hot path** | DragonflyDB (Redis-compatible, sub-ms) |
-| **Warm path** | Redpanda (Kafka-compatible, durable, replayable) |
+| **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
+| **Hot/Warm path** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
 | **Cold path** | TimescaleDB on PostgreSQL 17 (feature store, signal ledger, LLM audit) |
 | **Services** | 9 systemd services, `Restart=always` |
 | **Stack** | Python 3.13 · FastAPI · LangGraph · Next.js 16.1 / React 19.2 · Tailwind v4 · Prometheus · Grafana |
@@ -435,8 +429,8 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 - **v1.8 delivered:** Hurst Exponent + Shannon Entropy (I4) · alpha decay + freshness decay · per-setup cooldown gate · KS + CUSUM drift detection with live pipeline feedback · `GET /api/drift` · Signal Scorecard SSE stream · DB signal history in drill panel · TierTooltips.
 - **API layer:** REST + SSE. Full intelligence accessible to any HTTP client over standard HTTP.
 - **Dashboard:** Price hero · multi-TF intelligence panels · SMC panel · I7 signal drill panel with DB history · Signal Scorecard (all ranked candidates) · AI narrative cards · tier tooltips throughout.
-- **AI Narratives:** ZAI GLM-5 / OpenRouter / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
-- **Next:** v1.9 — equity expansion (38 ETFs, TradingSession model, provider abstraction, cross-asset feature store).
+- **AI Narratives:** OpenRouter (free models) / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
+- **Next:** v1.9 — TBD (`/gsd:new-milestone`).
 
 ---
 
@@ -452,4 +446,4 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 
 ---
 
-**v1.8 · 103 plugins · 1659 tests · 24 instruments**
+**v1.8 · 103 plugins · 1754 tests · 60 instruments**
