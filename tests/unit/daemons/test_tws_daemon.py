@@ -1,13 +1,14 @@
 """Tests for services/tws_daemon — Kafka-native TWS daemon (Phase 30, Plan 02)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_tws_daemon_publishes_bar_to_kafka():
-    """TwsDaemon._fetch_bars_for_symbol must publish bar to topic_market_bars via KafkaProducerClient."""
+    """TwsDaemon._fetch_bars_for_symbol must publish bar to topic_market_bars via
+    KafkaProducerClient."""
     from services.tws_daemon import TwsDaemon
 
     daemon = TwsDaemon.__new__(TwsDaemon)
@@ -41,7 +42,9 @@ async def test_tws_daemon_publishes_bar_to_kafka():
     daemon.provider = provider_mock
     daemon.async_redis = None
 
-    await daemon._fetch_bars_for_symbol("ES", datetime(2026, 3, 14, 9, 58), datetime(2026, 3, 14, 10, 0))
+    await daemon._fetch_bars_for_symbol(
+        "ES", datetime(2026, 3, 14, 9, 58), datetime(2026, 3, 14, 10, 0)
+    )
 
     kafka_producer.publish.assert_called_once()
     call_args = kafka_producer.publish.call_args
@@ -120,12 +123,16 @@ def test_timeframes_builder_no_redis_asyncio_import():
     import ast
     from pathlib import Path
 
-    source = (Path(__file__).parent.parent.parent.parent / "services" / "timeframes_builder_service.py").read_text()
+    source = (
+        Path(__file__).parent.parent.parent.parent / "services" / "timeframes_builder_service.py"
+    ).read_text()
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module and "redis" in node.module:
             if "asyncio" in node.module:
-                pytest.fail(f"redis.asyncio import found in timeframes_builder_service.py: {node.module}")
+                pytest.fail(
+                    f"redis.asyncio import found in timeframes_builder_service.py: {node.module}"
+                )
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if "redis.asyncio" in alias.name:

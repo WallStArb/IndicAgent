@@ -2,6 +2,7 @@
 
 Tests mock psycopg2 connections and CISScorer — no live DB required.
 """
+
 from __future__ import annotations
 
 # Import the script's pure functions for testing
@@ -87,7 +88,9 @@ class TestClassifyRows:
         assert len(recoverable) == 2
         assert len(orphaned) == 2
         assert recoverable[0]["signal_id"] == "11111111-1111-1111-1111-111111111111"
-        assert orphaned[0] == "33333333-3333-3333-3333-333333333333"  # orphaned is list of signal_id strings
+        assert (
+            orphaned[0] == "33333333-3333-3333-3333-333333333333"
+        )  # orphaned is list of signal_id strings
 
     def test_classify_rows_handles_empty_list(self):
         """Empty input returns empty lists."""
@@ -120,9 +123,7 @@ class TestMergeFeatureJsonb:
 
     def test_merge_feature_jsonb_skips_none_tiers(self):
         """Gracefully handles None/empty tier dicts."""
-        result = merge_feature_jsonb(
-            {"rsi_14": 50.0}, None, None, None, None, None
-        )
+        result = merge_feature_jsonb({"rsi_14": 50.0}, None, None, None, None, None)
         assert result == {"rsi_14": 50.0}
 
     def test_merge_feature_jsonb_empty_all(self):
@@ -251,9 +252,7 @@ class TestRepairRecoverable:
 
     @patch("production.scripts.repair_cis_nulls.CISScorer")
     @patch("production.scripts.repair_cis_nulls.psycopg2.extras.execute_batch")
-    def test_repair_recoverable_updates_rows(
-        self, mock_execute_batch, mock_cis_scorer_class
-    ):
+    def test_repair_recoverable_updates_rows(self, mock_execute_batch, mock_cis_scorer_class):
         """Batch-UPDATEs recoverable rows with computed CIS values."""
         # Mock connection
         mock_conn = MagicMock()

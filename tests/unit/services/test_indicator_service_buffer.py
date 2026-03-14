@@ -80,7 +80,9 @@ class TestCacheNotInvalidatedWhenBufferHasRoom:
 
         # 5 bars, max=5 — no eviction occurred
         assert len(svc.bar_history[key]) == 5
-        assert svc._df_cache[key] is sentinel, "Cache must not be invalidated when buffer exactly at max"
+        assert (
+            svc._df_cache[key] is sentinel
+        ), "Cache must not be invalidated when buffer exactly at max"
 
 
 class TestCacheInvalidatedWhenCapacityExceeded:

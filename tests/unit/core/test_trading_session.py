@@ -1,12 +1,11 @@
 # tests/unit/core/test_trading_session.py
-from datetime import datetime, time, timezone
-import pytest
-from zoneinfo import ZoneInfo
+from datetime import UTC, datetime
 
-UTC = timezone.utc
+UTC = UTC
 
 
 # --- Helpers ---
+
 
 def utc(y, mo, d, h, mi) -> datetime:
     return datetime(y, mo, d, h, mi, tzinfo=UTC)
@@ -14,11 +13,13 @@ def utc(y, mo, d, h, mi) -> datetime:
 
 # --- is_open: NYSE (09:30-16:00 ET, Mon-Fri) ---
 
+
 class TestNYSEIsOpen:
     """NYSE: open 09:30-16:00 ET, Mon-Fri, no breaks."""
 
     def setup_method(self):
         from src.core.models import EXCHANGE_SESSIONS
+
         self.session = EXCHANGE_SESSIONS["nyse"]
 
     def test_open_at_930_et(self):
@@ -61,6 +62,7 @@ class TestFutures245IsOpen:
 
     def setup_method(self):
         from src.core.models import CONTINUOUS_SESSIONS
+
         self.session = CONTINUOUS_SESSIONS["futures_24_5"]
 
     def test_open_at_open_time(self):
@@ -86,6 +88,7 @@ class TestAllDaySession:
 
     def setup_method(self):
         from src.core.models import CONTINUOUS_SESSIONS
+
         self.session = CONTINUOUS_SESSIONS["fx_24_5"]
 
     def test_open_any_time_on_weekday(self):
@@ -100,6 +103,7 @@ class TestTradingBreaks:
 
     def setup_method(self):
         from src.core.models import EXCHANGE_SESSIONS
+
         self.session = EXCHANGE_SESSIONS["tse"]
 
     def test_open_before_break(self):
@@ -109,7 +113,7 @@ class TestTradingBreaks:
 
     def test_in_break(self):
         # 11:30 JST = 02:30 UTC
-        assert self.session.is_open(utc(2026, 3, 10, 2, 30)) is True   # still "open"
+        assert self.session.is_open(utc(2026, 3, 10, 2, 30)) is True  # still "open"
         assert self.session.in_trading_break(utc(2026, 3, 10, 2, 30)) is True
 
     def test_after_break(self):
@@ -119,6 +123,7 @@ class TestTradingBreaks:
 
     def test_no_break_on_nyse(self):
         from src.core.models import EXCHANGE_SESSIONS
+
         nyse = EXCHANGE_SESSIONS["nyse"]
         assert nyse.in_trading_break(utc(2026, 3, 10, 15, 0)) is False
 
@@ -126,17 +131,22 @@ class TestTradingBreaks:
 class TestElapsedFraction:
     def test_all_day_returns_none(self):
         from src.core.models import CONTINUOUS_SESSIONS
+
         fx = CONTINUOUS_SESSIONS["fx_24_5"]
         assert fx.elapsed_fraction(utc(2026, 3, 10, 12, 0)) is None
 
     def test_closed_returns_none(self):
         from src.core.models import EXCHANGE_SESSIONS
+
         nyse = EXCHANGE_SESSIONS["nyse"]
         # Before open
-        assert nyse.elapsed_fraction(utc(2026, 3, 10, 13, 0)) is None  # 09:00 EDT — before 09:30 (post-DST: UTC-4)
+        assert (
+            nyse.elapsed_fraction(utc(2026, 3, 10, 13, 0)) is None
+        )  # 09:00 EDT — before 09:30 (post-DST: UTC-4)
 
     def test_open_returns_0_at_open(self):
         from src.core.models import EXCHANGE_SESSIONS
+
         nyse = EXCHANGE_SESSIONS["nyse"]
         # 09:30 ET = 14:30 UTC (EST, pre-DST check date: 2026-03-03)
         result = nyse.elapsed_fraction(utc(2026, 3, 3, 14, 30))
@@ -145,6 +155,7 @@ class TestElapsedFraction:
 
     def test_approaches_1_at_close(self):
         from src.core.models import EXCHANGE_SESSIONS
+
         nyse = EXCHANGE_SESSIONS["nyse"]
         # 15:59 ET = 20:59 UTC (EST, 2026-03-03)
         result = nyse.elapsed_fraction(utc(2026, 3, 3, 20, 59))
@@ -154,6 +165,7 @@ class TestElapsedFraction:
     def test_tse_break_excluded_from_denominator(self):
         """Break duration should be excluded so elapsed_frac < 1.0 at market close."""
         from src.core.models import EXCHANGE_SESSIONS
+
         tse = EXCHANGE_SESSIONS["tse"]
         # TSE open 09:00 JST, close 15:30 JST = 6.5h total, minus 1h break = 5.5h denominator
         # At 14:30 JST (just before power hour): elapsed ~= (14:30 - 09:00) - 1h break = 4.5h

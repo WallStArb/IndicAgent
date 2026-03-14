@@ -1,5 +1,4 @@
 # tests/unit/config/test_settings_equity.py
-import pytest
 from src.config.settings import Settings, get_active_contracts
 from src.core.models import AssetClass
 
@@ -24,7 +23,9 @@ class TestPilotETFs:
 
     def test_pilot_etfs_are_equity(self):
         s = Settings()
-        etfs = {inst.symbol: inst for inst in s.instruments if inst.asset_class == AssetClass.EQUITY}
+        etfs = {
+            inst.symbol: inst for inst in s.instruments if inst.asset_class == AssetClass.EQUITY
+        }
         for sym in ["SPY", "XLF", "TLT", "GLD", "SMH"]:
             assert sym in etfs
             assert etfs[sym].session_id == "nyse"
@@ -53,7 +54,9 @@ class TestPilotETFs:
 
     def test_crypto_instruments_have_crypto_session(self):
         s = Settings()
-        crypto = {inst.symbol: inst for inst in s.instruments if inst.asset_class == AssetClass.CRYPTO}
+        crypto = {
+            inst.symbol: inst for inst in s.instruments if inst.asset_class == AssetClass.CRYPTO
+        }
         for sym, inst in crypto.items():
             assert inst.session_id == "crypto_24_7", f"{sym}: crypto should use crypto_24_7"
 
@@ -84,9 +87,7 @@ class TestFullETFRollout:
     INTERNATIONAL = {"EFA", "EEM", "EWZ", "FXI"}
     COMMODITY = {"SLV", "USO"}
 
-    ALL_NEW_ETFS = (
-        BROAD_MARKET | SECTORS | INDUSTRY | CREDIT | FACTOR | INTERNATIONAL | COMMODITY
-    )
+    ALL_NEW_ETFS = BROAD_MARKET | SECTORS | INDUSTRY | CREDIT | FACTOR | INTERNATIONAL | COMMODITY
 
     def test_all_33_etfs_present(self):
         symbols = {inst.symbol for inst in Settings().instruments}

@@ -71,7 +71,8 @@ def test_parse_indicators_message_splits_ohlcv_and_features():
 
 @pytest.mark.asyncio
 async def test_kafka_consumer_uses_market_bars_topic():
-    """IndicatorService must use topic_market_bars for Kafka consumer (replaces Redis xreadgroup)."""
+    """IndicatorService must use topic_market_bars for Kafka consumer (replaces Redis
+    xreadgroup)."""
     from services.indicator_service import IndicatorService
     from src.core.stream_keys import topic_market_bars
 
@@ -102,8 +103,12 @@ def test_df_cache_miss_builds_dataframe():
     svc._df_cache[key] = None
     ts = datetime(2026, 2, 28, 10, 0, 0)
     svc.bar_history[key][ts.isoformat()] = {
-        "timestamp": ts, "open": 5300.0, "high": 5305.0,
-        "low": 5299.0, "close": 5303.0, "volume": 1000,
+        "timestamp": ts,
+        "open": 5300.0,
+        "high": 5305.0,
+        "low": 5299.0,
+        "close": 5303.0,
+        "volume": 1000,
     }
 
     df = svc._get_df(key)
@@ -170,8 +175,11 @@ async def test_process_single_bar_returns_true_on_success():
     fields = {
         b"timestamp": b"2026-02-28T10:00:00",
         b"source": b"ibkr",
-        b"open": b"5300.0", b"high": b"5305.0",
-        b"low": b"5299.0", b"close": b"5303.0", b"volume": b"1000",
+        b"open": b"5300.0",
+        b"high": b"5305.0",
+        b"low": b"5299.0",
+        b"close": b"5303.0",
+        b"volume": b"1000",
     }
 
     with patch.object(svc, "_run_i1_plugins", new=AsyncMock(return_value={"rsi_14": 58.3})):
@@ -179,8 +187,12 @@ async def test_process_single_bar_returns_true_on_success():
         for i in range(130):
             ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
             svc.bar_history["ES:1m"][ts.isoformat()] = {
-                "timestamp": ts, "open": 5300.0, "high": 5305.0,
-                "low": 5299.0, "close": 5303.0, "volume": 1000,
+                "timestamp": ts,
+                "open": 5300.0,
+                "high": 5305.0,
+                "low": 5299.0,
+                "close": 5303.0,
+                "volume": 1000,
             }
         result = await svc._process_single_bar("ES", "1m", fields)
     assert result is True
@@ -216,8 +228,12 @@ class TestIndicatorServicePluginOptimizations:
             for i in range(130):
                 ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
                 svc.bar_history[key][ts.isoformat()] = {
-                    "timestamp": ts, "open": 100.0, "high": 101.0,
-                    "low": 99.0, "close": 100.5, "volume": 500,
+                    "timestamp": ts,
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.5,
+                    "volume": 500,
                 }
             svc._df_cache[key] = None
 
@@ -254,15 +270,17 @@ class TestIndicatorServicePluginOptimizations:
         for i in range(130):
             ts = datetime(2026, 2, 28, 9, 0, 0) + timedelta(minutes=i)
             svc.bar_history[key][ts.isoformat()] = {
-                "timestamp": ts, "open": 100.0, "high": 101.0,
-                "low": 99.0, "close": 100.5, "volume": 500,
+                "timestamp": ts,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 500,
             }
         df = pd.DataFrame(list(svc.bar_history[key].values()))
         frames = {"main": df}
 
-        with patch(
-            "services.indicator_service.record_plugin_execution"
-        ) as mock_record:
+        with patch("services.indicator_service.record_plugin_execution") as mock_record:
             for _ in range(10):
                 await svc._run_i1_plugins(frames, "ES", "1m")
 
@@ -295,6 +313,7 @@ def test_process_single_bar_returns_false_on_exception():
 # KAFKA-05: indicator_service publishes to dev.indicators with key ES:1m
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_kafka05_indicator_service_publishes_to_correct_topic_and_key():
     """KAFKA-05: _process_single_bar must publish to topic_indicators('dev') with key 'ES:1m'."""
@@ -314,8 +333,11 @@ async def test_kafka05_indicator_service_publishes_to_correct_topic_and_key():
     fields = {
         b"timestamp": b"2026-03-14T10:00:00",
         b"source": b"authoritative",
-        b"open": b"5500.0", b"high": b"5510.0",
-        b"low": b"5495.0", b"close": b"5505.0", b"volume": b"1000",
+        b"open": b"5500.0",
+        b"high": b"5510.0",
+        b"low": b"5495.0",
+        b"close": b"5505.0",
+        b"volume": b"1000",
     }
 
     with patch.object(svc, "_run_i1_plugins", new=AsyncMock(return_value={"rsi_14": 58.3})):
@@ -323,8 +345,12 @@ async def test_kafka05_indicator_service_publishes_to_correct_topic_and_key():
         for i in range(130):
             ts = datetime(2026, 3, 14, 9, 0, 0) + timedelta(minutes=i)
             svc.bar_history["ES:1m"][ts.isoformat()] = {
-                "timestamp": ts, "open": 5500.0, "high": 5510.0,
-                "low": 5495.0, "close": 5505.0, "volume": 1000,
+                "timestamp": ts,
+                "open": 5500.0,
+                "high": 5510.0,
+                "low": 5495.0,
+                "close": 5505.0,
+                "volume": 1000,
             }
         result = await svc._process_single_bar("ES", "1m", fields, "ignored", b"1-0")
 
@@ -342,7 +368,6 @@ async def test_kafka05_indicator_service_publishes_to_correct_topic_and_key():
 @pytest.mark.asyncio
 async def test_indicator_service_seed_bar_history_from_db_graceful_fallback():
     """_seed_bar_history_from_db must log WARNING and continue when DB unreachable."""
-    from unittest.mock import MagicMock
 
     from services.indicator_service import IndicatorService
 

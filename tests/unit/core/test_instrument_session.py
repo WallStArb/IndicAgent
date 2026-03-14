@@ -1,6 +1,7 @@
 # tests/unit/core/test_instrument_session.py
 import pytest
-from src.core.models import Instrument, AssetClass, SESSION_REGISTRY, TradingSession
+
+from src.core.models import SESSION_REGISTRY, AssetClass, Instrument, TradingSession
 
 
 class TestInstrumentSessionId:
@@ -14,6 +15,7 @@ class TestInstrumentSessionId:
 
     def test_invalid_session_id_raises(self):
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="Unknown session_id"):
             Instrument(symbol="SPY", asset_class=AssetClass.EQUITY, session_id="invalid_session")
 

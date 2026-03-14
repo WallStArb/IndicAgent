@@ -3,6 +3,7 @@
 All tests mock psycopg2 and subprocess — no live DB required.
 TDD RED: These tests fail with ImportError until the module is implemented.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -346,9 +347,9 @@ class TestAutoBackfillTriggered:
 
         # subprocess.run must have been called with --replay-only in args
         called_args = [str(a) for call_item in mock_sub.call_args_list for a in call_item[0][0]]
-        assert "--replay-only" in called_args, (
-            f"Expected --replay-only in subprocess call, got: {called_args}"
-        )
+        assert (
+            "--replay-only" in called_args
+        ), f"Expected --replay-only in subprocess call, got: {called_args}"
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +454,7 @@ class TestForwardReturnAlignment:
         base = 100.0
         for i in range(n):
             # Signal fires every 8 bars
-            fires = (i % 8 == 0)
+            fires = i % 8 == 0
             signals.append(1.0 if fires else 0.0)
             # Price rises 3 bars after signal
             if fires and i >= 3:

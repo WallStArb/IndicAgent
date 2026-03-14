@@ -1,7 +1,10 @@
 # tests/unit/providers/test_ibkr_equity.py
-import pytest
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.core.models import Instrument, AssetClass
+
+import pytest
+
+from src.core.models import AssetClass, Instrument
 
 
 class TestIBKREquityQualification:
@@ -10,6 +13,7 @@ class TestIBKREquityQualification:
     @pytest.mark.asyncio
     async def test_qualify_equity_uses_stock_contract(self):
         from src.providers.ibkr import IBKRProvider
+
         provider = IBKRProvider.__new__(IBKRProvider)
         provider.logger = MagicMock()
         provider._qualified_contracts = {}
@@ -44,8 +48,10 @@ class TestIBKRUseRTH:
 
     @pytest.mark.asyncio
     async def test_fetch_equity_bars_uses_rth(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from src.providers.ibkr import IBKRProvider
+
         provider = IBKRProvider.__new__(IBKRProvider)
         provider.logger = MagicMock()
 
@@ -56,8 +62,8 @@ class TestIBKRUseRTH:
 
         with patch.object(provider, "_ib", create=True) as mock_ib:
             mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
-            start = datetime(2026, 3, 1, tzinfo=timezone.utc)
-            end   = datetime(2026, 3, 2, tzinfo=timezone.utc)
+            start = datetime(2026, 3, 1, tzinfo=UTC)
+            end = datetime(2026, 3, 2, tzinfo=UTC)
             try:
                 await provider.fetch_historical_bars("SPY", "1m", start, end)
             except Exception:
@@ -68,8 +74,10 @@ class TestIBKRUseRTH:
 
     @pytest.mark.asyncio
     async def test_fetch_futures_bars_no_rth(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from src.providers.ibkr import IBKRProvider
+
         provider = IBKRProvider.__new__(IBKRProvider)
         provider.logger = MagicMock()
 
@@ -80,8 +88,8 @@ class TestIBKRUseRTH:
 
         with patch.object(provider, "_ib", create=True) as mock_ib:
             mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[])
-            start = datetime(2026, 3, 1, tzinfo=timezone.utc)
-            end   = datetime(2026, 3, 2, tzinfo=timezone.utc)
+            start = datetime(2026, 3, 1, tzinfo=UTC)
+            end = datetime(2026, 3, 2, tzinfo=UTC)
             try:
                 await provider.fetch_historical_bars("ES", "1m", start, end)
             except Exception:

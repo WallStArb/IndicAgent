@@ -1,11 +1,13 @@
 # tests/unit/scripts/test_validate_equity_backfill.py
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch
 
 
 class TestValidateEquityBackfill:
     def test_module_importable(self):
         import importlib.util
+
         spec = importlib.util.spec_from_file_location(
             "validate_equity_backfill",
             "production/scripts/validate_equity_backfill.py",
@@ -19,6 +21,7 @@ class TestValidateEquityBackfill:
         mock_db.fetch = AsyncMock(return_value=[{"count": 0}])
 
         from production.scripts.validate_equity_backfill import validate_symbol
+
         result = await validate_symbol(mock_db, "SPY")
         assert result == 0
 
@@ -29,5 +32,6 @@ class TestValidateEquityBackfill:
         mock_db.fetch = AsyncMock(return_value=[{"count": 42}])
 
         from production.scripts.validate_equity_backfill import validate_symbol
+
         result = await validate_symbol(mock_db, "SPY")
         assert result == 42

@@ -1,4 +1,5 @@
 """Tests for feature_writer_service — consumer group batch writer to intelligence_features."""
+
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -6,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_valid_event():
     """Build a valid IntelligenceEvent for test fixtures."""
@@ -19,6 +21,7 @@ def _make_valid_event():
         OHLCVBar,
         SMCContext,
     )
+
     return IntelligenceEvent(
         ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
@@ -49,6 +52,7 @@ def _make_valid_event_json() -> bytes:
 
 
 # ── _parse_intelligence_event ─────────────────────────────────────────────────
+
 
 def test_parse_valid_event_returns_intelligence_event():
     """Valid IntelligenceEvent JSON in b'event' field returns IntelligenceEvent."""
@@ -83,6 +87,7 @@ def test_parse_malformed_json_returns_none():
 
 
 # ── _event_to_insert_params ───────────────────────────────────────────────────
+
 
 def test_event_to_insert_params_returns_17_tuple():
     """_event_to_insert_params returns 18-element tuple (14 base + 3 timing + 1 days_to_expiry)."""
@@ -119,15 +124,16 @@ def test_event_to_insert_params_jsonb_columns_are_strings():
     # Elements at indices 6..12 are the 7 JSONB columns: bar, i1, i3, i4, i5, smc, i6
     for idx in range(6, 13):
         value = params[idx]
-        assert isinstance(value, str), (
-            f"params[{idx}] must be a JSON string, got {type(value).__name__}"
-        )
+        assert isinstance(
+            value, str
+        ), f"params[{idx}] must be a JSON string, got {type(value).__name__}"
         # Must be valid JSON
         parsed = json.loads(value)
         assert isinstance(parsed, dict), f"params[{idx}] must decode to a dict"
 
 
 # ── FeatureWriterService._maybe_flush ─────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_maybe_flush_force_calls_execute_batch():
@@ -149,6 +155,7 @@ async def test_maybe_flush_force_calls_execute_batch():
 
     event = _make_valid_event()
     from services.feature_writer_service import _event_to_insert_params
+
     params = _event_to_insert_params(event)
     svc._buffer = [params, params, params]
 
@@ -184,6 +191,7 @@ async def test_maybe_flush_time_based_calls_execute_batch():
 
     event = _make_valid_event()
     from services.feature_writer_service import _event_to_insert_params
+
     params = _event_to_insert_params(event)
     svc._buffer = [params]
 
@@ -211,6 +219,7 @@ async def test_maybe_flush_recent_events_no_call():
 
     event = _make_valid_event()
     from services.feature_writer_service import _event_to_insert_params
+
     params = _event_to_insert_params(event)
     svc._buffer = [params]
 
@@ -222,6 +231,7 @@ async def test_maybe_flush_recent_events_no_call():
 
 
 # ── graceful shutdown ─────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_graceful_shutdown_sets_flag_and_flushes():
@@ -252,6 +262,7 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
 
     event = _make_valid_event()
     from services.feature_writer_service import _event_to_insert_params
+
     params = _event_to_insert_params(event)
     svc._buffer = [params, params]
 
@@ -270,10 +281,13 @@ def test_kafka_consumer_group_is_feature_writer_group():
     assert CONSUMER_GROUP == "feature_writer_group"
     # Verify no redis_client attribute on new instance (Kafka-native)
     svc = FeatureWriterService.__new__(FeatureWriterService)
-    assert not hasattr(svc, "redis_client"), "redis_client must not be present after Kafka migration"
+    assert not hasattr(
+        svc, "redis_client"
+    ), "redis_client must not be present after Kafka migration"
 
 
 # ── _build_expiry_map ─────────────────────────────────────────────────────────
+
 
 class TestBuildExpiryMap:
     """Tests for _build_expiry_map pure function."""
@@ -281,20 +295,24 @@ class TestBuildExpiryMap:
     def _make_settings_with(self, instruments):
         """Build a minimal Settings-like object with given contracts list."""
         from unittest.mock import MagicMock
+
         s = MagicMock()
         s.contracts = instruments
         return s
 
     def _futures_inst(self, symbol, expiry):
         from src.core.models import AssetClass, Instrument
+
         return Instrument(symbol=symbol, expiry=expiry, asset_class=AssetClass.FUTURES)
 
     def _fx_inst(self, symbol):
         from src.core.models import AssetClass, Instrument
+
         return Instrument(symbol=symbol, expiry="", asset_class=AssetClass.FX)
 
     def _crypto_inst(self, symbol):
         from src.core.models import AssetClass, Instrument
+
         return Instrument(symbol=symbol, expiry="", asset_class=AssetClass.CRYPTO)
 
     def test_futures_yyyymmdd_parsed(self):
@@ -342,11 +360,13 @@ class TestBuildExpiryMap:
 
 # ── _compute_days_to_expiry ───────────────────────────────────────────────────
 
+
 class TestComputeDaysToExpiry:
     """Tests for _compute_days_to_expiry pure function."""
 
     def _dt(self, year, month, day):
         from datetime import UTC, datetime
+
         return datetime(year, month, day, 10, 0, 0, tzinfo=UTC)
 
     def test_futures_days_before_expiry(self):
@@ -389,6 +409,7 @@ class TestComputeDaysToExpiry:
 
 
 # ── _event_to_insert_params with expiry_map ───────────────────────────────────
+
 
 def test_event_to_insert_params_18_with_expiry_map():
     """_event_to_insert_params with expiry_map returns 18-tuple, $18 is int."""

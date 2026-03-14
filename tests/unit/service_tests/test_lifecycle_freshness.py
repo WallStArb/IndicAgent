@@ -6,12 +6,14 @@ purposes) is computed with the exponential decay factor.
 """
 
 import math
+from datetime import UTC
 
 import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _compute_expected_freshness(bars_since: int, half_life: int) -> float:
     """Compute expected exponential freshness factor."""
@@ -45,9 +47,9 @@ class TestFreshnessDecayComputation:
 
         for tf, half_life in FRESHNESS_HALF_LIFE_BARS.items():
             freshness = _compute_freshness_decay(bars_since=half_life, timeframe=tf)
-            assert freshness == pytest.approx(0.5, abs=0.001), (
-                f"Freshness at half_life={half_life} bars for {tf} should be ~0.5, got {freshness}"
-            )
+            assert freshness == pytest.approx(
+                0.5, abs=0.001
+            ), f"Freshness at half_life={half_life} bars for {tf} should be ~0.5, got {freshness}"
 
     @pytest.mark.unit
     def test_freshness_at_double_half_life_is_approx_quarter(self):
@@ -71,9 +73,9 @@ class TestFreshnessDecayComputation:
         prev = 1.0
         for bars in [0, 5, 10, 20, 40]:
             freshness = _compute_freshness_decay(bars_since=bars, timeframe=tf)
-            assert freshness <= prev + 1e-9, (
-                f"Freshness must not increase: bars={bars}, freshness={freshness}, prev={prev}"
-            )
+            assert (
+                freshness <= prev + 1e-9
+            ), f"Freshness must not increase: bars={bars}, freshness={freshness}, prev={prev}"
             prev = freshness
 
     @pytest.mark.unit
@@ -142,9 +144,9 @@ class TestEffectiveConfidenceComputation:
         effective = round(sig["confidence"] * freshness, 4)
 
         # Original signal dict must be unchanged
-        assert sig["confidence"] == original_confidence, (
-            f"Original confidence {original_confidence} was mutated to {sig['confidence']}"
-        )
+        assert (
+            sig["confidence"] == original_confidence
+        ), f"Original confidence {original_confidence} was mutated to {sig['confidence']}"
         # But effective_confidence is different
         assert effective != pytest.approx(original_confidence, abs=0.01)
 
@@ -215,9 +217,8 @@ class TestFreshnessDecayWiring:
         Before the fix: signal_quality == pnl_r * 1.0 → test FAILS (RED).
         After the fix: signal_quality == pnl_r * 0.5 → test PASSES (GREEN).
         """
-        from datetime import timedelta
+        from datetime import datetime, timedelta
         from unittest.mock import AsyncMock, patch
-        from datetime import datetime, timezone
 
         from services.signal_lifecycle_service import FRESHNESS_HALF_LIFE_BARS
 
@@ -225,7 +226,7 @@ class TestFreshnessDecayWiring:
 
         tf = "1m"
         half_life = FRESHNESS_HALF_LIFE_BARS[tf]  # 20
-        bar_time = datetime(2026, 3, 13, 12, 0, 0, tzinfo=timezone.utc)
+        bar_time = datetime(2026, 3, 13, 12, 0, 0, tzinfo=UTC)
         signal_ts = bar_time - timedelta(seconds=half_life * 60)  # exactly half_life bars ago
 
         signal_id = "test-fresh-001"
@@ -288,9 +289,8 @@ class TestFreshnessDecayWiring:
 
         This test should PASS both before and after the fix.
         """
-        from datetime import timedelta
+        from datetime import datetime, timedelta
         from unittest.mock import AsyncMock, patch
-        from datetime import datetime, timezone
 
         from services.signal_lifecycle_service import FRESHNESS_HALF_LIFE_BARS
 
@@ -298,7 +298,7 @@ class TestFreshnessDecayWiring:
 
         tf = "1m"
         half_life = FRESHNESS_HALF_LIFE_BARS[tf]
-        bar_time = datetime(2026, 3, 13, 12, 0, 0, tzinfo=timezone.utc)
+        bar_time = datetime(2026, 3, 13, 12, 0, 0, tzinfo=UTC)
         signal_ts = bar_time - timedelta(seconds=half_life * 60)
 
         signal_id = "test-fresh-002"

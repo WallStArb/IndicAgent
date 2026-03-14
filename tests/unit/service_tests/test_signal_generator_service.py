@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from redis.exceptions import ResponseError
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_valid_event_json() -> bytes:
     """Return bytes of a valid IntelligenceEvent JSON for test fixtures."""
@@ -20,6 +20,7 @@ def _make_valid_event_json() -> bytes:
         OHLCVBar,
         SMCContext,
     )
+
     event = IntelligenceEvent(
         ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
         symbol="ESH6",
@@ -46,6 +47,7 @@ def _make_valid_event_json() -> bytes:
 
 
 # ── _parse_intelligence_event ─────────────────────────────────────────────────
+
 
 def test_parse_intelligence_event_returns_typed_event():
     """Valid IntelligenceEvent JSON in b'event' field returns IntelligenceEvent."""
@@ -100,6 +102,7 @@ def test_parse_intelligence_event_returns_none_on_validation_error():
 
 
 # ── _build_features_from_event ────────────────────────────────────────────────
+
 
 def test_build_features_from_event_maps_typed_attributes():
     """_build_features_from_event extracts all MARKET_CONTEXT_KEYS from typed event."""
@@ -172,10 +175,10 @@ def test_build_features_from_event_none_values_for_missing_fields():
         tf="5m",
         bar=OHLCVBar(o=5100.0, h=5105.0, l=5099.0, c=5103.0, v=10000),
         i1=I1Indicators(),  # no rsi_14 or atr_14
-        i3=I3Structure(),   # no trend_strength or swing_pattern
-        i4=I4Context(),     # all None
+        i3=I3Structure(),  # no trend_strength or swing_pattern
+        i4=I4Context(),  # all None
         i5=I5Patterns(),
-        smc=SMCContext(),   # no hmm_regime
+        smc=SMCContext(),  # no hmm_regime
         i6=I6Confluence(),  # no ctf_score
     )
 
@@ -195,6 +198,7 @@ def test_build_features_from_event_none_values_for_missing_fields():
 
 # ── process_single_message integration ───────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_process_message_accesses_typed_attributes():
     """_process_single_message routes typed attributes to I7 plugin frames correctly.
@@ -211,9 +215,7 @@ async def test_process_message_accesses_typed_attributes():
     fields = {b"event": valid_event}
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
-    svc.bar_history = collections.defaultdict(
-        lambda: collections.deque(maxlen=200)
-    )
+    svc.bar_history = collections.defaultdict(lambda: collections.deque(maxlen=200))
     svc.config = {
         "service": {
             "symbols": ["ESH6"],
@@ -318,7 +320,8 @@ def _minimal_event(**i2_kwargs) -> "IntelligenceEvent":
     """Build a minimal IntelligenceEvent with given I2 fields."""
     return IntelligenceEvent(
         ts=datetime(2026, 1, 1, tzinfo=UTC),
-        symbol="ES", tf="1m",
+        symbol="ES",
+        tf="1m",
         bar=OHLCVBar(o=5000, h=5010, l=4990, c=5005, v=1000),
         i1=I1Indicators(),
         i2=I2Events(**i2_kwargs),
@@ -332,6 +335,7 @@ def _minimal_event(**i2_kwargs) -> "IntelligenceEvent":
 
 def test_build_features_includes_i2_stoch_cross():
     from services.signal_generator_service import _build_features_from_event
+
     event = _minimal_event(stoch_cross_bullish=1.0, stoch_cross_bearish=0.0)
     features = _build_features_from_event(event)
     assert features.get("stoch_cross_bullish") == 1.0
@@ -339,6 +343,7 @@ def test_build_features_includes_i2_stoch_cross():
 
 def test_build_features_includes_i2_adx_events():
     from services.signal_generator_service import _build_features_from_event
+
     event = _minimal_event(adx_trend_confirmed=1.0, di_spread=25.0)
     features = _build_features_from_event(event)
     assert features.get("adx_trend_confirmed") == 1.0
@@ -347,6 +352,7 @@ def test_build_features_includes_i2_adx_events():
 
 def test_build_features_includes_i2_vol_events():
     from services.signal_generator_service import _build_features_from_event
+
     event = _minimal_event(vol_spike=1.0, bb_walking_upper=1.0)
     features = _build_features_from_event(event)
     assert features.get("vol_spike") == 1.0
@@ -361,6 +367,7 @@ class TestBuildI7Payload:
 
     def _make_result(self, all_ranked=None, selected_plugin=None):
         from src.intelligence.trading.aggregator import AggregatedResult
+
         selected = {"setup_plugin": selected_plugin} if selected_plugin else None
         return AggregatedResult(
             selected_signal=selected,
@@ -407,8 +414,16 @@ class TestBuildI7Payload:
         assert len(items) == 1
         item = items[0]
         for key in (
-            "setup_type", "confidence", "direction", "regime_eligible",
-            "suppression_reason", "entry", "stop", "target", "composite_rank", "is_winner",
+            "setup_type",
+            "confidence",
+            "direction",
+            "regime_eligible",
+            "suppression_reason",
+            "entry",
+            "stop",
+            "target",
+            "composite_rank",
+            "is_winner",
         ):
             assert key in item, f"Missing key: {key}"
 
@@ -421,16 +436,26 @@ class TestBuildI7Payload:
         sig1 = {
             "setup_plugin": "trad_TrendFollowing",
             "signal_type": "trend_following_long",
-            "direction": 1, "confidence": 0.75, "regime_eligible": True,
-            "suppression_reason": None, "entry_price": 5100.0,
-            "stop_loss": 5080.0, "targets": [5140.0], "composite_rank": 1,
+            "direction": 1,
+            "confidence": 0.75,
+            "regime_eligible": True,
+            "suppression_reason": None,
+            "entry_price": 5100.0,
+            "stop_loss": 5080.0,
+            "targets": [5140.0],
+            "composite_rank": 1,
         }
         sig2 = {
             "setup_plugin": "trad_MeanReversion",
             "signal_type": "mean_reversion_long",
-            "direction": 1, "confidence": 0.60, "regime_eligible": True,
-            "suppression_reason": None, "entry_price": 5100.0,
-            "stop_loss": 5080.0, "targets": [5140.0], "composite_rank": 2,
+            "direction": 1,
+            "confidence": 0.60,
+            "regime_eligible": True,
+            "suppression_reason": None,
+            "entry_price": 5100.0,
+            "stop_loss": 5080.0,
+            "targets": [5140.0],
+            "composite_rank": 2,
         }
         result = self._make_result(all_ranked=[sig1, sig2], selected_plugin="trad_TrendFollowing")
         msg = _build_i7_payload(result, self._ts(), "ESH6", "5m")
@@ -449,9 +474,14 @@ class TestBuildI7Payload:
         sig = {
             "setup_plugin": "trad_TrendFollowing",
             "signal_type": "trend_following_long",
-            "direction": 1, "confidence": 0.75, "regime_eligible": False,
-            "suppression_reason": "regime_type", "entry_price": 5100.0,
-            "stop_loss": 5080.0, "targets": [5140.0], "composite_rank": 1,
+            "direction": 1,
+            "confidence": 0.75,
+            "regime_eligible": False,
+            "suppression_reason": "regime_type",
+            "entry_price": 5100.0,
+            "stop_loss": 5080.0,
+            "targets": [5140.0],
+            "composite_rank": 1,
         }
         result = self._make_result(all_ranked=[sig], selected_plugin="trad_TrendFollowing")
         msg = _build_i7_payload(result, self._ts(), "ESH6", "5m")
@@ -473,6 +503,7 @@ class TestBuildI7Payload:
 
 
 # ── Redis stream timing fields ─────────────────────────────────────────────────
+
 
 def test_signal_redis_message_includes_timing_fields():
     """signal_computed_at and bar_close_ts must appear in Redis stream message."""
@@ -547,8 +578,9 @@ def test_build_ledger_entries_winning_entry_has_signal_id():
     winning = entries[0]
     assert winning.was_selected is True
     assert winning.signal_id != ""
-    assert re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                    winning.signal_id)
+    assert re.match(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", winning.signal_id
+    )
 
 
 # ── Signal gate ───────────────────────────────────────────────────────────────
@@ -645,6 +677,7 @@ def test_gate_flip_allowed_after_resolution():
 
 # ── _seed_bar_history_from_db ───────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_seed_bar_history_from_db_success():
     """Seeding populates bar_history with bars from intelligence_features."""
@@ -667,8 +700,14 @@ async def test_seed_bar_history_from_db_success():
     # Mock query returns exactly LIMIT rows (DESC order, newest first)
     # execute_query returns list[dict] with keys "ts" and "bar"
     mock_db.execute_query.return_value = [
-        {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}},
-        {"ts": datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), "bar": {"o": 0.8, "h": 1.2, "l": 0.6, "c": 1.0, "v": 80}},
+        {
+            "ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC),
+            "bar": {"o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100},
+        },
+        {
+            "ts": datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC),
+            "bar": {"o": 0.8, "h": 1.2, "l": 0.6, "c": 1.0, "v": 80},
+        },
     ]
 
     # Mock min_bars_for_tf to return 2 for 1m
@@ -682,7 +721,8 @@ async def test_seed_bar_history_from_db_success():
     assert len(svc.bar_history[key]) == 2
 
     # Verify bar format conversion and chronological order (oldest first after reverse)
-    # bar_history format: {"open": ..., "high": ..., "low": ..., "close": ..., "volume": ..., "timestamp": ...}
+    # bar_history format: {"open": ..., "high": ..., "low": ..., "close": ..., "volume": ...,
+    #   "timestamp": ...}
     first_bar = svc.bar_history[key][0]
     assert first_bar["open"] == 0.8  # Oldest bar (9:59, second in DESC result)
     assert first_bar["high"] == 1.2
@@ -714,17 +754,32 @@ async def test_seed_bar_history_from_db_multiple_symbols():
     def mock_execute_query_side_effect(query, symbol, tf):
         if symbol == "ES" and tf == "1m":
             return [
-                {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}},
-                {"ts": datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC), "bar": {"o": 0.9, "h": 1.1, "l": 0.7, "c": 1.0, "v": 90}},
+                {
+                    "ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC),
+                    "bar": {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100},
+                },
+                {
+                    "ts": datetime(2026, 3, 10, 9, 59, 0, tzinfo=UTC),
+                    "bar": {"o": 0.9, "h": 1.1, "l": 0.7, "c": 1.0, "v": 90},
+                },
             ]
         elif symbol == "NQ" and tf == "5m":
             return [
-                {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 2.0, "h": 2.2, "l": 1.8, "c": 2.1, "v": 200}},
-                {"ts": datetime(2026, 3, 10, 9, 55, 0, tzinfo=UTC), "bar": {"o": 1.9, "h": 2.1, "l": 1.7, "c": 2.0, "v": 190}},
+                {
+                    "ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC),
+                    "bar": {"o": 2.0, "h": 2.2, "l": 1.8, "c": 2.1, "v": 200},
+                },
+                {
+                    "ts": datetime(2026, 3, 10, 9, 55, 0, tzinfo=UTC),
+                    "bar": {"o": 1.9, "h": 2.1, "l": 1.7, "c": 2.0, "v": 190},
+                },
             ]
         elif symbol == "ES" and tf == "15m":
             return [
-                {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 3.0, "h": 3.2, "l": 2.8, "c": 3.1, "v": 300}},
+                {
+                    "ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC),
+                    "bar": {"o": 3.0, "h": 3.2, "l": 2.8, "c": 3.1, "v": 300},
+                },
             ]
         return []
 
@@ -735,7 +790,9 @@ async def test_seed_bar_history_from_db_multiple_symbols():
         return {"1m": 2, "5m": 26, "15m": 26}.get(tf, 26)
 
     with patch("services.signal_generator_service.min_bars_for_tf", side_effect=mock_min_bars):
-        with patch("services.signal_generator_service.get_active_contracts", return_value=["ES", "NQ"]):
+        with patch(
+            "services.signal_generator_service.get_active_contracts", return_value=["ES", "NQ"]
+        ):
             await svc._seed_bar_history_from_db()
 
     # Verify all symbol/TF combinations were seeded
@@ -768,7 +825,10 @@ async def test_seed_bar_history_from_db_partial_data():
 
     # Return only 1 bar (less than min_bars_for_tf=120)
     mock_db.execute_query.return_value = [
-        {"ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC), "bar": {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100}},
+        {
+            "ts": datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC),
+            "bar": {"o": 1.0, "h": 1.2, "l": 0.8, "c": 1.1, "v": 100},
+        },
     ]
 
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=120):
@@ -915,9 +975,9 @@ class TestSetupCooldownGate:
 
         # Try same setup+direction 1 bar later (within cooldown=3 bars for 1m)
         blocked = svc._filter_setup_cooldown("ESH6", "1m", [sig], next_ts)
-        assert len(blocked) == 0, (
-            f"Same setup+direction within cooldown window should be blocked, got {blocked}"
-        )
+        assert (
+            len(blocked) == 0
+        ), f"Same setup+direction within cooldown window should be blocked, got {blocked}"
 
     def test_cooldown_allows_different_setup_same_direction(self):
         """Different setup same direction at bar N+1 is NOT blocked (cooldown is per-plugin)."""
@@ -934,9 +994,9 @@ class TestSetupCooldownGate:
         # Different setup (MeanReversion) at bar N+1 — should NOT be blocked
         sig_mean = _make_signal("trad_MeanReversion", 1)
         accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig_mean], next_ts)
-        assert len(accepted) == 1, (
-            f"Different setup should not be blocked by TrendFollowing cooldown, got {accepted}"
-        )
+        assert (
+            len(accepted) == 1
+        ), f"Different setup should not be blocked by TrendFollowing cooldown, got {accepted}"
 
     def test_cooldown_allows_same_setup_opposite_direction(self):
         """Same setup opposite direction at bar N+1 is NOT blocked."""
@@ -953,9 +1013,7 @@ class TestSetupCooldownGate:
         # Opposite direction (bearish) at bar N+1 — different key → NOT blocked
         sig_bear = _make_signal("trad_TrendFollowing", -1)
         accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig_bear], next_ts)
-        assert len(accepted) == 1, (
-            f"Opposite direction should not be blocked, got {accepted}"
-        )
+        assert len(accepted) == 1, f"Opposite direction should not be blocked, got {accepted}"
 
     def test_cooldown_expires_after_n_bars(self):
         """Cooldown expires after _SIGNAL_COOLDOWN_BARS — fires again at bar N+cooldown."""
@@ -972,17 +1030,16 @@ class TestSetupCooldownGate:
 
         # Advance exactly _SIGNAL_COOLDOWN_BARS["1m"] worth of seconds
         cooldown_bars = _SIGNAL_COOLDOWN_BARS["1m"]  # expect 3 for 1m
-        expired_ts = datetime(
-            2026, 3, 10, 10, cooldown_bars, 0, tzinfo=UTC
-        )  # 3 bars = 3 min on 1m
+        expired_ts = datetime(2026, 3, 10, 10, cooldown_bars, 0, tzinfo=UTC)  # 3 bars = 3 min on 1m
 
         accepted = svc._filter_setup_cooldown("ESH6", "1m", [sig], expired_ts)
-        assert len(accepted) == 1, (
-            f"Signal should be accepted after {cooldown_bars} bars, got {accepted}"
-        )
+        assert (
+            len(accepted) == 1
+        ), f"Signal should be accepted after {cooldown_bars} bars, got {accepted}"
 
     def test_cooldown_keyed_by_symbol_tf_plugin_direction(self):
-        """Cooldown state is keyed by (symbol, tf, plugin, direction) — different symbol unaffected."""
+        """Cooldown state is keyed by (symbol, tf, plugin, direction) — different symbol
+        unaffected."""
         from datetime import datetime
 
         svc = _make_svc_with_cooldown()
@@ -995,9 +1052,9 @@ class TestSetupCooldownGate:
 
         # Same plugin+direction but different symbol — should NOT be blocked
         accepted = svc._filter_setup_cooldown("NQH6", "1m", [sig], next_ts)
-        assert len(accepted) == 1, (
-            f"Different symbol should not be blocked by ESH6 cooldown, got {accepted}"
-        )
+        assert (
+            len(accepted) == 1
+        ), f"Different symbol should not be blocked by ESH6 cooldown, got {accepted}"
 
     def test_filter_setup_cooldown_constant_exists(self):
         """_SIGNAL_COOLDOWN_BARS constant exists and has expected TF keys."""
@@ -1073,7 +1130,6 @@ async def test_kafka_06_live_quotes_updated_overwrites_stale():
 
 def test_signal_generator_no_redis_hgetall_for_quote():
     """signal_generator_service must not import or call quote_latest (HGETALL removed)."""
-    import ast
     import inspect
 
     import services.signal_generator_service as mod

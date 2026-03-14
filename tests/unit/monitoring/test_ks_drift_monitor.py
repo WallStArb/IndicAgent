@@ -46,10 +46,12 @@ def _mock_pool_records(monitor: KSDriftMonitor, reference_rows: list, current_ro
         return []
 
     conn.fetch = fetch_side_effect
-    monitor.db_pool.acquire = MagicMock(return_value=AsyncMock(
-        __aenter__=AsyncMock(return_value=conn),
-        __aexit__=AsyncMock(return_value=False),
-    ))
+    monitor.db_pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

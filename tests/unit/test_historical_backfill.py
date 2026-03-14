@@ -25,6 +25,7 @@ class TestRunI1Plugins:
     @pytest.mark.unit
     def test_returns_empty_when_insufficient_bars(self):
         from historical_backfill import MIN_BARS, run_i1_plugins
+
         history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS - 1)], maxlen=200)
         result = run_i1_plugins(history, "ESH6", "5m")
         assert result == {}
@@ -32,10 +33,10 @@ class TestRunI1Plugins:
     @pytest.mark.unit
     def test_returns_features_dict_when_enough_bars(self):
         from historical_backfill import MIN_BARS, run_i1_plugins
+
         history = deque(
-            [_bar(_ts(9, 0) if i == 0 else _ts(9 + i // 60, i % 60))
-             for i in range(MIN_BARS)],
-            maxlen=200
+            [_bar(_ts(9, 0) if i == 0 else _ts(9 + i // 60, i % 60)) for i in range(MIN_BARS)],
+            maxlen=200,
         )
         # With real plugins registered, we should get some numeric features
         register_all_plugins()
@@ -46,6 +47,7 @@ class TestRunI1Plugins:
     @pytest.mark.unit
     def test_plugin_exception_does_not_propagate(self):
         from historical_backfill import MIN_BARS, run_i1_plugins
+
         history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS)], maxlen=200)
         register_all_plugins()
         # Should not raise even if some plugins fail internally
@@ -57,6 +59,7 @@ class TestRunAnalysisPipeline:
     @pytest.mark.unit
     def test_returns_dict(self):
         from historical_backfill import run_analysis_pipeline
+
         register_all_plugins()
         df = pd.DataFrame([_bar(_ts(9, i)) for i in range(60)])
         frames = {"main": df, "features": {"rsi_14": 55.0, "atr_14": 2.5}}
@@ -67,6 +70,7 @@ class TestRunAnalysisPipeline:
     @pytest.mark.unit
     def test_populates_intelligence_cache(self):
         from historical_backfill import run_analysis_pipeline
+
         register_all_plugins()
         df = pd.DataFrame([_bar(_ts(9, i)) for i in range(60)])
         frames = {"main": df, "features": {"rsi_14": 55.0}}
@@ -78,6 +82,7 @@ class TestRunAnalysisPipeline:
     @pytest.mark.unit
     def test_plugin_exception_does_not_propagate(self):
         from historical_backfill import run_analysis_pipeline
+
         frames = {"main": pd.DataFrame(), "features": {}}
         intel_cache: dict = {}
         # Empty DataFrame may cause some plugins to raise — should not propagate
@@ -88,6 +93,7 @@ class TestRunAnalysisPipeline:
 class TestBuildLedgerEntries:
     def _make_result(self, n_signals=2):
         from src.intelligence.trading.aggregator import AggregatedResult
+
         sig = {
             "setup_plugin": "trad_TrendFollowing",
             "signal_type": "trend_follow",
@@ -113,6 +119,7 @@ class TestBuildLedgerEntries:
     @pytest.mark.unit
     def test_returns_one_entry_per_ranked_signal(self):
         from historical_backfill import _build_ledger_entries
+
         result = self._make_result(n_signals=1)
         entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
         assert len(entries) == 1
@@ -120,6 +127,7 @@ class TestBuildLedgerEntries:
     @pytest.mark.unit
     def test_selected_signal_has_was_selected_true(self):
         from historical_backfill import _build_ledger_entries
+
         result = self._make_result()
         entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
         selected = [e for e in entries if e.was_selected]
@@ -130,9 +138,14 @@ class TestBuildLedgerEntries:
         from historical_backfill import _build_ledger_entries
 
         from src.intelligence.trading.aggregator import AggregatedResult
+
         result = AggregatedResult(
-            selected_signal=None, all_ranked=[], num_signals_fired=0,
-            num_agreeing=0, num_conflicting=0, resolution_method="no_signal",
+            selected_signal=None,
+            all_ranked=[],
+            num_signals_fired=0,
+            num_agreeing=0,
+            num_conflicting=0,
+            resolution_method="no_signal",
         )
         entries = _build_ledger_entries(result, "ESH6", "5m", _ts(9, 30), {})
         assert entries == []
@@ -144,6 +157,7 @@ class TestFetchAndStoreBars:
         from unittest.mock import MagicMock
 
         from historical_backfill import fetch_bars
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -161,11 +175,20 @@ class TestFetchAndStoreBars:
         from unittest.mock import MagicMock, patch
 
         from historical_backfill import store_bars
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        bars = [{"timestamp": _ts(9, 30), "open": 100.0, "high": 101.0,
-                  "low": 99.0, "close": 100.5, "volume": 1000}]
+        bars = [
+            {
+                "timestamp": _ts(9, 30),
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 1000,
+            }
+        ]
         with patch("psycopg2.extras.execute_batch"):
             store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
         mock_conn.commit.assert_called_once()
@@ -192,6 +215,7 @@ class TestBuildIntelligenceEvent:
     def test_returns_none_on_exception(self):
         """Empty dicts with missing keys should return None, not raise."""
         from historical_backfill import _build_intelligence_event
+
         result = _build_intelligence_event({}, {}, {}, "ESH6", "1m", _ts(9, 30))
         assert result is None
 
@@ -201,10 +225,15 @@ class TestBuildIntelligenceEvent:
         from historical_backfill import _build_intelligence_event
 
         from src.intelligence.schemas import IntelligenceEvent
+
         register_all_plugins()
         result = _build_intelligence_event(
-            self._valid_bar(), self._valid_i1(), self._valid_intelligence(),
-            "ESH6", "1m", _ts(9, 30)
+            self._valid_bar(),
+            self._valid_i1(),
+            self._valid_intelligence(),
+            "ESH6",
+            "1m",
+            _ts(9, 30),
         )
         assert result is not None
         assert isinstance(result, IntelligenceEvent)
@@ -214,6 +243,7 @@ class TestBuildIntelligenceEvent:
     def test_i3_keys_filtered_before_construction(self):
         """Mixed I3+I4 keys in intelligence dict do not cause ValidationError."""
         from historical_backfill import _build_intelligence_event
+
         # Pass keys from multiple tiers — filter should prevent extra='forbid' failures
         intelligence = {
             # I3 keys
@@ -230,8 +260,7 @@ class TestBuildIntelligenceEvent:
             "ctf_score": 0.8,
         }
         result = _build_intelligence_event(
-            self._valid_bar(), self._valid_i1(), intelligence,
-            "ESH6", "1m", _ts(9, 30)
+            self._valid_bar(), self._valid_i1(), intelligence, "ESH6", "1m", _ts(9, 30)
         )
         # Should not raise; returns event or None (None if OHLCVBar construction fails)
         assert result is not None or result is None  # no exception is the key assertion
@@ -240,9 +269,15 @@ class TestBuildIntelligenceEvent:
     def test_returns_none_on_pydantic_validation_error(self):
         """Data that triggers a type error in OHLCVBar returns None (not raise)."""
         from historical_backfill import _build_intelligence_event
+
         # Pass non-numeric open/high/low/close to trigger a float() conversion error
-        bad_bar = {"open": "not_a_number", "high": 5105.0, "low": 5095.0,
-                   "close": 5102.0, "volume": 1000}
+        bad_bar = {
+            "open": "not_a_number",
+            "high": 5105.0,
+            "low": 5095.0,
+            "close": 5102.0,
+            "volume": 1000,
+        }
         result = _build_intelligence_event(bad_bar, {}, {}, "ESH6", "1m", _ts(9, 30))
         assert result is None
 
@@ -261,6 +296,7 @@ class TestEventToSyncParams:
             OHLCVBar,
             SMCContext,
         )
+
         return IntelligenceEvent(
             ts=_ts(9, 30),
             symbol="ESH6",
@@ -279,6 +315,7 @@ class TestEventToSyncParams:
     def test_returns_13_tuple(self):
         """Result must have exactly 13 elements matching the SQL INSERT columns."""
         from historical_backfill import _event_to_sync_params
+
         event = self._make_event()
         params = _event_to_sync_params(event)
         assert len(params) == 13
@@ -287,6 +324,7 @@ class TestEventToSyncParams:
     def test_first_element_is_datetime(self):
         """First element is the datetime ts for TimescaleDB hypertable partitioning."""
         from historical_backfill import _event_to_sync_params
+
         event = self._make_event()
         params = _event_to_sync_params(event)
         assert isinstance(params[0], datetime)
@@ -295,6 +333,7 @@ class TestEventToSyncParams:
     def test_jsonb_columns_are_strings(self):
         """Elements 6-12 (bar, i1, i3, i4, i5, smc, i6) are JSON strings for ::jsonb cast."""
         from historical_backfill import _event_to_sync_params
+
         event = self._make_event()
         params = _event_to_sync_params(event)
         for i, col in enumerate(params[6:], start=6):
@@ -306,6 +345,7 @@ class TestInsertFeaturesSync:
 
     def _mock_conn(self):
         from unittest.mock import MagicMock
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
@@ -317,6 +357,7 @@ class TestInsertFeaturesSync:
         from unittest.mock import patch
 
         from historical_backfill import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
+
         mock_conn, mock_cursor = self._mock_conn()
         rows = [("fake_row",)]
         with patch("psycopg2.extras.execute_batch") as mock_eb:
@@ -329,6 +370,7 @@ class TestInsertFeaturesSync:
         from unittest.mock import patch
 
         from historical_backfill import _insert_features_sync
+
         mock_conn, _ = self._mock_conn()
         with patch("psycopg2.extras.execute_batch"):
             _insert_features_sync(mock_conn, [("row",)])
@@ -338,6 +380,7 @@ class TestInsertFeaturesSync:
     def test_no_op_on_empty_rows(self):
         """Empty rows list must be a no-op (cursor never opened)."""
         from historical_backfill import _insert_features_sync
+
         mock_conn, _ = self._mock_conn()
         _insert_features_sync(mock_conn, [])
         mock_conn.cursor.assert_not_called()
@@ -348,6 +391,7 @@ class TestBuildLedgerEntriesFeatureTs:
 
     def _make_result(self):
         from src.intelligence.trading.aggregator import AggregatedResult
+
         sig = {
             "setup_plugin": "trad_TrendFollowing",
             "signal_type": "trend_follow",
@@ -374,11 +418,11 @@ class TestBuildLedgerEntriesFeatureTs:
     def test_feature_ts_passes_through(self):
         """When feature_ts is provided, entries[0].feature_ts equals that datetime."""
         from historical_backfill import _build_ledger_entries
+
         feature_ts = datetime(2026, 2, 1, 9, 30, 0, tzinfo=UTC)
         result = self._make_result()
         entries = _build_ledger_entries(
-            result, "ESH6", "1m", _ts(9, 30), {},
-            feature_ts=feature_ts, feature_tf="1m"
+            result, "ESH6", "1m", _ts(9, 30), {}, feature_ts=feature_ts, feature_tf="1m"
         )
         assert len(entries) == 1
         assert entries[0].feature_ts == feature_ts
@@ -388,6 +432,7 @@ class TestBuildLedgerEntriesFeatureTs:
     def test_feature_ts_defaults_to_none(self):
         """When feature_ts is not provided, entries[0].feature_ts is None (backward compat)."""
         from historical_backfill import _build_ledger_entries
+
         result = self._make_result()
         entries = _build_ledger_entries(result, "ESH6", "1m", _ts(9, 30), {})
         assert len(entries) == 1
@@ -401,6 +446,7 @@ class TestCISColumnsInSQL:
     def test_insert_sync_sql_has_cis_columns(self):
         """_INSERT_SYNC_SQL must include all Phase 7 CIS columns."""
         from historical_backfill import _INSERT_SYNC_SQL
+
         assert "cis_score" in _INSERT_SYNC_SQL
         assert "bucket_scores" in _INSERT_SYNC_SQL
         assert "weights_version" in _INSERT_SYNC_SQL
@@ -412,11 +458,12 @@ class TestCISColumnsInSQL:
         import re
 
         from historical_backfill import _INSERT_SYNC_SQL
-        col_match = re.search(r'INSERT INTO signal_ledger \(([^)]+)\)', _INSERT_SYNC_SQL, re.DOTALL)
-        val_match = re.search(r'VALUES \(([^)]+)\)', _INSERT_SYNC_SQL, re.DOTALL)
+
+        col_match = re.search(r"INSERT INTO signal_ledger \(([^)]+)\)", _INSERT_SYNC_SQL, re.DOTALL)
+        val_match = re.search(r"VALUES \(([^)]+)\)", _INSERT_SYNC_SQL, re.DOTALL)
         assert col_match and val_match
-        cols = [c.strip() for c in col_match.group(1).split(',') if c.strip()]
-        vals = [v.strip() for v in val_match.group(1).split(',') if v.strip()]
+        cols = [c.strip() for c in col_match.group(1).split(",") if c.strip()]
+        vals = [v.strip() for v in val_match.group(1).split(",") if v.strip()]
         assert len(cols) == len(vals), f"Column count {len(cols)} != placeholder count {len(vals)}"
 
     @pytest.mark.unit

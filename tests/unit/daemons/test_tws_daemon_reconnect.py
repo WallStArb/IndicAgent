@@ -5,6 +5,7 @@ Covers the secondary disconnect check inserted in the main loop:
         self.connected = False
         self._on_disconnected()
 """
+
 from unittest.mock import MagicMock, patch
 
 _DAEMON_MOD = "production.daemons.high_frequency_tws_daemon"
@@ -31,6 +32,7 @@ def _make_daemon():
         mock_settings.return_value.redis_db = 0
         mock_settings.return_value.redis_max_connections = 10
         from production.daemons.high_frequency_tws_daemon import HighFrequencyTWSDaemon
+
         daemon = HighFrequencyTWSDaemon()
     return daemon
 

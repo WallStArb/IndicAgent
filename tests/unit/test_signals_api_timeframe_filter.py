@@ -1,4 +1,5 @@
 """Test that /api/signals/{symbol} respects ?timeframe= filter."""
+
 from unittest.mock import AsyncMock
 
 import pytest

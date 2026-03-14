@@ -5,6 +5,7 @@ proper deduplication, zero-bar visibility, and authoritative source marking.
 
 All tests should FAIL before implementation and PASS after refactoring.
 """
+
 import asyncio
 import threading
 from datetime import UTC, datetime, timedelta
@@ -38,6 +39,7 @@ async def test_poll_1m_bars_logs_warning_on_zero_bars():
         mock_settings.return_value.redis_max_connections = 10
 
         from production.daemons.high_frequency_tws_daemon import HighFrequencyTWSDaemon
+
         daemon = HighFrequencyTWSDaemon()
 
     # Mock provider and redis for the async helper
@@ -58,10 +60,7 @@ async def test_poll_1m_bars_logs_warning_on_zero_bars():
         await daemon._fetch_bars_for_symbol("BTCUSD", start, now)
 
         # Verify warning was logged for zero bars
-        mock_logger.warning.assert_any_call(
-            "poll_1m_bars: 0 bars returned",
-            symbol="BTCUSD"
-        )
+        mock_logger.warning.assert_any_call("poll_1m_bars: 0 bars returned", symbol="BTCUSD")
 
 
 @pytest.mark.asyncio
@@ -87,6 +86,7 @@ async def test_poll_1m_bars_uses_get_stream_maxlen():
         mock_settings.return_value.redis_max_connections = 10
 
         from production.daemons.high_frequency_tws_daemon import HighFrequencyTWSDaemon
+
         daemon = HighFrequencyTWSDaemon()
 
     # Mock provider returning one bar
@@ -151,6 +151,7 @@ async def test_poll_1m_bars_fetches_all_symbols_concurrently():
         mock_settings.return_value.redis_max_connections = 10
 
         from production.daemons.high_frequency_tws_daemon import HighFrequencyTWSDaemon
+
         daemon = HighFrequencyTWSDaemon()
 
     # Set up event loop for daemon.loop (needed after refactoring)
@@ -161,6 +162,7 @@ async def test_poll_1m_bars_fetches_all_symbols_concurrently():
         # Start loop in thread to satisfy run_coroutine_threadsafe
         def _run_loop():
             loop.run_forever()
+
         thread = threading.Thread(target=_run_loop, daemon=True)
         thread.start()
 
@@ -216,6 +218,7 @@ async def test_poll_1m_bars_skips_already_seen_timestamps():
         mock_settings.return_value.redis_max_connections = 10
 
         from production.daemons.high_frequency_tws_daemon import HighFrequencyTWSDaemon
+
         daemon = HighFrequencyTWSDaemon()
 
     mock_provider = AsyncMock()
@@ -270,6 +273,7 @@ async def test_poll_1m_bars_publishes_authoritative_source():
         mock_settings.return_value.redis_max_connections = 10
 
         from production.daemons.high_frequency_tws_daemon import HighFrequencyTWSDaemon
+
         daemon = HighFrequencyTWSDaemon()
 
     mock_provider = AsyncMock()

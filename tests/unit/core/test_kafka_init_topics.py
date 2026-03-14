@@ -1,7 +1,8 @@
 """Unit tests for kafka_init_topics.py topic creation script (Wave 0 stubs)."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -10,7 +11,8 @@ from production.scripts.kafka_init_topics import create_topics
 
 @pytest.mark.asyncio
 async def test_create_topics_calls_admin_client() -> None:
-    """create_topics() calls AIOKafkaAdminClient.start() then create_topics() with 11 NewTopic objects."""
+    """create_topics() calls AIOKafkaAdminClient.start() then create_topics() with 11 NewTopic
+    objects."""
     mock_admin = AsyncMock()
     mock_admin.start = AsyncMock()
     mock_admin.create_topics = AsyncMock()
@@ -41,9 +43,7 @@ async def test_create_topics_idempotent() -> None:
     mock_admin.create_topics = AsyncMock(side_effect=TopicAlreadyExistsError())
     mock_admin.close = AsyncMock()
 
-    with patch(
-        "production.scripts.kafka_init_topics.AIOKafkaAdminClient", return_value=mock_admin
-    ):
+    with patch("production.scripts.kafka_init_topics.AIOKafkaAdminClient", return_value=mock_admin):
         # Should not raise
         await create_topics("localhost:19092", env_name="dev")
         mock_admin.close.assert_awaited_once()

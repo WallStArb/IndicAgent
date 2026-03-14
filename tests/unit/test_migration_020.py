@@ -1,4 +1,5 @@
 """Unit tests for migration 020: llm_calls hypertable fix."""
+
 import re
 from pathlib import Path
 
@@ -24,9 +25,9 @@ def test_create_hypertable_no_if_not_exists():
     # if_not_exists must not appear on the create_hypertable line in 020
     ht_lines = [line for line in sql.splitlines() if "create_hypertable" in line.lower()]
     assert ht_lines, "create_hypertable call must be present"
-    assert not any("if_not_exists" in line for line in ht_lines), (
-        "020 must NOT use if_not_exists — errors must surface"
-    )
+    assert not any(
+        "if_not_exists" in line for line in ht_lines
+    ), "020 must NOT use if_not_exists — errors must surface"
 
 
 def test_migrate_data_flag():
@@ -53,6 +54,6 @@ def test_019_no_silent_if_not_exists():
     # if_not_exists must not appear on the create_hypertable line in 019 either
     ht_lines = [line for line in sql.splitlines() if "create_hypertable" in line.lower()]
     assert ht_lines, "create_hypertable must still be in 019"
-    assert not any("if_not_exists" in line for line in ht_lines), (
-        "019 must NOT use if_not_exists after the fix"
-    )
+    assert not any(
+        "if_not_exists" in line for line in ht_lines
+    ), "019 must NOT use if_not_exists after the fix"

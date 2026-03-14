@@ -59,7 +59,8 @@ def test_evaluate_signals_against_bar_no_db_returns_early():
     bar_time = datetime(2026, 3, 3, 14, 35, 0, tzinfo=UTC)
     asyncio.get_event_loop().run_until_complete(
         svc._evaluate_signals_against_bar(
-            "ES", "1m",
+            "ES",
+            "1m",
             {"high": 5305.0, "low": 5298.0, "close": 5303.0},
             bar_time=bar_time,
         )
@@ -164,9 +165,9 @@ class TestShadowSignalLifecycleService:
             "Shadow signal _mae must be initialized by _evaluate_signals_against_bar. "
             "Lifecycle service must handle regime_suppressed with virtual-activation."
         )
-        assert "shadow-startup-001" in svc._mfe, (
-            "Shadow signal _mfe must be initialized by _evaluate_signals_against_bar."
-        )
+        assert (
+            "shadow-startup-001" in svc._mfe
+        ), "Shadow signal _mfe must be initialized by _evaluate_signals_against_bar."
 
     @pytest.mark.asyncio
     async def test_shadow_signal_evaluate_called_with_active_override(self):
@@ -204,9 +205,9 @@ class TestShadowSignalLifecycleService:
         # Signal ID should match
         assert args[1] == "shadow-eval-001"
         # Status written to DB must be 'regime_suppressed' (NOT 'active' or 'stopped_out')
-        assert args[2] == "regime_suppressed", (
-            f"Shadow signal exit must keep status='regime_suppressed' in DB. Got: {args[2]!r}"
-        )
+        assert (
+            args[2] == "regime_suppressed"
+        ), f"Shadow signal exit must keep status='regime_suppressed' in DB. Got: {args[2]!r}"
 
     @pytest.mark.asyncio
     async def test_shadow_signal_zone_check_skipped(self):
@@ -271,9 +272,9 @@ class TestShadowSignalLifecycleService:
 
         # MFE should be positive (favorable for long: close > entry)
         mfe_after_bar1 = svc._mfe["shadow-maemfe-001"]
-        assert mfe_after_bar1 > 0.0, (
-            f"MFE must be positive after favorable bar for shadow signal. Got: {mfe_after_bar1}"
-        )
+        assert (
+            mfe_after_bar1 > 0.0
+        ), f"MFE must be positive after favorable bar for shadow signal. Got: {mfe_after_bar1}"
 
         # Bar 2: adverse move (close below entry, but above stop)
         bar_time2 = datetime(2026, 3, 4, 14, 40, 0, tzinfo=UTC)
@@ -283,9 +284,9 @@ class TestShadowSignalLifecycleService:
 
         # MAE should be negative (adverse for long: close < entry)
         mae_after_bar2 = svc._mae["shadow-maemfe-001"]
-        assert mae_after_bar2 < 0.0, (
-            f"MAE must be negative after adverse bar for shadow signal. Got: {mae_after_bar2}"
-        )
+        assert (
+            mae_after_bar2 < 0.0
+        ), f"MAE must be negative after adverse bar for shadow signal. Got: {mae_after_bar2}"
 
     @pytest.mark.asyncio
     async def test_shadow_signal_ttl_expiry_gets_8class_outcome(self):
@@ -321,22 +322,27 @@ class TestShadowSignalLifecycleService:
         args = svc.db_manager.execute_command.call_args[0]
         assert args[1] == "shadow-ttl-001"
         # Status stays regime_suppressed
-        assert args[2] == "regime_suppressed", (
-            f"Shadow signal TTL exit must keep status='regime_suppressed'. Got: {args[2]!r}"
-        )
+        assert (
+            args[2] == "regime_suppressed"
+        ), f"Shadow signal TTL exit must keep status='regime_suppressed'. Got: {args[2]!r}"
         # An outcome must be set (8-class)
         # outcome is arg[17] in update_signal_status (signal_id, status, activated_at, exit_at,
         # exit_price, exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
         # activation_price, zone_entry_pct, bars_to_activation, mae, mfe, bars_in_trade, outcome)
         outcome = args[17]
         valid_outcomes = {
-            "never_activated", "stopped_at_entry", "stopped_in_trade",
-            "target_1", "target_1_2", "target_full",
-            "ttl_expired_ahead", "ttl_expired_behind",
+            "never_activated",
+            "stopped_at_entry",
+            "stopped_in_trade",
+            "target_1",
+            "target_1_2",
+            "target_full",
+            "ttl_expired_ahead",
+            "ttl_expired_behind",
         }
-        assert outcome in valid_outcomes, (
-            f"TTL-expired shadow signal must have 8-class outcome. Got: {outcome!r}"
-        )
+        assert (
+            outcome in valid_outcomes
+        ), f"TTL-expired shadow signal must have 8-class outcome. Got: {outcome!r}"
 
 
 # ---- LLM outcome payload helper ----
@@ -535,10 +541,13 @@ class TestTerminalEventWiring:
             mfe=None,
         )
 
-        with patch("services.signal_lifecycle_service.evaluate_signal", return_value=transition), \
-             patch("services.signal_lifecycle_service.update_signal_status", new_callable=AM):
+        with (
+            patch("services.signal_lifecycle_service.evaluate_signal", return_value=transition),
+            patch("services.signal_lifecycle_service.update_signal_status", new_callable=AM),
+        ):
             await svc._evaluate_signals_against_bar(
-                "ESH6", "5m",
+                "ESH6",
+                "5m",
                 {"high": 6825.0, "low": 6795.0, "close": 6822.0},
                 bar_time,
                 all_active=[sig],
@@ -572,9 +581,9 @@ def test_signal_lifecycle_no_redis_client():
 
     svc = SignalLifecycleService()
     # redis_client must not exist on the service
-    assert not hasattr(svc, "redis_client"), (
-        "signal_lifecycle_service must not have redis_client — Redis fully removed"
-    )
+    assert not hasattr(
+        svc, "redis_client"
+    ), "signal_lifecycle_service must not have redis_client — Redis fully removed"
 
 
 def test_signal_lifecycle_no_xreadgroup():
@@ -584,9 +593,9 @@ def test_signal_lifecycle_no_xreadgroup():
     import services.signal_lifecycle_service as mod
 
     source = inspect.getsource(mod)
-    assert "xreadgroup" not in source, (
-        "Redis xreadgroup must be removed from signal_lifecycle_service"
-    )
+    assert (
+        "xreadgroup" not in source
+    ), "Redis xreadgroup must be removed from signal_lifecycle_service"
 
 
 def test_signal_lifecycle_no_redis_xadd():
@@ -596,9 +605,9 @@ def test_signal_lifecycle_no_redis_xadd():
     import services.signal_lifecycle_service as mod
 
     source = inspect.getsource(mod)
-    assert "redis_client.xadd" not in source, (
-        "redis_client.xadd must be removed from signal_lifecycle_service"
-    )
+    assert (
+        "redis_client.xadd" not in source
+    ), "redis_client.xadd must be removed from signal_lifecycle_service"
 
 
 def test_signal_lifecycle_stream_map_test_updated():
@@ -608,6 +617,6 @@ def test_signal_lifecycle_stream_map_test_updated():
     from services.signal_lifecycle_service import SignalLifecycleService
 
     svc = SignalLifecycleService()
-    assert not hasattr(svc, "_setup_consumer_groups"), (
-        "_setup_consumer_groups must be removed — service uses _setup_kafka_clients now"
-    )
+    assert not hasattr(
+        svc, "_setup_consumer_groups"
+    ), "_setup_consumer_groups must be removed — service uses _setup_kafka_clients now"
