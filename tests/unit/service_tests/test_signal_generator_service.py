@@ -252,23 +252,16 @@ async def test_process_message_accesses_typed_attributes():
     assert captured_features["ctf_score"] == pytest.approx(0.75)
 
 
-def test_stream_map_populated_after_setup():
-    """_stream_map must map stream_name → (symbol, timeframe) for all 92 streams."""
-    import asyncio
-    from unittest.mock import AsyncMock
-
+def test_signal_generator_has_kafka_clients():
+    """SignalGeneratorService must have Kafka client attributes."""
     from services.signal_generator_service import SignalGeneratorService
 
     svc = SignalGeneratorService()
-    svc.redis_client = AsyncMock()
-    svc.redis_client.xgroup_create = AsyncMock(
-        side_effect=ResponseError("BUSYGROUP Consumer Group name already exists")
-    )
-    svc.redis_client.xrevrange = AsyncMock(return_value=[])
-
-    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
-
-    assert len(svc._stream_map) == 4 * len(svc.config["service"]["symbols"])
+    # Kafka clients start as None; initialized in start() -> _setup_kafka_clients()
+    assert hasattr(svc, "_kafka_consumer")
+    assert hasattr(svc, "_kafka_producer")
+    assert hasattr(svc, "_kafka_bootstrap")
+    assert hasattr(svc, "env_name")
 
 
 def test_df_cache_invalidated_on_bar_append():
@@ -1016,3 +1009,105 @@ class TestSetupCooldownGate:
         assert "15m" in _SIGNAL_COOLDOWN_BARS
         assert "1h" in _SIGNAL_COOLDOWN_BARS
         assert _SIGNAL_COOLDOWN_BARS["1m"] >= 2  # must gate at least 2 bars
+
+
+# ---------------------------------------------------------------------------
+# KAFKA-06: _live_quotes updated from market.ticks topic (Phase 30 Plan 3)
+# ---------------------------------------------------------------------------
+
+
+def test_signal_generator_has_live_quotes_attribute():
+    """SignalGeneratorService must expose _live_quotes instance attribute."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._live_quotes = {}
+    assert hasattr(svc, "_live_quotes")
+    assert isinstance(svc._live_quotes, dict)
+
+
+def test_signal_generator_live_quotes_initialized_empty():
+    """_live_quotes must be initialized as empty dict on service construction."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService()
+    assert hasattr(svc, "_live_quotes")
+    assert svc._live_quotes == {}
+
+
+@pytest.mark.asyncio
+async def test_kafka_06_live_quotes_updated_from_ticks_message():
+    """KAFKA-06: _handle_ticks_message updates _live_quotes[symbol] with tick payload.
+
+    When a message arrives on the market.ticks topic with key=SYMBOL,
+    _live_quotes[symbol] must be set to the payload dict.
+    """
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._live_quotes = {}
+    svc.logger = MagicMock()
+
+    tick_payload = {"bid": 5823.25, "ask": 5823.50, "last": 5823.50, "symbol": "ESH6"}
+    await svc._handle_ticks_message("ESH6", tick_payload)
+
+    assert "ESH6" in svc._live_quotes
+    assert svc._live_quotes["ESH6"]["bid"] == 5823.25
+    assert svc._live_quotes["ESH6"]["ask"] == 5823.50
+
+
+@pytest.mark.asyncio
+async def test_kafka_06_live_quotes_updated_overwrites_stale():
+    """KAFKA-06: _handle_ticks_message overwrites prior entry — keeps only latest tick."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._live_quotes = {"ESH6": {"bid": 5800.0, "ask": 5800.25}}
+    svc.logger = MagicMock()
+
+    new_tick = {"bid": 5823.25, "ask": 5823.50}
+    await svc._handle_ticks_message("ESH6", new_tick)
+
+    assert svc._live_quotes["ESH6"]["bid"] == 5823.25
+
+
+def test_signal_generator_no_redis_hgetall_for_quote():
+    """signal_generator_service must not import or call quote_latest (HGETALL removed)."""
+    import ast
+    import inspect
+
+    import services.signal_generator_service as mod
+
+    source = inspect.getsource(mod)
+
+    # _fetch_live_quote using Redis HGETALL must not exist
+    assert "_fetch_live_quote" not in source, (
+        "_fetch_live_quote (Redis HGETALL for quote) should be removed; "
+        "use _live_quotes dict instead"
+    )
+
+
+def test_signal_generator_no_redis_xreadgroup():
+    """signal_generator_service must not call redis_client.xreadgroup (stream removed)."""
+    import inspect
+
+    import services.signal_generator_service as mod
+
+    source = inspect.getsource(mod)
+    assert "xreadgroup" not in source, (
+        "Redis xreadgroup must be removed from signal_generator_service; "
+        "use KafkaConsumerClient instead"
+    )
+
+
+def test_signal_generator_no_redis_xadd_signals():
+    """signal_generator_service must not call redis_client.xadd (stream removed)."""
+    import inspect
+
+    import services.signal_generator_service as mod
+
+    source = inspect.getsource(mod)
+    assert "redis_client.xadd" not in source, (
+        "redis_client.xadd must be removed from signal_generator_service; "
+        "use KafkaProducerClient.publish instead"
+    )

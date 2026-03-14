@@ -35,17 +35,18 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
     drift_ks,
-    quote_latest,
+    message_key,
     setup_performance_weights_cache,
-    signals_aggregated,
+    topic_intelligence,
+    topic_intelligence_i7,
+    topic_market_ticks,
+    topic_signals,
+    topic_signals_aggregated,
 )
-from src.core.stream_keys import (
-    intelligence_i7 as sk_intelligence_i7,
-)
-from src.core.stream_utils import ensure_consumer_group_with_reset
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import IntelligenceEvent
@@ -135,12 +136,14 @@ def _apply_alpha_decay(
     sig["confidence"] = round(float(sig.get("confidence", 0.0)) * multiplier, 4)
 
 
-def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent | None:
+def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
     """Parse intelligence stream message into typed IntelligenceEvent.
 
+    Handles both Kafka payload dicts (string keys) and legacy Redis bytes dicts.
     Returns None and logs a warning if the message is malformed or version unknown.
     """
-    raw = fields.get(b"event", b"")
+    # Try string key (Kafka JSON dict) first, then bytes key (legacy Redis)
+    raw = fields.get("event") or fields.get(b"event", b"")
     if not raw:
         return None
     try:
@@ -211,30 +214,27 @@ def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
     return f
 
 
-async def _fetch_live_quote(
-    redis_client: redis.Redis,
-    env_prefix: str,
-    symbol: str,
-) -> dict[str, float | None]:
-    """Fetch live bid/ask from price:{symbol}:latest hash."""
-    try:
-        raw = await redis_client.hgetall(quote_latest(env_prefix, symbol))
-        if not raw:
-            return {"bid": None, "ask": None}
+def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | None]:
+    """Extract live bid/ask from _live_quotes in-process dict.
 
-        def _parse(key: bytes) -> float | None:
-            val = raw.get(key) or raw.get(key.decode() if isinstance(key, bytes) else key.encode())
-            if val is None:
-                return None
-            try:
-                f = float(val)
-                return f if f > 0 else None
-            except (TypeError, ValueError):
-                return None
-
-        return {"bid": _parse(b"bid"), "ask": _parse(b"ask")}
-    except Exception:
+    Returns {"bid": None, "ask": None} if no entry exists for the symbol,
+    matching the prior HGETALL-miss semantics.
+    """
+    entry = live_quotes.get(symbol)
+    if not entry:
         return {"bid": None, "ask": None}
+
+    def _parse(key: str) -> float | None:
+        val = entry.get(key)
+        if val is None:
+            return None
+        try:
+            f = float(val)
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    return {"bid": _parse("bid"), "ask": _parse("ask")}
 
 
 def _is_zone_valid(
@@ -396,11 +396,17 @@ class SignalGeneratorService:
 
         self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
-        self.consumer_group = "signal_generator"
-        self.consumer_name = f"generator_{os.getpid()}"
+        self._kafka_consumer: KafkaConsumerClient | None = None
+        self._kafka_producer: KafkaProducerClient | None = None
 
         settings = Settings()
+        self.env_name = settings.env_name or ""
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+        self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+
+        # In-process live quotes dict: symbol → {"bid": float, "ask": float}
+        # Populated by ticks topic handler. Replaces Redis HGETALL for price:SYMBOL:latest.
+        self._live_quotes: dict[str, dict] = {}
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self._stream_map: dict[str, tuple[str, str]] = {}
@@ -603,66 +609,51 @@ class SignalGeneratorService:
         return accepted
 
     async def _resolution_listener_loop(self) -> None:
-        """Monitor own output streams for direction=0 lifecycle exit events.
+        """Monitor signals.aggregated topic for direction=0 lifecycle exit events.
 
-        Signal lifecycle service publishes direction=0 to signals:SYMBOL:TF:aggregated
+        Signal lifecycle service publishes direction=0 to signals.aggregated
         when a signal exits (any outcome). When we see direction=0, mark the gate for
         that (symbol, tf) as resolved — allowing direction flips on the next bar.
-        Uses xread with last_ids starting at "$" so only new events are processed.
+        Uses a separate Kafka consumer subscribed to signals.aggregated.
         """
-        if not self.redis_client:
-            return
-
-        symbols = self.config["service"]["symbols"]
-        timeframes = self.config["service"]["timeframes"]
-        streams = [
-            signals_aggregated(self.env_prefix, sym, tf)
-            for sym in symbols
-            for tf in timeframes
-        ]
-        # Start from $ (newest) — only care about future resolution events
-        last_ids: dict[str, str] = {s: "$" for s in streams}
-
-        while not self.shutdown_requested:
+        try:
+            resolution_consumer = KafkaConsumerClient(
+                topic_signals_aggregated(self.env_name),
+                bootstrap_servers=self._kafka_bootstrap,
+                group_id="signal_generator_resolution",
+                auto_offset_reset="latest",
+            )
+            await resolution_consumer.start()
             try:
-                messages = await self.redis_client.xread(last_ids, count=50, block=1000)
-                if not messages:
-                    continue
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    last_ids[stream_name] = msgs[-1][0]  # advance cursor
-                    for _msg_id, fields in msgs:
-                        direction_raw = fields.get(b"direction") or fields.get("direction", b"")
-                        if direction_raw is None:
+                async for _topic, key, payload in resolution_consumer.messages():
+                    if self.shutdown_requested:
+                        break
+                    try:
+                        direction_raw = payload.get("direction", "")
+                        if not direction_raw:
                             continue
-                        direction_val = (
-                            int(direction_raw.decode())
-                            if isinstance(direction_raw, bytes)
-                            else int(direction_raw)
-                        )
+                        try:
+                            direction_val = int(float(str(direction_raw)))
+                        except (ValueError, TypeError):
+                            continue
                         if direction_val != 0:
                             continue
                         # direction=0 → lifecycle exit; mark gate resolved
-                        sym_raw = fields.get(b"symbol") or fields.get("symbol", b"")
-                        tf_raw = fields.get(b"timeframe") or fields.get("timeframe", b"")
-                        sym = sym_raw.decode() if isinstance(sym_raw, bytes) else sym_raw
-                        tf = tf_raw.decode() if isinstance(tf_raw, bytes) else tf_raw
+                        sym = str(payload.get("symbol", ""))
+                        tf = str(payload.get("timeframe", ""))
                         if (sym, tf) in self._signal_gate:
                             self._signal_gate[(sym, tf)]["resolved"] = True
-                            self.logger.debug(
-                                "Gate resolved",
-                                symbol=sym,
-                                timeframe=tf,
-                            )
+                            self.logger.debug("Gate resolved", symbol=sym, timeframe=tf)
+                    except Exception as e:
+                        self.logger.warning("Resolution listener message error", error=str(e))
             except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.warning("Resolution listener error", error=str(e))
-                await asyncio.sleep(1)
+                pass
+            finally:
+                await resolution_consumer.stop()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self.logger.warning("Resolution listener failed to start", error=str(e))
 
     def _signal_handler(self, signum: int, frame: Any) -> None:
         self.logger.info("Received shutdown signal", signal=signum)
@@ -757,38 +748,42 @@ class SignalGeneratorService:
             self.logger.warning("DB seed failed - falling back to live warmup", error=str(e))
             # bar_history remains empty, service proceeds with live warmup
 
-    async def _setup_consumer_groups(self) -> None:
-        from src.core.stream_keys import intelligence as sk_intel
-        warmup_bars = 60
-        for tf in self.config["service"]["timeframes"]:
-            for sym in self.config["service"]["symbols"]:
-                stream_name = sk_intel(self.env_prefix, sym, tf)
-                group_freshly_created = await ensure_consumer_group_with_reset(
-                    self.redis_client, stream_name, self.consumer_group
-                )
-                # Only rewind warmup_bars if group was freshly created
-                if group_freshly_created:
-                    try:
-                        msgs = await self.redis_client.xrevrange(stream_name, count=warmup_bars + 1)
-                        if len(msgs) > warmup_bars:
-                            await self.redis_client.xgroup_setid(
-                                stream_name, self.consumer_group, msgs[warmup_bars][0]
-                            )
-                        elif msgs:
-                            await self.redis_client.xgroup_setid(
-                                stream_name, self.consumer_group, "0-0"
-                            )
-                    except Exception as e:
-                        self.logger.warning(
-                            "Consumer group rewind failed", stream=stream_name, error=str(e)
-                        )
-                self._stream_map[stream_name] = (sym, tf)
+    async def _handle_ticks_message(self, symbol: str, payload: dict) -> None:
+        """KAFKA-06: Update _live_quotes with latest tick for symbol.
+
+        Called when a message arrives on the market.ticks topic.
+        Key is SYMBOL (no TF). Keeps only the latest tick per symbol.
+        """
+        self._live_quotes[symbol] = payload
+
+    async def _setup_kafka_clients(self) -> None:
+        """Initialize Kafka consumer (intelligence + ticks) and producer (signals)."""
+        self._kafka_consumer = KafkaConsumerClient(
+            topic_intelligence(self.env_name),
+            topic_market_ticks(self.env_name),
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id="signal_generator_group",
+            auto_offset_reset="latest",
+        )
+        await self._kafka_consumer.start()
+        self.logger.info("Kafka consumer started", topics=[
+            topic_intelligence(self.env_name),
+            topic_market_ticks(self.env_name),
+        ])
+
+        self._kafka_producer = KafkaProducerClient(self._kafka_bootstrap)
+        await self._kafka_producer.start()
+        self.logger.info("Kafka producer started")
 
     async def stop(self) -> None:
         self.logger.info("Stopping Signal Generator Service")
         self.running = False
         self.shutdown_requested = True
         self.shutdown_event.set()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        if self._kafka_producer:
+            await self._kafka_producer.stop()
         if self.redis_client:
             await self.redis_client.aclose()
         if self.db_manager:
@@ -931,10 +926,10 @@ class SignalGeneratorService:
         signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
         determined_at = signal_computed_at  # same wall-clock snapshot
 
-        # Fetch live quote for institutional fields (non-blocking, falls back to None)
+        # Fetch live quote for institutional fields from in-process dict (KAFKA-06)
         live_quote: dict[str, float | None] = {"bid": None, "ask": None}
-        if self.redis_client and source == "live":
-            live_quote = await _fetch_live_quote(self.redis_client, self.env_prefix, symbol)
+        if source == "live":
+            live_quote = _extract_live_quote(self._live_quotes, symbol)
 
         # Emit bar-to-signal latency for live events with known close time
         if source == "live" and bar_close_ts is not None and signal_computed_at is not None:
@@ -975,10 +970,8 @@ class SignalGeneratorService:
                 )
 
         # STREAM PUBLISH FIRST (hot tier — consistent with platform architecture)
-        stream_name = None
-        stream_entry_id = None
-        if result.selected_signal and self.redis_client:
-            stream_name = signals_aggregated(self.env_prefix, symbol, timeframe)
+        published_signal = False
+        if result.selected_signal and self._kafka_producer:
             sig = result.selected_signal
             message = {
                 k: str(v) for k, v in sig.items()
@@ -1007,8 +1000,7 @@ class SignalGeneratorService:
             message["timestamp"] = timestamp.isoformat()
             message["symbol"] = symbol
             message["timeframe"] = timeframe
-            # Thread timing + price-at-creation fields to SSE stream
-            # (also persisted to DB via signal_ledger for query-time analysis)
+            # Thread timing + price-at-creation fields
             if signal_computed_at:
                 message["signal_computed_at"] = signal_computed_at.isoformat()
             if bar_close_ts:
@@ -1033,12 +1025,21 @@ class SignalGeneratorService:
                 message["zone_valid_at_signal"] = (
                     "1" if selected_entry.zone_valid_at_signal else "0"
                 )
-            stream_entry_id = await self.redis_client.xadd(
-                stream_name, message, maxlen=200, approximate=True
-            )
-            # Update gate: record that this signal was published.
-            # Guard required: gate suppression above may have set selected_signal=None.
-            if stream_entry_id and result.selected_signal:
+            msg_key = message_key(symbol, timeframe)
+            # Publish to both signals and signals.aggregated topics
+            try:
+                await self._kafka_producer.publish(
+                    topic_signals(self.env_name), message, key=msg_key
+                )
+                await self._kafka_producer.publish(
+                    topic_signals_aggregated(self.env_name), message, key=msg_key
+                )
+                published_signal = True
+            except Exception as e:
+                self.logger.warning("Kafka publish failed for signal", error=str(e))
+                published_signal = False
+
+            if published_signal and result.selected_signal:
                 _sig_id = message.get("signal_id", "")
                 _pub_direction = int(result.selected_signal.get("direction", 0))
                 self._update_gate(symbol, timeframe, _pub_direction, timestamp, _sig_id)
@@ -1054,20 +1055,23 @@ class SignalGeneratorService:
             try:
                 await insert_signals(self.db_manager, entries)
             except Exception:
-                # Compensate: remove stream entry to avoid orphaned signal_id in downstream
-                if stream_entry_id and self.redis_client and stream_name:
-                    await self.redis_client.xdel(stream_name, stream_entry_id)
                 raise
             selected_count = sum(1 for e in entries if e.was_selected)
             self.signals_generated_total.inc(len(entries))
             self.signals_selected_total.inc(selected_count)
             self._total_signals += len(entries)
 
-        # Publish all_ranked to intelligence_i7 enrichment stream (DATA-01)
-        if self.redis_client:
-            i7_stream = sk_intelligence_i7(self.env_prefix, symbol, timeframe)
+        # Publish all_ranked to intelligence.i7 Kafka topic (DATA-01)
+        if self._kafka_producer:
             i7_msg = _build_i7_payload(result, timestamp, symbol, timeframe)
-            await self.redis_client.xadd(i7_stream, i7_msg, maxlen=200, approximate=True)
+            try:
+                await self._kafka_producer.publish(
+                    topic_intelligence_i7(self.env_name),
+                    i7_msg,
+                    key=message_key(symbol, timeframe),
+                )
+            except Exception as e:
+                self.logger.warning("Kafka publish failed for i7", error=str(e))
 
         elapsed_ms = (time.time() - calc_start) * 1000
         self.bars_processed_total.inc()
@@ -1088,9 +1092,9 @@ class SignalGeneratorService:
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
+        fields: dict,
         stream_name: str,
-        message_id: bytes,
+        message_id: bytes | None,
     ) -> bool:
         try:
             event = _parse_intelligence_event(fields)
@@ -1147,38 +1151,45 @@ class SignalGeneratorService:
             return False
 
     async def _process_loop(self) -> None:
-        all_streams = {name: ">" for name in self._stream_map}
-        while self.running and not self.shutdown_requested:
-            try:
-                messages = await self.redis_client.xreadgroup(
-                    self.consumer_group, self.consumer_name,
-                    all_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    symbol, timeframe = self._stream_map[stream_name]
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        await self._process_single_message(
-                            symbol, timeframe, fields, stream_name, message_id
-                        )
-                        # Always acknowledge (at-most-once delivery)
-                        to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(
-                            stream_name, self.consumer_group, *to_ack
-                        )
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Error in processing loop", error=str(e))
-                self.error_count_total.inc()
-                self._error_count += 1
-                await asyncio.sleep(1)
+        """Consume from intelligence and market.ticks topics via Kafka."""
+        if not self._kafka_consumer:
+            return
+        _intel_topic = topic_intelligence(self.env_name)
+        _ticks_topic = topic_market_ticks(self.env_name)
+        try:
+            async for topic, key, payload in self._kafka_consumer.messages():
+                if self.shutdown_requested:
+                    break
+                try:
+                    if topic == _intel_topic:
+                        # key = "SYMBOL:TF"
+                        if key:
+                            parts = key.split(":", 1)
+                            if len(parts) == 2:
+                                symbol, timeframe = parts[0], parts[1]
+                            else:
+                                symbol = parts[0]
+                                timeframe = payload.get("timeframe", "")
+                        else:
+                            symbol = payload.get("symbol", "")
+                            timeframe = payload.get("timeframe", "")
+                        if symbol and timeframe:
+                            await self._process_single_message(
+                                symbol, timeframe, payload, topic, None
+                            )
+                    elif topic == _ticks_topic:
+                        # key = "SYMBOL"
+                        symbol = key or payload.get("symbol", "")
+                        if symbol:
+                            await self._handle_ticks_message(symbol, payload)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    self.logger.error("Error in processing loop", error=str(e))
+                    self.error_count_total.inc()
+                    self._error_count += 1
+        except asyncio.CancelledError:
+            pass
 
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -1254,9 +1265,9 @@ class SignalGeneratorService:
         try:
             await self._connect_redis()
             await self._connect_database()
-            # Seed bar_history from intelligence_features (new warmup logic)
+            # Seed bar_history from intelligence_features (warmup logic)
             await self._seed_bar_history_from_db()
-            await self._setup_consumer_groups()
+            await self._setup_kafka_clients()
             self.running = True
             # Load perf weights at startup so first bar already has weights
             await self._load_perf_weights()
