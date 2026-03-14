@@ -20,10 +20,10 @@ class ROCPPOPlugin:
     """
 
     name: str = "ROC_PPO"
-    outputs: set[str] = frozenset({"roc_14", "ppo_12_26", "ppo_signal_12_26"})
+    outputs: frozenset[str] = frozenset({"roc_14", "ppo_12_26", "ppo_signal_12_26"})
     min_lookback: int = 30
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"momentum"})
+    capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     roc_period: int = 14
     ppo_fast: int = 12

@@ -21,10 +21,10 @@ class ChandelierPlugin:
     """
 
     name: str = "ind_ChandelierExit"
-    outputs: set[str] = frozenset({"chandelier_long_22", "chandelier_short_22"})
+    outputs: frozenset[str] = frozenset({"chandelier_long_22", "chandelier_short_22"})
     min_lookback: int = 25
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volatility"})
+    capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     period: int = 22
     multiplier: float = 3.0

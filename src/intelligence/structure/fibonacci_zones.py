@@ -14,7 +14,7 @@ class FibonacciZonesPlugin:
     """Fibonacci retracement zones from swing high/low."""
 
     name: str = "struct_FibonacciZones"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "fib_swing_high",
             "fib_swing_low",
@@ -32,7 +32,7 @@ class FibonacciZonesPlugin:
     )
     min_lookback: int = 5
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"structure"})
+    capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     _state: dict = field(default_factory=dict)
 

@@ -25,7 +25,7 @@ class RegimeTransitionPlugin:
     """
 
     name: str = "trad_RegimeTransition"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -39,7 +39,7 @@ class RegimeTransitionPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "regime", "smc", "structure"})
+    capability_tags: frozenset[str] = frozenset({"trading", "regime", "smc", "structure"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     cp_threshold: float = 0.5

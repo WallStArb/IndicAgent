@@ -35,7 +35,7 @@ class BOCPDChangePointPlugin:
     """
 
     name: str = "smc_BOCPDChangePoint"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "cp_probability",
             "cp_raw_probability",
@@ -46,7 +46,7 @@ class BOCPDChangePointPlugin:
     )
     min_lookback: int = 30
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"smart_money"})
+    capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     hazard_lambda: int = 100  # Expected regime duration in bars
     max_run_length: int = 200  # Truncation cap

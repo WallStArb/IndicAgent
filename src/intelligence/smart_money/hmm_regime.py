@@ -84,7 +84,7 @@ class HMMRegimePlugin:
     """
 
     name: str = "smc_HMMRegime"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "hmm_regime",
             "hmm_regime_prob",
@@ -96,7 +96,7 @@ class HMMRegimePlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"smart_money"})
+    capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     vol_window: int = 20  # Rolling window for realized vol
     _state: dict = field(default_factory=dict)

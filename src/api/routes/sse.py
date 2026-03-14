@@ -128,6 +128,11 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
 # ── Topic → SSE event name mapping ──────────────────────────────────────────
 
 
+def _serialize_sse_item(item: dict) -> str:
+    """Serialize an SSE item (topic, key, payload) to JSON."""
+    return json.dumps({"topic": item["topic"], "key": item["key"], "payload": item["payload"]})
+
+
 @functools.lru_cache(maxsize=256)
 def _event_name_for_topic(topic: str) -> str:
     """Map a Kafka topic name (period-separated) to an SSE event name.
@@ -333,13 +338,7 @@ async def sse_events(
                     event_name = _event_name_for_topic(topic)
                     for item in reversed(topic_snapshot):
                         try:
-                            data_json = json.dumps(
-                                {
-                                    "topic": item["topic"],
-                                    "key": item["key"],
-                                    "payload": item["payload"],
-                                }
-                            )
+                            data_json = _serialize_sse_item(item)
                         except Exception:
                             continue
                         frame = f"event: {event_name}\ndata: {data_json}\n\n".encode()
@@ -364,13 +363,7 @@ async def sse_events(
 
                 event_name = _event_name_for_topic(item["topic"])
                 try:
-                    data_json = json.dumps(
-                        {
-                            "topic": item["topic"],
-                            "key": item["key"],
-                            "payload": item["payload"],
-                        }
-                    )
+                    data_json = _serialize_sse_item(item)
                 except Exception:
                     continue
 

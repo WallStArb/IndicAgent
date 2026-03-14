@@ -19,7 +19,7 @@ class FairValueGapPlugin:
     """
 
     name: str = "smc_FairValueGap"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "fvg_type",
             "fvg_top",
@@ -31,7 +31,7 @@ class FairValueGapPlugin:
     )
     min_lookback: int = 30
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"smart_money"})
+    capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     _state: dict = field(default_factory=dict)
 

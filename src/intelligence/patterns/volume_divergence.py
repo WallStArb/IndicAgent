@@ -11,10 +11,10 @@ from ..plugins import InputSpec
 @dataclass
 class VolumeDivergencePlugin:
     name: str = "VolumeDivergence"
-    outputs: set[str] = frozenset({"vol_div_bullish", "vol_div_bearish", "vol_div_strength"})
+    outputs: frozenset[str] = frozenset({"vol_div_bullish", "vol_div_bearish", "vol_div_strength"})
     min_lookback: int = 30
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern", "volume"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "volume"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
     lookback: int = 20
     _state: dict = field(default_factory=dict)

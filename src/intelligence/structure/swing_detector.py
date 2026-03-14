@@ -12,7 +12,7 @@ class SwingDetectorPlugin:
     """Detect swing highs/lows and classify HH/HL/LH/LL trend geometry."""
 
     name: str = "struct_SwingDetector"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "swing_high",
             "swing_low",
@@ -27,7 +27,7 @@ class SwingDetectorPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"structure"})
+    capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     neighbor: int = 5
     _state: dict = field(default_factory=dict)

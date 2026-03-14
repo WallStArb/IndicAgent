@@ -12,10 +12,10 @@ from ..utils import find_peaks, find_troughs
 @dataclass
 class RSIDivergencePlugin:
     name: str = "RSIDivergence"
-    outputs: set[str] = frozenset({"rsi_div_bullish", "rsi_div_bearish", "rsi_div_strength"})
+    outputs: frozenset[str] = frozenset({"rsi_div_bullish", "rsi_div_bearish", "rsi_div_strength"})
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern", "momentum"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     rsi_period: int = 14
     neighbor: int = 5

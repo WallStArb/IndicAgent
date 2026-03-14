@@ -49,7 +49,7 @@ class KalmanTrendPlugin:
     """
 
     name: str = "ctx_KalmanTrend"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "kalman_trend",
             "kalman_slope",
@@ -62,7 +62,7 @@ class KalmanTrendPlugin:
     )
     min_lookback: int = 30
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"context", "trend"})
+    capability_tags: frozenset[str] = frozenset({"context", "trend"})
     inputs: list[InputSpec] = field(
         default_factory=lambda: [InputSpec(symbol=".*", timeframe="1m", lookback=200)]
     )

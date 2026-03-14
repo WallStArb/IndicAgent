@@ -12,7 +12,7 @@ class SupportResistancePlugin:
     """Detect dynamic S/R levels from pivot clustering with strength scoring."""
 
     name: str = "struct_SupportResistance"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "nearest_resistance",
             "nearest_support",
@@ -27,7 +27,7 @@ class SupportResistancePlugin:
     )
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"structure"})
+    capability_tags: frozenset[str] = frozenset({"structure"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     window: int = 10
     cluster_pct: float = 0.005

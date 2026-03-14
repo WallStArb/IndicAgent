@@ -12,10 +12,10 @@ from ..plugins import InputSpec
 @dataclass
 class MFIPlugin:
     name: str = "MFI"
-    outputs: set[str] = frozenset({"mfi_14"})
+    outputs: frozenset[str] = frozenset({"mfi_14"})
     min_lookback: int = 20
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volume"})
+    capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     periods: list[int] = None
     _state: dict = field(default_factory=dict)

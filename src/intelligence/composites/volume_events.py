@@ -10,7 +10,7 @@ from .common import is_num
 @dataclass
 class VolumeEventsPlugin:
     name: str = "evt_VolumeEvents"
-    outputs: set[str] = field(
+    outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
                 "vol_spike",
@@ -24,7 +24,7 @@ class VolumeEventsPlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"volume"}))
+    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"volume"}))
     inputs: list[InputSpec] = field(default_factory=list)
     _state: dict = field(default_factory=dict)
 

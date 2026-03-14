@@ -18,10 +18,10 @@ class SupertrendPlugin:
     """
 
     name: str = "Supertrend"
-    outputs: set[str] = frozenset({"supertrend_value", "supertrend_dir"})
+    outputs: frozenset[str] = frozenset({"supertrend_value", "supertrend_dir"})
     min_lookback: int = 20
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"trend"})
+    capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     period: int = 10
     multiplier: float = 3.0

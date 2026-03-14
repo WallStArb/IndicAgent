@@ -21,10 +21,10 @@ class CMFPlugin:
     """
 
     name: str = "ind_CMF"
-    outputs: set[str] = frozenset({"cmf_20"})
+    outputs: frozenset[str] = frozenset({"cmf_20"})
     min_lookback: int = 20
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volume"})
+    capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=60),)
     period: int = 20
     _state: dict = field(default_factory=dict)

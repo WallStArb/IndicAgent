@@ -13,12 +13,12 @@ class TrendRegimePlugin:
     """Classify trend regime from MA alignment and optional I3 structure blending."""
 
     name: str = "ctx_TrendRegime"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {"trend_regime", "trend_confidence", "ma_alignment", "price_vs_sma20_pct"}
     )
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"context"})
+    capability_tags: frozenset[str] = frozenset({"context"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     sma_fast: int = 20
     sma_slow: int = 50

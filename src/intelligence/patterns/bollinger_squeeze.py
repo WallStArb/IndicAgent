@@ -13,12 +13,12 @@ from ..plugins import InputSpec
 @dataclass
 class BollingerSqueezePlugin:
     name: str = "BollingerSqueeze"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {"squeeze_active", "squeeze_duration", "squeeze_bandwidth_pctile", "squeeze_fired"}
     )
     min_lookback: int = 30
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"pattern", "volatility"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     bb_period: int = 20
     bb_std: float = 2.0

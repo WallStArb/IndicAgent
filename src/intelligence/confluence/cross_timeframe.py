@@ -54,7 +54,7 @@ class CrossTimeframeConfluencePlugin:
     """
 
     name: str = "i6_CrossTimeframeConfluence"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "ctf_score",
             "ctf_trend_alignment",
@@ -70,7 +70,7 @@ class CrossTimeframeConfluencePlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"confluence"})
+    capability_tags: frozenset[str] = frozenset({"confluence"})
     inputs: list[InputSpec] = ()
     _state: dict = field(default_factory=dict)
 

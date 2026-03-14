@@ -10,7 +10,7 @@ from .common import crossover_detect, is_num, threshold_cross, track_bars_ago
 @dataclass
 class ADXEventsPlugin:
     name: str = "evt_ADXEvents"
-    outputs: set[str] = field(
+    outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
                 "adx_trend_confirmed",
@@ -24,7 +24,7 @@ class ADXEventsPlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"trend"}))
+    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"trend"}))
     inputs: list[InputSpec] = field(default_factory=list)
     _state: dict = field(default_factory=dict)
 

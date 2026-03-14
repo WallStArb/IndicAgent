@@ -18,10 +18,10 @@ class ADXPlugin:
     """
 
     name: str = "ADX"
-    outputs: set[str] = frozenset({"adx_14", "plus_di_14", "minus_di_14"})
+    outputs: frozenset[str] = frozenset({"adx_14", "plus_di_14", "minus_di_14"})
     min_lookback: int = 30
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"trend"})
+    capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     periods: list[int] = None
     _state: dict = field(default_factory=dict)
