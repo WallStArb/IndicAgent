@@ -32,6 +32,10 @@ import structlog
 # - Errors are always recorded (no sampling) for safety and full audit coverage.
 PLUGIN_METRICS_SAMPLE_RATE: int = 10
 
+# Seed lookback multiplier: bars_needed * tf_seconds * this = time window for DB seed queries.
+# 48× gives ~2 days for 1m bars, covering IBKR maintenance gaps and weekend crypto outages.
+SEED_LOOKBACK_MULTIPLIER: int = 48
+
 # Minimum unique bars required before publishing per timeframe.
 # 1m uses 120 (2 hours) for plugin warm-up quality.
 # All higher TFs use 26 — enough for EMA-26 and Stochastic-14.

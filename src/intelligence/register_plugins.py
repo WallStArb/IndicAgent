@@ -61,6 +61,7 @@ from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
 from .patterns.volume_profile import plugin as volume_profile_plugin
 from .plugins import registry
+from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
 from .smart_money.amd_cycle import plugin as amd_cycle_plugin
 from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
 from .smart_money.bos_choch import plugin as bos_choch_plugin
@@ -110,8 +111,6 @@ def validate_schema_coverage() -> None:
 
     I1 and I2 are skipped (extra='allow').
     """
-    from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
-
     tier_checks: list[tuple[str, list, type]] = [
         ("I3", [swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
                 session_levels_plugin, anchored_vwap_plugin, fib_zones_plugin,
