@@ -9,7 +9,6 @@ All tests fail with AttributeError (method/attribute does not exist yet) in RED 
 from __future__ import annotations
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -62,62 +61,10 @@ class TestPerfWeightsAttribute:
 
 
 # ---------------------------------------------------------------------------
-# _load_perf_weights() (RED: method does not exist yet → AttributeError)
+# _load_perf_weights() — Redis-based tests removed in Phase 30 (Plan 05)
+# These tests verified the old Redis cache read behavior (setup_performance:weights).
+# Equivalent DB-based tests are in test_perf_weights_db.py.
 # ---------------------------------------------------------------------------
-
-class TestLoadPerfWeights:
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_load_perf_weights_populates_dict(self):
-        """Redis returns JSON → _perf_weights equals parsed dict after _load_perf_weights().
-
-        RED: fails with AttributeError because _load_perf_weights() does not exist yet.
-        """
-        svc = _make_svc()
-        payload = {"trad_TrendFollowing": 0.8, "trad_MeanReversion": 1.2}
-        svc.redis_client.get = AsyncMock(return_value=json.dumps(payload).encode())
-        await svc._load_perf_weights()
-        assert svc._perf_weights == payload
-
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_load_perf_weights_redis_miss_keeps_empty(self):
-        """Redis returns None → _perf_weights stays empty dict, no exception raised.
-
-        RED: fails with AttributeError because _load_perf_weights() does not exist yet.
-        """
-        svc = _make_svc()
-        svc.redis_client.get = AsyncMock(return_value=None)
-        await svc._load_perf_weights()
-        assert svc._perf_weights == {}
-
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_load_perf_weights_invalid_json_logs_warning(self):
-        """Redis returns invalid JSON bytes → _perf_weights unchanged, no exception raised.
-
-        RED: fails with AttributeError because _load_perf_weights() does not exist yet.
-        """
-        svc = _make_svc()
-        svc._perf_weights = {"trad_TrendFollowing": 0.9}  # pre-existing cache
-        svc.redis_client.get = AsyncMock(return_value=b"not-json")
-        # Should not raise; should preserve existing cache
-        await svc._load_perf_weights()
-        # Either preserves existing cache or stays empty — must not raise
-        # Key: no exception propagates
-
-    @pytest.mark.unit
-    @pytest.mark.asyncio
-    async def test_perf_weights_redis_key_uses_env_prefix(self):
-        """_load_perf_weights() reads key '{env_prefix}setup_performance:weights'.
-
-        RED: fails with AttributeError because _load_perf_weights() does not exist yet.
-        """
-        svc = _make_svc()
-        svc.env_prefix = "development:"
-        svc.redis_client.get = AsyncMock(return_value=None)
-        await svc._load_perf_weights()
-        svc.redis_client.get.assert_called_once_with("development:setup_performance:weights")
 
 
 # ---------------------------------------------------------------------------

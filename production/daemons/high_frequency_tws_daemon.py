@@ -33,7 +33,6 @@ import redis.asyncio as aioredis
 import structlog
 from prometheus_client import start_http_server
 
-from src.core.stream_keys import get_stream_maxlen
 from src.core.stream_keys import live_tick as sk_live_tick
 from src.core.stream_keys import market as sk_market
 from src.observability.metrics import counter as prom_counter
@@ -54,6 +53,9 @@ from src.providers import IBKRProvider
 logger = structlog.get_logger(__name__)
 
 # --- Module-level constants/config ---
+# Market stream maxlen for 1m bars (Phase 30: removed get_stream_maxlen from stream_keys)
+_MARKET_1M_STREAM_MAXLEN = 2000
+
 # Simplified tick types for futures - avoid Error 321
 FUTURES_TICK_TYPES = {
     "essential": "",  # Empty for basic last/bid/ask (default)
@@ -513,7 +515,7 @@ class HighFrequencyTWSDaemon:
                     await self.async_redis.xadd(
                         stream_name,
                         bar_data,
-                        maxlen=get_stream_maxlen("1m", "market"),
+                        maxlen=_MARKET_1M_STREAM_MAXLEN,
                         approximate=True,
                     )
                     logger.info(

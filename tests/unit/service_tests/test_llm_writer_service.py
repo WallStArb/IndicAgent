@@ -29,29 +29,9 @@ def test_llm_outcomes_stream_key_format():
     assert llm_outcomes_stream("") == "llm_outcomes:stream"
 
 
-def test_llm_scores_cache_key_format():
-    from src.core.stream_keys import llm_scores_cache
-
-    assert (
-        llm_scores_cache("development:", "per_signal", "trending")
-        == "development:llm_scores:per_signal:trending"
-    )
-    assert (
-        llm_scores_cache("", "group_synthesis", "__all__")
-        == "llm_scores:group_synthesis:__all__"
-    )
-
-
-def test_get_stream_maxlen_llm_calls():
-    from src.core.stream_keys import get_stream_maxlen
-
-    assert get_stream_maxlen("1m", "llm_calls") == 500
-
-
-def test_get_stream_maxlen_llm_outcomes():
-    from src.core.stream_keys import get_stream_maxlen
-
-    assert get_stream_maxlen("1m", "llm_outcomes") == 200
+# test_llm_scores_cache_key_format removed — llm_scores_cache removed in Phase 30
+# test_get_stream_maxlen_llm_calls removed — get_stream_maxlen removed in Phase 30
+# test_get_stream_maxlen_llm_outcomes removed — get_stream_maxlen removed in Phase 30
 
 
 # ── Pure functions from llm_writer_service (NOT YET IMPLEMENTED — RED) ────────

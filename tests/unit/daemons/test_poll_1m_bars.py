@@ -106,21 +106,15 @@ async def test_poll_1m_bars_uses_get_stream_maxlen():
     mock_redis = AsyncMock()
     daemon.async_redis = mock_redis
 
-    # Patch get_stream_maxlen to return a test-specific value
-    target = "production.daemons.high_frequency_tws_daemon.get_stream_maxlen"
-    with patch(target, return_value=9999) as mock_maxlen:
-        # This test will FAIL with AttributeError before implementation
-        now = datetime.now(UTC)
-        start = now - timedelta(minutes=2)
-        await daemon._fetch_bars_for_symbol("ES", start, now)
+    # Verify xadd uses the correct maxlen constant (2000 for 1m market stream)
+    now = datetime.now(UTC)
+    start = now - timedelta(minutes=2)
+    await daemon._fetch_bars_for_symbol("ES", start, now)
 
-        # Verify get_stream_maxlen was called correctly
-        mock_maxlen.assert_called_once_with("1m", "market")
-
-        # Verify xadd used the returned maxlen value, not hardcoded 2000
-        mock_redis.xadd.assert_called()
-        call_kwargs = mock_redis.xadd.call_args.kwargs
-        assert call_kwargs.get("maxlen") == 9999, "maxlen must come from get_stream_maxlen"
+    # Verify xadd was called with the correct maxlen from _MARKET_1M_STREAM_MAXLEN
+    mock_redis.xadd.assert_called()
+    call_kwargs = mock_redis.xadd.call_args.kwargs
+    assert call_kwargs.get("maxlen") == 2000, "maxlen must be _MARKET_1M_STREAM_MAXLEN (2000)"
 
 
 @pytest.mark.asyncio
