@@ -41,11 +41,7 @@ def _scalar_aggregate(
         direction = 1 if cis_score > 0 else -1
 
     cis_sign = 1.0 if cis_score >= 0 else -1.0
-    agreeing = sum(
-        1
-        for b in BUCKET_NAMES
-        if bucket_scores[b] * cis_sign > BUCKET_NOISE_FLOOR
-    )
+    agreeing = sum(1 for b in BUCKET_NAMES if bucket_scores[b] * cis_sign > BUCKET_NOISE_FLOOR)
 
     if agreeing < BUCKET_AGREE_MIN:
         direction = 0
@@ -96,24 +92,26 @@ def _bullish_features() -> dict:
 
 def _bearish_features() -> dict:
     f = _bullish_features()
-    f.update({
-        "trend_regime": -0.8,
-        "kalman_slope": -0.5,
-        "smc_trend_direction": -1,
-        "ctf_trend_alignment": -0.8,
-        "trend_confluence_score": -0.7,
-        "rsi_14": 30.0,
-        "macd_hist_12_26_9": -0.5,
-        "roc_14": -2.0,
-        "momentum_bias": -0.6,
-        "bos_direction": -1,
-        "ob_type": -1,
-        "fvg_type": -1,
-        "in_demand_zone": 0.0,
-        "in_supply_zone": 1.0,
-        "hmm_prob_trending_up": 0.1,
-        "hmm_prob_trending_down": 0.7,
-    })
+    f.update(
+        {
+            "trend_regime": -0.8,
+            "kalman_slope": -0.5,
+            "smc_trend_direction": -1,
+            "ctf_trend_alignment": -0.8,
+            "trend_confluence_score": -0.7,
+            "rsi_14": 30.0,
+            "macd_hist_12_26_9": -0.5,
+            "roc_14": -2.0,
+            "momentum_bias": -0.6,
+            "bos_direction": -1,
+            "ob_type": -1,
+            "fvg_type": -1,
+            "in_demand_zone": 0.0,
+            "in_supply_zone": 1.0,
+            "hmm_prob_trending_up": 0.1,
+            "hmm_prob_trending_down": 0.7,
+        }
+    )
     return f
 
 
@@ -124,14 +122,16 @@ def _neutral_features() -> dict:
 def _mixed_features() -> dict:
     """Mixed bullish/bearish signals — no clear direction."""
     f = _bullish_features()
-    f.update({
-        "trend_regime": -0.3,
-        "kalman_slope": 0.2,
-        "rsi_14": 52.0,
-        "macd_hist_12_26_9": -0.1,
-        "hmm_prob_trending_up": 0.4,
-        "hmm_prob_trending_down": 0.35,
-    })
+    f.update(
+        {
+            "trend_regime": -0.3,
+            "kalman_slope": 0.2,
+            "rsi_14": 52.0,
+            "macd_hist_12_26_9": -0.1,
+            "hmm_prob_trending_up": 0.4,
+            "hmm_prob_trending_down": 0.35,
+        }
+    )
     return f
 
 
@@ -151,9 +151,7 @@ def _run_both(features: dict, plugin_outputs: dict | None = None) -> tuple:
 
     # Extract bucket scores from vec_result (already computed by scorer)
     bucket_scores = {b: vec_result.bucket_scores[b] for b in BUCKET_NAMES}
-    scalar_cis, scalar_dir, scalar_agreeing = _scalar_aggregate(
-        bucket_scores, BOOTSTRAP_WEIGHTS
-    )
+    scalar_cis, scalar_dir, scalar_agreeing = _scalar_aggregate(bucket_scores, BOOTSTRAP_WEIGHTS)
 
     return vec_result, scalar_cis, scalar_dir, scalar_agreeing
 
@@ -236,18 +234,14 @@ class TestVectorizationEdgeCases:
     def test_all_positive_bucket_scores(self):
         """All buckets strongly positive — all six should agree."""
         # Use bullish features which produce strongly positive all-bucket scores
-        vec_result, scalar_cis, scalar_dir, scalar_agreeing = _run_both(
-            _bullish_features()
-        )
+        vec_result, scalar_cis, scalar_dir, scalar_agreeing = _run_both(_bullish_features())
         assert abs(vec_result.cis_score - scalar_cis) < 1e-10
         assert vec_result.buckets_agreeing == scalar_agreeing
 
     @pytest.mark.unit
     def test_all_negative_bucket_scores(self):
         """All buckets strongly negative — all six should agree (bearish)."""
-        vec_result, scalar_cis, scalar_dir, scalar_agreeing = _run_both(
-            _bearish_features()
-        )
+        vec_result, scalar_cis, scalar_dir, scalar_agreeing = _run_both(_bearish_features())
         assert abs(vec_result.cis_score - scalar_cis) < 1e-10
         assert vec_result.buckets_agreeing == scalar_agreeing
 
@@ -274,9 +268,7 @@ class TestVectorizationEdgeCases:
         vec_result = scorer.score(_bullish_features(), {})
 
         bucket_scores = {b: vec_result.bucket_scores[b] for b in BUCKET_NAMES}
-        scalar_cis, scalar_dir, scalar_agreeing = _scalar_aggregate(
-            bucket_scores, custom_weights
-        )
+        scalar_cis, scalar_dir, scalar_agreeing = _scalar_aggregate(bucket_scores, custom_weights)
 
         assert abs(vec_result.cis_score - scalar_cis) < 1e-10
         assert vec_result.direction == scalar_dir

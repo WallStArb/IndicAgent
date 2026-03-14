@@ -1,5 +1,6 @@
 # tests/unit/intelligence/composites/test_derivative_oscillator.py
 """Unit tests for DerivativeOscillatorPlugin (Constance Brown triple-smoothed RSI derivative)."""
+
 from __future__ import annotations
 
 from src.intelligence.composites.derivative_oscillator import DerivativeOscillatorPlugin
@@ -7,6 +8,7 @@ from src.intelligence.composites.derivative_oscillator import DerivativeOscillat
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_frames(rsi: float | None) -> dict:
     """Build a minimal frames dict with the given RSI value."""
@@ -27,6 +29,7 @@ def feed_bars(plugin: DerivativeOscillatorPlugin, rsi_values: list[float | None]
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_outputs_present():
     """After warmup (~18 bars), plugin emits all 4 output keys."""
@@ -73,7 +76,8 @@ def test_warmup_separation():
 
 
 def test_bullish_cross():
-    """Construct RSI sequence that drives ema3 to cross above signal line; assert deriv_osc_cross_bullish=1."""
+    """Construct RSI sequence that drives ema3 to cross above signal line; assert
+    deriv_osc_cross_bullish=1."""
     plugin = DerivativeOscillatorPlugin()
     plugin._state = {}
     # Phase 1: push RSI down so ema3 < signal (bearish territory)
@@ -115,7 +119,12 @@ def test_output_types():
     results = feed_bars(plugin, rsi_sequence)
     last = results[-1]
     assert last, "Expected non-empty output after 30 bars"
-    for key in ("deriv_osc", "deriv_osc_signal", "deriv_osc_cross_bullish", "deriv_osc_cross_bearish"):
+    for key in (
+        "deriv_osc",
+        "deriv_osc_signal",
+        "deriv_osc_cross_bullish",
+        "deriv_osc_cross_bearish",
+    ):
         assert key in last, f"Missing key: {key}"
         val = last[key]
         assert isinstance(val, (int, float)), f"{key}={val!r} is not int/float"
@@ -133,9 +142,9 @@ def test_no_cross_on_stable():
     results = feed_bars(plugin, stable_rsi)
     for i, r in enumerate(results):
         if r:  # skip warmup empties
-            assert r.get("deriv_osc_cross_bullish", 0) == 0, (
-                f"Unexpected bullish cross at stable bar {i}: {r}"
-            )
-            assert r.get("deriv_osc_cross_bearish", 0) == 0, (
-                f"Unexpected bearish cross at stable bar {i}: {r}"
-            )
+            assert (
+                r.get("deriv_osc_cross_bullish", 0) == 0
+            ), f"Unexpected bullish cross at stable bar {i}: {r}"
+            assert (
+                r.get("deriv_osc_cross_bearish", 0) == 0
+            ), f"Unexpected bearish cross at stable bar {i}: {r}"

@@ -9,10 +9,17 @@ from src.intelligence.patterns.triangle_wedge import TriangleWedgePlugin
 
 def _make_frames(high, low, close):
     n = len(close)
-    return {"main": pd.DataFrame({
-        "open": close, "high": high, "close": close,
-        "low": low, "volume": np.ones(n) * 1000,
-    })}
+    return {
+        "main": pd.DataFrame(
+            {
+                "open": close,
+                "high": high,
+                "close": close,
+                "low": low,
+                "volume": np.ones(n) * 1000,
+            }
+        )
+    }
 
 
 def _base(n: int = 80):

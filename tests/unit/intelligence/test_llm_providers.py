@@ -7,6 +7,7 @@ Tests verify:
 - Failures return None and increment failure_count
 - Successes return content and increment success_count
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -27,37 +28,35 @@ from src.intelligence.llm_providers import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_openrouter_response(content: str) -> bytes:
     import json
-    return json.dumps({
-        "choices": [{"message": {"content": content}}]
-    }).encode()
+
+    return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
 
 def _make_anthropic_response(text: str) -> bytes:
     import json
-    return json.dumps({
-        "content": [{"text": text}]
-    }).encode()
+
+    return json.dumps({"content": [{"text": text}]}).encode()
 
 
 def _make_zai_response(content: str) -> bytes:
     import json
-    return json.dumps({
-        "choices": [{"message": {"content": content}}]
-    }).encode()
+
+    return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
 
 
 def _make_ollama_response(content: str) -> bytes:
     import json
-    return json.dumps({
-        "message": {"content": content}
-    }).encode()
+
+    return json.dumps({"message": {"content": content}}).encode()
 
 
 # ---------------------------------------------------------------------------
 # _call_llm_with_circuit_breaker tests
 # ---------------------------------------------------------------------------
+
 
 class TestCallLLMWithCircuitBreaker:
     """Test the core circuit breaker helper."""
@@ -65,6 +64,7 @@ class TestCallLLMWithCircuitBreaker:
     def test_module_circuit_breaker_instance_exists(self):
         """_llm_circuit_breaker is a PluginCircuitBreaker with correct config."""
         from src.core.plugin_circuit_breaker import PluginCircuitBreaker
+
         assert isinstance(_llm_circuit_breaker, PluginCircuitBreaker)
         assert _llm_circuit_breaker.config.failure_threshold == 3
         assert _llm_circuit_breaker.config.recovery_timeout == 300
@@ -122,6 +122,7 @@ class TestCallLLMWithCircuitBreaker:
 # ---------------------------------------------------------------------------
 # OpenRouterProvider tests
 # ---------------------------------------------------------------------------
+
 
 class TestOpenRouterProvider:
     def _make_provider(self) -> OpenRouterProvider:
@@ -192,6 +193,7 @@ class TestOpenRouterProvider:
 # AnthropicProvider tests
 # ---------------------------------------------------------------------------
 
+
 class TestAnthropicProvider:
     def _make_provider(self) -> AnthropicProvider:
         return AnthropicProvider(
@@ -243,6 +245,7 @@ class TestAnthropicProvider:
 # ---------------------------------------------------------------------------
 # ZAIProvider tests
 # ---------------------------------------------------------------------------
+
 
 class TestZAIProvider:
     def _make_provider(self) -> ZAIProvider:
@@ -296,6 +299,7 @@ class TestZAIProvider:
 # OllamaProvider tests
 # ---------------------------------------------------------------------------
 
+
 class TestOllamaProvider:
     def _make_provider(self) -> OllamaProvider:
         return OllamaProvider(
@@ -346,6 +350,7 @@ class TestOllamaProvider:
 # ---------------------------------------------------------------------------
 # LLMChain tests
 # ---------------------------------------------------------------------------
+
 
 class TestLLMChain:
     @pytest.mark.asyncio

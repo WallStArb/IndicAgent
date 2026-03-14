@@ -23,9 +23,9 @@ class TestMomentumBreakout:
         from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 5010.0)
-        close[-1] = 5015.0           # above swing_high=5010
+        close[-1] = 5015.0  # above swing_high=5010
         volume = np.full(50, 1000.0)
-        volume[-1] = 2000.0          # 2x average → passes 1.5x gate
+        volume[-1] = 2000.0  # 2x average → passes 1.5x gate
         df = make_ohlcv(close, volume)
         features = _base_features(roc=0.5, swing_high=5010.0)
 
@@ -46,7 +46,7 @@ class TestMomentumBreakout:
         from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
 
         close = np.full(50, 4990.0)
-        close[-1] = 4985.0           # below swing_low=4990
+        close[-1] = 4985.0  # below swing_low=4990
         volume = np.full(50, 1000.0)
         volume[-1] = 2000.0
         df = make_ohlcv(close, volume)
@@ -80,7 +80,7 @@ class TestMomentumBreakout:
 
         close = np.full(50, 5015.0)  # above swing_high=5010
         volume = np.full(50, 1000.0)
-        volume[-1] = 1200.0          # only 1.2x — below 1.5x threshold
+        volume[-1] = 1200.0  # only 1.2x — below 1.5x threshold
         df = make_ohlcv(close, volume)
         features = _base_features(roc=0.5, swing_high=5010.0)
 
@@ -127,7 +127,7 @@ class TestMomentumBreakout:
         # Build 50-bar series where roc_14 is large enough to trigger
         close = np.full(50, 5000.0)
         close[-15:] = np.linspace(5000.0, 5025.0, 15)  # ~0.5% rise over 14 bars
-        close[-1] = 5025.0          # above swing_high=5010
+        close[-1] = 5025.0  # above swing_high=5010
         volume = np.full(50, 1000.0)
         volume[-1] = 2000.0
         df = make_ohlcv(close, volume)

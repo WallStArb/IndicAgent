@@ -35,9 +35,7 @@ def generate_synthetic_ohlcv(n_bars: int = 200, seed: int = 42) -> pd.DataFrame:
     # Volume with realistic variation
     volume = rng.lognormal(10, 0.5, n_bars).astype(float)
 
-    return pd.DataFrame(
-        {"open": open_, "high": high, "low": low, "close": close, "volume": volume}
-    )
+    return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": volume})
 
 
 SEED_BARS = 100  # Bars for initial compute_full()

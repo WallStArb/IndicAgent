@@ -1,6 +1,7 @@
 """Tests for new SMC plugins: ICTKillzones, AMDCycle, BreakerBlocks,
 MitigationBlocks, PremiumDiscount.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -20,11 +21,16 @@ class TestICTKillzones:
         from src.intelligence.smart_money.ict_killzones import ICTKillzonesPlugin
 
         ts = datetime(2026, 3, 2, 8, 0, tzinfo=UTC)  # 8am UTC = 3am ET = London KZ
-        df = pd.DataFrame({
-            "timestamp": [ts],
-            "open": [5000.0], "high": [5010.0], "low": [4990.0],
-            "close": [5005.0], "volume": [1000.0],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts],
+                "open": [5000.0],
+                "high": [5010.0],
+                "low": [4990.0],
+                "close": [5005.0],
+                "volume": [1000.0],
+            }
+        )
         result = ICTKillzonesPlugin().compute_full({"main": df, "features": {}})
         assert result.get("in_london_killzone") == 1.0
         assert result.get("killzone_name") == "london"
@@ -34,11 +40,16 @@ class TestICTKillzones:
         from src.intelligence.smart_money.ict_killzones import ICTKillzonesPlugin
 
         ts = datetime(2026, 3, 2, 14, 0, tzinfo=UTC)  # 9am ET = NY AM KZ
-        df = pd.DataFrame({
-            "timestamp": [ts],
-            "open": [5000.0], "high": [5010.0], "low": [4990.0],
-            "close": [5005.0], "volume": [1000.0],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts],
+                "open": [5000.0],
+                "high": [5010.0],
+                "low": [4990.0],
+                "close": [5005.0],
+                "volume": [1000.0],
+            }
+        )
         result = ICTKillzonesPlugin().compute_full({"main": df, "features": {}})
         assert result.get("in_ny_am_killzone") == 1.0
         assert result.get("killzone_name") == "ny_am"
@@ -47,11 +58,16 @@ class TestICTKillzones:
         from src.intelligence.smart_money.ict_killzones import ICTKillzonesPlugin
 
         ts = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)  # noon UTC — between killzones
-        df = pd.DataFrame({
-            "timestamp": [ts],
-            "open": [5000.0], "high": [5010.0], "low": [4990.0],
-            "close": [5005.0], "volume": [1000.0],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts],
+                "open": [5000.0],
+                "high": [5010.0],
+                "low": [4990.0],
+                "close": [5005.0],
+                "volume": [1000.0],
+            }
+        )
         result = ICTKillzonesPlugin().compute_full({"main": df, "features": {}})
         assert result.get("in_asia_killzone") == 0.0
         assert result.get("in_london_killzone") == 0.0
@@ -63,11 +79,16 @@ class TestICTKillzones:
         from src.intelligence.smart_money.ict_killzones import ICTKillzonesPlugin
 
         ts = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
-        df = pd.DataFrame({
-            "timestamp": [ts],
-            "open": [5000.0], "high": [5010.0], "low": [4990.0],
-            "close": [5005.0], "volume": [1000.0],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts],
+                "open": [5000.0],
+                "high": [5010.0],
+                "low": [4990.0],
+                "close": [5005.0],
+                "volume": [1000.0],
+            }
+        )
         result = ICTKillzonesPlugin().compute_full({"main": df, "features": {}})
         assert result.get("minutes_until_next_killzone", 0) > 0
 
@@ -95,14 +116,16 @@ class TestICTKillzones:
 class TestAMDCycle:
     def _make_df(self, hour_utc: int, close: float = 5000.0) -> pd.DataFrame:
         ts = datetime(2026, 3, 2, hour_utc, 0, tzinfo=UTC)
-        return pd.DataFrame({
-            "timestamp": [ts, ts],
-            "open": [close - 5, close - 3],
-            "high": [close + 10, close + 10],
-            "low": [close - 10, close - 10],
-            "close": [close - 2, close],
-            "volume": [1000.0, 1000.0],
-        })
+        return pd.DataFrame(
+            {
+                "timestamp": [ts, ts],
+                "open": [close - 5, close - 3],
+                "high": [close + 10, close + 10],
+                "low": [close - 10, close - 10],
+                "close": [close - 2, close],
+                "volume": [1000.0, 1000.0],
+            }
+        )
 
     def test_accumulation_phase_at_21_utc(self):
         from src.intelligence.smart_money.amd_cycle import AMDCyclePlugin
@@ -162,10 +185,10 @@ class TestBreakerBlocks:
         close = np.linspace(5000, 5010, 5)
         df = make_ohlcv(close)
         features = {
-            "ob_type": 1.0,        # bullish OB
+            "ob_type": 1.0,  # bullish OB
             "ob_top": 5020.0,
             "ob_bottom": 5010.0,
-            "ob_mitigated": 1.0,   # mitigated → becomes bearish breaker
+            "ob_mitigated": 1.0,  # mitigated → becomes bearish breaker
             "atr_14": 10.0,
         }
         result = plugin.compute_full({"main": df, "features": features})
@@ -180,8 +203,13 @@ class TestBreakerBlocks:
         plugin = BreakerBlocksPlugin()
         close = np.linspace(5000, 5010, 5)
         df = make_ohlcv(close)
-        features = {"ob_type": -1.0, "ob_top": 5005.0, "ob_bottom": 5000.0,
-                    "ob_mitigated": 1.0, "atr_14": 10.0}
+        features = {
+            "ob_type": -1.0,
+            "ob_top": 5005.0,
+            "ob_bottom": 5000.0,
+            "ob_mitigated": 1.0,
+            "atr_14": 10.0,
+        }
         result = plugin.compute_full({"main": df, "features": features})
         assert result.get("breaker_dist_atr") is not None
         assert result["breaker_dist_atr"] >= 0.0
@@ -227,11 +255,16 @@ class TestMitigationBlocks:
         plugin = MitigationBlocksPlugin()
         # Bar that partially overlaps OB [5010, 5020]: bar high=5015, low=5005
         import pandas as pd
-        df = pd.DataFrame({
-            "open": [5008.0, 5008.0], "high": [5015.0, 5015.0],
-            "low": [5005.0, 5005.0], "close": [5012.0, 5012.0],
-            "volume": [1000.0, 1000.0],
-        })
+
+        df = pd.DataFrame(
+            {
+                "open": [5008.0, 5008.0],
+                "high": [5015.0, 5015.0],
+                "low": [5005.0, 5005.0],
+                "close": [5012.0, 5012.0],
+                "volume": [1000.0, 1000.0],
+            }
+        )
         features = {"ob_top": 5020.0, "ob_bottom": 5010.0}
         result = plugin.compute_full({"main": df, "features": features})
         assert result.get("ob_mitigation_status") == "partial"

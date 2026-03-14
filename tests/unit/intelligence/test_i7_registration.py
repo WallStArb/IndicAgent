@@ -61,9 +61,7 @@ class TestI7Registration:
             elif plugin.regime_type not in _VALID_REGIME_TYPES:
                 invalid.append(f"{name}: {plugin.regime_type!r}")
 
-        assert not missing, (
-            f"I7 plugins missing regime_type attribute: {missing}"
-        )
+        assert not missing, f"I7 plugins missing regime_type attribute: {missing}"
         assert not invalid, (
             f"I7 plugins with invalid regime_type value (must be one of "
             f"{_VALID_REGIME_TYPES}): {invalid}"

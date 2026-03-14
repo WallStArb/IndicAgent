@@ -14,6 +14,7 @@ Wire contract (from 24-CONTEXT.md / PLAN.md interfaces):
     → confidence -= 0.15, "exhaustion_guard_penalty" in supporting_factors
     → if confidence < threshold after penalty → _no_signal()
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -28,7 +29,7 @@ def _sweep_frames(
     exhaustion_score: float = 0.0,
     exhaustion_side: str = "none",
     exhaustion_bars: float = 0.0,
-    sweep_type: float = 1.0,      # 1=bullish (SSL swept), -1=bearish (BSL swept)
+    sweep_type: float = 1.0,  # 1=bullish (SSL swept), -1=bearish (BSL swept)
     direction: int = 1,
     n_bars: int = 100,
 ) -> dict:
@@ -86,9 +87,9 @@ def _breakout_frames(
     n_bars: int = 50,
 ) -> dict:
     """Build valid frames for MomentumBreakoutPlugin that produces a long signal."""
-    close = np.full(n_bars, 5015.0)   # above swing_high=5010
+    close = np.full(n_bars, 5015.0)  # above swing_high=5010
     volume = np.full(n_bars, 1000.0)
-    volume[-1] = 2500.0               # 2.5x avg → above 1.5x threshold
+    volume[-1] = 2500.0  # 2.5x avg → above 1.5x threshold
     df = make_ohlcv(close, volume)
     features = {
         "roc_14": 0.8,
@@ -146,9 +147,12 @@ def test_sweep_reclaim_exhaustion_boost_applied_above_threshold():
 
     # with exhaustion boost
     plugin2 = LiquiditySweepReclaimPlugin()
-    with_boost = plugin2.compute_full(_sweep_frames(
-        exhaustion_score=0.65, exhaustion_side="bull",
-    ))
+    with_boost = plugin2.compute_full(
+        _sweep_frames(
+            exhaustion_score=0.65,
+            exhaustion_side="bull",
+        )
+    )
     assert "exhaustion_sweep_boost" in with_boost.get("supporting_factors", [])
     assert with_boost["confidence"] == pytest.approx(baseline["confidence"] + 0.1, abs=0.001)
 
@@ -158,9 +162,12 @@ def test_sweep_reclaim_no_boost_when_score_below_threshold():
     from src.intelligence.trading.liquidity_sweep_reclaim import LiquiditySweepReclaimPlugin
 
     plugin = LiquiditySweepReclaimPlugin()
-    result = plugin.compute_full(_sweep_frames(
-        exhaustion_score=0.5, exhaustion_side="bull",
-    ))
+    result = plugin.compute_full(
+        _sweep_frames(
+            exhaustion_score=0.5,
+            exhaustion_side="bull",
+        )
+    )
     assert "exhaustion_sweep_boost" not in result.get("supporting_factors", [])
 
 
@@ -181,9 +188,12 @@ def test_liquidity_hunt_exhaustion_boost_applied_above_threshold():
 
     # with exhaustion boost
     plugin2 = LiquidityHuntPlugin()
-    with_boost = plugin2.compute_full(_hunt_frames(
-        exhaustion_score=0.7, exhaustion_side="bull",
-    ))
+    with_boost = plugin2.compute_full(
+        _hunt_frames(
+            exhaustion_score=0.7,
+            exhaustion_side="bull",
+        )
+    )
     assert "exhaustion_sweep_boost" in with_boost.get("supporting_factors", [])
     assert with_boost["confidence"] == pytest.approx(baseline["confidence"] + 0.1, abs=0.001)
 
@@ -193,9 +203,12 @@ def test_liquidity_hunt_no_boost_when_below_threshold():
     from src.intelligence.trading.liquidity_hunt import LiquidityHuntPlugin
 
     plugin = LiquidityHuntPlugin()
-    result = plugin.compute_full(_hunt_frames(
-        exhaustion_score=0.55, exhaustion_side="bull",
-    ))
+    result = plugin.compute_full(
+        _hunt_frames(
+            exhaustion_score=0.55,
+            exhaustion_side="bull",
+        )
+    )
     assert "exhaustion_sweep_boost" not in result.get("supporting_factors", [])
 
 
@@ -216,9 +229,13 @@ def test_momentum_breakout_guard_penalty_applied_when_threshold_met():
 
     # with guard penalty
     plugin2 = MomentumBreakoutPlugin()
-    with_guard = plugin2.compute_full(_breakout_frames(
-        exhaustion_score=0.8, exhaustion_side="bull", exhaustion_bars=3.0,
-    ))
+    with_guard = plugin2.compute_full(
+        _breakout_frames(
+            exhaustion_score=0.8,
+            exhaustion_side="bull",
+            exhaustion_bars=3.0,
+        )
+    )
     assert "exhaustion_guard_penalty" in with_guard.get("supporting_factors", [])
     expected_conf = max(0.0, baseline["confidence"] - 0.15)
     assert with_guard["confidence"] == pytest.approx(expected_conf, abs=0.005)
@@ -229,9 +246,13 @@ def test_momentum_breakout_no_penalty_when_bars_below_threshold():
     from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
 
     plugin = MomentumBreakoutPlugin()
-    result = plugin.compute_full(_breakout_frames(
-        exhaustion_score=0.8, exhaustion_side="bull", exhaustion_bars=2.0,
-    ))
+    result = plugin.compute_full(
+        _breakout_frames(
+            exhaustion_score=0.8,
+            exhaustion_side="bull",
+            exhaustion_bars=2.0,
+        )
+    )
     assert "exhaustion_guard_penalty" not in result.get("supporting_factors", [])
 
 
@@ -240,9 +261,13 @@ def test_momentum_breakout_no_penalty_when_score_below_threshold():
     from src.intelligence.trading.momentum_breakout import MomentumBreakoutPlugin
 
     plugin = MomentumBreakoutPlugin()
-    result = plugin.compute_full(_breakout_frames(
-        exhaustion_score=0.6, exhaustion_side="bull", exhaustion_bars=3.0,
-    ))
+    result = plugin.compute_full(
+        _breakout_frames(
+            exhaustion_score=0.6,
+            exhaustion_side="bull",
+            exhaustion_bars=3.0,
+        )
+    )
     assert "exhaustion_guard_penalty" not in result.get("supporting_factors", [])
 
 
@@ -263,9 +288,13 @@ def test_trend_following_guard_penalty_applied_when_threshold_met():
 
     # with guard penalty
     plugin2 = TrendFollowingPlugin()
-    with_guard = plugin2.compute_full(_trend_frames(
-        exhaustion_score=0.75, exhaustion_side="bull", exhaustion_bars=4.0,
-    ))
+    with_guard = plugin2.compute_full(
+        _trend_frames(
+            exhaustion_score=0.75,
+            exhaustion_side="bull",
+            exhaustion_bars=4.0,
+        )
+    )
     assert "exhaustion_guard_penalty" in with_guard.get("supporting_factors", [])
 
 

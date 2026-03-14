@@ -4,6 +4,7 @@
 All tests FAIL with ImportError until Plan 02 creates
 src/intelligence/indicators/hma.py.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -77,7 +78,7 @@ def test_hma_20_trending_series_closer_to_current_price():
     than a simple 20-bar SMA.
     """
     plugin = HMAPlugin()
-    closes = np.linspace(4800.0, 5200.0, 50)   # strong uptrend
+    closes = np.linspace(4800.0, 5200.0, 50)  # strong uptrend
     df = make_ohlcv(closes)
     result = plugin.compute_full({"main": df, "features": {}})
     hma = result.get("hma_20")

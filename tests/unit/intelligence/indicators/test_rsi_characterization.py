@@ -64,6 +64,4 @@ class TestRSIZeroLossCharacterization:
 
         assert 0.0 <= rsi1 <= 100.0, f"RSI1 out of range: {rsi1}"
         assert 0.0 <= rsi2 <= 100.0, f"RSI2 out of range: {rsi2}"
-        assert rsi2 < rsi1, (
-            f"Expected RSI to drop after loss bar: rsi1={rsi1:.4f}, rsi2={rsi2:.4f}"
-        )
+        assert rsi2 < rsi1, f"Expected RSI to drop after loss bar: rsi1={rsi1:.4f}, rsi2={rsi2:.4f}"

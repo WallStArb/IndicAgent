@@ -20,11 +20,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFra
     low = close * (1 - spread)
     high = np.maximum(high, close)
     low = np.minimum(low, close)
-    return pd.DataFrame({
-        "open": close, "high": high, "low": low,
-        "close": close,
-        "volume": rng.lognormal(10, 0.5, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.lognormal(10, 0.5, n).astype(float),
+        }
+    )
 
 
 class TestStochRSI:
@@ -53,10 +57,15 @@ class TestStochRSI:
         # Reversal: strong rally from the low → RSI climbs monotonically
         reversal = declining[-1] + np.arange(1, 41) * 0.6
         close = np.concatenate([declining, reversal])
-        df = pd.DataFrame({
-            "open": close, "high": close * 1.001, "low": close * 0.999,
-            "close": close, "volume": np.ones(len(close)) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": np.ones(len(close)) * 1000,
+            }
+        )
         result = StochRSIPlugin().compute_full({"main": df})
         assert result["stoch_rsi_k_14"] > 70.0
 
@@ -68,10 +77,15 @@ class TestStochRSI:
         # Reversal: strong sell-off → RSI drops monotonically
         reversal = rising[-1] - np.arange(1, 41) * 0.6
         close = np.concatenate([rising, reversal])
-        df = pd.DataFrame({
-            "open": close, "high": close * 1.001, "low": close * 0.999,
-            "close": close, "volume": np.ones(len(close)) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": np.ones(len(close)) * 1000,
+            }
+        )
         result = StochRSIPlugin().compute_full({"main": df})
         assert result["stoch_rsi_k_14"] < 30.0
 
@@ -79,10 +93,15 @@ class TestStochRSI:
         """When RSI is constant (high == low == close on every bar), K should be 50."""
         n = 80
         close = np.ones(n) * 5000.0
-        df = pd.DataFrame({
-            "open": close, "high": close, "low": close,
-            "close": close, "volume": np.ones(n) * 1000,
-        })
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": np.ones(n) * 1000,
+            }
+        )
         result = StochRSIPlugin().compute_full({"main": df})
         # With no price changes, RSI = 50 constantly → StochRSI = 50
         assert result["stoch_rsi_k_14"] == 50.0

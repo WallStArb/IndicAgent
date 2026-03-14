@@ -13,13 +13,15 @@ def _make_ohlcv(n: int = 100, seed: int = 42, vol_scale: float = 1.0) -> pd.Data
     close = 5000.0 + np.cumsum(rng.standard_normal(n) * vol_scale)
     high = close + rng.uniform(0.5, 2.0, n)
     low = close - rng.uniform(0.5, 2.0, n)
-    return pd.DataFrame({
-        "open": close - rng.uniform(0, 0.5, n),
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": rng.integers(100, 1000, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "open": close - rng.uniform(0, 0.5, n),
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": rng.integers(100, 1000, n).astype(float),
+        }
+    )
 
 
 class TestGARCHVolatility:

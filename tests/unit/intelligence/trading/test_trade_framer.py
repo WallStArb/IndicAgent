@@ -1,4 +1,5 @@
 """Tests for trade_framer zone bound computation."""
+
 import pytest
 
 from src.intelligence.trading.trade_framer import frame_trade
@@ -7,8 +8,8 @@ from src.intelligence.trading.trade_framer import frame_trade
 def _features_with_demand_zone():
     return {
         "atr_14": 5.0,
-        "nearest_demand_high": 450.0,   # proximal edge (zone top)
-        "nearest_demand_low": 445.0,    # distal edge (zone bottom)
+        "nearest_demand_high": 450.0,  # proximal edge (zone top)
+        "nearest_demand_low": 445.0,  # distal edge (zone bottom)
         "nearest_supply_high": 460.0,
         "nearest_supply_low": 455.0,
         "in_demand_zone": 1.0,
@@ -50,8 +51,13 @@ class TestZoneBounds:
 
     def test_zone_low_always_less_than_zone_high(self):
         """zone_low must always be < zone_high regardless of direction."""
-        features = {"atr_14": 3.0, "nearest_supply_high": 460.0,
-                    "nearest_supply_low": 455.0, "in_supply_zone": 1.0, "swing_high": 462.0}
+        features = {
+            "atr_14": 3.0,
+            "nearest_supply_high": 460.0,
+            "nearest_supply_low": 455.0,
+            "in_supply_zone": 1.0,
+            "swing_high": 462.0,
+        }
         frame = frame_trade("supply_demand_short", -1, 457.0, features, atr=3.0)
         assert frame.zone_low < frame.zone_high
 

@@ -7,8 +7,12 @@ from src.intelligence.composites.momentum_accel import MomentumAccelPlugin
 
 
 def make_frames(
-    rsi=None, macd=None, roc=None,
-    prev_rsi=None, prev_macd=None, prev_roc=None,
+    rsi=None,
+    macd=None,
+    roc=None,
+    prev_rsi=None,
+    prev_macd=None,
+    prev_roc=None,
 ) -> dict:
     features = {}
     prev = {}
@@ -29,10 +33,12 @@ def make_frames(
 
 def test_missing_prev_returns_zeros():
     plugin = MomentumAccelPlugin()
-    result = plugin.compute_next({
-        "features": {"rsi_14": 50.0, "macd_12_26_9": 0.5, "roc_14": 1.0},
-        "prev_features": {},
-    })
+    result = plugin.compute_next(
+        {
+            "features": {"rsi_14": 50.0, "macd_12_26_9": 0.5, "roc_14": 1.0},
+            "prev_features": {},
+        }
+    )
     assert result["rsi_accel"] == 0.0
     assert result["macd_accel"] == 0.0
     assert result["roc_accel"] == 0.0
@@ -41,98 +47,170 @@ def test_missing_prev_returns_zeros():
 
 def test_rsi_accel_computed_correctly():
     plugin = MomentumAccelPlugin()
-    result = plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.0, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )
     assert result["rsi_accel"] == pytest.approx(5.0)
 
 
 def test_macd_accel_computed_correctly():
     plugin = MomentumAccelPlugin()
-    result = plugin.compute_next(make_frames(
-        rsi=50.0, macd=0.8, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.5, prev_roc=0.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=50.0,
+            macd=0.8,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.5,
+            prev_roc=0.0,
+        )
+    )
     assert result["macd_accel"] == pytest.approx(0.3)
 
 
 def test_roc_accel_computed_correctly():
     plugin = MomentumAccelPlugin()
-    result = plugin.compute_next(make_frames(
-        rsi=50.0, macd=0.0, roc=2.0,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=3.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=50.0,
+            macd=0.0,
+            roc=2.0,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=3.0,
+        )
+    )
     assert result["roc_accel"] == pytest.approx(-1.0)
 
 
 def test_inflection_flag_zero_on_first_bar():
     """First bar: deltas exist but no prior delta in state yet — flag must be 0."""
     plugin = MomentumAccelPlugin()
-    result = plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.5, roc=1.0,
-        prev_rsi=50.0, prev_macd=0.3, prev_roc=0.5,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.5,
+            roc=1.0,
+            prev_rsi=50.0,
+            prev_macd=0.3,
+            prev_roc=0.5,
+        )
+    )
     assert result["inflection_flag"] == 0
 
 
 def test_inflection_flag_fires_on_rsi_sign_change():
     plugin = MomentumAccelPlugin()
     # Bar 1: rsi_accel = +5.0 → stored in state
-    plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.0, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0,
-    ))
+    plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )
     # Bar 2: rsi_accel = -2.0 → sign change
-    result = plugin.compute_next(make_frames(
-        rsi=53.0, macd=0.0, roc=0.0,
-        prev_rsi=55.0, prev_macd=0.0, prev_roc=0.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=53.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=55.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )
     assert result["inflection_flag"] == 1
 
 
 def test_inflection_flag_fires_on_macd_sign_change():
     plugin = MomentumAccelPlugin()
     # Bar 1: macd_accel = +0.2
-    plugin.compute_next(make_frames(
-        rsi=50.0, macd=0.5, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.3, prev_roc=0.0,
-    ))
+    plugin.compute_next(
+        make_frames(
+            rsi=50.0,
+            macd=0.5,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.3,
+            prev_roc=0.0,
+        )
+    )
     # Bar 2: macd_accel = -0.1 → sign change
-    result = plugin.compute_next(make_frames(
-        rsi=50.0, macd=0.4, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.5, prev_roc=0.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=50.0,
+            macd=0.4,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.5,
+            prev_roc=0.0,
+        )
+    )
     assert result["inflection_flag"] == 1
 
 
 def test_inflection_flag_fires_on_roc_sign_change():
     plugin = MomentumAccelPlugin()
     # Bar 1: roc_accel = +1.0
-    plugin.compute_next(make_frames(
-        rsi=50.0, macd=0.0, roc=2.0,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=1.0,
-    ))
+    plugin.compute_next(
+        make_frames(
+            rsi=50.0,
+            macd=0.0,
+            roc=2.0,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=1.0,
+        )
+    )
     # Bar 2: roc_accel = -0.5 → sign change
-    result = plugin.compute_next(make_frames(
-        rsi=50.0, macd=0.0, roc=1.5,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=2.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=50.0,
+            macd=0.0,
+            roc=1.5,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=2.0,
+        )
+    )
     assert result["inflection_flag"] == 1
 
 
 def test_inflection_flag_zero_when_no_sign_change():
     plugin = MomentumAccelPlugin()
     # Bar 1: all positive accels
-    plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.5, roc=2.0,
-        prev_rsi=50.0, prev_macd=0.3, prev_roc=1.0,
-    ))
+    plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.5,
+            roc=2.0,
+            prev_rsi=50.0,
+            prev_macd=0.3,
+            prev_roc=1.0,
+        )
+    )
     # Bar 2: all still positive
-    result = plugin.compute_next(make_frames(
-        rsi=58.0, macd=0.7, roc=3.5,
-        prev_rsi=55.0, prev_macd=0.5, prev_roc=2.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=58.0,
+            macd=0.7,
+            roc=3.5,
+            prev_rsi=55.0,
+            prev_macd=0.5,
+            prev_roc=2.0,
+        )
+    )
     assert result["inflection_flag"] == 0
 
 
@@ -140,40 +218,71 @@ def test_inflection_flag_zero_when_delta_reaches_zero():
     """prev_accel * 0 = 0, which is not < 0 → no inflection."""
     plugin = MomentumAccelPlugin()
     # Bar 1: rsi_accel = +5.0
-    plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.0, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0,
-    ))
+    plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )
     # Bar 2: rsi_accel = 0.0 (flat)
-    result = plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.0, roc=0.0,
-        prev_rsi=55.0, prev_macd=0.0, prev_roc=0.0,
-    ))
+    result = plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=55.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )
     assert result["inflection_flag"] == 0
 
 
 def test_state_persists_across_multiple_calls():
     """Three bars: up, up, down → inflection only on the third bar."""
     plugin = MomentumAccelPlugin()
-    plugin.compute_next(make_frames(
-        rsi=52.0, macd=0.0, roc=0.0,
-        prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0,
-    ))  # accel = +2
-    r2 = plugin.compute_next(make_frames(
-        rsi=55.0, macd=0.0, roc=0.0,
-        prev_rsi=52.0, prev_macd=0.0, prev_roc=0.0,
-    ))  # accel = +3, same sign → no inflection
+    plugin.compute_next(
+        make_frames(
+            rsi=52.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=50.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )  # accel = +2
+    r2 = plugin.compute_next(
+        make_frames(
+            rsi=55.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=52.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )  # accel = +3, same sign → no inflection
     assert r2["inflection_flag"] == 0
-    r3 = plugin.compute_next(make_frames(
-        rsi=53.0, macd=0.0, roc=0.0,
-        prev_rsi=55.0, prev_macd=0.0, prev_roc=0.0,
-    ))  # accel = -2, sign change → inflection
+    r3 = plugin.compute_next(
+        make_frames(
+            rsi=53.0,
+            macd=0.0,
+            roc=0.0,
+            prev_rsi=55.0,
+            prev_macd=0.0,
+            prev_roc=0.0,
+        )
+    )  # accel = -2, sign change → inflection
     assert r3["inflection_flag"] == 1
 
 
 def test_plugin_registered_in_tier_i2():
     from src.intelligence.composites.momentum_accel import plugin
     from src.intelligence.register_plugins import TIER_I2
+
     assert plugin.name in TIER_I2
 
 
@@ -184,8 +293,13 @@ def test_plugin_registered_in_tier_i2():
 
 
 def make_frames_extended(
-    rsi=None, macd_hist=None, atr=None, hma_20_val=None,
-    prev_rsi_accel=None, prev_macd_hist=None, prev_hma_20_val=None,
+    rsi=None,
+    macd_hist=None,
+    atr=None,
+    hma_20_val=None,
+    prev_rsi_accel=None,
+    prev_macd_hist=None,
+    prev_hma_20_val=None,
     close_prices=None,
 ) -> dict:
     """Build frames dict for extended MomentumAccelPlugin tests.
@@ -215,12 +329,18 @@ def make_frames_extended(
     if close_prices is not None:
         import numpy as np
         import pandas as pd
+
         c = np.array(close_prices, dtype=float)
         spread = np.abs(c) * 0.002
-        main_df = pd.DataFrame({
-            "open": c, "high": c + spread, "low": c - spread, "close": c,
-            "volume": np.ones(len(c)) * 1000.0,
-        })
+        main_df = pd.DataFrame(
+            {
+                "open": c,
+                "high": c + spread,
+                "low": c - spread,
+                "close": c,
+                "volume": np.ones(len(c)) * 1000.0,
+            }
+        )
 
     return {"features": features, "prev_features": prev, "main": main_df}
 
@@ -253,11 +373,13 @@ def test_rsi_curvature_computed_on_second_bar():
     """
     plugin = MomentumAccelPlugin()
     # bar 1 — sets prev_rsi_accel = +5 in state (via rsi_accel path)
-    plugin.compute_next(make_frames(rsi=55.0, macd=0.0, roc=0.0,
-                                    prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0))
+    plugin.compute_next(
+        make_frames(rsi=55.0, macd=0.0, roc=0.0, prev_rsi=50.0, prev_macd=0.0, prev_roc=0.0)
+    )
     # bar 2 — rsi_accel = 57-55 = +2; curvature = 2 - 5 = -3
-    result = plugin.compute_next(make_frames(rsi=57.0, macd=0.0, roc=0.0,
-                                             prev_rsi=55.0, prev_macd=0.0, prev_roc=0.0))
+    result = plugin.compute_next(
+        make_frames(rsi=57.0, macd=0.0, roc=0.0, prev_rsi=55.0, prev_macd=0.0, prev_roc=0.0)
+    )
     assert result["rsi_curvature"] == pytest.approx(-3.0)
 
 

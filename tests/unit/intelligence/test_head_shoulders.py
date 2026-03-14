@@ -10,10 +10,17 @@ from src.intelligence.patterns.head_shoulders import HeadShouldersPlugin
 
 def _make_frames(high, low, close):
     n = len(close)
-    return {"main": pd.DataFrame({
-        "open": close, "high": high, "close": close,
-        "low": low, "volume": np.ones(n) * 1000,
-    })}
+    return {
+        "main": pd.DataFrame(
+            {
+                "open": close,
+                "high": high,
+                "close": close,
+                "low": low,
+                "volume": np.ones(n) * 1000,
+            }
+        )
+    }
 
 
 def _base(n: int = 100):
@@ -63,11 +70,11 @@ def _build_hs_data(n=100, confirmed=False):
     # slope = (4987 - 4985) / (60 - 28) = 0.0625 per bar
     # neckline at bar 99 = 4985 + 0.0625 * (99 - 28) = 4985 + 4.44 = 4989.44
     if confirmed:
-        close[-1] = 4983.0   # well below 4989.44
+        close[-1] = 4983.0  # well below 4989.44
         low[-1] = 4982.0
         high[-1] = 4984.0
     else:
-        close[-1] = 4995.0   # above neckline
+        close[-1] = 4995.0  # above neckline
         low[-1] = 4994.0
         high[-1] = 4996.0
 

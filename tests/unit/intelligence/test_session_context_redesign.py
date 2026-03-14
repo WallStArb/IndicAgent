@@ -1,22 +1,31 @@
 # tests/unit/intelligence/test_session_context_redesign.py
-from datetime import datetime, timezone
-import pandas as pd
-import pytest
+from datetime import UTC, datetime
 
-UTC = timezone.utc
+import pandas as pd
+
+UTC = UTC
 
 
 def make_df(utc_ts: datetime) -> dict:
     """Minimal frames dict with a single-row DataFrame for test."""
-    df = pd.DataFrame([{
-        "timestamp": utc_ts,
-        "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 100,
-    }])
+    df = pd.DataFrame(
+        [
+            {
+                "timestamp": utc_ts,
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "volume": 100,
+            }
+        ]
+    )
     return {"main": df}
 
 
 def run(utc_ts: datetime) -> dict:
     from src.intelligence.context.session_context import SessionContextPlugin
+
     p = SessionContextPlugin()
     return p.compute_full(make_df(utc_ts))
 
@@ -27,19 +36,37 @@ def utc(y, mo, d, h, mi) -> datetime:
 
 EXPECTED_27_OUTPUTS = {
     # existing 12
-    "session_asia", "session_london", "session_ny", "session_london_ny_overlap",
-    "session_after_hours", "in_london_killzone", "in_ny_killzone",
-    "minutes_to_ny_open", "minutes_to_london_open", "bars_since_session_start",
-    "is_monday", "is_friday",
+    "session_asia",
+    "session_london",
+    "session_ny",
+    "session_london_ny_overlap",
+    "session_after_hours",
+    "in_london_killzone",
+    "in_ny_killzone",
+    "minutes_to_ny_open",
+    "minutes_to_london_open",
+    "bars_since_session_start",
+    "is_monday",
+    "is_friday",
     # new: exchange active flags (6)
-    "session_nyse_active", "session_lse_active", "session_tse_active",
-    "session_hkex_active", "session_sse_active", "session_asx_active",
+    "session_nyse_active",
+    "session_lse_active",
+    "session_tse_active",
+    "session_hkex_active",
+    "session_sse_active",
+    "session_asx_active",
     # new: trading break flags (3)
-    "session_tse_in_break", "session_hkex_in_break", "session_sse_in_break",
+    "session_tse_in_break",
+    "session_hkex_in_break",
+    "session_sse_in_break",
     # new: overlaps (2)
-    "session_tokyo_london_overlap", "session_ny_sydney_overlap",
+    "session_tokyo_london_overlap",
+    "session_ny_sydney_overlap",
     # new: sub-session (4)
-    "session_elapsed_frac", "is_opening_range", "is_lunch_consolidation", "is_power_hour",
+    "session_elapsed_frac",
+    "is_opening_range",
+    "is_lunch_consolidation",
+    "is_power_hour",
 }
 
 
@@ -50,6 +77,7 @@ class TestOutputCount:
 
     def test_outputs_frozenset_matches(self):
         from src.intelligence.context.session_context import SessionContextPlugin
+
         p = SessionContextPlugin()
         assert p.outputs == EXPECTED_27_OUTPUTS
 
@@ -73,8 +101,8 @@ class TestDSTFix:
 
     def test_session_ny_active_flag_matches_ny_session(self):
         # session_nyse_active should mirror session_ny when open
-        result_open = run(utc(2026, 3, 9, 15, 0))   # 11:00 EDT — open
-        result_closed = run(utc(2026, 3, 9, 20, 30)) # 16:30 EDT — closed
+        result_open = run(utc(2026, 3, 9, 15, 0))  # 11:00 EDT — open
+        result_closed = run(utc(2026, 3, 9, 20, 30))  # 16:30 EDT — closed
         assert result_open["session_nyse_active"] == 1.0
         assert result_closed["session_nyse_active"] == 0.0
 
@@ -93,7 +121,7 @@ class TestExchangeActiveFlags:
     def test_tse_in_break(self):
         # 11:30-12:30 JST = 02:30-03:30 UTC
         result = run(utc(2026, 3, 10, 2, 45))  # 11:45 JST — in break
-        assert result["session_tse_active"] == 1.0   # is_open still True
+        assert result["session_tse_active"] == 1.0  # is_open still True
         assert result["session_tse_in_break"] == 1.0
 
     def test_asx_closed_during_us_hours(self):
@@ -136,13 +164,22 @@ class TestSubSessionWithInstrument:
     """With __instrument__ in frames, sub-session outputs are computed."""
 
     def _run_with_instrument(self, utc_ts: datetime, session_id: str) -> dict:
+        from src.core.models import AssetClass, Instrument
         from src.intelligence.context.session_context import SessionContextPlugin
-        from src.core.models import Instrument, AssetClass
+
         p = SessionContextPlugin()
-        df = pd.DataFrame([{
-            "timestamp": utc_ts,
-            "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 100,
-        }])
+        df = pd.DataFrame(
+            [
+                {
+                    "timestamp": utc_ts,
+                    "open": 1.0,
+                    "high": 1.0,
+                    "low": 1.0,
+                    "close": 1.0,
+                    "volume": 100,
+                }
+            ]
+        )
         inst = Instrument(symbol="SPY", asset_class=AssetClass.EQUITY, session_id=session_id)
         return p.compute_full({"main": df, "__instrument__": inst})
 

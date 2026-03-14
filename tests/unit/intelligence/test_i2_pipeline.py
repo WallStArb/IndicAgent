@@ -1,4 +1,5 @@
 """Tests verifying I2 tier is wired into market_analysis_service."""
+
 import pathlib
 
 

@@ -1,4 +1,5 @@
 """Tests for new I4 context plugins: SessionContext and MTFVolatility."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -154,9 +155,7 @@ class TestMTFVolatility:
 
         features = {"squeeze_active": 1.0, "vol_expansion": -0.5}
         intel_15m = {"vol_expansion": 0.8}
-        result = MTFVolatilityPlugin().compute_full(
-            {"features": features, "intel_15m": intel_15m}
-        )
+        result = MTFVolatilityPlugin().compute_full({"features": features, "intel_15m": intel_15m})
         assert result.get("squeeze_within_expansion") == 1.0
 
     def test_no_squeeze_without_expansion(self):

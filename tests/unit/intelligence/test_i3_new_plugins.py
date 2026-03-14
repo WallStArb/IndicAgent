@@ -1,4 +1,5 @@
 """Tests for new I3 structure plugins: MarketProfile, SessionLevels, AnchoredVWAP, FibZones."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

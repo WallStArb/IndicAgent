@@ -7,6 +7,7 @@ Covers RED→GREEN cycle for:
   - DivergenceStackPlugin (trad_DivergenceStack)
   - RegimeTransitionPlugin (trad_RegimeTransition)
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -16,6 +17,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _frames(n: int = 30, close_val: float = 5000.0, features: dict | None = None) -> dict:
     """Build frames dict with n-bar OHLCV and optional features overlay."""
@@ -35,11 +37,13 @@ def _frames_short(n: int = 5) -> dict:
 # TestCHoCHReversal
 # ---------------------------------------------------------------------------
 
+
 class TestCHoCHReversal:
     """Tests for trad_CHoCHReversal plugin."""
 
     def _plugin(self):
         from src.intelligence.trading.choch_reversal import CHoCHReversalPlugin
+
         return CHoCHReversalPlugin()
 
     def test_bullish_choch_fires_long(self):
@@ -92,6 +96,7 @@ class TestCHoCHReversal:
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
         from src.intelligence.trading.choch_reversal import plugin
+
         assert plugin is not None
         assert plugin.name == "trad_CHoCHReversal"
 
@@ -100,11 +105,13 @@ class TestCHoCHReversal:
 # TestFVGFill
 # ---------------------------------------------------------------------------
 
+
 class TestFVGFill:
     """Tests for trad_FVGFill plugin."""
 
     def _plugin(self):
         from src.intelligence.trading.fvg_fill import FVGFillPlugin
+
         return FVGFillPlugin()
 
     def test_bullish_fvg_fires_long(self):
@@ -161,10 +168,20 @@ class TestFVGFill:
     def test_confidence_scales_with_open_count(self):
         """More open FVGs → higher confidence."""
         plugin = self._plugin()
-        feat_low = {"fvg_type": 1, "fvg_open_count": 1.0,
-                    "fvg_top": 5010.0, "fvg_bottom": 5000.0, "atr_14": 10.0}
-        feat_high = {"fvg_type": 1, "fvg_open_count": 3.0,
-                     "fvg_top": 5010.0, "fvg_bottom": 5000.0, "atr_14": 10.0}
+        feat_low = {
+            "fvg_type": 1,
+            "fvg_open_count": 1.0,
+            "fvg_top": 5010.0,
+            "fvg_bottom": 5000.0,
+            "atr_14": 10.0,
+        }
+        feat_high = {
+            "fvg_type": 1,
+            "fvg_open_count": 3.0,
+            "fvg_top": 5010.0,
+            "fvg_bottom": 5000.0,
+            "atr_14": 10.0,
+        }
         r_low = plugin.compute_full(_frames(features=feat_low))
         r_high = plugin.compute_full(_frames(features=feat_high))
         assert r_high.get("confidence", 0) >= r_low.get("confidence", 0)
@@ -172,6 +189,7 @@ class TestFVGFill:
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
         from src.intelligence.trading.fvg_fill import plugin
+
         assert plugin is not None
         assert plugin.name == "trad_FVGFill"
 
@@ -180,11 +198,13 @@ class TestFVGFill:
 # TestPatternCompletion
 # ---------------------------------------------------------------------------
 
+
 class TestPatternCompletion:
     """Tests for trad_PatternCompletion plugin."""
 
     def _plugin(self):
         from src.intelligence.trading.pattern_completion import PatternCompletionPlugin
+
         return PatternCompletionPlugin()
 
     def test_double_bottom_fires_long(self):
@@ -303,6 +323,7 @@ class TestPatternCompletion:
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
         from src.intelligence.trading.pattern_completion import plugin
+
         assert plugin is not None
         assert plugin.name == "trad_PatternCompletion"
 
@@ -311,11 +332,13 @@ class TestPatternCompletion:
 # TestDivergenceStack
 # ---------------------------------------------------------------------------
 
+
 class TestDivergenceStack:
     """Tests for trad_DivergenceStack plugin — dual-gate design is non-negotiable."""
 
     def _plugin(self):
         from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
         return DivergenceStackPlugin()
 
     def test_dual_bullish_fires_long(self):
@@ -351,7 +374,7 @@ class TestDivergenceStack:
         plugin = self._plugin()
         features = {
             "rsi_div_bullish": 0.7,
-            "vol_div_bullish": 0.1,   # below 0.3 threshold
+            "vol_div_bullish": 0.1,  # below 0.3 threshold
             "rsi_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
         }
@@ -365,7 +388,7 @@ class TestDivergenceStack:
         """
         plugin = self._plugin()
         features = {
-            "rsi_div_bullish": 0.1,   # below 0.3 threshold
+            "rsi_div_bullish": 0.1,  # below 0.3 threshold
             "vol_div_bullish": 0.7,
             "rsi_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
@@ -397,6 +420,7 @@ class TestDivergenceStack:
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
         from src.intelligence.trading.divergence_stack import plugin
+
         assert plugin is not None
         assert plugin.name == "trad_DivergenceStack"
 
@@ -405,11 +429,13 @@ class TestDivergenceStack:
 # TestRegimeTransition
 # ---------------------------------------------------------------------------
 
+
 class TestRegimeTransition:
     """Tests for trad_RegimeTransition plugin."""
 
     def _plugin(self):
         from src.intelligence.trading.regime_transition import RegimeTransitionPlugin
+
         return RegimeTransitionPlugin()
 
     def test_bullish_transition_fires_long(self):
@@ -460,7 +486,7 @@ class TestRegimeTransition:
         plugin = self._plugin()
         features = {
             "cp_probability": 0.80,
-            "choch_detected": 0.0,   # gate fails
+            "choch_detected": 0.0,  # gate fails
             "choch_direction": 1,
             "hmm_regime": 1.0,
             "hmm_prob_trending_up": 0.8,
@@ -472,5 +498,6 @@ class TestRegimeTransition:
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
         from src.intelligence.trading.regime_transition import plugin
+
         assert plugin is not None
         assert plugin.name == "trad_RegimeTransition"
