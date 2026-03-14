@@ -19,8 +19,12 @@ All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
 - `qualify_instrument` handles `AssetClass.FUTURES` (Future), `.FX` (Forex), `.CRYPTO` (Contract secType='CRYPTO').
 - `fetch_historical_bars()` supports `continuous=True` for back-adjusted `ContFuture` data (multi-year backfill).
 
-### Active Contracts (27)
-ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG (metals) · ZN, ZF, ZB, ZT (rates) · VX (volatility) · ZS, ZC, ZW (agriculture) · EURUSD, GBPUSD, USDJPY, USDCHF (spot FX/IDEALPRO, session_id=fx_24_5) · BTCUSD, ETHUSD (spot crypto/PAXOS, session_id=crypto_24_7) · SPY, XLF, TLT, GLD, SMH (pilot ETFs/SMART, session_id=nyse)
+### Active Contracts (60)
+**Futures (16):** ES, NQ, RTY, YM (equity index) · CL (energy) · GC, SI, HG (metals) · ZN, ZF, ZB, ZT (rates) · VX (volatility) · ZS, ZC, ZW (agriculture)
+**FX (4):** EURUSD, GBPUSD, USDJPY, USDCHF (spot/IDEALPRO, session_id=fx_24_5)
+**Crypto (2):** BTCUSD, ETHUSD (spot/PAXOS, session_id=crypto_24_7)
+**ETFs (38, SMART, session_id=nyse):** SPY, QQQ, IWM, DIA · XLF, XLK, XLE, XLC, XLY, XLV, XLI, XLU, XLRE, XLP, XLB · TLT, IEF, SHY, HYG, LQD, EMB · GLD, SLV, USO · SMH, IBB, GDX, GDXJ, XOP, ITB · MTUM, QUAL, VLUE, USMV · EFA, EEM, EWZ, FXI
+*(IBKR default subscription limit is 80 — 20 slots headroom at 60 instruments)*
 
 **Always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.**
 
