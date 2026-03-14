@@ -265,9 +265,10 @@ class I4Context(BaseModel):
     - MomentumContext (4 fields)
     - GARCHVolatility (4 fields)
     - KalmanTrend (7 fields)
-    - SessionContext (12 fields)
+    - SessionContext (27 fields: 12 legacy + 6 exchange-active + 3 break + 2 overlap + 4 sub-session)
     - MTFVolatility (4 fields)
-    Total: 40 fields
+    - ShannonEntropy (2 fields)
+    Total: 57 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -320,11 +321,35 @@ class I4Context(BaseModel):
     is_monday: float | None = None
     is_friday: float | None = None
 
+    # SessionContextPlugin — exchange-active flags (equity expansion)
+    session_nyse_active: float | None = None
+    session_lse_active: float | None = None
+    session_tse_active: float | None = None
+    session_hkex_active: float | None = None
+    session_sse_active: float | None = None
+    session_asx_active: float | None = None
+    # SessionContextPlugin — trading break flags
+    session_tse_in_break: float | None = None
+    session_hkex_in_break: float | None = None
+    session_sse_in_break: float | None = None
+    # SessionContextPlugin — market overlap flags
+    session_tokyo_london_overlap: float | None = None
+    session_ny_sydney_overlap: float | None = None
+    # SessionContextPlugin — instrument sub-session
+    session_elapsed_frac: float | None = None
+    is_opening_range: float | None = None
+    is_lunch_consolidation: float | None = None
+    is_power_hour: float | None = None
+
     # MTFVolatilityPlugin outputs
     mtf_vol_expansion_15m: float | None = None
     mtf_vol_expansion_1h: float | None = None
     squeeze_within_expansion: float | None = None
     vol_divergence_score: float | None = None
+
+    # ShannonEntropyPlugin outputs
+    shannon_entropy: float | None = None
+    entropy_quality: float | None = None
 
 
 class I5Patterns(BaseModel):

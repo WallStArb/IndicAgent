@@ -569,12 +569,19 @@ class MarketAnalysisService:
                 # Re-publish the most recent stored IntelligenceEvent
                 latest = rows[0]  # rows are DESC, so first = newest
                 try:
-                    bar_json = latest["bar"]
+                    import json as _json
+
+                    def _as_dict(v: object) -> dict:
+                        if isinstance(v, str):
+                            return _json.loads(v) or {}
+                        return v or {}
+
+                    bar_json = _as_dict(latest["bar"])
                     event = IntelligenceEvent(
                         ts=latest["ts"],
                         symbol=symbol,
                         tf=tf,
-                        source="seed",
+                        source="backfill",
                         bar=OHLCVBar(
                             o=float(bar_json.get("o", 0)),
                             h=float(bar_json.get("h", 0)),
@@ -582,13 +589,13 @@ class MarketAnalysisService:
                             c=float(bar_json.get("c", 0)),
                             v=int(bar_json.get("v", 0)),
                         ),
-                        i1=I1Indicators(**{k: v for k, v in (latest["i1"] or {}).items() if v is not None}),
-                        i2=I2Events(**{k: v for k, v in (latest["i2"] or {}).items() if v is not None}),
-                        i3=I3Structure(**{k: v for k, v in (latest["i3"] or {}).items() if v is not None}),
-                        i4=I4Context(**{k: v for k, v in (latest["i4"] or {}).items() if v is not None}),
-                        i5=I5Patterns(**{k: v for k, v in (latest["i5"] or {}).items() if v is not None}),
-                        smc=SMCContext(**{k: v for k, v in (latest["smc"] or {}).items() if v is not None}),
-                        i6=I6Confluence(**{k: v for k, v in (latest["i6"] or {}).items() if v is not None}),
+                        i1=I1Indicators(**{k: v for k, v in _as_dict(latest["i1"]).items() if v is not None}),
+                        i2=I2Events(**{k: v for k, v in _as_dict(latest["i2"]).items() if v is not None}),
+                        i3=I3Structure(**{k: v for k, v in _as_dict(latest["i3"]).items() if v is not None}),
+                        i4=I4Context(**{k: v for k, v in _as_dict(latest["i4"]).items() if v is not None}),
+                        i5=I5Patterns(**{k: v for k, v in _as_dict(latest["i5"]).items() if v is not None}),
+                        smc=SMCContext(**{k: v for k, v in _as_dict(latest["smc"]).items() if v is not None}),
+                        i6=I6Confluence(**{k: v for k, v in _as_dict(latest["i6"]).items() if v is not None}),
                         bar_close_ts=latest["bar_close_ts"],
                         i1_computed_at=latest["i1_computed_at"],
                         computed_at=latest["computed_at"],
