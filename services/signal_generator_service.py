@@ -694,10 +694,15 @@ class SignalGeneratorService:
 
         async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, list]:
             min_bars = min_bars_per_tf[tf]
+            # Lookback = 3× the data needed; lets TimescaleDB exclude most chunks
+            # at planning time (same pattern as market_data_ohlcv seed fix).
+            tf_secs = TF_SECONDS.get(tf, 60)
+            lookback_secs = min_bars * tf_secs * 3
             query = f"""
                 SELECT ts, bar
                 FROM intelligence_features
                 WHERE symbol = $1 AND tf = $2
+                  AND ts > NOW() - INTERVAL '{lookback_secs} seconds'
                 ORDER BY ts DESC
                 LIMIT {min_bars}
             """

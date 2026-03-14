@@ -31,6 +31,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
+    TF_SECONDS,
     min_bars_for_tf,
     setup_service_logging,
     should_skip_plugin,
@@ -395,17 +396,29 @@ class IndicatorService:
         symbols = self.config["service"]["symbols"]
         seeded_count = 0
 
+        sem = asyncio.Semaphore(8)
+
         async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, list]:
-            min_bars = self._min_bars_for_tf(tf) * 2
-            query = f"""
-                SELECT timestamp, open, high, low, close, volume
-                FROM market_data_ohlcv
-                WHERE symbol = $1 AND timeframe = $2
-                ORDER BY timestamp DESC
-                LIMIT {min_bars}
-            """
-            result = await self.db_manager.execute_query(query, symbol, tf)
-            return symbol, tf, result or []
+            async with sem:
+                min_bars = self._min_bars_for_tf(tf) * 2
+                # Lookback = 3× the data needed, expressed in seconds.
+                # This time-range bound lets TimescaleDB exclude 99%+ of the
+                # 15k chunks at planning time (2855ms → 3ms per query).
+                tf_secs = TF_SECONDS.get(tf, 60)
+                lookback_secs = min_bars * tf_secs * 3
+                query = f"""
+                    SELECT timestamp, open, high, low, close, volume
+                    FROM market_data_ohlcv
+                    WHERE symbol = $1 AND timeframe = $2
+                      AND timestamp > NOW() - INTERVAL '{lookback_secs} seconds'
+                    ORDER BY timestamp DESC
+                    LIMIT {min_bars}
+                """
+                try:
+                    result = await self.db_manager.execute_query(query, symbol, tf)
+                    return symbol, tf, result or []
+                except Exception:
+                    return symbol, tf, []
 
         try:
             tasks = [_fetch_one(sym, tf) for sym in symbols for tf in timeframes]
@@ -440,6 +453,41 @@ class IndicatorService:
 
         except Exception as e:
             self.logger.warning("DB seed failed — falling back to live warmup", error=str(e))
+
+    async def _publish_seeded_state(self) -> None:
+        """Compute and publish I1 indicators for the most recent seeded bar per (symbol, tf).
+
+        Runs immediately after seed + Kafka producer start so the dashboard
+        shows current state without waiting for the next live bar.
+        Skips any (symbol, tf) that doesn't have enough bars for computation.
+        """
+        timeframes = self.config["service"]["timeframes"]
+        symbols = self.config["service"]["symbols"]
+        published = 0
+        for symbol in symbols:
+            for tf in timeframes:
+                key = f"{symbol}:{tf}"
+                history = self.bar_history.get(key)
+                if not history or len(history) < self._min_bars_for_tf(tf):
+                    continue
+                try:
+                    # Most recent bar is the last entry in the OrderedDict
+                    bar_data = next(reversed(history.values()))
+                    bar_ts = bar_data["timestamp"]
+                    frames = {"main": self._get_df(key)}
+                    features = await self._run_i1_plugins(frames, symbol, tf)
+                    msg = build_i1_message(bar_data, features, bar_ts, symbol, tf, source="seed")
+                    await self._kafka_producer.publish(
+                        topic_indicators(self.env_name),
+                        msg,
+                        key=message_key(symbol, tf),
+                    )
+                    published += 1
+                except Exception as e:
+                    self.logger.warning(
+                        "Seed publish failed", symbol=symbol, tf=tf, error=str(e)
+                    )
+        self.logger.info("Published seeded I1 state", published=published)
 
     async def _process_market_data(self) -> None:
         """Consume market bars from Kafka and process each bar."""
@@ -491,6 +539,10 @@ class IndicatorService:
 
             # Start Kafka producer
             await self._kafka_producer.start()
+
+            # Publish last-known I1 state from seeded history so dashboard is
+            # populated immediately without waiting for the first live bar.
+            await self._publish_seeded_state()
 
             # Start Kafka consumer subscribed to market.bars topic
             self._kafka_consumer = KafkaConsumerClient(
