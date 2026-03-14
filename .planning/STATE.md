@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: candidates
 status: completed
-stopped_at: Completed 30-02-PLAN.md (Hot Tier + Intelligence Pipeline — tws_daemon, timeframes_builder, indicator, market_analysis)
-last_updated: "2026-03-14T07:04:37.154Z"
+stopped_at: Completed 30-03-PLAN.md (Signal + Narrative services — signal_lifecycle, ai_narrative)
+last_updated: "2026-03-14T11:43:12.839Z"
 last_activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
   percent: 100
 ---
 
@@ -70,6 +70,7 @@ Progress: [██████████] 100% (v1.8 shipped)
 | Phase 29-renaissance-signal-quality P08 | 4 | 2 tasks | 2 files |
 | Phase 30-redpanda-migration P01 | 6 | 3 tasks | 9 files |
 | Phase 30-redpanda-migration P02 | 13 | 2 tasks | 7 files |
+| Phase 30-redpanda-migration P03 | 35 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Progress: [██████████] 100% (v1.8 shipped)
 - [Phase 30-02]: services/tws_daemon.py created as Kafka-native service (not services/tws_daemon.py rename — new file); production/daemons/high_frequency_tws_daemon.py kept as legacy reference
 - [Phase 30-02]: _seed_bar_history_from_db() follows Phase 26 signal_generator pattern — reads market_data_ohlcv at startup
 - [Phase 30-02]: _get_field() dual-mode helper added for str/bytes dict compat between Kafka JSON and legacy test fixtures
+- [Phase 30-redpanda-migration]: signal_lifecycle + ai_narrative Redis client fully removed; _llm_scores_cache in-process dict replaces Redis HSET/HGETALL; _group_fingerprints replaces Redis hash fingerprint tracking
+- [Phase 30-redpanda-migration]: i8 stream publish deferred to Plan 4 (SSE migration) — pass + TODO(30-04) in _run_narrative_call; tests document deferred behavior
 
 ### Pending Todos (addressed in v1.8)
 
@@ -136,6 +139,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-14T07:04:37.152Z
-Stopped at: Completed 30-02-PLAN.md (Hot Tier + Intelligence Pipeline — tws_daemon, timeframes_builder, indicator, market_analysis)
+Last session: 2026-03-14T11:43:12.838Z
+Stopped at: Completed 30-03-PLAN.md (Signal + Narrative services — signal_lifecycle, ai_narrative)
 Resume file: None
