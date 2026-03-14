@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: candidates
 status: completed
-stopped_at: Completed 30-04-PLAN.md (Writer Services + API/SSE Redpanda Migration)
-last_updated: "2026-03-14T11:57:11.800Z"
+stopped_at: Completed 30-05-PLAN.md (Task 4 checkpoint pending)
+last_updated: "2026-03-14T12:23:00.492Z"
 last_activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 100
 ---
 
@@ -72,6 +72,7 @@ Progress: [██████████] 100% (v1.8 shipped)
 | Phase 30-redpanda-migration P02 | 13 | 2 tasks | 7 files |
 | Phase 30-redpanda-migration P03 | 35 | 2 tasks | 6 files |
 | Phase 30-redpanda-migration P04 | 11 | 2 tasks | 8 files |
+| Phase 30 P05 | 90 | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,8 @@ Progress: [██████████] 100% (v1.8 shipped)
 - [Phase 30-redpanda-migration]: KafkaSSEBroadcaster in sse.py with per-topic deque snapshot + per-client asyncio.Queue fan-out replaces Redis xrevrange/xread
 - [Phase 30-redpanda-migration]: feature_writer_service and llm_writer_service redis_client fully removed; Kafka-native; CONSUMER_GROUP='feature_writer_group'
 - [Phase 30-redpanda-migration]: ai_narrative_service: i8 publish to topic_intelligence_i8 wired (was TODO(30-04) in Plan 3)
+- [Phase 30]: drift_state unified table with cusum tf='_cusum' sentinel avoids separate table
+- [Phase 30]: redis[hiredis] kept in requirements.txt — market_data API routes still use Redis streams
 
 ### Pending Todos (addressed in v1.8)
 
@@ -143,6 +146,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-14T11:57:11.798Z
-Stopped at: Completed 30-04-PLAN.md (Writer Services + API/SSE Redpanda Migration)
+Last session: 2026-03-14T12:23:00.490Z
+Stopped at: Completed 30-05-PLAN.md (Task 4 checkpoint pending)
 Resume file: None
