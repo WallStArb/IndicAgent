@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.8
-milestone_name: Signal Intelligence
-status: Complete — archived
-stopped_at: v1.8 archived 2026-03-13; ready for /gsd:new-milestone
-last_updated: "2026-03-13T15:24:06.662Z"
-last_activity: 2026-03-13 — v1.8 Signal Intelligence milestone complete, archived, tagged v1.8
+milestone: v1.7
+milestone_name: candidates
+status: completed
+stopped_at: Completed 30-01-PLAN.md (Redpanda infra + kafka_utils + stream_keys topic builders)
+last_updated: "2026-03-14T06:48:14.387Z"
+last_activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 15
-  completed_plans: 15
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 100
 ---
 
@@ -68,8 +68,13 @@ Progress: [██████████] 100% (v1.8 shipped)
 | Phase 29-renaissance-signal-quality P06 | 30 | 3 tasks | 9 files |
 | Phase 29-renaissance-signal-quality P07 | 6 | 3 tasks | 8 files |
 | Phase 29-renaissance-signal-quality P08 | 4 | 2 tasks | 2 files |
+| Phase 30-redpanda-migration P01 | 6 | 3 tasks | 9 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 30 added: Redpanda Migration
 
 ### Decisions
 
@@ -109,6 +114,9 @@ Progress: [██████████] 100% (v1.8 shipped)
 - [Phase 29-07]: CUSUM adjustment applied after base perf_multiplier in setup_performance_updater — single Redis write point; drift_monitor_service never touches perf_weights directly
 - [Phase 29-07]: CUSUM floor=0.30 prevents complete suppression of any setup regardless of drift severity
 - [Phase 29-08]: effective_confidence computed once after sig_with_extras (not duplicated in each branch); patch target is services.signal_lifecycle_service.update_signal_status (imported name)
+- [Phase 30-01]: kafka_utils.py as new file (not stream_utils.py rename) for dual-run coexistence during Plans 1-4
+- [Phase 30-01]: TopicAlreadyExistsError (aiokafka 0.13.0) — TopicExistsException removed in 0.13.0
+- [Phase 30-01]: Redpanda external listener port 19092; internal 9092 container-only; host services use localhost:19092
 
 ### Pending Todos (addressed in v1.8)
 
@@ -124,6 +132,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-13T15:11:04.785Z
-Stopped at: Completed 29-08-PLAN.md (QUAL-03 freshness decay wired into _evaluate_signals_against_bar)
+Last session: 2026-03-14T06:48:14.384Z
+Stopped at: Completed 30-01-PLAN.md (Redpanda infra + kafka_utils + stream_keys topic builders)
 Resume file: None
