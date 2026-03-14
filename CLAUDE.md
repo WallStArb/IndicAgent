@@ -209,11 +209,10 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
 
 **Stream & Consumer Groups**
-- **Consumer groups**: use `ensure_consumer_group_with_reset(redis_client, stream, group)` from `src/core/stream_utils`. Gotcha: `xgroup_create(..., "$")` silently fails when group exists → stale position → processes old backlog. Fix in `except`: call `xgroup_setid(stream, group, "$")` to force-reset.
-- **Redis stream booleans**: serialize as `"1"`/`"0"` (not `"true"`/`"false"`), parse with `Number(payload.field) > 0` — matches `vol_expanding`, `bb_squeeze` pattern in `use-market-stream.ts`.
+- **Boolean serialization**: verify current format after Redpanda migration — previously `"1"`/`"0"` in Redis streams, parsed with `Number(payload.field) > 0` in `use-market-stream.ts`. May have changed with Kafka serialization.
 
 **Service & Test Patterns**
-- **Services**: graceful SIGINT/SIGTERM, drain queues, `await` Redis close, idempotent consumer groups.
+- **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise service silently fails mid-test with a misleading error.
@@ -231,7 +230,6 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
 - **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules).
-- **Redis CLI**: `redis-cli` not installed — test/debug with `.venv/bin/python -c "import redis; print(redis.Redis().ping())"` or `redis.Redis().xlen(key)`.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 
 **Dashboard**
