@@ -217,6 +217,19 @@ Plans:
 - [ ] 29-06-PLAN.md — Migration 026 + stream_keys + KSDriftMonitor + drift_monitor_service skeleton
 - [ ] 29-07-PLAN.md — CUSUMMonitor + weight_updater CUSUM integration + GET /api/drift + service completion
 
+### Phase 30: Redpanda Migration
+**Goal**: Replace DragonflyDB (Redis Streams) with Redpanda as the event bus across all 8 services, removing DragonflyDB from the stack entirely. Pure transport-layer migration — no business logic changes.
+**Depends on**: Phase 29
+**Requirements**: KAFKA-01, KAFKA-02, KAFKA-03, KAFKA-04, KAFKA-05, KAFKA-06, KAFKA-07, KAFKA-08
+**Plans:** 5 plans
+
+Plans:
+- [ ] 30-01-PLAN.md — Infrastructure + Core Abstractions: Redpanda compose, aiokafka, stream_utils rewrite, stream_keys rewrite, topic init script
+- [ ] 30-02-PLAN.md — Hot Tier + Intelligence Pipeline: tws_daemon, timeframes_builder, indicator_service, market_analysis_service
+- [ ] 30-03-PLAN.md — Signal + AI Services: signal_generator, signal_lifecycle, ai_narrative; _live_quotes dict + _llm_scores_cache
+- [ ] 30-04-PLAN.md — Writer Services + API/SSE: feature_writer, llm_writer, SSE broadcaster fan-out
+- [ ] 30-05-PLAN.md — Cache Migration + DragonflyDB Removal + E2E Validation
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -263,12 +276,11 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 | Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
 | Robinhood-Style Scaling | Consumer Proxy pattern; Changelog Streams for state recovery. | `analysis/2026-02-12-robinhood-scaling-patterns.md` |
 | Broker-agnostic instrument provider | Defer until second broker integration is needed. | — |
-| Redpanda migration | Migrate from DragonflyDB streams to Redpanda before QualAgent; not before v1.8+. | `docs/ideas/tech-stack.md` |
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-27 shipped. v1.8: phases 28-29 shipped. Next: v1.9.
+Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-27 shipped. v1.8: phases 28-29 shipped. Next: Phase 30 (Redpanda Migration).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -311,3 +323,4 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 27. Signal Lifecycle Stream Events | v1.7 | 10/10 | Complete | 2026-03-12 |
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
+| 30. Redpanda Migration | v1.9 | 0/5 | In Progress | — |
