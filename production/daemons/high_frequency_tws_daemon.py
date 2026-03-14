@@ -111,7 +111,7 @@ class HighFrequencyTWSDaemon:
         self.last_mode_check_ts = 0.0
 
         # Minute-boundary bar polling (replaces 60s countdown)
-        self.last_bar_poll_minute: int = -1       # wall-clock minute of last authoritative poll
+        self.last_bar_poll_minute: int = -1  # wall-clock minute of last authoritative poll
 
         # 1-minute bar polling (reqRealTimeBars doesn't work reliably)
         # Rolling set of seen bar timestamps per symbol (last 30 bars ~= 30 min)
@@ -190,9 +190,7 @@ class HighFrequencyTWSDaemon:
                 port=self.port,
                 client_id=self.client_id,
             )
-            self.provider = IBKRProvider(
-                host=self.host, port=self.port, client_id=self.client_id
-            )
+            self.provider = IBKRProvider(host=self.host, port=self.port, client_id=self.client_id)
             # IBKRProvider.connect() is async — run it synchronously here
             if self.loop:
                 fut = asyncio.run_coroutine_threadsafe(self.provider.connect(), self.loop)
@@ -464,9 +462,7 @@ class HighFrequencyTWSDaemon:
         fut = asyncio.run_coroutine_threadsafe(_gather_all(), self.loop)
         fut.result(timeout=30)
 
-    async def _fetch_bars_for_symbol(
-        self, symbol: str, start: datetime, now: datetime
-    ) -> int:
+    async def _fetch_bars_for_symbol(self, symbol: str, start: datetime, now: datetime) -> int:
         """Fetch 1-minute bars for a single symbol from IBKR and publish to Redis.
 
         Returns count of newly published bars (0 if all were duplicates).
@@ -477,9 +473,7 @@ class HighFrequencyTWSDaemon:
             now: Current timestamp (end of query window)
         """
         try:
-            ohlcv_bars = await self.provider.fetch_historical_bars(
-                symbol, "1m", start, now
-            )
+            ohlcv_bars = await self.provider.fetch_historical_bars(symbol, "1m", start, now)
 
             if not ohlcv_bars:
                 logger.warning("poll_1m_bars: 0 bars returned", symbol=symbol)
@@ -518,18 +512,14 @@ class HighFrequencyTWSDaemon:
                         maxlen=_MARKET_1M_STREAM_MAXLEN,
                         approximate=True,
                     )
-                    logger.info(
-                        "1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume
-                    )
+                    logger.info("1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume)
                 self.m_bars.inc()
                 bars_published += 1
 
             return bars_published
 
         except Exception as e:
-            logger.warning(
-                "1m bar polling error", symbol=symbol, error=str(e)
-            )
+            logger.warning("1m bar polling error", symbol=symbol, error=str(e))
             return 0
 
     def cleanup(self) -> None:

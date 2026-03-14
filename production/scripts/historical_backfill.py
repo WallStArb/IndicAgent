@@ -31,13 +31,14 @@ Usage:
     python production/scripts/historical_backfill.py --fetch-only --symbols EURUSD,BTCUSD --days 2
     python production/scripts/historical_backfill.py --replay-only --symbols EURUSD,BTCUSD --days 2
 
-    python production/scripts/historical_backfill.py --replay-only --clean  # delete old signals before replay
+    python production/scripts/historical_backfill.py --replay-only --clean  # delete old signals
 
 --days behaviour:
     When provided, caps ALL timeframe fetch depths at that value (not just 1m).
     Also limits the replay stage to bars within that window.
     Omit --days for full-history replay or default per-TF fetch depths.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -71,27 +72,59 @@ from src.providers import IBKRProvider
 # Plugin lists — keep in sync with services
 # ---------------------------------------------------------------------------
 I1_PLUGINS = [
-    "RSI", "MovingAverages", "MAComposite", "MACD", "ATR", "BollingerBands",
-    "Stochastic", "CCI", "WilliamsR", "MFI", "OBV", "VWAP", "Supertrend",
-    "ADX", "KeltnerChannels", "DonchianChannels", "ROC_PPO",
-    "ind_CMF", "ind_Aroon", "ind_HistoricalVolatility",
-    "ind_ChandelierExit", "ind_ParabolicSAR", "ind_StochRSI",
+    "RSI",
+    "MovingAverages",
+    "MAComposite",
+    "MACD",
+    "ATR",
+    "BollingerBands",
+    "Stochastic",
+    "CCI",
+    "WilliamsR",
+    "MFI",
+    "OBV",
+    "VWAP",
+    "Supertrend",
+    "ADX",
+    "KeltnerChannels",
+    "DonchianChannels",
+    "ROC_PPO",
+    "ind_CMF",
+    "ind_Aroon",
+    "ind_HistoricalVolatility",
+    "ind_ChandelierExit",
+    "ind_ParabolicSAR",
+    "ind_StochRSI",
 ]
 I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
 I4_PLUGINS = [
-    "ctx_VolatilityRegime", "ctx_TrendRegime", "ctx_MomentumContext", "ctx_GARCHVolatility",
+    "ctx_VolatilityRegime",
+    "ctx_TrendRegime",
+    "ctx_MomentumContext",
+    "ctx_GARCHVolatility",
 ]
 I5_PLUGINS = [
-    "RSIDivergence", "BollingerSqueeze", "VolumeDivergence", "Confluence", "TrendConfluence",
+    "RSIDivergence",
+    "BollingerSqueeze",
+    "VolumeDivergence",
+    "Confluence",
+    "TrendConfluence",
 ]
 SMC_PLUGINS = [
-    "smc_BOSCHoCH", "smc_FairValueGap", "smc_OrderBlocks",
-    "smc_LiquiditySweeps", "smc_BOCPDChangePoint",
+    "smc_BOSCHoCH",
+    "smc_FairValueGap",
+    "smc_OrderBlocks",
+    "smc_LiquiditySweeps",
+    "smc_BOCPDChangePoint",
 ]
 I6_PLUGINS = ["i6_CrossTimeframeConfluence"]
 I7_PLUGINS = [
-    "trad_TrendFollowing", "trad_MeanReversion", "trad_LiquiditySweepReclaim",
-    "trad_MTFAlignment", "trad_SqueezeExpansion", "trad_VWAPDeviation",
+    "trad_TrendFollowing",
+    "trad_MeanReversion",
+    "trad_LiquiditySweepReclaim",
+    "trad_MTFAlignment",
+    "trad_SqueezeExpansion",
+    "trad_VWAPDeviation",
     "trad_MomentumBreakout",
 ]
 
@@ -116,21 +149,18 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     # 1m: named contract (no roll crossings). 14d = 2 full Mon–Fri weekly cycles = ~5,460 bars,
     #     capturing time-of-day and day-of-week intraday patterns. Still well within IBKR's
     #     ~35d named-contract recency limit. Signals at this TF resolve in minutes.
-    "1m":  (14,   False),
-
+    "1m": (14, False),
     # 5m: intraday momentum/mean-reversion signals. ~78 bars/day/symbol. 90 days covers
     #     3 months of intraday + weekly regime cycles, yielding ~600+ signals — enough to
     #     populate all 51 regression cells with statistically meaningful outcomes.
     #     use_continuous=False: IBKR rejects single ContFuture requests > ~30 days of 5m bars;
     #     chunked named-contract path (_MAX_CHUNK_DAYS=29) handles this correctly.
-    "5m":  (90,   False),
-
+    "5m": (90, False),
     # 15m: weekly + monthly pattern detection. ~26 bars/day/symbol. 180 days = 6 months
     #     captures both weekly seasonality and monthly roll-driven regime shifts. Yields
     #     ~1,150+ signals, giving ~22 outcomes/cell — above the 20/cell minimum.
     #     use_continuous=False: same reason as 5m — chunked in 59-day windows.
-    "15m": (180,  False),
-
+    "15m": (180, False),
     # 1h: the HMM/GARCH anchor TF. ~6.5 bars/day/symbol. 365 days = 1 full calendar year:
     #     captures seasonal cycles (Q1 earnings, summer lull, year-end), yields ~2,379 bars
     #     (4× the 500-bar HMM floor) and ~2,300+ signals for robust CIS calibration.
@@ -138,14 +168,13 @@ _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     #     requires endDateTime="" (no chunking possible), so a single 365D request times out
     #     on COMEX instruments. Chunked named-contract path (_MAX_CHUNK_DAYS=364) sends two
     #     requests (364d + 1d) — no roll adjustment, but data reliably lands for all exchanges.
-    "1h":  (365,  False),
-
+    "1h": (365, False),
     # 1d: macro regime coverage. 1 bar/day/symbol. 2555 days = 7 years reaches back to 2019 —
     #     the last clean pre-distortion baseline before COVID, zero-rate era, QE infinity,
     #     2022 rate shock, and AI mania. Capturing these distinct macro regimes is essential
     #     for the HMM to learn what "normal" looks like and gate signals accordingly.
     #     Yields ~1,764 bars (3.5× HMM floor) and spans 5 full macro regime transitions.
-    "1d":  (2555, True),
+    "1d": (2555, True),
 }
 
 # FX and crypto: IBKR *can* return higher-TF bars for major pairs (EURUSD, GBPUSD, etc.).
@@ -179,8 +208,9 @@ def run_i1_plugins(
             plugin = registry.get_indicator(name)
             out = plugin.compute_full(frames)
             if out:
-                features.update({k: v for k, v in out.items()
-                                  if isinstance(v, (int, float, str, bool))})
+                features.update(
+                    {k: v for k, v in out.items() if isinstance(v, (int, float, str, bool))}
+                )
                 frames["features"] = features
         except Exception:
             pass  # individual plugin failure never kills the replay
@@ -282,8 +312,6 @@ def _build_intelligence_event(
             fields = model_cls.model_fields.keys()
             return {k: v for k, v in src.items() if k in fields}
 
-
-
         return IntelligenceEvent(
             ts=ts,
             symbol=symbol,
@@ -319,19 +347,19 @@ def _event_to_sync_params(event: Any) -> tuple:
     i3, i4, i5, smc, i6 are serialized with model_dump(exclude_none=True) for compactness.
     """
     return (
-        event.ts,                                                # datetime — psycopg2 native
+        event.ts,  # datetime — psycopg2 native
         event.symbol,
         event.tf,
         event.platform,
         event.source,
         event.schema_version,
-        json.dumps(event.bar.model_dump()),                      # bar: include all fields
-        json.dumps(event.i1.model_dump()),                       # i1: include all fields
-        json.dumps(event.i3.model_dump(exclude_none=True)),      # i3: sparse (extra='forbid')
-        json.dumps(event.i4.model_dump(exclude_none=True)),      # i4: sparse
-        json.dumps(event.i5.model_dump(exclude_none=True)),      # i5: sparse
-        json.dumps(event.smc.model_dump(exclude_none=True)),     # smc: sparse
-        json.dumps(event.i6.model_dump(exclude_none=True)),      # i6: sparse
+        json.dumps(event.bar.model_dump()),  # bar: include all fields
+        json.dumps(event.i1.model_dump()),  # i1: include all fields
+        json.dumps(event.i3.model_dump(exclude_none=True)),  # i3: sparse (extra='forbid')
+        json.dumps(event.i4.model_dump(exclude_none=True)),  # i4: sparse
+        json.dumps(event.i5.model_dump(exclude_none=True)),  # i5: sparse
+        json.dumps(event.smc.model_dump(exclude_none=True)),  # smc: sparse
+        json.dumps(event.i6.model_dump(exclude_none=True)),  # i6: sparse
     )
 
 
@@ -354,9 +382,16 @@ def _insert_features_sync(conn: Any, rows: list) -> None:
 # ---------------------------------------------------------------------------
 
 MARKET_CONTEXT_KEYS = (
-    "trend_regime", "volatility_regime", "trend_confidence",
-    "atr_14", "rsi_14", "ctf_score", "swing_pattern",
-    "trend_strength", "volatility_percentile", "hmm_regime_state",
+    "trend_regime",
+    "volatility_regime",
+    "trend_confidence",
+    "atr_14",
+    "rsi_14",
+    "ctf_score",
+    "swing_pattern",
+    "trend_strength",
+    "volatility_percentile",
+    "hmm_regime_state",
 )
 
 _INSERT_SYNC_SQL = """
@@ -409,35 +444,37 @@ def _build_ledger_entries(
     for sig in result.all_ranked:
         rank = sig.get("composite_rank", 99)
         was_selected = rank == 1 and result.selected_signal is not None
-        entries.append(LedgerEntry(
-            signal_id=str(uuid4()),
-            timestamp=timestamp,
-            symbol=symbol,
-            timeframe=timeframe,
-            setup_plugin=sig.get("setup_plugin", "unknown"),
-            signal_type=sig.get("signal_type", "unknown"),
-            direction=int(sig.get("direction", 0)),
-            entry_price=float(sig.get("entry_price", 0.0)),
-            stop_loss=float(sig.get("stop_loss", 0.0)),
-            targets=[float(t) for t in sig.get("targets", [])],
-            confidence=float(sig.get("confidence", 0.0)),
-            confluence_score=float(sig.get("confluence_score", 0.0)),
-            regime_context=str(sig.get("regime_context", "")),
-            supporting_factors=list(sig.get("supporting_factors", [])),
-            was_selected=was_selected,
-            num_signals_bar=result.num_signals_fired,
-            num_agreeing=result.num_agreeing,
-            num_conflicting=result.num_conflicting,
-            resolution_method=result.resolution_method,
-            composite_rank=rank,
-            market_context=market_ctx,
-            status="pending",
-            feature_ts=feature_ts,
-            feature_tf=feature_tf,
-            cis_score=result.cis_score,
-            bucket_scores=result.bucket_scores,
-            weights_version=result.weights_version,
-        ))
+        entries.append(
+            LedgerEntry(
+                signal_id=str(uuid4()),
+                timestamp=timestamp,
+                symbol=symbol,
+                timeframe=timeframe,
+                setup_plugin=sig.get("setup_plugin", "unknown"),
+                signal_type=sig.get("signal_type", "unknown"),
+                direction=int(sig.get("direction", 0)),
+                entry_price=float(sig.get("entry_price", 0.0)),
+                stop_loss=float(sig.get("stop_loss", 0.0)),
+                targets=[float(t) for t in sig.get("targets", [])],
+                confidence=float(sig.get("confidence", 0.0)),
+                confluence_score=float(sig.get("confluence_score", 0.0)),
+                regime_context=str(sig.get("regime_context", "")),
+                supporting_factors=list(sig.get("supporting_factors", [])),
+                was_selected=was_selected,
+                num_signals_bar=result.num_signals_fired,
+                num_agreeing=result.num_agreeing,
+                num_conflicting=result.num_conflicting,
+                resolution_method=result.resolution_method,
+                composite_rank=rank,
+                market_context=market_ctx,
+                status="pending",
+                feature_ts=feature_ts,
+                feature_tf=feature_tf,
+                cis_score=result.cis_score,
+                bucket_scores=result.bucket_scores,
+                weights_version=result.weights_version,
+            )
+        )
     return entries
 
 
@@ -447,21 +484,38 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
         return
     params = []
     for e in entries:
-        params.append((
-            e.signal_id, e.timestamp, e.symbol, e.timeframe,
-            e.setup_plugin, e.signal_type, e.direction, e.entry_price, e.stop_loss,
-            json.dumps(e.targets), e.confidence, e.confluence_score,
-            e.regime_context, json.dumps(e.supporting_factors),
-            e.was_selected, e.num_signals_bar, e.num_agreeing, e.num_conflicting,
-            e.resolution_method, e.composite_rank, json.dumps(e.market_context),
-            e.status,
-            e.feature_ts,
-            e.feature_tf,
-            e.cis_score,
-            json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
-            e.weights_version,
-            None,  # signal_quality — populated by lifecycle on exit
-        ))
+        params.append(
+            (
+                e.signal_id,
+                e.timestamp,
+                e.symbol,
+                e.timeframe,
+                e.setup_plugin,
+                e.signal_type,
+                e.direction,
+                e.entry_price,
+                e.stop_loss,
+                json.dumps(e.targets),
+                e.confidence,
+                e.confluence_score,
+                e.regime_context,
+                json.dumps(e.supporting_factors),
+                e.was_selected,
+                e.num_signals_bar,
+                e.num_agreeing,
+                e.num_conflicting,
+                e.resolution_method,
+                e.composite_rank,
+                json.dumps(e.market_context),
+                e.status,
+                e.feature_ts,
+                e.feature_tf,
+                e.cis_score,
+                json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
+                e.weights_version,
+                None,  # signal_quality — populated by lifecycle on exit
+            )
+        )
     with conn.cursor() as cur:
         psycopg2.extras.execute_batch(cur, _INSERT_SYNC_SQL, params)
     conn.commit()
@@ -515,8 +569,13 @@ def run_i7_and_persist(
     trend_regime = float(features.get("trend_regime", 0.0))
     agg_result = aggregate(raw_signals, trend_regime=trend_regime, features=features)
     entries = _build_ledger_entries(
-        agg_result, symbol, timeframe, timestamp, features,
-        feature_ts=feature_ts, feature_tf=feature_tf,
+        agg_result,
+        symbol,
+        timeframe,
+        timestamp,
+        features,
+        feature_ts=feature_ts,
+        feature_tf=feature_tf,
     )
 
     if entries and db_conn is not None:
@@ -562,7 +621,7 @@ def connect_db(settings: Settings) -> Any:
     hostport_db = rest.split("/", 1)
     hostport = hostport_db[0]
     dbname = hostport_db[1] if len(hostport_db) > 1 else "indicagent"
-    host, port = (hostport.split(":", 1) if ":" in hostport else (hostport, "5432"))
+    host, port = hostport.split(":", 1) if ":" in hostport else (hostport, "5432")
 
     return psycopg2.connect(
         host=host, port=int(port), database=dbname, user=user, password=password
@@ -581,7 +640,8 @@ def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
         if minutes < 1440:
             floored = ts.replace(
                 minute=(ts.minute // minutes) * minutes,
-                second=0, microsecond=0,
+                second=0,
+                microsecond=0,
             )
         else:
             floored = ts.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -590,15 +650,17 @@ def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
     result = []
     for window_start in sorted(windows):
         w = windows[window_start]
-        result.append({
-            "timestamp": window_start,
-            "open": w[0]["open"],
-            "high": max(b["high"] for b in w),
-            "low": min(b["low"] for b in w),
-            "close": w[-1]["close"],
-            "volume": sum(b.get("volume", 0) or 0 for b in w),
-            "source": "derived_1m",
-        })
+        result.append(
+            {
+                "timestamp": window_start,
+                "open": w[0]["open"],
+                "high": max(b["high"] for b in w),
+                "low": min(b["low"] for b in w),
+                "close": w[-1]["close"],
+                "volume": sum(b.get("volume", 0) or 0 for b in w),
+                "source": "derived_1m",
+            }
+        )
     return result
 
 
@@ -634,9 +696,17 @@ def store_bars(conn: Any, bars: list[dict], symbol: str, timeframe: str) -> int:
     if not bars:
         return 0
     params = [
-        (b["timestamp"], symbol, timeframe,
-         b["open"], b["high"], b["low"], b["close"], b["volume"],
-         b.get("source", "historical_backfill"))
+        (
+            b["timestamp"],
+            symbol,
+            timeframe,
+            b["open"],
+            b["high"],
+            b["low"],
+            b["close"],
+            b["volume"],
+            b.get("source", "historical_backfill"),
+        )
         for b in bars
     ]
     with conn.cursor() as cur:
@@ -648,6 +718,7 @@ def store_bars(conn: Any, bars: list[dict], symbol: str, timeframe: str) -> int:
 # ---------------------------------------------------------------------------
 # Replay orchestrator
 # ---------------------------------------------------------------------------
+
 
 def replay_symbol(
     symbol: str,
@@ -743,7 +814,12 @@ def replay_symbol(
 
             # I7 → signal_ledger (with feature_ts populated when features row was written)
             n = run_i7_and_persist(
-                history, all_features, symbol, tf, ts, db_conn,
+                history,
+                all_features,
+                symbol,
+                tf,
+                ts,
+                db_conn,
                 feature_ts=written_feature_ts,
                 feature_tf=(tf if written_feature_ts is not None else None),
             )
@@ -758,30 +834,45 @@ def replay_symbol(
     return signal_counts
 
 
-
-
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Historical Backfill — fetch IBKR bars + replay intelligence pipeline"
     )
-    parser.add_argument("--days", type=int, default=None,
-                        help="Max days to fetch for ALL timeframes (default: per-TF config defaults).")
-    parser.add_argument("--symbols", default=None,
-                        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all active)")
-    parser.add_argument("--timeframes", default="1m,5m,15m,1h,1d",
-                        help="Comma-separated timeframes (default: 1m,5m,15m,1h,1d)")
-    parser.add_argument("--client-id", type=int, default=56,
-                        help="IBKR client ID (default: 56)")
-    parser.add_argument("--fetch-only", action="store_true",
-                        help="Only fetch from IBKR → DB, skip intelligence replay")
-    parser.add_argument("--replay-only", action="store_true",
-                        help="Only replay DB → signal_ledger, skip IBKR fetch")
-    parser.add_argument("--clean", action="store_true",
-                        help="Delete existing signals before replay (use with --replay-only to avoid duplicates)")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Max days to fetch for ALL timeframes (default: per-TF config defaults).",
+    )
+    parser.add_argument(
+        "--symbols",
+        default=None,
+        help="Comma-separated symbols, e.g. ESH6,NQH6 (default: all active)",
+    )
+    parser.add_argument(
+        "--timeframes",
+        default="1m,5m,15m,1h,1d",
+        help="Comma-separated timeframes (default: 1m,5m,15m,1h,1d)",
+    )
+    parser.add_argument("--client-id", type=int, default=56, help="IBKR client ID (default: 56)")
+    parser.add_argument(
+        "--fetch-only",
+        action="store_true",
+        help="Only fetch from IBKR → DB, skip intelligence replay",
+    )
+    parser.add_argument(
+        "--replay-only", action="store_true", help="Only replay DB → signal_ledger, skip IBKR fetch"
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing signals before replay (use with --replay-only to avoid duplicates)",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -801,7 +892,8 @@ def main() -> None:
     print(f"  Timeframes: {timeframes}")
     tf_depths = {
         tf: (min(_TF_FETCH_CONFIG[tf][0], args.days) if args.days else _TF_FETCH_CONFIG[tf][0])
-        for tf in timeframes if tf in _TF_FETCH_CONFIG
+        for tf in timeframes
+        if tf in _TF_FETCH_CONFIG
     }
     print(f"  TF depths : {tf_depths}")
     if args.fetch_only:
@@ -818,6 +910,7 @@ def main() -> None:
     # --------------- Stage 1: IBKR Fetch ---------------
     if not args.replay_only:
         import asyncio
+
         print("=== Stage 1: IBKR Fetch ===")
         provider = IBKRProvider(
             host=settings.ib_host,
@@ -834,7 +927,8 @@ def main() -> None:
             end_dt = datetime.now(tz=UTC)
             total_bars = 0
             # Fetch each requested TF using its configured depth and contract type.
-            # --days caps ALL TF fetch depths when provided; otherwise use _TF_FETCH_CONFIG defaults.
+            # --days caps ALL TF fetch depths when provided; otherwise use _TF_FETCH_CONFIG
+            # defaults.
             fetch_tfs = [tf for tf in timeframes if tf in _TF_FETCH_CONFIG]
             print(f"  Fetching TFs: {fetch_tfs}")
             print()
@@ -856,14 +950,18 @@ def main() -> None:
                             hour=0, minute=0, second=0, microsecond=0
                         )
                         try:
-                            use_continuous = use_continuous and (instrument.asset_class == AssetClass.FUTURES)
-                            ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
-                                symbol=instrument.symbol,
-                                timeframe=tf,
-                                start=start_dt,
-                                end=end_dt,
-                                continuous=use_continuous,
-                            ))
+                            use_continuous = use_continuous and (
+                                instrument.asset_class == AssetClass.FUTURES
+                            )
+                            ohlcv_bars = asyncio.run(
+                                provider.fetch_historical_bars(
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    start=start_dt,
+                                    end=end_dt,
+                                    continuous=use_continuous,
+                                )
+                            )
                             bar_dicts = [
                                 {
                                     "timestamp": b.timestamp,
@@ -881,9 +979,7 @@ def main() -> None:
                             if n > 0:
                                 fetched_tfs.add(tf)
                             label = "continuous-adj" if use_continuous else "named"
-                            print(
-                                f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n} bars"
-                            )
+                            print(f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n} bars")
                         except Exception as e:
                             print(f"  {instrument.symbol}/{tf}: error — {e}")
                         time.sleep(2)  # IBKR pacing between TF requests
@@ -891,23 +987,38 @@ def main() -> None:
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.
                     if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
-                        missing_tfs = [tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs]
+                        missing_tfs = [
+                            tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs
+                        ]
                         if missing_tfs:
-                            deep_days = _1M_DAYS_FX if instrument.asset_class == AssetClass.FX else _1M_DAYS_CRYPTO
+                            deep_days = (
+                                _1M_DAYS_FX
+                                if instrument.asset_class == AssetClass.FX
+                                else _1M_DAYS_CRYPTO
+                            )
                             deep_start = (end_dt - timedelta(days=deep_days)).replace(
                                 hour=0, minute=0, second=0, microsecond=0
                             )
                             try:
-                                deep_bars = asyncio.run(provider.fetch_historical_bars(
-                                    symbol=instrument.symbol,
-                                    timeframe="1m",
-                                    start=deep_start,
-                                    end=end_dt,
-                                    continuous=False,
-                                ))
+                                deep_bars = asyncio.run(
+                                    provider.fetch_historical_bars(
+                                        symbol=instrument.symbol,
+                                        timeframe="1m",
+                                        start=deep_start,
+                                        end=end_dt,
+                                        continuous=False,
+                                    )
+                                )
                                 deep_dicts = [
-                                    {"timestamp": b.timestamp, "open": b.open, "high": b.high,
-                                     "low": b.low, "close": b.close, "volume": b.volume, "source": b.source}
+                                    {
+                                        "timestamp": b.timestamp,
+                                        "open": b.open,
+                                        "high": b.high,
+                                        "low": b.low,
+                                        "close": b.close,
+                                        "volume": b.volume,
+                                        "source": b.source,
+                                    }
                                     for b in deep_bars
                                 ]
                                 n = store_bars(db_conn, deep_dicts, instrument.symbol, "1m")
@@ -918,13 +1029,17 @@ def main() -> None:
                             if bars_1m:
                                 for derived_tf in missing_tfs:
                                     aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
-                                    n = store_bars(db_conn, aggregated, instrument.symbol, derived_tf)
+                                    n = store_bars(
+                                        db_conn, aggregated, instrument.symbol, derived_tf
+                                    )
                                     total_bars += n
-                                    print(f"  {instrument.symbol}/{derived_tf} (derived from 1m): {n} bars")
+                                    sym = instrument.symbol
+                                    print(f"  {sym}/{derived_tf} (derived from 1m): {n} bars")
                             else:
                                 print(f"  {instrument.symbol}: no 1m bars — skipping derivation")
                         else:
-                            print(f"  {instrument.symbol}: all TFs fetched from IBKR — skipping derivation")
+                            sym = instrument.symbol
+                            print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
 
                 except Exception as e:
                     print(f"  {instrument.symbol}: error — {e}")
@@ -953,25 +1068,34 @@ def main() -> None:
 
                 # Delete matching intelligence_features rows FIRST
                 # Must do this before deleting signal_ledger so subquery finds rows
-                cur.execute("""
+                cur.execute(
+                    """
                     DELETE FROM intelligence_features
                     WHERE (ts, symbol, tf) IN (
                         SELECT feature_ts, symbol, feature_tf
                         FROM signal_ledger
                         WHERE symbol = ANY(%s)
                     );
-                """, (symbol_values,))
+                """,
+                    (symbol_values,),
+                )
                 deleted_features = cur.rowcount
 
                 # Delete from signal_ledger (no CASCADE - no FKs exist)
-                cur.execute("""
+                cur.execute(
+                    """
                     DELETE FROM signal_ledger
                     WHERE symbol = ANY(%s);
-                """, (symbol_values,))
+                """,
+                    (symbol_values,),
+                )
                 deleted_signals = cur.rowcount
 
                 db_conn.commit()
-                print(f"  Deleted {deleted_signals:,} signals + {deleted_features:,} intelligence feature rows")
+                print(
+                    f"  Deleted {deleted_signals:,} signals + "
+                    f"{deleted_features:,} intelligence feature rows"
+                )
 
         grand_total = 0
         for contract in contracts:

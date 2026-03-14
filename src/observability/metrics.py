@@ -29,6 +29,7 @@ def gauge(name: str, documentation: str) -> Gauge:
     _gauges[name] = g
     return g
 
+
 _server_started = False
 
 

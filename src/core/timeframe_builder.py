@@ -22,7 +22,10 @@ from src.core.stream_keys import market
 
 # get_stream_maxlen removed in Phase 30 — legacy Redis xadd path uses hardcoded values
 _MARKET_STREAM_MAXLEN: dict[str, int] = {
-    "1m": 2000, "5m": 1000, "15m": 1000, "1h": 1000,
+    "1m": 2000,
+    "5m": 1000,
+    "15m": 1000,
+    "1h": 1000,
 }
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +43,7 @@ _TARGET_TIMEFRAMES: dict[str, int] = {
 # ---------------------------------------------------------------------------
 # Pure functions (no I/O — easy to unit test)
 # ---------------------------------------------------------------------------
+
 
 def _floor_to_period(ts_seconds: int, tf_minutes: int) -> int:
     """Return the period-start timestamp (seconds) for a given bar timestamp.
@@ -104,6 +108,7 @@ def _parse_ts(ts_raw: str) -> int:
 # ---------------------------------------------------------------------------
 # TimeframeBuilder class
 # ---------------------------------------------------------------------------
+
 
 class TimeframeBuilder:
     """Aggregates 1m OHLCV bars into 5m/15m/1h/4h/1d bars.
@@ -227,7 +232,9 @@ class TimeframeBuilder:
                 except Exception as e:
                     self._logger.warning(
                         "Could not restore last_emitted",
-                        symbol=sym, timeframe=tf, error=str(e),
+                        symbol=sym,
+                        timeframe=tf,
+                        error=str(e),
                     )
 
         # Step 2: Warm up in-progress accumulators from recent 1m history.
@@ -266,9 +273,7 @@ class TimeframeBuilder:
                         if acc is not None and acc["period_ts"] != period_ts:
                             # Period boundary during warmup — reset without emitting
                             acc = None
-                        self._accumulators[sym][tf] = _update_accumulator(
-                            acc, bar_data, period_ts
-                        )
+                        self._accumulators[sym][tf] = _update_accumulator(acc, bar_data, period_ts)
             except Exception as e:
                 self._logger.warning("Warmup failed", symbol=sym, error=str(e))
 
@@ -324,7 +329,7 @@ class TimeframeBuilder:
                 # Pass cursor dict directly (xread expects dict as first positional arg)
                 messages = await redis.xread(self._last_ids, block=1000, count=100)
 
-                for stream_key, msgs in (messages or []):
+                for stream_key, msgs in messages or []:
                     # Resolve symbol from stream key: env:market:SYMBOL:1m
                     key_str = stream_key.decode() if isinstance(stream_key, bytes) else stream_key
                     parts = key_str.split(":")
@@ -422,15 +427,15 @@ class TimeframeBuilder:
         if last is not None and period_ts <= last:
             self._logger.debug(
                 "Skipping duplicate bar",
-                symbol=symbol, timeframe=timeframe, period_ts=period_ts,
+                symbol=symbol,
+                timeframe=timeframe,
+                period_ts=period_ts,
             )
             return
 
         redis = self._streams_manager.redis_client
         stream_key = market(self._env_prefix, symbol, timeframe)
         maxlen = _MARKET_STREAM_MAXLEN.get(timeframe, 500)
-
-
 
         period_ts_dt = datetime.fromtimestamp(period_ts, tz=UTC)
         tf_secs = TF_DURATIONS.get(timeframe, 0)
@@ -471,6 +476,7 @@ class TimeframeBuilder:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _decode_fields(fields: dict) -> dict[str, str]:
     """Decode byte-keyed Redis stream fields to str:str dict."""

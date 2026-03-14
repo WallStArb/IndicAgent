@@ -39,12 +39,11 @@ router = APIRouter()
 
 _NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
 
-_TF_MINUTES: dict[str, int] = {
-    "1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440
-}
+_TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
 # ── KafkaSSEBroadcaster ──────────────────────────────────────────────────────
+
 
 class KafkaSSEBroadcaster:
     """Fan-out broadcaster: single Kafka consumer → N connected SSE clients.
@@ -96,6 +95,7 @@ class KafkaSSEBroadcaster:
 
 # ── Topic list builder ───────────────────────────────────────────────────────
 
+
 def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
     """Return Kafka topics to subscribe for the given symbols and timeframe.
 
@@ -127,6 +127,7 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
 
 # ── Topic → SSE event name mapping ──────────────────────────────────────────
 
+
 @functools.lru_cache(maxsize=256)
 def _event_name_for_topic(topic: str) -> str:
     """Map a Kafka topic name (period-separated) to an SSE event name.
@@ -135,16 +136,28 @@ def _event_name_for_topic(topic: str) -> str:
     """
     # Strip env prefix: everything before the first period that isn't a known domain segment
     known_prefixes = {
-        "market.ticks", "market.bars", "indicators", "intelligence.i7", "intelligence.i8",
-        "intelligence", "signals.aggregated", "signals", "narratives.group", "narratives",
-        "llm.calls", "llm.outcomes", "system.events",
+        "market.ticks",
+        "market.bars",
+        "indicators",
+        "intelligence.i7",
+        "intelligence.i8",
+        "intelligence",
+        "signals.aggregated",
+        "signals",
+        "narratives.group",
+        "narratives",
+        "llm.calls",
+        "llm.outcomes",
+        "system.events",
     }
     # Find rest after first dot if the first segment looks like an env name
     dot_idx = topic.find(".")
     if dot_idx > 0:
-        rest = topic[dot_idx + 1:]
+        rest = topic[dot_idx + 1 :]
         # Check if rest matches a known prefix → the first part is env prefix
-        matches = any(rest == p or rest.startswith(p + ".") or rest.startswith(p) for p in known_prefixes)
+        matches = any(
+            rest == p or rest.startswith(p + ".") or rest.startswith(p) for p in known_prefixes
+        )
         if matches:
             candidate = rest
         else:
@@ -244,7 +257,16 @@ def _event_name_for_stream(stream_name: str) -> str:
     head = parts[0]
     rest = parts[1] if len(parts) > 1 else ""
     # If head is an env name (e.g., "dev"), re-evaluate from rest
-    known_domains = {"ticks", "market", "indicators", "intelligence", "intelligence_i7", "signals", "narratives", "system"}
+    known_domains = {
+        "ticks",
+        "market",
+        "indicators",
+        "intelligence",
+        "intelligence_i7",
+        "signals",
+        "narratives",
+        "system",
+    }
     candidate = rest if rest and head not in known_domains else stream_name
     if candidate.startswith("ticks:"):
         return "tick_data"
@@ -266,6 +288,7 @@ def _event_name_for_stream(stream_name: str) -> str:
 
 
 # ── SSE endpoint ──────────────────────────────────────────────────────────────
+
 
 @router.get("/events")
 async def sse_events(
@@ -310,11 +333,13 @@ async def sse_events(
                     event_name = _event_name_for_topic(topic)
                     for item in reversed(topic_snapshot):
                         try:
-                            data_json = json.dumps({
-                                "topic": item["topic"],
-                                "key": item["key"],
-                                "payload": item["payload"],
-                            })
+                            data_json = json.dumps(
+                                {
+                                    "topic": item["topic"],
+                                    "key": item["key"],
+                                    "payload": item["payload"],
+                                }
+                            )
                         except Exception:
                             continue
                         frame = f"event: {event_name}\ndata: {data_json}\n\n".encode()
@@ -327,7 +352,7 @@ async def sse_events(
 
                 try:
                     item = await asyncio.wait_for(live_q.get(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield b": heartbeat\n\n"
                     continue
                 except asyncio.CancelledError:
@@ -339,11 +364,13 @@ async def sse_events(
 
                 event_name = _event_name_for_topic(item["topic"])
                 try:
-                    data_json = json.dumps({
-                        "topic": item["topic"],
-                        "key": item["key"],
-                        "payload": item["payload"],
-                    })
+                    data_json = json.dumps(
+                        {
+                            "topic": item["topic"],
+                            "key": item["key"],
+                            "payload": item["payload"],
+                        }
+                    )
                 except Exception:
                     continue
 

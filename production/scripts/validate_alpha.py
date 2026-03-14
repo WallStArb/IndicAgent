@@ -24,6 +24,7 @@ Usage:
     python production/scripts/validate_alpha.py --plugin cmp_DerivativeOscillator \\
         --symbol-filter ESH6,NQH6
 """
+
 from __future__ import annotations
 
 import argparse
@@ -157,14 +158,10 @@ def _compute_stats(
             direction = field_vals.apply(lambda v: 1.0 if v > 0 else 0.0)
         elif signal_type == "zero_cross":
             # field crosses zero: +1 = bullish, -1 = bearish, 0 = no signal
-            direction = field_vals.apply(
-                lambda v: 1.0 if v > 0 else (-1.0 if v < 0 else 0.0)
-            )
+            direction = field_vals.apply(lambda v: 1.0 if v > 0 else (-1.0 if v < 0 else 0.0))
         elif signal_type == "directional":
             # Positive = bullish (+1), negative = bearish (-1), zero = no signal
-            direction = field_vals.apply(
-                lambda v: 1.0 if v > 0 else (-1.0 if v < 0 else 0.0)
-            )
+            direction = field_vals.apply(lambda v: 1.0 if v > 0 else (-1.0 if v < 0 else 0.0))
         else:
             direction = field_vals.apply(lambda v: 1.0 if v > 0 else (-1.0 if v < 0 else 0.0))
 
@@ -471,10 +468,7 @@ def _patch_candlestick_setup(
 
         # --- Named read ---
         promoted_comment = "  # PROMOTED via validate_alpha.py"
-        read_line = (
-            f"        {field} = float(features.get(\"{field}\", 0.0))"
-            f"{promoted_comment}\n"
-        )
+        read_line = f'        {field} = float(features.get("{field}", 0.0))' f"{promoted_comment}\n"
         read_sentinel = "        # END CANDLESTICK_READS\n"
 
         if f'features.get("{field}"' in content:
@@ -508,7 +502,7 @@ def _patch_candlestick_setup(
         conf = confidence_map.get(field, 0.55)
         cand_line = (
             f"        if {field} > 0.0:\n"
-            f"            candidates.append((1, {direction}, \"{field}\", {conf}, False))\n"
+            f'            candidates.append((1, {direction}, "{field}", {conf}, False))\n'
         )
         cand_sentinel = "        # END CANDLESTICK_CANDIDATES\n"
 
@@ -611,13 +605,15 @@ def run_validation(
         if isinstance(col_json, str):
             col_json = json.loads(col_json)
         val = col_json.get(effective_field) if col_json else None
-        records.append({
-            "symbol": sym,
-            "tf": tf,
-            "ts": ts,
-            "close": float(close) if close is not None else None,
-            effective_field: float(val) if val is not None else None,
-        })
+        records.append(
+            {
+                "symbol": sym,
+                "tf": tf,
+                "ts": ts,
+                "close": float(close) if close is not None else None,
+                effective_field: float(val) if val is not None else None,
+            }
+        )
         symbols_seen.add(sym)
 
     df = pd.DataFrame(records)

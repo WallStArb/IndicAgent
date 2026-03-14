@@ -4,6 +4,7 @@ DataProvider protocol and normalized wire models.
 All data providers emit Tick and OHLCVBar instances — the pipeline
 is completely unaware of which provider is active.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -18,6 +19,7 @@ from src.observability.metrics import PROVIDER_ACTIVE_SUBSCRIPTIONS
 
 class Tick(BaseModel):
     """Normalized real-time tick from any provider."""
+
     symbol: str
     timestamp: datetime
     price: float
@@ -31,8 +33,9 @@ class Tick(BaseModel):
 
 class OHLCVBar(BaseModel):
     """Normalized OHLCV bar from any provider."""
+
     symbol: str
-    timeframe: str   # "1m", "5m", "15m", "1h"
+    timeframe: str  # "1m", "5m", "15m", "1h"
     timestamp: datetime
     open: float
     high: float

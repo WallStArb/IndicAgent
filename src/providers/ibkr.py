@@ -4,6 +4,7 @@ IBKRProvider — DataProvider implementation for Interactive Brokers (ib_insync)
 Wraps all ib_insync logic. The daemon and backfill script interact only
 with the DataProvider protocol — no ib_insync imports outside this file.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,12 +42,12 @@ logger = logging.getLogger(__name__)
 
 # Map our timeframe strings to ib_insync barSizeSetting values
 _TF_TO_IB: dict[str, str] = {
-    "1m":  "1 min",
-    "5m":  "5 mins",
+    "1m": "1 min",
+    "5m": "5 mins",
     "15m": "15 mins",
-    "1h":  "1 hour",
-    "4h":  "4 hours",
-    "1d":  "1 day",
+    "1h": "1 hour",
+    "4h": "4 hours",
+    "1d": "1 day",
 }
 
 # RTVolume generic tick type — required for futures, not supported on other asset classes
@@ -54,12 +55,12 @@ _FUT_TICK_LIST = "233"
 
 # Max days per IBKR historical data request by bar size (conservative, under hard limits)
 _MAX_CHUNK_DAYS: dict[str, int] = {
-    "1m":  6,    # IBKR hard limit: 7 days
-    "5m":  29,   # IBKR hard limit: 30 days
-    "15m": 59,   # IBKR hard limit: 60 days
-    "1h":  364,  # IBKR hard limit: 1 year
-    "4h":  364,
-    "1d":  364,
+    "1m": 6,  # IBKR hard limit: 7 days
+    "5m": 29,  # IBKR hard limit: 30 days
+    "15m": 59,  # IBKR hard limit: 60 days
+    "1h": 364,  # IBKR hard limit: 1 year
+    "4h": 364,
+    "1d": 364,
 }
 
 # Circuit breaker for IBKR connection attempts
@@ -322,24 +323,27 @@ class IBKRProvider:
                 useRTH=False,
                 formatDate=1,
             )
-            for bar in (ib_bars or []):
+            for bar in ib_bars or []:
                 bar_ts = (
-                    bar.date if isinstance(bar.date, datetime)
+                    bar.date
+                    if isinstance(bar.date, datetime)
                     else datetime.fromisoformat(str(bar.date))
                 )
                 if bar_ts.tzinfo is None:
                     bar_ts = bar_ts.replace(tzinfo=UTC)
-                all_bars.append(OHLCVBar(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    timestamp=bar_ts,
-                    open=float(bar.open),
-                    high=float(bar.high),
-                    low=float(bar.low),
-                    close=float(bar.close),
-                    volume=int(bar.volume),
-                    source=source_tag,
-                ))
+                all_bars.append(
+                    OHLCVBar(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        timestamp=bar_ts,
+                        open=float(bar.open),
+                        high=float(bar.high),
+                        low=float(bar.low),
+                        close=float(bar.close),
+                        volume=int(bar.volume),
+                        source=source_tag,
+                    )
+                )
         else:
             chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
             chunk_start = start
@@ -367,24 +371,27 @@ class IBKRProvider:
                     formatDate=1,
                 )
 
-                for bar in (ib_bars or []):
+                for bar in ib_bars or []:
                     bar_ts = (
-                        bar.date if isinstance(bar.date, datetime)
+                        bar.date
+                        if isinstance(bar.date, datetime)
                         else datetime.fromisoformat(str(bar.date))
                     )
                     if bar_ts.tzinfo is None:
                         bar_ts = bar_ts.replace(tzinfo=UTC)
-                    all_bars.append(OHLCVBar(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        timestamp=bar_ts,
-                        open=float(bar.open),
-                        high=float(bar.high),
-                        low=float(bar.low),
-                        close=float(bar.close),
-                        volume=int(bar.volume),
-                        source=source_tag,
-                    ))
+                    all_bars.append(
+                        OHLCVBar(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            timestamp=bar_ts,
+                            open=float(bar.open),
+                            high=float(bar.high),
+                            low=float(bar.low),
+                            close=float(bar.close),
+                            volume=int(bar.volume),
+                            source=source_tag,
+                        )
+                    )
 
                 chunk_start = chunk_end + timedelta(days=1)
 
@@ -435,8 +442,10 @@ class IBKRProvider:
             logger.warning(
                 "qualify_instrument: no contract details returned",
                 extra={
-                    "symbol": instrument.symbol, "base": instrument.base,
-                    "exchange": instrument.exchange, "expiry": instrument.expiry,
+                    "symbol": instrument.symbol,
+                    "base": instrument.base,
+                    "exchange": instrument.exchange,
+                    "expiry": instrument.expiry,
                 },
             )
             return False
@@ -446,9 +455,7 @@ class IBKRProvider:
             )
             return False
 
-    async def get_quote(
-        self, symbol: str, timeout_sec: float | None = None
-    ) -> dict | None:
+    async def get_quote(self, symbol: str, timeout_sec: float | None = None) -> dict | None:
         """Request a one-off snapshot quote for a pre-qualified symbol.
 
         Sleeps for timeout_sec to allow IBKR to fill the snapshot, then returns

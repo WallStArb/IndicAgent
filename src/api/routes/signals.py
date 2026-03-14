@@ -53,7 +53,8 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
         ),
         "market_price_at_signal": (
             float(row["market_price_at_signal"])
-            if row.get("market_price_at_signal") is not None else None
+            if row.get("market_price_at_signal") is not None
+            else None
         ),
         "ask_at_signal": (
             float(row["ask_at_signal"]) if row.get("ask_at_signal") is not None else None

@@ -22,6 +22,7 @@ Usage:
     # See what would happen without touching anything
     python production/scripts/pipeline_reset.py --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -173,7 +174,9 @@ def truncate_tables(
                 if table in _ALWAYS_TRUNCATE:
                     cur.execute(f"TRUNCATE {table} CASCADE")  # noqa: S608
                 else:
-                    cur.execute(f"DELETE FROM {table} WHERE symbol = ANY(ARRAY[{placeholders}])", symbols)  # noqa: S608
+                    cur.execute(
+                        f"DELETE FROM {table} WHERE symbol = ANY(ARRAY[{placeholders}])", symbols
+                    )  # noqa: S608
         else:
             for table in tables:
                 cur.execute(f"TRUNCATE {table} CASCADE")  # noqa: S608
@@ -234,20 +237,30 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Pipeline Reset — clear and regenerate canonical IndicAgent dataset"
     )
-    parser.add_argument("--keep-ohlcv", action="store_true",
-                        help="Skip IBKR re-fetch; replay from existing market_data_ohlcv")
-    parser.add_argument("--symbols", default=None,
-                        help="Comma-separated symbols (default: all active contracts)")
-    parser.add_argument("--days", type=int, default=14,
-                        help="Days of 1m history to fetch (default: 14; other TFs use _TF_FETCH_CONFIG)")
-    parser.add_argument("--clear-llm", action="store_true",
-                        help="Also truncate llm_calls and llm_model_scores")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show what would be cleared; exit without touching anything")
-    parser.add_argument("--yes", action="store_true",
-                        help="Skip confirmation prompt")
-    parser.add_argument("--client-id", type=int, default=56,
-                        help="IBKR client ID (default: 56)")
+    parser.add_argument(
+        "--keep-ohlcv",
+        action="store_true",
+        help="Skip IBKR re-fetch; replay from existing market_data_ohlcv",
+    )
+    parser.add_argument(
+        "--symbols", default=None, help="Comma-separated symbols (default: all active contracts)"
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=14,
+        help="Days of 1m history to fetch (default: 14; other TFs use _TF_FETCH_CONFIG)",
+    )
+    parser.add_argument(
+        "--clear-llm", action="store_true", help="Also truncate llm_calls and llm_model_scores"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be cleared; exit without touching anything",
+    )
+    parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+    parser.add_argument("--client-id", type=int, default=56, help="IBKR client ID (default: 56)")
     args = parser.parse_args()
 
     settings = Settings()
@@ -274,7 +287,9 @@ def main() -> None:
             return
 
     # Resolve target symbols early so they're available for sentinel and all stages
-    target_symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
+    target_symbols = (
+        [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
+    )
 
     # --- Stage 1: Stop services ---
     _pause_for_services("stop", _STOP_SERVICES)
@@ -316,6 +331,7 @@ def main() -> None:
             store_bars,
         )
         from src.providers import IBKRProvider
+
         provider = IBKRProvider(
             host=settings.ib_host,
             port=settings.ib_port,
@@ -342,13 +358,15 @@ def main() -> None:
                             hour=0, minute=0, second=0, microsecond=0
                         )
                         try:
-                            ohlcv_bars = asyncio.run(provider.fetch_historical_bars(
-                                symbol=instrument.symbol,
-                                timeframe=tf,
-                                start=start_dt,
-                                end=end_dt,
-                                continuous=use_continuous,
-                            ))
+                            ohlcv_bars = asyncio.run(
+                                provider.fetch_historical_bars(
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    start=start_dt,
+                                    end=end_dt,
+                                    continuous=use_continuous,
+                                )
+                            )
                             bar_dicts = [
                                 {
                                     "timestamp": b.timestamp,
@@ -364,7 +382,8 @@ def main() -> None:
                             if bar_dicts:
                                 n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
                                 label = "continuous-adj" if use_continuous else "named"
-                                print(f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n:,} bars")
+                                sym = instrument.symbol
+                                print(f"  {sym}/{tf} ({label}, {fetch_days}d): {n:,} bars")
                         except Exception as e:
                             print(f"  {instrument.symbol}/{tf}: error — {e}")
                         time.sleep(2)  # IBKR pacing between TF requests
