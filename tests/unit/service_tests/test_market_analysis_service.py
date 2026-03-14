@@ -262,7 +262,8 @@ class TestPublisherFormat:
     def _make_service(self):
         from services.market_analysis_service import MarketAnalysisService
         svc = MarketAnalysisService()
-        svc.redis_client = AsyncMock()
+        svc._kafka_producer = AsyncMock()
+        svc._kafka_producer.publish = AsyncMock()
         svc.error_count_total = MagicMock()
         svc.error_count_total.inc = MagicMock()
         return svc
@@ -294,25 +295,23 @@ class TestPublisherFormat:
 
         await svc._publish_intelligence("ES", "1m", tiered, ts, bar_data, i1_features)
 
-        assert svc.redis_client.xadd.called
-        call_args = svc.redis_client.xadd.call_args
-        fields_dict = (
-            call_args[0][1] if call_args[0] else call_args[1].get("fields", call_args[0][1])
-        )
+        assert svc._kafka_producer.publish.called
+        call_args = svc._kafka_producer.publish.call_args
+        # publish(topic, msg_dict, key=...) — msg_dict is second positional arg
+        msg_dict = call_args.args[1] if call_args.args else call_args.kwargs.get("msg", {})
 
         # There should be exactly one field key: "event"
-        assert "event" in fields_dict or b"event" in fields_dict
+        assert "event" in msg_dict
 
         # The value must be a JSON string containing "schema_version"
-        event_val = fields_dict.get("event") or fields_dict.get(b"event")
+        event_val = msg_dict.get("event")
         if isinstance(event_val, bytes):
             event_val = event_val.decode()
         assert "schema_version" in event_val
 
         # Verify it does NOT contain flat individual field keys
         for flat_key in ["garch_sigma", "rsi_14", "vol_regime"]:
-            assert flat_key not in fields_dict
-            assert flat_key.encode() not in fields_dict
+            assert flat_key not in msg_dict
 
     @pytest.mark.asyncio
     async def test_publish_intelligence_drops_event_on_validation_error(self):
@@ -329,8 +328,8 @@ class TestPublisherFormat:
 
         await svc._publish_intelligence("ES", "1m", bad_tiered, ts, bar_data, i1_features)
 
-        # xadd must NOT have been called — malformed event dropped
-        assert not svc.redis_client.xadd.called
+        # publish must NOT have been called — malformed event dropped
+        assert not svc._kafka_producer.publish.called
 
     @pytest.mark.asyncio
     async def test_publish_intelligence_uses_model_dump_json(self):
@@ -349,11 +348,11 @@ class TestPublisherFormat:
 
         await svc._publish_intelligence("ES", "1m", tiered, ts, bar_data, i1_features)
 
-        assert svc.redis_client.xadd.called
-        call_args = svc.redis_client.xadd.call_args
-        fields_dict = call_args[0][1] if call_args[0] else call_args[1]
+        assert svc._kafka_producer.publish.called
+        call_args = svc._kafka_producer.publish.call_args
+        msg_dict = call_args.args[1] if call_args.args else call_args.kwargs.get("msg", {})
 
-        event_json = fields_dict.get("event") or fields_dict.get(b"event")
+        event_json = msg_dict.get("event")
         if isinstance(event_json, bytes):
             event_json = event_json.decode()
 

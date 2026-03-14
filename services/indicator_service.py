@@ -12,7 +12,6 @@ Replaces: indicators_processor_service.py + indicators_enhanced_service.py
 
 import asyncio
 import json
-import os
 import signal
 import sys
 import time
@@ -25,19 +24,18 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import pandas as pd
-import redis.asyncio as redis
 import structlog
 
 from src.config.settings import Settings, get_active_contracts
+from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     min_bars_for_tf,
     setup_service_logging,
     should_skip_plugin,
 )
-from src.core.stream_keys import indicators as sk_indicators
-from src.core.stream_keys import market as sk_market
-from src.core.stream_utils import ensure_consumer_group_with_reset
+from src.core.stream_keys import message_key, topic_indicators, topic_market_bars
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import (
@@ -155,12 +153,18 @@ class IndicatorService:
         self._i1_plugin_states_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
         self._i1_call_counts: dict[tuple[str, str], int] = defaultdict(int)
 
-        self.redis_client: redis.Redis | None = None
-        self.consumer_group = "indicator_service"
-        self.consumer_name = f"indicator_consumer_{os.getpid()}"
-
         settings = Settings()
+        self.env_name = settings.env_name.strip()
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+
+        # Kafka producer/consumer (replaces Redis client)
+        self._kafka_producer: KafkaProducerClient = KafkaProducerClient(
+            bootstrap_servers=settings.kafka_bootstrap_servers
+        )
+        self._kafka_consumer: KafkaConsumerClient | None = None
+
+        # DatabaseManager for DB warmup at startup (Phase 26 pattern)
+        self.db_manager: DatabaseManager | None = DatabaseManager(settings.database_url)
 
         # Build instrument map for asset-class guard
         self._instrument_map: dict[str, Any] = {
@@ -169,7 +173,6 @@ class IndicatorService:
 
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
-        self._stream_map: dict[str, tuple[str, str]] = {}
         self._df_cache: dict[str, pd.DataFrame | None] = {}
 
         self.bars_processed_total = counter(
@@ -272,27 +275,32 @@ class IndicatorService:
                     )
         return features
 
+    def _get_field(self, fields: dict, key: str) -> str:
+        """Get a field value from either str-keyed (Kafka) or bytes-keyed (legacy test) dict."""
+        val = fields.get(key) or fields.get(key.encode())
+        if val is None:
+            return ""
+        return val.decode() if isinstance(val, bytes) else str(val)
+
     async def _process_single_bar(
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
-        stream_name: str,
-        message_id: bytes,
+        fields: dict,
+        stream_name: str = "",
+        message_id: bytes | None = None,
     ) -> bool:
         try:
-
-
-            bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
-            bar_source = fields.get(b"source", b"").decode()
-            bar_close_ts_str = fields.get(b"bar_close_ts", b"").decode() or None
+            bar_ts = datetime.fromisoformat(self._get_field(fields, "timestamp"))
+            bar_source = self._get_field(fields, "source")
+            bar_close_ts_str = self._get_field(fields, "bar_close_ts") or None
             bar_data = {
                 "timestamp": bar_ts,
-                "open": float(fields[b"open"].decode()),
-                "high": float(fields[b"high"].decode()),
-                "low": float(fields[b"low"].decode()),
-                "close": float(fields[b"close"].decode()),
-                "volume": int(float(fields[b"volume"].decode())),
+                "open": float(self._get_field(fields, "open")),
+                "high": float(self._get_field(fields, "high")),
+                "low": float(self._get_field(fields, "low")),
+                "close": float(self._get_field(fields, "close")),
+                "volume": int(float(self._get_field(fields, "volume"))),
             }
 
             key = f"{symbol}:{timeframe}"
@@ -326,7 +334,6 @@ class IndicatorService:
                 bar_data, features, bar_ts, symbol, timeframe,
                 bar_close_ts=bar_close_ts_str, source="live",
             )
-            out_stream = sk_indicators(self.env_prefix, symbol, timeframe)
 
             # Emit bar-to-I1 latency for live events with known close time
             if bar_close_ts_str:
@@ -337,7 +344,11 @@ class IndicatorService:
                     )
                 except (ValueError, TypeError):
                     pass
-            await self.redis_client.xadd(out_stream, msg, maxlen=1000, approximate=True)
+            await self._kafka_producer.publish(
+                topic_indicators(self.env_name),
+                msg,
+                key=message_key(symbol, timeframe),
+            )
 
             self.bars_processed_total.inc()
 
@@ -356,123 +367,94 @@ class IndicatorService:
             self.error_count_total.inc()
             return False
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"]["db"],
-            decode_responses=False,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-        self.logger.info("Connected to Redis")
+    async def _seed_bar_history_from_db(self) -> None:
+        """Seed bar_history from market_data_ohlcv at startup (Phase 26 pattern).
 
-    async def _setup_consumer_groups(self) -> None:
-        """Setup consumer groups and warm up plugin state from history.
-
-        Optimized: parallel warmup reads using asyncio.gather() instead of sequential loops.
+        Reads last min_bars_for_tf(tf) * 2 bars per (symbol, tf) from DB.
+        Falls back silently if DB unavailable — live warmup continues naturally.
         """
-        warmup_bars = max(
-            self._min_bars_for_tf(tf)
-            for tf in self.config["service"]["timeframes"]
-        )
-        warmup_read_count = warmup_bars * self._WARMUP_READ_MULTIPLIER
+        if not self.db_manager:
+            self.logger.warning("DB seed skipped — no db_manager", reason="no db_manager")
+            return
 
-        async def warmup_stream(symbol: str, timeframe: str) -> tuple[str, str]:
-            """Warm up a single stream for plugin state initialization.
+        timeframes = self.config["service"]["timeframes"]
+        symbols = self.config["service"]["symbols"]
+        seeded_count = 0
 
-            Returns (stream_name, stream_map_entry) tuple for consumer group setup.
+        async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, list]:
+            min_bars = self._min_bars_for_tf(tf) * 2
+            query = f"""
+                SELECT timestamp, open, high, low, close, volume
+                FROM market_data_ohlcv
+                WHERE symbol = $1 AND timeframe = $2
+                ORDER BY timestamp DESC
+                LIMIT {min_bars}
             """
-            stream_name = sk_market(self.env_prefix, symbol, timeframe)
-            try:
-                msgs = await self.redis_client.xrevrange(stream_name, count=warmup_read_count)
-                for _msg_id, fields in reversed(msgs):
-                    key = f"{symbol}:{timeframe}"
+            result = await self.db_manager.execute_query(query, symbol, tf)
+            return symbol, tf, result or []
+
+        try:
+            tasks = [_fetch_one(sym, tf) for sym in symbols for tf in timeframes]
+            results = await asyncio.gather(*tasks)
+
+            for symbol, tf, rows in results:
+                if not rows:
+                    continue
+                key = f"{symbol}:{tf}"
+                for row in reversed(rows):  # DB returns DESC; insert oldest→newest
                     try:
-                        bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
-                        bar_source = fields.get(b"source", b"").decode()
-                        if bar_source == "tick_derived":
-                            continue
+                        bar_ts = row["timestamp"]
+                        if isinstance(bar_ts, str):
+                            bar_ts = datetime.fromisoformat(bar_ts)
                         bar_data = {
                             "timestamp": bar_ts,
-                            "open": float(fields[b"open"].decode()),
-                            "high": float(fields[b"high"].decode()),
-                            "low": float(fields[b"low"].decode()),
-                            "close": float(fields[b"close"].decode()),
-                            "volume": int(float(fields[b"volume"].decode())),
+                            "open": float(row["open"]),
+                            "high": float(row["high"]),
+                            "low": float(row["low"]),
+                            "close": float(row["close"]),
+                            "volume": int(row["volume"]),
                         }
                         history = self.bar_history[key]
                         history[bar_ts.isoformat()] = bar_data
                         while len(history) > self._bar_history_max:
                             history.popitem(last=False)
+                        seeded_count += 1
                     except Exception:
                         pass
-                self.logger.info(
-                    "Warmup complete",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    bars=len(self.bar_history.get(f"{symbol}:{timeframe}", {})),
-                )
-            except Exception as e:
-                self.logger.warning("Warmup failed", stream=stream_name, error=str(e))
 
-            # Create/reset consumer group to current tail — never replay old bars
-            await ensure_consumer_group_with_reset(
-                redis_client=self.redis_client,
-                stream_name=stream_name,
-                group_name=self.consumer_group,
-                start_id="$",
-                mkstream=True,
-            )
+            self.logger.info("Seeded bar_history from DB", seeded_count=seeded_count)
 
-            return (stream_name, (symbol, timeframe))
-
-        # Create tasks for all (symbol, timeframe) combinations
-        tasks = [
-            warmup_stream(symbol, timeframe)
-            for timeframe in self.config["service"]["timeframes"]
-            for symbol in self.config["service"]["symbols"]
-        ]
-
-        # Execute all warmup reads in parallel
-        results = await asyncio.gather(*tasks)
-
-        # Build stream_map from results
-        for stream_name, (symbol, timeframe) in results:
-            self._stream_map[stream_name] = (symbol, timeframe)
+        except Exception as e:
+            self.logger.warning("DB seed failed — falling back to live warmup", error=str(e))
 
     async def _process_market_data(self) -> None:
-        all_streams = {name: ">" for name in self._stream_map}
-        while self.running and not self.shutdown_requested:
+        """Consume market bars from Kafka and process each bar."""
+        assert self._kafka_consumer is not None
+        async for topic, key, payload in self._kafka_consumer.messages():
+            if self.shutdown_requested:
+                break
             try:
-                messages = await self.redis_client.xreadgroup(
-                    self.consumer_group, self.consumer_name,
-                    all_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    symbol, timeframe = self._stream_map[stream_name]
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        await self._process_single_bar(
-                            symbol, timeframe, fields, stream_name, message_id
-                        )
-                        # Always acknowledge (at-most-once delivery)
-                        to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(
-                            stream_name, self.consumer_group, *to_ack
-                        )
+                # Extract symbol and timeframe from message key (e.g., "ES:1m")
+                if key:
+                    parts = key.split(":", 1)
+                    if len(parts) == 2:
+                        symbol, timeframe = parts[0], parts[1]
+                    else:
+                        symbol = parts[0]
+                        timeframe = payload.get("timeframe", "")
+                else:
+                    symbol = payload.get("symbol", "")
+                    timeframe = payload.get("timeframe", "")
+
+                if not symbol or not timeframe:
+                    continue
+
+                await self._process_single_bar(symbol, timeframe, payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in processing loop", error=str(e))
                 self.error_count_total.inc()
-                await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -486,9 +468,26 @@ class IndicatorService:
     async def start(self) -> None:
         self.logger.info("Starting Indicator Service", config=self.config["service"])
         try:
-            await self._connect_redis()
             start_metrics_server(port=self.config.get("metrics_port", 9109))
-            await self._setup_consumer_groups()
+
+            # Seed bar history from DB before starting consumer (Phase 26 pattern)
+            await self._seed_bar_history_from_db()
+
+            # Start Kafka producer
+            await self._kafka_producer.start()
+
+            # Start Kafka consumer subscribed to market.bars topic
+            self._kafka_consumer = KafkaConsumerClient(
+                topic_market_bars(self.env_name),
+                bootstrap_servers=self.config.get(
+                    "kafka_bootstrap_servers",
+                    Settings().kafka_bootstrap_servers,
+                ),
+                group_id="indicator_service",
+                auto_offset_reset="latest",
+            )
+            await self._kafka_consumer.start()
+
             self.running = True
             tasks = [
                 asyncio.create_task(self._process_market_data()),
@@ -506,8 +505,9 @@ class IndicatorService:
         self.logger.info("Stopping Indicator Service")
         self.running = False
         self.shutdown_requested = True
-        if self.redis_client:
-            await self.redis_client.aclose()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        await self._kafka_producer.stop()
         self.logger.info("Indicator Service stopped")
 async def main() -> None:
     import argparse
