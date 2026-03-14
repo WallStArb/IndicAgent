@@ -469,12 +469,19 @@ class FeatureWriterService:
                 ts_raw = ts_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
+            def _decode(val: object, default: str = "") -> str:
+                if val is None:
+                    return default
+                return val.decode() if isinstance(val, bytes) else str(val)
+
             i8_payload = {
-                "model": str(payload.get("model") or payload.get(b"model", b"unknown")),
-                "confidence": str(payload.get("confidence") or payload.get(b"confidence", b"0.0")),
-                "summary": str(payload.get("summary") or payload.get(b"summary", b"")),
-                "generated_at": str(
-                    payload.get("generated_at") or payload.get(b"generated_at", b"")
+                "model": _decode(payload.get("model") or payload.get(b"model"), "unknown"),
+                "confidence": _decode(
+                    payload.get("confidence") or payload.get(b"confidence"), "0.0"
+                ),
+                "summary": _decode(payload.get("summary") or payload.get(b"summary"), ""),
+                "generated_at": _decode(
+                    payload.get("generated_at") or payload.get(b"generated_at"), ""
                 ),
             }
             await self.db_manager.execute_batch(

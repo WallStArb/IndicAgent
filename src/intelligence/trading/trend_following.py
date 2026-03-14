@@ -20,7 +20,7 @@ class TrendFollowingPlugin:
     """
 
     name: str = "trad_TrendFollowing"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -34,7 +34,7 @@ class TrendFollowingPlugin:
     )
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "trend"})
+    capability_tags: frozenset[str] = frozenset({"trading", "trend"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     regime_threshold: float = 0.5
