@@ -20,10 +20,17 @@ class LiquiditySweepReclaimPlugin:
     """
 
     name: str = "trad_LiquiditySweepReclaim"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "sweep"})
@@ -99,7 +106,7 @@ class LiquiditySweepReclaimPlugin:
 
         # Named pool significance boost
         sweep_type_val = features.get("sweep_type", 0.0)
-        if sweep_type_val > 0:   # bullish sweep (SSL swept)
+        if sweep_type_val > 0:  # bullish sweep (SSL swept)
             sig = float(features.get("ssl_significance", 0.0))
             if sig >= 0.60:
                 confidence += min(0.10, sig * 0.12)

@@ -212,6 +212,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(candlestick_pattern_setup_plugin)
     registry.register_pattern(session_extremes_setup_plugin)
 
+
 # ---------------------------------------------------------------------------
 # Canonical tier plugin lists — single source of truth.
 # Built from plugin.name attributes so any rename propagates automatically.
@@ -256,8 +257,8 @@ TIER_I2: list[str] = [
     donchian_pos_plugin.name,
     obv_momentum_plugin.name,
     deriv_osc_plugin.name,
-    exhaustion_score_plugin.name,   # "cmp_ExhaustionScore"
-    accel_regime_plugin.name,       # "cmp_AccelerationRegime"
+    exhaustion_score_plugin.name,  # "cmp_ExhaustionScore"
+    accel_regime_plugin.name,  # "cmp_AccelerationRegime"
 ]
 
 TIER_I3: list[str] = [
@@ -268,7 +269,7 @@ TIER_I3: list[str] = [
     session_levels_plugin.name,
     anchored_vwap_plugin.name,
     fib_zones_plugin.name,
-    swing_momentum_plugin.name,     # "struct_SwingMomentum"
+    swing_momentum_plugin.name,  # "struct_SwingMomentum"
 ]
 
 TIER_I4: list[str] = [

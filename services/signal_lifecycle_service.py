@@ -13,7 +13,6 @@ Replaces signal_tracker_service. Extends lifecycle tracking with:
 import asyncio
 import json
 import math
-import os
 import signal
 import sys
 from datetime import UTC, datetime
@@ -139,8 +138,7 @@ class SignalLifecycleService:
         self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
 
         self.point_values: dict[str, float] = {
-            sym: float(get_point_value(sym) or 1.0)
-            for sym in self.config["service"]["symbols"]
+            sym: float(get_point_value(sym) or 1.0) for sym in self.config["service"]["symbols"]
         }
 
         # In-memory MAE/MFE tracking: signal_id → float
@@ -372,18 +370,20 @@ class SignalLifecycleService:
 
                     # Emit outcome to llm.outcomes topic for LLM call back-fill (LLM-03)
                     if self._kafka_producer:
-                        asyncio.create_task(self._kafka_producer.publish(
-                            topic_llm_outcomes(self.env_name),
-                            _build_outcome_payload(
-                                signal_id=sid,
-                                outcome=outcome,
-                                pnl_r=transition.pnl_r,
-                                mae=self._mae.get(sid, current_mae),
-                                mfe=self._mfe.get(sid, current_mfe),
-                                bars_in_trade=bit,
-                            ),
-                            key=message_key(sid),
-                        ))
+                        asyncio.create_task(
+                            self._kafka_producer.publish(
+                                topic_llm_outcomes(self.env_name),
+                                _build_outcome_payload(
+                                    signal_id=sid,
+                                    outcome=outcome,
+                                    pnl_r=transition.pnl_r,
+                                    mae=self._mae.get(sid, current_mae),
+                                    mfe=self._mfe.get(sid, current_mfe),
+                                    bars_in_trade=bit,
+                                ),
+                                key=message_key(sid),
+                            )
+                        )
 
                     # Status stays 'regime_suppressed' — never promoted to 'active'
                     await update_signal_status(
@@ -409,14 +409,16 @@ class SignalLifecycleService:
                     self._activated_at.pop(sid, None)
 
                     # Publish terminal event to signals stream for dashboard resolved state
-                    asyncio.create_task(self._publish_terminal_event(
-                        signal_id=sid,
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        outcome=outcome,
-                        exit_price=transition.exit_price,
-                        bar_ts=bar_time.isoformat(),
-                    ))
+                    asyncio.create_task(
+                        self._publish_terminal_event(
+                            signal_id=sid,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            outcome=outcome,
+                            exit_price=transition.exit_price,
+                            bar_ts=bar_time.isoformat(),
+                        )
+                    )
 
                     self.lifecycle_transitions_total.inc()
                     self.logger.info(
@@ -482,22 +484,26 @@ class SignalLifecycleService:
                     outcome = _classify_stop_outcome(current_mfe, bit)
 
                 # Compute signal_quality (QUAL-03: uses effective_confidence, not raw stored value)
-                signal_quality = max(0.0, round((transition.pnl_r or 0.0) * effective_confidence, 4))
+                signal_quality = max(
+                    0.0, round((transition.pnl_r or 0.0) * effective_confidence, 4)
+                )
 
                 # Emit outcome to llm.outcomes topic for LLM call back-fill (LLM-03)
                 if self._kafka_producer:
-                    asyncio.create_task(self._kafka_producer.publish(
-                        topic_llm_outcomes(self.env_name),
-                        _build_outcome_payload(
-                            signal_id=sid,
-                            outcome=outcome,
-                            pnl_r=transition.pnl_r,
-                            mae=self._mae.get(sid, current_mae),
-                            mfe=self._mfe.get(sid, current_mfe),
-                            bars_in_trade=bit,
-                        ),
-                        key=message_key(sid),
-                    ))
+                    asyncio.create_task(
+                        self._kafka_producer.publish(
+                            topic_llm_outcomes(self.env_name),
+                            _build_outcome_payload(
+                                signal_id=sid,
+                                outcome=outcome,
+                                pnl_r=transition.pnl_r,
+                                mae=self._mae.get(sid, current_mae),
+                                mfe=self._mfe.get(sid, current_mfe),
+                                bars_in_trade=bit,
+                            ),
+                            key=message_key(sid),
+                        )
+                    )
 
                 # Clean up memory
                 self._mae.pop(sid, None)
@@ -505,14 +511,16 @@ class SignalLifecycleService:
                 self._activated_at.pop(sid, None)
 
                 # Publish terminal event to signals stream for dashboard resolved state
-                asyncio.create_task(self._publish_terminal_event(
-                    signal_id=sid,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    outcome=outcome,
-                    exit_price=transition.exit_price,
-                    bar_ts=bar_time.isoformat(),
-                ))
+                asyncio.create_task(
+                    self._publish_terminal_event(
+                        signal_id=sid,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        outcome=outcome,
+                        exit_price=transition.exit_price,
+                        bar_ts=bar_time.isoformat(),
+                    )
+                )
 
             await update_signal_status(
                 self.db_manager,

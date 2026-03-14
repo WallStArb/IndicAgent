@@ -4,6 +4,7 @@ Requires BOTH changepoint detection (BOCPD) AND CHoCH structure break for highes
 regime transition signals. Changepoint probability alone or CHoCH alone is insufficient.
 Evidence contributor for CIS bucket scorer — Phase B input.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,10 +25,18 @@ class RegimeTransitionPlugin:
     """
 
     name: str = "trad_RegimeTransition"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "regime", "smc", "structure"})

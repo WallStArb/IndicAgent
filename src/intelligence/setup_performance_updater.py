@@ -122,13 +122,8 @@ def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, float]:
 
 async def run_setup_performance_update(
     db_manager: Any,
-    redis_client: Any = None,  # Ignored in Phase 30 — Redis removed
-    env_prefix: str = "",  # Retained for API compatibility — no longer used
 ) -> dict[str, float]:
     """Query DB, compute stats, upsert setup_performance table.
-
-    Phase 30: Redis write removed. signal_generator_service reads perf_weights
-    directly from setup_performance table via _load_perf_weights_from_db().
 
     Returns perf_weights dict (empty if no eligible setups).
 
@@ -136,21 +131,15 @@ async def run_setup_performance_update(
     ----------
     db_manager:
         DatabaseManager instance with execute_query / execute_command methods.
-    redis_client:
-        Ignored (retained for backwards-compatible call sites). Phase 30 removed Redis.
-    env_prefix:
-        Ignored (retained for backwards-compatible call sites). Phase 30 removed Redis.
     """
-    rows = await db_manager.execute_query(
-        """
+    rows = await db_manager.execute_query("""
         SELECT setup_plugin, pnl_r
         FROM signal_ledger
         WHERE pnl_r IS NOT NULL
           AND resolved_at > now() - INTERVAL '30 days'
           AND setup_plugin IS NOT NULL
         ORDER BY setup_plugin
-        """
-    )
+        """)
 
     if not rows:
         logger.info("setup_performance: no resolved signals in last 30 days")
@@ -158,9 +147,7 @@ async def run_setup_performance_update(
 
     stats = compute_setup_performance(list(rows))
     if not stats:
-        logger.info(
-            "setup_performance: no eligible setups (n<%d for all)", MIN_SAMPLE_SIZE
-        )
+        logger.info("setup_performance: no eligible setups (n<%d for all)", MIN_SAMPLE_SIZE)
         return {}
 
     # Upsert stats to setup_performance table

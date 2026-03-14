@@ -4,6 +4,7 @@ Gates on choch_detected==1.0 (SMC BOS/CHoCH plugin output).
 Direction from choch_direction. Confidence boosted by HMM regime alignment.
 Evidence contributor for CIS bucket scorer — Phase B input.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,10 +25,18 @@ class CHoCHReversalPlugin:
     """
 
     name: str = "trad_CHoCHReversal"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "smc", "structure", "regime"})

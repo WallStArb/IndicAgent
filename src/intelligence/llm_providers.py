@@ -9,6 +9,7 @@ Usage:
     text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
     # chain.last_provider_id tells you which provider succeeded
 """
+
 from __future__ import annotations
 
 import json
@@ -145,6 +146,7 @@ def _strip_thinking_tags(text: str) -> str:
     Strip those blocks and return only the final answer.
     """
     import re
+
     # Remove <think>...</think> blocks (possibly multiline, possibly multiple)
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     return cleaned.strip()
@@ -173,6 +175,7 @@ def _extract_message_content(choices: list[dict]) -> str | None:
 def _default_llm_timeout() -> float:
     """Get default LLM timeout from Settings."""
     from src.config.settings import Settings
+
     return Settings().llm_timeout_sec
 
 
@@ -221,7 +224,7 @@ class OpenRouterProvider:
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system},
-                    {"role": "user",   "content": prompt},
+                    {"role": "user", "content": prompt},
                 ],
                 "max_tokens": max_tokens,
                 "stream": False,
@@ -383,7 +386,7 @@ class OllamaProvider:
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system},
-                    {"role": "user",   "content": prompt},
+                    {"role": "user", "content": prompt},
                 ],
                 "stream": False,
                 "options": {"num_predict": max_tokens},

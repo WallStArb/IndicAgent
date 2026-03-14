@@ -49,27 +49,29 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
-EPSILON_TOLERANCE = 1e-9  # Tolerance for floating-point comparisons (Renaissance: instrument everything)
+EPSILON_TOLERANCE = (
+    1e-9  # Tolerance for floating-point comparisons (Renaissance: instrument everything)
+)
 
 # ATR multipliers for stop placement (Renaissance: explicit structural levels over hidden constants)
 ATR_STOP_DEMAND_MULTIPLIER = 0.25  # Demand zone: nearest_demand_low - ATR×0.25
-ATR_STOP_SWEEP_MULTIPLIER = 0.30   # Sweep detected: sweep_level - ATR×0.30
-ATR_STOP_OB_MULTIPLIER = 0.20       # Order block: ob_bottom/top ± ATR×0.20
-ATR_STOP_SWING_MULTIPLIER = 0.25    # Swing: swing_low/high ± ATR×0.25
-ATR_STOP_SR_MULTIPLIER = 0.50       # S/R: nearest_support/resistance ± ATR×0.50
-ATR_STOP_FALLBACK_MULTIPLIER = 2.0   # Fallback: entry ± ATR×2.0
+ATR_STOP_SWEEP_MULTIPLIER = 0.30  # Sweep detected: sweep_level - ATR×0.30
+ATR_STOP_OB_MULTIPLIER = 0.20  # Order block: ob_bottom/top ± ATR×0.20
+ATR_STOP_SWING_MULTIPLIER = 0.25  # Swing: swing_low/high ± ATR×0.25
+ATR_STOP_SR_MULTIPLIER = 0.50  # S/R: nearest_support/resistance ± ATR×0.50
+ATR_STOP_FALLBACK_MULTIPLIER = 2.0  # Fallback: entry ± ATR×2.0
 
 # ATR multipliers for zone and target bounds
-ATR_ZONE_SWEEP_MULTIPLIER = 0.5      # Sweep/reclaim zone: entry ± ATR×0.5
-ATR_ZONE_LOW_MULTIPLIER = 1.0          # Zone lower bound: entry - ATR×1.0
-ATR_ZONE_HIGH_MULTIPLIER = 0.5         # Zone upper bound: entry + ATR×0.5
-ATR_TARGET_MIN_MULTIPLIER = 0.5       # Minimum target distance: entry ± ATR×0.5
-ATR_TARGET_MAX_MULTIPLIER = 8.0       # Maximum target distance: entry ± ATR×8.0
+ATR_ZONE_SWEEP_MULTIPLIER = 0.5  # Sweep/reclaim zone: entry ± ATR×0.5
+ATR_ZONE_LOW_MULTIPLIER = 1.0  # Zone lower bound: entry - ATR×1.0
+ATR_ZONE_HIGH_MULTIPLIER = 0.5  # Zone upper bound: entry + ATR×0.5
+ATR_TARGET_MIN_MULTIPLIER = 0.5  # Minimum target distance: entry ± ATR×0.5
+ATR_TARGET_MAX_MULTIPLIER = 8.0  # Maximum target distance: entry ± ATR×8.0
 
 # ATR target multipliers for fallback (RR-based)
-ATR_FALLBACK_T1_MULTIPLIER = 2.0      # T1: risk × 2.0
-ATR_FALLBACK_T2_MULTIPLIER = 3.5      # T2: risk × 3.5
-ATR_FALLBACK_T3_MULTIPLIER = 5.5      # T3: risk × 5.5
+ATR_FALLBACK_T1_MULTIPLIER = 2.0  # T1: risk × 2.0
+ATR_FALLBACK_T2_MULTIPLIER = 3.5  # T2: risk × 3.5
+ATR_FALLBACK_T3_MULTIPLIER = 5.5  # T3: risk × 5.5
 
 # Emergency ATR fallback (Renaissance: degrade gracefully)
 ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
@@ -95,16 +97,16 @@ class TradeFrame:
     entry_type: str  # "at_close"|"at_reclaim"|"zone_proximal"|"at_limit"|"at_pullback"
     stop: float
     stop_type: str  # "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low"
-                          # | "sr_support" | "atr"
+    # | "sr_support" | "atr"
     targets: list[TradeTarget] = field(default_factory=list)
     rr_t1: float = 0.0
     rr_t2: float = 0.0
     rr_t3: float = 0.0
-    method: str = "atr_fallback"       # "structural" | "atr_fallback"
+    method: str = "atr_fallback"  # "structural" | "atr_fallback"
     viable: bool = True
     rejection_reason: str | None = None
-    zone_low: float = 0.0    # lower bound of entry zone (zone_low < zone_high always)
-    zone_high: float = 0.0   # upper bound of entry zone
+    zone_low: float = 0.0  # lower bound of entry zone (zone_low < zone_high always)
+    zone_high: float = 0.0  # upper bound of entry zone
 
 
 def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
@@ -223,11 +225,15 @@ def _resolve_entry(
     if st.startswith("momentum_breakout"):
         if direction == 1:
             level = _fval(features, "swing_high")
-            if level > EPSILON_TOLERANCE and level <= entry_price:  # limit below current price for long
+            if (
+                level > EPSILON_TOLERANCE and level <= entry_price
+            ):  # limit below current price for long
                 return level, "at_limit"
         else:
             level = _fval(features, "swing_low")
-            if level > EPSILON_TOLERANCE and level >= entry_price:  # limit above current price for short
+            if (
+                level > EPSILON_TOLERANCE and level >= entry_price
+            ):  # limit above current price for short
                 return level, "at_limit"
 
     # squeeze_expansion → at_limit at bb_middle (squeeze centre)
@@ -243,10 +249,12 @@ def _resolve_entry(
             if level > EPSILON_TOLERANCE and level < entry_price:  # pullback below current for long
                 return level, "at_pullback"
         else:
-            level = (
-                _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
+            level = _fval(features, "nearest_resistance") or _fval(
+                features, "sr_nearest_resistance"
             )
-            if level > EPSILON_TOLERANCE and level > entry_price:  # pullback above current for short
+            if (
+                level > EPSILON_TOLERANCE and level > entry_price
+            ):  # pullback above current for short
                 return level, "at_pullback"
 
     # mtf_alignment → at_pullback using nearest_support/resistance as CTF level proxy
@@ -257,8 +265,8 @@ def _resolve_entry(
             if level > EPSILON_TOLERANCE and level < entry_price:
                 return level, "at_pullback"
         else:
-            level = (
-                _fval(features, "nearest_resistance") or _fval(features, "sr_nearest_resistance")
+            level = _fval(features, "nearest_resistance") or _fval(
+                features, "sr_nearest_resistance"
             )
             if level > EPSILON_TOLERANCE and level > entry_price:
                 return level, "at_pullback"
@@ -343,9 +351,9 @@ def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> t
         return max(stop, max_stop), "swing_high"
 
     # Priority 5: S/R nearest resistance
-    sr_resistance = _fval(
-        features, "sr_nearest_resistance"
-    ) or _fval(features, "nearest_resistance")
+    sr_resistance = _fval(features, "sr_nearest_resistance") or _fval(
+        features, "nearest_resistance"
+    )
     if sr_resistance > EPSILON_TOLERANCE and sr_resistance > entry:
         stop = sr_resistance + atr * ATR_STOP_SR_MULTIPLIER
         return max(stop, max_stop), "sr_resistance"
@@ -368,9 +376,9 @@ def _collect_targets_long(
     candidates: list[tuple[float, str, str]] = []  # (price, label, level_type)
 
     # S/R resistance
-    nearest_resistance = _fval(
-        features, "nearest_resistance"
-    ) or _fval(features, "sr_nearest_resistance")
+    nearest_resistance = _fval(features, "nearest_resistance") or _fval(
+        features, "sr_nearest_resistance"
+    )
     if nearest_resistance > EPSILON_TOLERANCE:
         candidates.append((nearest_resistance, f"S/R {nearest_resistance:.2f}", "sr"))
 
@@ -419,9 +427,7 @@ def _collect_targets_long(
 
     # Filter to valid range
     valid = [
-        (price, label, ltype)
-        for price, label, ltype in candidates
-        if min_level < price < max_level
+        (price, label, ltype) for price, label, ltype in candidates if min_level < price < max_level
     ]
     # Sort by distance ascending
     valid.sort(key=lambda x: x[0])
@@ -476,9 +482,7 @@ def _collect_targets_short(
     ob_type = _fval(features, "ob_type")
     ob_bottom = _fval(features, "ob_bottom")
     if ob_type == -1.0 and ob_bottom > EPSILON_TOLERANCE and ob_bottom < entry:
-        candidates.append(
-            (ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob")
-        )
+        candidates.append((ob_bottom, f"OB bottom {ob_bottom:.2f}", "ob"))
 
     # Kalman lower
     kalman_lower = _fval(features, "kalman_lower")
@@ -498,9 +502,7 @@ def _collect_targets_short(
 
     # Filter to valid range
     valid = [
-        (price, label, ltype)
-        for price, label, ltype in candidates
-        if min_level < price < max_level
+        (price, label, ltype) for price, label, ltype in candidates if min_level < price < max_level
     ]
     # Sort by distance ascending (closest first = largest price value for shorts)
     valid.sort(key=lambda x: x[0], reverse=True)
@@ -610,15 +612,18 @@ def frame_trade(
         candidates = _collect_targets_short(resolved_entry, stop, atr, features)
 
     # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
-    zone_low, zone_high = _resolve_zone_bounds(
-        setup_type, direction, resolved_entry, features, atr
-    )
+    zone_low, zone_high = _resolve_zone_bounds(setup_type, direction, resolved_entry, features, atr)
 
     risk = abs(resolved_entry - stop)
     if risk <= EPSILON_TOLERANCE:
         return _reject_frame(
             "zero_risk: stop == entry",
-            resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
+            resolved_entry,
+            entry_type,
+            stop,
+            stop_type,
+            zone_low,
+            zone_high,
         )
 
     targets, is_structural = _pick_targets(candidates, resolved_entry, stop, atr, direction)
@@ -626,7 +631,12 @@ def frame_trade(
     if not targets:
         return _reject_frame(
             "no_targets_found",
-            resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
+            resolved_entry,
+            entry_type,
+            stop,
+            stop_type,
+            zone_low,
+            zone_high,
         )
 
     rr_t1 = targets[0].rr
@@ -641,22 +651,39 @@ def frame_trade(
     close_price = _fval(features, "close_price")
     if close_price > EPSILON_TOLERANCE and entry_type == "at_pullback":
         t1_price = targets[0].price
-        price_past_t1 = (
-            (direction == -1 and close_price < t1_price)  # short: close below T1
-            or (direction == 1 and close_price > t1_price)  # long: close above T1
-        )
+        price_past_t1 = (direction == -1 and close_price < t1_price) or (  # short: close below T1
+            direction == 1 and close_price > t1_price
+        )  # long: close above T1
         if price_past_t1:
             return _reject_frame(
                 "pullback_entry_price_past_t1",
-                resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
-                targets=targets, rr_t1=rr_t1, rr_t2=rr_t2, rr_t3=rr_t3, method=method,
+                resolved_entry,
+                entry_type,
+                stop,
+                stop_type,
+                zone_low,
+                zone_high,
+                targets=targets,
+                rr_t1=rr_t1,
+                rr_t2=rr_t2,
+                rr_t3=rr_t3,
+                method=method,
             )
 
     if rr_t1 < MIN_RR_T1:
         return _reject_frame(
             f"rr_below_{MIN_RR_T1}: {rr_t1:.2f}",
-            resolved_entry, entry_type, stop, stop_type, zone_low, zone_high,
-            targets=targets, rr_t1=rr_t1, rr_t2=rr_t2, rr_t3=rr_t3, method=method,
+            resolved_entry,
+            entry_type,
+            stop,
+            stop_type,
+            zone_low,
+            zone_high,
+            targets=targets,
+            rr_t1=rr_t1,
+            rr_t2=rr_t2,
+            rr_t3=rr_t3,
+            method=method,
         )
 
     return TradeFrame(

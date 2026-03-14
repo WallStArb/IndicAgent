@@ -53,11 +53,21 @@ I1_PLUGINS = TIER_I1
 
 _OHLCV_FIELDS = frozenset(
     {
-        "timestamp", "symbol", "timeframe",
-        "open", "high", "low", "close", "volume",
-        "source", "bar_close_ts", "i1_computed_at",
+        "timestamp",
+        "symbol",
+        "timeframe",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "source",
+        "bar_close_ts",
+        "i1_computed_at",
     }
 )
+
+
 def build_i1_message(
     bar: dict[str, Any],
     features: dict[str, Any],
@@ -75,7 +85,6 @@ def build_i1_message(
     bar_close_ts is propagated from the incoming market stream message.
     i1_computed_at is added when source=='live' to enable pipeline lag measurement.
     """
-
 
     msg: dict[str, str] = {
         "timestamp": timestamp.isoformat(),
@@ -96,6 +105,8 @@ def build_i1_message(
     if source == "live":
         msg["i1_computed_at"] = datetime.now(UTC).isoformat()
     return msg
+
+
 def parse_indicators_message(
     fields: dict[bytes, bytes],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -129,6 +140,8 @@ def parse_indicators_message(
                 features[key] = val
 
     return bar, features
+
+
 class IndicatorService:
     """Compute I1 technical indicators and publish one combined message per bar."""
 
@@ -145,9 +158,7 @@ class IndicatorService:
         registry.validate_tier(I1_PLUGINS, "I1")
 
         # I1 plugin reference cache and per-symbol state isolation
-        self._i1_plugin_cache: dict[str, Any] = {
-            n: registry.get_indicator(n) for n in I1_PLUGINS
-        }
+        self._i1_plugin_cache: dict[str, Any] = {n: registry.get_indicator(n) for n in I1_PLUGINS}
         self._i1_plugin_states: dict[tuple[str, str, str], dict] = {}
         # Per-key locks for concurrent access protection
         self._i1_plugin_states_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
@@ -167,9 +178,7 @@ class IndicatorService:
         self.db_manager: DatabaseManager | None = DatabaseManager(settings.database_url)
 
         # Build instrument map for asset-class guard
-        self._instrument_map: dict[str, Any] = {
-            inst.symbol: inst for inst in settings.contracts
-        }
+        self._instrument_map: dict[str, Any] = {inst.symbol: inst for inst in settings.contracts}
 
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
@@ -331,8 +340,13 @@ class IndicatorService:
             features = await self._run_i1_plugins(frames, symbol, timeframe)
 
             msg = build_i1_message(
-                bar_data, features, bar_ts, symbol, timeframe,
-                bar_close_ts=bar_close_ts_str, source="live",
+                bar_data,
+                features,
+                bar_ts,
+                symbol,
+                timeframe,
+                bar_close_ts=bar_close_ts_str,
+                source="live",
             )
 
             # Emit bar-to-I1 latency for live events with known close time
@@ -511,6 +525,8 @@ class IndicatorService:
             await self._kafka_consumer.stop()
         await self._kafka_producer.stop()
         self.logger.info("Indicator Service stopped")
+
+
 async def main() -> None:
     import argparse
 
@@ -522,5 +538,7 @@ async def main() -> None:
         await service.start()
     except KeyboardInterrupt:
         pass
+
+
 if __name__ == "__main__":
     asyncio.run(main())

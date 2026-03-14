@@ -21,10 +21,18 @@ class MeanReversionPlugin:
     """
 
     name: str = "trad_MeanReversion"
-    outputs: frozenset[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 50
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
@@ -98,19 +106,19 @@ class MeanReversionPlugin:
                 stop = entry + atr * 2.0
 
         # ── Targets ──
-        t1 = bb_middle if bb_middle is not None and bb_middle > 0 else (
-            entry + atr if direction == 1 else entry - atr
+        t1 = (
+            bb_middle
+            if bb_middle is not None and bb_middle > 0
+            else (entry + atr if direction == 1 else entry - atr)
         )
         if direction == 1:
             t2 = (
-                sr_resistance if sr_resistance is not None and sr_resistance > 0
+                sr_resistance
+                if sr_resistance is not None and sr_resistance > 0
                 else entry + atr * 2.0
             )
         else:
-            t2 = (
-                sr_support if sr_support is not None and sr_support > 0
-                else entry - atr * 2.0
-            )
+            t2 = sr_support if sr_support is not None and sr_support > 0 else entry - atr * 2.0
         targets = [round(float(t1), 2), round(float(t2), 2)]
 
         # ── Confidence scoring ──
@@ -134,12 +142,7 @@ class MeanReversionPlugin:
         else:
             sr_prox = 0.0
 
-        raw_conf = (
-            0.3 * rsi_extreme
-            + 0.3 * div_score
-            + 0.2 * vol_stability
-            + 0.2 * sr_prox
-        )
+        raw_conf = 0.3 * rsi_extreme + 0.3 * div_score + 0.2 * vol_stability + 0.2 * sr_prox
         confidence = round(min(1.0, max(0.0, raw_conf)), 4)
 
         # ── Supporting factors ──

@@ -1,4 +1,5 @@
 """I7 SessionExtremesSetup — fade setups triggered by price approaching Asian session extremes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

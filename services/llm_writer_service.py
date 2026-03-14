@@ -121,6 +121,7 @@ def _parse_llm_call_fields(fields: dict) -> dict | None:
     All three must be present and non-empty — returns None if any is missing.
     All remaining fields have safe None defaults.
     """
+
     def _str(key: str) -> str:
         # Try string key first (Kafka), then bytes key (tests)
         val = fields.get(key) or fields.get(key.encode(), b"")
@@ -196,6 +197,7 @@ def _parse_outcome_fields(fields: dict) -> dict | None:
     Required field: signal_id — returns None if missing.
     All other outcome fields are optional (None default).
     """
+
     def _str(key: str) -> str:
         val = fields.get(key) or fields.get(key.encode(), b"")
         if isinstance(val, bytes):
@@ -365,9 +367,7 @@ class LLMWriterService:
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         default_config: dict[str, Any] = {
-            "database": {
-                "dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"
-            },
+            "database": {"dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"},
             "service": {
                 "processing_interval": 0.01,
                 "metrics_port": 9117,
@@ -472,30 +472,30 @@ class LLMWriterService:
     def _parsed_to_insert_tuple(self, parsed: dict) -> tuple:
         """Map parsed llm_call dict to a positional tuple for _INSERT_LLM_CALL_SQL."""
         return (
-            parsed["call_id"],       # $1  call_id
-            parsed["called_at"],     # $2  called_at
-            parsed["call_type"],     # $3  call_type
-            parsed["signal_id"],     # $4  signal_id (uuid)
-            parsed["group_name"],    # $5  group_name
-            parsed["symbol"],        # $6  symbol
-            parsed["timeframe"],     # $7  timeframe
-            parsed["model"],         # $8  model
-            parsed["provider"],      # $9  provider
-            parsed["prompt"],        # $10 prompt
-            parsed["response"],      # $11 response
-            parsed["latency_ms"],    # $12 latency_ms
-            parsed["tokens_est"],    # $13 tokens_est
-            parsed["succeeded"],     # $14 succeeded
-            parsed["regime"],        # $15 regime
-            parsed["session"],       # $16 session
-            parsed["entry_price"],   # $17 entry_price
-            parsed["stop_loss"],     # $18 stop_loss
+            parsed["call_id"],  # $1  call_id
+            parsed["called_at"],  # $2  called_at
+            parsed["call_type"],  # $3  call_type
+            parsed["signal_id"],  # $4  signal_id (uuid)
+            parsed["group_name"],  # $5  group_name
+            parsed["symbol"],  # $6  symbol
+            parsed["timeframe"],  # $7  timeframe
+            parsed["model"],  # $8  model
+            parsed["provider"],  # $9  provider
+            parsed["prompt"],  # $10 prompt
+            parsed["response"],  # $11 response
+            parsed["latency_ms"],  # $12 latency_ms
+            parsed["tokens_est"],  # $13 tokens_est
+            parsed["succeeded"],  # $14 succeeded
+            parsed["regime"],  # $15 regime
+            parsed["session"],  # $16 session
+            parsed["entry_price"],  # $17 entry_price
+            parsed["stop_loss"],  # $18 stop_loss
             parsed["target_price"],  # $19 target_price
-            parsed["confidence"],    # $20 confidence
-            parsed["cis_score"],     # $21 cis_score
+            parsed["confidence"],  # $20 confidence
+            parsed["cis_score"],  # $21 cis_score
             parsed["entry_zone_low"],  # $22 entry_zone_low
-            parsed["entry_zone_high"], # $23 entry_zone_high
-            parsed["setup_type"],    # $24 setup_type
+            parsed["entry_zone_high"],  # $23 entry_zone_high
+            parsed["setup_type"],  # $24 setup_type
         )
 
     async def _process_calls_message(self, payload: dict) -> bool:
@@ -538,13 +538,13 @@ class LLMWriterService:
 
             if self.db_manager:
                 params = (
-                    parsed["signal_id"],      # $1
-                    parsed["outcome"],        # $2
-                    parsed["pnl_r"],          # $3
-                    parsed["mae"],            # $4
-                    parsed["mfe"],            # $5
+                    parsed["signal_id"],  # $1
+                    parsed["outcome"],  # $2
+                    parsed["pnl_r"],  # $3
+                    parsed["mae"],  # $4
+                    parsed["mfe"],  # $5
                     parsed["bars_in_trade"],  # $6
-                    parsed["outcome_at"],     # $7
+                    parsed["outcome_at"],  # $7
                 )
                 await self.db_manager.execute_batch(_UPDATE_OUTCOME_SQL, [params])
 
@@ -594,15 +594,25 @@ class LLMWriterService:
                 else:
                     p_value = 1.0
 
-                is_significant = (
-                    (p_value < SCORE_P_THRESHOLD) and (n_outcomes >= SCORE_MIN_N_OUTCOMES)
+                is_significant = (p_value < SCORE_P_THRESHOLD) and (
+                    n_outcomes >= SCORE_MIN_N_OUTCOMES
                 )
 
-                score_params.append((
-                    model, regime, setup_type, call_type,
-                    n_calls, n_outcomes, win_rate, avg_pnl_r, avg_latency_ms,
-                    p_value, is_significant,
-                ))
+                score_params.append(
+                    (
+                        model,
+                        regime,
+                        setup_type,
+                        call_type,
+                        n_calls,
+                        n_outcomes,
+                        win_rate,
+                        avg_pnl_r,
+                        avg_latency_ms,
+                        p_value,
+                        is_significant,
+                    )
+                )
 
             if score_params:
                 await self.db_manager.execute_batch(_UPSERT_SCORE_SQL, score_params)

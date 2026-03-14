@@ -6,6 +6,7 @@ Two patterns wired into I7 setups during Phase 24:
   - Exhaustion guard: penalises trend-chasing setups when momentum is exhausted
     and has persisted for multiple bars (avoid entering a tired move).
 """
+
 from __future__ import annotations
 
 from typing import Any

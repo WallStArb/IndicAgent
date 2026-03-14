@@ -86,8 +86,12 @@ class MarketAnalysisService:
 
         register_all_plugins()
         for tier_list, tier_name in [
-            (TIER_I2, "I2"), (TIER_I3, "I3"), (TIER_I4, "I4"), (TIER_I5, "I5"),
-            (TIER_SMC, "SMC"), (TIER_I6, "I6"),
+            (TIER_I2, "I2"),
+            (TIER_I3, "I3"),
+            (TIER_I4, "I4"),
+            (TIER_I5, "I5"),
+            (TIER_SMC, "SMC"),
+            (TIER_I6, "I6"),
         ]:
             registry.validate_tier(tier_list, tier_name)
 
@@ -116,9 +120,7 @@ class MarketAnalysisService:
         self._active_symbols: set[str] = set()
 
         # Build instrument map for asset-class guard
-        self._instrument_map: dict[str, Any] = {
-            inst.symbol: inst for inst in settings.contracts
-        }
+        self._instrument_map: dict[str, Any] = {inst.symbol: inst for inst in settings.contracts}
 
         self.bars_processed_total = counter(
             "market_analysis_bars_processed_total",
@@ -229,9 +231,7 @@ class MarketAnalysisService:
                         self._plugin_states[state_key] = p._state  # capture full reassignments
                     results.update(out)
                 except Exception as exc:
-                    self.logger.warning(
-                        f"{tier} plugin failed", plugin=pname, error=str(exc)
-                    )
+                    self.logger.warning(f"{tier} plugin failed", plugin=pname, error=str(exc))
                     record_plugin_execution(
                         pname, symbol, timeframe, time.time() - t0, "error", tier
                     )
@@ -368,14 +368,17 @@ class MarketAnalysisService:
                 self._df_cache[key] = None
 
             calc_start = time.time()
-            tiered = await self._calculate_intelligence(
-                symbol, timeframe, bar_ts, i1_features
-            )
+            tiered = await self._calculate_intelligence(symbol, timeframe, bar_ts, i1_features)
             calc_ms = (time.time() - calc_start) * 1000
 
             if tiered:
                 await self._publish_intelligence(
-                    symbol, timeframe, tiered, bar_ts, bar_data, i1_features,
+                    symbol,
+                    timeframe,
+                    tiered,
+                    bar_ts,
+                    bar_data,
+                    i1_features,
                     bar_close_ts_str=bar_close_ts_str,
                     i1_computed_at_str=i1_computed_at_str,
                 )
@@ -482,7 +485,6 @@ class MarketAnalysisService:
             {"event": event.model_dump_json()},
             key=message_key(symbol, timeframe),
         )
-
 
     async def _warmup_bar_history(self) -> None:
         """Warmup is skipped — market_analysis_service now seeds from Kafka live stream.

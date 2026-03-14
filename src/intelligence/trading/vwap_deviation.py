@@ -23,10 +23,18 @@ class VWAPDeviationPlugin:
     """
 
     name: str = "trad_VWAPDeviation"
-    outputs: frozenset[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "vwap", "mean_reversion"})

@@ -4,6 +4,7 @@ LOCKED DESIGN: Both RSI and volume divergences must agree (dual-gate is non-nego
 Single divergence alone is insufficient — requires convergence of momentum + volume evidence.
 Evidence contributor for CIS bucket scorer — Phase B input.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,10 +26,18 @@ class DivergenceStackPlugin:
     """
 
     name: str = "trad_DivergenceStack"
-    outputs: set[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"trading", "momentum", "divergence"})

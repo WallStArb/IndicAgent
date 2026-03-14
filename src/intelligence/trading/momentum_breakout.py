@@ -21,10 +21,18 @@ class MomentumBreakoutPlugin:
     """
 
     name: str = "trad_MomentumBreakout"
-    outputs: frozenset[str] = frozenset({
-        "signal_type", "direction", "entry_price", "stop_loss",
-        "targets", "confidence", "regime_context", "supporting_factors",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "signal_type",
+            "direction",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "confidence",
+            "regime_context",
+            "supporting_factors",
+        }
+    )
     min_lookback: int = 20
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"trading", "breakout", "momentum"})
@@ -110,8 +118,7 @@ class MomentumBreakoutPlugin:
         roc_score = min(1.0, (abs(roc) - self.roc_threshold) / self.roc_threshold)
         vol_score = min(
             1.0,
-            (volume_ratio - self.volume_expansion_threshold)
-            / self.volume_expansion_threshold,
+            (volume_ratio - self.volume_expansion_threshold) / self.volume_expansion_threshold,
         )
         break_margin = min(1.0, max(0.0, abs(price - structure_level) / atr))
 
@@ -126,12 +133,7 @@ class MomentumBreakoutPlugin:
         else:
             regime_score = 0.1
 
-        raw_conf = (
-            0.35 * roc_score
-            + 0.30 * vol_score
-            + 0.20 * break_margin
-            + 0.15 * regime_score
-        )
+        raw_conf = 0.35 * roc_score + 0.30 * vol_score + 0.20 * break_margin + 0.15 * regime_score
         confidence = round(min(1.0, max(0.0, raw_conf)), 4)
 
         # Supporting factors

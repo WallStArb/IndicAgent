@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import signal
 import sys
 import time
@@ -36,7 +35,6 @@ from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
     message_key,
-    topic_intelligence,
     topic_intelligence_i8,
     topic_llm_calls,
     topic_narratives,
@@ -72,19 +70,17 @@ GROUP_SYSTEM_PROMPT = (
 
 # Asset group definitions — contract codes for active front-month (Feb 2026)
 ASSET_GROUPS: dict[str, list[str]] = {
-    "equity":    ["ESH6", "NQH6", "RTYH6", "YMH6", "VXH6"],
-    "energy":    ["CLJ6", "BZJ6", "NGJ6"],
-    "metals":    ["GCJ6", "SIH6", "HGH6", "PLJ6"],
-    "rates":     ["ZNH6", "ZFH6", "ZBH6", "ZTH6", "SR1H6"],
+    "equity": ["ESH6", "NQH6", "RTYH6", "YMH6", "VXH6"],
+    "energy": ["CLJ6", "BZJ6", "NGJ6"],
+    "metals": ["GCJ6", "SIH6", "HGH6", "PLJ6"],
+    "rates": ["ZNH6", "ZFH6", "ZBH6", "ZTH6", "SR1H6"],
     "fx_crypto": ["6EH6", "6JH6", "BTCH6"],
-    "ag":        ["ZSH6", "ZCH6", "ZWH6"],
+    "ag": ["ZSH6", "ZCH6", "ZWH6"],
 }
 
 # Reverse lookup: contract_code → group_name
 SYMBOL_TO_GROUP: dict[str, str] = {
-    sym: group
-    for group, symbols in ASSET_GROUPS.items()
-    for sym in symbols
+    sym: group for group, symbols in ASSET_GROUPS.items() for sym in symbols
 }
 
 # TFs considered for group synthesis signal state
@@ -143,11 +139,13 @@ def extract_group_fingerprint(
 # Pure helper functions (no I/O — easy to test)
 # ---------------------------------------------------------------------------
 
+
 def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None:
     """Parse a signals:aggregated stream message into a typed signal dict.
 
     Returns None if direction is 0 (no actionable signal to narrate).
     """
+
     def _get(key: str, default: str = "") -> str:
         raw = fields.get(key.encode(), b"")
         return (raw.decode() if isinstance(raw, bytes) else str(raw)).strip() or default
@@ -170,14 +168,15 @@ def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None
         "signal_type": _get("signal_type"),
         "entry_price": _get("entry_price"),
         "stop_loss": _get("stop_loss"),
-        "profit_target": _get("profit_target"),        # promoted scalar from targets[0]
+        "profit_target": _get("profit_target"),  # promoted scalar from targets[0]
         "risk_reward_ratio": _get("risk_reward_ratio"),
         "regime_context": _get("regime_context"),
         "supporting_factors": _get("supporting_factors"),
     }
 
 
-# build_narrative_prompt() retired in phase 22 (three-tier redesign) — use build_short_prompt() / build_deep_prompt()
+# build_narrative_prompt() retired in phase 22 (three-tier redesign).
+# Use build_short_prompt() / build_deep_prompt() instead.
 
 
 _STRUCTURAL_LABELS: dict[str, str] = {
@@ -314,7 +313,7 @@ def build_short_prompt(signal: dict[str, Any], ctx: dict[str, Any]) -> str:
     else:
         execution_instruction = (
             "Sentence 2 (Monitor): Name what level or condition would confirm this "
-            "setup before acting. Frame as \'watch\' not \'enter\'."
+            "setup before acting. Frame as 'watch' not 'enter'."
         )
 
     regime_line = ""
@@ -324,9 +323,7 @@ def build_short_prompt(signal: dict[str, Any], ctx: dict[str, Any]) -> str:
             f"(HMM state {ctx['hmm_regime']}, prob {float(ctx['hmm_regime_prob']):.0%})\n"
         )
 
-    killzone_line = (
-        f"Killzone: {ctx['killzone']} open active\n" if ctx.get("killzone") else ""
-    )
+    killzone_line = f"Killzone: {ctx['killzone']} open active\n" if ctx.get("killzone") else ""
     confluence_line = (
         f"Confluence: {ctx['confluence_score']}\n" if ctx.get("confluence_score") else ""
     )
@@ -419,30 +416,30 @@ def _build_llm_call_payload(
     """
     sd = signal_data or {}
     return {
-        "call_id":         str(uuid.uuid4()),
-        "called_at":       datetime.now(tz=UTC).isoformat(),
-        "call_type":       call_type,
-        "signal_id":       str(sd.get("signal_id", "")),
-        "group_name":      group_name,
-        "symbol":          str(sd.get("symbol", "")),
-        "timeframe":       str(sd.get("timeframe", "")),
-        "model":           model_id,
-        "provider":        model_id.split(":")[0] if model_id else "",
-        "prompt":          prompt,
-        "response":        response or "",
-        "latency_ms":      str(int(latency_ms)),
-        "tokens_est":      str(len((response or "").split())),
-        "succeeded":       "1" if succeeded else "0",
-        "regime":          str(sd.get("regime_context", "")),
-        "session":         "",                                          # not in aggregated stream
-        "entry_price":     str(sd.get("entry_price", "")),
-        "stop_loss":       str(sd.get("stop_loss", "")),
-        "target_price":    str(sd.get("profit_target", "")),
-        "confidence":      str(sd.get("confidence", "")),
-        "cis_score":       "",                                          # not in aggregated stream
-        "entry_zone_low":  "",                                          # not in aggregated stream
-        "entry_zone_high": "",                                          # not in aggregated stream
-        "setup_type":      str(sd.get("setup_plugin", "")),
+        "call_id": str(uuid.uuid4()),
+        "called_at": datetime.now(tz=UTC).isoformat(),
+        "call_type": call_type,
+        "signal_id": str(sd.get("signal_id", "")),
+        "group_name": group_name,
+        "symbol": str(sd.get("symbol", "")),
+        "timeframe": str(sd.get("timeframe", "")),
+        "model": model_id,
+        "provider": model_id.split(":")[0] if model_id else "",
+        "prompt": prompt,
+        "response": response or "",
+        "latency_ms": str(int(latency_ms)),
+        "tokens_est": str(len((response or "").split())),
+        "succeeded": "1" if succeeded else "0",
+        "regime": str(sd.get("regime_context", "")),
+        "session": "",  # not in aggregated stream
+        "entry_price": str(sd.get("entry_price", "")),
+        "stop_loss": str(sd.get("stop_loss", "")),
+        "target_price": str(sd.get("profit_target", "")),
+        "confidence": str(sd.get("confidence", "")),
+        "cis_score": "",  # not in aggregated stream
+        "entry_zone_low": "",  # not in aggregated stream
+        "entry_zone_high": "",  # not in aggregated stream
+        "setup_type": str(sd.get("setup_plugin", "")),
     }
 
 
@@ -470,6 +467,7 @@ def _promote_model_in_chain(chain: Any, model_provider_id: str | None) -> None:
 # Service class
 # ---------------------------------------------------------------------------
 
+
 class AINarrativeService:
     """Synthesize aggregated trading signals into LLM-generated market narratives."""
 
@@ -490,8 +488,9 @@ class AINarrativeService:
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
         self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
 
-        # KAFKA-08: In-process LLM scores cache (replaces Redis HSET/HGETALL llm_scores_cache)
-        # Structure: {call_type: {regime: {model: {win_rate, avg_pnl_r, sample_size, p_value, is_significant}}}}
+        # KAFKA-08: In-process LLM scores cache (replaces Redis HSET/HGETALL llm_scores_cache).
+        # Structure: {call_type: {regime: {model: {win_rate, avg_pnl_r, sample_size, p_value,
+        #   is_significant}}}}
         self._llm_scores_cache: dict[str, dict[str, dict]] = {}
 
         # In-process group fingerprints (replaces Redis hset fingerprint_json for _synthesize_group)
@@ -580,7 +579,7 @@ class AINarrativeService:
             return OllamaProvider(spec["model"], base_url=ol_url)
 
         self.short_chain = LLMChain([_make_provider(s) for s in pcfg["narrative_short"]])
-        self.deep_chain  = LLMChain([_make_provider(s) for s in pcfg["narrative_deep"]])
+        self.deep_chain = LLMChain([_make_provider(s) for s in pcfg["narrative_deep"]])
         self.group_chain = LLMChain([_make_provider(s) for s in pcfg["group"]])
 
         self._per_signal_timeout = Settings().llm_timeout_sec
@@ -597,7 +596,11 @@ class AINarrativeService:
             _settings = None
 
         default_config: dict[str, Any] = {
-            "redis": {"host": "localhost", "port": 6379, "db": 0},  # legacy key kept for config compat
+            "redis": {
+                "host": "localhost",
+                "port": 6379,
+                "db": 0,
+            },  # legacy key kept for config compat
             "database": {
                 "url": (
                     _settings.database_url
@@ -624,37 +627,37 @@ class AINarrativeService:
                 "ollama_base_url": "http://localhost:11434",
                 "ollama_timeout_sec": 60.0,
                 "per_signal": [
-                    # {"type": "zai",        "model": "glm-5"},           # Commented out: insufficient balance
-                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},           # Bypassed: paid
-                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},     # Bypassed: paid
+                    # {"type": "zai", "model": "glm-5"},  # insufficient balance
+                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
+                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
-                    {"type": "ollama",     "model": "qwen3.5:9b"},
+                    {"type": "ollama", "model": "qwen3.5:9b"},
                 ],
                 "group": [
-                    # {"type": "zai",        "model": "glm-5"},           # Commented out: insufficient balance
-                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},           # Bypassed: paid
-                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},     # Bypassed: paid
+                    # {"type": "zai", "model": "glm-5"},  # insufficient balance
+                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
+                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
-                    {"type": "ollama",     "model": "phi4-mini:3.8b"},
+                    {"type": "ollama", "model": "phi4-mini:3.8b"},
                 ],
                 "narrative_short": [
-                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},           # Bypassed: paid
-                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},     # Bypassed: paid
+                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
+                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
-                    {"type": "ollama",     "model": "qwen3.5:9b"},
+                    {"type": "ollama", "model": "qwen3.5:9b"},
                 ],
                 "narrative_deep": [
-                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},           # Bypassed: paid
-                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},     # Bypassed: paid
+                    # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
+                    # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
-                    {"type": "ollama",     "model": "qwen3.5:9b"},
+                    {"type": "ollama", "model": "qwen3.5:9b"},
                 ],
             },
             "logging": {
@@ -685,6 +688,7 @@ class AINarrativeService:
 
     def _register_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
         """Register SIGINT/SIGTERM handlers that wake the asyncio event loop."""
+
         def _handle_signal() -> None:
             self.logger.info("Received shutdown signal")
             self.shutdown_requested = True
@@ -724,7 +728,9 @@ class AINarrativeService:
             self.db_manager = DatabaseManager(db_url)
             await self.db_manager.initialize()
         except Exception as e:
-            self.logger.warning("Database unavailable — llm_scores_cache will be empty", error=str(e))
+            self.logger.warning(
+                "Database unavailable — llm_scores_cache will be empty", error=str(e)
+            )
             self.db_manager = None
 
     async def _warm_llm_scores_cache_from_db(self) -> None:
@@ -737,13 +743,11 @@ class AINarrativeService:
             return
         try:
             async with self.db_manager.get_connection() as conn:
-                rows = await conn.fetch(
-                    """
+                rows = await conn.fetch("""
                     SELECT call_type, model, regime, win_rate, avg_pnl_r, sample_size, p_value
                     FROM llm_model_scores
                     WHERE p_value < 0.05
-                    """
-                )
+                    """)
             new_cache: dict[str, dict[str, dict]] = {}
             for row in rows:
                 ct = row["call_type"]
@@ -805,17 +809,17 @@ class AINarrativeService:
         prompt: str,
         chain: Any,
     ) -> None:
-        """Execute a single tier LLM call end-to-end: call chain, publish to llm_calls and narratives streams.
+        """Execute a single tier LLM call end-to-end: call chain, publish to llm_calls
+        and narratives streams.
 
         Each tier (narrative_short, narrative_deep) runs independently as a background task.
         narrative_short additionally updates the backward-compat latest hash and increments metrics.
         """
         try:
             regime_key = signal_data.get("regime_context", "")
-            preferred = (
-                self._preferred_models.get(call_type, {}).get(regime_key)
-                or self._preferred_models.get(call_type, {}).get("__all__")
-            )
+            preferred = self._preferred_models.get(call_type, {}).get(
+                regime_key
+            ) or self._preferred_models.get(call_type, {}).get("__all__")
             if preferred:
                 _promote_model_in_chain(chain, preferred)
 
@@ -850,7 +854,9 @@ class AINarrativeService:
                 self.narratives_skipped_total.inc()
                 self.logger.warning(
                     "LLM returned no narrative",
-                    symbol=symbol, timeframe=timeframe, call_type=call_type,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    call_type=call_type,
                 )
                 return
 
@@ -900,7 +906,8 @@ class AINarrativeService:
                 self.ollama_latency_ms.set(latency_ms)
                 self.logger.info(
                     "Narrative published",
-                    symbol=symbol, timeframe=timeframe,
+                    symbol=symbol,
+                    timeframe=timeframe,
                     bias=signal_data["direction_label"],
                     latency_ms=round(latency_ms, 1),
                 )
@@ -908,8 +915,10 @@ class AINarrativeService:
         except Exception as e:
             self.logger.error(
                 "Error in _run_narrative_call",
-                symbol=symbol, timeframe=timeframe,
-                call_type=call_type, error=str(e),
+                symbol=symbol,
+                timeframe=timeframe,
+                call_type=call_type,
+                error=str(e),
             )
             self.error_count_total.inc()
             self._error_count += 1
@@ -938,7 +947,8 @@ class AINarrativeService:
                 self.narratives_skipped_total.inc()
                 self.logger.debug(
                     "Per-signal narrative skipped: ineligible TF",
-                    symbol=symbol, timeframe=timeframe,
+                    symbol=symbol,
+                    timeframe=timeframe,
                 )
                 return True
 
@@ -946,12 +956,15 @@ class AINarrativeService:
                 self.narratives_skipped_total.inc()
                 self.logger.debug(
                     "Per-signal narrative skipped: low confidence",
-                    symbol=symbol, timeframe=timeframe,
+                    symbol=symbol,
+                    timeframe=timeframe,
                     confidence=signal_data["confidence"],
                 )
                 # Counterfactual: log that we would have called, but didn't
                 if self._kafka_producer:
-                    cf_prompt = build_short_prompt(signal_data, extract_short_context(signal_data, {}))
+                    cf_prompt = build_short_prompt(
+                        signal_data, extract_short_context(signal_data, {})
+                    )
                     cf_payload = _build_llm_call_payload(
                         call_type="counterfactual",
                         signal_data=signal_data,
@@ -962,15 +975,20 @@ class AINarrativeService:
                         succeeded=False,
                         model_id="",
                     )
-                    asyncio.create_task(self._kafka_producer.publish(
-                        topic_llm_calls(self.env_name),
-                        cf_payload,
-                        key=message_key(signal_data.get("symbol", ""), signal_data.get("timeframe")),
-                    ))
+                    asyncio.create_task(
+                        self._kafka_producer.publish(
+                            topic_llm_calls(self.env_name),
+                            cf_payload,
+                            key=message_key(
+                                signal_data.get("symbol", ""), signal_data.get("timeframe")
+                            ),
+                        )
+                    )
                 return True
 
-            # Intelligence context: in Kafka flow, intel is embedded in the signals.aggregated payload.
-            # No Redis xrevrange — intel fields passed directly in signal_data if available.
+            # Intelligence context: in Kafka flow, intel is embedded in the
+            # signals.aggregated payload. No Redis xrevrange — intel fields passed
+            # directly in signal_data if available.
             intel_ctx: dict[str, Any] = {}
 
             # Build tier-specific prompts using intelligence context
@@ -980,12 +998,26 @@ class AINarrativeService:
             deep_prompt = build_deep_prompt(signal_data, deep_ctx)
 
             # Fire both tier tasks concurrently — neither blocks the processing loop
-            asyncio.create_task(self._run_narrative_call(
-                signal_data, symbol, timeframe, "narrative_short", short_prompt, self.short_chain,
-            ))
-            asyncio.create_task(self._run_narrative_call(
-                signal_data, symbol, timeframe, "narrative_deep", deep_prompt, self.deep_chain,
-            ))
+            asyncio.create_task(
+                self._run_narrative_call(
+                    signal_data,
+                    symbol,
+                    timeframe,
+                    "narrative_short",
+                    short_prompt,
+                    self.short_chain,
+                )
+            )
+            asyncio.create_task(
+                self._run_narrative_call(
+                    signal_data,
+                    symbol,
+                    timeframe,
+                    "narrative_deep",
+                    deep_prompt,
+                    self.deep_chain,
+                )
+            )
             return True
 
         except Exception as e:
@@ -1074,7 +1106,7 @@ class AINarrativeService:
         new_preferred: dict[str, dict[str, str]] = {}
         for call_type, _chain in [
             ("narrative_short", self.short_chain),
-            ("narrative_deep",  self.deep_chain),
+            ("narrative_deep", self.deep_chain),
             ("group_synthesis", self.group_chain),
         ]:
             regime_winners: dict[str, str] = {}
@@ -1158,11 +1190,13 @@ class AINarrativeService:
                 succeeded=narrative_text is not None,
                 model_id=self.group_chain.last_provider_id or "",
             )
-            asyncio.create_task(self._kafka_producer.publish(
-                topic_llm_calls(self.env_name),
-                gs_payload,
-                key=group_name,
-            ))
+            asyncio.create_task(
+                self._kafka_producer.publish(
+                    topic_llm_calls(self.env_name),
+                    gs_payload,
+                    key=group_name,
+                )
+            )
 
         if narrative_text:
             ts = datetime.now(tz=UTC).isoformat()

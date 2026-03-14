@@ -17,13 +17,13 @@ from .cis_scorer import CISScorer
 # Plugins declare their regime_type attribute; this dict maps it to allowed regimes.
 # 0 = ranging, 1 = trend-up, 2 = trend-down.
 _REGIME_MAP: dict[str, list[int]] = {
-    "trend":          [1, 2],
+    "trend": [1, 2],
     "mean_reversion": [0],
-    "any":            [0, 1, 2],
+    "any": [0, 1, 2],
 }
 
-_REGIME_PROB_MIN = 0.60   # minimum confidence to trust regime label (raised from 0.55)
-_REGIME_DUR_MIN = 5       # minimum bars before regime is considered stable (raised from 3)
+_REGIME_PROB_MIN = 0.60  # minimum confidence to trust regime label (raised from 0.55)
+_REGIME_DUR_MIN = 5  # minimum bars before regime is considered stable (raised from 3)
 
 # Plugin priority: higher value = higher priority
 SETUP_PRIORITY: dict[str, int] = {
@@ -40,16 +40,18 @@ _REGIME_TIEBREAK_THRESHOLD = 0.4
 # Trend setup names (I7 plugins that require a trending market for edge).
 # Mean-reversion setups: all TIER_I7 names NOT in this set.
 # Used by _build_all_ranked() to route hurst_trend_quality vs hurst_mr_quality.
-TREND_SETUPS: frozenset[str] = frozenset({
-    "trad_TrendFollowing",
-    "trad_LiquiditySweepReclaim",
-    "trad_MTFAlignment",
-    "trad_MomentumBreakout",
-    "trad_SqueezeExpansion",
-    "trad_LiquidityHunt",
-    "trad_RegimeTransition",
-    "trad_GapAnalysisSetup",
-})
+TREND_SETUPS: frozenset[str] = frozenset(
+    {
+        "trad_TrendFollowing",
+        "trad_LiquiditySweepReclaim",
+        "trad_MTFAlignment",
+        "trad_MomentumBreakout",
+        "trad_SqueezeExpansion",
+        "trad_LiquidityHunt",
+        "trad_RegimeTransition",
+        "trad_GapAnalysisSetup",
+    }
+)
 
 
 @dataclass
@@ -168,10 +170,7 @@ def aggregate(
 
     # Build all_ranked from ALL fired signals (eligible + suppressed as shadow entries).
     # active is derived from all_ranked so signals carry adjusted_rank for winner selection.
-    all_fired = [
-        s for s in signals
-        if s.get("direction") != 0 and s.get("signal_type") != "none"
-    ]
+    all_fired = [s for s in signals if s.get("direction") != 0 and s.get("signal_type") != "none"]
     all_ranked = _build_all_ranked(
         all_fired, perf_weights=perf_weights, features=features, drift_penalty=drift_penalty
     )
