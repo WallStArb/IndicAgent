@@ -73,6 +73,11 @@ def topic_narratives(env_name: str) -> str:
     return f"{env_prefix(env_name)}narratives"
 
 
+def topic_narratives_group(env_name: str) -> str:
+    """Kafka topic for I8 group synthesis narrative output."""
+    return f"{env_prefix(env_name)}narratives.group"
+
+
 def topic_llm_calls(env_name: str) -> str:
     """Kafka topic for LLM call audit log (every call: success + failure + counterfactual)."""
     return f"{env_prefix(env_name)}llm.calls"

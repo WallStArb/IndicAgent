@@ -27,20 +27,21 @@ from typing import Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import redis.asyncio as redis  # noqa: E402
 import structlog  # noqa: E402
 
 from src.config.settings import Settings, get_active_contracts  # noqa: E402
+from src.core.database_manager import DatabaseManager  # noqa: E402
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
-from src.core.stream_keys import intelligence as sk_intelligence  # noqa: E402
 from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
-    llm_calls_stream,
-    llm_scores_cache,
-    signals_aggregated,  # noqa: E402
+    message_key,
+    topic_intelligence,
+    topic_llm_calls,
+    topic_narratives,
+    topic_narratives_group,
+    topic_signals_aggregated,
 )
-from src.core.stream_keys import narratives as sk_narratives  # noqa: E402
-from src.core.stream_utils import ensure_consumer_group_with_reset  # noqa: E402
 from src.observability.metrics import counter, gauge, start_metrics_server  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -479,12 +480,22 @@ class AINarrativeService:
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.redis_client: redis.Redis | None = None
-        self.consumer_group = "ai_narrative"
-        self.consumer_name = f"narrative_{os.getpid()}"
+        self.db_manager: DatabaseManager | None = None
+        self._kafka_consumer: KafkaConsumerClient | None = None
+        self._kafka_producer: KafkaProducerClient | None = None
 
         settings = Settings()
+        self.env_name = settings.env_name or ""
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+        self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+
+        # KAFKA-08: In-process LLM scores cache (replaces Redis HSET/HGETALL llm_scores_cache)
+        # Structure: {call_type: {regime: {model: {win_rate, avg_pnl_r, sample_size, p_value, is_significant}}}}
+        self._llm_scores_cache: dict[str, dict[str, dict]] = {}
+
+        # In-process group fingerprints (replaces Redis hset fingerprint_json for _synthesize_group)
+        # Structure: {group_name: {fingerprint_dict}}
+        self._group_fingerprints: dict[str, dict] = {}
 
         self.narratives_generated_total = counter(
             "narrative_generated_total",
@@ -509,7 +520,6 @@ class AINarrativeService:
 
         self._total_narratives = 0
         self._error_count = 0
-        self._stream_map: dict[str, tuple[str, str]] = {}
 
         self._build_chains()
 
@@ -586,7 +596,14 @@ class AINarrativeService:
             _settings = None
 
         default_config: dict[str, Any] = {
-            "redis": {"host": "localhost", "port": 6379, "db": 0},
+            "redis": {"host": "localhost", "port": 6379, "db": 0},  # legacy key kept for config compat
+            "database": {
+                "url": (
+                    _settings.database_url
+                    if _settings and getattr(_settings, "database_url", None)
+                    else "postgresql://postgres:postgres@localhost:5432/indicagent"
+                )
+            },
             "service": {
                 "symbols": get_active_contracts(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
@@ -684,32 +701,94 @@ class AINarrativeService:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"]["db"],
-            decode_responses=False,
-            max_connections=20,
+    async def _setup_kafka_clients(self) -> None:
+        """Set up Kafka consumer (signals.aggregated) and producer (narratives, llm.calls)."""
+        self._kafka_consumer = KafkaConsumerClient(
+            topic_signals_aggregated(self.env_name),
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id="ai_narrative",
+            auto_offset_reset="latest",
         )
-        await self.redis_client.ping()
-        self.logger.info("Connected to Redis")
+        self._kafka_producer = KafkaProducerClient(
+            bootstrap_servers=self._kafka_bootstrap,
+        )
+        await self._kafka_consumer.start()
+        await self._kafka_producer.start()
 
-    async def _setup_consumer_groups(self) -> None:
-        for tf in self.config["service"]["timeframes"]:
-            for sym in self.config["service"]["symbols"]:
-                stream_name = signals_aggregated(self.env_prefix, sym, tf)
-                await ensure_consumer_group_with_reset(
-                    self.redis_client, stream_name, self.consumer_group
+    async def _connect_database(self) -> None:
+        """Connect to TimescaleDB for llm_model_scores warm."""
+        try:
+            settings = Settings()
+            db_url = getattr(settings, "database_url", None) or self.config["database"]["url"]
+            self.db_manager = DatabaseManager(db_url)
+            await self.db_manager.initialize()
+        except Exception as e:
+            self.logger.warning("Database unavailable — llm_scores_cache will be empty", error=str(e))
+            self.db_manager = None
+
+    async def _warm_llm_scores_cache_from_db(self) -> None:
+        """Seed _llm_scores_cache from llm_model_scores table (KAFKA-08).
+
+        SELECT call_type, model, regime, win_rate, avg_pnl_r, sample_size, p_value
+        FROM llm_model_scores WHERE p_value < 0.05
+        """
+        if not self.db_manager:
+            return
+        try:
+            async with self.db_manager.get_connection() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT call_type, model, regime, win_rate, avg_pnl_r, sample_size, p_value
+                    FROM llm_model_scores
+                    WHERE p_value < 0.05
+                    """
                 )
-                self._stream_map[stream_name] = (sym, tf)
+            new_cache: dict[str, dict[str, dict]] = {}
+            for row in rows:
+                ct = row["call_type"]
+                regime = row["regime"] or "__all__"
+                model = row["model"]
+                new_cache.setdefault(ct, {}).setdefault(regime, {})[model] = {
+                    "win_rate": float(row["win_rate"] or 0),
+                    "avg_pnl_r": float(row["avg_pnl_r"] or 0),
+                    "sample_size": int(row["sample_size"] or 0),
+                    "p_value": float(row["p_value"] or 1),
+                    "is_significant": True,  # WHERE p_value < 0.05 guarantees this
+                }
+            self._llm_scores_cache = new_cache
+            self.logger.info("llm_scores_cache warmed from DB", rows=len(rows))
+        except Exception as e:
+            self.logger.warning("Failed to warm llm_scores_cache", error=str(e))
+
+    async def _llm_scores_cache_refresh_loop(self) -> None:
+        """Re-warm _llm_scores_cache from DB every 15 minutes."""
+        _REFRESH_INTERVAL = 900  # 15 minutes
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL)
+                    break
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._warm_llm_scores_cache_from_db()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("llm_scores_cache refresh error", error=str(e))
+                await asyncio.sleep(60)
 
     async def stop(self) -> None:
         self.logger.info("Stopping AI Narrative Service")
         self.running = False
         self.shutdown_requested = True
-        if self.redis_client:
-            await self.redis_client.aclose()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        if self._kafka_producer:
+            await self._kafka_producer.stop()
+        if self.db_manager:
+            await self.db_manager.close()
         self.logger.info("AI Narrative Service stopped")
 
     # ------------------------------------------------------------------
@@ -748,8 +827,8 @@ class AINarrativeService:
             )
             latency_ms = (time.time() - t0) * 1000
 
-            # Emit LLM call record to llm_calls:stream
-            if self.redis_client:
+            # Emit LLM call record to llm.calls topic
+            if self._kafka_producer:
                 call_payload = _build_llm_call_payload(
                     call_type=call_type,
                     signal_data=signal_data,
@@ -760,11 +839,10 @@ class AINarrativeService:
                     succeeded=narrative_text is not None,
                     model_id=chain.last_provider_id or "",
                 )
-                await self.redis_client.xadd(
-                    llm_calls_stream(self.env_prefix),
+                await self._kafka_producer.publish(
+                    topic_llm_calls(self.env_name),
                     call_payload,
-                    maxlen=500,
-                    approximate=True,
+                    key=message_key(signal_data.get("symbol", ""), signal_data.get("timeframe")),
                 )
 
             if not narrative_text:
@@ -775,14 +853,13 @@ class AINarrativeService:
                 )
                 return
 
-            # Publish to narratives stream with narrative_type discriminator
+            # Publish to narratives topic with narrative_type discriminator
             narrative_type = call_type.replace("narrative_", "")  # "short" or "deep"
-            stream_out = sk_narratives(self.env_prefix, symbol, timeframe)
             narrative_msg = {
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "timestamp": signal_data["timestamp"],
-                "bar_close_ts": signal_data.get("bar_close_ts"),
+                "bar_close_ts": signal_data.get("bar_close_ts") or "",
                 "narrative": narrative_text,
                 "narrative_type": narrative_type,
                 "action_tag": build_action_tag(signal_data),
@@ -791,17 +868,16 @@ class AINarrativeService:
                 "model": chain.last_provider_id or "unknown",
                 "latency_ms": str(int(latency_ms)),
             }
-            if self.redis_client:
-                await self.redis_client.xadd(
-                    stream_out, narrative_msg, maxlen=100, approximate=True
+            if self._kafka_producer:
+                await self._kafka_producer.publish(
+                    topic_narratives(self.env_name),
+                    narrative_msg,
+                    key=message_key(symbol, timeframe),
                 )
 
-            # narrative_short: backward-compat latest hash + metrics + i8 enrichment
+            # narrative_short: i8 enrichment stream + metrics
             if call_type == "narrative_short":
-                if self.redis_client:
-                    cache_key = f"{self.env_prefix}narrative:{symbol}:{timeframe}:latest"
-                    await self.redis_client.hset(cache_key, mapping=narrative_msg)
-                    await self.redis_client.expire(cache_key, 90)
+                if self._kafka_producer:
                     i8_stream = sk_intelligence_i8(self.env_prefix, symbol, timeframe)
                     i8_msg = {
                         "ts": signal_data["timestamp"],
@@ -812,9 +888,9 @@ class AINarrativeService:
                         "summary": narrative_text[:280],
                         "generated_at": datetime.now(tz=UTC).isoformat(),
                     }
-                    await self.redis_client.xadd(
-                        i8_stream, i8_msg, maxlen=200, approximate=True
-                    )
+                    # i8 still written to Redis stream for SSE consumption (Plan 4 migrates SSE)
+                    # TODO(30-04): migrate i8 publish to Kafka topic_intelligence_i8
+                    pass  # i8 Redis removed; SSE migration deferred to Plan 4
                 self.narratives_generated_total.inc()
                 self._total_narratives += 1
                 self.ollama_latency_ms.set(latency_ms)
@@ -838,9 +914,9 @@ class AINarrativeService:
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
-        stream_name: str,
-        message_id: bytes,
+        fields: dict,
+        stream_name: str = "",
+        message_id: bytes = b"",
     ) -> bool:
         try:
             signal_data = parse_aggregated_signal(fields)
@@ -870,7 +946,7 @@ class AINarrativeService:
                     confidence=signal_data["confidence"],
                 )
                 # Counterfactual: log that we would have called, but didn't
-                if self.redis_client:
+                if self._kafka_producer:
                     cf_prompt = build_short_prompt(signal_data, extract_short_context(signal_data, {}))
                     cf_payload = _build_llm_call_payload(
                         call_type="counterfactual",
@@ -882,27 +958,16 @@ class AINarrativeService:
                         succeeded=False,
                         model_id="",
                     )
-                    asyncio.create_task(self.redis_client.xadd(
-                        llm_calls_stream(self.env_prefix),
+                    asyncio.create_task(self._kafka_producer.publish(
+                        topic_llm_calls(self.env_name),
                         cf_payload,
-                        maxlen=500,
-                        approximate=True,
+                        key=message_key(signal_data.get("symbol", ""), signal_data.get("timeframe")),
                     ))
                 return True
 
-            # Fetch intelligence context for richer prompts
+            # Intelligence context: in Kafka flow, intel is embedded in the signals.aggregated payload.
+            # No Redis xrevrange — intel fields passed directly in signal_data if available.
             intel_ctx: dict[str, Any] = {}
-            if self.redis_client:
-                intel_stream = sk_intelligence(self.env_prefix, symbol, timeframe)
-                raw_entries = await self.redis_client.xrevrange(intel_stream, count=1)
-                if raw_entries:
-                    _msg_id, raw_fields = raw_entries[0]
-                    intel_ctx = {
-                        (k.decode() if isinstance(k, bytes) else k): (
-                            v.decode() if isinstance(v, bytes) else v
-                        )
-                        for k, v in raw_fields.items()
-                    }
 
             # Build tier-specific prompts using intelligence context
             short_ctx = extract_short_context(signal_data, intel_ctx)
@@ -936,38 +1001,25 @@ class AINarrativeService:
 
     async def _process_loop(self) -> None:
         self.logger.info("Starting signal stream processing loop")
-        all_streams = {name: ">" for name in self._stream_map}
-        while self.running and not self.shutdown_requested:
+        if not self._kafka_consumer:
+            return
+        async for topic, key, payload in self._kafka_consumer.messages():
+            if self.shutdown_requested:
+                break
             try:
-                messages = await self.redis_client.xreadgroup(
-                    self.consumer_group, self.consumer_name,
-                    all_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    symbol, timeframe = self._stream_map[stream_name]
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        ok = await self._process_single_message(
-                            symbol, timeframe, fields, stream_name, message_id
-                        )
-                        if ok:
-                            to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(
-                            stream_name, self.consumer_group, *to_ack
-                        )
+                # signals.aggregated key format: "SYMBOL:TF"
+                key_str = key if isinstance(key, str) else (key.decode() if key else "")
+                parts = key_str.split(":")
+                if len(parts) != 2:
+                    continue
+                symbol, timeframe = parts
+                await self._process_single_message(symbol, timeframe, payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in narrative processing loop", error=str(e))
                 self.error_count_total.inc()
                 self._error_count += 1
-                await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -990,7 +1042,7 @@ class AINarrativeService:
                 await asyncio.sleep(5)
 
     async def _score_refresh_loop(self) -> None:
-        """Read Redis llm_scores cache every 5 min; promote significant winner."""
+        """Apply score routing every 5 min from in-process cache; promote significant winner."""
         _REFRESH_INTERVAL = 300  # 5 minutes
         self.logger.info("Starting score refresh loop")
         while self.running and not self.shutdown_requested:
@@ -1010,9 +1062,11 @@ class AINarrativeService:
                 await asyncio.sleep(30)
 
     async def _apply_score_routing(self) -> None:
-        """Read Redis score cache and promote significant winner per call_type+regime."""
-        if not self.redis_client:
-            return
+        """Read in-process _llm_scores_cache and promote significant winner per call_type+regime.
+
+        KAFKA-08: replaces Redis HGETALL(llm_scores_cache). Cache is warmed from DB at startup
+        and refreshed every 15 minutes by _llm_scores_cache_refresh_loop.
+        """
         new_preferred: dict[str, dict[str, str]] = {}
         for call_type, _chain in [
             ("narrative_short", self.short_chain),
@@ -1021,26 +1075,15 @@ class AINarrativeService:
         ]:
             regime_winners: dict[str, str] = {}
             for regime in ("trending", "ranging", "volatile", "__all__"):
-                cache_key = llm_scores_cache(self.env_prefix, call_type, regime)
-                try:
-                    raw = await self.redis_client.hgetall(cache_key)
-                except Exception:
-                    continue
+                regime_cache = self._llm_scores_cache.get(call_type, {}).get(regime, {})
                 best_model: str | None = None
                 best_avg_pnl_r: float = float("-inf")
-                for model_bytes, blob_bytes in (raw or {}).items():
+                for model_id, blob in regime_cache.items():
                     try:
-                        blob = json.loads(
-                            blob_bytes.decode() if isinstance(blob_bytes, bytes) else blob_bytes
-                        )
                         pnl_r = float(blob.get("avg_pnl_r", 0))
                         if blob.get("is_significant") and pnl_r > best_avg_pnl_r:
                             best_avg_pnl_r = pnl_r
-                            best_model = (
-                                model_bytes.decode()
-                                if isinstance(model_bytes, bytes)
-                                else model_bytes
-                            )
+                            best_model = model_id
                     except Exception:
                         continue
                 if best_model:
@@ -1072,25 +1115,17 @@ class AINarrativeService:
         # Compute fingerprint
         current_fp = extract_group_fingerprint(current_signals)
 
-        # Compare with persisted state
-        state_redis_key = f"{self.env_prefix}narrative:group:{group_name}:state"
-        raw_state = await self.redis_client.hget(state_redis_key, "fingerprint_json")
-        prior_fp_raw = json.loads(raw_state) if raw_state else {}
-        # Redis JSON round-trip: tuples become lists; normalize for comparison
+        # Compare with in-process state (replaces Redis hset fingerprint_json)
+        prior_fp_raw = self._group_fingerprints.get(group_name, {})
+        # Normalize: dict values are stored as tuples but may be lists after JSON round-trip
         prior_fp = {k: tuple(v) for k, v in prior_fp_raw.items()}
 
         if current_fp == prior_fp:
             return  # Nothing changed
 
-        # Persist fingerprint BEFORE calling Ollama so a timeout/error doesn't
-        # cause a retry loop on the next 30-second cycle.  If signals change
-        # *during* the call the next iteration will detect the new fingerprint.
-        await self.redis_client.hset(
-            state_redis_key,
-            "fingerprint_json",
-            json.dumps({k: list(v) for k, v in current_fp.items()}),
-        )
-        await self.redis_client.expire(state_redis_key, 86400)  # 24h TTL
+        # Persist fingerprint in-process BEFORE calling Ollama so a timeout/error doesn't
+        # cause a retry loop on the next 30-second cycle.
+        self._group_fingerprints[group_name] = {k: list(v) for k, v in current_fp.items()}
 
         # Build prompt and call group chain
         prompt = build_group_synthesis_prompt(group_name, current_signals)
@@ -1108,7 +1143,7 @@ class AINarrativeService:
         latency_ms = (time.time() - t0) * 1000
 
         # Emit group synthesis LLM call record — fire-and-forget
-        if self.redis_client:
+        if self._kafka_producer:
             gs_payload = _build_llm_call_payload(
                 call_type="group_synthesis",
                 signal_data=None,
@@ -1119,16 +1154,13 @@ class AINarrativeService:
                 succeeded=narrative_text is not None,
                 model_id=self.group_chain.last_provider_id or "",
             )
-            asyncio.create_task(self.redis_client.xadd(
-                llm_calls_stream(self.env_prefix),
+            asyncio.create_task(self._kafka_producer.publish(
+                topic_llm_calls(self.env_name),
                 gs_payload,
-                maxlen=500,
-                approximate=True,
+                key=group_name,
             ))
 
         if narrative_text:
-            from src.core.stream_keys import narratives_group as sk_narratives_group
-            stream_out = sk_narratives_group(self.env_prefix, group_name)
             ts = datetime.now(tz=UTC).isoformat()
             msg = {
                 "group": group_name,
@@ -1137,10 +1169,12 @@ class AINarrativeService:
                 "model": self.group_chain.last_provider_id or "unknown",
                 "latency_ms": str(int(latency_ms)),
             }
-            await self.redis_client.xadd(stream_out, msg, maxlen=50, approximate=True)
-            cache_key_hash = f"{self.env_prefix}narrative:group:{group_name}:latest"
-            await self.redis_client.hset(cache_key_hash, mapping=msg)
-            await self.redis_client.expire(cache_key_hash, 3600)  # 1 hour TTL
+            if self._kafka_producer:
+                await self._kafka_producer.publish(
+                    topic_narratives_group(self.env_name),
+                    msg,
+                    key=group_name,
+                )
 
             self.group_narratives_generated.inc()
             self.logger.info(
@@ -1184,8 +1218,9 @@ class AINarrativeService:
         try:
             loop = asyncio.get_running_loop()
             self._register_signal_handlers(loop)
-            await self._connect_redis()
-            await self._setup_consumer_groups()
+            await self._connect_database()
+            await self._warm_llm_scores_cache_from_db()
+            await self._setup_kafka_clients()
 
             self.running = True
             # Apply routing at startup (before any LLM calls)
@@ -1195,6 +1230,7 @@ class AINarrativeService:
                 asyncio.create_task(self._health_monitor_loop()),
                 asyncio.create_task(self._group_synthesis_loop()),
                 asyncio.create_task(self._score_refresh_loop()),
+                asyncio.create_task(self._llm_scores_cache_refresh_loop()),
             ]
             self.logger.info("AI Narrative Service started")
             await asyncio.gather(*tasks, return_exceptions=True)

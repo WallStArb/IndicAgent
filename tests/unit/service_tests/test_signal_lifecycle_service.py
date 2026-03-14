@@ -67,27 +67,14 @@ def test_evaluate_signals_against_bar_no_db_returns_early():
     # No exception raised = pass
 
 
-def test_stream_map_populated_after_setup():
-    """_stream_map must have one entry per symbol (1m only)."""
-    import redis.asyncio as redis
-
+def test_lifecycle_has_kafka_client_attributes():
+    """Signal lifecycle service must have Kafka client attributes after migration."""
     from services.signal_lifecycle_service import SignalLifecycleService
 
     svc = SignalLifecycleService()
-    svc.redis_client = AsyncMock()
-    svc.redis_client.xgroup_create = AsyncMock(
-        side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists")
-    )
-    svc.redis_client.xgroup_setid = AsyncMock()
-    svc.db_manager = None
-
-    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
-
-    symbols = svc.config["service"]["symbols"]
-    assert len(svc._stream_map) == len(symbols)
-    for _stream_name, (sym, tf) in svc._stream_map.items():
-        assert tf == "1m"
-        assert sym in symbols
+    assert hasattr(svc, "_kafka_consumer")
+    assert hasattr(svc, "_kafka_producer")
+    assert hasattr(svc, "env_name")
 
 
 def test_mae_mfe_tracked_in_memory():
@@ -407,20 +394,21 @@ class TestBuildOutcomePayload:
 
 
 class TestPublishTerminalEvent:
-    """_publish_terminal_event() must xadd correct payload to signals stream."""
+    """_publish_terminal_event() must publish correct payload to signals.aggregated topic."""
 
     def _make_svc(self):
         from services.signal_lifecycle_service import SignalLifecycleService
 
         svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc.env_name = "development"
         svc.env_prefix = "development:"
-        svc.redis_client = AsyncMock()
-        svc.redis_client.xadd = AsyncMock(return_value=b"123-0")
+        svc._kafka_producer = AsyncMock()
+        svc._kafka_producer.publish = AsyncMock()
         svc.logger = AsyncMock()
         return svc
 
     @pytest.mark.asyncio
-    async def test_xadd_called_with_direction_zero(self):
+    async def test_publish_called_with_direction_zero(self):
         svc = self._make_svc()
         await svc._publish_terminal_event(
             signal_id="uuid-a",
@@ -430,9 +418,9 @@ class TestPublishTerminalEvent:
             exit_price=6750.25,
             bar_ts="2026-03-06T15:20:00+00:00",
         )
-        svc.redis_client.xadd.assert_called_once()
-        call_args = svc.redis_client.xadd.call_args
-        payload = call_args[0][1]  # second positional arg = fields dict
+        svc._kafka_producer.publish.assert_called_once()
+        call_kwargs = svc._kafka_producer.publish.call_args
+        payload = call_kwargs[0][1]  # second positional arg = msg dict
         assert payload["direction"] == "0"
         assert payload["signal_id"] == "uuid-a"
         assert payload["outcome"] == "ttl_expired_behind"
@@ -441,7 +429,7 @@ class TestPublishTerminalEvent:
         assert payload["timeframe"] == "5m"
 
     @pytest.mark.asyncio
-    async def test_stream_key_uses_env_prefix(self):
+    async def test_publishes_to_signals_aggregated_topic(self):
         svc = self._make_svc()
         await svc._publish_terminal_event(
             signal_id="uuid-b",
@@ -451,11 +439,8 @@ class TestPublishTerminalEvent:
             exit_price=None,
             bar_ts="2026-03-06T15:20:00+00:00",
         )
-        stream_key = svc.redis_client.xadd.call_args[0][0]
-        assert stream_key.startswith("development:")
-        assert "signals:" in stream_key
-        assert "ESH6" in stream_key
-        assert "5m" in stream_key
+        topic = svc._kafka_producer.publish.call_args[0][0]
+        assert "signals.aggregated" in topic
 
     @pytest.mark.asyncio
     async def test_exit_price_empty_string_when_none(self):
@@ -468,13 +453,13 @@ class TestPublishTerminalEvent:
             exit_price=None,
             bar_ts="2026-03-06T15:20:00+00:00",
         )
-        payload = svc.redis_client.xadd.call_args[0][1]
+        payload = svc._kafka_producer.publish.call_args[0][1]
         assert payload["exit_price"] == ""
 
     @pytest.mark.asyncio
-    async def test_no_xadd_when_redis_none(self):
+    async def test_no_publish_when_kafka_producer_none(self):
         svc = self._make_svc()
-        svc.redis_client = None
+        svc._kafka_producer = None
         # Must not raise
         await svc._publish_terminal_event(
             signal_id="uuid-d",
@@ -484,7 +469,6 @@ class TestPublishTerminalEvent:
             exit_price=6700.0,
             bar_ts="2026-03-06T15:20:00+00:00",
         )
-        # No assertion needed — no AttributeError = pass
 
 
 class TestTerminalEventWiring:
@@ -494,9 +478,10 @@ class TestTerminalEventWiring:
         from services.signal_lifecycle_service import SignalLifecycleService
 
         svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc.env_name = "development"
         svc.env_prefix = "development:"
-        svc.redis_client = AsyncMock()
-        svc.redis_client.xadd = AsyncMock(return_value=b"123-0")
+        svc._kafka_producer = AsyncMock()
+        svc._kafka_producer.publish = AsyncMock()
         svc.db_manager = AsyncMock()
         svc.logger = AsyncMock()
         svc._mae = {}
@@ -564,3 +549,65 @@ class TestTerminalEventWiring:
         assert call_kwargs["signal_id"] == "uuid-exit"
         assert call_kwargs["symbol"] == "ESH6"
         assert call_kwargs["timeframe"] == "5m"
+
+
+# ---------------------------------------------------------------------------
+# KAFKA-08: signal_lifecycle_service Kafka migration (Phase 30 Plan 3)
+# ---------------------------------------------------------------------------
+
+
+def test_signal_lifecycle_has_kafka_clients():
+    """SignalLifecycleService must have Kafka client attributes."""
+    from services.signal_lifecycle_service import SignalLifecycleService
+
+    svc = SignalLifecycleService()
+    assert hasattr(svc, "_kafka_consumer")
+    assert hasattr(svc, "_kafka_producer")
+    assert hasattr(svc, "env_name")
+
+
+def test_signal_lifecycle_no_redis_client():
+    """SignalLifecycleService must not initialize a redis_client (fully removed)."""
+    from services.signal_lifecycle_service import SignalLifecycleService
+
+    svc = SignalLifecycleService()
+    # redis_client must not exist on the service
+    assert not hasattr(svc, "redis_client"), (
+        "signal_lifecycle_service must not have redis_client — Redis fully removed"
+    )
+
+
+def test_signal_lifecycle_no_xreadgroup():
+    """signal_lifecycle_service must not call xreadgroup (stream removed)."""
+    import inspect
+
+    import services.signal_lifecycle_service as mod
+
+    source = inspect.getsource(mod)
+    assert "xreadgroup" not in source, (
+        "Redis xreadgroup must be removed from signal_lifecycle_service"
+    )
+
+
+def test_signal_lifecycle_no_redis_xadd():
+    """signal_lifecycle_service must not call redis_client.xadd."""
+    import inspect
+
+    import services.signal_lifecycle_service as mod
+
+    source = inspect.getsource(mod)
+    assert "redis_client.xadd" not in source, (
+        "redis_client.xadd must be removed from signal_lifecycle_service"
+    )
+
+
+def test_signal_lifecycle_stream_map_test_updated():
+    """Verify _stream_map test is removed — lifecycle now uses Kafka consumer."""
+    # This test verifies we updated the test_stream_map test by checking the
+    # service doesn't have _setup_consumer_groups (now _setup_kafka_clients)
+    from services.signal_lifecycle_service import SignalLifecycleService
+
+    svc = SignalLifecycleService()
+    assert not hasattr(svc, "_setup_consumer_groups"), (
+        "_setup_consumer_groups must be removed — service uses _setup_kafka_clients now"
+    )
