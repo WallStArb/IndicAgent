@@ -13,12 +13,14 @@ from ..utils import find_peaks, find_troughs
 @dataclass
 class DoubleTBPlugin:
     name: str = "patt_DoubleTB"
-    outputs: set[str] = frozenset({
-        "dt_db_pattern",
-        "dt_db_neckline",
-        "dt_db_target",
-        "dt_db_confidence",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "dt_db_pattern",
+            "dt_db_neckline",
+            "dt_db_target",
+            "dt_db_confidence",
+        }
+    )
     min_lookback: int = 60
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"pattern", "chart"})
@@ -27,7 +29,7 @@ class DoubleTBPlugin:
     amplitude_thr: float = 0.002
     min_swing_bars: int = 8
     peak_tolerance: float = 0.003
-    neckline_depth_thr: float = 0.004   # neckline must be ≥0.4% from the peaks
+    neckline_depth_thr: float = 0.004  # neckline must be ≥0.4% from the peaks
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -40,8 +42,10 @@ class DoubleTBPlugin:
         low = df["low"].to_numpy(dtype=float)
 
         default = {
-            "dt_db_pattern": 0.0, "dt_db_neckline": 0.0,
-            "dt_db_target": 0.0, "dt_db_confidence": 0.0,
+            "dt_db_pattern": 0.0,
+            "dt_db_neckline": 0.0,
+            "dt_db_target": 0.0,
+            "dt_db_confidence": 0.0,
         }
 
         raw_peaks = find_peaks(high, self.neighbor)

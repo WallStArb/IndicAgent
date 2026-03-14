@@ -10,6 +10,7 @@ Killzone windows (UTC, fixed offset — UTC-5 = ET):
   NY AM:   13:30–16:00 UTC  (8:30am–11am ET)
   NY PM:   18:00–20:00 UTC  (1pm–3pm ET)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -26,10 +27,10 @@ def _minutes_since_midnight_utc(dt: datetime) -> int:
 
 # Module-level constants — computed once, reused every bar
 _KZ_MAP: dict[str, tuple[int, int]] = {
-    "asia":   (8 * 60,        10 * 60),
-    "london": (7 * 60,        10 * 60),
-    "ny_am":  (13 * 60 + 30,  16 * 60),
-    "ny_pm":  (18 * 60,       20 * 60),
+    "asia": (8 * 60, 10 * 60),
+    "london": (7 * 60, 10 * 60),
+    "ny_am": (13 * 60 + 30, 16 * 60),
+    "ny_pm": (18 * 60, 20 * 60),
 }
 _KZ_STARTS: tuple[int, ...] = tuple(sorted(v[0] for v in _KZ_MAP.values()))
 
@@ -39,15 +40,17 @@ class ICTKillzonesPlugin:
     """Detect which ICT killzone the current bar falls within."""
 
     name: str = "smc_ICTKillzones"
-    outputs: frozenset[str] = frozenset({
-        "in_asia_killzone",
-        "in_london_killzone",
-        "in_ny_am_killzone",
-        "in_ny_pm_killzone",
-        "killzone_name",
-        "minutes_in_killzone",
-        "minutes_until_next_killzone",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "in_asia_killzone",
+            "in_london_killzone",
+            "in_ny_am_killzone",
+            "in_ny_pm_killzone",
+            "killzone_name",
+            "minutes_in_killzone",
+            "minutes_until_next_killzone",
+        }
+    )
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money", "session"})
@@ -90,9 +93,7 @@ class ICTKillzonesPlugin:
                     minutes_in = float(cur_min - start)
 
         # Minutes until next killzone start
-        minutes_until: float = float(min(
-            (s - cur_min) % total_day_minutes for s in _KZ_STARTS
-        ))
+        minutes_until: float = float(min((s - cur_min) % total_day_minutes for s in _KZ_STARTS))
 
         return {
             "in_asia_killzone": in_asia,
@@ -103,5 +104,6 @@ class ICTKillzonesPlugin:
             "minutes_in_killzone": minutes_in,
             "minutes_until_next_killzone": minutes_until,
         }
+
 
 plugin = ICTKillzonesPlugin()

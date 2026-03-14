@@ -11,6 +11,7 @@ Outputs:
     struct_energy              — clamp(amplitude_ratio * speed_factor / 3.0, 0.0, 1.0)
     struct_accel_bias          — +1 uptrend, -1 downtrend, 0 mixed/insufficient
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -47,9 +48,7 @@ class SwingMomentumPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = False
-    capability_tags: frozenset = field(
-        default_factory=lambda: frozenset({"momentum", "structure"})
-    )
+    capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum", "structure"}))
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=60),)
     _state: dict = field(default_factory=dict)
 
@@ -111,9 +110,7 @@ class SwingMomentumPlugin:
             velocity_trend = "stable"
 
         # --- struct_energy -------------------------------------------
-        speed_factor = clamp(
-            _REFERENCE_BARS / max(swing_velocity_bars, 1.0), 0.1, 3.0
-        )
+        speed_factor = clamp(_REFERENCE_BARS / max(swing_velocity_bars, 1.0), 0.1, 3.0)
         struct_energy = clamp(amplitude_ratio * speed_factor / 3.0, 0.0, 1.0)
 
         # --- struct_accel_bias ----------------------------------------
@@ -174,9 +171,7 @@ class SwingMomentumPlugin:
         return extremes[-_MAX_EXTREMES:]
 
     @staticmethod
-    def _compute_amplitudes(
-        last6: list[tuple[float, int, str]], atr: float
-    ) -> list[float]:
+    def _compute_amplitudes(last6: list[tuple[float, int, str]], atr: float) -> list[float]:
         """Amplitude of each of the 3 swings spanned by the 6 extremes."""
         divisor = atr if (is_num(atr) and atr > 0.0) else 1.0
         amps = []
@@ -221,14 +216,13 @@ class SwingMomentumPlugin:
             return -1
         return 0
 
+
 # ------------------------------------------------------------------
 # Module-level helpers
 # ------------------------------------------------------------------
 
 
-def _dedup_extremes(
-    extremes: list[tuple[float, int, str]]
-) -> list[tuple[float, int, str]]:
+def _dedup_extremes(extremes: list[tuple[float, int, str]]) -> list[tuple[float, int, str]]:
     """Remove consecutive same-type extremes, keeping the dominant one.
 
     When two consecutive highs appear without an intervening low, keep

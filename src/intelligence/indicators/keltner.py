@@ -57,9 +57,7 @@ class KeltnerChannelsPlugin:
             ],
             axis=1,
         ).max(axis=1)
-        atr = tr.ewm(
-            alpha=1 / self.atr_period, adjust=False, min_periods=self.atr_period
-        ).mean()
+        atr = tr.ewm(alpha=1 / self.atr_period, adjust=False, min_periods=self.atr_period).mean()
 
         mid = float(ema.iloc[-1])
         atr_val = float(atr.iloc[-1])
@@ -90,9 +88,7 @@ class KeltnerChannelsPlugin:
             ],
             axis=1,
         ).max(axis=1)
-        atr = tr.ewm(
-            alpha=1 / self.atr_period, adjust=False, min_periods=self.atr_period
-        ).mean()
+        atr = tr.ewm(alpha=1 / self.atr_period, adjust=False, min_periods=self.atr_period).mean()
 
         self._state = {
             "ema": float(ema.iloc[-1]),

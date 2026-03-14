@@ -11,13 +11,18 @@ from .common import crossover_detect, is_num, track_bars_ago
 class MACDEventsPlugin:
     name: str = "evt_MACDEvents"
     outputs: frozenset[str] = field(
-        default_factory=lambda: frozenset({
-            "macd_cross_bullish", "macd_cross_bearish", "macd_cross_bars_ago",
-            "macd_hist_positive", "macd_hist_turning_up",
-            "macd_negative_support_test",
-            "macd_hist_accel",          # rate of change of MACD histogram
-            "macd_hist_contracting",    # 1 when abs(hist) < abs(prev_hist)
-        })
+        default_factory=lambda: frozenset(
+            {
+                "macd_cross_bullish",
+                "macd_cross_bearish",
+                "macd_cross_bars_ago",
+                "macd_hist_positive",
+                "macd_hist_turning_up",
+                "macd_negative_support_test",
+                "macd_hist_accel",  # rate of change of MACD histogram
+                "macd_hist_contracting",  # 1 when abs(hist) < abs(prev_hist)
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False
@@ -43,9 +48,7 @@ class MACDEventsPlugin:
         prev_hist = prev.get("macd_histogram_12_26_9")
 
         # Crossover detection
-        cross_bullish, cross_bearish = crossover_detect(
-            prev_macd, macd, prev_signal, signal
-        )
+        cross_bullish, cross_bearish = crossover_detect(prev_macd, macd, prev_signal, signal)
         out["macd_cross_bullish"] = cross_bullish
         out["macd_cross_bearish"] = cross_bearish
 
@@ -73,13 +76,7 @@ class MACDEventsPlugin:
         close = features.get("close")
         atr = features.get("atr_14")
         neg_support = 0
-        if (
-            hist < 0
-            and is_num(nearest_support)
-            and is_num(close)
-            and is_num(atr)
-            and atr > 0
-        ):
+        if hist < 0 and is_num(nearest_support) and is_num(close) and is_num(atr) and atr > 0:
             dist = abs(close - nearest_support) / atr
             neg_support = 1 if dist < self._SUPPORT_ATR_THRESHOLD else 0
         out["macd_negative_support_test"] = neg_support

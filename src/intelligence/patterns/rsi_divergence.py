@@ -39,8 +39,11 @@ class RSIDivergencePlugin:
         # Bullish divergence: price lower low + RSI higher low at SAME bars
         if len(price_troughs) >= 2:
             i_prev, i_curr = price_troughs[-2], price_troughs[-1]
-            if (i_prev >= self.rsi_period
-                    and close[i_curr] < close[i_prev] and rsi[i_curr] > rsi[i_prev]):
+            if (
+                i_prev >= self.rsi_period
+                and close[i_curr] < close[i_prev]
+                and rsi[i_curr] > rsi[i_prev]
+            ):
                 price_drop = (close[i_prev] - close[i_curr]) / close[i_prev]
                 rsi_rise = (rsi[i_curr] - rsi[i_prev]) / 100.0
                 bullish = min(1.0, 0.3 + price_drop * 5.0 + rsi_rise * 3.0)
@@ -49,8 +52,11 @@ class RSIDivergencePlugin:
         # Bearish divergence: price higher high + RSI lower high at SAME bars
         if len(price_peaks) >= 2:
             i_prev, i_curr = price_peaks[-2], price_peaks[-1]
-            if (i_prev >= self.rsi_period
-                    and close[i_curr] > close[i_prev] and rsi[i_curr] < rsi[i_prev]):
+            if (
+                i_prev >= self.rsi_period
+                and close[i_curr] > close[i_prev]
+                and rsi[i_curr] < rsi[i_prev]
+            ):
                 price_rise = (close[i_curr] - close[i_prev]) / close[i_prev]
                 rsi_drop = (rsi[i_prev] - rsi[i_curr]) / 100.0
                 bearish = min(1.0, 0.3 + price_rise * 5.0 + rsi_drop * 3.0)

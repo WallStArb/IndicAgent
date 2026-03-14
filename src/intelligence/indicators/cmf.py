@@ -44,8 +44,8 @@ class CMFPlugin:
         mfm = np.where(hl_range > 0, (2 * close - high - low) / safe_range, 0.0)
         mfv = mfm * volume
 
-        mfv_win = mfv[-self.period:]
-        vol_win = volume[-self.period:]
+        mfv_win = mfv[-self.period :]
+        vol_win = volume[-self.period :]
 
         vol_sum = float(np.sum(vol_win))
         cmf = float(np.sum(mfv_win)) / vol_sum if vol_sum > 0 else 0.0

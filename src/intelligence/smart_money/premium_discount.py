@@ -14,6 +14,7 @@ Note: smc_LiquidityPools already exposes `price_in_premium` (binary flag) and
 
 These complement the LiquidityPools fields with higher precision and the raw level.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,10 +29,12 @@ class PremiumDiscountPlugin:
     """Compute equilibrium level and premium/discount percentage."""
 
     name: str = "smc_PremiumDiscount"
-    outputs: frozenset[str] = frozenset({
-        "equilibrium_level",
-        "premium_discount_pct",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "equilibrium_level",
+            "premium_discount_pct",
+        }
+    )
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
@@ -74,5 +77,6 @@ class PremiumDiscountPlugin:
             "equilibrium_level": round(equilibrium, 4),
             "premium_discount_pct": round(pct, 4),
         }
+
 
 plugin = PremiumDiscountPlugin()

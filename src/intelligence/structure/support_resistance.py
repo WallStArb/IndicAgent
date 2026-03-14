@@ -95,7 +95,9 @@ class SupportResistancePlugin:
         return self.compute_full(windows)
 
     def _cluster_levels(
-        self, pivots: list[tuple[float, int]], current_price: float,
+        self,
+        pivots: list[tuple[float, int]],
+        current_price: float,
     ) -> list[dict[str, Any]]:
         """Cluster nearby price levels; return level, strength, and latest bar index."""
         if not pivots:

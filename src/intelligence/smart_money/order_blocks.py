@@ -77,14 +77,8 @@ class OrderBlocksPlugin:
                             break
 
                     if ob_idx is not None:
-                        strength = (
-                            min(1.0, impulse_vol / avg_volume)
-                            if avg_volume > 0
-                            else 0.5
-                        )
-                        mitigated = self._check_mitigated(
-                            low, float(low[ob_idx]), i, len(df)
-                        )
+                        strength = min(1.0, impulse_vol / avg_volume) if avg_volume > 0 else 0.5
+                        mitigated = self._check_mitigated(low, float(low[ob_idx]), i, len(df))
                         order_blocks.append(
                             {
                                 "type": 1.0,
@@ -117,11 +111,7 @@ class OrderBlocksPlugin:
                             break
 
                     if ob_idx is not None:
-                        strength = (
-                            min(1.0, impulse_vol / avg_volume)
-                            if avg_volume > 0
-                            else 0.5
-                        )
+                        strength = min(1.0, impulse_vol / avg_volume) if avg_volume > 0 else 0.5
                         mitigated = self._check_mitigated(
                             high, float(high[ob_idx]), i, len(df), bearish=True
                         )
@@ -153,11 +143,7 @@ class OrderBlocksPlugin:
 
         latest = active_obs[-1]
         ob_mid = (latest["top"] + latest["bottom"]) / 2
-        dist_pct = (
-            abs(current_price - ob_mid) / current_price * 100
-            if current_price != 0
-            else 0.0
-        )
+        dist_pct = abs(current_price - ob_mid) / current_price * 100 if current_price != 0 else 0.0
 
         return {
             "ob_type": latest["type"],

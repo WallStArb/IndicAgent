@@ -10,6 +10,7 @@ traded through:
 
 Reads ob_top, ob_bottom, ob_mitigated from the features dict.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -23,10 +24,12 @@ class MitigationBlocksPlugin:
     """Track order block mitigation progress."""
 
     name: str = "smc_MitigationBlocks"
-    outputs: frozenset[str] = frozenset({
-        "ob_mitigation_status",
-        "ob_mitigation_pct",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "ob_mitigation_status",
+            "ob_mitigation_pct",
+        }
+    )
     min_lookback: int = 2
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
@@ -91,5 +94,6 @@ class MitigationBlocksPlugin:
             "ob_mitigation_status": status,
             "ob_mitigation_pct": round(new_pct, 4),
         }
+
 
 plugin = MitigationBlocksPlugin()

@@ -55,9 +55,7 @@ def _load_parameters() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return _DEFAULT_TRANSITION.copy(), _DEFAULT_MEANS.copy(), _DEFAULT_VARIANCES.copy()
 
 
-def _diag_gaussian_log_prob(
-    x: np.ndarray, means: np.ndarray, variances: np.ndarray
-) -> np.ndarray:
+def _diag_gaussian_log_prob(x: np.ndarray, means: np.ndarray, variances: np.ndarray) -> np.ndarray:
     """Log probability of x under each of K diagonal Gaussians.
 
     Args:

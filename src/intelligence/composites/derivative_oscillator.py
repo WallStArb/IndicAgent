@@ -28,12 +28,14 @@ class DerivativeOscillatorPlugin(PatternPlugin):
     """
 
     name: str = "cmp_DerivativeOscillator"
-    outputs: frozenset[str] = frozenset({
-        "deriv_osc",
-        "deriv_osc_signal",
-        "deriv_osc_cross_bullish",
-        "deriv_osc_cross_bearish",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "deriv_osc",
+            "deriv_osc_signal",
+            "deriv_osc_cross_bullish",
+            "deriv_osc_cross_bearish",
+        }
+    )
     min_lookback: int = 1
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"momentum", "oscillator"})

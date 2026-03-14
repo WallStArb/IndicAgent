@@ -70,10 +70,7 @@ class LiquiditySweepsPlugin:
                     # Check reclaim: next bars continue up
                     reclaimed = 0.0
                     if i + self.reclaim_bars < len(df):
-                        if all(
-                            close[i + k] > sl_price
-                            for k in range(1, self.reclaim_bars + 1)
-                        ):
+                        if all(close[i + k] > sl_price for k in range(1, self.reclaim_bars + 1)):
                             reclaimed = 1.0
                     sweeps.append(
                         {
@@ -93,10 +90,7 @@ class LiquiditySweepsPlugin:
                     depth = (float(high[i]) - sh_price) / sh_price * 100
                     reclaimed = 0.0
                     if i + self.reclaim_bars < len(df):
-                        if all(
-                            close[i + k] < sh_price
-                            for k in range(1, self.reclaim_bars + 1)
-                        ):
+                        if all(close[i + k] < sh_price for k in range(1, self.reclaim_bars + 1)):
                             reclaimed = 1.0
                     sweeps.append(
                         {

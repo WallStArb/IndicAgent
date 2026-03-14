@@ -11,11 +11,16 @@ from .common import is_num
 class VolumeEventsPlugin:
     name: str = "evt_VolumeEvents"
     outputs: set[str] = field(
-        default_factory=lambda: frozenset({
-            "vol_spike", "vol_drying",
-            "bb_upper_touch", "bb_lower_touch",
-            "bb_walking_upper", "bb_walking_lower",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "vol_spike",
+                "vol_drying",
+                "bb_upper_touch",
+                "bb_lower_touch",
+                "bb_walking_upper",
+                "bb_walking_lower",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False

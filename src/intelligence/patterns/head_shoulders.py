@@ -13,13 +13,15 @@ from ..utils import find_peaks, find_troughs
 @dataclass
 class HeadShouldersPlugin:
     name: str = "patt_HeadShoulders"
-    outputs: set[str] = frozenset({
-        "hs_pattern",
-        "hs_neckline",
-        "hs_target",
-        "hs_confidence",
-        "hs_neckline_distance",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "hs_pattern",
+            "hs_neckline",
+            "hs_target",
+            "hs_confidence",
+            "hs_neckline_distance",
+        }
+    )
     min_lookback: int = 80
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"pattern", "chart"})
@@ -42,8 +44,11 @@ class HeadShouldersPlugin:
         low = df["low"].to_numpy(dtype=float)
 
         default = {
-            "hs_pattern": 0.0, "hs_neckline": 0.0, "hs_target": 0.0,
-            "hs_confidence": 0.0, "hs_neckline_distance": 0.0,
+            "hs_pattern": 0.0,
+            "hs_neckline": 0.0,
+            "hs_target": 0.0,
+            "hs_confidence": 0.0,
+            "hs_neckline_distance": 0.0,
         }
 
         raw_peaks = find_peaks(high, self.neighbor)
@@ -92,9 +97,18 @@ class HeadShouldersPlugin:
                     rt_idx = min(rt_candidates, key=lambda i: low[i])
                     if h_p > hs_best_head:
                         hs_best_head = h_p
-                        hs_best = (ls_idx, h_idx, rs_idx, lt_idx, rt_idx,
-                                   ls_p, h_p, rs_p,
-                                   float(low[lt_idx]), float(low[rt_idx]))
+                        hs_best = (
+                            ls_idx,
+                            h_idx,
+                            rs_idx,
+                            lt_idx,
+                            rt_idx,
+                            ls_p,
+                            h_p,
+                            rs_p,
+                            float(low[lt_idx]),
+                            float(low[rt_idx]),
+                        )
 
         if hs_best is not None:
             ls_idx, h_idx, rs_idx, lt_idx, rt_idx, ls_p, h_p, rs_p, lt_p, rt_p = hs_best
@@ -148,9 +162,18 @@ class HeadShouldersPlugin:
                     rt_idx = max(rt_candidates, key=lambda i: high[i])
                     if h_p < ihs_best_head:
                         ihs_best_head = h_p
-                        ihs_best = (ls_idx, h_idx, rs_idx, lt_idx, rt_idx,
-                                     ls_p, h_p, rs_p,
-                                     float(high[lt_idx]), float(high[rt_idx]))
+                        ihs_best = (
+                            ls_idx,
+                            h_idx,
+                            rs_idx,
+                            lt_idx,
+                            rt_idx,
+                            ls_p,
+                            h_p,
+                            rs_p,
+                            float(high[lt_idx]),
+                            float(high[rt_idx]),
+                        )
 
         if ihs_best is not None:
             ls_idx, h_idx, rs_idx, lt_idx, rt_idx, ls_p, h_p, rs_p, lt_p, rt_p = ihs_best

@@ -1,4 +1,5 @@
 """Shared utilities for I2 composite event plugins."""
+
 from typing import Any
 
 

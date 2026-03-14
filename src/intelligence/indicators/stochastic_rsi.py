@@ -45,7 +45,7 @@ class StochRSIPlugin:
         # Apply Stochastic to RSI series
         k_values = []
         for i in range(self.period - 1, len(rsi_series)):
-            window = rsi_series[i - self.period + 1: i + 1]
+            window = rsi_series[i - self.period + 1 : i + 1]
             lo, hi = float(np.min(window)), float(np.max(window))
             k_values.append((rsi_series[i] - lo) / (hi - lo) * 100.0 if hi > lo else 50.0)
 
@@ -53,13 +53,13 @@ class StochRSIPlugin:
             return {}
 
         k = k_values[-1]
-        d = float(np.mean(k_values[-self.d_period:]))
+        d = float(np.mean(k_values[-self.d_period :]))
 
         # Seed incremental state
         deltas = np.diff(close)
-        avg_g = float(deltas[:self.period].clip(min=0).sum() / self.period)
-        avg_l = float(-deltas[:self.period].clip(max=0).sum() / self.period)
-        for delta in deltas[self.period:]:
+        avg_g = float(deltas[: self.period].clip(min=0).sum() / self.period)
+        avg_l = float(-deltas[: self.period].clip(max=0).sum() / self.period)
+        for delta in deltas[self.period :]:
             avg_g = (avg_g * (self.period - 1) + max(delta, 0.0)) / self.period
             avg_l = (avg_l * (self.period - 1) + max(-delta, 0.0)) / self.period
 
@@ -67,8 +67,8 @@ class StochRSIPlugin:
             "avg_gain": avg_g,
             "avg_loss": avg_l,
             "prev_close": float(close[-1]),
-            "rsi_window": deque(rsi_series[-self.period:].tolist(), maxlen=self.period),
-            "k_window": deque(k_values[-self.d_period:], maxlen=self.d_period),
+            "rsi_window": deque(rsi_series[-self.period :].tolist(), maxlen=self.period),
+            "k_window": deque(k_values[-self.d_period :], maxlen=self.d_period),
         }
         return {"stoch_rsi_k_14": round(k, 4), "stoch_rsi_d_14": round(d, 4)}
 

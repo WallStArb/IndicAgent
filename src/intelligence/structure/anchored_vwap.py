@@ -82,15 +82,11 @@ class AnchoredVWAPPlugin:
         weekly_n = min(_WEEKLY_BARS, n)
         weekly_vol = float(volume[-weekly_n:].sum())
         weekly_vwap = (
-            float(tpv[-weekly_n:].sum() / weekly_vol)
-            if weekly_vol > 0
-            else float(typical[-1])
+            float(tpv[-weekly_n:].sum() / weekly_vol) if weekly_vol > 0 else float(typical[-1])
         )
 
         above_session = 1.0 if current_close > session_vwap else 0.0
-        above_swing = (
-            1.0 if (swing_vwap is not None and current_close > swing_vwap) else 0.0
-        )
+        above_swing = 1.0 if (swing_vwap is not None and current_close > swing_vwap) else 0.0
         above_weekly = 1.0 if current_close > weekly_vwap else 0.0
 
         alignment_vals = [above_session, above_weekly]

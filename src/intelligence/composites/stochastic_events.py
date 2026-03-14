@@ -11,11 +11,16 @@ from .common import crossover_detect, is_num, threshold_cross
 class StochasticEventsPlugin:
     name: str = "evt_StochasticEvents"
     outputs: set[str] = field(
-        default_factory=lambda: frozenset({
-            "stoch_cross_bullish", "stoch_cross_bearish",
-            "stoch_oversold_reversal", "stoch_overbought_reversal",
-            "stoch_both_oversold", "stoch_both_overbought",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "stoch_cross_bullish",
+                "stoch_cross_bearish",
+                "stoch_oversold_reversal",
+                "stoch_overbought_reversal",
+                "stoch_both_oversold",
+                "stoch_both_overbought",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False
@@ -43,12 +48,8 @@ class StochasticEventsPlugin:
         out["stoch_cross_bearish"] = cross_bear
 
         # K crossing 20/80 thresholds
-        out["stoch_oversold_reversal"] = threshold_cross(
-            pk, k, self._STOCH_OVERSOLD, "up"
-        )
-        out["stoch_overbought_reversal"] = threshold_cross(
-            pk, k, self._STOCH_OVERBOUGHT, "down"
-        )
+        out["stoch_oversold_reversal"] = threshold_cross(pk, k, self._STOCH_OVERSOLD, "up")
+        out["stoch_overbought_reversal"] = threshold_cross(pk, k, self._STOCH_OVERBOUGHT, "down")
 
         out["stoch_both_oversold"] = (
             1 if k < self._STOCH_OVERSOLD and d < self._STOCH_OVERSOLD else 0

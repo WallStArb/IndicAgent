@@ -8,6 +8,7 @@ Outputs:
     accel_score:     float in [-1.0, 1.0] — signed agreement strength
     accel_agreement: float in [0.0, 1.0] — directional consensus (max votes / total)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -20,17 +21,17 @@ from .common import is_num
 class AccelerationRegimePlugin:
     name: str = "cmp_AccelerationRegime"
     outputs: frozenset = field(
-        default_factory=lambda: frozenset({
-            "accel_regime",
-            "accel_score",
-            "accel_agreement",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "accel_regime",
+                "accel_score",
+                "accel_agreement",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: frozenset = field(
-        default_factory=lambda: frozenset({"momentum", "regime"})
-    )
+    capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum", "regime"}))
     inputs: tuple = ()  # reads from frames["features"] only
     _state: dict = field(default_factory=dict)
 

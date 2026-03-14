@@ -40,14 +40,14 @@ class ChandelierPlugin:
         close = df["close"].to_numpy(dtype=float)
 
         atr = self._compute_atr(high, low, close, self.period)
-        highest_high = float(np.max(high[-self.period:]))
-        lowest_low = float(np.min(low[-self.period:]))
+        highest_high = float(np.max(high[-self.period :]))
+        lowest_low = float(np.min(low[-self.period :]))
 
         self._state = {
             "atr": atr,
             "prev_close": float(close[-1]),
-            "high_window": deque(high[-self.period:].tolist(), maxlen=self.period),
-            "low_window": deque(low[-self.period:].tolist(), maxlen=self.period),
+            "high_window": deque(high[-self.period :].tolist(), maxlen=self.period),
+            "low_window": deque(low[-self.period :].tolist(), maxlen=self.period),
         }
 
         return {
@@ -68,7 +68,7 @@ class ChandelierPlugin:
                 abs(high[i] - close[i - 1]),
                 abs(low_price[i] - close[i - 1]),
             )
-        atr = float(np.mean(tr[1: period + 1]))
+        atr = float(np.mean(tr[1 : period + 1]))
         alpha = 1.0 / period
         for i in range(period + 1, n):
             atr = (1 - alpha) * atr + alpha * float(tr[i])

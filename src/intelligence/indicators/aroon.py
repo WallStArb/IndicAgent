@@ -39,8 +39,8 @@ class AroonPlugin:
         low = df["low"].to_numpy(dtype=float)
 
         # Window of (period+1) bars: oldest at index 0, current at index period
-        h_win = high[-(self.period + 1):]
-        l_win = low[-(self.period + 1):]
+        h_win = high[-(self.period + 1) :]
+        l_win = low[-(self.period + 1) :]
 
         aroon_up = float(np.argmax(h_win)) / self.period * 100.0
         aroon_down = float(np.argmin(l_win)) / self.period * 100.0

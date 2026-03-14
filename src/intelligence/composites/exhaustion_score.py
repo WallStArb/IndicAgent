@@ -8,6 +8,7 @@ Outputs:
     exhaustion_side:  "bull" | "bear" | "none"
     exhaustion_bars:  float — consecutive bars where any exhaustion holds
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -20,17 +21,17 @@ from .common import is_num
 class ExhaustionScorePlugin:
     name: str = "cmp_ExhaustionScore"
     outputs: frozenset = field(
-        default_factory=lambda: frozenset({
-            "exhaustion_score",
-            "exhaustion_side",
-            "exhaustion_bars",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "exhaustion_score",
+                "exhaustion_side",
+                "exhaustion_bars",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: frozenset = field(
-        default_factory=lambda: frozenset({"momentum"})
-    )
+    capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum"}))
     inputs: tuple = ()  # reads from frames["features"] only
     _state: dict = field(default_factory=dict)
 

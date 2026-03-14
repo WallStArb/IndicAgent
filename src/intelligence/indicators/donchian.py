@@ -18,9 +18,7 @@ class DonchianChannelsPlugin:
     """
 
     name: str = "DonchianChannels"
-    outputs: set[str] = frozenset(
-        {"donchian_upper_20", "donchian_mid_20", "donchian_lower_20"}
-    )
+    outputs: set[str] = frozenset({"donchian_upper_20", "donchian_mid_20", "donchian_lower_20"})
     min_lookback: int = 22
     supports_incremental: bool = True
     capability_tags: set[str] = frozenset({"volatility"})

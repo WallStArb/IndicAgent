@@ -20,15 +20,15 @@ from ..plugins import InputSpec
 _ET_TZ = ZoneInfo("America/New_York")  # replaces hardcoded _ET_OFFSET = timedelta(hours=-5)
 
 _SESSIONS = {
-    "asia":    ((20, 0), (4, 0)),   # wraps midnight in ET
-    "london":  ((3, 0),  (12, 0)),
-    "ny":      ((9, 30), (16, 0)),
-    "overlap": ((8, 0),  (12, 0)),  # London/NY overlap (legacy range, preserved)
+    "asia": ((20, 0), (4, 0)),  # wraps midnight in ET
+    "london": ((3, 0), (12, 0)),
+    "ny": ((9, 30), (16, 0)),
+    "overlap": ((8, 0), (12, 0)),  # London/NY overlap (legacy range, preserved)
 }
 
 _KILLZONES = {
     "london_kz": ((2, 0), (5, 0)),
-    "ny_kz":     ((7, 0), (10, 0)),
+    "ny_kz": ((7, 0), (10, 0)),
 }
 
 
@@ -124,17 +124,17 @@ class SessionContextPlugin:
         et = _et_from_utc(ts)
 
         # --- Legacy outputs (backward compat) ---
-        sess_asia    = 1.0 if _in_window(et, *_SESSIONS["asia"])    else 0.0
-        sess_london  = 1.0 if _in_window(et, *_SESSIONS["london"])  else 0.0
-        sess_ny      = 1.0 if _in_window(et, *_SESSIONS["ny"])      else 0.0
-        sess_after   = 0.0 if (sess_asia or sess_london or sess_ny)  else 1.0
+        sess_asia = 1.0 if _in_window(et, *_SESSIONS["asia"]) else 0.0
+        sess_london = 1.0 if _in_window(et, *_SESSIONS["london"]) else 0.0
+        sess_ny = 1.0 if _in_window(et, *_SESSIONS["ny"]) else 0.0
+        sess_after = 0.0 if (sess_asia or sess_london or sess_ny) else 1.0
 
         in_london_kz = 1.0 if _in_window(et, *_KILLZONES["london_kz"]) else 0.0
-        in_ny_kz     = 1.0 if _in_window(et, *_KILLZONES["ny_kz"])     else 0.0
+        in_ny_kz = 1.0 if _in_window(et, *_KILLZONES["ny_kz"]) else 0.0
 
-        mins_to_ny     = _minutes_until(et, 9, 30)
+        mins_to_ny = _minutes_until(et, 9, 30)
         mins_to_london = _minutes_until(et, 3, 0)
-        bars_since     = float(len(df))
+        bars_since = float(len(df))
 
         # --- Exchange active flags (data-driven from EXCHANGE_SESSIONS) ---
         exchange_flags: dict[str, float] = {}
@@ -160,19 +160,19 @@ class SessionContextPlugin:
 
         return {
             # Legacy 12
-            "session_asia":             sess_asia,
-            "session_london":           sess_london,
-            "session_ny":               sess_ny,
+            "session_asia": sess_asia,
+            "session_london": sess_london,
+            "session_ny": sess_ny,
             # Source london_ny_overlap from MARKET_OVERLAPS (spec requirement)
             "session_london_ny_overlap": overlap_flags.get("session_london_ny_overlap", 0.0),
-            "session_after_hours":      sess_after,
-            "in_london_killzone":       in_london_kz,
-            "in_ny_killzone":           in_ny_kz,
-            "minutes_to_ny_open":       mins_to_ny,
-            "minutes_to_london_open":   mins_to_london,
+            "session_after_hours": sess_after,
+            "in_london_killzone": in_london_kz,
+            "in_ny_killzone": in_ny_kz,
+            "minutes_to_ny_open": mins_to_ny,
+            "minutes_to_london_open": mins_to_london,
             "bars_since_session_start": bars_since,
-            "is_monday":                1.0 if et.weekday() == 0 else 0.0,
-            "is_friday":                1.0 if et.weekday() == 4 else 0.0,
+            "is_monday": 1.0 if et.weekday() == 0 else 0.0,
+            "is_friday": 1.0 if et.weekday() == 4 else 0.0,
             # Exchange flags
             **exchange_flags,
             # Break flags
@@ -183,15 +183,13 @@ class SessionContextPlugin:
             **sub_session,
         }
 
-    def _compute_sub_session(
-        self, ts: datetime, instrument: Any
-    ) -> dict[str, float]:
+    def _compute_sub_session(self, ts: datetime, instrument: Any) -> dict[str, float]:
         """Instrument-aware sub-session features. Defaults to 0.0 when no instrument."""
         defaults: dict[str, float] = {
             "session_elapsed_frac": 0.0,
-            "is_opening_range":     0.0,
+            "is_opening_range": 0.0,
             "is_lunch_consolidation": 0.0,
-            "is_power_hour":        0.0,
+            "is_power_hour": 0.0,
         }
         if instrument is None:
             return defaults
@@ -211,8 +209,8 @@ class SessionContextPlugin:
         # NOTE: 390 is NYSE session minutes (6.5h). elapsed_fraction() normalises
         # by the instrument's actual session length, so these thresholds approximate
         # "first 30 min" and "last 60 min" for NYSE sessions.
-        is_opening  = 1.0 if elapsed < (30.0 / 390.0) else 0.0
-        is_power    = 1.0 if elapsed > (330.0 / 390.0) else 0.0
+        is_opening = 1.0 if elapsed < (30.0 / 390.0) else 0.0
+        is_power = 1.0 if elapsed > (330.0 / 390.0) else 0.0
 
         if session.trading_breaks:
             is_lunch = 1.0 if session.in_trading_break(ts) else 0.0
@@ -220,10 +218,10 @@ class SessionContextPlugin:
             is_lunch = 1.0 if 0.30 <= elapsed <= 0.65 else 0.0
 
         return {
-            "session_elapsed_frac":   elapsed,
-            "is_opening_range":       is_opening,
+            "session_elapsed_frac": elapsed,
+            "is_opening_range": is_opening,
             "is_lunch_consolidation": is_lunch,
-            "is_power_hour":          is_power,
+            "is_power_hour": is_power,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
