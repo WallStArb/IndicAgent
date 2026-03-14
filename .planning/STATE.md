@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: candidates
 status: completed
-stopped_at: Completed 30-03-PLAN.md (Signal + Narrative services — signal_lifecycle, ai_narrative)
-last_updated: "2026-03-14T11:43:12.839Z"
+stopped_at: Completed 30-04-PLAN.md (Writer Services + API/SSE Redpanda Migration)
+last_updated: "2026-03-14T11:57:11.800Z"
 last_activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 100
 ---
 
@@ -71,6 +71,7 @@ Progress: [██████████] 100% (v1.8 shipped)
 | Phase 30-redpanda-migration P01 | 6 | 3 tasks | 9 files |
 | Phase 30-redpanda-migration P02 | 13 | 2 tasks | 7 files |
 | Phase 30-redpanda-migration P03 | 35 | 2 tasks | 6 files |
+| Phase 30-redpanda-migration P04 | 11 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,9 @@ Progress: [██████████] 100% (v1.8 shipped)
 - [Phase 30-02]: _get_field() dual-mode helper added for str/bytes dict compat between Kafka JSON and legacy test fixtures
 - [Phase 30-redpanda-migration]: signal_lifecycle + ai_narrative Redis client fully removed; _llm_scores_cache in-process dict replaces Redis HSET/HGETALL; _group_fingerprints replaces Redis hash fingerprint tracking
 - [Phase 30-redpanda-migration]: i8 stream publish deferred to Plan 4 (SSE migration) — pass + TODO(30-04) in _run_narrative_call; tests document deferred behavior
+- [Phase 30-redpanda-migration]: KafkaSSEBroadcaster in sse.py with per-topic deque snapshot + per-client asyncio.Queue fan-out replaces Redis xrevrange/xread
+- [Phase 30-redpanda-migration]: feature_writer_service and llm_writer_service redis_client fully removed; Kafka-native; CONSUMER_GROUP='feature_writer_group'
+- [Phase 30-redpanda-migration]: ai_narrative_service: i8 publish to topic_intelligence_i8 wired (was TODO(30-04) in Plan 3)
 
 ### Pending Todos (addressed in v1.8)
 
@@ -139,6 +143,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-14T11:43:12.838Z
-Stopped at: Completed 30-03-PLAN.md (Signal + Narrative services — signal_lifecycle, ai_narrative)
+Last session: 2026-03-14T11:57:11.798Z
+Stopped at: Completed 30-04-PLAN.md (Writer Services + API/SSE Redpanda Migration)
 Resume file: None
