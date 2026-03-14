@@ -130,9 +130,7 @@ async def get_features(
             result_rows.append(
                 {
                     "ts": (
-                        row["ts"].isoformat()
-                        if hasattr(row["ts"], "isoformat")
-                        else str(row["ts"])
+                        row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"])
                     ),
                     "symbol": row["symbol"],
                     "tf": row["tf"],
@@ -157,9 +155,5 @@ async def get_features(
         }
 
     except Exception as e:
-        logger.error(
-            "Error fetching features", symbol=contract, timeframe=timeframe, error=str(e)
-        )
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching features: {str(e)}"
-        ) from e
+        logger.error("Error fetching features", symbol=contract, timeframe=timeframe, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching features: {str(e)}") from e

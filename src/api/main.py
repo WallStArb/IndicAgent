@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
             topic_narratives_group,
             topic_signals_aggregated,
         )
+
         from .routes.sse import KafkaSSEBroadcaster
 
         kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
@@ -80,9 +81,7 @@ async def lifespan(app: FastAPI):
             auto_offset_reset="latest",
         )
         await _sse_consumer.start()
-        _broadcaster_task = asyncio.create_task(
-            dependencies.kafka_broadcaster.run(_sse_consumer)
-        )
+        _broadcaster_task = asyncio.create_task(dependencies.kafka_broadcaster.run(_sse_consumer))
 
         # Seed instruments table from contract config
         await dependencies.db_manager.upsert_instruments(settings.contracts)
@@ -114,7 +113,6 @@ async def lifespan(app: FastAPI):
 
 
 import asyncio  # noqa: E402 — needed inside lifespan above
-
 
 # Create FastAPI application
 app = FastAPI(

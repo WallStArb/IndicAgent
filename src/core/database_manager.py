@@ -3,6 +3,7 @@ Simplified Database Manager for Clean Architecture
 
 A focused database manager that provides core functionality without complexity.
 """
+
 import json
 from contextlib import asynccontextmanager
 from typing import Any
@@ -15,12 +16,8 @@ logger = structlog.get_logger(__name__)
 
 async def _setup_codecs(conn):
     """Setup JSONB codecs for new connections (init= callback for pool)."""
-    await conn.set_type_codec(
-        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-    )
-    await conn.set_type_codec(
-        "json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-    )
+    await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+    await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
 
 
 class DatabaseManager:
@@ -33,6 +30,8 @@ class DatabaseManager:
 
     async def initialize(self):
         """Initialize database connection pool."""
+        if self.pool is not None:
+            return
         try:
             self.pool = await asyncpg.create_pool(
                 self.database_url, min_size=2, max_size=10, command_timeout=30, init=_setup_codecs
@@ -121,10 +120,7 @@ class DatabaseManager:
                     updated_at = NOW()
         """
 
-        params = [
-            (c.base, json.dumps(c.model_dump()), True)
-            for c in contracts
-        ]
+        params = [(c.base, json.dumps(c.model_dump()), True) for c in contracts]
         await self.execute_batch(sql, params)
         logger.info("Upserted instruments", count=len(params))
         return len(params)

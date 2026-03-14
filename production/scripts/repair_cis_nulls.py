@@ -22,6 +22,7 @@ Design rationale (Renaissance principles):
 - Never drop data: Orphaned rows are logged, not deleted — they may recover after a backfill
 - Let the system run: CISScorer recomputes scores from historical features, no manual override
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,7 +66,7 @@ def connect_db(settings: Settings) -> Any:
     hostport_db = rest.split("/", 1)
     hostport = hostport_db[0]
     dbname = hostport_db[1] if len(hostport_db) > 1 else "indicagent"
-    host, port = (hostport.split(":", 1) if ":" in hostport else (hostport, "5432"))
+    host, port = hostport.split(":", 1) if ":" in hostport else (hostport, "5432")
 
     return psycopg2.connect(
         host=host, port=int(port), database=dbname, user=user, password=password
@@ -114,9 +115,7 @@ def classify_rows(rows: list[dict]) -> tuple[list[dict], list[str]]:
     return recoverable, orphaned
 
 
-def build_cis_update_params(
-    signal_id: str, cis_result: Any
-) -> tuple[float, str, int, str]:
+def build_cis_update_params(signal_id: str, cis_result: Any) -> tuple[float, str, int, str]:
     """Build parameters for UPDATE signal_ledger query.
 
     Returns:
@@ -222,9 +221,7 @@ def audit_null_cis(
 # ---------------------------------------------------------------------------
 
 
-def repair_recoverable(
-    conn: Any, rows: list[dict], batch_size: int = 500
-) -> int:
+def repair_recoverable(conn: Any, rows: list[dict], batch_size: int = 500) -> int:
     """Repair recoverable rows by recomputing CIS scores and UPDATEing.
 
     Returns:

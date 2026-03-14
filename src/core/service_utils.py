@@ -83,6 +83,7 @@ def should_skip_plugin(
     if instrument is None:
         return False
     from src.core.models import _ALL_ASSET_CLASSES
+
     allowed: frozenset = getattr(plugin, "valid_asset_classes", _ALL_ASSET_CLASSES)
     if instrument.asset_class not in allowed:
         skipped_counter.labels(

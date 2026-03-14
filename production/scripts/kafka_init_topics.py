@@ -34,8 +34,8 @@ _TOPIC_SPECS = [
     ("market.bars", 1, "604800000"),
     ("indicators", 1, "604800000"),
     ("intelligence", 1, "604800000"),
-    ("intelligence.i7", 1, "86400000"),   # 1 day — high-volume enrichment
-    ("intelligence.i8", 1, "86400000"),   # 1 day — high-volume enrichment
+    ("intelligence.i7", 1, "86400000"),  # 1 day — high-volume enrichment
+    ("intelligence.i8", 1, "86400000"),  # 1 day — high-volume enrichment
     ("signals", 1, "604800000"),
     ("signals.aggregated", 1, "604800000"),
     ("narratives", 1, "604800000"),

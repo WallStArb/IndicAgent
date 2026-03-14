@@ -76,7 +76,7 @@ class KafkaConsumerClient:
         """Commit pending offsets, leave consumer group, and close the connection."""
         await self._consumer.stop()
 
-    async def messages(self) -> AsyncGenerator[tuple[str, str | None, dict], None]:
+    async def messages(self) -> AsyncGenerator[tuple[str, str | None, dict]]:
         """Yield (topic, key, payload_dict) tuples from subscribed topics.
 
         Yields:

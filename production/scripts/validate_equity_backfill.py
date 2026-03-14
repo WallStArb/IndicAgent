@@ -6,6 +6,7 @@ Usage:
 
 Exits non-zero if any off-hours rows found for any symbol.
 """
+
 from __future__ import annotations
 
 import argparse

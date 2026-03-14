@@ -24,6 +24,7 @@ router = APIRouter()
 @lru_cache(maxsize=1)
 def _get_settings():
     from ...config.settings import Settings
+
     return Settings()
 
 
@@ -35,6 +36,7 @@ def _get_env_prefix() -> str:
 def _get_redis_client():
     """Get raw redis client from app dependencies."""
     from .. import dependencies
+
     if dependencies.redis_manager is None:
         return None
     # RedisStreamsManager wraps the redis client
@@ -75,7 +77,7 @@ async def get_drift_state() -> dict[str, Any]:
                     continue
                 # Parse symbol and TF from key: {prefix}drift:ks:{symbol}:{tf}
                 # Strip env prefix first
-                suffix = key[len(env_prefix):]  # drift:ks:{symbol}:{tf}
+                suffix = key[len(env_prefix) :]  # drift:ks:{symbol}:{tf}
                 parts = suffix.split(":", 3)  # ["drift", "ks", "{symbol}", "{tf}"]
                 if len(parts) == 4:
                     ks_entries.append(
@@ -102,7 +104,7 @@ async def get_drift_state() -> dict[str, Any]:
                 if severity is None:
                     continue
                 # Parse setup_plugin from key: {prefix}drift:cusum:{setup_plugin}
-                suffix = key[len(env_prefix):]  # drift:cusum:{setup_plugin}
+                suffix = key[len(env_prefix) :]  # drift:cusum:{setup_plugin}
                 parts = suffix.split(":", 2)  # ["drift", "cusum", "{setup_plugin}"]
                 if len(parts) == 3:
                     # Read additional CUSUM state if available (severity is the value)
