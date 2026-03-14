@@ -9,6 +9,7 @@ from fastapi import HTTPException
 # Global resources (set by main.py)
 db_manager = None
 redis_manager = None
+kafka_broadcaster = None
 
 
 async def get_db_manager():
@@ -23,3 +24,10 @@ async def get_redis_manager():
     if redis_manager is None:
         raise HTTPException(status_code=503, detail="Redis manager not initialized")
     return redis_manager
+
+
+async def get_kafka_broadcaster():
+    """Get Kafka SSE broadcaster dependency."""
+    if kafka_broadcaster is None:
+        raise HTTPException(status_code=503, detail="Kafka broadcaster not initialized")
+    return kafka_broadcaster
