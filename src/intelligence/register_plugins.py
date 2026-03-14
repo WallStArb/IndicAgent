@@ -101,6 +101,55 @@ from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
 
 
+def validate_schema_coverage() -> None:
+    """Verify every extra='forbid' schema declares all plugin output fields.
+
+    Called at the end of register_all_plugins(). Raises RuntimeError immediately
+    if any plugin outputs a field not declared in its tier schema — catching the
+    class of bug that silently breaks seed publish on service restart.
+
+    I1 and I2 are skipped (extra='allow').
+    """
+    from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
+
+    tier_checks: list[tuple[str, list, type]] = [
+        ("I3", [swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
+                session_levels_plugin, anchored_vwap_plugin, fib_zones_plugin,
+                swing_momentum_plugin], I3Structure),
+        ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
+                garch_vol_plugin, hurst_plugin, shannon_plugin,
+                kalman_trend_plugin, session_ctx_plugin, mtf_vol_plugin], I4Context),
+        ("I5", [rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
+                trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
+                triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
+                cup_handle_plugin, measured_move_plugin, volume_profile_plugin,
+                key_level_reaction_plugin], I5Patterns),
+        ("SMC", [bos_choch_plugin, fvg_plugin, ob_plugin, liq_sweep_plugin,
+                 bocpd_plugin, hmm_plugin, liquidity_pools_plugin,
+                 supply_demand_zones_plugin, ict_killzones_plugin, amd_cycle_plugin,
+                 breaker_blocks_plugin, mitigation_blocks_plugin,
+                 premium_discount_plugin], SMCContext),
+        ("I6", [ctf_plugin], I6Confluence),
+    ]
+
+    gaps: list[str] = []
+    for tier_name, plugins, schema_cls in tier_checks:
+        schema_fields = set(schema_cls.model_fields.keys())
+        for plugin in plugins:
+            missing = plugin.outputs - schema_fields
+            if missing:
+                gaps.append(
+                    f"  [{tier_name}] {plugin.name}: {sorted(missing)} "
+                    f"not in {schema_cls.__name__}"
+                )
+
+    if gaps:
+        raise RuntimeError(
+            "Schema coverage gaps detected — add missing fields to schemas.py:\n"
+            + "\n".join(gaps)
+        )
+
+
 def register_all_plugins() -> None:
     registry.register_indicator(rsi_plugin)
     registry.register_indicator(ma_plugin)
@@ -211,6 +260,8 @@ def register_all_plugins() -> None:
     registry.register_pattern(gap_analysis_setup_plugin)
     registry.register_pattern(candlestick_pattern_setup_plugin)
     registry.register_pattern(session_extremes_setup_plugin)
+
+    validate_schema_coverage()
 
 
 # ---------------------------------------------------------------------------
