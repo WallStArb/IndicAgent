@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from src.core.models import Instrument
+from src.observability.metrics import PROVIDER_ACTIVE_SUBSCRIPTIONS
 
 
 class Tick(BaseModel):
@@ -91,3 +92,44 @@ class DataProvider(Protocol):
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars. timeframe: '1m', '5m', '15m', '1h'."""
         ...
+
+
+class SubscriptionLimitError(Exception):
+    """Raised when a provider's subscription limit is reached."""
+
+
+class SubscriptionManager:
+    """Generic subscription slot tracker for data providers with hard limits.
+
+    Provider-agnostic: IBKR, Alpaca, Polygon all have different limits.
+    SubscriptionLimitError is raised before attempting the violating subscription
+    so the caller can handle gracefully (log + skip vs raise).
+    """
+
+    def __init__(self, provider_name: str, max_subscriptions: int) -> None:
+        self._provider_name = provider_name
+        self._max = max_subscriptions
+        self._active: set[str] = set()
+
+        self._gauge = PROVIDER_ACTIVE_SUBSCRIPTIONS
+
+    def subscribe(self, symbol: str) -> None:
+        if symbol in self._active:
+            return  # idempotent
+        if len(self._active) >= self._max:
+            raise SubscriptionLimitError(
+                f"{self._provider_name}: subscription limit {self._max} reached "
+                f"(attempted to add {symbol!r})"
+            )
+        self._active.add(symbol)
+        if self._gauge:
+            self._gauge.labels(provider=self._provider_name).set(self.count)
+
+    def unsubscribe(self, symbol: str) -> None:
+        self._active.discard(symbol)
+        if self._gauge:
+            self._gauge.labels(provider=self._provider_name).set(self.count)
+
+    @property
+    def count(self) -> int:
+        return len(self._active)

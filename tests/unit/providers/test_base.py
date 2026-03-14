@@ -1,3 +1,4 @@
+import pytest
 from datetime import UTC, datetime
 
 from src.providers.base import DataProvider, OHLCVBar, Tick
@@ -67,3 +68,51 @@ class TestDataProviderProtocol:
             async def fetch_historical_bars(self, symbol, timeframe, start, end): return []
 
         assert isinstance(MinimalProvider(), DataProvider)
+
+
+from src.providers.base import SubscriptionManager, SubscriptionLimitError
+
+
+class TestSubscriptionManager:
+    def test_subscribe_increments_count(self):
+        mgr = SubscriptionManager("test_provider", max_subscriptions=10)
+        mgr.subscribe("AAPL")
+        assert mgr.count == 1
+
+    def test_subscribe_twice_same_symbol_no_duplicate(self):
+        mgr = SubscriptionManager("test_provider", max_subscriptions=10)
+        mgr.subscribe("AAPL")
+        mgr.subscribe("AAPL")  # set semantics — no duplicate
+        assert mgr.count == 1
+
+    def test_unsubscribe_decrements_count(self):
+        mgr = SubscriptionManager("test_provider", max_subscriptions=10)
+        mgr.subscribe("AAPL")
+        mgr.unsubscribe("AAPL")
+        assert mgr.count == 0
+
+    def test_unsubscribe_unknown_symbol_no_error(self):
+        mgr = SubscriptionManager("test_provider", max_subscriptions=10)
+        mgr.unsubscribe("UNKNOWN")  # discard — no exception
+        assert mgr.count == 0
+
+    def test_raises_when_limit_reached(self):
+        mgr = SubscriptionManager("test_provider", max_subscriptions=2)
+        mgr.subscribe("AAPL")
+        mgr.subscribe("MSFT")
+        with pytest.raises(SubscriptionLimitError, match="test_provider"):
+            mgr.subscribe("GOOG")
+
+    def test_error_message_contains_symbol(self):
+        mgr = SubscriptionManager("ibkr", max_subscriptions=1)
+        mgr.subscribe("SPY")
+        with pytest.raises(SubscriptionLimitError, match="AAPL"):
+            mgr.subscribe("AAPL")
+
+    def test_after_unsubscribe_can_subscribe_again(self):
+        mgr = SubscriptionManager("test_provider", max_subscriptions=2)
+        mgr.subscribe("AAPL")
+        mgr.subscribe("MSFT")
+        mgr.unsubscribe("AAPL")
+        mgr.subscribe("GOOG")  # should succeed — count is 2 again
+        assert mgr.count == 2

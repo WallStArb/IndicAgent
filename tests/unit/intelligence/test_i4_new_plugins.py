@@ -117,7 +117,7 @@ class TestSessionContext:
         result = SessionContextPlugin().compute_full({"main": df, "features": {}})
         # Should return neutral 0.0 for all flags when no timestamp
         assert isinstance(result, dict)
-        assert len(result) == 12
+        assert len(result) == 27  # updated: plugin now has 27 outputs
 
     def test_empty_returns_empty(self):
         from src.intelligence.context.session_context import SessionContextPlugin

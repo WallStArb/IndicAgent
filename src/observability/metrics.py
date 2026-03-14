@@ -166,6 +166,30 @@ MARKET_CONDITIONS_GAUGE = Gauge(
     "Current market condition classification (0=ranging, 1=trending, 2=volatile)",
     ["symbol", "timeframe"],
 )
+PROVIDER_ACTIVE_SUBSCRIPTIONS = Gauge(
+    "provider_active_subscriptions",
+    "Active data subscriptions per provider",
+    ["provider"],
+)
+
+# Asset-class filtering metrics
+PLUGIN_SKIPPED_TOTAL = Counter(
+    "plugin_skipped_total",
+    "Total plugin invocations skipped due to asset class",
+    ["plugin_name", "asset_class"],
+)
+
+# Per-symbol/timeframe bar processing counters (labeled)
+INDICATOR_BARS_PROCESSED_LABELED_TOTAL = Counter(
+    "indicator_bars_processed_labeled_total",
+    "Bars processed by indicator service (labeled by symbol and tf)",
+    ["symbol", "tf"],
+)
+MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL = Counter(
+    "market_analysis_bars_processed_labeled_total",
+    "Bars processed by market analysis service (labeled by symbol and tf)",
+    ["symbol", "tf"],
+)
 
 # Pipeline timing — bar-close to each stage latency (live events only)
 BAR_TO_I1_LATENCY = Histogram(
