@@ -2,11 +2,15 @@
 Core data models for the Multi-Timeframe Trading Signal Platform.
 """
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date as _date
+from datetime import datetime, time
+from datetime import datetime as _datetime
 from enum import StrEnum
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AssetClass(StrEnum):
@@ -17,6 +21,135 @@ class AssetClass(StrEnum):
     CRYPTO = "crypto"
     FX = "fx"
     OPTION = "option"
+
+
+_ALL_ASSET_CLASSES: frozenset["AssetClass"] = frozenset(AssetClass)
+
+
+@dataclass(frozen=True)
+class TradingSession:
+    """Defines when a market is open, including trading breaks and trading days."""
+
+    open_time: time
+    close_time: time
+    timezone: str
+    trading_days: frozenset[int] = frozenset({0, 1, 2, 3, 4})
+    trading_breaks: tuple[tuple[time, time], ...] = ()
+
+    def is_open(self, utc_ts: _datetime) -> bool:
+        """True if market is open at utc_ts (trading_breaks do NOT close the session)."""
+        local = utc_ts.astimezone(ZoneInfo(self.timezone))
+        if local.weekday() not in self.trading_days:
+            return False
+        t = local.time().replace(second=0, microsecond=0)
+        if self.open_time == self.close_time:
+            return True
+        elif self.open_time < self.close_time:
+            return self.open_time <= t < self.close_time
+        else:
+            return t >= self.open_time or t < self.close_time
+
+    def in_trading_break(self, utc_ts: _datetime) -> bool:
+        """True if currently in a scheduled intra-session break."""
+        if not self.trading_breaks:
+            return False
+        local = utc_ts.astimezone(ZoneInfo(self.timezone))
+        t = local.time().replace(second=0, microsecond=0)
+        return any(start <= t < end for start, end in self.trading_breaks)
+
+    def elapsed_fraction(self, utc_ts: _datetime) -> float | None:
+        """Fraction of trading day elapsed (0.0→1.0, breaks excluded from denominator).
+
+        Returns None for all-day sessions or when closed.
+        """
+        if self.open_time == self.close_time:
+            return None
+        if not self.is_open(utc_ts):
+            return None
+        local = utc_ts.astimezone(ZoneInfo(self.timezone))
+        t = local.time().replace(second=0, microsecond=0)
+        anchor = _date(2000, 1, 2)  # Monday anchor for safe time arithmetic
+        t_dt = _datetime.combine(anchor, t)
+        op_dt = _datetime.combine(anchor, self.open_time)
+        cl_dt = _datetime.combine(anchor, self.close_time)
+        if self.open_time > self.close_time:  # midnight wrap
+            next_day = _date(2000, 1, 3)
+            cl_dt = _datetime.combine(next_day, self.close_time)
+            if t < self.open_time:
+                t_dt = _datetime.combine(next_day, t)
+        session_total = (cl_dt - op_dt).total_seconds()
+        elapsed = (t_dt - op_dt).total_seconds()
+        for brk_start, brk_end in self.trading_breaks:
+            bs_dt = _datetime.combine(anchor, brk_start)
+            be_dt = _datetime.combine(anchor, brk_end)
+            bs_dt = max(bs_dt, op_dt)
+            be_dt = min(be_dt, cl_dt)
+            if be_dt > bs_dt:
+                session_total -= (be_dt - bs_dt).total_seconds()
+            if be_dt <= t_dt:
+                elapsed -= max(0.0, (be_dt - bs_dt).total_seconds())
+            elif bs_dt < t_dt:
+                elapsed -= (t_dt - bs_dt).total_seconds()
+        if session_total <= 0:
+            return None
+        return max(0.0, min(1.0, elapsed / session_total))
+
+
+EXCHANGE_SESSIONS: dict[str, "TradingSession"] = {
+    "nyse": TradingSession(time(9, 30), time(16, 0), "America/New_York"),
+    "lse": TradingSession(time(8, 0), time(16, 30), "Europe/London"),
+    "tse": TradingSession(
+        time(9, 0),
+        time(15, 30),
+        "Asia/Tokyo",
+        trading_breaks=((time(11, 30), time(12, 30)),),
+    ),
+    "hkex": TradingSession(
+        time(9, 30),
+        time(16, 0),
+        "Asia/Hong_Kong",
+        trading_breaks=((time(12, 0), time(13, 0)),),
+    ),
+    "sse": TradingSession(
+        time(9, 30),
+        time(15, 0),
+        "Asia/Shanghai",
+        trading_breaks=((time(11, 30), time(13, 0)),),
+    ),
+    "asx": TradingSession(time(10, 0), time(16, 0), "Australia/Sydney"),
+}
+
+CONTINUOUS_SESSIONS: dict[str, "TradingSession"] = {
+    "futures_24_5": TradingSession(
+        time(18, 0),
+        time(17, 0),
+        "Etc/GMT+6",  # Fixed UTC-6 (CST); CME quotes hours in CST year-round
+        trading_days=frozenset({0, 1, 2, 3, 4, 6}),
+    ),
+    "fx_24_5": TradingSession(
+        time(0, 0),
+        time(0, 0),
+        "UTC",
+        trading_days=frozenset({0, 1, 2, 3, 4, 6}),
+    ),
+    "crypto_24_7": TradingSession(
+        time(0, 0),
+        time(0, 0),
+        "UTC",
+        trading_days=frozenset(range(7)),
+    ),
+}
+
+SESSION_REGISTRY: dict[str, "TradingSession"] = {
+    **EXCHANGE_SESSIONS,
+    **CONTINUOUS_SESSIONS,
+}
+
+MARKET_OVERLAPS: dict[str, tuple[str, str]] = {
+    "tokyo_london": ("tse", "lse"),
+    "london_ny": ("lse", "nyse"),
+    "ny_sydney": ("nyse", "asx"),
+}
 
 
 class Instrument(BaseModel):
@@ -34,6 +167,18 @@ class Instrument(BaseModel):
     point_value: float = 0
     # Escape hatch for provider-specific metadata
     provider_meta: dict = {}
+    session_id: str = "futures_24_5"
+
+    @field_validator("session_id")
+    @classmethod
+    def _validate_session_id(cls, v: str) -> str:
+        if v not in SESSION_REGISTRY:
+            raise ValueError(f"Unknown session_id {v!r}. Known: {list(SESSION_REGISTRY)}")
+        return v
+
+    @property
+    def trading_session(self) -> TradingSession:
+        return SESSION_REGISTRY[self.session_id]
 
 
 class DataSource(StrEnum):

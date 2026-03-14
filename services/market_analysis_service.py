@@ -37,6 +37,7 @@ from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     min_bars_for_tf,
     setup_service_logging,
+    should_skip_plugin,
 )
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import intelligence as sk_intelligence
@@ -64,6 +65,8 @@ from src.intelligence.schemas import (
 )
 from src.observability.metrics import (
     BAR_TO_INTELLIGENCE_LATENCY,
+    MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL,
+    PLUGIN_SKIPPED_TOTAL,
     counter,
     gauge,
     record_plugin_execution,
@@ -112,6 +115,11 @@ class MarketAnalysisService:
         self._active_symbols: set[str] = set()
         self._stream_map: dict[str, tuple[str, str]] = {}  # stream_name → (symbol, timeframe)
 
+        # Build instrument map for asset-class guard
+        self._instrument_map: dict[str, Any] = {
+            inst.symbol: inst for inst in settings.contracts
+        }
+
         self.bars_processed_total = counter(
             "market_analysis_bars_processed_total",
             "Total indicator messages processed by market analysis service",
@@ -136,6 +144,9 @@ class MarketAnalysisService:
             "market_analysis_errors_total",
             "Total errors encountered by market analysis service",
         )
+
+        self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
+        self.bars_processed_labeled_total = MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -200,11 +211,17 @@ class MarketAnalysisService:
         features: dict[str, Any] = dict(frames.get("features", {}))
         frames["features"] = features
 
+        instrument = self._instrument_map.get(symbol)
+        if instrument:
+            frames["__instrument__"] = instrument
+
         async def _run_tier(plugins: list[str], tier: str, results: dict[str, Any]) -> None:
             for pname in plugins:
                 t0 = time.time()
                 try:
                     p = self._plugin_cache[pname]
+                    if should_skip_plugin(p, instrument, self.plugin_skipped_total, pname):
+                        continue
                     state_key = (pname, symbol, timeframe)
                     async with self._get_state_lock(state_key):
                         p._state = self._plugin_states.setdefault(state_key, {})
@@ -357,6 +374,7 @@ class MarketAnalysisService:
                 )
 
             self.bars_processed_total.inc()
+            self.bars_processed_labeled_total.labels(symbol=symbol, tf=timeframe).inc()
             self._active_symbols.add(symbol)
             self.calculation_duration_ms.set(calc_ms)
 

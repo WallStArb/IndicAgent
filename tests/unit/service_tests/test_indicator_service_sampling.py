@@ -191,6 +191,8 @@ class TestIndicatorServiceSamplingIntegration:
         svc.logger = MagicMock()
         svc._i1_plugin_states = {}
         svc._i1_plugin_states_locks = {}
+        svc._instrument_map = {}
+        svc.plugin_skipped_total = MagicMock()
 
         mock_plugin = _make_mock_plugin({"rsi_14": 55.0})
 
@@ -224,6 +226,8 @@ class TestIndicatorServiceSamplingIntegration:
         svc.logger = MagicMock()
         svc._i1_plugin_states = {}
         svc._i1_plugin_states_locks = {}
+        svc._instrument_map = {}
+        svc.plugin_skipped_total = MagicMock()
 
         error_plugin = MagicMock()
         error_plugin._state = {}

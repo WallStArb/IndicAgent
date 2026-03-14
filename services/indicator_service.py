@@ -33,6 +33,7 @@ from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     min_bars_for_tf,
     setup_service_logging,
+    should_skip_plugin,
 )
 from src.core.stream_keys import indicators as sk_indicators
 from src.core.stream_keys import market as sk_market
@@ -41,6 +42,8 @@ from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import (
     BAR_TO_I1_LATENCY,
+    INDICATOR_BARS_PROCESSED_LABELED_TOTAL,
+    PLUGIN_SKIPPED_TOTAL,
     counter,
     gauge,
     record_plugin_execution,
@@ -159,6 +162,11 @@ class IndicatorService:
         settings = Settings()
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
 
+        # Build instrument map for asset-class guard
+        self._instrument_map: dict[str, Any] = {
+            inst.symbol: inst for inst in settings.contracts
+        }
+
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
         self._stream_map: dict[str, tuple[str, str]] = {}
@@ -176,6 +184,9 @@ class IndicatorService:
             "indicator_errors_total",
             "Total errors in indicator service",
         )
+
+        self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
+        self.bars_processed_labeled_total = INDICATOR_BARS_PROCESSED_LABELED_TOTAL
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -232,11 +243,16 @@ class IndicatorService:
         self, frames: dict[str, Any], symbol: str, timeframe: str
     ) -> dict[str, Any]:
         """Run all I1 plugins and return merged feature dict."""
+        instrument = self._instrument_map.get(symbol)
+        if instrument:
+            frames["__instrument__"] = instrument
         features: dict[str, Any] = {}
         for plugin_name in I1_PLUGINS:
             t0 = time.time()
             try:
                 p = self._i1_plugin_cache[plugin_name]
+                if should_skip_plugin(p, instrument, self.plugin_skipped_total, plugin_name):
+                    continue
                 state_key = (plugin_name, symbol, timeframe)
                 async with self._get_state_lock(state_key):
                     p._state = self._i1_plugin_states.setdefault(state_key, {})

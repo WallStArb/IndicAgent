@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -10,7 +11,7 @@ from ..plugins import InputSpec
 _SESSION_BARS = 390   # ~1 trading day on 1m
 _WEEK_BARS = 1950     # ~5 trading days on 1m
 _OVERNIGHT_BARS = 60  # ~1 hour on 1m
-_ASIA_ET_OFFSET = -5  # fixed UTC-5, consistent with session_context.py
+_ET_TZ = ZoneInfo("America/New_York")  # DST-aware; replaces fixed UTC-5 offset
 
 
 @dataclass
@@ -150,10 +151,10 @@ class SessionLevelsPlugin:
             result["nearest_session_level"] = None
             result["nearest_level_dist_atr"] = None
 
-        # Asian session H/L — vectorized: UTC-5 fixed offset, 20:00–04:00 ET wraps midnight
+        # Asian session H/L — vectorized: DST-aware ET, 20:00–04:00 ET wraps midnight
         if "timestamp" in df.columns and len(df) > 0:
             ts_utc = pd.to_datetime(df["timestamp"], utc=True)
-            et_hours = (ts_utc.dt.hour + _ASIA_ET_OFFSET) % 24
+            et_hours = ts_utc.dt.tz_convert(_ET_TZ).dt.hour
             asia_mask = (et_hours >= 20) | (et_hours < 4)
             asia_bars = df[asia_mask]
             if len(asia_bars) > 0:

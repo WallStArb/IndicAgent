@@ -78,10 +78,18 @@ class Settings(BaseSettings):
         description="Timeout in seconds for LLM provider API calls",
     )
 
+    # IBKR subscription cap (market data lines)
+    ibkr_max_subscriptions: int = Field(default=80, validation_alias="IBKR_MAX_SUBSCRIPTIONS")
+
     # Computed contracts list
     contracts: list[Instrument] = Field(default_factory=list)
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
+
+    @property
+    def instruments(self) -> list[Instrument]:
+        """Alias for contracts — preferred name for multi-asset-class context."""
+        return self.contracts
 
     @field_validator("contracts", mode="before")
     @classmethod
@@ -136,10 +144,6 @@ class Settings(BaseSettings):
                 symbol="HGH6", base="HG", exchange="COMEX", expiry="20260327",
                 name="Copper", point_value=25000, tick_size=0.0005, sector="metals",
             ),
-            Instrument(
-                symbol="PLJ6", base="PL", exchange="NYMEX", expiry="20260428",
-                name="Platinum", point_value=50, tick_size=0.10, sector="metals",
-            ),
             # Volatility — April 2026 (J6)
             Instrument(
                 symbol="VXJ6", base="VIX", exchange="CFE", expiry="20260415",
@@ -182,39 +186,60 @@ class Settings(BaseSettings):
             # FX — Spot (IDEALPRO); point_value = USD per pip (0.0001) on 100k lot
             Instrument(
                 symbol="EURUSD", base="EUR", exchange="IDEALPRO", sector="fx",
-                asset_class=AssetClass.FX,
+                asset_class=AssetClass.FX, session_id="fx_24_5",
                 name="Euro/US Dollar", point_value=10.0, tick_size=0.00001,
             ),
             Instrument(
                 symbol="GBPUSD", base="GBP", exchange="IDEALPRO", sector="fx",
-                asset_class=AssetClass.FX,
+                asset_class=AssetClass.FX, session_id="fx_24_5",
                 name="British Pound/US Dollar", point_value=10.0, tick_size=0.00001,
             ),
             Instrument(
                 symbol="USDJPY", base="USD", exchange="IDEALPRO", sector="fx",
-                asset_class=AssetClass.FX,
+                asset_class=AssetClass.FX, session_id="fx_24_5",
                 name="US Dollar/Japanese Yen", point_value=9.0, tick_size=0.001,
             ),
             Instrument(
                 symbol="USDCHF", base="USD", exchange="IDEALPRO", sector="fx",
-                asset_class=AssetClass.FX,
+                asset_class=AssetClass.FX, session_id="fx_24_5",
                 name="US Dollar/Swiss Franc", point_value=10.0, tick_size=0.00001,
             ),
             # Spot Crypto (PAXOS) — no expiry, 24/7
             Instrument(
                 symbol="BTCUSD", base="BTC", exchange="PAXOS", sector="crypto",
-                asset_class=AssetClass.CRYPTO,
+                asset_class=AssetClass.CRYPTO, session_id="crypto_24_7",
                 name="Bitcoin/US Dollar", point_value=1.0, tick_size=0.01,
             ),
             Instrument(
                 symbol="ETHUSD", base="ETH", exchange="PAXOS", sector="crypto",
-                asset_class=AssetClass.CRYPTO,
+                asset_class=AssetClass.CRYPTO, session_id="crypto_24_7",
                 name="Ether/US Dollar", point_value=1.0, tick_size=0.01,
             ),
+            # ETFs — Pilot 5 (equity expansion phase A)
             Instrument(
-                symbol="SOLUSD", base="SOL", exchange="PAXOS", sector="crypto",
-                asset_class=AssetClass.CRYPTO,
-                name="Solana/US Dollar", point_value=1.0, tick_size=0.001,
+                symbol="SPY", base="SPY", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="SPDR S&P 500 ETF", sector="equity",
+            ),
+            Instrument(
+                symbol="XLF", base="XLF", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Financial Select Sector SPDR", sector="equity",
+            ),
+            Instrument(
+                symbol="TLT", base="TLT", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares 20+ Year Treasury Bond ETF", sector="equity",
+            ),
+            Instrument(
+                symbol="GLD", base="GLD", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="SPDR Gold Shares", sector="equity",
+            ),
+            Instrument(
+                symbol="SMH", base="SMH", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="VanEck Semiconductor ETF", sector="equity",
             ),
         ]
 
