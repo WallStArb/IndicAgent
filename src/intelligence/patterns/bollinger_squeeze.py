@@ -77,8 +77,7 @@ class BollingerSqueezePlugin:
         fired = 0.0
         if prev_bar >= valid_start:
             was_squeeze = (
-                bb_upper[prev_bar] < kc_upper[prev_bar]
-                and bb_lower[prev_bar] > kc_lower[prev_bar]
+                bb_upper[prev_bar] < kc_upper[prev_bar] and bb_lower[prev_bar] > kc_lower[prev_bar]
             )
             if was_squeeze and not current_squeeze:
                 fired = 1.0
@@ -88,9 +87,9 @@ class BollingerSqueezePlugin:
             "squeeze_count": squeeze_count if current_squeeze else 0,
             "prev_squeeze": current_squeeze,
             "bandwidth_history": bandwidth_history,
-            "close_window": deque(close[-self.bb_period:], maxlen=self.bb_period),
-            "high_window": deque(high[-self.kc_period:], maxlen=self.kc_period),
-            "low_window": deque(low[-self.kc_period:], maxlen=self.kc_period),
+            "close_window": deque(close[-self.bb_period :], maxlen=self.bb_period),
+            "high_window": deque(high[-self.kc_period :], maxlen=self.kc_period),
+            "low_window": deque(low[-self.kc_period :], maxlen=self.kc_period),
             "prev_close": float(close[-1]),
         }
 
@@ -124,7 +123,7 @@ class BollingerSqueezePlugin:
         cw = list(s["close_window"])
         mean_c = sum(cw) / len(cw)
         var_c = sum((x - mean_c) ** 2 for x in cw) / len(cw)
-        std_c = var_c ** 0.5
+        std_c = var_c**0.5
         bb_upper = mean_c + self.bb_std * std_c
         bb_lower = mean_c - self.bb_std * std_c
 
@@ -170,7 +169,10 @@ class BollingerSqueezePlugin:
 
     @staticmethod
     def _atr_series(
-        high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        period: int,
     ) -> np.ndarray:
         """Compute ATR series using simple moving average of True Range."""
         tr = np.zeros(len(close))

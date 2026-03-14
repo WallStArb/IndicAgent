@@ -12,23 +12,23 @@ from .common import is_num
 class MomentumAccelPlugin:
     name: str = "evt_MomentumAcceleration"
     outputs: frozenset = field(
-        default_factory=lambda: frozenset({
-            "rsi_accel",
-            "macd_accel",
-            "roc_accel",
-            "inflection_flag",
-            "rsi_curvature",
-            "macd_hist_slope",
-            "price_accel",
-            "hma_slope",
-            "hma_accel",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "rsi_accel",
+                "macd_accel",
+                "roc_accel",
+                "inflection_flag",
+                "rsi_curvature",
+                "macd_hist_slope",
+                "price_accel",
+                "hma_slope",
+                "hma_accel",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: frozenset = field(
-        default_factory=lambda: frozenset({"momentum"})
-    )
+    capability_tags: frozenset = field(default_factory=lambda: frozenset({"momentum"}))
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=5),)
     _state: dict = field(default_factory=dict)
 
@@ -100,12 +100,7 @@ class MomentumAccelPlugin:
         # Price acceleration: ((close[-1]-close[-2]) - (close[-3]-close[-4])) / atr
         # Requires at least 4 bars and a valid ATR.
         atr = features.get("atr_14")
-        if (
-            df is not None
-            and len(df) >= 4
-            and is_num(atr)
-            and atr > 0
-        ):
+        if df is not None and len(df) >= 4 and is_num(atr) and atr > 0:
             c = df["close"].to_numpy()
             velocity_now = float(c[-1]) - float(c[-2])
             velocity_prev = float(c[-3]) - float(c[-4])

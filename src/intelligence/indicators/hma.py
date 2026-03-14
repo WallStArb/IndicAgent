@@ -12,6 +12,7 @@ of the last sqrt_n values so we can apply the final WMA.
 
 min_lookback = 20 (need 20 bars for the full-period WMA).
 """
+
 from __future__ import annotations
 
 import math
@@ -48,7 +49,7 @@ class HMAPlugin:
 
     # HMA parameters (n=20)
     _n: int = field(default=20, init=False, repr=False)
-    _half: int = field(default=10, init=False, repr=False)   # n // 2
+    _half: int = field(default=10, init=False, repr=False)  # n // 2
     _sqrt_n: int = field(default=4, init=False, repr=False)  # int(round(sqrt(20)))
 
     def __post_init__(self) -> None:

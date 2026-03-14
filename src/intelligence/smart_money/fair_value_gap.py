@@ -74,14 +74,12 @@ class FairValueGapPlugin:
                 filled = False
                 if i + 1 < len(df):
                     if fvg_type == 1:
-                        filled = np.any(low[i + 1:] <= fvg_bottom)
+                        filled = np.any(low[i + 1 :] <= fvg_bottom)
                     elif fvg_type == -1:
-                        filled = np.any(high[i + 1:] >= fvg_top)
+                        filled = np.any(high[i + 1 :] >= fvg_top)
 
                 if not filled:
-                    open_fvgs.append(
-                        {"type": fvg_type, "top": fvg_top, "bottom": fvg_bottom}
-                    )
+                    open_fvgs.append({"type": fvg_type, "top": fvg_top, "bottom": fvg_bottom})
 
         if not open_fvgs:
             return {
@@ -97,9 +95,7 @@ class FairValueGapPlugin:
         latest = open_fvgs[-1]
         mid = (latest["top"] + latest["bottom"]) / 2
         size_pct = (
-            (latest["top"] - latest["bottom"]) / current_price * 100
-            if current_price != 0
-            else 0.0
+            (latest["top"] - latest["bottom"]) / current_price * 100 if current_price != 0 else 0.0
         )
 
         return {

@@ -53,11 +53,7 @@ class KeyLevelReactionPlugin:
             "weekly_pivot": features.get("weekly_pivot"),
         }
 
-        levels = [
-            float(v)
-            for v in level_sources.values()
-            if isinstance(v, (int, float)) and v > 0
-        ]
+        levels = [float(v) for v in level_sources.values() if isinstance(v, (int, float)) and v > 0]
 
         if not levels:
             return {
@@ -88,10 +84,7 @@ class KeyLevelReactionPlugin:
         last3_close = df["close"].iloc[-3:].to_numpy(dtype=float)
 
         # Did price touch the level in last 3 bars?
-        touched = any(
-            last3_low[i] <= nearest <= last3_high[i]
-            for i in range(len(last3_close))
-        )
+        touched = any(last3_low[i] <= nearest <= last3_high[i] for i in range(len(last3_close)))
 
         if not touched and dist > (proximity if proximity > 0 else abs(nearest) * 0.005):
             reaction = _REACTION_NONE

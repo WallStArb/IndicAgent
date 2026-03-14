@@ -49,15 +49,17 @@ class KalmanTrendPlugin:
     """
 
     name: str = "ctx_KalmanTrend"
-    outputs: set[str] = frozenset({
-        "kalman_trend",
-        "kalman_slope",
-        "kalman_price_position",
-        "kalman_uncertainty",
-        "kalman_upper",
-        "kalman_lower",
-        "kalman_gain",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "kalman_trend",
+            "kalman_slope",
+            "kalman_price_position",
+            "kalman_uncertainty",
+            "kalman_upper",
+            "kalman_lower",
+            "kalman_gain",
+        }
+    )
     min_lookback: int = 30
     supports_incremental: bool = True
     capability_tags: set[str] = frozenset({"context", "trend"})

@@ -9,6 +9,7 @@ mitigated OB "flips" its polarity:
 
 This plugin reads OB fields from the features dict produced by smc_OrderBlocks.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -22,13 +23,15 @@ class BreakerBlocksPlugin:
     """Detect active breaker blocks from mitigated order blocks."""
 
     name: str = "smc_BreakerBlocks"
-    outputs: frozenset[str] = frozenset({
-        "breaker_block_active",
-        "breaker_block_type",
-        "breaker_block_top",
-        "breaker_block_bottom",
-        "breaker_dist_atr",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "breaker_block_active",
+            "breaker_block_type",
+            "breaker_block_top",
+            "breaker_block_bottom",
+            "breaker_dist_atr",
+        }
+    )
     min_lookback: int = 2
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money"})
@@ -108,5 +111,6 @@ class BreakerBlocksPlugin:
             "breaker_block_bottom": float(bottom),
             "breaker_dist_atr": round(dist_atr, 4) if dist_atr is not None else None,
         }
+
 
 plugin = BreakerBlocksPlugin()

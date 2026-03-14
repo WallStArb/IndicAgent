@@ -30,11 +30,7 @@ class ADXPlugin:
         if not self.periods:
             self.periods = [14]
         self.outputs = frozenset(
-            {
-                key
-                for p in self.periods
-                for key in (f"adx_{p}", f"plus_di_{p}", f"minus_di_{p}")
-            }
+            {key for p in self.periods for key in (f"adx_{p}", f"plus_di_{p}", f"minus_di_{p}")}
         )
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:

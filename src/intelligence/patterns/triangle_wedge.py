@@ -13,14 +13,16 @@ from ..utils import find_peaks, find_troughs
 @dataclass
 class TriangleWedgePlugin:
     name: str = "patt_TriangleWedge"
-    outputs: set[str] = frozenset({
-        "tri_pattern",
-        "tri_upper_slope",
-        "tri_lower_slope",
-        "tri_apex_bars",
-        "tri_breakout_bias",
-        "tri_confidence",
-    })
+    outputs: set[str] = frozenset(
+        {
+            "tri_pattern",
+            "tri_upper_slope",
+            "tri_lower_slope",
+            "tri_apex_bars",
+            "tri_breakout_bias",
+            "tri_confidence",
+        }
+    )
     min_lookback: int = 60
     supports_incremental: bool = False
     capability_tags: set[str] = frozenset({"pattern", "chart"})
@@ -41,8 +43,12 @@ class TriangleWedgePlugin:
         low = df["low"].to_numpy(dtype=float)
 
         default = {
-            "tri_pattern": 0.0, "tri_upper_slope": 0.0, "tri_lower_slope": 0.0,
-            "tri_apex_bars": 0.0, "tri_breakout_bias": 0.0, "tri_confidence": 0.0,
+            "tri_pattern": 0.0,
+            "tri_upper_slope": 0.0,
+            "tri_lower_slope": 0.0,
+            "tri_apex_bars": 0.0,
+            "tri_breakout_bias": 0.0,
+            "tri_confidence": 0.0,
         }
 
         # Upper trendline: peaks of high
@@ -85,15 +91,15 @@ class TriangleWedgePlugin:
         bias = 0.0
 
         if abs(slope_h) <= tol and slope_l > tol:
-            pattern, bias = 1.0, 1.0    # ascending triangle → bullish
+            pattern, bias = 1.0, 1.0  # ascending triangle → bullish
         elif slope_h < -tol and abs(slope_l) <= tol:
-            pattern, bias = 2.0, -1.0   # descending triangle → bearish
+            pattern, bias = 2.0, -1.0  # descending triangle → bearish
         elif slope_h < -tol and slope_l > tol:
-            pattern, bias = 3.0, 0.0    # symmetrical triangle → continuation
+            pattern, bias = 3.0, 0.0  # symmetrical triangle → continuation
         elif slope_h > tol and slope_l > tol and slope_l > slope_h:
-            pattern, bias = 4.0, -1.0   # rising wedge → bearish
+            pattern, bias = 4.0, -1.0  # rising wedge → bearish
         elif slope_h < -tol and slope_l < -tol and slope_h < slope_l:
-            pattern, bias = 5.0, 1.0    # falling wedge → bullish
+            pattern, bias = 5.0, 1.0  # falling wedge → bullish
 
         if pattern == 0.0:
             return default
@@ -144,6 +150,7 @@ class TriangleWedgePlugin:
         correctly captures the rising support touches.  Pick whichever has higher absolute
         slope — this selects the series that actually carries trend information.
         """
+
         def _slope(indices: list[int], arr: np.ndarray) -> float:
             if len(indices) < 2:
                 return 0.0

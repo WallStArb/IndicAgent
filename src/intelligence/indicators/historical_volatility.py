@@ -45,19 +45,19 @@ class HistoricalVolatilityPlugin:
 
         # Rolling HV values
         hv_values = [
-            float(np.std(log_returns[i - self.period + 1: i + 1], ddof=1) * _ANNUALIZATION)
+            float(np.std(log_returns[i - self.period + 1 : i + 1], ddof=1) * _ANNUALIZATION)
             for i in range(self.period - 1, len(log_returns))
         ]
 
         hv_20 = hv_values[-1]
-        recent = hv_values[-self.period:]
+        recent = hv_values[-self.period :]
         hv_mean = float(np.mean(recent))
         hv_ratio = hv_20 / hv_mean if hv_mean > 1e-10 else 1.0
 
         self._state = {
             "prev_close": float(close[-1]),
-            "log_return_window": deque(log_returns[-self.period:].tolist(), maxlen=self.period),
-            "hv_window": deque(hv_values[-self.period:], maxlen=self.period),
+            "log_return_window": deque(log_returns[-self.period :].tolist(), maxlen=self.period),
+            "hv_window": deque(hv_values[-self.period :], maxlen=self.period),
         }
 
         return {"hv_20": round(hv_20, 6), "hv_ratio_20": round(hv_ratio, 4)}

@@ -128,7 +128,12 @@ class TrendStructurePlugin:
 
         # Trend duration: bars since the start of the current directional streak
         trend_duration = self._compute_trend_duration(
-            direction, swing_highs, swing_lows, high, low, n_bars,
+            direction,
+            swing_highs,
+            swing_lows,
+            high,
+            low,
+            n_bars,
         )
 
         return {

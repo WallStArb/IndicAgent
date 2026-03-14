@@ -154,15 +154,22 @@ class CandlestickPatternsPlugin:
         # 3 consecutive bullish bars; each opens within prior body; each closes near high
         three_white_soldiers = 0.0
         if (
-            pp_bullish and p_bullish and c_bullish
+            pp_bullish
+            and p_bullish
+            and c_bullish
             # Each body > 0.5 * range (strong bars, not dojis)
-            and pp_range > 0 and pp_body > 0.5 * pp_range
-            and p_range > 0 and p_body > 0.5 * p_range
-            and c_range > 0 and c_body > 0.5 * c_range
+            and pp_range > 0
+            and pp_body > 0.5 * pp_range
+            and p_range > 0
+            and p_body > 0.5 * p_range
+            and c_range > 0
+            and c_body > 0.5 * c_range
             # p opens within pp body
-            and p_o > min(pp_o, pp_c) and p_o < max(pp_o, pp_c)
+            and p_o > min(pp_o, pp_c)
+            and p_o < max(pp_o, pp_c)
             # c opens within p body
-            and c_o > min(p_o, p_c) and c_o < max(p_o, p_c)
+            and c_o > min(p_o, p_c)
+            and c_o < max(p_o, p_c)
             # Each upper wick < 0.25 * body (closes near high)
             and (pp_h - pp_c) < 0.25 * pp_body
             and (p_h - p_c) < 0.25 * p_body
@@ -173,15 +180,22 @@ class CandlestickPatternsPlugin:
         # --- Three Black Crows (bearish) --- mirror of Three White Soldiers
         three_black_crows = 0.0
         if (
-            pp_bearish and p_bearish and c_bearish
+            pp_bearish
+            and p_bearish
+            and c_bearish
             # Each body > 0.5 * range
-            and pp_range > 0 and pp_body > 0.5 * pp_range
-            and p_range > 0 and p_body > 0.5 * p_range
-            and c_range > 0 and c_body > 0.5 * c_range
+            and pp_range > 0
+            and pp_body > 0.5 * pp_range
+            and p_range > 0
+            and p_body > 0.5 * p_range
+            and c_range > 0
+            and c_body > 0.5 * c_range
             # p opens within pp body (between pp_c and pp_o, bearish so pp_c < pp_o)
-            and p_o < max(pp_o, pp_c) and p_o > min(pp_o, pp_c)
+            and p_o < max(pp_o, pp_c)
+            and p_o > min(pp_o, pp_c)
             # c opens within p body
-            and c_o < max(p_o, p_c) and c_o > min(p_o, p_c)
+            and c_o < max(p_o, p_c)
+            and c_o > min(p_o, p_c)
             # Each lower wick < 0.25 * body (closes near low)
             and (pp_c - pp_l) < 0.25 * pp_body
             and (p_c - p_l) < 0.25 * p_body
@@ -194,10 +208,13 @@ class CandlestickPatternsPlugin:
         morning_star = 0.0
         if (
             pp_bearish
-            and pp_range > 0 and pp_body > 0.6 * pp_range
-            and p_range > 0 and p_body < 0.3 * p_range
+            and pp_range > 0
+            and pp_body > 0.6 * pp_range
+            and p_range > 0
+            and p_body < 0.3 * p_range
             and c_bullish
-            and c_range > 0 and c_body > 0.6 * c_range
+            and c_range > 0
+            and c_body > 0.6 * c_range
             and c_c > (pp_o + pp_c) / 2.0
         ):
             morning_star = 1.0
@@ -207,10 +224,13 @@ class CandlestickPatternsPlugin:
         evening_star = 0.0
         if (
             pp_bullish
-            and pp_range > 0 and pp_body > 0.6 * pp_range
-            and p_range > 0 and p_body < 0.3 * p_range
+            and pp_range > 0
+            and pp_body > 0.6 * pp_range
+            and p_range > 0
+            and p_body < 0.3 * p_range
             and c_bearish
-            and c_range > 0 and c_body > 0.6 * c_range
+            and c_range > 0
+            and c_body > 0.6 * c_range
             and c_c < (pp_o + pp_c) / 2.0
         ):
             evening_star = 1.0
@@ -220,11 +240,15 @@ class CandlestickPatternsPlugin:
         three_inside_up = 0.0
         if (
             pp_bearish
-            and pp_range > 0 and pp_body > 0.5 * pp_range
+            and pp_range > 0
+            and pp_body > 0.5 * pp_range
             # p is bullish harami: opens above pp_c, closes below pp_o, and closes higher than opens
-            and p_o > pp_c and p_c < pp_o and p_bullish
+            and p_o > pp_c
+            and p_c < pp_o
+            and p_bullish
             # c is bullish and closes above pp_o (full reversal confirmed)
-            and c_bullish and c_c > pp_o
+            and c_bullish
+            and c_c > pp_o
         ):
             three_inside_up = 1.0
 
@@ -233,11 +257,15 @@ class CandlestickPatternsPlugin:
         three_inside_down = 0.0
         if (
             pp_bullish
-            and pp_range > 0 and pp_body > 0.5 * pp_range
+            and pp_range > 0
+            and pp_body > 0.5 * pp_range
             # p is bearish harami: opens below pp_c, closes above pp_o, and closes lower than opens
-            and p_o < pp_c and p_c > pp_o and p_bearish
+            and p_o < pp_c
+            and p_c > pp_o
+            and p_bearish
             # c is bearish and closes below pp_o
-            and c_bearish and c_c < pp_o
+            and c_bearish
+            and c_c < pp_o
         ):
             three_inside_down = 1.0
 
@@ -248,8 +276,10 @@ class CandlestickPatternsPlugin:
         pp_body_low = min(pp_o, pp_c)
         p_doji_body = abs(p_c - p_o)
         if (
-            pp_range > 0 and pp_body > 0.6 * pp_range
-            and p_range > 0 and p_doji_body / p_range < 0.10
+            pp_range > 0
+            and pp_body > 0.6 * pp_range
+            and p_range > 0
+            and p_doji_body / p_range < 0.10
             and p_h <= pp_body_high
             and p_l >= pp_body_low
         ):
@@ -258,23 +288,13 @@ class CandlestickPatternsPlugin:
         # --- Dark Cloud Cover (bearish) ---
         # pp = bullish; c opens above pp_high; c closes below pp midpoint but above pp_open
         dark_cloud_cover = 0.0
-        if (
-            pp_bullish
-            and c_o > pp_h
-            and c_c < (pp_o + pp_c) / 2.0
-            and c_c > pp_o
-        ):
+        if pp_bullish and c_o > pp_h and c_c < (pp_o + pp_c) / 2.0 and c_c > pp_o:
             dark_cloud_cover = 1.0
 
         # --- Piercing Line (bullish) ---
         # pp = bearish; c opens below pp_low; c closes above pp midpoint but below pp_open
         piercing_line = 0.0
-        if (
-            pp_bearish
-            and c_o < pp_l
-            and c_c > (pp_o + pp_c) / 2.0
-            and c_c < pp_o
-        ):
+        if pp_bearish and c_o < pp_l and c_c > (pp_o + pp_c) / 2.0 and c_c < pp_o:
             piercing_line = 1.0
 
         return {

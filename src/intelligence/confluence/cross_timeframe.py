@@ -137,8 +137,8 @@ class CrossTimeframeConfluencePlugin:
             "ctf_timeframes_aligned": float(aligned_count),
             "ctf_highest_aligned_tf": highest_aligned_minutes,
             "i6_smc_bos_alignment": round(bos_alignment, 4),
-            "i6_fvg_tf_alignment": 0.0,   # TODO: FVG overlap across TFs — implement in next pass
-            "i6_ob_tf_alignment": 0.0,    # TODO: OB confluence across TFs — implement in next pass
+            "i6_fvg_tf_alignment": 0.0,  # TODO: FVG overlap across TFs — implement in next pass
+            "i6_ob_tf_alignment": 0.0,  # TODO: OB confluence across TFs — implement in next pass
             "i6_i2_event_score": round(i2_score, 4),
         }
 
@@ -298,7 +298,6 @@ class CrossTimeframeConfluencePlugin:
         if not confirmations:
             return 0.0
         return sum(confirmations) / len(confirmations)
-
 
     def _score_smc_bos_alignment(
         self,

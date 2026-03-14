@@ -90,9 +90,14 @@ class PSARPlugin:
             sar = new_sar
 
         self._state = {
-            "sar": sar, "ep": ep, "af": af, "direction": direction,
-            "prev_high": prev_h, "prev_low": prev_l,
-            "prev_prev_high": prev_prev_h, "prev_prev_low": prev_prev_l,
+            "sar": sar,
+            "ep": ep,
+            "af": af,
+            "direction": direction,
+            "prev_high": prev_h,
+            "prev_low": prev_l,
+            "prev_prev_high": prev_prev_h,
+            "prev_prev_low": prev_prev_l,
         }
         return {"psar_value": sar, "psar_direction": direction}
 

@@ -11,11 +11,16 @@ from .common import is_num, threshold_cross
 class RSIEventsPlugin:
     name: str = "evt_RSIEvents"
     outputs: set[str] = field(
-        default_factory=lambda: frozenset({
-            "rsi_crossed_30_up", "rsi_crossed_70_down",
-            "rsi_crossed_50_up", "rsi_crossed_50_down",
-            "rsi_extreme_reversal", "rsi_bars_in_extreme",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "rsi_crossed_30_up",
+                "rsi_crossed_70_down",
+                "rsi_crossed_50_up",
+                "rsi_crossed_50_down",
+                "rsi_extreme_reversal",
+                "rsi_bars_in_extreme",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False

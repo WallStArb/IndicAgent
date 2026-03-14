@@ -51,8 +51,8 @@ class FlagPennantPlugin:
         avg_consol_range = float(np.mean(consol_ranges))
 
         # Impulse = bars before consolidation
-        impulse_window = close[-_LOOKBACK : -_CONSOL_BARS]
-        impulse_ranges = bar_ranges[-_LOOKBACK : -_CONSOL_BARS]
+        impulse_window = close[-_LOOKBACK:-_CONSOL_BARS]
+        impulse_ranges = bar_ranges[-_LOOKBACK:-_CONSOL_BARS]
 
         if len(impulse_window) < _MIN_IMPULSE_BARS:
             return {}
@@ -71,9 +71,9 @@ class FlagPennantPlugin:
                 "flag_pattern": 0.0,
                 "pennant_pattern": 0.0,
                 "flag_breakout_target": None,
-                "consolidation_compression_ratio": avg_consol_range / avg_impulse_range
-                if avg_impulse_range > 0
-                else None,
+                "consolidation_compression_ratio": (
+                    avg_consol_range / avg_impulse_range if avg_impulse_range > 0 else None
+                ),
             }
 
         # Consolidation must be tight compared to impulse

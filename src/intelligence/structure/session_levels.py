@@ -8,8 +8,8 @@ import pandas as pd
 
 from ..plugins import InputSpec
 
-_SESSION_BARS = 390   # ~1 trading day on 1m
-_WEEK_BARS = 1950     # ~5 trading days on 1m
+_SESSION_BARS = 390  # ~1 trading day on 1m
+_WEEK_BARS = 1950  # ~5 trading days on 1m
 _OVERNIGHT_BARS = 60  # ~1 hour on 1m
 _ET_TZ = ZoneInfo("America/New_York")  # DST-aware; replaces fixed UTC-5 offset
 

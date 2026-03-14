@@ -19,10 +19,7 @@ def _student_t_pdf(x: np.ndarray, df: np.ndarray, loc: np.ndarray, scale: np.nda
     """
     z = (x - loc) / scale
     # Use log-gamma for numerical stability
-    log_coeff = np.array([
-        math.lgamma(0.5 * (d + 1)) - math.lgamma(0.5 * d)
-        for d in df
-    ])
+    log_coeff = np.array([math.lgamma(0.5 * (d + 1)) - math.lgamma(0.5 * d) for d in df])
     log_norm = -0.5 * np.log(df * np.pi) - np.log(scale)
     log_body = -0.5 * (df + 1) * np.log(1 + z * z / df)
     return np.exp(log_coeff + log_norm + log_body)
@@ -163,9 +160,7 @@ class BOCPDChangePointPlugin:
         scale = np.where(scale > 0, scale, 1e-10)
         df_param = np.where(df_param > 0, df_param, 1e-10)
 
-        pred_probs = _student_t_pdf(
-            np.full(R, x), df_param, mu, scale
-        )
+        pred_probs = _student_t_pdf(np.full(R, x), df_param, mu, scale)
 
         # Growth: P(r+1) = P(x|r) * P(r) * (1 - hazard)
         growth = rl * pred_probs * (1 - hazard)
@@ -206,9 +201,7 @@ class BOCPDChangePointPlugin:
         s["beta"] = new_beta
         s["cp_prob"] = float(new_rl[0])
 
-    def _compute_confirmation(
-        self, df: pd.DataFrame, frames: dict[str, Any]
-    ) -> float:
+    def _compute_confirmation(self, df: pd.DataFrame, frames: dict[str, Any]) -> float:
         """Score feature confirmation from I1 outputs (0-1)."""
         features = frames.get("features")
         if not isinstance(features, dict):

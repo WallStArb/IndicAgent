@@ -51,17 +51,11 @@ class ROCPPOPlugin:
         if len(close) > self.roc_period:
             current = float(close.iloc[-1])
             past = float(close.iloc[-1 - self.roc_period])
-            out[f"roc_{self.roc_period}"] = (
-                100.0 * (current - past) / past if past != 0 else 0.0
-            )
+            out[f"roc_{self.roc_period}"] = 100.0 * (current - past) / past if past != 0 else 0.0
 
         # PPO = (EMA_fast - EMA_slow) / EMA_slow * 100
-        ema_fast = close.ewm(
-            span=self.ppo_fast, adjust=False, min_periods=self.ppo_fast
-        ).mean()
-        ema_slow = close.ewm(
-            span=self.ppo_slow, adjust=False, min_periods=self.ppo_slow
-        ).mean()
+        ema_fast = close.ewm(span=self.ppo_fast, adjust=False, min_periods=self.ppo_fast).mean()
+        ema_slow = close.ewm(span=self.ppo_slow, adjust=False, min_periods=self.ppo_slow).mean()
         ppo_line = (ema_fast - ema_slow) / ema_slow * 100
         ppo_sig = ppo_line.ewm(
             span=self.ppo_signal, adjust=False, min_periods=self.ppo_signal
@@ -84,12 +78,8 @@ class ROCPPOPlugin:
         roc_window = deque(recent, maxlen=self.roc_period + 1)
 
         # PPO state: EMA values
-        ema_fast = close.ewm(
-            span=self.ppo_fast, adjust=False, min_periods=self.ppo_fast
-        ).mean()
-        ema_slow = close.ewm(
-            span=self.ppo_slow, adjust=False, min_periods=self.ppo_slow
-        ).mean()
+        ema_fast = close.ewm(span=self.ppo_fast, adjust=False, min_periods=self.ppo_fast).mean()
+        ema_slow = close.ewm(span=self.ppo_slow, adjust=False, min_periods=self.ppo_slow).mean()
         ppo_line = (ema_fast - ema_slow) / ema_slow * 100
         ppo_sig = ppo_line.ewm(
             span=self.ppo_signal, adjust=False, min_periods=self.ppo_signal
@@ -116,9 +106,7 @@ class ROCPPOPlugin:
         s["roc_window"].append(c)
         if len(s["roc_window"]) == self.roc_period + 1:
             past = s["roc_window"][0]
-            out[f"roc_{self.roc_period}"] = (
-                100.0 * (c - past) / past if past != 0 else 0.0
-            )
+            out[f"roc_{self.roc_period}"] = 100.0 * (c - past) / past if past != 0 else 0.0
 
         # PPO: update EMAs
         alpha_fast = 2.0 / (self.ppo_fast + 1)
@@ -127,15 +115,11 @@ class ROCPPOPlugin:
         s["ema_slow"] = alpha_slow * c + (1 - alpha_slow) * s["ema_slow"]
 
         ppo_val = (
-            100.0 * (s["ema_fast"] - s["ema_slow"]) / s["ema_slow"]
-            if s["ema_slow"] != 0
-            else 0.0
+            100.0 * (s["ema_fast"] - s["ema_slow"]) / s["ema_slow"] if s["ema_slow"] != 0 else 0.0
         )
 
         alpha_sig = 2.0 / (self.ppo_signal + 1)
-        s["ppo_signal_ema"] = (
-            alpha_sig * ppo_val + (1 - alpha_sig) * s["ppo_signal_ema"]
-        )
+        s["ppo_signal_ema"] = alpha_sig * ppo_val + (1 - alpha_sig) * s["ppo_signal_ema"]
 
         out[f"ppo_{self.ppo_fast}_{self.ppo_slow}"] = ppo_val
         out[f"ppo_signal_{self.ppo_fast}_{self.ppo_slow}"] = s["ppo_signal_ema"]

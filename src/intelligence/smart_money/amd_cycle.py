@@ -8,6 +8,7 @@ Three-phase institutional cycle that repeats within each trading day:
 The plugin tracks overnight range in rolling state and detects when
 manipulation-phase price spikes breach and then reverse from that range.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -18,7 +19,7 @@ from ..utils import utc_datetime_from_df
 
 # UTC hour boundaries
 _ACCUM_START = 20
-_ACCUM_END = 24   # wraps at midnight (0)
+_ACCUM_END = 24  # wraps at midnight (0)
 _MANIP_END = 10
 _DIST_END = 21
 
@@ -34,11 +35,13 @@ class AMDCyclePlugin:
     """Detect current AMD cycle phase and manipulation events."""
 
     name: str = "smc_AMDCycle"
-    outputs: frozenset[str] = frozenset({
-        "amd_phase",
-        "amd_manipulation_detected",
-        "amd_distribution_direction",
-    })
+    outputs: frozenset[str] = frozenset(
+        {
+            "amd_phase",
+            "amd_manipulation_detected",
+            "amd_distribution_direction",
+        }
+    )
     min_lookback: int = 2
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"smart_money", "session"})
@@ -119,5 +122,6 @@ class AMDCyclePlugin:
             "amd_manipulation_detected": manip_detected,
             "amd_distribution_direction": dist_direction,
         }
+
 
 plugin = AMDCyclePlugin()

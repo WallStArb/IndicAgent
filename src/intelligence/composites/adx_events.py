@@ -11,11 +11,16 @@ from .common import crossover_detect, is_num, threshold_cross, track_bars_ago
 class ADXEventsPlugin:
     name: str = "evt_ADXEvents"
     outputs: set[str] = field(
-        default_factory=lambda: frozenset({
-            "adx_trend_confirmed", "adx_ranging_confirmed",
-            "di_cross_bullish", "di_cross_bearish", "di_cross_bars_ago",
-            "di_spread",
-        })
+        default_factory=lambda: frozenset(
+            {
+                "adx_trend_confirmed",
+                "adx_ranging_confirmed",
+                "di_cross_bullish",
+                "di_cross_bearish",
+                "di_cross_bars_ago",
+                "di_spread",
+            }
+        )
     )
     min_lookback: int = 1
     supports_incremental: bool = False
@@ -43,17 +48,13 @@ class ADXEventsPlugin:
         out: dict[str, Any] = {}
 
         # ADX threshold crossings
-        out["adx_trend_confirmed"] = threshold_cross(
-            prev_adx, adx, self._ADX_TREND_THRESHOLD, "up"
-        )
+        out["adx_trend_confirmed"] = threshold_cross(prev_adx, adx, self._ADX_TREND_THRESHOLD, "up")
         out["adx_ranging_confirmed"] = threshold_cross(
             prev_adx, adx, self._ADX_RANGE_THRESHOLD, "down"
         )
 
         # DI crossovers
-        di_cross_bull, di_cross_bear = crossover_detect(
-            prev_plus, plus_di, prev_minus, minus_di
-        )
+        di_cross_bull, di_cross_bear = crossover_detect(prev_plus, plus_di, prev_minus, minus_di)
         out["di_cross_bullish"] = di_cross_bull
         out["di_cross_bearish"] = di_cross_bear
 
