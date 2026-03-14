@@ -1,17 +1,102 @@
 """
-Stream key helpers and retention policies
+Stream key helpers, Kafka topic builders, and retention policies.
 
-Version: 1.0.0
-Last Updated: 2025-08-09
+Version: 2.0.0
+Last Updated: 2026-03-14
 Status: Current ✅
 
 Centralizes stream name construction and maxlen policies to ensure consistency
 across publishers and consumers.
+
+Phase 30 dual-run: Kafka topic builder functions (topic_* and env_prefix) are
+added at the top. The existing Redis key functions remain intact and will be
+removed in Plan 5 once DragonflyDB is retired.
 """
 
 from __future__ import annotations
 
 from typing import Literal
+
+# ---------------------------------------------------------------------------
+# Kafka topic builders (Phase 30+)
+# env_prefix() is period-separated; contrast with the Redis prefix() below.
+# ---------------------------------------------------------------------------
+
+
+def env_prefix(env_name: str) -> str:
+    """Return Kafka topic prefix: 'dev.' for env_name='dev', '' for env_name=''."""
+    return f"{env_name}." if env_name else ""
+
+
+def topic_market_ticks(env_name: str) -> str:
+    """Kafka topic for raw tick data from TWS daemon."""
+    return f"{env_prefix(env_name)}market.ticks"
+
+
+def topic_market_bars(env_name: str) -> str:
+    """Kafka topic for OHLCV bars (all timeframes)."""
+    return f"{env_prefix(env_name)}market.bars"
+
+
+def topic_indicators(env_name: str) -> str:
+    """Kafka topic for I1 technical indicator output."""
+    return f"{env_prefix(env_name)}indicators"
+
+
+def topic_intelligence(env_name: str) -> str:
+    """Kafka topic for I3–I6 intelligence pipeline output (IntelligenceEvent)."""
+    return f"{env_prefix(env_name)}intelligence"
+
+
+def topic_intelligence_i7(env_name: str) -> str:
+    """Kafka topic for I7 signal scorecard (all_ranked per bar)."""
+    return f"{env_prefix(env_name)}intelligence.i7"
+
+
+def topic_intelligence_i8(env_name: str) -> str:
+    """Kafka topic for I8 AI narrative metadata per bar."""
+    return f"{env_prefix(env_name)}intelligence.i8"
+
+
+def topic_signals(env_name: str) -> str:
+    """Kafka topic for individual I7 signals (pre-aggregation)."""
+    return f"{env_prefix(env_name)}signals"
+
+
+def topic_signals_aggregated(env_name: str) -> str:
+    """Kafka topic for aggregated/selected signal per bar."""
+    return f"{env_prefix(env_name)}signals.aggregated"
+
+
+def topic_narratives(env_name: str) -> str:
+    """Kafka topic for I8 narrative output."""
+    return f"{env_prefix(env_name)}narratives"
+
+
+def topic_llm_calls(env_name: str) -> str:
+    """Kafka topic for LLM call audit log (every call: success + failure + counterfactual)."""
+    return f"{env_prefix(env_name)}llm.calls"
+
+
+def topic_llm_outcomes(env_name: str) -> str:
+    """Kafka topic for signal lifecycle exits with outcome/pnl_r/mae/mfe."""
+    return f"{env_prefix(env_name)}llm.outcomes"
+
+
+def message_key(symbol: str, timeframe: str | None = None) -> str:
+    """Kafka partition routing key.
+
+    Returns 'SYMBOL:TF' when timeframe is provided, or 'SYMBOL' for tick topics.
+    """
+    if timeframe:
+        return f"{symbol}:{timeframe}"
+    return symbol
+
+
+# ---------------------------------------------------------------------------
+# Redis key helpers (dual-run: kept through Plan 4, removed in Plan 5)
+# prefix() below uses colon-separated format for backwards compatibility.
+# ---------------------------------------------------------------------------
 
 
 def prefix(env_name: str) -> str:
