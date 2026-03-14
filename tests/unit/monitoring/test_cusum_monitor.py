@@ -81,14 +81,10 @@ def test_drift_cusum_key_empty_prefix():
 
 
 def _make_monitor() -> CUSUMMonitor:
-    """Return CUSUMMonitor with mocked DB pool and Redis."""
+    """Return CUSUMMonitor with mocked DB pool (Phase 30: no Redis)."""
     db_pool = MagicMock()
-    redis_client = AsyncMock()
-    redis_client.set = AsyncMock(return_value=True)
-    redis_client.get = AsyncMock(return_value=None)
     return CUSUMMonitor(
         db_pool=db_pool,
-        redis_client=redis_client,
         env_prefix="development:",
     )
 
@@ -98,12 +94,14 @@ def _mock_db_outcomes(monitor: CUSUMMonitor, pnl_r_values: list[float]) -> None:
     rows = [{"pnl_r": v} for v in pnl_r_values]
     conn = AsyncMock()
     conn.fetch = AsyncMock(return_value=rows)
+    conn.execute = AsyncMock()
     monitor.db_pool.acquire = MagicMock(
         return_value=AsyncMock(
             __aenter__=AsyncMock(return_value=conn),
             __aexit__=AsyncMock(return_value=False),
         )
     )
+    return conn
 
 
 @pytest.mark.asyncio
@@ -117,34 +115,33 @@ async def test_check_setup_insufficient_data_returns_none():
 
 
 @pytest.mark.asyncio
-async def test_check_setup_writes_redis_on_detection():
-    """check_setup() writes Redis key when severity != 'none'."""
+async def test_check_setup_writes_db_on_detection():
+    """check_setup() writes drift_state DB row when severity != 'none'."""
     monitor = _make_monitor()
     # Degraded series: good baseline then losses
     outcomes = [0.8] * 20 + [-0.8] * 30
-    _mock_db_outcomes(monitor, outcomes)
+    conn = _mock_db_outcomes(monitor, outcomes)
 
     severity = await monitor.check_setup("trad_TrendFollowing")
 
     if severity != "none":
-        monitor.redis_client.set.assert_called_once()
-        call_args = monitor.redis_client.set.call_args
-        # First arg is the key
-        key = call_args[0][0] if call_args[0] else call_args.kwargs.get("name", "")
-        assert "drift:cusum:trad_TrendFollowing" in key
-        # Second arg is the severity string
-        val = call_args[0][1] if len(call_args[0]) > 1 else call_args.kwargs.get("value", "")
-        assert val in {"warning", "critical"}
+        # DB execute should be called (INSERT INTO drift_state)
+        assert conn.execute.called
+        call_args = conn.execute.call_args
+        query = call_args[0][0] if call_args[0] else ""
+        assert "drift_state" in query
+        assert call_args[0][1] == "trad_TrendFollowing"
+        assert call_args[0][2] in {"warning", "critical"}
 
 
 @pytest.mark.asyncio
-async def test_check_setup_no_redis_write_on_none_severity():
-    """check_setup() does NOT write Redis key when severity='none'."""
+async def test_check_setup_no_db_write_on_none_severity():
+    """check_setup() does NOT write drift_state DB row when severity='none'."""
     monitor = _make_monitor()
     # Neutral series — should produce none
     outcomes = [0.3] * 50
-    _mock_db_outcomes(monitor, outcomes)
+    conn = _mock_db_outcomes(monitor, outcomes)
 
     severity = await monitor.check_setup("trad_MeanReversion")
     assert severity == "none"
-    monitor.redis_client.set.assert_not_called()
+    conn.execute.assert_not_called()

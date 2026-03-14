@@ -38,7 +38,6 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_SECONDS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
-    drift_ks,
     message_key,
     setup_performance_weights_cache,
     topic_intelligence,
@@ -1223,23 +1222,62 @@ class SignalGeneratorService:
         except Exception as e:
             self.logger.warning("Failed to load perf weights", error=str(e))
 
-    async def _read_drift_penalty(self, symbol: str, timeframe: str) -> float:
-        """QUAL-09: Read KS drift penalty from Redis for this symbol/TF.
+    async def _refresh_drift_penalties_from_db(self) -> None:
+        """QUAL-09: Load KS drift penalties from drift_state DB table into _drift_penalties dict.
 
-        Returns DRIFT_PENALTIES[severity] where severity is from the drift:ks:SYMBOL:TF key.
-        Falls back to 1.0 (no penalty) when key is absent or Redis is unavailable.
+        Phase 30: Replaces per-bar Redis GET with a 4h batch refresh from DB.
+        Called at startup and every 4h by _drift_penalties_refresh_loop().
+
+        Only reads KS rows (tf != '_cusum'). CUSUM rows are for setup_performance_updater.
         """
-        if not self.redis_client:
-            return 1.0
+        if not self.db_manager:
+            self.logger.debug("_refresh_drift_penalties_from_db: no db_manager — skipping")
+            return
+        query = """
+            SELECT symbol, tf, ks_severity
+            FROM drift_state
+            WHERE tf != '_cusum'
+        """  # noqa: S608
         try:
-            key = drift_ks(self.env_prefix, symbol, timeframe)
-            raw = await self.redis_client.get(key)
-            if raw is None:
-                return 1.0
-            severity = raw.decode() if isinstance(raw, bytes) else str(raw)
-            return DRIFT_PENALTIES.get(severity, 1.0)
-        except Exception:
-            return 1.0
+            async with self.db_manager.pool.acquire() as conn:
+                rows = await conn.fetch(query)
+            new_penalties: dict[tuple[str, str], float] = {}
+            for row in rows:
+                severity = row["ks_severity"]
+                new_penalties[(row["symbol"], row["tf"])] = DRIFT_PENALTIES.get(severity, 1.0)
+            self._drift_penalties = new_penalties
+            self.logger.debug(
+                "drift_penalties refreshed from DB", n_entries=len(new_penalties)
+            )
+        except Exception as exc:
+            self.logger.warning("Failed to refresh drift_penalties from DB", error=str(exc))
+
+    async def _drift_penalties_refresh_loop(self) -> None:
+        """Refresh _drift_penalties from drift_state DB every 4h."""
+        _REFRESH_INTERVAL = 4 * 3600
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL)
+                    break
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._refresh_drift_penalties_from_db()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.logger.warning("Drift penalties refresh error", error=str(exc))
+                await asyncio.sleep(30)
+
+    async def _read_drift_penalty(self, symbol: str, timeframe: str) -> float:
+        """QUAL-09: Read KS drift penalty from in-process _drift_penalties dict.
+
+        Phase 30: No longer reads Redis. Uses dict populated by _refresh_drift_penalties_from_db().
+        Falls back to 1.0 (no penalty) when no entry exists for this symbol/TF.
+        """
+        return self._drift_penalties.get((symbol, timeframe), 1.0)
 
     async def _perf_weights_refresh_loop(self) -> None:
         """Refresh perf weights from Redis every 60 minutes."""
@@ -1271,10 +1309,13 @@ class SignalGeneratorService:
             self.running = True
             # Load perf weights at startup so first bar already has weights
             await self._load_perf_weights()
+            # Load drift penalties at startup from drift_state DB table
+            await self._refresh_drift_penalties_from_db()
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
                 asyncio.create_task(self._perf_weights_refresh_loop()),
+                asyncio.create_task(self._drift_penalties_refresh_loop()),
                 asyncio.create_task(self._resolution_listener_loop()),
             ]
             self.logger.info("Signal Generator Service started")

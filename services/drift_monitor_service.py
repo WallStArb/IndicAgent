@@ -3,8 +3,12 @@
 Drift Monitor Service — QUAL-09 KS distribution drift detection.
 
 Runs KSDriftMonitor.run_forever() for all active contracts × timeframes.
-Writes KS penalty severity to Redis so signal_generator can automatically
-reduce confidence on features whose distributions have shifted from baseline.
+Writes KS penalty severity to the drift_state DB table so signal_generator
+can automatically reduce confidence on features whose distributions have
+shifted from baseline. signal_generator reads drift_state at startup and
+every 4h via _refresh_drift_penalties_from_db().
+
+Phase 30: Redis dependency removed. All drift state written to drift_state table.
 
 Prometheus metrics on :9118.
 """
@@ -22,7 +26,6 @@ from typing import Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import redis.asyncio as redis
 import structlog
 
 from src.config.settings import Settings, get_active_contracts
@@ -42,7 +45,6 @@ class DriftMonitorService:
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
 
         settings = Settings()
@@ -73,7 +75,6 @@ class DriftMonitorService:
             _settings = None
 
         default: dict[str, Any] = {
-            "redis": {"host": "localhost", "port": 6379, "db": 0},
             "database": {
                 "url": (
                     _settings.database_url
@@ -116,17 +117,6 @@ class DriftMonitorService:
         self.shutdown_requested = True
         self.running = False
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"]["db"],
-            decode_responses=True,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-        self.logger.info("Redis connected")
-
     async def _connect_database(self) -> None:
         try:
             self.db_manager = DatabaseManager(self.config["database"]["url"])
@@ -146,8 +136,8 @@ class DriftMonitorService:
 
     async def _ks_task(self) -> None:
         """Run KSDriftMonitor.run_forever() until shutdown."""
-        if not self.db_manager or not self.redis_client:
-            self.logger.warning("KS task: DB or Redis unavailable — skipping")
+        if not self.db_manager:
+            self.logger.warning("KS task: DB unavailable — skipping")
             return
 
         symbols = self.config["service"]["symbols"]
@@ -156,7 +146,6 @@ class DriftMonitorService:
 
         monitor = KSDriftMonitor(
             db_pool=self.db_manager.pool,
-            redis_client=self.redis_client,
             env_prefix=self.env_prefix,
             timeframes=timeframes,
         )
@@ -172,15 +161,14 @@ class DriftMonitorService:
 
     async def _cusum_task(self) -> None:
         """Run CUSUMMonitor.run_forever() until shutdown."""
-        if not self.db_manager or not self.redis_client:
-            self.logger.warning("CUSUM task: DB or Redis unavailable — skipping")
+        if not self.db_manager:
+            self.logger.warning("CUSUM task: DB unavailable — skipping")
             return
 
         interval = self.config["service"]["cusum_interval_seconds"]
 
         monitor = CUSUMMonitor(
             db_pool=self.db_manager.pool,
-            redis_client=self.redis_client,
             env_prefix=self.env_prefix,
         )
 
@@ -200,7 +188,6 @@ class DriftMonitorService:
             timeframes=self.config["service"]["timeframes"],
         )
         try:
-            await self._connect_redis()
             await self._connect_database()
             start_metrics_server(port=self.config.get("metrics_port", 9118))
             self.running = True
@@ -221,8 +208,6 @@ class DriftMonitorService:
         self.logger.info("Stopping Drift Monitor Service")
         self.running = False
         self.shutdown_requested = True
-        if self.redis_client:
-            await self.redis_client.aclose()
         if self.db_manager:
             await self.db_manager.close()
 

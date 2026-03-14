@@ -3,16 +3,18 @@ CUSUM Performance Monitor — QUAL-10
 
 Detects per-setup win-rate degradation using Page's CUSUM algorithm.
 When a setup's pnl_r series degrades below the baseline window, writes a
-penalty severity to Redis. setup_performance_updater reads these flags and
-applies multiplicative adjustment to perf_weights before writing to Redis.
+penalty severity to the drift_state DB table. setup_performance_updater reads
+these flags and applies multiplicative adjustment to perf_weights.
 
 Design decisions:
 - Baseline window: first 20 outcomes in the series
 - Minimum N: 20 outcomes required (insufficient data gate)
 - CUSUM parameters: k=0.5 (reference value), h=4.0 (threshold)
 - Severity: critical if s_neg >= 2h, warning if s_neg >= h, info if s_pos >= h (winning)
-- Redis key TTL: 2 hours
+- CUSUM rows in drift_state: symbol=setup_plugin_name, tf='_cusum' (sentinel)
 - Run interval: every 1 hour via run_forever()
+
+Phase 30: Redis dependency removed. drift_state table replaces Redis keys.
 """
 
 from __future__ import annotations
@@ -23,7 +25,8 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 
-from src.core.stream_keys import drift_cusum
+# drift_cusum Redis key function removed in Phase 30 — replaced by drift_state DB table
+# CUSUM rows use: symbol=setup_plugin_name, tf='_cusum' sentinel
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -38,9 +41,6 @@ _CUSUM_MIN_OUTCOMES: int = 20
 
 # Baseline window size (first N outcomes used to compute mu0/sigma0)
 _BASELINE_WINDOW: int = 20
-
-# Redis key TTL: 2 hours
-_CUSUM_KEY_TTL_SECONDS: int = 2 * 3600
 
 # Run interval: 1 hour
 _RUN_INTERVAL_SECONDS: int = 3600
@@ -117,23 +117,25 @@ class CUSUMMonitor:
 
     Reads the last 90 days of resolved outcomes from signal_ledger,
     computes Page's CUSUM on the pnl_r series, and writes severity flags
-    to Redis. setup_performance_updater reads these flags to automatically
-    apply multiplicative penalties to perf_weights.
+    to the drift_state DB table. setup_performance_updater reads these flags
+    to automatically apply multiplicative penalties to perf_weights.
+
+    Phase 30: Redis dependency removed. drift_state table replaces Redis keys.
+    CUSUM rows use: symbol=setup_plugin_name, tf='_cusum' sentinel.
 
     Args:
         db_pool: asyncpg connection pool (from DatabaseManager.pool).
-        redis_client: redis.asyncio.Redis instance.
-        env_prefix: Redis key prefix (e.g. "development:").
+        env_prefix: Environment prefix (retained for logging context; no Redis usage).
     """
 
     def __init__(
         self,
         db_pool: Any,
-        redis_client: Any,
         env_prefix: str,
+        # redis_client kept for backwards compat but ignored (Phase 30 removed Redis)
+        redis_client: Any = None,
     ) -> None:
         self.db_pool = db_pool
-        self.redis_client = redis_client
         self.env_prefix = env_prefix
         self.logger = structlog.get_logger(__name__)
 
@@ -174,8 +176,7 @@ class CUSUMMonitor:
         s_pos, s_neg, severity = _compute_cusum(pnl_r_series, mu0=mu0, sigma0=sigma0)
 
         if severity != "none":
-            key = drift_cusum(self.env_prefix, setup_plugin)
-            await self.redis_client.set(key, severity, ex=_CUSUM_KEY_TTL_SECONDS)
+            await self._upsert_cusum_state(setup_plugin, severity)
             CUSUM_ALERTS_TOTAL.labels(setup_plugin=setup_plugin, severity=severity).inc()
             self.logger.info(
                 "CUSUM drift detected",
@@ -187,6 +188,26 @@ class CUSUMMonitor:
             )
 
         return severity
+
+    async def _upsert_cusum_state(self, setup_plugin: str, cusum_severity: str) -> None:
+        """Upsert cusum_severity into drift_state table for (setup_plugin, '_cusum')."""
+        query = """
+            INSERT INTO drift_state (symbol, tf, cusum_severity, updated_at)
+            VALUES ($1, '_cusum', $2, NOW())
+            ON CONFLICT (symbol, tf)
+            DO UPDATE SET cusum_severity = EXCLUDED.cusum_severity,
+                          updated_at = NOW()
+        """  # noqa: S608
+        try:
+            async with self.db_pool.acquire() as conn:
+                await conn.execute(query, setup_plugin, cusum_severity)
+        except Exception as exc:
+            self.logger.warning(
+                "drift_state CUSUM upsert failed",
+                setup_plugin=setup_plugin,
+                cusum_severity=cusum_severity,
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------
     # DB fetch

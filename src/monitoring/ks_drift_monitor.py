@@ -3,16 +3,17 @@ KS Distribution Drift Monitor — QUAL-09
 
 Detects feature distribution drift using the two-sample Kolmogorov-Smirnov test.
 When key I1/I4 feature distributions shift from baseline, writes a penalty severity
-to Redis so signal_generator can automatically reduce confidence.
+to the drift_state DB table so signal_generator can automatically reduce confidence.
 
 Design decisions:
 - Reference window: KS_REFERENCE_WINDOW_DAYS (37d) for stable baseline
 - Current window:   KS_CURRENT_WINDOW_DAYS (7d) for recent drift detection
 - Severity logic:   critical if p < 0.01, warning if p < 0.05
-- Recovery:         2 consecutive clean cycles → delete key (restore to "none")
-                    1 clean cycle after warning → reduce to 50% penalty (no-op for now,
-                    severity string doesn't encode intensity — key is simply deleted after 2 clean)
+- Recovery:         2 consecutive clean cycles → set severity='none' in drift_state
+                    1 clean cycle after warning → leave existing severity (partial recovery)
 - Run interval:     every 4 hours via run_forever()
+
+Phase 30: Redis dependency removed. drift_state table replaces Redis keys.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import structlog
 from prometheus_client import Counter, Gauge
 from scipy import stats
 
-from src.core.stream_keys import drift_ks
+# drift_ks Redis key function removed in Phase 30 — replaced by drift_state DB table
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -58,8 +59,7 @@ _KS_MIN_REFERENCE_ROWS: int = 30
 # Consecutive clean cycles required to fully restore drift key
 _CLEAN_CYCLES_FOR_RESTORE: int = 2
 
-# Redis key TTL: 8 hours (drift_monitor runs every 4h; 2 missed cycles before expiry)
-_DRIFT_KEY_TTL_SECONDS: int = 8 * 3600
+# DB upsert interval — no TTL needed (drift_state rows persist until explicitly updated)
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics (direct prometheus_client — NOT metrics.py helpers)
@@ -107,13 +107,15 @@ class KSDriftMonitor:
     """Two-sample KS drift monitor for I1/I4 feature distributions.
 
     Reads feature vectors from intelligence_features hypertable, computes
-    KS statistics, and writes severity flags to Redis. The signal_generator
-    reads these flags to automatically apply confidence penalties.
+    KS statistics, and writes severity flags to the drift_state DB table.
+    The signal_generator reads these flags (via _refresh_drift_penalties_from_db())
+    to automatically apply confidence penalties.
+
+    Phase 30: Redis dependency removed. drift_state table replaces Redis keys.
 
     Args:
         db_pool: asyncpg connection pool (from DatabaseManager.pool).
-        redis_client: redis.asyncio.Redis instance.
-        env_prefix: Redis key prefix (e.g. "development:").
+        env_prefix: Environment prefix (retained for logging context; no Redis usage).
         timeframes: List of timeframes to monitor. Defaults to ["1m", "5m", "15m", "1h"].
         symbols: List of symbols to monitor. Populated at run_forever() call time
                  if not provided here.
@@ -122,13 +124,13 @@ class KSDriftMonitor:
     def __init__(
         self,
         db_pool: Any,
-        redis_client: Any,
         env_prefix: str,
         timeframes: list[str] | None = None,
         symbols: list[str] | None = None,
+        # redis_client kept for backwards compat but ignored (Phase 30 removed Redis)
+        redis_client: Any = None,
     ) -> None:
         self.db_pool = db_pool
-        self.redis_client = redis_client
         self.env_prefix = env_prefix
         self.timeframes = timeframes or ["1m", "5m", "15m", "1h"]
         self.symbols = symbols or []
@@ -275,31 +277,53 @@ class KSDriftMonitor:
     async def _write_drift_key(
         self, symbol: str, tf: str, result: DriftCheckResult
     ) -> None:
-        """Write severity to Redis. Manage recovery mechanic.
+        """Write severity to drift_state DB table. Manage recovery mechanic.
+
+        Phase 30: Writes to drift_state DB table instead of Redis.
 
         Recovery mechanic:
         - Clean cycle (severity="none"): increment clean counter.
-          After _CLEAN_CYCLES_FOR_RESTORE consecutive clean cycles → delete key.
-        - Drift detected: reset clean counter, write new severity.
+          After _CLEAN_CYCLES_FOR_RESTORE consecutive clean cycles → upsert 'none' to DB.
+        - Drift detected: reset clean counter, upsert new severity to DB.
         """
-        key = drift_ks(self.env_prefix, symbol, tf)
         pair = (symbol, tf)
 
         if result.severity == "none":
             # Increment clean cycle counter
             self._clean_cycles[pair] = self._clean_cycles.get(pair, 0) + 1
             if self._clean_cycles[pair] >= _CLEAN_CYCLES_FOR_RESTORE:
-                # Fully recovered — delete the penalty key
-                await self.redis_client.delete(key)
+                # Fully recovered — write 'none' to DB
+                await self._upsert_drift_state(symbol, tf, "none")
                 self._clean_cycles.pop(pair, None)
                 self.logger.info(
                     "KS drift recovered", symbol=symbol, timeframe=tf
                 )
-            # else: leave existing key in place (partial recovery)
+            # else: leave existing row in place (partial recovery — not yet clean enough)
         else:
-            # Drift detected — reset clean counter, update key
+            # Drift detected — reset clean counter, upsert new severity
             self._clean_cycles[pair] = 0
-            await self.redis_client.set(key, result.severity, ex=_DRIFT_KEY_TTL_SECONDS)
+            await self._upsert_drift_state(symbol, tf, result.severity)
+
+    async def _upsert_drift_state(self, symbol: str, tf: str, ks_severity: str) -> None:
+        """Upsert ks_severity into drift_state table for (symbol, tf)."""
+        query = """
+            INSERT INTO drift_state (symbol, tf, ks_severity, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (symbol, tf)
+            DO UPDATE SET ks_severity = EXCLUDED.ks_severity,
+                          updated_at = NOW()
+        """  # noqa: S608
+        try:
+            async with self.db_pool.acquire() as conn:
+                await conn.execute(query, symbol, tf, ks_severity)
+        except Exception as exc:
+            self.logger.warning(
+                "drift_state upsert failed",
+                symbol=symbol,
+                tf=tf,
+                ks_severity=ks_severity,
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------
     # run_forever
