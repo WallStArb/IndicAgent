@@ -32,3 +32,8 @@ Prerequisites before implementing:
 ## Risk
 
 Medium — thread safety of plugin instances in registry needs verification before shipping.
+
+## Related async concurrency todos (tackle together)
+
+- `2026-03-14-untracked-async-tasks-lifecycle-narrative.md` — fire-and-forget `create_task()` in lifecycle + narrative hot paths
+- `2026-03-14-aggregator-rebuild-and-db-seed-concurrency.md` — 240 uncapped concurrent DB queries on seed + aggregator per-bar rebuild
