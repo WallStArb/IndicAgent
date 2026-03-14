@@ -2,7 +2,7 @@
 
 Version: 5.21.0
 Last Updated: 2026-03-13
-Status: I1-I8 pipeline complete — 103 plugins + 2 aggregation components + feature store + typed intelligence bus + drift detection, 1659 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 24 contracts
+Status: I1-I8 pipeline complete — 103 plugins + 2 aggregation components + feature store + typed intelligence bus + drift detection, 1754 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 60 instruments
 
 This file provides guidance to Claude Code when working in this repository.
 
@@ -251,8 +251,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1659 passing (Phase 29: +109 new tests across phases 28–29)
-I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips) + Renaissance quality gates (Hurst/Shannon I4, alpha decay, freshness decay, KS+CUSUM drift detection)
+**Tests:** 1754 passing (equity expansion Phase A+B: +95 new tests)
+I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips) + Renaissance quality gates (Hurst/Shannon I4, alpha decay, freshness decay, KS+CUSUM drift detection) + equity expansion (60 instruments: 16 futures + 4 FX + 2 crypto + 38 ETFs, asset-class guards, session infrastructure)
 **v1.8 SHIPPED 2026-03-13** — see `.planning/ROADMAP.md`
 
 ## Roadmap Position
