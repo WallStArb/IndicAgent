@@ -23,16 +23,18 @@ from typing import Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import redis.asyncio as redis
 import structlog
 
 from src.config.settings import Settings, get_active_contracts, get_point_value
 from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_SECONDS, setup_service_logging
-from src.core.stream_keys import llm_outcomes_stream as sk_llm_outcomes_stream
-from src.core.stream_keys import market as sk_market
-from src.core.stream_keys import signals_aggregated as sk_signals_aggregated
-from src.core.stream_utils import ensure_consumer_group_with_reset
+from src.core.stream_keys import (
+    message_key,
+    topic_llm_outcomes,
+    topic_market_bars,
+    topic_signals_aggregated,
+)
 from src.intelligence.trading.lifecycle_tracker import (
     OUTCOME_THRESHOLD_QUICK_STOP_BARS,
     evaluate_signal,
@@ -101,9 +103,9 @@ def _build_outcome_payload(
     mfe: float | None,
     bars_in_trade: int | None,
 ) -> dict[str, str]:
-    """Build the Redis stream payload for an llm_outcomes:stream message.
+    """Build the Kafka message payload for an llm.outcomes topic message.
 
-    All values are str — Redis stream messages require string values.
+    All values are str for consistency with downstream consumers.
     None numerics become "" so the writer service stores NULL in the DB.
     """
     return {
@@ -127,13 +129,14 @@ class SignalLifecycleService:
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.redis_client: redis.Redis | None = None
         self.db_manager: DatabaseManager | None = None
-        self.consumer_group = "signal_lifecycle"
-        self.consumer_name = f"lifecycle_{os.getpid()}"
+        self._kafka_consumer: KafkaConsumerClient | None = None
+        self._kafka_producer: KafkaProducerClient | None = None
 
         settings = Settings()
+        self.env_name = settings.env_name or ""
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+        self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
 
         self.point_values: dict[str, float] = {
             sym: float(get_point_value(sym) or 1.0)
@@ -158,8 +161,6 @@ class SignalLifecycleService:
         self.error_count_total = counter(
             "lifecycle_errors_total", "Total errors in signal lifecycle service"
         )
-
-        self._stream_map: dict[str, tuple[str, str]] = {}
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -219,15 +220,14 @@ class SignalLifecycleService:
         exit_price: float | None,
         bar_ts: str,
     ) -> None:
-        """Publish a terminal lifecycle event to the signal aggregated stream.
+        """Publish a terminal lifecycle event to the signals.aggregated topic.
 
         direction=0 is the sentinel meaning "this signal is closed".
         Published unconditionally — even if a newer signal has already replaced
-        this one on the stream. The dashboard matches by signal_id.
+        this one. The dashboard matches by signal_id.
         """
-        if not self.redis_client:
+        if not self._kafka_producer:
             return
-        stream_key = sk_signals_aggregated(self.env_prefix, symbol, timeframe)
         payload: dict[str, str] = {
             "direction": "0",
             "signal_id": signal_id,
@@ -239,7 +239,11 @@ class SignalLifecycleService:
             "timestamp": bar_ts,
         }
         try:
-            await self.redis_client.xadd(stream_key, payload, maxlen=200, approximate=True)
+            await self._kafka_producer.publish(
+                topic_signals_aggregated(self.env_name),
+                payload,
+                key=message_key(symbol, timeframe),
+            )
         except Exception as e:
             self.logger.warning(
                 "Failed to publish terminal signal event",
@@ -366,10 +370,10 @@ class SignalLifecycleService:
                         0.0, round((transition.pnl_r or 0.0) * effective_confidence, 4)
                     )
 
-                    # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
-                    if self.redis_client:
-                        _t = asyncio.create_task(self.redis_client.xadd(
-                            sk_llm_outcomes_stream(self.env_prefix),
+                    # Emit outcome to llm.outcomes topic for LLM call back-fill (LLM-03)
+                    if self._kafka_producer:
+                        asyncio.create_task(self._kafka_producer.publish(
+                            topic_llm_outcomes(self.env_name),
                             _build_outcome_payload(
                                 signal_id=sid,
                                 outcome=outcome,
@@ -378,14 +382,8 @@ class SignalLifecycleService:
                                 mfe=self._mfe.get(sid, current_mfe),
                                 bars_in_trade=bit,
                             ),
-                            maxlen=200,
-                            approximate=True,
+                            key=message_key(sid),
                         ))
-                        _t.add_done_callback(
-                            lambda t: self.logger.warning(
-                                "llm_outcomes xadd failed", error=str(t.exception())
-                            ) if not t.cancelled() and t.exception() else None
-                        )
 
                     # Status stays 'regime_suppressed' — never promoted to 'active'
                     await update_signal_status(
@@ -486,10 +484,10 @@ class SignalLifecycleService:
                 # Compute signal_quality (QUAL-03: uses effective_confidence, not raw stored value)
                 signal_quality = max(0.0, round((transition.pnl_r or 0.0) * effective_confidence, 4))
 
-                # Emit outcome to llm_outcomes:stream for LLM call back-fill (LLM-03)
-                if self.redis_client:
-                    _t = asyncio.create_task(self.redis_client.xadd(
-                        sk_llm_outcomes_stream(self.env_prefix),
+                # Emit outcome to llm.outcomes topic for LLM call back-fill (LLM-03)
+                if self._kafka_producer:
+                    asyncio.create_task(self._kafka_producer.publish(
+                        topic_llm_outcomes(self.env_name),
                         _build_outcome_payload(
                             signal_id=sid,
                             outcome=outcome,
@@ -498,14 +496,8 @@ class SignalLifecycleService:
                             mfe=self._mfe.get(sid, current_mfe),
                             bars_in_trade=bit,
                         ),
-                        maxlen=200,
-                        approximate=True,
+                        key=message_key(sid),
                     ))
-                    _t.add_done_callback(
-                        lambda t: self.logger.warning(
-                            "llm_outcomes xadd failed", error=str(t.exception())
-                        ) if not t.cancelled() and t.exception() else None
-                    )
 
                 # Clean up memory
                 self._mae.pop(sid, None)
@@ -557,13 +549,13 @@ class SignalLifecycleService:
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
+        fields: dict,
     ) -> bool:
         try:
             bar = {
-                "high": float(fields[b"high"].decode()),
-                "low": float(fields[b"low"].decode()),
-                "close": float(fields[b"close"].decode()),
+                "high": float(fields.get("high") or fields.get(b"high", b"0")),
+                "low": float(fields.get("low") or fields.get(b"low", b"0")),
+                "close": float(fields.get("close") or fields.get(b"close", b"0")),
             }
             bar_time = datetime.now(tz=UTC)
 
@@ -579,16 +571,6 @@ class SignalLifecycleService:
             self.error_count_total.inc()
             return False
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"]["db"],
-            decode_responses=False,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-
     async def _connect_database(self) -> None:
         try:
             self.db_manager = DatabaseManager(self.config["database"]["url"])
@@ -597,50 +579,39 @@ class SignalLifecycleService:
             self.logger.warning("Database unavailable", error=str(e))
             self.db_manager = None
 
-    async def _setup_consumer_groups(self) -> None:
-        for symbol in self.config["service"]["symbols"]:
-            stream_name = sk_market(self.env_prefix, symbol, "1m")
-            await ensure_consumer_group_with_reset(
-                self.redis_client, stream_name, self.consumer_group
-            )
-            self._stream_map[stream_name] = (symbol, "1m")
+    async def _setup_kafka_clients(self) -> None:
+        bars_topic = topic_market_bars(self.env_name)
+        self._kafka_consumer = KafkaConsumerClient(
+            bars_topic,
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id="signal_lifecycle",
+            auto_offset_reset="latest",
+        )
+        self._kafka_producer = KafkaProducerClient(
+            bootstrap_servers=self._kafka_bootstrap,
+        )
+        await self._kafka_consumer.start()
+        await self._kafka_producer.start()
 
     async def _process_loop(self) -> None:
-        all_streams = {name: ">" for name in self._stream_map}
-        while self.running and not self.shutdown_requested:
+        if not self._kafka_consumer:
+            return
+        async for topic, key, payload in self._kafka_consumer.messages():
+            if self.shutdown_requested:
+                break
             try:
-                messages = await self.redis_client.xreadgroup(
-                    self.consumer_group,
-                    self.consumer_name,
-                    all_streams,
-                    count=10,
-                    block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    symbol, timeframe = self._stream_map[stream_name]
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        ok = await self._process_single_bar(symbol, timeframe, fields)
-                        if ok:
-                            to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(
-                            stream_name, self.consumer_group, *to_ack
-                        )
+                # Extract symbol and timeframe from key (format "SYMBOL:TF")
+                key_str = key if isinstance(key, str) else (key.decode() if key else "")
+                parts = key_str.split(":")
+                if len(parts) != 2:
+                    continue
+                symbol, timeframe = parts
+                await self._process_single_bar(symbol, timeframe, payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.error_count_total.inc()
-                if "NOGROUP" in str(e):
-                    await self._setup_consumer_groups()
-                else:
-                    self.logger.error("Error in lifecycle loop", error=str(e))
-                await asyncio.sleep(1)
+                self.logger.error("Error in lifecycle loop", error=str(e))
 
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -654,10 +625,9 @@ class SignalLifecycleService:
     async def start(self) -> None:
         self.logger.info("Starting Signal Lifecycle Service")
         try:
-            await self._connect_redis()
             await self._connect_database()
             start_metrics_server(port=self.config.get("metrics_port", 9115))
-            await self._setup_consumer_groups()
+            await self._setup_kafka_clients()
             self.running = True
             tasks = [
                 asyncio.create_task(self._process_loop()),
@@ -675,8 +645,10 @@ class SignalLifecycleService:
         self.logger.info("Stopping Signal Lifecycle Service")
         self.running = False
         self.shutdown_requested = True
-        if self.redis_client:
-            await self.redis_client.aclose()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        if self._kafka_producer:
+            await self._kafka_producer.stop()
         if self.db_manager:
             await self.db_manager.close()
 

@@ -198,8 +198,9 @@ class TestFreshnessDecayWiring:
         svc._mae = {}
         svc._mfe = {}
         svc._activated_at = {}
-        svc.redis_client = None
         svc.env_prefix = "test:"
+        svc.env_name = "test"
+        svc._kafka_producer = None  # KAFKA-08: service uses Kafka; None disables publish
         svc.lifecycle_transitions_total = MagicMock()
         svc.logger = MagicMock()
         return svc
