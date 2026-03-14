@@ -181,6 +181,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`pg_stat_user_indexes.idx_scan` is always 0 for hypertable parents** — chunk-level indexes are tracked separately. Never use idx_scan=0 to identify unused indexes on hypertables; use pg_stat_statements and EXPLAIN instead.
 - **`pg_class` shows near-zero size for hypertable parents** — use `hypertable_size('table')` for real sizes and `timescaledb_information.hypertables` for num_chunks.
 - **Applying psql migrations via `docker exec`**: `docker exec timescaledb psql ... -f /dev/stdin <<'EOF'` does NOT work. Always `docker cp file.sql timescaledb:/tmp/file.sql` then `docker exec timescaledb psql -U postgres -d indicagent -f /tmp/file.sql`.
+- **`market_data_ohlcv` missing index**: `CREATE INDEX ON market_data_ohlcv (symbol, timeframe, timestamp DESC);` — without this, ORDER BY DESC LIMIT queries scan all 10k chunks and time out. Omit CONCURRENTLY (not supported on hypertables).
 
 ## Plugin System
 
@@ -213,7 +214,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
-- **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`.
+- **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`. **All service logs go to `logs/<service>.log` via `setup_service_logging()` — NOT to journald.** journalctl only shows `print()` output. Read log files directly for structured service output.
+- **`PYTHONUNBUFFERED=1` required** in all systemd service unit files — without it, Python buffers stdout and journald sees nothing even from print().
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Service test `__new__` pattern**: `tests/unit/service_tests/` uses `ServiceClass.__new__(ServiceClass)` to bypass `__init__`. Any new instance attribute added in `__init__` must also be manually set in test (e.g., `svc._regime_cache = defaultdict(dict)`), otherwise service silently fails mid-test with a misleading error.
 - **Pytest**: `.venv/bin/pytest` not bare `python -m pytest`.
@@ -229,7 +231,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules).
+- **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules). **Topic naming uses dots not colons**: `development.market.bars`, `development.indicators`, etc. Colons are invalid Kafka topic names.
+- **TWS `bars_processed` freeze**: `seen_bar_timestamps` dedup caches all timestamps from initial poll — subsequent polls return 0 new bars. Symptom: counter stuck at N×60 forever. Fix: restart TWS service.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 
 **Dashboard**
@@ -241,7 +244,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## System Access
 
-- **Sudo password:** `!123Angelina` — `sudo-rs` (Rust sudo) does NOT support `-S` stdin. Ask user to run sudo commands in their terminal directly.
+- **Sudo:** `echo "$SUDO_PASS" | sudo -S <cmd>` works for automation. For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
+- **Server IP:** `10.0.0.39` (WiFi, `wlp193s0`). IBKR TWS at `10.0.0.33` — if TWS connection refused, check trusted IPs in TWS API settings.
 
 ## Environment Variables
 
