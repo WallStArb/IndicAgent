@@ -11,10 +11,10 @@ from ..plugins import InputSpec
 @dataclass
 class OBVPlugin:
     name: str = "OBV"
-    outputs: set[str] = frozenset({"obv"})
+    outputs: frozenset[str] = frozenset({"obv"})
     min_lookback: int = 2
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volume"})
+    capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     _state: dict = field(default_factory=dict)
 

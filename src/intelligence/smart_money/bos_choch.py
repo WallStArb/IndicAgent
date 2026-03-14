@@ -20,7 +20,7 @@ class BOSCHoCHPlugin:
     """
 
     name: str = "smc_BOSCHoCH"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "bos_detected",
             "bos_direction",
@@ -32,7 +32,7 @@ class BOSCHoCHPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"smart_money"})
+    capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     neighbor: int = 5
     _state: dict = field(default_factory=dict)

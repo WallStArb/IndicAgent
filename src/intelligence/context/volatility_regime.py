@@ -13,12 +13,12 @@ class VolatilityRegimePlugin:
     """Classify volatility regime from ATR percentile and BB width."""
 
     name: str = "ctx_VolatilityRegime"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {"vol_regime", "vol_percentile", "vol_expansion", "bb_width_pct", "bb_width_percentile"}
     )
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"context"})
+    capability_tags: frozenset[str] = frozenset({"context"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     lookback: int = 50
     bb_period: int = 20

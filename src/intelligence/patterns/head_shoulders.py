@@ -13,7 +13,7 @@ from ..utils import find_peaks, find_troughs
 @dataclass
 class HeadShouldersPlugin:
     name: str = "patt_HeadShoulders"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "hs_pattern",
             "hs_neckline",
@@ -24,7 +24,7 @@ class HeadShouldersPlugin:
     )
     min_lookback: int = 80
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern", "chart"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "chart"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     neighbor: int = 4  # Reduced from 6 to limit search window - cuts nested loop iterations by ~33%
     amplitude_thr: float = 0.002

@@ -25,7 +25,7 @@ class CHoCHReversalPlugin:
     """
 
     name: str = "trad_CHoCHReversal"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -39,7 +39,7 @@ class CHoCHReversalPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "smc", "structure", "regime"})
+    capability_tags: frozenset[str] = frozenset({"trading", "smc", "structure", "regime"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     atr_stop_multiplier: float = 1.5

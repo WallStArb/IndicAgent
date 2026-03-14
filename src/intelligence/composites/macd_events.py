@@ -26,7 +26,7 @@ class MACDEventsPlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"momentum"}))
+    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"momentum"}))
     inputs: list[InputSpec] = field(default_factory=list)
     _state: dict = field(default_factory=dict)
 

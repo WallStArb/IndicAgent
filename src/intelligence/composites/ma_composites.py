@@ -10,7 +10,7 @@ from .common import crossover_detect, is_num
 @dataclass
 class MACompositePlugin:
     name: str = "MAComposite"
-    outputs: set[str] = field(
+    outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
                 # 9/21 EMA
@@ -45,7 +45,7 @@ class MACompositePlugin:
     )
     min_lookback: int = 200
     supports_incremental: bool = True
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"trend"}))
+    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"trend"}))
     inputs: list[InputSpec] = ()  # Consumes upstream features dicts
 
     atr_key: str = "atr_14"

@@ -20,7 +20,7 @@ class MTFAlignmentPlugin:
     """
 
     name: str = "trad_MTFAlignment"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -34,7 +34,7 @@ class MTFAlignmentPlugin:
     )
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "multi_timeframe"})
+    capability_tags: frozenset[str] = frozenset({"trading", "multi_timeframe"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     ctf_score_threshold: float = 0.7

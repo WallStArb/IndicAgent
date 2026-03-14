@@ -13,7 +13,7 @@ from ..utils import find_peaks, find_troughs
 @dataclass
 class DoubleTBPlugin:
     name: str = "patt_DoubleTB"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "dt_db_pattern",
             "dt_db_neckline",
@@ -23,7 +23,7 @@ class DoubleTBPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern", "chart"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "chart"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     neighbor: int = 5
     amplitude_thr: float = 0.002

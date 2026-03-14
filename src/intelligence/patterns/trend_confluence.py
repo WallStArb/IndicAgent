@@ -16,7 +16,7 @@ class TrendConfluencePlugin:
     """
 
     name: str = "TrendConfluence"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "trend_confluence_score",
             "trend_confluence_n_signals",
@@ -26,7 +26,7 @@ class TrendConfluencePlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern", "confluence", "trend"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "confluence", "trend"})
     inputs: list[InputSpec] = ()  # Consumes upstream feature dicts
     _state: dict = field(default_factory=dict)
 

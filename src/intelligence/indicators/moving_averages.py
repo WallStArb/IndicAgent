@@ -12,7 +12,7 @@ from ..plugins import InputSpec
 @dataclass
 class MovingAveragesPlugin:
     name: str = "MovingAverages"
-    outputs: set[str] = field(
+    outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
                 "sma_20",
@@ -29,7 +29,7 @@ class MovingAveragesPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = True
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"trend"}))
+    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"trend"}))
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
 
     sma_periods: list[int] = field(default_factory=lambda: [20, 50, 100, 200])

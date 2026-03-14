@@ -11,10 +11,10 @@ from ..plugins import InputSpec
 @dataclass
 class MACDPlugin:
     name: str = "MACD"
-    outputs: set[str] = frozenset({"macd_12_26_9", "macd_signal_12_26_9", "macd_histogram_12_26_9"})
+    outputs: frozenset[str] = frozenset({"macd_12_26_9", "macd_signal_12_26_9", "macd_histogram_12_26_9"})
     min_lookback: int = 50
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"momentum"})
+    capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     configs: list[tuple] = None
     _state: dict = field(default_factory=dict)

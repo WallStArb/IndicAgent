@@ -26,7 +26,7 @@ class FVGFillPlugin:
     """
 
     name: str = "trad_FVGFill"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -40,7 +40,7 @@ class FVGFillPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "smc", "fvg", "institutional"})
+    capability_tags: frozenset[str] = frozenset({"trading", "smc", "fvg", "institutional"})
     # timeframe=".*" — InputSpec.timeframe is not enforced by the registry or service;
     # signal_generator_service passes current-TF OHLCV regardless. ".*" makes intent clear.
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)

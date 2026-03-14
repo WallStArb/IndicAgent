@@ -10,7 +10,7 @@ from .common import crossover_detect, is_num, threshold_cross
 @dataclass
 class StochasticEventsPlugin:
     name: str = "evt_StochasticEvents"
-    outputs: set[str] = field(
+    outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
                 "stoch_cross_bullish",
@@ -24,7 +24,7 @@ class StochasticEventsPlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = field(default_factory=lambda: frozenset({"momentum"}))
+    capability_tags: frozenset[str] = field(default_factory=lambda: frozenset({"momentum"}))
     inputs: list[InputSpec] = field(default_factory=list)
 
     # Constants

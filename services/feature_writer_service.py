@@ -74,6 +74,13 @@ logger = structlog.get_logger(__name__)
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
 
+def _decode_field(val: object, default: str = "") -> str:
+    """Decode a bytes or str field from a Kafka/Redis payload, with a fallback default."""
+    if val is None:
+        return default
+    return val.decode() if isinstance(val, bytes) else str(val)
+
+
 def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
     """Parse intelligence stream/topic message into typed IntelligenceEvent.
 
@@ -469,18 +476,13 @@ class FeatureWriterService:
                 ts_raw = ts_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
-            def _decode(val: object, default: str = "") -> str:
-                if val is None:
-                    return default
-                return val.decode() if isinstance(val, bytes) else str(val)
-
             i8_payload = {
-                "model": _decode(payload.get("model") or payload.get(b"model"), "unknown"),
-                "confidence": _decode(
+                "model": _decode_field(payload.get("model") or payload.get(b"model"), "unknown"),
+                "confidence": _decode_field(
                     payload.get("confidence") or payload.get(b"confidence"), "0.0"
                 ),
-                "summary": _decode(payload.get("summary") or payload.get(b"summary"), ""),
-                "generated_at": _decode(
+                "summary": _decode_field(payload.get("summary") or payload.get(b"summary"), ""),
+                "generated_at": _decode_field(
                     payload.get("generated_at") or payload.get(b"generated_at"), ""
                 ),
             }

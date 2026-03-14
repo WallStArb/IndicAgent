@@ -26,7 +26,7 @@ class DivergenceStackPlugin:
     """
 
     name: str = "trad_DivergenceStack"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -40,7 +40,7 @@ class DivergenceStackPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "momentum", "divergence"})
+    capability_tags: frozenset[str] = frozenset({"trading", "momentum", "divergence"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     divergence_threshold: float = 0.3

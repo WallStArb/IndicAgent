@@ -21,12 +21,12 @@ class GARCHVolatilityPlugin:
     """
 
     name: str = "ctx_GARCHVolatility"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {"garch_sigma", "garch_vol_ratio", "garch_vol_regime", "garch_shock"}
     )
     min_lookback: int = 30
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"context", "volatility"})
+    capability_tags: frozenset[str] = frozenset({"context", "volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=200),)
     omega: float = 0.00001
     alpha: float = 0.10

@@ -22,7 +22,7 @@ class LiquidityHuntPlugin:
     """I7 signal: sweep of named liquidity pool + reversal confirmation."""
 
     name: str = "trad_LiquidityHunt"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -35,7 +35,7 @@ class LiquidityHuntPlugin:
     )
     min_lookback: int = 30
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "smc", "liquidity"})
+    capability_tags: frozenset[str] = frozenset({"trading", "smc", "liquidity"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     _state: dict = field(default_factory=dict)

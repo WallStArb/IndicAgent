@@ -12,7 +12,7 @@ class ConfluencePlugin:
     """Mean-reversion confluence scoring (RSI<30=bullish, >70=bearish)."""
 
     name: str = "Confluence"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "confluence_score",
             "confluence_n_signals",
@@ -24,7 +24,7 @@ class ConfluencePlugin:
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"pattern", "confluence"})
+    capability_tags: frozenset[str] = frozenset({"pattern", "confluence"})
     inputs: list[InputSpec] = ()  # Consumes upstream feature dicts
     _state: dict = field(default_factory=dict)
 

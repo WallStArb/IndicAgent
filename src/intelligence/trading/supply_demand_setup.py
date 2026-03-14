@@ -21,7 +21,7 @@ class SupplyDemandSetupPlugin:
     """I7 signal: price enters institutional S/D zone + rejection confirmation."""
 
     name: str = "trad_SupplyDemandSetup"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -34,7 +34,7 @@ class SupplyDemandSetupPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "zones", "smc"})
+    capability_tags: frozenset[str] = frozenset({"trading", "zones", "smc"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "any"
     _state: dict = field(default_factory=dict)

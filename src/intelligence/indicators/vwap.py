@@ -13,12 +13,12 @@ from ..plugins import InputSpec
 @dataclass
 class VWAPPlugin:
     name: str = "VWAP"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {"vwap", "vwap_upper_1", "vwap_lower_1", "vwap_upper_2", "vwap_lower_2", "vwap_std"}
     )
     min_lookback: int = 1
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volume"})
+    capability_tags: frozenset[str] = frozenset({"volume"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=390),)
     _state: dict = field(default_factory=dict)
 

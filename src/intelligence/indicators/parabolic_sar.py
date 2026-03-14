@@ -19,10 +19,10 @@ class PSARPlugin:
     """
 
     name: str = "ind_ParabolicSAR"
-    outputs: set[str] = frozenset({"psar_value", "psar_direction"})
+    outputs: frozenset[str] = frozenset({"psar_value", "psar_direction"})
     min_lookback: int = 10
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"trend"})
+    capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=50),)
     af_step: float = 0.02
     af_max: float = 0.20

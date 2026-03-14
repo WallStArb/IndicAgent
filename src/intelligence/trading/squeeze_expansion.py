@@ -21,7 +21,7 @@ class SqueezeExpansionPlugin:
     """
 
     name: str = "trad_SqueezeExpansion"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "signal_type",
             "direction",
@@ -35,7 +35,7 @@ class SqueezeExpansionPlugin:
     )
     min_lookback: int = 20
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"trading", "squeeze", "volatility"})
+    capability_tags: frozenset[str] = frozenset({"trading", "squeeze", "volatility"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
     volume_expansion_threshold: float = 1.3

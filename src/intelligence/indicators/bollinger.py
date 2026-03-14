@@ -12,10 +12,10 @@ from ..plugins import InputSpec
 @dataclass
 class BollingerPlugin:
     name: str = "BollingerBands"
-    outputs: set[str] = frozenset({"bb_20_2_upper", "bb_20_2_mid", "bb_20_2_lower"})
+    outputs: frozenset[str] = frozenset({"bb_20_2_upper", "bb_20_2_mid", "bb_20_2_lower"})
     min_lookback: int = 25
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volatility"})
+    capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     configs: list[tuple] = None
     _state: dict = field(default_factory=dict)

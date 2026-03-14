@@ -24,10 +24,10 @@ class HistoricalVolatilityPlugin:
     """
 
     name: str = "ind_HistoricalVolatility"
-    outputs: set[str] = frozenset({"hv_20", "hv_ratio_20"})
+    outputs: frozenset[str] = frozenset({"hv_20", "hv_ratio_20"})
     min_lookback: int = 22
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"volatility"})
+    capability_tags: frozenset[str] = frozenset({"volatility"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     period: int = 20
     _state: dict = field(default_factory=dict)

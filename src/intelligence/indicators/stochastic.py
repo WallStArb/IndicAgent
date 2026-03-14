@@ -12,10 +12,10 @@ from ..plugins import InputSpec
 @dataclass
 class StochasticPlugin:
     name: str = "Stochastic"
-    outputs: set[str] = frozenset({"stoch_k_14_3", "stoch_d_14_3"})
+    outputs: frozenset[str] = frozenset({"stoch_k_14_3", "stoch_d_14_3"})
     min_lookback: int = 20
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"momentum"})
+    capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     configs: list[tuple[int, int]] = None
     _state: dict = field(default_factory=dict)

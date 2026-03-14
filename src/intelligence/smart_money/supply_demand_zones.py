@@ -30,7 +30,7 @@ class SupplyDemandZonesPlugin:
     """Supply/Demand zone detection via base-impulse pattern on 15m bars."""
 
     name: str = "smc_SupplyDemandZones"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "nearest_demand_high",
             "nearest_demand_low",
@@ -50,7 +50,7 @@ class SupplyDemandZonesPlugin:
     )
     min_lookback: int = 30
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"smart_money", "zones"})
+    capability_tags: frozenset[str] = frozenset({"smart_money", "zones"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=150),)
     _state: dict = field(default_factory=dict)
 

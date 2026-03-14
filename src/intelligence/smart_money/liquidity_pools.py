@@ -35,7 +35,7 @@ class LiquidityPoolsPlugin:
     """Named buy-side (BSL) and sell-side (SSL) liquidity pool detection."""
 
     name: str = "smc_LiquidityPools"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "bsl_level",
             "bsl_type",
@@ -54,7 +54,7 @@ class LiquidityPoolsPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"smart_money", "liquidity"})
+    capability_tags: frozenset[str] = frozenset({"smart_money", "liquidity"})
     inputs: list[InputSpec] = (
         InputSpec(symbol=".*", timeframe="1m", lookback=150),
         InputSpec(symbol=".*", timeframe="1d", lookback=5),

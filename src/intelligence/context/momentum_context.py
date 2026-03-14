@@ -12,12 +12,12 @@ class MomentumContextPlugin:
     """Score overall momentum direction from multiple oscillators."""
 
     name: str = "ctx_MomentumContext"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {"momentum_bias", "momentum_strength", "momentum_agreement", "momentum_n_signals"}
     )
     min_lookback: int = 1
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"context"})
+    capability_tags: frozenset[str] = frozenset({"context"})
     inputs: list[InputSpec] = ()  # Consumes upstream feature dicts
     _state: dict = field(default_factory=dict)
 

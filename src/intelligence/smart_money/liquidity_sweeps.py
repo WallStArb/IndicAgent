@@ -19,7 +19,7 @@ class LiquiditySweepsPlugin:
     """
 
     name: str = "smc_LiquiditySweeps"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "sweep_detected",
             "sweep_type",
@@ -30,7 +30,7 @@ class LiquiditySweepsPlugin:
     )
     min_lookback: int = 60
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"smart_money"})
+    capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=120),)
     neighbor: int = 5
     reclaim_bars: int = 3  # Bars to check for reclaim confirmation

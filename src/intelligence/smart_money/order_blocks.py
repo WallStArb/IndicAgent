@@ -19,7 +19,7 @@ class OrderBlocksPlugin:
     """
 
     name: str = "smc_OrderBlocks"
-    outputs: set[str] = frozenset(
+    outputs: frozenset[str] = frozenset(
         {
             "ob_type",
             "ob_top",
@@ -31,7 +31,7 @@ class OrderBlocksPlugin:
     )
     min_lookback: int = 50
     supports_incremental: bool = False
-    capability_tags: set[str] = frozenset({"smart_money"})
+    capability_tags: frozenset[str] = frozenset({"smart_money"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     impulse_bars: int = 3  # Minimum consecutive bars for an impulse
     _state: dict = field(default_factory=dict)

@@ -22,10 +22,10 @@ class AroonPlugin:
     """
 
     name: str = "ind_Aroon"
-    outputs: set[str] = frozenset({"aroon_up_25", "aroon_down_25", "aroon_osc_25"})
+    outputs: frozenset[str] = frozenset({"aroon_up_25", "aroon_down_25", "aroon_osc_25"})
     min_lookback: int = 27
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"trend"})
+    capability_tags: frozenset[str] = frozenset({"trend"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     period: int = 25
     _state: dict = field(default_factory=dict)

@@ -22,10 +22,10 @@ class StochRSIPlugin:
     """
 
     name: str = "ind_StochRSI"
-    outputs: set[str] = frozenset({"stoch_rsi_k_14", "stoch_rsi_d_14"})
+    outputs: frozenset[str] = frozenset({"stoch_rsi_k_14", "stoch_rsi_d_14"})
     min_lookback: int = 35
     supports_incremental: bool = True
-    capability_tags: set[str] = frozenset({"momentum"})
+    capability_tags: frozenset[str] = frozenset({"momentum"})
     inputs: list[InputSpec] = (InputSpec(symbol=".*", timeframe="1m", lookback=100),)
     period: int = 14
     d_period: int = 3
