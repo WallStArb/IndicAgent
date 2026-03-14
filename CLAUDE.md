@@ -134,12 +134,12 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; needs ~50 live 1m bars (~50 min) warmup after restart before signals fire | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
-| Feature Writer | `indicagent-feature-writer` | Redis → `intelligence_features` batch writer | :9116 |
+| Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
 | LLM Writer | `indicagent-llm-writer` | `llm_calls:stream` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
 
 ### Core Runtime Files
-- `src/core/stream_keys.py` — all Redis stream key construction
+- `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `PLUGIN_METRICS_SAMPLE_RATE`
 - `src/intelligence/schemas.py` — canonical typed bus schemas
@@ -245,7 +245,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Environment Variables
 
-`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `REDIS_URL`, `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
+`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
 
 ## Current Status
 
