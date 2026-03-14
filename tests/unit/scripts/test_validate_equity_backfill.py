@@ -16,7 +16,7 @@ class TestValidateEquityBackfill:
     async def test_zero_count_exits_zero(self):
         """When DB returns count=0, validation passes."""
         mock_db = AsyncMock()
-        mock_db.fetch_one = AsyncMock(return_value={"count": 0})
+        mock_db.fetch = AsyncMock(return_value=[{"count": 0}])
 
         from production.scripts.validate_equity_backfill import validate_symbol
         result = await validate_symbol(mock_db, "SPY")
@@ -26,7 +26,7 @@ class TestValidateEquityBackfill:
     async def test_nonzero_count_returns_count(self):
         """When DB returns count > 0, returns positive int."""
         mock_db = AsyncMock()
-        mock_db.fetch_one = AsyncMock(return_value={"count": 42})
+        mock_db.fetch = AsyncMock(return_value=[{"count": 42}])
 
         from production.scripts.validate_equity_backfill import validate_symbol
         result = await validate_symbol(mock_db, "SPY")
