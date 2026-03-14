@@ -471,6 +471,8 @@ class IndicatorService:
             start_metrics_server(port=self.config.get("metrics_port", 9109))
 
             # Seed bar history from DB before starting consumer (Phase 26 pattern)
+            if self.db_manager:
+                await self.db_manager.initialize()
             await self._seed_bar_history_from_db()
 
             # Start Kafka producer
