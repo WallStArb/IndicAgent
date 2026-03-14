@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.7
 milestone_name: candidates
 status: completed
-stopped_at: Completed 30-01-PLAN.md (Redpanda infra + kafka_utils + stream_keys topic builders)
-last_updated: "2026-03-14T06:48:14.387Z"
+stopped_at: Completed 30-02-PLAN.md (Hot Tier + Intelligence Pipeline — tws_daemon, timeframes_builder, indicator, market_analysis)
+last_updated: "2026-03-14T07:04:37.154Z"
 last_activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 100
 ---
 
@@ -69,6 +69,7 @@ Progress: [██████████] 100% (v1.8 shipped)
 | Phase 29-renaissance-signal-quality P07 | 6 | 3 tasks | 8 files |
 | Phase 29-renaissance-signal-quality P08 | 4 | 2 tasks | 2 files |
 | Phase 30-redpanda-migration P01 | 6 | 3 tasks | 9 files |
+| Phase 30-redpanda-migration P02 | 13 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,9 @@ Progress: [██████████] 100% (v1.8 shipped)
 - [Phase 30-01]: kafka_utils.py as new file (not stream_utils.py rename) for dual-run coexistence during Plans 1-4
 - [Phase 30-01]: TopicAlreadyExistsError (aiokafka 0.13.0) — TopicExistsException removed in 0.13.0
 - [Phase 30-01]: Redpanda external listener port 19092; internal 9092 container-only; host services use localhost:19092
+- [Phase 30-02]: services/tws_daemon.py created as Kafka-native service (not services/tws_daemon.py rename — new file); production/daemons/high_frequency_tws_daemon.py kept as legacy reference
+- [Phase 30-02]: _seed_bar_history_from_db() follows Phase 26 signal_generator pattern — reads market_data_ohlcv at startup
+- [Phase 30-02]: _get_field() dual-mode helper added for str/bytes dict compat between Kafka JSON and legacy test fixtures
 
 ### Pending Todos (addressed in v1.8)
 
@@ -132,6 +136,6 @@ None blocking v1.8.
 
 ## Session Continuity
 
-Last session: 2026-03-14T06:48:14.384Z
-Stopped at: Completed 30-01-PLAN.md (Redpanda infra + kafka_utils + stream_keys topic builders)
+Last session: 2026-03-14T07:04:37.152Z
+Stopped at: Completed 30-02-PLAN.md (Hot Tier + Intelligence Pipeline — tws_daemon, timeframes_builder, indicator, market_analysis)
 Resume file: None
