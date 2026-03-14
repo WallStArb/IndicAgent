@@ -1,5 +1,5 @@
 # IndicAgent Infrastructure
-# TimescaleDB + DragonflyDB + Ollama
+# TimescaleDB + Redpanda + Ollama
 
 services:
   timescaledb:
@@ -22,24 +22,6 @@ services:
     volumes:
       - timescale-data:/var/lib/postgresql/data
       - ./:/workspace:rw
-
-  dragonfly:
-    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
-    container_name: dragonfly
-    restart: unless-stopped
-    command:
-      - "--dir"
-      - "/data"
-      - "--dbfilename"
-      - "dump"
-      - "--snapshot_cron"
-      - "*/5 * * * *"
-      - "--tcp_keepalive"
-      - "300"
-    ports:
-      - "6379:6379"
-    volumes:
-      - dragonfly-data:/data
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v25.3.10
@@ -121,7 +103,6 @@ services:
 
 volumes:
   timescale-data:
-  dragonfly-data:
   redpanda-data:
   ollama-data:
   prometheus-data:
