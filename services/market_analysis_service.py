@@ -33,6 +33,7 @@ from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.database_manager import DatabaseManager
+from src.api.utils import parse_jsonb
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     SEED_LOOKBACK_MULTIPLIER,
@@ -72,13 +73,6 @@ from src.observability.metrics import (
     record_plugin_execution,
     start_metrics_server,
 )
-
-
-def _as_dict(v: object) -> dict:
-    """Parse a JSONB column that asyncpg may return as a str or dict."""
-    if isinstance(v, str):
-        return json.loads(v) or {}
-    return v or {}
 
 
 class MarketAnalysisService:
@@ -577,7 +571,7 @@ class MarketAnalysisService:
                 # Re-publish the most recent stored IntelligenceEvent
                 latest = rows[0]  # rows are DESC, so first = newest
                 try:
-                    bar_json = _as_dict(latest["bar"])
+                    bar_json = parse_jsonb(latest["bar"], default={})
                     event = IntelligenceEvent(
                         ts=latest["ts"],
                         symbol=symbol,
@@ -590,13 +584,13 @@ class MarketAnalysisService:
                             c=float(bar_json.get("c", 0)),
                             v=int(bar_json.get("v", 0)),
                         ),
-                        i1=I1Indicators(**{k: v for k, v in _as_dict(latest["i1"]).items() if v is not None}),
-                        i2=I2Events(**{k: v for k, v in _as_dict(latest["i2"]).items() if v is not None}),
-                        i3=I3Structure(**{k: v for k, v in _as_dict(latest["i3"]).items() if v is not None}),
-                        i4=I4Context(**{k: v for k, v in _as_dict(latest["i4"]).items() if v is not None}),
-                        i5=I5Patterns(**{k: v for k, v in _as_dict(latest["i5"]).items() if v is not None}),
-                        smc=SMCContext(**{k: v for k, v in _as_dict(latest["smc"]).items() if v is not None}),
-                        i6=I6Confluence(**{k: v for k, v in _as_dict(latest["i6"]).items() if v is not None}),
+                        i1=I1Indicators(**{k: v for k, v in parse_jsonb(latest["i1"], default={}).items() if v is not None}),
+                        i2=I2Events(**{k: v for k, v in parse_jsonb(latest["i2"], default={}).items() if v is not None}),
+                        i3=I3Structure(**{k: v for k, v in parse_jsonb(latest["i3"], default={}).items() if v is not None}),
+                        i4=I4Context(**{k: v for k, v in parse_jsonb(latest["i4"], default={}).items() if v is not None}),
+                        i5=I5Patterns(**{k: v for k, v in parse_jsonb(latest["i5"], default={}).items() if v is not None}),
+                        smc=SMCContext(**{k: v for k, v in parse_jsonb(latest["smc"], default={}).items() if v is not None}),
+                        i6=I6Confluence(**{k: v for k, v in parse_jsonb(latest["i6"], default={}).items() if v is not None}),
                         bar_close_ts=latest["bar_close_ts"],
                         i1_computed_at=latest["i1_computed_at"],
                         computed_at=latest["computed_at"],
