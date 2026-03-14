@@ -221,7 +221,7 @@ Plans:
 **Goal**: Replace DragonflyDB (Redis Streams) with Redpanda as the event bus across all 8 services, removing DragonflyDB from the stack entirely. Pure transport-layer migration — no business logic changes.
 **Depends on**: Phase 29
 **Requirements**: KAFKA-01, KAFKA-02, KAFKA-03, KAFKA-04, KAFKA-05, KAFKA-06, KAFKA-07, KAFKA-08
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 - [ ] 30-01-PLAN.md — Infrastructure + Core Abstractions: Redpanda compose, aiokafka, stream_utils rewrite, stream_keys rewrite, topic init script
@@ -323,4 +323,4 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 27. Signal Lifecycle Stream Events | v1.7 | 10/10 | Complete | 2026-03-12 |
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
-| 30. Redpanda Migration | 3/5 | In Progress|  | — |
+| 30. Redpanda Migration | 4/5 | In Progress|  | — |
