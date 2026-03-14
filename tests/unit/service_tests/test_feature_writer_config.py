@@ -3,6 +3,7 @@
 Ensures the default symbol list covers all 23 active H6/J6 contracts rather than
 the stale 6-symbol hardcoded list (ESH6, NQH6, RTYH6, CLK6, GCM6, NGK6).
 """
+
 from unittest.mock import MagicMock, patch
 
 
@@ -15,8 +16,10 @@ def _make_service():
         patch("services.feature_writer_service.gauge", return_value=MagicMock()),
     ):
         import signal as _signal
+
         with patch.object(_signal, "signal"):
             from services.feature_writer_service import FeatureWriterService
+
             service = FeatureWriterService.__new__(FeatureWriterService)
             service.config = service._load_config(None)
     return service
@@ -29,6 +32,7 @@ def test_default_config_uses_active_contracts():
     are stale symbols that must no longer appear.
     """
     from src.config.settings import Settings, get_active_contracts
+
     service = _make_service()
 
     symbols = service.config["service"]["symbols"]
@@ -46,6 +50,6 @@ def test_active_contracts_count():
     service = _make_service()
 
     symbols = service.config["service"]["symbols"]
-    assert len(symbols) >= 20, (
-        f"Expected at least 20 active contracts, got {len(symbols)}: {symbols}"
-    )
+    assert (
+        len(symbols) >= 20
+    ), f"Expected at least 20 active contracts, got {len(symbols)}: {symbols}"

@@ -261,6 +261,7 @@ class TestPublisherFormat:
 
     def _make_service(self):
         from services.market_analysis_service import MarketAnalysisService
+
         svc = MarketAnalysisService()
         svc._kafka_producer = AsyncMock()
         svc._kafka_producer.publish = AsyncMock()
@@ -395,8 +396,7 @@ class TestPluginCache:
         svc = MarketAnalysisService()
         frames = {
             "main": pd.DataFrame(
-                [{"open": 100.0, "high": 101.0, "low": 99.0,
-                  "close": 100.5, "volume": 500}] * 30
+                [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 500}] * 30
             ),
             "features": {},
         }
@@ -421,8 +421,7 @@ class TestPluginStateIsolation:
 
         def make_frames(rsi_prev, rsi_curr):
             df = pd.DataFrame(
-                [{"open": 100.0, "high": 101.0, "low": 99.0,
-                  "close": 100.5, "volume": 500}] * 30
+                [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 500}] * 30
             )
             return {
                 "main": df,
@@ -457,18 +456,21 @@ class TestPluginStateIsolation:
 
         async def run(rsi_prev, rsi_curr):
             df = pd.DataFrame(
-                [{"open": 100.0, "high": 101.0, "low": 99.0,
-                  "close": 100.5, "volume": 500}] * 30
+                [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 500}] * 30
             )
-            await svc._run_analysis_pipeline("ES", "1m", {
-                "main": df,
-                "features": {"rsi_14": rsi_curr, "macd_12_26_9": 0.5, "roc_14": 0.3},
-                "prev_features": {"rsi_14": rsi_prev, "macd_12_26_9": 0.4, "roc_14": 0.2},
-            })
+            await svc._run_analysis_pipeline(
+                "ES",
+                "1m",
+                {
+                    "main": df,
+                    "features": {"rsi_14": rsi_curr, "macd_12_26_9": 0.5, "roc_14": 0.3},
+                    "prev_features": {"rsi_14": rsi_prev, "macd_12_26_9": 0.4, "roc_14": 0.2},
+                },
+            )
             return svc._plugin_states.get((pname, "ES", "1m"), {}).copy()
 
-        state_after_bar1 = await run(50.0, 55.0)   # accel = +5.0
-        state_after_bar2 = await run(55.0, 53.0)   # accel = -2.0
+        state_after_bar1 = await run(50.0, 55.0)  # accel = +5.0
+        state_after_bar2 = await run(55.0, 53.0)  # accel = -2.0
 
         assert state_after_bar1.get("prev_rsi_accel") == pytest.approx(5.0, abs=0.01)
         assert state_after_bar2.get("prev_rsi_accel") == pytest.approx(-2.0, abs=0.01)
@@ -488,29 +490,22 @@ class TestPrometheusSampling:
 
         svc = MarketAnalysisService()
         df = pd.DataFrame(
-            [{"open": 100.0, "high": 101.0, "low": 99.0,
-              "close": 100.5, "volume": 500}] * 30
+            [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 500}] * 30
         )
         frames = {"main": df, "features": {}, "prev_features": {}}
 
-        with patch(
-            "services.market_analysis_service.record_plugin_execution"
-        ) as mock_record:
+        with patch("services.market_analysis_service.record_plugin_execution") as mock_record:
             for _ in range(10):
                 await svc._run_analysis_pipeline("ES", "1m", frames)
 
         # With 48 plugins × 10 calls = 480 total success invocations
         # At rate=10, we expect 48 recorded (every 10th)
         # But we only care that it's less than total, i.e. sampled
-        success_calls = [
-            c for c in mock_record.call_args_list if c.args[4] == "success"
-        ]
-        total_plugin_invocations = len(
-            list(svc._plugin_cache.keys())
-        ) * 10
-        assert len(success_calls) < total_plugin_invocations, (
-            "Expected sampling: fewer success records than total invocations"
-        )
+        success_calls = [c for c in mock_record.call_args_list if c.args[4] == "success"]
+        total_plugin_invocations = len(list(svc._plugin_cache.keys())) * 10
+        assert (
+            len(success_calls) < total_plugin_invocations
+        ), "Expected sampling: fewer success records than total invocations"
         # Exactly 1-in-10 should be recorded
         assert len(success_calls) == len(svc._plugin_cache) * 1  # 1 per plugin at call 10
 
@@ -532,20 +527,16 @@ class TestPrometheusSampling:
         svc._plugin_cache[boom_name] = mock_plugin
 
         df = pd.DataFrame(
-            [{"open": 100.0, "high": 101.0, "low": 99.0,
-              "close": 100.5, "volume": 500}] * 30
+            [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 500}] * 30
         )
         frames = {"main": df, "features": {}, "prev_features": {}}
 
-        with patch(
-            "services.market_analysis_service.record_plugin_execution"
-        ) as mock_record:
+        with patch("services.market_analysis_service.record_plugin_execution") as mock_record:
             for _ in range(5):
                 await svc._run_analysis_pipeline("ES", "1m", frames)
 
         error_calls = [
-            c for c in mock_record.call_args_list
-            if c.args[4] == "error" and c.args[0] == boom_name
+            c for c in mock_record.call_args_list if c.args[4] == "error" and c.args[0] == boom_name
         ]
         assert len(error_calls) == 5, "Errors must be recorded on every invocation"
 
@@ -557,23 +548,27 @@ def test_df_cache_miss_builds_dataframe():
     import pandas as pd
 
     from services.market_analysis_service import MarketAnalysisService
+
     svc = MarketAnalysisService()
     key = "ES:1m"
     svc.bar_history[key] = deque(maxlen=200)
     svc._df_cache[key] = None
-    svc.bar_history[key].append({"timestamp": datetime(2026,2,28,10,0), "close": 5303.0})
+    svc.bar_history[key].append({"timestamp": datetime(2026, 2, 28, 10, 0), "close": 5303.0})
     df = svc._get_df(key)
     assert isinstance(df, pd.DataFrame) and len(df) == 1
+
 
 def test_df_cache_hit_returns_same_object():
     import pandas as pd
 
     from services.market_analysis_service import MarketAnalysisService
+
     svc = MarketAnalysisService()
     key = "ES:5m"
     cached = pd.DataFrame([{"close": 5300.0}])
     svc._df_cache[key] = cached
     assert svc._get_df(key) is cached
+
 
 def test_bar_append_invalidates_cache():
     from collections import deque
@@ -582,10 +577,11 @@ def test_bar_append_invalidates_cache():
     import pandas as pd
 
     from services.market_analysis_service import MarketAnalysisService
+
     svc = MarketAnalysisService()
     key = "NQ:1m"
     svc.bar_history[key] = deque(maxlen=200)
     svc._df_cache[key] = pd.DataFrame([{"close": 5300.0}])
-    svc.bar_history[key].append({"timestamp": datetime(2026,2,28,10,1), "close": 5310.0})
+    svc.bar_history[key].append({"timestamp": datetime(2026, 2, 28, 10, 1), "close": 5310.0})
     svc._df_cache[key] = None
     assert svc._df_cache[key] is None

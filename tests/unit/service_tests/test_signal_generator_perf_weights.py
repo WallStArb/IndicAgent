@@ -19,6 +19,7 @@ from services.signal_generator_service import SignalGeneratorService
 # Factory — bypass __init__ using __new__ pattern (per CLAUDE.md)
 # ---------------------------------------------------------------------------
 
+
 def _make_svc() -> SignalGeneratorService:
     """Build a SignalGeneratorService without calling __init__."""
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
@@ -38,6 +39,7 @@ def _make_svc() -> SignalGeneratorService:
 # ---------------------------------------------------------------------------
 # Attribute existence (RED: _perf_weights not initialized in __init__ yet)
 # ---------------------------------------------------------------------------
+
 
 class TestPerfWeightsAttribute:
     @pytest.mark.unit
@@ -70,6 +72,7 @@ class TestPerfWeightsAttribute:
 # ---------------------------------------------------------------------------
 # _perf_weights passed to aggregate() via _process_bar() (RED: TypeError from aggregate)
 # ---------------------------------------------------------------------------
+
 
 class TestPerfWeightsPassedToAggregate:
     @pytest.mark.unit

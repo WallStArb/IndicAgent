@@ -22,7 +22,13 @@ def _make_svc(maxlen: int = 200):
 
 def _make_bar(i: int) -> dict:
     """Return a minimal bar dict for testing."""
-    return {"open": float(i), "high": float(i) + 1, "low": float(i) - 1, "close": float(i), "volume": 100}
+    return {
+        "open": float(i),
+        "high": float(i) + 1,
+        "low": float(i) - 1,
+        "close": float(i),
+        "volume": 100,
+    }
 
 
 class TestCacheNotInvalidatedWhenDequeHasRoom:
@@ -61,7 +67,9 @@ class TestCacheNotInvalidatedWhenDequeHasRoom:
                 svc._df_cache[key] = None
 
         assert len(history) == 4
-        assert svc._df_cache[key] is not None, "Cache should NOT be invalidated before deque is full"
+        assert (
+            svc._df_cache[key] is not None
+        ), "Cache should NOT be invalidated before deque is full"
 
 
 class TestCacheInvalidatedOnOverflow:
@@ -131,7 +139,9 @@ class TestCacheInvalidatedOnOverflow:
                 svc._df_cache[key] = None
                 invalidation_count += 1
 
-        assert invalidation_count == 7, "Cache should be invalidated on every overflow after maxlen is reached"
+        assert (
+            invalidation_count == 7
+        ), "Cache should be invalidated on every overflow after maxlen is reached"
 
 
 class TestGetDfCacheRebuilt:

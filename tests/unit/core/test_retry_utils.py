@@ -61,8 +61,7 @@ class TestExponentialBackoffWithJitter:
         # With jitter_factor=0.5 and base_delay=1.0, repeated calls at attempt=0
         # should produce values spread around 1.0 rather than always equal.
         results = {
-            exponential_backoff_with_jitter(0, base_delay=1.0, jitter_factor=0.5)
-            for _ in range(20)
+            exponential_backoff_with_jitter(0, base_delay=1.0, jitter_factor=0.5) for _ in range(20)
         }
         # At least 2 distinct values in 20 draws (near-zero probability of collision)
         assert len(results) > 1
@@ -75,9 +74,7 @@ class TestExponentialBackoffWithJitter:
     def test_result_never_goes_negative(self) -> None:
         # Even if random produces the most negative jitter, result >= 0
         for _ in range(50):
-            delay = exponential_backoff_with_jitter(
-                0, base_delay=0.0001, jitter_factor=1.0
-            )
+            delay = exponential_backoff_with_jitter(0, base_delay=0.0001, jitter_factor=1.0)
             assert delay >= 0.0
 
 
@@ -91,9 +88,7 @@ class TestRetryWithBackoff:
         """Function that never fails completes without retrying."""
         coro = AsyncMock(return_value=42)
 
-        result = asyncio.run(
-            retry_with_backoff(coro, "arg1", max_attempts=3)
-        )
+        result = asyncio.run(retry_with_backoff(coro, "arg1", max_attempts=3))
 
         assert result == 42
         coro.assert_called_once_with("arg1")
@@ -136,9 +131,7 @@ class TestRetryWithBackoff:
         coro = AsyncMock(side_effect=Exception("boom"))
 
         with pytest.raises(Exception):
-            asyncio.run(
-                retry_with_backoff(coro, max_attempts=5, base_delay=0.0)
-            )
+            asyncio.run(retry_with_backoff(coro, max_attempts=5, base_delay=0.0))
 
         assert coro.call_count == 5
 
@@ -164,9 +157,7 @@ class TestRetryWithBackoff:
         coro = AsyncMock(side_effect=ConnectionError("refused"))
 
         with pytest.raises(ConnectionError):
-            asyncio.run(
-                retry_with_backoff(coro, max_attempts=1, retry_on=(ConnectionError,))
-            )
+            asyncio.run(retry_with_backoff(coro, max_attempts=1, retry_on=(ConnectionError,)))
 
         assert coro.call_count == 1
 
@@ -174,9 +165,7 @@ class TestRetryWithBackoff:
         """Keyword arguments are passed through to the wrapped coroutine."""
         coro = AsyncMock(return_value="ok")
 
-        asyncio.run(
-            retry_with_backoff(coro, key="value", max_attempts=1)
-        )
+        asyncio.run(retry_with_backoff(coro, key="value", max_attempts=1))
 
         coro.assert_called_once_with(key="value")
 
@@ -184,8 +173,6 @@ class TestRetryWithBackoff:
         """Both positional and keyword arguments reach the wrapped coroutine."""
         coro = AsyncMock(return_value="ok")
 
-        asyncio.run(
-            retry_with_backoff(coro, "pos1", kwarg1="kv", max_attempts=1)
-        )
+        asyncio.run(retry_with_backoff(coro, "pos1", kwarg1="kv", max_attempts=1))
 
         coro.assert_called_once_with("pos1", kwarg1="kv")

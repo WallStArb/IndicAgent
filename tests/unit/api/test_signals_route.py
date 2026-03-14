@@ -42,6 +42,7 @@ def _make_mock_db():
 # Row factory helpers
 # ---------------------------------------------------------------------------
 
+
 def _base_row(**overrides):
     """Return a dict-like mock row for base (no feature JOIN) queries."""
     row = {
@@ -82,6 +83,7 @@ def _features_row(**overrides):
 
 class _DictRow(dict):
     """Dict subclass that supports attribute-style access for asyncpg row compat."""
+
     def __getattr__(self, key):
         try:
             return self[key]

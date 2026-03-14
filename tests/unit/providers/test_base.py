@@ -1,5 +1,6 @@
-import pytest
 from datetime import UTC, datetime
+
+import pytest
 
 from src.providers.base import DataProvider, OHLCVBar, Tick
 
@@ -54,23 +55,34 @@ class TestDataProviderProtocol:
         # A class that doesn't implement the protocol should not be an instance
         class NotAProvider:
             pass
+
         assert not isinstance(NotAProvider(), DataProvider)
 
     def test_minimal_implementation_satisfies_protocol(self):
 
         class MinimalProvider:
             name = "test"
-            async def connect(self) -> bool: return True
-            async def disconnect(self) -> None: pass
-            def is_connected(self) -> bool: return True
-            async def resolve_instrument(self, query: str): return None
+
+            async def connect(self) -> bool:
+                return True
+
+            async def disconnect(self) -> None:
+                pass
+
+            def is_connected(self) -> bool:
+                return True
+
+            async def resolve_instrument(self, query: str):
+                return None
+
             async def stream_ticks(self, symbols): ...
-            async def fetch_historical_bars(self, symbol, timeframe, start, end): return []
+            async def fetch_historical_bars(self, symbol, timeframe, start, end):
+                return []
 
         assert isinstance(MinimalProvider(), DataProvider)
 
 
-from src.providers.base import SubscriptionManager, SubscriptionLimitError
+from src.providers.base import SubscriptionLimitError, SubscriptionManager
 
 
 class TestSubscriptionManager:

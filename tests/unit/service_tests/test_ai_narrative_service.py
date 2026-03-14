@@ -1,6 +1,6 @@
 """Tests for AINarrativeService class."""
+
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,6 +22,7 @@ def _make_service():
         mock_settings.return_value.openrouter_api_key = ""
         mock_settings.return_value.llm_timeout_sec = 60.0
         from services.ai_narrative_service import AINarrativeService
+
         return AINarrativeService()
 
 
@@ -31,7 +32,7 @@ def test_service_initializes_with_default_config():
     assert hasattr(svc, "short_chain")
     assert hasattr(svc, "deep_chain")
     assert hasattr(svc, "group_chain")
-    assert svc._per_signal_timeout == 60.0   # Settings.llm_timeout_sec default
+    assert svc._per_signal_timeout == 60.0  # Settings.llm_timeout_sec default
     assert "ESH6" in svc.config["service"]["symbols"]
     assert svc.env_prefix == ""
 
@@ -49,9 +50,7 @@ async def test_process_message_skips_zero_direction():
         b"timeframe": b"5m",
         b"timestamp": b"2026-02-19T14:05:00",
     }
-    await svc._process_single_message(
-        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0")
     svc.short_chain.generate.assert_not_called()
     svc._kafka_producer.publish.assert_not_called()
 
@@ -83,16 +82,15 @@ async def test_process_message_publishes_narrative():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS confirmed",
     }
-    await svc._process_single_message(
-        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0")
     await asyncio.sleep(0.1)  # let background narrative tasks complete
 
     # Kafka producer publish called — at least one call to narratives topic
     assert svc._kafka_producer.publish.call_count >= 1
     # Find the narratives publish call specifically
     narrative_call = next(
-        c for c in svc._kafka_producer.publish.call_args_list
+        c
+        for c in svc._kafka_producer.publish.call_args_list
         if "narratives" in str(c.args[0]) and "llm" not in str(c.args[0])
     )
     topic = narrative_call.args[0]
@@ -129,18 +127,16 @@ async def test_process_message_handles_ollama_failure():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"RSI bullish",
     }
-    await svc._process_single_message(
-        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0")
 
     # LLM call record emitted to llm.calls topic (fire-and-forget)
     await asyncio.sleep(0.1)  # let background narrative tasks complete
     publish_topics = [str(c.args[0]) for c in svc._kafka_producer.publish.call_args_list]
     assert any("llm" in s for s in publish_topics), "Expected llm.calls topic publish"
     # Narrative topic must NOT be published
-    assert not any("narratives" in s for s in publish_topics), (
-        "Narrative must not be published on LLM failure"
-    )
+    assert not any(
+        "narratives" in s for s in publish_topics
+    ), "Narrative must not be published on LLM failure"
 
 
 @pytest.mark.asyncio
@@ -165,9 +161,7 @@ async def test_process_message_skips_1m_timeframe():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    await svc._process_single_message(
-        "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0")
     svc.short_chain.generate.assert_not_called()
 
 
@@ -192,9 +186,7 @@ async def test_process_message_skips_low_confidence():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    await svc._process_single_message(
-        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0")
     svc.short_chain.generate.assert_not_called()
 
 
@@ -222,9 +214,7 @@ async def test_process_message_allows_5m_high_confidence():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    await svc._process_single_message(
-        "ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "5m", fields, "signals:ESH6:5m:aggregated", b"1-0")
     await asyncio.sleep(0.05)  # let background tasks run
     svc.short_chain.generate.assert_called_once()
 
@@ -281,9 +271,7 @@ async def test_latest_signals_cache_updated_for_any_signal():
         b"regime_context": b"trending_up",
         b"supporting_factors": b"BOS",
     }
-    await svc._process_single_message(
-        "ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0"
-    )
+    await svc._process_single_message("ESH6", "1m", fields, "signals:ESH6:1m:aggregated", b"1-0")
     # Cache updated even though 1m is filtered from per-signal narration
     assert "ESH6:1m" in svc._latest_signals
     assert svc._latest_signals["ESH6:1m"]["direction"] == 1
@@ -297,9 +285,13 @@ async def test_group_synthesis_fires_on_fingerprint_change():
     svc._kafka_producer.publish = AsyncMock()
     # Simulate a cached signal for an equity member
     svc._latest_signals["ESH6:5m"] = {
-        "direction": 1, "direction_label": "Bullish", "confidence": 0.82,
-        "setup_plugin": "trad_TrendFollowing", "regime_context": "trending_up",
-        "symbol": "ESH6", "timeframe": "5m",
+        "direction": 1,
+        "direction_label": "Bullish",
+        "confidence": 0.82,
+        "setup_plugin": "trad_TrendFollowing",
+        "regime_context": "trending_up",
+        "symbol": "ESH6",
+        "timeframe": "5m",
     }
     # No prior state in _group_fingerprints → fingerprint mismatch → synthesize
     svc._group_fingerprints = {}
@@ -324,10 +316,13 @@ async def test_group_synthesis_skips_when_fingerprint_unchanged():
     svc._kafka_producer = AsyncMock()
     svc._kafka_producer.publish = AsyncMock()
     svc._latest_signals["ESH6:5m"] = {
-        "direction": 1, "regime_context": "trending_up",
-        "direction_label": "Bullish", "confidence": 0.82,
+        "direction": 1,
+        "regime_context": "trending_up",
+        "direction_label": "Bullish",
+        "confidence": 0.82,
         "setup_plugin": "trad_TrendFollowing",
-        "symbol": "ESH6", "timeframe": "5m",
+        "symbol": "ESH6",
+        "timeframe": "5m",
     }
     # Pre-populate in-process fingerprint with the same state so nothing changed
     svc._group_fingerprints = {"equity": {"ESH6:5m": [1, "trending_up"]}}
@@ -343,6 +338,7 @@ def test_service_has_shutdown_event():
     svc = _make_service()
     assert hasattr(svc, "shutdown_event")
     import asyncio
+
     assert isinstance(svc.shutdown_event, asyncio.Event)
     assert not svc.shutdown_event.is_set()
 
@@ -362,9 +358,9 @@ def test_ai_narrative_no_redis_client():
     from services.ai_narrative_service import AINarrativeService
 
     svc = AINarrativeService()
-    assert not hasattr(svc, "redis_client"), (
-        "ai_narrative_service must not have redis_client — Redis fully removed"
-    )
+    assert not hasattr(
+        svc, "redis_client"
+    ), "ai_narrative_service must not have redis_client — Redis fully removed"
 
 
 def test_ai_narrative_has_llm_scores_cache():
@@ -464,13 +460,13 @@ async def test_i8_not_published_when_narrative_generated():
 
     # narratives topic IS published
     published_topics = [str(c.args[0]) for c in svc._kafka_producer.publish.call_args_list]
-    assert any("narratives" in name for name in published_topics), (
-        f"Expected narratives publish. Got: {published_topics}"
-    )
+    assert any(
+        "narratives" in name for name in published_topics
+    ), f"Expected narratives publish. Got: {published_topics}"
     # i8 is NOT yet published (deferred to Plan 4 SSE migration)
-    assert not any("intelligence_i8" in name for name in published_topics), (
-        "i8 publish must be deferred to Plan 4 — not published in Plan 3"
-    )
+    assert not any(
+        "intelligence_i8" in name for name in published_topics
+    ), "i8 publish must be deferred to Plan 4 — not published in Plan 3"
 
 
 @pytest.mark.asyncio
@@ -528,9 +524,14 @@ async def test_i8_summary_truncated_at_280_chars_deferred():
     We verify the source code contains the truncation pattern.
     """
     import inspect
+
     import services.ai_narrative_service as mod
 
-    source = inspect.getsource(mod._AINarrativeService__dict__ if hasattr(mod, "_AINarrativeService__dict__") else mod.AINarrativeService._run_narrative_call)  # noqa: E501
+    source = inspect.getsource(
+        mod._AINarrativeService__dict__
+        if hasattr(mod, "_AINarrativeService__dict__")
+        else mod.AINarrativeService._run_narrative_call
+    )  # noqa: E501
     # Just verify the 280-char truncation constant is present in the service
     assert "280" in inspect.getsource(mod), "280-char i8 truncation must be present in service"
 
@@ -556,10 +557,16 @@ async def test_i8_not_published_on_low_confidence():
 def test_build_llm_call_payload_per_signal_fields():
     """Per-signal payload contains all required string fields."""
     from services.ai_narrative_service import _build_llm_call_payload
+
     sd = {
-        "symbol": "ESH6", "timeframe": "5m", "regime_context": "trending",
-        "setup_plugin": "BosSetup", "confidence": 0.85,
-        "entry_price": "5100.0", "stop_loss": "5090.0", "profit_target": "5120.0",
+        "symbol": "ESH6",
+        "timeframe": "5m",
+        "regime_context": "trending",
+        "setup_plugin": "BosSetup",
+        "confidence": 0.85,
+        "entry_price": "5100.0",
+        "stop_loss": "5090.0",
+        "profit_target": "5120.0",
     }
     payload = _build_llm_call_payload(
         call_type="per_signal",
@@ -587,6 +594,7 @@ def test_build_llm_call_payload_per_signal_fields():
 def test_build_llm_call_payload_counterfactual():
     """Counterfactual: succeeded=False, response empty."""
     from services.ai_narrative_service import _build_llm_call_payload
+
     sd = {"symbol": "NQH6", "timeframe": "5m", "confidence": 0.65}
     payload = _build_llm_call_payload(
         call_type="counterfactual",
@@ -606,6 +614,7 @@ def test_build_llm_call_payload_counterfactual():
 def test_build_llm_call_payload_group_synthesis():
     """Group synthesis: group_name set, symbol/timeframe empty."""
     from services.ai_narrative_service import _build_llm_call_payload
+
     payload = _build_llm_call_payload(
         call_type="group_synthesis",
         signal_data=None,
@@ -627,6 +636,7 @@ def test_build_llm_call_payload_group_synthesis():
 def test_promote_model_in_chain_moves_to_position_0():
     """Model not at position 0 gets promoted."""
     from services.ai_narrative_service import _promote_model_in_chain
+
     p1 = MagicMock()
     p1.provider_id = "ollama:qwen3.5:9b"
     p2 = MagicMock()
@@ -641,6 +651,7 @@ def test_promote_model_in_chain_moves_to_position_0():
 def test_promote_model_in_chain_already_first_no_change():
     """Model at position 0 — chain unchanged."""
     from services.ai_narrative_service import _promote_model_in_chain
+
     p1 = MagicMock()
     p1.provider_id = "zai:glm-5"
     p2 = MagicMock()
@@ -655,6 +666,7 @@ def test_promote_model_in_chain_already_first_no_change():
 def test_promote_model_in_chain_unknown_id_no_change():
     """Unknown provider_id — chain unchanged."""
     from services.ai_narrative_service import _promote_model_in_chain
+
     p1 = MagicMock()
     p1.provider_id = "ollama:qwen3.5:9b"
     chain = MagicMock()
@@ -666,6 +678,7 @@ def test_promote_model_in_chain_unknown_id_no_change():
 def test_promote_model_in_chain_none_id_no_op():
     """None provider_id — returns without error."""
     from services.ai_narrative_service import _promote_model_in_chain
+
     chain = MagicMock()
     chain.providers = []
     _promote_model_in_chain(chain, None)  # must not raise
@@ -785,9 +798,9 @@ def test_system_prompt_prohibits_passive_voice_phrases():
 
     banned = ["capitalize", "execute long", "protect the position", "suggests", "price momentum"]
     for phrase in banned:
-        assert phrase not in SYSTEM_PROMPT.lower(), (
-            f"Banned phrase {phrase!r} found in SYSTEM_PROMPT"
-        )
+        assert (
+            phrase not in SYSTEM_PROMPT.lower()
+        ), f"Banned phrase {phrase!r} found in SYSTEM_PROMPT"
 
 
 def test_system_prompt_establishes_analyst_voice():
@@ -795,12 +808,12 @@ def test_system_prompt_establishes_analyst_voice():
     from services.ai_narrative_service import SYSTEM_PROMPT
 
     prompt_lower = SYSTEM_PROMPT.lower()
-    assert "trading desk" in prompt_lower or "analyst" in prompt_lower, (
-        "SYSTEM_PROMPT must reference 'trading desk' or 'analyst'"
-    )
-    assert "passive voice" in prompt_lower or "precise" in prompt_lower, (
-        "SYSTEM_PROMPT must reference 'passive voice' or 'precise'"
-    )
+    assert (
+        "trading desk" in prompt_lower or "analyst" in prompt_lower
+    ), "SYSTEM_PROMPT must reference 'trading desk' or 'analyst'"
+    assert (
+        "passive voice" in prompt_lower or "precise" in prompt_lower
+    ), "SYSTEM_PROMPT must reference 'passive voice' or 'precise'"
 
 
 def test_service_has_short_chain():
@@ -813,9 +826,9 @@ def test_service_has_short_chain():
 def test_service_short_chain_is_separate_from_deep_chain():
     """short_chain and deep_chain must be distinct LLMChain instances."""
     svc = _make_service()
-    assert svc.short_chain is not svc.deep_chain, (
-        "short_chain and deep_chain must be separate instances"
-    )
+    assert (
+        svc.short_chain is not svc.deep_chain
+    ), "short_chain and deep_chain must be separate instances"
 
 
 # ---- Plan 22-03: Concurrent narrative tier calls ----
@@ -871,7 +884,8 @@ def _make_service_concurrent():
 
 @pytest.mark.asyncio
 async def test_process_message_fires_two_narrative_tasks():
-    """_process_single_message fires two concurrent asyncio tasks: narrative_short + narrative_deep."""
+    """_process_single_message fires two concurrent asyncio tasks: narrative_short +
+    narrative_deep."""
     svc = _make_service_concurrent()
 
     published_call_types = []
@@ -904,12 +918,12 @@ async def test_process_message_fires_two_narrative_tasks():
     await asyncio.sleep(0.1)  # let background tasks complete
 
     assert result is True
-    assert "narrative_short" in published_call_types, (
-        f"narrative_short not found in published_call_types: {published_call_types}"
-    )
-    assert "narrative_deep" in published_call_types, (
-        f"narrative_deep not found in published_call_types: {published_call_types}"
-    )
+    assert (
+        "narrative_short" in published_call_types
+    ), f"narrative_short not found in published_call_types: {published_call_types}"
+    assert (
+        "narrative_deep" in published_call_types
+    ), f"narrative_deep not found in published_call_types: {published_call_types}"
 
 
 def test_narrative_stream_message_has_type_field():

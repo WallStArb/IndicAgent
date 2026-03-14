@@ -96,9 +96,7 @@ class TestSuccessPathSampling:
 
         # All three keys record independently at count 10
         for key in keys:
-            assert recorded[key] == [10], (
-                f"Key {key}: expected [10], got {recorded[key]}"
-            )
+            assert recorded[key] == [10], f"Key {key}: expected [10], got {recorded[key]}"
 
     def test_same_plugin_different_tiers_independent(self):
         """Same plugin name in I3 and I5 must have independent counters."""
@@ -120,7 +118,7 @@ class TestSuccessPathSampling:
                 recorded_i5.append(counter[("SharedPlugin", "I5")])
 
         assert recorded_i3 == [10]  # I3 hit the threshold
-        assert recorded_i5 == []   # I5 has only 5 calls — no recording yet
+        assert recorded_i5 == []  # I5 has only 5 calls — no recording yet
 
     def test_cross_tier_calls_do_not_affect_each_other(self):
         """Running plugins in multiple tiers concurrently doesn't cross-contaminate counts."""
@@ -142,9 +140,7 @@ class TestSuccessPathSampling:
         # Each tier should have recorded 3 times (at counts 10, 20, 30)
         for tier in tiers:
             key = ("Plugin", tier)
-            assert recorded[key] == 3, (
-                f"Tier {tier}: expected 3 records, got {recorded[key]}"
-            )
+            assert recorded[key] == 3, f"Tier {tier}: expected 3 records, got {recorded[key]}"
 
 
 # ---------------------------------------------------------------------------
@@ -237,15 +233,13 @@ class TestMarketAnalysisServiceSamplingIntegration:
                                     "services.market_analysis_service.record_plugin_execution"
                                 ) as mock_rec:
                                     for _ in range(10):
-                                        asyncio.run(
-                                            svc._run_analysis_pipeline("ES", "1m", frames)
-                                        )
+                                        asyncio.run(svc._run_analysis_pipeline("ES", "1m", frames))
 
         assert svc._plugin_call_counts[("TestI3Plugin", "I3")] == 10
         success_calls = [c for c in mock_rec.call_args_list if c.args[4] == "success"]
-        assert len(success_calls) == 1, (
-            f"Expected 1 success record at count=10; got {len(success_calls)}"
-        )
+        assert (
+            len(success_calls) == 1
+        ), f"Expected 1 success record at count=10; got {len(success_calls)}"
 
     def test_run_tier_records_errors_without_sampling(self):
         """Error in _run_analysis_pipeline triggers record_plugin_execution on every failure."""
@@ -283,13 +277,9 @@ class TestMarketAnalysisServiceSamplingIntegration:
                                     "services.market_analysis_service.record_plugin_execution"
                                 ) as mock_rec:
                                     for _ in range(7):
-                                        asyncio.run(
-                                            svc._run_analysis_pipeline("ES", "1m", frames)
-                                        )
+                                        asyncio.run(svc._run_analysis_pipeline("ES", "1m", frames))
 
         error_calls = [c for c in mock_rec.call_args_list if c.args[4] == "error"]
-        assert len(error_calls) == 7, (
-            f"All 7 errors must be recorded; got {len(error_calls)}"
-        )
+        assert len(error_calls) == 7, f"All 7 errors must be recorded; got {len(error_calls)}"
         # Error path must NOT increment call count
         assert svc._plugin_call_counts[("ErrorI3Plugin", "I3")] == 0

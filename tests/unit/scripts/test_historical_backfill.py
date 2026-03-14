@@ -14,8 +14,14 @@ def test_aggregate_bars_from_1m_5m_groups_correctly():
 
     base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = [
-        {"timestamp": base.replace(minute=30 + i), "open": 100 + i, "high": 105 + i,
-         "low": 99 + i, "close": 101 + i, "volume": 10}
+        {
+            "timestamp": base.replace(minute=30 + i),
+            "open": 100 + i,
+            "high": 105 + i,
+            "low": 99 + i,
+            "close": 101 + i,
+            "volume": 10,
+        }
         for i in range(5)
     ]
     result = aggregate_bars_from_1m(bars, "5m")
@@ -36,9 +42,30 @@ def test_aggregate_bars_from_1m_splits_across_windows():
 
     base = datetime(2026, 3, 7, 9, 33, 0, tzinfo=UTC)
     bars = [
-        {"timestamp": base.replace(minute=33), "open": 100, "high": 102, "low": 99, "close": 101, "volume": 5},
-        {"timestamp": base.replace(minute=34), "open": 101, "high": 103, "low": 100, "close": 102, "volume": 5},
-        {"timestamp": base.replace(minute=35), "open": 102, "high": 104, "low": 101, "close": 103, "volume": 5},
+        {
+            "timestamp": base.replace(minute=33),
+            "open": 100,
+            "high": 102,
+            "low": 99,
+            "close": 101,
+            "volume": 5,
+        },
+        {
+            "timestamp": base.replace(minute=34),
+            "open": 101,
+            "high": 103,
+            "low": 100,
+            "close": 102,
+            "volume": 5,
+        },
+        {
+            "timestamp": base.replace(minute=35),
+            "open": 102,
+            "high": 104,
+            "low": 101,
+            "close": 103,
+            "volume": 5,
+        },
     ]
     result = aggregate_bars_from_1m(bars, "5m")
     assert len(result) == 2
@@ -51,10 +78,22 @@ def test_aggregate_bars_from_1m_daily_floors_to_midnight():
     from production.scripts.historical_backfill import aggregate_bars_from_1m
 
     bars = [
-        {"timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=UTC), "open": 100, "high": 105,
-         "low": 99, "close": 104, "volume": 100},
-        {"timestamp": datetime(2026, 3, 7, 15, 0, tzinfo=UTC), "open": 104, "high": 106,
-         "low": 103, "close": 105, "volume": 200},
+        {
+            "timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=UTC),
+            "open": 100,
+            "high": 105,
+            "low": 99,
+            "close": 104,
+            "volume": 100,
+        },
+        {
+            "timestamp": datetime(2026, 3, 7, 15, 0, tzinfo=UTC),
+            "open": 104,
+            "high": 106,
+            "low": 103,
+            "close": 105,
+            "volume": 200,
+        },
     ]
     result = aggregate_bars_from_1m(bars, "1d")
     assert len(result) == 1
@@ -68,8 +107,22 @@ def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
 
     base = datetime(2026, 3, 7, 9, 30, tzinfo=UTC)
     bars = [
-        {"timestamp": base, "open": 1.10, "high": 1.11, "low": 1.09, "close": 1.105, "volume": None},
-        {"timestamp": base.replace(minute=31), "open": 1.105, "high": 1.112, "low": 1.104, "close": 1.11, "volume": None},
+        {
+            "timestamp": base,
+            "open": 1.10,
+            "high": 1.11,
+            "low": 1.09,
+            "close": 1.105,
+            "volume": None,
+        },
+        {
+            "timestamp": base.replace(minute=31),
+            "open": 1.105,
+            "high": 1.112,
+            "low": 1.104,
+            "close": 1.11,
+            "volume": None,
+        },
     ]
     result = aggregate_bars_from_1m(bars, "5m")
     assert result[0]["volume"] == 0
@@ -85,14 +138,16 @@ def _make_bar_history(n: int = 55) -> deque:
     base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     bars = deque(maxlen=200)
     for i in range(n):
-        bars.append({
-            "timestamp": base.replace(minute=base.minute + i % 30),
-            "open": 100.0 + i,
-            "high": 101.0 + i,
-            "low": 99.0 + i,
-            "close": 100.5 + i,
-            "volume": 100,
-        })
+        bars.append(
+            {
+                "timestamp": base.replace(minute=base.minute + i % 30),
+                "open": 100.0 + i,
+                "high": 101.0 + i,
+                "low": 99.0 + i,
+                "close": 100.5 + i,
+                "volume": 100,
+            }
+        )
     return bars
 
 
@@ -105,10 +160,21 @@ def test_run_i7_and_persist_populates_cis_fields():
 
     cis_agg = AggregatedResult(
         selected_signal={"direction": 1, "composite_rank": 1},
-        all_ranked=[{"direction": 1, "composite_rank": 1, "setup_plugin": "trad_TrendFollowing",
-                     "signal_type": "long", "entry_price": 100.0, "stop_loss": 99.0,
-                     "targets": [102.0], "confidence": 0.7, "confluence_score": 0.8,
-                     "regime_context": "trend", "supporting_factors": []}],
+        all_ranked=[
+            {
+                "direction": 1,
+                "composite_rank": 1,
+                "setup_plugin": "trad_TrendFollowing",
+                "signal_type": "long",
+                "entry_price": 100.0,
+                "stop_loss": 99.0,
+                "targets": [102.0],
+                "confidence": 0.7,
+                "confluence_score": 0.8,
+                "regime_context": "trend",
+                "supporting_factors": [],
+            }
+        ],
         resolution_method="highest_rank",
         num_signals_fired=1,
         num_agreeing=1,
@@ -128,19 +194,27 @@ def test_run_i7_and_persist_populates_cis_fields():
 
     mock_plugin = MagicMock()
     mock_plugin.compute_full.return_value = {
-        "direction": 1, "setup_plugin": "trad_TrendFollowing",
+        "direction": 1,
+        "setup_plugin": "trad_TrendFollowing",
     }
     mock_registry = MagicMock()
     mock_registry.get_pattern.return_value = mock_plugin
 
     with (
         patch("production.scripts.historical_backfill.aggregate", return_value=cis_agg),
-        patch("production.scripts.historical_backfill._insert_signals_sync", side_effect=fake_insert),
+        patch(
+            "production.scripts.historical_backfill._insert_signals_sync", side_effect=fake_insert
+        ),
         patch("production.scripts.historical_backfill.registry", mock_registry),
     ):
         mock_conn = MagicMock()
         run_i7_and_persist(
-            _make_bar_history(), features, "ESH6", "1m", ts, mock_conn,
+            _make_bar_history(),
+            features,
+            "ESH6",
+            "1m",
+            ts,
+            mock_conn,
         )
 
     assert len(captured_entries) == 1
@@ -156,13 +230,22 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
     from src.intelligence.trading.aggregator import AggregatedResult
 
     fired_signal = {
-        "direction": 1, "setup_plugin": "trad_TrendFollowing",
-        "signal_type": "long", "entry_price": 100.0, "stop_loss": 99.0,
-        "targets": [102.0], "confidence": 0.7, "confluence_score": 0.8,
-        "regime_context": "trend", "supporting_factors": [], "composite_rank": 1,
+        "direction": 1,
+        "setup_plugin": "trad_TrendFollowing",
+        "signal_type": "long",
+        "entry_price": 100.0,
+        "stop_loss": 99.0,
+        "targets": [102.0],
+        "confidence": 0.7,
+        "confluence_score": 0.8,
+        "regime_context": "trend",
+        "supporting_factors": [],
+        "composite_rank": 1,
     }
     empty_agg = AggregatedResult(
-        selected_signal=None, all_ranked=[], resolution_method="no_signal",
+        selected_signal=None,
+        all_ranked=[],
+        resolution_method="no_signal",
         num_signals_fired=0,
     )
 
@@ -175,7 +258,9 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
     mock_registry.get_pattern.return_value = mock_plugin
 
     with (
-        patch("production.scripts.historical_backfill.aggregate", return_value=empty_agg) as mock_agg,
+        patch(
+            "production.scripts.historical_backfill.aggregate", return_value=empty_agg
+        ) as mock_agg,
         patch("production.scripts.historical_backfill.registry", mock_registry),
     ):
         run_i7_and_persist(_make_bar_history(), features, "ESH6", "1m", ts, None)
@@ -233,8 +318,10 @@ def test_insert_signals_sync_writes_cis_fields():
     mock_conn.cursor.return_value.__enter__ = lambda s: mock_cur
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
-    with patch("production.scripts.historical_backfill.psycopg2.extras.execute_batch",
-               side_effect=fake_execute_batch):
+    with patch(
+        "production.scripts.historical_backfill.psycopg2.extras.execute_batch",
+        side_effect=fake_execute_batch,
+    ):
         _insert_signals_sync(mock_conn, [entry])
 
     assert len(captured_params) == 1

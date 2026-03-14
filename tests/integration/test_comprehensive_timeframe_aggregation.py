@@ -229,9 +229,7 @@ class TestComprehensiveTimeframeAggregation:
                 current_count = lengths[i]
                 next_count = lengths[i + 1]
                 # Allow some flexibility but generally should have fewer bars in higher timeframes
-                assert (
-                    next_count <= current_count
-                ), (
+                assert next_count <= current_count, (
                     f"Aggregation error: {timeframe_hierarchy[i+1]} ({next_count})"
                     f" should have ≤ bars than {timeframe_hierarchy[i]} ({current_count})"
                 )

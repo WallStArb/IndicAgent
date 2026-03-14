@@ -1,4 +1,5 @@
 """Unit tests for KafkaProducerClient and KafkaConsumerClient (Wave 0 stubs)."""
+
 from __future__ import annotations
 
 import json

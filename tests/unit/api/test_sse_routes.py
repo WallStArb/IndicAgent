@@ -8,6 +8,7 @@ Verifies:
 5. _signal_entry_stale() parses Redis entry IDs correctly (Unix-ms embedded)
 6. _signal_entry_stale() handles None max_age (non-signal streams always False)
 """
+
 import time
 
 from src.api.routes.sse import _TF_MINUTES, _signal_entry_stale, _signal_max_age_s

@@ -182,10 +182,7 @@ def test_build_score_insert_params_high_p_not_significant():
     from services.llm_writer_service import _build_score_insert_params  # type: ignore[import]
 
     # 40 rows, exactly 50% win rate — p ≈ 1.0, clearly not significant
-    rows = (
-        [{"pnl_r": 1.0, "win": True}] * 20
-        + [{"pnl_r": -1.0, "win": False}] * 20
-    )
+    rows = [{"pnl_r": 1.0, "win": True}] * 20 + [{"pnl_r": -1.0, "win": False}] * 20
     result = _build_score_insert_params(
         model="qwen3.5:9b",
         regime="ranging",

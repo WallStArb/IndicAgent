@@ -9,10 +9,9 @@ Tests for:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # SignalGeneratorService: _read_drift_penalty uses in-process dict (not Redis)
@@ -87,11 +86,13 @@ async def test_refresh_drift_penalties_populates_dict():
 
     # Mock DB manager with asyncpg pool
     mock_conn = AsyncMock()
-    mock_conn.fetch = AsyncMock(return_value=[
-        {"symbol": "ES", "tf": "1m", "ks_severity": "warning"},
-        {"symbol": "NQ", "tf": "5m", "ks_severity": "critical"},
-        {"symbol": "GC", "tf": "15m", "ks_severity": "none"},
-    ])
+    mock_conn.fetch = AsyncMock(
+        return_value=[
+            {"symbol": "ES", "tf": "1m", "ks_severity": "warning"},
+            {"symbol": "NQ", "tf": "5m", "ks_severity": "critical"},
+            {"symbol": "GC", "tf": "15m", "ks_severity": "none"},
+        ]
+    )
 
     mock_pool = MagicMock()
     mock_pool.acquire = MagicMock()
@@ -169,9 +170,7 @@ async def test_cusum_monitor_writes_to_db_not_redis():
     mock_conn = AsyncMock()
     mock_conn.execute = AsyncMock()
     # Return 30 pnl_r outcomes so CUSUM has enough data to fire
-    mock_conn.fetch = AsyncMock(return_value=[
-        {"pnl_r": -2.0 - i * 0.1} for i in range(30)
-    ])
+    mock_conn.fetch = AsyncMock(return_value=[{"pnl_r": -2.0 - i * 0.1} for i in range(30)])
 
     mock_pool = MagicMock()
     mock_pool.acquire = MagicMock()

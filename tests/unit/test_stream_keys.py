@@ -1,4 +1,5 @@
 """Tests for stream key helpers."""
+
 from src.core.stream_keys import (
     env_prefix,
     message_key,

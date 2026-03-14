@@ -138,9 +138,9 @@ class TestGetSignalsTimeframeFilter:
         # None must appear in positional args for the timeframe position
         # The args pattern is: (query, symbol, limit, from_ts, to_ts, timeframe)
         # timeframe is the last positional arg
-        assert positional[-1] is None, (
-            f"Expected None as last fetch arg (timeframe), got: {positional[-1]}"
-        )
+        assert (
+            positional[-1] is None
+        ), f"Expected None as last fetch arg (timeframe), got: {positional[-1]}"
 
     @pytest.mark.unit
     def test_get_signals_invalid_timeframe_no_crash(self):
@@ -167,9 +167,7 @@ class TestGetSignalsTimeframeFilter:
         call_args = mock_db.fetch.call_args
         sql_query = call_args.args[0]
         assert "$5" in sql_query, "SQL query must reference $5 parameter"
-        assert "timeframe" in sql_query.lower(), (
-            "SQL query must reference 'timeframe' column"
-        )
+        assert "timeframe" in sql_query.lower(), "SQL query must reference 'timeframe' column"
 
     @pytest.mark.unit
     def test_timeframe_param_in_no_features_query(self):
@@ -182,9 +180,9 @@ class TestGetSignalsTimeframeFilter:
         call_args = mock_db.fetch.call_args
         sql_query = call_args.args[0]
         assert "$5" in sql_query, "No-features SQL query must reference $5 parameter"
-        assert "timeframe" in sql_query.lower(), (
-            "No-features SQL query must reference 'timeframe' column"
-        )
+        assert (
+            "timeframe" in sql_query.lower()
+        ), "No-features SQL query must reference 'timeframe' column"
 
 
 # ---------------------------------------------------------------------------
@@ -196,36 +194,40 @@ def _make_recent_signal_row(**overrides):
     """Minimal signal row for /api/signals/recent fetch() return value."""
     import uuid
 
-    base = _DictRow({
-        "signal_id": uuid.uuid4(),
-        "setup_plugin": "trad_TrendFollowing",
-        "signal_type": "trend_long",
-        "direction": 1,
-        "entry_price": 4521.50,
-        "stop_loss": 4515.25,
-        "confidence": 0.87,
-        "status": "expired",
-        "outcome": "ttl_expired_ahead",
-        "exit_price": None,
-        "pnl_r": None,
-        "signal_computed_at": datetime(2026, 3, 11, 14, 23, 45, tzinfo=UTC),
-        "timeframe": "1m",
-        "setup_win_rate": 0.58,
-        "setup_avg_pnl_r": 0.38,
-    })
+    base = _DictRow(
+        {
+            "signal_id": uuid.uuid4(),
+            "setup_plugin": "trad_TrendFollowing",
+            "signal_type": "trend_long",
+            "direction": 1,
+            "entry_price": 4521.50,
+            "stop_loss": 4515.25,
+            "confidence": 0.87,
+            "status": "expired",
+            "outcome": "ttl_expired_ahead",
+            "exit_price": None,
+            "pnl_r": None,
+            "signal_computed_at": datetime(2026, 3, 11, 14, 23, 45, tzinfo=UTC),
+            "timeframe": "1m",
+            "setup_win_rate": 0.58,
+            "setup_avg_pnl_r": 0.38,
+        }
+    )
     base.update(overrides)
     return base
 
 
 def _make_summary_row(**overrides):
     """Minimal summary row for /api/signals/recent fetchrow() return value."""
-    base = _DictRow({
-        "n_total": 10,
-        "n_resolved": 7,
-        "n_suppressed": 2,
-        "win_rate": 0.571,
-        "avg_pnl_r": 0.31,
-    })
+    base = _DictRow(
+        {
+            "n_total": 10,
+            "n_resolved": 7,
+            "n_suppressed": 2,
+            "win_rate": 0.571,
+            "avg_pnl_r": 0.31,
+        }
+    )
     base.update(overrides)
     return base
 
@@ -256,8 +258,9 @@ class TestGetRecentSignals:
         """Returns 200 with {signals:[], summary:{...}} when DB returns empty."""
         mock_db = _make_recent_mock_db(
             signal_rows=[],
-            summary_row=_make_summary_row(n_total=0, n_resolved=0, n_suppressed=0,
-                                          win_rate=None, avg_pnl_r=None),
+            summary_row=_make_summary_row(
+                n_total=0, n_resolved=0, n_suppressed=0, win_rate=None, avg_pnl_r=None
+            ),
         )
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)
@@ -335,8 +338,9 @@ class TestGetRecentSignals:
     def test_summary_block_fields(self):
         """Summary block has n_total, n_resolved, n_suppressed, win_rate, avg_pnl_r."""
         mock_db = _make_recent_mock_db(
-            summary_row=_make_summary_row(n_total=10, n_resolved=7, n_suppressed=2,
-                                          win_rate=0.571, avg_pnl_r=0.31),
+            summary_row=_make_summary_row(
+                n_total=10, n_resolved=7, n_suppressed=2, win_rate=0.571, avg_pnl_r=0.31
+            ),
         )
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)
@@ -355,8 +359,9 @@ class TestGetRecentSignals:
     def test_summary_win_rate_and_avg_pnl_r_null_when_no_data(self):
         """Summary win_rate and avg_pnl_r are None when no resolved signals."""
         mock_db = _make_recent_mock_db(
-            summary_row=_make_summary_row(n_total=3, n_resolved=0, n_suppressed=0,
-                                          win_rate=None, avg_pnl_r=None),
+            summary_row=_make_summary_row(
+                n_total=3, n_resolved=0, n_suppressed=0, win_rate=None, avg_pnl_r=None
+            ),
         )
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)

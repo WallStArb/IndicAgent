@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # SignalGeneratorService: _load_perf_weights from DB
 # ---------------------------------------------------------------------------
@@ -29,10 +28,12 @@ async def test_load_perf_weights_populates_from_db():
     svc.logger = MagicMock()
 
     mock_conn = AsyncMock()
-    mock_conn.fetch = AsyncMock(return_value=[
-        {"setup_plugin": "trad_TrendFollowing", "win_rate": 0.60, "avg_pnl_r": 1.2},
-        {"setup_plugin": "trad_MeanReversion", "win_rate": 0.45, "avg_pnl_r": 0.8},
-    ])
+    mock_conn.fetch = AsyncMock(
+        return_value=[
+            {"setup_plugin": "trad_TrendFollowing", "win_rate": 0.60, "avg_pnl_r": 1.2},
+            {"setup_plugin": "trad_MeanReversion", "win_rate": 0.45, "avg_pnl_r": 0.8},
+        ]
+    )
 
     mock_pool = MagicMock()
     mock_pool.acquire = MagicMock()
@@ -128,50 +129,59 @@ async def test_load_perf_weights_empty_table_leaves_empty_dict():
 def test_stream_keys_has_no_setup_performance_weights_cache():
     """setup_performance_weights_cache must be removed from stream_keys."""
     import src.core.stream_keys as sk
-    assert not hasattr(sk, "setup_performance_weights_cache"), (
-        "setup_performance_weights_cache should be removed from stream_keys.py"
-    )
+
+    assert not hasattr(
+        sk, "setup_performance_weights_cache"
+    ), "setup_performance_weights_cache should be removed from stream_keys.py"
 
 
 def test_stream_keys_has_no_drift_ks():
     """drift_ks must be removed from stream_keys."""
     import src.core.stream_keys as sk
-    assert not hasattr(sk, "drift_ks"), (
-        "drift_ks should be removed from stream_keys.py"
-    )
+
+    assert not hasattr(sk, "drift_ks"), "drift_ks should be removed from stream_keys.py"
 
 
 def test_stream_keys_has_no_drift_cusum():
     """drift_cusum must be removed from stream_keys."""
     import src.core.stream_keys as sk
-    assert not hasattr(sk, "drift_cusum"), (
-        "drift_cusum should be removed from stream_keys.py"
-    )
+
+    assert not hasattr(sk, "drift_cusum"), "drift_cusum should be removed from stream_keys.py"
 
 
 def test_stream_keys_has_no_get_stream_maxlen():
     """get_stream_maxlen must be removed from stream_keys."""
     import src.core.stream_keys as sk
-    assert not hasattr(sk, "get_stream_maxlen"), (
-        "get_stream_maxlen should be removed from stream_keys.py"
-    )
+
+    assert not hasattr(
+        sk, "get_stream_maxlen"
+    ), "get_stream_maxlen should be removed from stream_keys.py"
 
 
 def test_stream_keys_has_no_quote_latest():
     """quote_latest must be removed from stream_keys."""
     import src.core.stream_keys as sk
-    assert not hasattr(sk, "quote_latest"), (
-        "quote_latest should be removed from stream_keys.py"
-    )
+
+    assert not hasattr(sk, "quote_latest"), "quote_latest should be removed from stream_keys.py"
 
 
 def test_stream_keys_topic_builders_still_present():
     """All topic_* builders must remain in stream_keys."""
     import src.core.stream_keys as sk
+
     for fn in [
-        "topic_market_ticks", "topic_market_bars", "topic_indicators",
-        "topic_intelligence", "topic_intelligence_i7", "topic_intelligence_i8",
-        "topic_signals", "topic_signals_aggregated", "topic_narratives",
-        "topic_llm_calls", "topic_llm_outcomes", "message_key", "env_prefix",
+        "topic_market_ticks",
+        "topic_market_bars",
+        "topic_indicators",
+        "topic_intelligence",
+        "topic_intelligence_i7",
+        "topic_intelligence_i8",
+        "topic_signals",
+        "topic_signals_aggregated",
+        "topic_narratives",
+        "topic_llm_calls",
+        "topic_llm_outcomes",
+        "message_key",
+        "env_prefix",
     ]:
         assert hasattr(sk, fn), f"Expected {fn} to remain in stream_keys.py"

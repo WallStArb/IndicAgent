@@ -109,9 +109,10 @@ class TestSuccessPathSampling:
 
         # Each plugin independently records at 10 and 20
         for key in plugin_keys:
-            assert recorded[key] == [10, 20], (
-                f"Plugin {key}: expected [10, 20], got {recorded[key]}"
-            )
+            assert recorded[key] == [
+                10,
+                20,
+            ], f"Plugin {key}: expected [10, 20], got {recorded[key]}"
 
     def test_first_call_never_records(self):
         """The very first call (count=1) should NOT trigger a metric record."""
@@ -145,9 +146,9 @@ class TestErrorPathAlwaysRecorded:
             # Simulates: except Exception: record_plugin_execution(..., "error", ...)
             fake_record("PluginA", "ES", "1m", 0.001, "error", "I1")
 
-        assert len(error_records) == n_errors, (
-            f"All {n_errors} errors must be recorded; got {len(error_records)}"
-        )
+        assert (
+            len(error_records) == n_errors
+        ), f"All {n_errors} errors must be recorded; got {len(error_records)}"
 
     def test_error_count_independent_of_success_counter(self):
         """Error counter is separate; many successes don't suppress error recording."""
@@ -169,7 +170,7 @@ class TestErrorPathAlwaysRecorded:
         error_records.append("error")
 
         assert len(success_records) == 0  # no success recorded yet (counter=9)
-        assert len(error_records) == 1    # error always recorded
+        assert len(error_records) == 1  # error always recorded
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +211,7 @@ class TestIndicatorServiceSamplingIntegration:
         assert svc._i1_call_counts[("TestPlugin", "I1")] == 10
 
         # record_plugin_execution called exactly once (at count=10, success)
-        success_calls = [
-            c for c in mock_rec.call_args_list if c.args[4] == "success"
-        ]
+        success_calls = [c for c in mock_rec.call_args_list if c.args[4] == "success"]
         assert len(success_calls) == 1
 
     def test_run_i1_plugins_records_errors_without_sampling(self):
@@ -242,11 +241,7 @@ class TestIndicatorServiceSamplingIntegration:
                 for _ in range(5):
                     asyncio.run(svc._run_i1_plugins(frames, "ES", "1m"))
 
-        error_calls = [
-            c for c in mock_rec.call_args_list if c.args[4] == "error"
-        ]
-        assert len(error_calls) == 5, (
-            f"All 5 errors must be recorded; got {len(error_calls)}"
-        )
+        error_calls = [c for c in mock_rec.call_args_list if c.args[4] == "error"]
+        assert len(error_calls) == 5, f"All 5 errors must be recorded; got {len(error_calls)}"
         # Error path must NOT increment call count
         assert svc._i1_call_counts[("ErrorPlugin", "I1")] == 0

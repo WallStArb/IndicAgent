@@ -95,8 +95,7 @@ class TestFetchHistoricalBars:
         provider._ib = mock_ib
         with pytest.raises(ValueError, match="Unsupported timeframe"):
             await provider.fetch_historical_bars(
-                "ESH6", "3m",
-                datetime(2026, 2, 1), datetime(2026, 2, 2)
+                "ESH6", "3m", datetime(2026, 2, 1), datetime(2026, 2, 2)
             )
 
     @pytest.mark.asyncio
@@ -105,7 +104,8 @@ class TestFetchHistoricalBars:
         provider._ib = mock_ib
         provider._qualified_contracts["ESH6"] = MagicMock()
         bars = await provider.fetch_historical_bars(
-            "ESH6", "1m",
+            "ESH6",
+            "1m",
             datetime(2026, 2, 1, tzinfo=UTC),
             datetime(2026, 2, 2, tzinfo=UTC),
         )

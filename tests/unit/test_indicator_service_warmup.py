@@ -1,4 +1,5 @@
 """Tests for indicator service warmup dedup + TF-aware min_history logic."""
+
 import sys
 from pathlib import Path
 
@@ -8,12 +9,15 @@ from unittest.mock import MagicMock, patch
 
 
 def _make_service():
-    with patch("services.indicator_service.start_metrics_server"), \
-         patch("services.indicator_service.counter", return_value=MagicMock(inc=MagicMock())), \
-         patch("services.indicator_service.gauge", return_value=MagicMock(set=MagicMock())), \
-         patch("services.indicator_service.get_active_contracts", return_value=["ESH6"]), \
-         patch("services.indicator_service.Settings"):
+    with (
+        patch("services.indicator_service.start_metrics_server"),
+        patch("services.indicator_service.counter", return_value=MagicMock(inc=MagicMock())),
+        patch("services.indicator_service.gauge", return_value=MagicMock(set=MagicMock())),
+        patch("services.indicator_service.get_active_contracts", return_value=["ESH6"]),
+        patch("services.indicator_service.Settings"),
+    ):
         from services.indicator_service import IndicatorService
+
         svc = IndicatorService.__new__(IndicatorService)
         svc.config = {
             "service": {
@@ -55,6 +59,7 @@ def test_warmup_read_multiplier_is_5x():
 
 def test_stochastic_accepts_all_timeframes():
     from src.intelligence.indicators.stochastic import StochasticPlugin
+
     plugin = StochasticPlugin()
     for spec in plugin.inputs:
         assert spec.timeframe != "1m", (

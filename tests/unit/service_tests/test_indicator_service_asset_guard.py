@@ -1,7 +1,8 @@
 # tests/unit/service_tests/test_indicator_service_asset_guard.py
-import pytest
-from unittest.mock import MagicMock
 from collections import defaultdict
+from unittest.mock import MagicMock
+
+import pytest
 
 
 class TestIndicatorServiceInstrumentMap:
@@ -10,7 +11,7 @@ class TestIndicatorServiceInstrumentMap:
     def _make_service(self):
         """Build service via __new__ to bypass __init__."""
         from services.indicator_service import IndicatorService
-        from src.core.models import Instrument, AssetClass
+        from src.core.models import AssetClass, Instrument
 
         svc = IndicatorService.__new__(IndicatorService)
         svc.logger = MagicMock()
@@ -25,18 +26,20 @@ class TestIndicatorServiceInstrumentMap:
 
         svc._instrument_map = {
             "SPY": Instrument(symbol="SPY", asset_class=AssetClass.EQUITY, session_id="nyse"),
-            "ES":  Instrument(symbol="ES",  asset_class=AssetClass.FUTURES),
+            "ES": Instrument(symbol="ES", asset_class=AssetClass.FUTURES),
         }
         return svc
 
     def test_instrument_map_built_correctly(self):
         from src.core.models import AssetClass
+
         svc = self._make_service()
         assert svc._instrument_map["SPY"].asset_class == AssetClass.EQUITY
         assert svc._instrument_map["ES"].asset_class == AssetClass.FUTURES
 
     def test_frames_instrument_injected(self):
         from src.core.models import AssetClass
+
         svc = self._make_service()
         instrument = svc._instrument_map.get("SPY")
         frames = {}
@@ -72,6 +75,7 @@ class TestIndicatorServiceInstrumentMap:
 class TestMarketAnalysisServiceInstrumentMap:
     def test_market_analysis_lacks_instrument_map_on_new_instance(self):
         from services.market_analysis_service import MarketAnalysisService
+
         svc = MarketAnalysisService.__new__(MarketAnalysisService)
         with pytest.raises(AttributeError):
             _ = svc._instrument_map
