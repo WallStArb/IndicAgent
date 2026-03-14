@@ -40,7 +40,7 @@ Real-time market intelligence platform with plugin-native architecture, LangGrap
 | **Platform architecture** | `docs/ideas/platform-architecture.md` | Unified platform architecture across all four products: hot/warm/cold data spine, canonical stream namespace, cross-product signal flow, portfolio/risk management, trade execution, strategy bots/automation. |
 | **PrimeAgent vision** | `docs/ideas/primeagent-vision.md` | Portfolio management product (name confirmed): unified P&L across all execution products, portfolio Greek aggregation, capital allocation, Kelly sizing inputs, performance attribution by source/regime, multi-account/SMA/fund management. |
 | **AegisAgent vision** | `docs/ideas/aegisagent-vision.md` | Independent risk management product (name confirmed): VaR, drawdown enforcement, margin monitoring, stress testing, pre-trade check protocol, emergency halt. Override authority over all execution products. Required before real capital deployed at scale. |
-| **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning: Redpanda vs DragonflyDB, pgvector, TimescaleDB consolidation strategy, migration timing, decision log. Living document — update when stack decisions are made. |
+| **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning: Redpanda (live, replaced DragonflyDB), pgvector, TimescaleDB consolidation strategy, migration timing, decision log. Living document — update when stack decisions are made. |
 | **Renaissance framing** | `docs/ideas/renaissance-framing.md` | Philosophical and architectural framing of the entire product family through the Jim Simons / Medallion lens: all 10 principles mapped to platform decisions, the VRP as primary edge, unified model over siloed strategies, learning machine, compounding insight. |
 | **Analysis** | `docs/plans/*.md` | Design docs and implementation plans — output of the brainstorming + writing-plans skill chain |
 | **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features |
@@ -158,7 +158,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
 
 ### Hot/Warm/Cold Tiers
 ```
-Hot:  IBKR TWS → DragonflyDB Streams → Services          (sub-ms)
+Hot:  IBKR TWS → Redpanda Streams → Services              (sub-ms)
 Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
 Cold: feature_writer_service → TimescaleDB                (batch, async)
 ```
@@ -230,7 +230,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **DragonflyDB**: No Redis modules (`TS.*`, RediSearch unavailable) — use TimescaleDB for time series. No `--config`/`--flagfile` flag — pass all settings as CLI args only.
+- **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules).
 - **Redis CLI**: `redis-cli` not installed — test/debug with `.venv/bin/python -c "import redis; print(redis.Redis().ping())"` or `redis.Redis().xlen(key)`.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 
