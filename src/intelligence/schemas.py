@@ -267,8 +267,9 @@ class I4Context(BaseModel):
     - KalmanTrend (7 fields)
     - SessionContext (27 fields: 12 legacy + 6 exchange-active + 3 break + 2 overlap + 4 sub-session)
     - MTFVolatility (4 fields)
+    - HurstExponent (3 fields)
     - ShannonEntropy (2 fields)
-    Total: 57 fields
+    Total: 62 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -346,6 +347,11 @@ class I4Context(BaseModel):
     mtf_vol_expansion_1h: float | None = None
     squeeze_within_expansion: float | None = None
     vol_divergence_score: float | None = None
+
+    # HurstExponentPlugin outputs
+    hurst_exponent: float | None = None
+    hurst_trend_quality: float | None = None
+    hurst_mr_quality: float | None = None
 
     # ShannonEntropyPlugin outputs
     shannon_entropy: float | None = None

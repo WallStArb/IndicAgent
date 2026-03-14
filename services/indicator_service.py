@@ -401,11 +401,12 @@ class IndicatorService:
         async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, list]:
             async with sem:
                 min_bars = self._min_bars_for_tf(tf) * 2
-                # Lookback = 3× the data needed, expressed in seconds.
-                # This time-range bound lets TimescaleDB exclude 99%+ of the
-                # 15k chunks at planning time (2855ms → 3ms per query).
+                # Lookback = 48× the data needed, expressed in seconds (~2 days
+                # for 1m). This handles symbols with data gaps (e.g. crypto
+                # during IBKR maintenance) while still letting TimescaleDB
+                # exclude most chunks at planning time via the timestamp index.
                 tf_secs = TF_SECONDS.get(tf, 60)
-                lookback_secs = min_bars * tf_secs * 3
+                lookback_secs = min_bars * tf_secs * 48
                 query = f"""
                     SELECT timestamp, open, high, low, close, volume
                     FROM market_data_ohlcv

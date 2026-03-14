@@ -525,7 +525,7 @@ class MarketAnalysisService:
             async with sem:
                 min_bars = min_bars_for_tf(tf) * 2
                 tf_secs = TF_SECONDS.get(tf, 60)
-                lookback_secs = min_bars * tf_secs * 3
+                lookback_secs = min_bars * tf_secs * 48  # ~2 days for 1m; handles IBKR gaps
                 try:
                     rows = await self.db_manager.execute_query(  # type: ignore[union-attr]
                         f"""

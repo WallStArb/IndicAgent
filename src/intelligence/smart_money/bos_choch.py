@@ -27,7 +27,7 @@ class BOSCHoCHPlugin:
             "bos_level",
             "choch_detected",
             "choch_direction",
-            "trend_direction",
+            "smc_trend_direction",
         }
     )
     min_lookback: int = 60
@@ -56,7 +56,7 @@ class BOSCHoCHPlugin:
                 "bos_level": 0.0,
                 "choch_detected": 0.0,
                 "choch_direction": 0.0,
-                "trend_direction": 0.0,
+                "smc_trend_direction": 0.0,
             }
 
         # Determine prevailing trend from swing structure
@@ -100,7 +100,7 @@ class BOSCHoCHPlugin:
             "bos_level": bos_level,
             "choch_detected": choch_detected,
             "choch_direction": choch_direction,
-            "trend_direction": trend,
+            "smc_trend_direction": trend,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
