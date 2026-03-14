@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Feature Writer Service — persists IntelligenceEvent to intelligence_features hypertable.
 
-Consumes intelligence:SYMBOL:TF streams via consumer group feature_writer:persist
+Consumes intelligence topic via Kafka consumer group 'feature_writer_group'
 and batch-writes rows to the intelligence_features TimescaleDB hypertable.
 
 This service is additive: it does NOT modify market_analysis_service.py.
@@ -23,17 +23,14 @@ from typing import Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import redis.asyncio as redis
 import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import intelligence as sk_intelligence
-from src.core.stream_keys import intelligence_i7 as sk_intelligence_i7
-from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8
-from src.core.stream_utils import ensure_consumer_group_with_reset
+from src.core.stream_keys import topic_intelligence, topic_intelligence_i7, topic_intelligence_i8
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.metrics import counter, gauge, start_metrics_server
 
@@ -41,8 +38,7 @@ from src.observability.metrics import counter, gauge, start_metrics_server
 
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
-CONSUMER_GROUP: str = "feature_writer:persist"
-ENRICH_CONSUMER_GROUP: str = "feature_writer:enrich"
+CONSUMER_GROUP: str = "feature_writer_group"
 CONSUMER_NAME: str = "feature_writer_1"
 
 # ── Module-level SQL ──────────────────────────────────────────────────────────
@@ -77,15 +73,36 @@ logger = structlog.get_logger(__name__)
 
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
-def _parse_intelligence_event(fields: dict[bytes, bytes]) -> IntelligenceEvent | None:
-    """Parse intelligence stream message into typed IntelligenceEvent.
+def _get_field(payload: dict, key: str) -> bytes | str:
+    """Dual-mode field access: supports both str keys (Kafka JSON) and bytes keys (test fixtures).
 
-    Identical pattern to signal_generator_service.py: reads b'event' key,
-    calls IntelligenceEvent.model_validate_json(), returns None on any failure.
+    Returns the value for the given key, checking both str and bytes forms.
+    Returns b'' (bytes) if not found (backwards compat with existing callers that call .decode()).
     """
-    raw = fields.get(b"event", b"")
+    # Try string key first (Kafka JSON payload)
+    if key in payload:
+        v = payload[key]
+        return v.encode() if isinstance(v, str) else v
+    # Try bytes key (legacy Redis / test fixture format)
+    bkey = key.encode() if isinstance(key, str) else key
+    if bkey in payload:
+        v = payload[bkey]
+        return v if isinstance(v, bytes) else str(v).encode()
+    return b""
+
+
+def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
+    """Parse intelligence stream/topic message into typed IntelligenceEvent.
+
+    Supports both Redis stream format ({b'event': bytes}) and Kafka JSON format
+    ({'event': str}). Returns None on any failure.
+    """
+    # Try string key first (Kafka), then bytes key (Redis/test fixtures)
+    raw = fields.get("event") or fields.get(b"event", b"")
     if not raw:
         return None
+    if isinstance(raw, str):
+        raw = raw.encode()
     try:
         return IntelligenceEvent.model_validate_json(raw)
     except (ValidationError, ValueError) as e:
@@ -195,7 +212,7 @@ def _event_to_insert_params(
 # ── Service class ─────────────────────────────────────────────────────────────
 
 class FeatureWriterService:
-    """Async consumer group service: xreadgroup → buffer → batch INSERT to intelligence_features."""
+    """Async Kafka consumer service: intelligence topic → buffer → batch INSERT to intelligence_features."""
 
     def __init__(self, config_file: str | None = None):
         self.running = False
@@ -205,7 +222,7 @@ class FeatureWriterService:
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.redis_client: redis.Redis | None = None
+        self._kafka_consumer: KafkaConsumerClient | None = None
         self.db_manager: DatabaseManager | None = None
 
         self._buffer: list[tuple] = []
@@ -213,10 +230,12 @@ class FeatureWriterService:
 
         try:
             _s = Settings()
-            self._env_prefix: str = f"{_s.env_name}:" if _s.env_name else ""
+            self._env_name: str = _s.env_name or ""
+            self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
         except Exception as e:
-            self.logger.warning("Settings() failed — defaulting env_prefix to ''", error=str(e))
-            self._env_prefix = ""
+            self.logger.warning("Settings() failed — defaulting env/kafka to ''", error=str(e))
+            self._env_name = ""
+            self._kafka_bootstrap = "localhost:19092"
 
         # Prometheus metrics
         self.events_consumed_total = counter(
@@ -243,9 +262,6 @@ class FeatureWriterService:
         self._total_events = 0
         self._total_batches = 0
         self._error_count = 0
-        self._stream_map: dict[str, tuple[str, str]] = {}
-        self._i7_stream_map: dict[str, tuple[str, str]] = {}
-        self._i8_stream_map: dict[str, tuple[str, str]] = {}
         self._expiry_map: dict[str, date] = {}
 
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -263,7 +279,6 @@ class FeatureWriterService:
             _settings = None
 
         default_config: dict[str, Any] = {
-            "redis": {"host": "localhost", "port": 6379, "db": 0},
             "database": {
                 "dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"
             },
@@ -304,17 +319,6 @@ class FeatureWriterService:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"].get("db", 0),
-            decode_responses=False,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-        self.logger.info("Connected to Redis")
-
     async def _connect_database(self) -> None:
         dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
         try:
@@ -325,31 +329,8 @@ class FeatureWriterService:
             self.logger.warning("Database unavailable, persistence disabled", error=str(e))
             self.db_manager = None
 
-    async def _setup_consumer_groups(self) -> None:
-        """Create consumer groups for intelligence base and i7/i8 enrichment streams."""
-        for tf in self.config["service"]["timeframes"]:
-            for sym in self.config["service"]["symbols"]:
-                # Base intelligence stream (persist group)
-                stream_name = sk_intelligence(self._env_prefix, sym, tf)
-                await ensure_consumer_group_with_reset(
-                    self.redis_client, stream_name, CONSUMER_GROUP
-                )
-                self._stream_map[stream_name] = (sym, tf)
-
-                # i7 enrichment stream (enrich group)
-                i7_stream = sk_intelligence_i7(self._env_prefix, sym, tf)
-                await ensure_consumer_group_with_reset(
-                    self.redis_client, i7_stream, ENRICH_CONSUMER_GROUP
-                )
-                self._i7_stream_map[i7_stream] = (sym, tf)
-
-                # i8 enrichment stream (enrich group)
-                i8_stream = sk_intelligence_i8(self._env_prefix, sym, tf)
-                await ensure_consumer_group_with_reset(
-                    self.redis_client, i8_stream, ENRICH_CONSUMER_GROUP
-                )
-                self._i8_stream_map[i8_stream] = (sym, tf)
-
+    async def _setup_kafka_clients(self) -> None:
+        """Build expiry map and create Kafka consumer for intelligence topics."""
         # Build expiry map at startup (cached for lifetime of service)
         try:
             _s = Settings()
@@ -359,22 +340,40 @@ class FeatureWriterService:
             self.logger.warning("Failed to build expiry map", error=str(e))
             self._expiry_map = {}
 
+        # Single consumer subscribed to all three intelligence topics
+        self._kafka_consumer = KafkaConsumerClient(
+            topic_intelligence(self._env_name),
+            topic_intelligence_i7(self._env_name),
+            topic_intelligence_i8(self._env_name),
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id=CONSUMER_GROUP,
+            auto_offset_reset="latest",
+        )
+        await self._kafka_consumer.start()
+        self.logger.info(
+            "Kafka consumer started",
+            topics=[
+                topic_intelligence(self._env_name),
+                topic_intelligence_i7(self._env_name),
+                topic_intelligence_i8(self._env_name),
+            ],
+            group=CONSUMER_GROUP,
+        )
+
     async def _process_single_message(
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
-        stream_name: str,
-        message_id: bytes,
+        payload: dict,
     ) -> bool:
-        """Parse one stream message, buffer insert params, and signal ack."""
+        """Parse one Kafka message payload, buffer insert params."""
         try:
-            event = _parse_intelligence_event(fields)
+            event = _parse_intelligence_event(payload)
             if event is None:
                 self.logger.warning(
-                    "Malformed intelligence event — acked and skipped",
-                    stream=stream_name,
-                    message_id=message_id,
+                    "Malformed intelligence event — skipped",
+                    symbol=symbol,
+                    tf=timeframe,
                 )
                 if hasattr(self, "error_count_total"):
                     self.error_count_total.inc()
@@ -450,14 +449,20 @@ class FeatureWriterService:
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
+        payload: dict,
     ) -> bool:
-        """UPSERT i7 column from intelligence_i7 stream message."""
+        """UPSERT i7 column from intelligence.i7 topic message."""
         try:
-            ts_raw = fields.get(b"ts", b"").decode()
-            data_raw = fields.get(b"data", b"[]").decode()
+            ts_raw = payload.get("ts") or payload.get(b"ts", b"")
+            if isinstance(ts_raw, bytes):
+                ts_raw = ts_raw.decode()
+            data_raw = payload.get("data") or payload.get(b"data", "[]")
+            if isinstance(data_raw, bytes):
+                data_raw = data_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
+            if isinstance(data_raw, list):
+                data_raw = json.dumps(data_raw)
             json.loads(data_raw)  # validate — raises ValueError if malformed
             await self.db_manager.execute_batch(
                 _UPSERT_I7_SQL, [(ts_raw, symbol, timeframe, data_raw)]
@@ -472,18 +477,20 @@ class FeatureWriterService:
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
+        payload: dict,
     ) -> bool:
-        """UPSERT i8 column from intelligence_i8 stream message."""
+        """UPSERT i8 column from intelligence.i8 topic message."""
         try:
-            ts_raw = fields.get(b"ts", b"").decode()
+            ts_raw = payload.get("ts") or payload.get(b"ts", b"")
+            if isinstance(ts_raw, bytes):
+                ts_raw = ts_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
             i8_payload = {
-                "model": fields.get(b"model", b"unknown").decode(),
-                "confidence": fields.get(b"confidence", b"0.0").decode(),
-                "summary": fields.get(b"summary", b"").decode(),
-                "generated_at": fields.get(b"generated_at", b"").decode(),
+                "model": str(payload.get("model") or payload.get(b"model", b"unknown")),
+                "confidence": str(payload.get("confidence") or payload.get(b"confidence", b"0.0")),
+                "summary": str(payload.get("summary") or payload.get(b"summary", b"")),
+                "generated_at": str(payload.get("generated_at") or payload.get(b"generated_at", b"")),
             }
             await self.db_manager.execute_batch(
                 _UPSERT_I8_SQL, [(ts_raw, symbol, timeframe, json.dumps(i8_payload))]
@@ -494,33 +501,35 @@ class FeatureWriterService:
             self.error_count_total.inc()
             return False
 
-    async def _base_process_loop(self) -> None:
-        """Base consumer group loop — reads intelligence: streams and writes rows."""
-        all_streams = {name: ">" for name in self._stream_map}
-        while self.running and not self.shutdown_requested:
-            try:
-                messages = await self.redis_client.xreadgroup(
-                    CONSUMER_GROUP, CONSUMER_NAME,
-                    all_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    sym, tf = self._stream_map[stream_name]
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        ok = await self._process_single_message(
-                            sym, tf, fields, stream_name, message_id
-                        )
-                        if ok:
-                            to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(stream_name, CONSUMER_GROUP, *to_ack)
+    async def _process_loop(self) -> None:
+        """Kafka consumer loop — reads intelligence topics and routes by topic."""
+        if not self._kafka_consumer:
+            return
 
-                await self._maybe_flush(force=False)
+        intelligence_topic = topic_intelligence(self._env_name)
+        i7_topic = topic_intelligence_i7(self._env_name)
+        i8_topic = topic_intelligence_i8(self._env_name)
+
+        async for kafka_topic, key, payload in self._kafka_consumer.messages():
+            if self.shutdown_requested:
+                break
+            try:
+                # Extract symbol and timeframe from key (format "SYMBOL:TF")
+                key_str = key if isinstance(key, str) else (key.decode() if key else "")
+                parts = key_str.split(":")
+                if len(parts) != 2:
+                    continue
+                symbol, timeframe = parts
+
+                if kafka_topic == intelligence_topic:
+                    await self._process_single_message(symbol, timeframe, payload)
+                    await self._maybe_flush(force=False)
+                elif kafka_topic == i7_topic:
+                    if self.db_manager:
+                        await self._process_i7_message(symbol, timeframe, payload)
+                elif kafka_topic == i8_topic:
+                    if self.db_manager:
+                        await self._process_i8_message(symbol, timeframe, payload)
 
             except asyncio.CancelledError:
                 break
@@ -528,53 +537,6 @@ class FeatureWriterService:
                 self.logger.error("Error in processing loop", error=str(e))
                 self.error_count_total.inc()
                 self._error_count += 1
-                await asyncio.sleep(1)
-
-    async def _enrich_process_loop(self) -> None:
-        """Enrichment loop — reads i7/i8 streams concurrently via single xreadgroup call."""
-        enrich_streams = {
-            **{name: ">" for name in self._i7_stream_map},
-            **{name: ">" for name in self._i8_stream_map},
-        }
-        if not enrich_streams:
-            return
-
-        while self.running and not self.shutdown_requested:
-            try:
-                messages = await self.redis_client.xreadgroup(
-                    ENRICH_CONSUMER_GROUP, CONSUMER_NAME,
-                    enrich_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    to_ack: list[bytes] = []
-                    if stream_name in self._i7_stream_map:
-                        sym, tf = self._i7_stream_map[stream_name]
-                        for message_id, fields in msgs:
-                            if self.db_manager:
-                                await self._process_i7_message(sym, tf, fields)
-                            to_ack.append(message_id)
-                    elif stream_name in self._i8_stream_map:
-                        sym, tf = self._i8_stream_map[stream_name]
-                        for message_id, fields in msgs:
-                            if self.db_manager:
-                                await self._process_i8_message(sym, tf, fields)
-                            to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(
-                            stream_name, ENRICH_CONSUMER_GROUP, *to_ack
-                        )
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Error in enrich loop", error=str(e))
-                self.error_count_total.inc()
-                await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -606,8 +568,8 @@ class FeatureWriterService:
         # Flush remaining buffered events before closing
         await self._maybe_flush(force=True)
 
-        if self.redis_client:
-            await self.redis_client.aclose()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
         if self.db_manager:
             await self.db_manager.close()
 
@@ -620,13 +582,11 @@ class FeatureWriterService:
     async def start(self) -> None:
         self.logger.info("Starting Feature Writer Service", config=self.config["service"])
         try:
-            await self._connect_redis()
             await self._connect_database()
-            await self._setup_consumer_groups()
+            await self._setup_kafka_clients()
             self.running = True
             tasks = [
-                asyncio.create_task(self._base_process_loop()),
-                asyncio.create_task(self._enrich_process_loop()),
+                asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
             self.logger.info("Feature Writer Service started")

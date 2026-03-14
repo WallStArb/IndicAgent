@@ -245,9 +245,10 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
     mock_db.close = AsyncMock()
     svc.db_manager = mock_db
 
-    mock_redis = MagicMock()
-    mock_redis.aclose = AsyncMock()
-    svc.redis_client = mock_redis
+    # Kafka migration: _kafka_consumer replaces redis_client
+    mock_kafka = MagicMock()
+    mock_kafka.stop = AsyncMock()
+    svc._kafka_consumer = mock_kafka
 
     event = _make_valid_event()
     from services.feature_writer_service import _event_to_insert_params
@@ -262,27 +263,14 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
     assert svc._buffer == []
 
 
-def test_stream_map_populated_after_setup():
-    """_stream_map must contain all 92 stream → (symbol, tf) entries after setup."""
-    import asyncio
-    from unittest.mock import AsyncMock
+def test_kafka_consumer_group_is_feature_writer_group():
+    """KAFKA-07: FeatureWriterService uses CONSUMER_GROUP='feature_writer_group' (no xreadgroup)."""
+    from services.feature_writer_service import CONSUMER_GROUP, FeatureWriterService
 
-    import redis.asyncio as redis
-
-    from services.feature_writer_service import FeatureWriterService
-
-    svc = FeatureWriterService()
-    svc.redis_client = AsyncMock()
-    svc.redis_client.xgroup_create = AsyncMock(
-        side_effect=redis.ResponseError("BUSYGROUP Consumer Group name already exists")
-    )
-    svc.redis_client.xgroup_setid = AsyncMock()
-
-    asyncio.get_event_loop().run_until_complete(svc._setup_consumer_groups())
-
-    symbols = svc.config["service"]["symbols"]
-    tfs = svc.config["service"]["timeframes"]
-    assert len(svc._stream_map) == len(symbols) * len(tfs)
+    assert CONSUMER_GROUP == "feature_writer_group"
+    # Verify no redis_client attribute on new instance (Kafka-native)
+    svc = FeatureWriterService.__new__(FeatureWriterService)
+    assert not hasattr(svc, "redis_client"), "redis_client must not be present after Kafka migration"
 
 
 # ── _build_expiry_map ─────────────────────────────────────────────────────────

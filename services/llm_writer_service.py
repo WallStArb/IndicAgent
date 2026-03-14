@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """LLM Writer Service — persists LLM call audit data and outcome back-fills to TimescaleDB.
 
-Consumes two Redis streams via consumer group 'llm_writer':
-  - llm_calls:stream  — one message per LLM call; batch-INSERTs to llm_calls hypertable
-  - llm_outcomes:stream — one message per signal exit; UPDATEs outcome columns WHERE signal_id
+Consumes two Kafka topics via consumer group 'llm_writer':
+  - {env}.llm.calls   — one message per LLM call; batch-INSERTs to llm_calls hypertable
+  - {env}.llm.outcomes — one message per signal exit; UPDATEs outcome columns WHERE signal_id
 
-Also recomputes llm_model_scores every 15 minutes and caches results in Redis.
+Also recomputes llm_model_scores every 15 minutes.
 
-Mirrors the feature_writer_service.py pattern exactly: batch buffering, consumer groups with
-ensure_consumer_group_with_reset, graceful SIGINT/SIGTERM shutdown.
+Mirrors the feature_writer_service.py pattern exactly: batch buffering, graceful SIGINT/SIGTERM.
 """
 
 from __future__ import annotations
@@ -25,15 +24,14 @@ from typing import Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import redis.asyncio as redis
 import structlog
 from scipy.stats import binomtest
 
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import llm_calls_stream, llm_outcomes_stream, llm_scores_cache
-from src.core.stream_utils import ensure_consumer_group_with_reset
+from src.core.stream_keys import topic_llm_calls, topic_llm_outcomes
 from src.observability.metrics import counter, gauge, start_metrics_server
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -113,40 +111,50 @@ logger = structlog.get_logger(__name__)
 # ── Module-level pure functions (testable without class instantiation) ────────
 
 
-def _parse_llm_call_fields(fields: dict[bytes, bytes]) -> dict | None:
-    """Parse llm_calls:stream message fields into a flat column dict.
+def _parse_llm_call_fields(fields: dict) -> dict | None:
+    """Parse llm.calls topic message fields into a flat column dict.
+
+    Supports both Kafka JSON payload (string keys, string values) and legacy
+    Redis stream format (bytes keys/values — used by existing unit tests).
 
     Required fields: call_id, called_at, symbol.
     All three must be present and non-empty — returns None if any is missing.
     All remaining fields have safe None defaults.
     """
-    call_id = fields.get(b"call_id", b"").decode()
-    called_at = fields.get(b"called_at", b"").decode()
-    symbol = fields.get(b"symbol", b"").decode()
+    def _str(key: str) -> str:
+        # Try string key first (Kafka), then bytes key (tests)
+        val = fields.get(key) or fields.get(key.encode(), b"")
+        if isinstance(val, bytes):
+            val = val.decode()
+        return val or ""
+
+    call_id = _str("call_id")
+    called_at = _str("called_at")
+    symbol = _str("symbol")
 
     if not call_id or not called_at or not symbol:
         return None
 
-    def _dec(key: bytes, default: str = "") -> str | None:
-        val = fields.get(key, b"").decode()
+    def _dec(key: str) -> str | None:
+        val = _str(key)
         return val if val else None
 
-    def _float(key: bytes) -> float | None:
-        raw = fields.get(key, b"").decode()
+    def _float(key: str) -> float | None:
+        raw = _str(key)
         try:
             return float(raw) if raw else None
         except (ValueError, TypeError):
             return None
 
-    def _int(key: bytes) -> int | None:
-        raw = fields.get(key, b"").decode()
+    def _int(key: str) -> int | None:
+        raw = _str(key)
         try:
             return int(raw) if raw else None
         except (ValueError, TypeError):
             return None
 
-    def _bool(key: bytes) -> bool | None:
-        raw = fields.get(key, b"").decode().lower()
+    def _bool(key: str) -> bool | None:
+        raw = _str(key).lower()
         if raw in ("true", "1", "yes"):
             return True
         if raw in ("false", "0", "no"):
@@ -156,67 +164,74 @@ def _parse_llm_call_fields(fields: dict[bytes, bytes]) -> dict | None:
     return {
         "call_id": call_id,
         "called_at": called_at,
-        "call_type": _dec(b"call_type"),
-        "signal_id": _dec(b"signal_id"),
-        "group_name": _dec(b"group_name"),
+        "call_type": _dec("call_type"),
+        "signal_id": _dec("signal_id"),
+        "group_name": _dec("group_name"),
         "symbol": symbol,
-        "timeframe": _dec(b"timeframe"),
-        "model": _dec(b"model"),
-        "provider": _dec(b"provider"),
-        "prompt": _dec(b"prompt"),
-        "response": _dec(b"response"),
-        "latency_ms": _int(b"latency_ms"),
-        "tokens_est": _int(b"tokens_est"),
-        "succeeded": _bool(b"succeeded"),
-        "regime": _dec(b"regime"),
-        "session": _dec(b"session"),
-        "entry_price": _float(b"entry_price"),
-        "stop_loss": _float(b"stop_loss"),
-        "target_price": _float(b"target_price"),
-        "confidence": _float(b"confidence"),
-        "cis_score": _float(b"cis_score"),
-        "entry_zone_low": _float(b"entry_zone_low"),
-        "entry_zone_high": _float(b"entry_zone_high"),
-        "setup_type": _dec(b"setup_type"),
+        "timeframe": _dec("timeframe"),
+        "model": _dec("model"),
+        "provider": _dec("provider"),
+        "prompt": _dec("prompt"),
+        "response": _dec("response"),
+        "latency_ms": _int("latency_ms"),
+        "tokens_est": _int("tokens_est"),
+        "succeeded": _bool("succeeded"),
+        "regime": _dec("regime"),
+        "session": _dec("session"),
+        "entry_price": _float("entry_price"),
+        "stop_loss": _float("stop_loss"),
+        "target_price": _float("target_price"),
+        "confidence": _float("confidence"),
+        "cis_score": _float("cis_score"),
+        "entry_zone_low": _float("entry_zone_low"),
+        "entry_zone_high": _float("entry_zone_high"),
+        "setup_type": _dec("setup_type"),
     }
 
 
-def _parse_outcome_fields(fields: dict[bytes, bytes]) -> dict | None:
-    """Parse llm_outcomes:stream message fields into an outcome update dict.
+def _parse_outcome_fields(fields: dict) -> dict | None:
+    """Parse llm.outcomes topic message fields into an outcome update dict.
 
+    Supports both Kafka JSON (string keys) and legacy Redis format (bytes keys).
     Required field: signal_id — returns None if missing.
     All other outcome fields are optional (None default).
     """
-    signal_id = fields.get(b"signal_id", b"").decode()
+    def _str(key: str) -> str:
+        val = fields.get(key) or fields.get(key.encode(), b"")
+        if isinstance(val, bytes):
+            val = val.decode()
+        return val or ""
+
+    signal_id = _str("signal_id")
     if not signal_id:
         return None
 
-    def _float(key: bytes) -> float | None:
-        raw = fields.get(key, b"").decode()
+    def _float(key: str) -> float | None:
+        raw = _str(key)
         try:
             return float(raw) if raw else None
         except (ValueError, TypeError):
             return None
 
-    def _int(key: bytes) -> int | None:
-        raw = fields.get(key, b"").decode()
+    def _int(key: str) -> int | None:
+        raw = _str(key)
         try:
             return int(raw) if raw else None
         except (ValueError, TypeError):
             return None
 
-    def _str(key: bytes) -> str | None:
-        val = fields.get(key, b"").decode()
+    def _opt_str(key: str) -> str | None:
+        val = _str(key)
         return val if val else None
 
     return {
         "signal_id": signal_id,
-        "outcome": _str(b"outcome"),
-        "pnl_r": _float(b"pnl_r"),
-        "mae": _float(b"mae"),
-        "mfe": _float(b"mfe"),
-        "bars_in_trade": _int(b"bars_in_trade"),
-        "outcome_at": _str(b"outcome_at"),
+        "outcome": _opt_str("outcome"),
+        "pnl_r": _float("pnl_r"),
+        "mae": _float("mae"),
+        "mfe": _float("mfe"),
+        "bars_in_trade": _int("bars_in_trade"),
+        "outcome_at": _opt_str("outcome_at"),
     }
 
 
@@ -276,14 +291,11 @@ def _build_score_insert_params(
 
 
 class LLMWriterService:
-    """Async consumer group service: reads LLM streams and writes to TimescaleDB.
+    """Async Kafka consumer service: reads LLM topics and writes to TimescaleDB.
 
-    Two consumer loops:
-    - _calls_process_loop: batches llm_calls:stream INSERTs (buffered)
-    - _outcomes_process_loop: immediate UPDATE on llm_outcomes:stream (low volume)
-
+    Single consumer loop reads from llm.calls + llm.outcomes topics.
     Score recompute loop runs every SCORE_RECOMPUTE_INTERVAL_SECS and upserts
-    llm_model_scores table + updates Redis score cache.
+    llm_model_scores table.
     """
 
     def __init__(self, config_file: str | None = None):
@@ -294,7 +306,7 @@ class LLMWriterService:
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.redis_client: redis.Redis | None = None
+        self._kafka_consumer: KafkaConsumerClient | None = None
         self.db_manager: DatabaseManager | None = None
 
         self._calls_buffer: list[tuple] = []
@@ -303,18 +315,20 @@ class LLMWriterService:
 
         try:
             _s = Settings()
-            self._env_prefix: str = f"{_s.env_name}:" if _s.env_name else ""
+            self._env_name: str = _s.env_name or ""
+            self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
         except Exception:
-            self._env_prefix = ""
+            self._env_name = ""
+            self._kafka_bootstrap = "localhost:19092"
 
         # Prometheus metrics
         self.calls_consumed_total = counter(
             "llm_writer_calls_consumed_total",
-            "Total LLM call messages consumed from llm_calls:stream",
+            "Total LLM call messages consumed from llm.calls topic",
         )
         self.outcomes_processed_total = counter(
             "llm_writer_outcomes_processed_total",
-            "Total outcome messages processed from llm_outcomes:stream",
+            "Total outcome messages processed from llm.outcomes topic",
         )
         self.batch_writes_total = counter(
             "llm_writer_batch_writes_total",
@@ -351,7 +365,6 @@ class LLMWriterService:
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         default_config: dict[str, Any] = {
-            "redis": {"host": "localhost", "port": 6379, "db": 0},
             "database": {
                 "dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"
             },
@@ -390,17 +403,6 @@ class LLMWriterService:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"].get("db", 0),
-            decode_responses=False,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-        self.logger.info("Connected to Redis")
-
     async def _connect_database(self) -> None:
         dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
         try:
@@ -411,21 +413,22 @@ class LLMWriterService:
             self.logger.warning("Database unavailable, persistence disabled", error=str(e))
             self.db_manager = None
 
-    async def _setup_consumer_groups(self) -> None:
-        """Create consumer groups on both LLM streams."""
-        calls_stream = llm_calls_stream(self._env_prefix)
-        outcomes_stream = llm_outcomes_stream(self._env_prefix)
+    async def _setup_kafka_clients(self) -> None:
+        """Create Kafka consumer subscribed to llm.calls and llm.outcomes topics."""
+        calls_topic = topic_llm_calls(self._env_name)
+        outcomes_topic = topic_llm_outcomes(self._env_name)
 
-        await ensure_consumer_group_with_reset(
-            self.redis_client, calls_stream, CONSUMER_GROUP
+        self._kafka_consumer = KafkaConsumerClient(
+            calls_topic,
+            outcomes_topic,
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id=CONSUMER_GROUP,
+            auto_offset_reset="latest",
         )
-        await ensure_consumer_group_with_reset(
-            self.redis_client, outcomes_stream, CONSUMER_GROUP
-        )
+        await self._kafka_consumer.start()
         self.logger.info(
-            "Consumer groups ready",
-            calls_stream=calls_stream,
-            outcomes_stream=outcomes_stream,
+            "Kafka consumer started",
+            topics=[calls_topic, outcomes_topic],
             group=CONSUMER_GROUP,
         )
 
@@ -495,21 +498,12 @@ class LLMWriterService:
             parsed["setup_type"],    # $24 setup_type
         )
 
-    async def _process_calls_message(
-        self,
-        fields: dict[bytes, bytes],
-        stream_name: str,
-        message_id: bytes,
-    ) -> bool:
-        """Parse one llm_calls stream message, buffer INSERT params."""
+    async def _process_calls_message(self, payload: dict) -> bool:
+        """Parse one llm.calls topic message, buffer INSERT params."""
         try:
-            parsed = _parse_llm_call_fields(fields)
+            parsed = _parse_llm_call_fields(payload)
             if parsed is None:
-                self.logger.warning(
-                    "Malformed llm_call message — acked and skipped",
-                    stream=stream_name,
-                    message_id=message_id,
-                )
+                self.logger.warning("Malformed llm_call message — skipped")
                 self.error_count_total.inc()
                 return True
 
@@ -530,24 +524,15 @@ class LLMWriterService:
             self._error_count += 1
             return False
 
-    async def _process_outcome_message(
-        self,
-        fields: dict[bytes, bytes],
-        stream_name: str,
-        message_id: bytes,
-    ) -> bool:
-        """Parse one llm_outcomes stream message and execute immediate UPDATE.
+    async def _process_outcome_message(self, payload: dict) -> bool:
+        """Parse one llm.outcomes topic message and execute immediate UPDATE.
 
         Outcomes are low-volume (one per signal exit) — no buffering needed.
         """
         try:
-            parsed = _parse_outcome_fields(fields)
+            parsed = _parse_outcome_fields(payload)
             if parsed is None:
-                self.logger.warning(
-                    "Malformed outcome message — acked and skipped",
-                    stream=stream_name,
-                    message_id=message_id,
-                )
+                self.logger.warning("Malformed outcome message — skipped")
                 self.error_count_total.inc()
                 return True
 
@@ -574,7 +559,7 @@ class LLMWriterService:
             return False
 
     async def _recompute_scores(self) -> None:
-        """Query llm_calls for all rows with outcomes, compute model scores, upsert + cache.
+        """Query llm_calls for all rows with outcomes, compute model scores, upsert.
 
         Groups by (model, regime, setup_type, call_type) and additionally computes '__all__'
         aggregate rows across regimes and setup_types.
@@ -624,100 +609,34 @@ class LLMWriterService:
                 self.score_recomputes_total.inc()
                 self.logger.info("Score recompute complete", groups=len(score_params))
 
-                # Update Redis score cache: hset per (call_type, regime) with model as field
-                for params in score_params:
-                    model, regime, setup_type, call_type = (
-                        params[0], params[1], params[2], params[3]
-                    )
-                    score_blob = json.dumps({
-                        "model": model,
-                        "regime": regime,
-                        "setup_type": setup_type,
-                        "n_outcomes": params[5],
-                        "win_rate": params[6],
-                        "avg_pnl_r": params[7],
-                        "p_value": params[9],
-                        "is_significant": params[10],
-                    })
-                    cache_key = llm_scores_cache(self._env_prefix, call_type, regime)
-                    await self.redis_client.hset(cache_key, model, score_blob)
-
         except Exception as e:
             self.logger.error("Score recompute failed", error=str(e))
             self.error_count_total.inc()
             self._error_count += 1
 
-    async def _calls_process_loop(self) -> None:
-        """Consumer loop for llm_calls:stream — buffered batch INSERT."""
-        calls_stream = llm_calls_stream(self._env_prefix)
-        all_streams = {calls_stream: ">"}
+    async def _process_loop(self) -> None:
+        """Kafka consumer loop for llm.calls + llm.outcomes — routes by topic."""
+        if not self._kafka_consumer:
+            return
 
-        while self.running and not self.shutdown_requested:
+        calls_topic = topic_llm_calls(self._env_name)
+        outcomes_topic = topic_llm_outcomes(self._env_name)
+
+        async for kafka_topic, key, payload in self._kafka_consumer.messages():
+            if self.shutdown_requested:
+                break
             try:
-                messages = await self.redis_client.xreadgroup(
-                    CONSUMER_GROUP, CONSUMER_NAME,
-                    all_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        ok = await self._process_calls_message(
-                            fields, stream_name, message_id
-                        )
-                        if ok:
-                            to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(stream_name, CONSUMER_GROUP, *to_ack)
-
-                await self._maybe_flush(force=False)
-
+                if kafka_topic == calls_topic:
+                    await self._process_calls_message(payload)
+                    await self._maybe_flush(force=False)
+                elif kafka_topic == outcomes_topic:
+                    await self._process_outcome_message(payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.error("Error in calls process loop", error=str(e))
+                self.logger.error("Error in process loop", error=str(e))
                 self.error_count_total.inc()
                 self._error_count += 1
-                await asyncio.sleep(1)
-
-    async def _outcomes_process_loop(self) -> None:
-        """Consumer loop for llm_outcomes:stream — immediate UPDATE (no buffering)."""
-        outcomes_stream = llm_outcomes_stream(self._env_prefix)
-        all_streams = {outcomes_stream: ">"}
-
-        while self.running and not self.shutdown_requested:
-            try:
-                messages = await self.redis_client.xreadgroup(
-                    CONSUMER_GROUP, CONSUMER_NAME,
-                    all_streams, count=10, block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        ok = await self._process_outcome_message(
-                            fields, stream_name, message_id
-                        )
-                        if ok:
-                            to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(stream_name, CONSUMER_GROUP, *to_ack)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("Error in outcomes process loop", error=str(e))
-                self.error_count_total.inc()
-                self._error_count += 1
-                await asyncio.sleep(1)
 
     async def _score_recompute_loop(self) -> None:
         """Periodic loop: recomputes llm_model_scores every SCORE_RECOMPUTE_INTERVAL_SECS."""
@@ -764,8 +683,8 @@ class LLMWriterService:
         # Flush remaining buffered calls before closing
         await self._maybe_flush(force=True)
 
-        if self.redis_client:
-            await self.redis_client.aclose()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
         if self.db_manager:
             await self.db_manager.close()
 
@@ -780,13 +699,11 @@ class LLMWriterService:
         """Start all async loops and run until shutdown."""
         self.logger.info("Starting LLM Writer Service", config=self.config["service"])
         try:
-            await self._connect_redis()
             await self._connect_database()
-            await self._setup_consumer_groups()
+            await self._setup_kafka_clients()
             self.running = True
             tasks = [
-                asyncio.create_task(self._calls_process_loop()),
-                asyncio.create_task(self._outcomes_process_loop()),
+                asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._score_recompute_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
