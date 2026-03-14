@@ -12,18 +12,19 @@ import argparse
 import asyncio
 import sys
 
+from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 
 _OFF_HOURS_SQL = """
 SELECT COUNT(*) AS count FROM intelligence_features
 WHERE symbol = $1
-  AND feature_tf = '1m'
+  AND tf = '1m'
   AND (
-    EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') < 9
-    OR EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') >= 16
+    EXTRACT(HOUR FROM ts AT TIME ZONE 'America/New_York') < 9
+    OR EXTRACT(HOUR FROM ts AT TIME ZONE 'America/New_York') >= 16
     OR (
-      EXTRACT(HOUR FROM feature_ts AT TIME ZONE 'America/New_York') = 9
-      AND EXTRACT(MINUTE FROM feature_ts AT TIME ZONE 'America/New_York') < 30
+      EXTRACT(HOUR FROM ts AT TIME ZONE 'America/New_York') = 9
+      AND EXTRACT(MINUTE FROM ts AT TIME ZONE 'America/New_York') < 30
     )
   )
 """
@@ -31,13 +32,14 @@ WHERE symbol = $1
 
 async def validate_symbol(db: DatabaseManager, symbol: str) -> int:
     """Return count of off-hours rows for symbol. 0 = pass."""
-    row = await db.fetch_one(_OFF_HOURS_SQL, symbol)
-    return int(row["count"]) if row else 0
+    rows = await db.fetch(_OFF_HOURS_SQL, symbol)
+    return int(rows[0]["count"]) if rows else 0
 
 
 async def main(symbols: list[str]) -> int:
-    db = DatabaseManager()
-    await db.connect()
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
     total_bad = 0
     try:
         for symbol in symbols:
