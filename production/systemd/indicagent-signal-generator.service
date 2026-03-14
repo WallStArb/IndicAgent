@@ -1,7 +1,7 @@
 [Unit]
-Description=IndicAgent LLM Writer Service — Redis streams to TimescaleDB
-After=network-online.target indicagent-feature-writer.service
-Wants=indicagent-feature-writer.service
+Description=IndicAgent Signal Generator Service — I7 signals
+After=network-online.target indicagent-market-analysis.service
+Wants=indicagent-market-analysis.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -10,12 +10,12 @@ Type=simple
 User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/llm_writer_service.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_generator_service.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-llm-writer
+SyslogIdentifier=indicagent-signal-generator
 LimitNOFILE=65536
 
 [Install]

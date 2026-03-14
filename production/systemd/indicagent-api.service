@@ -1,0 +1,22 @@
+[Unit]
+Description=IndicAgent FastAPI — SSE bridge and REST API
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-api
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
