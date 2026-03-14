@@ -14,7 +14,6 @@ maintained its own indicator pipeline.
 
 import asyncio
 import json
-import os
 import signal
 import sys
 import time
@@ -27,21 +26,19 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import pandas as pd
-import redis.asyncio as redis
 import structlog
 from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     min_bars_for_tf,
     setup_service_logging,
     should_skip_plugin,
 )
-from src.core.stream_keys import indicators as sk_indicators
-from src.core.stream_keys import intelligence as sk_intelligence
-from src.core.stream_utils import ensure_consumer_group_with_reset
+from src.core.stream_keys import message_key, topic_indicators, topic_intelligence
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
     TIER_I2,
@@ -104,16 +101,19 @@ class MarketAnalysisService:
         self._plugin_states_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
         self._plugin_call_counts: dict[tuple[str, str], int] = defaultdict(int)
 
-        self.redis_client: redis.Redis | None = None
-        self.consumer_group = "market_analysis"
-        self.consumer_name = f"market_analysis_consumer_{os.getpid()}"
+        self.env_name = settings.env_name.strip()
+
+        # Kafka producer/consumer (replaces Redis client)
+        self._kafka_producer: KafkaProducerClient = KafkaProducerClient(
+            bootstrap_servers=settings.kafka_bootstrap_servers
+        )
+        self._kafka_consumer: KafkaConsumerClient | None = None
 
         self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
         self._prev_i1_features: dict[str, dict[str, Any]] = {}  # key="{symbol}:{tf}"
         self.intelligence_cache: dict[str, dict[str, dict[str, float]]] = defaultdict(dict)
         self._df_cache: dict[str, pd.DataFrame | None] = {}
         self._active_symbols: set[str] = set()
-        self._stream_map: dict[str, tuple[str, str]] = {}  # stream_name → (symbol, timeframe)
 
         # Build instrument map for asset-class guard
         self._instrument_map: dict[str, Any] = {
@@ -331,18 +331,25 @@ class MarketAnalysisService:
         self.calculations_total.inc()
         return tiered
 
+    def _get_field(self, fields: dict, key: str) -> str:
+        """Get a field value from either str-keyed (Kafka) or bytes-keyed dict."""
+        val = fields.get(key) or fields.get(key.encode())
+        if val is None:
+            return ""
+        return val.decode() if isinstance(val, bytes) else str(val)
+
     async def _process_single_bar(
         self,
         symbol: str,
         timeframe: str,
-        fields: dict[bytes, bytes],
-        stream_name: str,
-        message_id: bytes,
+        fields: dict,
+        stream_name: str = "",
+        message_id: bytes | None = None,
     ) -> bool:
         try:
-            bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
-            bar_close_ts_str = fields.get(b"bar_close_ts", b"").decode() or None
-            i1_computed_at_str = fields.get(b"i1_computed_at", b"").decode() or None
+            bar_ts = datetime.fromisoformat(self._get_field(fields, "timestamp"))
+            bar_close_ts_str = self._get_field(fields, "bar_close_ts") or None
+            i1_computed_at_str = self._get_field(fields, "i1_computed_at") or None
             bar_data, i1_features = parse_indicators_message(fields)
             bar_data["timestamp"] = bar_ts
 
@@ -470,115 +477,49 @@ class MarketAnalysisService:
             self.error_count_total.inc()
             return  # Do NOT publish malformed events
 
-        stream_name = sk_intelligence(self.env_prefix, symbol, timeframe)
-        await self.redis_client.xadd(
-            stream_name,
+        await self._kafka_producer.publish(
+            topic_intelligence(self.env_name),
             {"event": event.model_dump_json()},
-            maxlen=1000,
-            approximate=True,
+            key=message_key(symbol, timeframe),
         )
 
-    async def _connect_redis(self) -> None:
-        self.redis_client = redis.Redis(
-            host=self.config["redis"]["host"],
-            port=self.config["redis"]["port"],
-            db=self.config["redis"]["db"],
-            decode_responses=False,
-            max_connections=20,
-        )
-        await self.redis_client.ping()
-        self.logger.info("Connected to Redis")
 
     async def _warmup_bar_history(self) -> None:
-        """Pre-fill bar_history via xrevrange so min_bars threshold is met on first live bar.
+        """Warmup is skipped — market_analysis_service now seeds from Kafka live stream.
 
-        Optimized: parallel reads using asyncio.gather() instead of sequential loops.
+        In the Redpanda-native model, bar history accumulates naturally from the
+        first live indicator messages. No xrevrange warmup is needed.
         """
-        timeframes = self.config["service"]["timeframes"]
-        if not timeframes:
-            return
-        warmup_count = max(self._min_bars_for_tf(tf) for tf in timeframes) + 30
-
-        async def warmup_stream(symbol: str, timeframe: str) -> None:
-            """Warm up a single stream."""
-            stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
-            try:
-                msgs = await self.redis_client.xrevrange(stream_name, count=warmup_count)
-                key = f"{symbol}:{timeframe}"
-                seen_ts: set[str] = set()
-                bars = []
-                for _msg_id, fields in msgs:
-                    try:
-                        bar_ts = datetime.fromisoformat(fields[b"timestamp"].decode())
-                        ts_str = fields[b"timestamp"].decode()
-                        if ts_str in seen_ts:
-                            continue
-                        seen_ts.add(ts_str)
-                        bar_data, _ = parse_indicators_message(fields)
-                        bar_data["timestamp"] = bar_ts
-                        bars.append(bar_data)
-                    except Exception:
-                        continue
-                # xrevrange returns newest-first; append oldest-first
-                for bar in reversed(bars):
-                    self.bar_history[key].append(bar)
-            except Exception as e:
-                self.logger.warning("Bar history warmup failed", stream=stream_name, error=str(e))
-
-        # Create tasks for all (symbol, timeframe) combinations
-        tasks = [
-            warmup_stream(symbol, timeframe)
-            for timeframe in self.config["service"]["timeframes"]
-            for symbol in self.config["service"]["symbols"]
-        ]
-
-        # Execute all warmup reads in parallel
-        await asyncio.gather(*tasks)
-
-    async def _setup_consumer_groups(self) -> None:
-        for timeframe in self.config["service"]["timeframes"]:
-            for symbol in self.config["service"]["symbols"]:
-                stream_name = sk_indicators(self.env_prefix, symbol, timeframe)
-                self._stream_map[stream_name] = (symbol, timeframe)
-                await ensure_consumer_group_with_reset(
-                    self.redis_client, stream_name, self.consumer_group
-                )
+        self.logger.info("Bar history warmup skipped — Kafka-native startup (live accumulation)")
 
     async def _process_market_data(self) -> None:
-        # Single multi-stream read covers all 92 streams (23 symbols × 4 TFs) in one call,
-        # blocking up to 1s for any message — eliminates sequential per-stream polling latency.
-        all_streams = {name: ">" for name in self._stream_map}
-        while self.running and not self.shutdown_requested:
+        """Consume indicator messages from Kafka and run analysis pipeline."""
+        assert self._kafka_consumer is not None
+        async for topic, key, payload in self._kafka_consumer.messages():
+            if self.shutdown_requested:
+                break
             try:
-                messages = await self.redis_client.xreadgroup(
-                    self.consumer_group,
-                    self.consumer_name,
-                    all_streams,
-                    count=10,
-                    block=1000,
-                )
-                for stream_bytes, msgs in messages:
-                    stream_name = (
-                        stream_bytes.decode()
-                        if isinstance(stream_bytes, bytes)
-                        else stream_bytes
-                    )
-                    symbol, timeframe = self._stream_map[stream_name]
-                    to_ack: list[bytes] = []
-                    for message_id, fields in msgs:
-                        await self._process_single_bar(
-                            symbol, timeframe, fields, stream_name, message_id
-                        )
-                        # Always acknowledge (at-most-once delivery)
-                        to_ack.append(message_id)
-                    if to_ack:
-                        await self.redis_client.xack(stream_name, self.consumer_group, *to_ack)
+                # Extract symbol and timeframe from message key (e.g., "ES:1m")
+                if key:
+                    parts = key.split(":", 1)
+                    if len(parts) == 2:
+                        symbol, timeframe = parts[0], parts[1]
+                    else:
+                        symbol = parts[0]
+                        timeframe = payload.get("timeframe", "")
+                else:
+                    symbol = payload.get("symbol", "")
+                    timeframe = payload.get("timeframe", "")
+
+                if not symbol or not timeframe:
+                    continue
+
+                await self._process_single_bar(symbol, timeframe, payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in processing loop", error=str(e))
                 self.error_count_total.inc()
-                await asyncio.sleep(1)
 
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
@@ -601,10 +542,24 @@ class MarketAnalysisService:
     async def start(self) -> None:
         self.logger.info("Starting Market Analysis Service", config=self.config["service"])
         try:
-            await self._connect_redis()
             start_metrics_server(port=self.config.get("metrics_port", 9114))
             await self._warmup_bar_history()
-            await self._setup_consumer_groups()
+
+            # Start Kafka producer
+            await self._kafka_producer.start()
+
+            # Start Kafka consumer subscribed to indicators topic
+            self._kafka_consumer = KafkaConsumerClient(
+                topic_indicators(self.env_name),
+                bootstrap_servers=self.config.get(
+                    "kafka_bootstrap_servers",
+                    Settings().kafka_bootstrap_servers,
+                ),
+                group_id="market_analysis",
+                auto_offset_reset="latest",
+            )
+            await self._kafka_consumer.start()
+
             self.running = True
             tasks = [
                 asyncio.create_task(self._process_market_data()),
@@ -622,8 +577,9 @@ class MarketAnalysisService:
         self.logger.info("Stopping Market Analysis Service")
         self.running = False
         self.shutdown_requested = True
-        if self.redis_client:
-            await self.redis_client.aclose()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        await self._kafka_producer.stop()
         self.logger.info("Market Analysis Service stopped")
 
 
