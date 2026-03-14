@@ -20,6 +20,8 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
+    _broadcaster_task = None
+    _sse_consumer = None
     try:
         # Initialize core infrastructure
         logger.info("Starting IndicAgent API...")
@@ -31,10 +33,9 @@ async def lifespan(app: FastAPI):
         dependencies.db_manager = DatabaseManager(settings.database_url)
         await dependencies.db_manager.initialize()
 
-        # Initialize Redis streams manager
+        # Initialize Redis streams manager (kept through Plan 4 for non-SSE routes)
         import redis.asyncio as redis
 
-        # Build Redis client from individual settings
         redis_client = redis.Redis(
             host=settings.redis_host,
             port=settings.redis_port,
@@ -45,10 +46,48 @@ async def lifespan(app: FastAPI):
         dependencies.redis_manager = RedisStreamsManager(redis_client)
         await dependencies.redis_manager.start()
 
+        # Initialize Kafka SSE broadcaster
+        from src.core.kafka_utils import KafkaConsumerClient
+        from src.core.stream_keys import (
+            topic_indicators,
+            topic_intelligence,
+            topic_intelligence_i7,
+            topic_intelligence_i8,
+            topic_market_bars,
+            topic_market_ticks,
+            topic_narratives,
+            topic_narratives_group,
+            topic_signals_aggregated,
+        )
+        from .routes.sse import KafkaSSEBroadcaster
+
+        kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+        env_name = settings.env_name or ""
+
+        dependencies.kafka_broadcaster = KafkaSSEBroadcaster()
+        _sse_consumer = KafkaConsumerClient(
+            topic_market_ticks(env_name),
+            topic_market_bars(env_name),
+            topic_indicators(env_name),
+            topic_intelligence(env_name),
+            topic_intelligence_i7(env_name),
+            topic_intelligence_i8(env_name),
+            topic_signals_aggregated(env_name),
+            topic_narratives(env_name),
+            topic_narratives_group(env_name),
+            bootstrap_servers=kafka_bootstrap,
+            group_id="sse_broadcaster",
+            auto_offset_reset="latest",
+        )
+        await _sse_consumer.start()
+        _broadcaster_task = asyncio.create_task(
+            dependencies.kafka_broadcaster.run(_sse_consumer)
+        )
+
         # Seed instruments table from contract config
         await dependencies.db_manager.upsert_instruments(settings.contracts)
 
-        logger.info("✅ IndicAgent API started successfully")
+        logger.info("IndicAgent API started successfully")
         yield
 
     except Exception as e:
@@ -56,11 +95,25 @@ async def lifespan(app: FastAPI):
         raise
     finally:
         # Cleanup
+        if _broadcaster_task is not None:
+            _broadcaster_task.cancel()
+            try:
+                await _broadcaster_task
+            except Exception:
+                pass
+        if _sse_consumer is not None:
+            try:
+                await _sse_consumer.stop()
+            except Exception:
+                pass
         if dependencies.redis_manager:
             await dependencies.redis_manager.stop()
         if dependencies.db_manager:
             await dependencies.db_manager.close()
-        logger.info("✅ Application shutdown complete")
+        logger.info("Application shutdown complete")
+
+
+import asyncio  # noqa: E402 — needed inside lifespan above
 
 
 # Create FastAPI application

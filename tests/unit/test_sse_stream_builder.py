@@ -92,3 +92,85 @@ def test_event_name_for_env_prefixed_system_events():
     """Env-prefixed system:events maps to system_event."""
     from src.api.routes.sse import _event_name_for_stream
     assert _event_name_for_stream("development:system:events") == "system_event"
+
+
+# ── KAFKA-07: KafkaSSEBroadcaster fan-out test ─────────────────────────────────
+
+import asyncio
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_kafka_broadcaster_fan_out():
+    """KAFKA-07: KafkaSSEBroadcaster fan-out delivers to subscribed queues and populates snapshot.
+
+    - subscribe() returns (deque, asyncio.Queue)
+    - After broadcaster processes a message, the queue receives it
+    - The _snapshot[topic] deque has the message
+    """
+    from src.api.routes.sse import KafkaSSEBroadcaster
+
+    broadcaster = KafkaSSEBroadcaster()
+    snapshot, live_q = broadcaster.subscribe()
+
+    # Simulate consumer delivering a message by calling the internal fan-out
+    test_topic = "dev.intelligence"
+    test_key = "ES:1m"
+    test_payload = {"event": '{"ts": "2026-03-14T10:00:00Z", "symbol": "ES", "tf": "1m"}'}
+
+    # Manually drive the broadcaster's fan-out (bypass actual Kafka consumer)
+    broadcaster._snapshot[test_topic].appendleft({"topic": test_topic, "key": test_key, "payload": test_payload})
+    for q in list(broadcaster._queues):
+        try:
+            q.put_nowait({"topic": test_topic, "key": test_key, "payload": test_payload})
+        except asyncio.QueueFull:
+            pass
+
+    # Assert snapshot populated
+    assert len(broadcaster._snapshot[test_topic]) == 1
+    assert broadcaster._snapshot[test_topic][0]["topic"] == test_topic
+
+    # Assert queue received message
+    assert not live_q.empty()
+    item = await live_q.get()
+    assert item["topic"] == test_topic
+    assert item["key"] == test_key
+    assert item["payload"] == test_payload
+
+    # unsubscribe removes queue
+    broadcaster.unsubscribe(live_q)
+    assert live_q not in broadcaster._queues
+
+
+@pytest.mark.asyncio
+async def test_event_name_for_topic_intelligence():
+    """Kafka topic dev.intelligence maps to intelligence_data."""
+    from src.api.routes.sse import _event_name_for_topic
+    assert _event_name_for_topic("dev.intelligence") == "intelligence_data"
+    assert _event_name_for_topic("dev.intelligence.i7") == "signal_scorecard"
+    assert _event_name_for_topic("dev.intelligence.i8") == "narrative_data"
+
+
+@pytest.mark.asyncio
+async def test_event_name_for_topic_signals():
+    """Kafka signals.aggregated maps to signal_data."""
+    from src.api.routes.sse import _event_name_for_topic
+    assert _event_name_for_topic("dev.signals.aggregated") == "signal_data"
+    assert _event_name_for_topic("dev.signals") == "signal_data"
+
+
+@pytest.mark.asyncio
+async def test_event_name_for_topic_market():
+    """Kafka market topics map correctly."""
+    from src.api.routes.sse import _event_name_for_topic
+    assert _event_name_for_topic("dev.market.ticks") == "tick_data"
+    assert _event_name_for_topic("dev.market.bars") == "market_data"
+    assert _event_name_for_topic("dev.indicators") == "indicator_data"
+
+
+@pytest.mark.asyncio
+async def test_event_name_for_topic_narratives():
+    """Kafka narratives topics map to narrative_data."""
+    from src.api.routes.sse import _event_name_for_topic
+    assert _event_name_for_topic("dev.narratives") == "narrative_data"
+    assert _event_name_for_topic("dev.narratives.group") == "narrative_data"

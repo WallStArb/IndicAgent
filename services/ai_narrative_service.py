@@ -37,6 +37,7 @@ from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: 
 from src.core.stream_keys import (  # noqa: E402
     message_key,
     topic_intelligence,
+    topic_intelligence_i8,
     topic_llm_calls,
     topic_narratives,
     topic_narratives_group,
@@ -888,9 +889,12 @@ class AINarrativeService:
                         "summary": narrative_text[:280],
                         "generated_at": datetime.now(tz=UTC).isoformat(),
                     }
-                    # i8 still written to Redis stream for SSE consumption (Plan 4 migrates SSE)
-                    # TODO(30-04): migrate i8 publish to Kafka topic_intelligence_i8
-                    pass  # i8 Redis removed; SSE migration deferred to Plan 4
+                    # Publish i8 narrative metadata to intelligence.i8 topic (Plan 4 SSE migration)
+                    await self._kafka_producer.publish(
+                        topic_intelligence_i8(self.env_name),
+                        i8_msg,
+                        key=message_key(symbol, timeframe),
+                    )
                 self.narratives_generated_total.inc()
                 self._total_narratives += 1
                 self.ollama_latency_ms.set(latency_ms)
