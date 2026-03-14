@@ -73,3 +73,61 @@ class TestPilotETFs:
         symbols = set(get_active_contracts())
         for sym in ["SPY", "XLF", "TLT", "GLD", "SMH"]:
             assert sym in symbols
+
+
+class TestFullETFRollout:
+    BROAD_MARKET = {"QQQ", "IWM", "DIA"}
+    SECTORS = {"XLK", "XLE", "XLC", "XLY", "XLV", "XLI", "XLU", "XLRE", "XLP", "XLB"}
+    INDUSTRY = {"IBB", "GDX", "GDXJ", "XOP", "ITB"}
+    CREDIT = {"HYG", "LQD", "IEF", "SHY", "EMB"}
+    FACTOR = {"MTUM", "QUAL", "VLUE", "USMV"}
+    INTERNATIONAL = {"EFA", "EEM", "EWZ", "FXI"}
+    COMMODITY = {"SLV", "USO"}
+
+    ALL_NEW_ETFS = (
+        BROAD_MARKET | SECTORS | INDUSTRY | CREDIT | FACTOR | INTERNATIONAL | COMMODITY
+    )
+
+    def test_all_33_etfs_present(self):
+        symbols = {inst.symbol for inst in Settings().instruments}
+        missing = self.ALL_NEW_ETFS - symbols
+        assert not missing, f"Missing ETFs: {missing}"
+
+    def test_all_etfs_are_equity_nyse(self):
+        for inst in Settings().instruments:
+            if inst.symbol in self.ALL_NEW_ETFS:
+                assert inst.asset_class == AssetClass.EQUITY
+                assert inst.session_id == "nyse"
+                assert inst.exchange == "SMART"
+
+    def test_total_instrument_count_60(self):
+        """22 futures/FX/crypto + 38 ETFs = 60 total."""
+        assert len(Settings().instruments) == 60
+
+    def test_equity_count_38(self):
+        equities = [i for i in Settings().instruments if i.asset_class == AssetClass.EQUITY]
+        assert len(equities) == 38
+
+    def test_pilot_etfs_still_present(self):
+        symbols = {inst.symbol for inst in Settings().instruments}
+        for sym in ["SPY", "XLF", "TLT", "GLD", "SMH"]:
+            assert sym in symbols, f"Pilot ETF {sym} should still be present"
+
+    def test_no_duplicate_symbols(self):
+        symbols = [inst.symbol for inst in Settings().instruments]
+        assert len(symbols) == len(set(symbols)), "Duplicate symbols in instruments list"
+
+    def test_all_etfs_have_unit_point_value(self):
+        for inst in Settings().instruments:
+            if inst.asset_class == AssetClass.EQUITY:
+                assert inst.point_value == 1.0
+
+    def test_all_etfs_have_standard_tick_size(self):
+        for inst in Settings().instruments:
+            if inst.asset_class == AssetClass.EQUITY:
+                assert inst.tick_size == 0.01
+
+    def test_get_active_contracts_includes_all_etfs(self):
+        active = set(get_active_contracts())
+        for sym in self.ALL_NEW_ETFS:
+            assert sym in active, f"{sym} missing from get_active_contracts()"

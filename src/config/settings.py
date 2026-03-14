@@ -34,11 +34,17 @@ class Settings(BaseSettings):
         validation_alias="DATABASE_URL",
     )
 
-    # Redis
+    # Redis (kept through Phase 30 Plan 4 dual-run; removed in Plan 5)
     redis_host: str = Field(default="localhost")
     redis_port: int = Field(default=6379)
     redis_db: int = Field(default=0)
     redis_max_connections: int = Field(default=20)
+
+    # Kafka / Redpanda
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:19092",
+        validation_alias="KAFKA_BOOTSTRAP_SERVERS",
+    )
 
     # IBKR
     ib_host: str = Field(
@@ -241,6 +247,112 @@ class Settings(BaseSettings):
                 session_id="nyse", point_value=1.0, tick_size=0.01,
                 name="VanEck Semiconductor ETF", sector="equity",
             ),
+            # Broad market
+            Instrument(symbol="QQQ", base="QQQ", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Invesco QQQ Trust", sector="broad_market"),
+            Instrument(symbol="IWM", base="IWM", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares Russell 2000 ETF", sector="broad_market"),
+            Instrument(symbol="DIA", base="DIA", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="SPDR Dow Jones Industrial Average ETF", sector="broad_market"),
+            # Sectors
+            Instrument(symbol="XLK", base="XLK", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Technology Select Sector SPDR", sector="technology"),
+            Instrument(symbol="XLE", base="XLE", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Energy Select Sector SPDR", sector="energy"),
+            Instrument(symbol="XLC", base="XLC", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Communication Services SPDR", sector="communications"),
+            Instrument(symbol="XLY", base="XLY", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Consumer Discretionary SPDR", sector="consumer_discretionary"),
+            Instrument(symbol="XLV", base="XLV", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Health Care Select Sector SPDR", sector="healthcare"),
+            Instrument(symbol="XLI", base="XLI", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Industrial Select Sector SPDR", sector="industrials"),
+            Instrument(symbol="XLU", base="XLU", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Utilities Select Sector SPDR", sector="utilities"),
+            Instrument(symbol="XLRE", base="XLRE", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Real Estate Select Sector SPDR", sector="real_estate"),
+            Instrument(symbol="XLP", base="XLP", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Consumer Staples Select Sector SPDR", sector="consumer_staples"),
+            Instrument(symbol="XLB", base="XLB", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="Materials Select Sector SPDR", sector="materials"),
+            # Industry/thematic
+            Instrument(symbol="IBB", base="IBB", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares Biotechnology ETF", sector="biotech"),
+            Instrument(symbol="GDX", base="GDX", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="VanEck Gold Miners ETF", sector="gold_miners"),
+            Instrument(symbol="GDXJ", base="GDXJ", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="VanEck Junior Gold Miners ETF", sector="gold_miners"),
+            Instrument(symbol="XOP", base="XOP", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="SPDR Oil & Gas Exploration ETF", sector="energy"),
+            Instrument(symbol="ITB", base="ITB", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares U.S. Home Construction ETF", sector="homebuilders"),
+            # Credit/rates
+            Instrument(symbol="HYG", base="HYG", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares iBoxx High Yield Corporate Bond ETF", sector="credit"),
+            Instrument(symbol="LQD", base="LQD", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares iBoxx Investment Grade Corporate Bond ETF", sector="credit"),
+            Instrument(symbol="IEF", base="IEF", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares 7-10 Year Treasury Bond ETF", sector="rates"),
+            Instrument(symbol="SHY", base="SHY", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares 1-3 Year Treasury Bond ETF", sector="rates"),
+            Instrument(symbol="EMB", base="EMB", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares J.P. Morgan USD Emerging Markets Bond ETF", sector="emerging_markets"),
+            # Factor
+            Instrument(symbol="MTUM", base="MTUM", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI USA Momentum Factor ETF", sector="factor"),
+            Instrument(symbol="QUAL", base="QUAL", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI USA Quality Factor ETF", sector="factor"),
+            Instrument(symbol="VLUE", base="VLUE", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI USA Value Factor ETF", sector="factor"),
+            Instrument(symbol="USMV", base="USMV", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI USA Min Vol Factor ETF", sector="factor"),
+            # International
+            Instrument(symbol="EFA", base="EFA", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI EAFE ETF", sector="international"),
+            Instrument(symbol="EEM", base="EEM", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI Emerging Markets ETF", sector="emerging_markets"),
+            Instrument(symbol="EWZ", base="EWZ", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares MSCI Brazil ETF", sector="emerging_markets"),
+            Instrument(symbol="FXI", base="FXI", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares China Large-Cap ETF", sector="emerging_markets"),
+            # Macro/commodity
+            Instrument(symbol="SLV", base="SLV", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="iShares Silver Trust", sector="commodity"),
+            Instrument(symbol="USO", base="USO", asset_class=AssetClass.EQUITY, exchange="SMART",
+                session_id="nyse", point_value=1.0, tick_size=0.01,
+                name="United States Oil Fund", sector="energy"),
         ]
 
 
