@@ -71,7 +71,7 @@ class KafkaSSEBroadcaster:
             item = {"topic": topic, "key": key, "payload": payload}
             # Latest-per-key: always keep the most recent message for each key.
             # Uses key or falls back to a monotonic counter for keyless messages.
-            slot = key if key is not None else f"__keyless_{len(self._latest[topic])}"
+            slot = key if key is not None else "__keyless"
             self._latest[topic][slot] = item
             # Fan-out: deliver to all connected clients; skip full queues (slow client)
             for q in list(self._queues):

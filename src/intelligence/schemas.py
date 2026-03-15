@@ -269,7 +269,7 @@ class I4Context(BaseModel):
     - MTFVolatility (4 fields)
     - HurstExponent (3 fields)
     - ShannonEntropy (2 fields)
-    Total: 62 fields
+    Total: 60 fields
     """
 
     model_config = ConfigDict(extra="forbid")

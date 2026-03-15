@@ -80,6 +80,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ESH6",
         description: "S&P 500 E-mini Futures",
         sector: "equity_index",
+        asset_class: "futures",
       },
       {
         symbol: "NQ",
@@ -87,6 +88,7 @@ const defaultConfig: DashboardConfig = {
         contract: "NQH6",
         description: "Nasdaq 100 E-mini Futures",
         sector: "equity_index",
+        asset_class: "futures",
       },
       {
         symbol: "RTY",
@@ -94,6 +96,7 @@ const defaultConfig: DashboardConfig = {
         contract: "RTYH6",
         description: "Russell 2000 E-mini Futures",
         sector: "equity_index",
+        asset_class: "futures",
       },
       // Energy
       {
@@ -102,6 +105,7 @@ const defaultConfig: DashboardConfig = {
         contract: "CLJ6",
         description: "Crude Oil WTI Futures",
         sector: "energy",
+        asset_class: "futures",
       },
       {
         symbol: "BZ",
@@ -109,6 +113,7 @@ const defaultConfig: DashboardConfig = {
         contract: "BZK6",
         description: "Brent Crude Oil Futures",
         sector: "energy",
+        asset_class: "futures",
       },
       {
         symbol: "NG",
@@ -116,6 +121,7 @@ const defaultConfig: DashboardConfig = {
         contract: "NGJ6",
         description: "Natural Gas Futures",
         sector: "energy",
+        asset_class: "futures",
       },
       // Precious Metals
       {
@@ -124,6 +130,7 @@ const defaultConfig: DashboardConfig = {
         contract: "GCJ6",
         description: "Gold Futures",
         sector: "metals",
+        asset_class: "futures",
       },
       {
         symbol: "SI",
@@ -131,6 +138,7 @@ const defaultConfig: DashboardConfig = {
         contract: "SIH6",
         description: "Silver Futures",
         sector: "metals",
+        asset_class: "futures",
       },
       // Industrial Metals
       {
@@ -139,6 +147,7 @@ const defaultConfig: DashboardConfig = {
         contract: "HGH6",
         description: "Copper Futures",
         sector: "metals",
+        asset_class: "futures",
       },
       // Equity Index
       {
@@ -147,6 +156,7 @@ const defaultConfig: DashboardConfig = {
         contract: "YMH6",
         description: "E-mini Dow Futures",
         sector: "equity_index",
+        asset_class: "futures",
       },
       // Volatility
       {
@@ -155,6 +165,7 @@ const defaultConfig: DashboardConfig = {
         contract: "VXJ6",
         description: "CBOE VIX Futures",
         sector: "volatility",
+        asset_class: "futures",
       },
       // Interest Rate Futures
       {
@@ -163,6 +174,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZNH6",
         description: "10-Year Treasury Note Futures",
         sector: "interest_rates",
+        asset_class: "futures",
       },
       {
         symbol: "ZF",
@@ -170,6 +182,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZFH6",
         description: "5-Year Treasury Note Futures",
         sector: "interest_rates",
+        asset_class: "futures",
       },
       {
         symbol: "ZB",
@@ -177,6 +190,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZBH6",
         description: "30-Year Treasury Bond Futures",
         sector: "interest_rates",
+        asset_class: "futures",
       },
       {
         symbol: "ZT",
@@ -184,6 +198,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZTH6",
         description: "2-Year Treasury Note Futures",
         sector: "interest_rates",
+        asset_class: "futures",
       },
       {
         symbol: "SR1",
@@ -191,6 +206,7 @@ const defaultConfig: DashboardConfig = {
         contract: "SR1H6",
         description: "1-Month SOFR Futures",
         sector: "interest_rates",
+        asset_class: "futures",
       },
       // Agriculture
       {
@@ -199,6 +215,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZSH6",
         description: "Soybeans Futures",
         sector: "agriculture",
+        asset_class: "futures",
       },
       {
         symbol: "ZC",
@@ -206,6 +223,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZCH6",
         description: "Corn Futures",
         sector: "agriculture",
+        asset_class: "futures",
       },
       {
         symbol: "ZW",
@@ -213,6 +231,7 @@ const defaultConfig: DashboardConfig = {
         contract: "ZWH6",
         description: "Wheat Futures",
         sector: "agriculture",
+        asset_class: "futures",
       },
       // FX Futures
       {
@@ -221,6 +240,7 @@ const defaultConfig: DashboardConfig = {
         contract: "6EH6",
         description: "Euro FX Futures",
         sector: "fx",
+        asset_class: "futures",
       },
       {
         symbol: "6J",
@@ -228,6 +248,7 @@ const defaultConfig: DashboardConfig = {
         contract: "6JH6",
         description: "Japanese Yen Futures",
         sector: "fx",
+        asset_class: "futures",
       },
       // FX Spot
       {

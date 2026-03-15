@@ -483,6 +483,7 @@ class SignalLifecycleService:
                         self.logger.warning("record_market_resolution failed",
                                             signal_id=sid, error=str(e))
                     finally:
+                        self._resolved_market.add(sid)  # prevent re-tracking on DB failure
                         self._market_mae.pop(sid, None)
                         self._market_mfe.pop(sid, None)
                         self._market_activated_at.pop(sid, None)

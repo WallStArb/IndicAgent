@@ -161,20 +161,18 @@ async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
     ]
     topic_names = [t.name for t in new_topics]
 
-    client = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
-    await client.start()
+    client = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers, request_timeout_ms=30000)
+    await asyncio.wait_for(client.start(), timeout=30.0)
     try:
         try:
             await client.delete_topics(topic_names)
+            await asyncio.sleep(1.0)  # allow deletion to propagate before recreating
         except UnknownTopicOrPartitionError:
             pass  # topics may not exist on first run
-        except Exception as e:
-            if "unknown topic" not in str(e).lower():
-                raise
         try:
             await client.create_topics(new_topics)
         except Exception as e:
-            if "already exists" not in str(e).lower():
+            if type(e).__name__ != "TopicAlreadyExistsError" and "already exists" not in str(e).lower():
                 raise
     finally:
         await client.close()
@@ -343,7 +341,10 @@ def main() -> None:
     # --- Stage 2: Clear Kafka topics ---
     kafka_env_prefix = settings.env_name or ""
     print("\n[1/5] Clearing Kafka topics (delete + recreate)...")
-    bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+    bootstrap = getattr(settings, "kafka_bootstrap_servers", None)
+    if bootstrap is None:
+        print("      WARNING: kafka_bootstrap_servers not configured, using localhost:19092")
+        bootstrap = "localhost:19092"
     n_topics = asyncio.run(clear_kafka_topics(bootstrap, env_prefix=kafka_env_prefix))
     print(f"      Cleared {n_topics} Kafka topics")
 

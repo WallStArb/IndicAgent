@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import logging
 import multiprocessing
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -123,8 +122,8 @@ def validate_track_pair(zone_outcome: str, market_outcome: str | None) -> None:
         return
     if zone_outcome == "target_full" and market_outcome == "never_activated":
         raise ValueError(
-            f"Impossible: zone=target_full + market=never_activated "
-            f"(market track never produces never_activated)"
+            "Impossible: zone=target_full + market=never_activated "
+            "(market track never produces never_activated)"
         )
 
 
@@ -230,7 +229,7 @@ def _process_symbol_tf(
                     if sid not in live_sids and sig["timestamp"] < bar_ts:
                         live_sids.add(sid)
                         mep = sig.get("market_entry_price")
-                        if mep is not None:
+                        if mep is None:
                             # bar N+1 open is the market fill price for historical replay
                             market_entry_prices[sid] = float(bar["open"])
                             gap = compute_gap_bars(sig["timestamp"], bar_ts, tf_secs)
@@ -266,8 +265,6 @@ def _process_symbol_tf(
                         if m_trans and m_trans.outcome is not None:
                             m_bit = int((bar_ts - market_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs)
                             m_outcome = m_trans.outcome
-                            if m_outcome is None:
-                                m_outcome = _classify_stop_outcome(m_mfe, m_bit)
                             stats["market"][m_outcome] = stats["market"].get(m_outcome, 0) + 1
                             pending_writes.append(("market", sid, {
                                 "market_entry_exit_price": m_trans.exit_price,
@@ -502,7 +499,6 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Compute but don't write")
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--resume", action="store_true", help="Skip fully-processed symbols")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
