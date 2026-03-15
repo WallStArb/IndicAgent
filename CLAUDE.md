@@ -239,12 +239,14 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
 - **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules). Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
+- **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **TWS `bars_processed` freeze**: `seen_bar_timestamps` dedup caches all timestamps from initial poll — subsequent polls return 0 new bars. Symptom: counter stuck at N×60 forever. Fix: restart TWS service.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 
 **Dashboard**
 - **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
 - **`format.ts` timing utils**: `fmtTimeHMS(iso)` → `HH:MM:SS` or null (guards invalid dates); `fmtLagSeconds(lagS)` → `"+1.2s"` or null (guards NaN).
+- **SSE broadcaster `_latest` rebuild**: `KafkaSSEBroadcaster` uses a unique group ID per startup (`sse_broadcaster_<uuid>`) so `auto_offset_reset="earliest"` replays all topic history on each API restart, fully populating the snapshot cache. If dashboard shows "-" after an API restart, restart the API again — the broadcaster needs ~5s to replay.
 - **`intelligence_i7` SSE domain**: `intelligence_i7:SYMBOL:TF` stream is subscribed in `_build_stream_list()` (alongside `intelligence:`); event name is `signal_scorecard`. Check must appear before `intelligence:` startswith check to prevent shadowing.
 - **`signal_scorecard` event payload**: `{"ts": "...", "symbol": "ES", "tf": "1m", "data": "[{...}]"}` where `data` is a JSON-encoded string of `RankedSignal[]`. Parse with `JSON.parse(String(payload.data || "[]"))`.
 - **`GET /api/signals/recent`**: `?symbol=&timeframe=&limit=` — returns `signal_ledger` rows with `setup_performance` LEFT JOIN, ordered by `computed_at DESC`. Drill panel fetches on mount and merges with SSE history deduplicated by `signal_id` (SSE version wins on conflict).
@@ -255,7 +257,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## System Access
 
-- **Sudo:** `echo "$SUDO_PASS" | sudo -S <cmd>` works for automation. For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
+- **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
 - **Server IP:** `10.0.0.39` (WiFi, `wlp193s0`). IBKR TWS at `10.0.0.33` — if TWS connection refused, check trusted IPs in TWS API settings.
 
 ## Environment Variables
