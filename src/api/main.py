@@ -4,7 +4,6 @@ IndicAgent FastAPI Main Application
 Clean, focused API for technical indicators and market data.
 """
 
-import uuid
 from contextlib import asynccontextmanager
 
 import structlog
@@ -78,10 +77,13 @@ async def lifespan(app: FastAPI):
             topic_narratives(env_name),
             topic_narratives_group(env_name),
             bootstrap_servers=kafka_bootstrap,
-            group_id=f"sse_broadcaster_{uuid.uuid4().hex[:8]}",
+            # Single-instance group: every API process must receive all messages for SSE.
+            # Stable group_id + seek_to_beginning() replays full history to repopulate _latest.
+            group_id="sse_broadcaster",
             auto_offset_reset="earliest",
         )
         await _sse_consumer.start()
+        await _sse_consumer.seek_to_beginning()  # replay history to repopulate _latest on restart
         _broadcaster_task = asyncio.create_task(dependencies.kafka_broadcaster.run(_sse_consumer))
 
         # Seed instruments table from contract config
