@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import TF_SECONDS
 from src.intelligence.trading.lifecycle_tracker import (
+    _classify_stop_outcome,
     evaluate_market_entry,
     evaluate_signal,
 )
@@ -39,12 +40,6 @@ TIMEFRAMES = ["1m", "5m", "15m", "1h"]
 
 
 # ── Pure helper functions (importable for unit testing) ─────────────────────
-
-
-def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> str:
-    if (bars_in_trade_count is None or bars_in_trade_count <= 2 or current_mfe <= 0.05):
-        return "stopped_at_entry"
-    return "stopped_in_trade"
 
 
 def compute_gap_bars(sig_ts: datetime, bar_ts: datetime, tf_seconds: int) -> int:
@@ -112,7 +107,6 @@ def resolve_at_end_of_bars(
     return {
         "zone_outcome": zone_outcome,
         "exit_at": last_ts,
-        "market_outcome": market_outcome,
         "market_entry_outcome": market_outcome,
         "market_entry_exit_price": float(last_bar["close"]) if mep is not None else None,
         "market_entry_pnl_r": None,  # computed by caller from accumulated state
@@ -138,30 +132,25 @@ def validate_track_pair(zone_outcome: str, market_outcome: str | None) -> None:
 
 
 def _get_db_url() -> str:
-    try:
-        return Settings().database_url
-    except Exception:
-        return os.environ.get("DATABASE_URL",
-                              "postgresql://postgres:postgres@localhost:5432/indicagent")
+    return Settings().database_url
 
 
 def _fetch_work_queue(conn, symbols: list[str], timeframes: list[str]) -> list[tuple[str, str, int]]:
     """Build work queue ordered by estimated pending row count descending (largest first)."""
-    work = []
+    placeholders_sym = ",".join(["%s"] * len(symbols))
+    placeholders_tf = ",".join(["%s"] * len(timeframes))
     with conn.cursor() as cur:
-        for sym in symbols:
-            for tf in timeframes:
-                cur.execute(
-                    """SELECT COUNT(*) FROM signal_ledger
-                       WHERE status IN ('pending', 'regime_suppressed')
-                         AND symbol = %s AND timeframe = %s""",
-                    (sym, tf),
-                )
-                count = cur.fetchone()[0]
-                if count > 0:
-                    work.append((sym, tf, count))
-    work.sort(key=lambda x: x[2], reverse=True)  # largest first
-    return work
+        cur.execute(
+            f"""SELECT symbol, timeframe, COUNT(*) as cnt
+                FROM signal_ledger
+                WHERE status IN ('pending', 'regime_suppressed')
+                  AND symbol IN ({placeholders_sym})
+                  AND timeframe IN ({placeholders_tf})
+                GROUP BY symbol, timeframe
+                ORDER BY cnt DESC""",
+            symbols + timeframes,
+        )
+        return [(row[0], row[1], row[2]) for row in cur.fetchall()]
 
 
 def _process_symbol_tf(
@@ -241,7 +230,6 @@ def _process_symbol_tf(
                     if sid not in live_sids and sig["timestamp"] < bar_ts:
                         live_sids.add(sid)
                         mep = sig.get("market_entry_price")
-                        market_entry_prices[sid] = float(mep) if mep is not None else None
                         if mep is not None:
                             # bar N+1 open is the market fill price for historical replay
                             market_entry_prices[sid] = float(bar["open"])
@@ -303,8 +291,7 @@ def _process_symbol_tf(
                     z_mae = zone_mae.get(sid, 0.0)
                     z_mfe = zone_mfe.get(sid, 0.0)
                     z_status = "active" if zone_activated.get(sid) else sig.get("status", "pending")
-                    sig_eval["status"] = "active" if z_status == "regime_suppressed" else z_status
-                    sig_eval["status"] = "active" if zone_activated.get(sid) else sig_eval["status"]
+                    sig_eval["status"] = "active" if (z_status == "regime_suppressed" or zone_activated.get(sid)) else z_status
 
                     try:
                         z_trans = evaluate_signal(
