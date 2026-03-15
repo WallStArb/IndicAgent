@@ -258,11 +258,11 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ## System Access
 
 - **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
-- **Server IP:** `10.0.0.39` (WiFi, `wlp193s0`). IBKR TWS at `10.0.0.33` — if TWS connection refused, check trusted IPs in TWS API settings.
+- **Server IP:** `10.0.0.39` (WiFi, `wlp193s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
 
 ## Environment Variables
 
-`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
+`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=192.168.1.157`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
 
 ## Roadmap
 
