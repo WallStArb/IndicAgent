@@ -36,9 +36,19 @@ from src.core.stream_keys import (
 )
 from src.intelligence.trading.lifecycle_tracker import (
     OUTCOME_THRESHOLD_QUICK_STOP_BARS,
+    MarketTransition,
+    _classify_stop_outcome,
+    evaluate_market_entry,
     evaluate_signal,
 )
-from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
+from src.intelligence.trading.signal_ledger import (
+    get_active_signals,
+    record_activation,
+    record_market_resolution,
+    record_zone_resolution,
+    record_zone_resolution_with_activation,
+    update_signal_status,
+)
 from src.observability.metrics import counter, gauge, start_metrics_server
 
 # QUAL-03: freshness decay half-life — bars after which an active signal's effective
@@ -81,17 +91,6 @@ def _bars_in_trade(activated_at: datetime | None, exit_at: datetime, timeframe: 
     tf_secs = TF_SECONDS.get(timeframe, 60)
     delta = (exit_at - activated_at).total_seconds()
     return max(0, int(delta / tf_secs))
-
-
-def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> str:
-    """Resolve fine-grained outcome for a stopped-out signal."""
-    if (
-        bars_in_trade_count is None
-        or bars_in_trade_count <= OUTCOME_THRESHOLD_QUICK_STOP_BARS
-        or current_mfe <= 0.05
-    ):
-        return "stopped_at_entry"
-    return "stopped_in_trade"
 
 
 def _build_outcome_payload(
@@ -146,6 +145,12 @@ class SignalLifecycleService:
         self._mfe: dict[str, float] = {}
         # activation_time tracking for bars_in_trade: signal_id → datetime
         self._activated_at: dict[str, datetime] = {}
+
+        # Market-entry parallel track state (mirrors _mae/_mfe/_activated_at)
+        self._market_mae: dict[str, float] = {}
+        self._market_mfe: dict[str, float] = {}
+        self._market_activated_at: dict[str, datetime] = {}
+        self._resolved_market: set[str] = set()  # sids with market track already written
 
         self.lifecycle_transitions_total = counter(
             "lifecycle_transitions_total", "Total signal lifecycle transitions"
@@ -269,7 +274,6 @@ class SignalLifecycleService:
 
         relevant = [s for s in (all_active or []) if s.get("timeframe") == timeframe]
         self.active_signals_count.set(len(relevant))
-
         for sig in relevant:
             sid = str(sig["signal_id"])
             point_value = self.point_values.get(symbol, 1.0)
@@ -429,6 +433,74 @@ class SignalLifecycleService:
                     )
                 continue  # regime_suppressed handled; skip normal pending/active paths
 
+            # ── Market track (runs before zone on every bar) ──────────────
+            market_entry_price = sig.get("market_entry_price")
+            if market_entry_price is not None and sid not in self._resolved_market:
+                if sid not in self._market_activated_at:
+                    self._market_activated_at[sid] = bar_time  # first bar = activation time
+
+                m_mae = self._market_mae.get(sid, 0.0)
+                m_mfe = self._market_mfe.get(sid, 0.0)
+
+                try:
+                    m_trans = evaluate_market_entry(
+                        sig_with_extras,
+                        market_entry_price=float(market_entry_price),
+                        high=float(bar["high"]),
+                        low=float(bar["low"]),
+                        close=float(bar["close"]),
+                        current_mae=m_mae,
+                        current_mfe=m_mfe,
+                    )
+                except Exception as e:
+                    self.logger.warning("Market track evaluation failed",
+                                        signal_id=sid, error=str(e))
+                    m_trans = None
+
+                if m_trans is not None and m_trans.exit_price is not None:
+                    # Market track resolved (stop, target, or TTL) — write and clean up
+                    m_bit = _bars_in_trade(
+                        self._market_activated_at.get(sid), bar_time, timeframe
+                    )
+                    m_outcome = m_trans.outcome
+                    if m_outcome is None:  # stop hit — resolve via classifier
+                        m_outcome = _classify_stop_outcome(m_mfe, m_bit)
+
+                    try:
+                        await record_market_resolution(
+                            self.db_manager,
+                            sid,
+                            market_entry_exit_price=m_trans.exit_price,
+                            market_entry_pnl_r=m_trans.pnl_r,
+                            market_entry_mae=m_trans.mae,
+                            market_entry_mfe=m_trans.mfe,
+                            market_entry_bars_in_trade=m_bit,
+                            market_entry_outcome=m_outcome,
+                            market_entry_gap_bars=None,  # live signals always None
+                        )
+                        self._resolved_market.add(sid)
+                    except Exception as e:
+                        self.logger.warning("record_market_resolution failed",
+                                            signal_id=sid, error=str(e))
+                    finally:
+                        self._market_mae.pop(sid, None)
+                        self._market_mfe.pop(sid, None)
+                        self._market_activated_at.pop(sid, None)
+
+                elif m_trans is not None:
+                    # Still running — update MAE/MFE accumulators
+                    direction_val = sig.get("direction", 1)
+                    risk = abs(float(market_entry_price) - float(sig.get("stop_loss", 0)))
+                    if risk > 0:
+                        close_pnl_r = (
+                            (float(bar["close"]) - float(market_entry_price))
+                            * direction_val
+                            / risk
+                        )
+                        self._market_mae[sid] = min(m_mae, close_pnl_r)
+                        self._market_mfe[sid] = max(m_mfe, close_pnl_r)
+            # ── End market track ──────────────────────────────────────────
+
             try:
                 transition = evaluate_signal(
                     sig_with_extras,
@@ -508,6 +580,7 @@ class SignalLifecycleService:
                 self._mae.pop(sid, None)
                 self._mfe.pop(sid, None)
                 self._activated_at.pop(sid, None)
+                self._resolved_market.discard(sid)
 
                 # Publish terminal event to signals stream for dashboard resolved state
                 asyncio.create_task(
@@ -521,26 +594,31 @@ class SignalLifecycleService:
                     )
                 )
 
-            await update_signal_status(
-                self.db_manager,
-                sid,
-                status=transition.new_status,
-                activated_at=activated_at,
-                exit_at=exit_at,
-                exit_price=transition.exit_price,
-                exit_reason=transition.exit_reason,
-                pnl_ticks=transition.pnl_ticks,
-                pnl_r=transition.pnl_r,
-                pnl_dollars=transition.pnl_dollars,
-                signal_quality=signal_quality,
-                activation_price=transition.activation_price,
-                zone_entry_pct=transition.zone_entry_pct,
-                bars_to_activation=transition.bars_to_activation,
-                mae=transition.mae,
-                mfe=transition.mfe,
-                bars_in_trade=bit,
-                outcome=outcome,
-            )
+            if transition.new_status == "active":
+                await record_activation(
+                    self.db_manager,
+                    sid,
+                    activated_at=bar_time,
+                    activation_price=transition.activation_price,
+                    zone_entry_pct=transition.zone_entry_pct,
+                    bars_to_activation=transition.bars_to_activation,
+                )
+            elif transition.exit_reason:
+                await record_zone_resolution(
+                    self.db_manager,
+                    sid,
+                    status=transition.new_status,
+                    exit_at=bar_time,
+                    exit_price=transition.exit_price,
+                    exit_reason=transition.exit_reason,
+                    pnl_r=transition.pnl_r,
+                    pnl_dollars=transition.pnl_dollars,
+                    signal_quality=signal_quality,
+                    mae=transition.mae,
+                    mfe=transition.mfe,
+                    bars_in_trade=bit,
+                    outcome=outcome,
+                )
 
             self.lifecycle_transitions_total.inc()
             self.logger.info(

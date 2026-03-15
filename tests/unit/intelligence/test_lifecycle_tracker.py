@@ -276,3 +276,188 @@ class TestPnLCalculation:
         t = evaluate_signal(sig, high=5108.0, low=5095.0, close=5105.0)
         assert t.exit_price == 5105.0
         assert t.pnl_ticks == pytest.approx(5.0)
+
+
+# ============================================================
+# Market Track Tests
+# ============================================================
+
+from src.intelligence.trading.lifecycle_tracker import (  # noqa: E402
+    MarketTransition,
+    _classify_stop_outcome,
+    evaluate_market_entry,
+)
+
+
+def _market_signal(
+    direction=1,
+    entry=5100.0,
+    stop=5085.0,
+    targets=None,
+    ttl_bars=10,
+    bars_elapsed=0,
+) -> dict:
+    """Signal dict for market-track testing. entry_price != market_entry_price by design."""
+    return {
+        "signal_id": "mkt-test-id",
+        "status": "pending",
+        "direction": direction,
+        "entry_price": entry,
+        "stop_loss": stop,
+        "targets": targets or [5115.0, 5130.0, 5145.0],
+        "ttl_bars": ttl_bars,
+        "bars_elapsed": bars_elapsed,
+        "point_value": 50.0,
+    }
+
+
+@pytest.mark.unit
+class TestMarketTransitionDataclass:
+    def test_default_outcome_none(self):
+        t = MarketTransition(signal_id="x")
+        assert t.outcome is None
+
+    def test_gap_bars_default_none(self):
+        t = MarketTransition(signal_id="x")
+        assert t.gap_bars is None
+
+
+@pytest.mark.unit
+class TestEvaluateMarketEntryMechanics:
+    """evaluate_market_entry() — mechanical correctness."""
+
+    def test_long_stop_hit_outcome_none(self):
+        """Stop hit → outcome=None (caller resolves via _classify_stop_outcome)."""
+        sig = _market_signal(direction=1, stop=5085.0)
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5098.0, low=5084.0, close=5086.0)
+        assert t is not None
+        assert t.exit_price == 5085.0
+        assert t.outcome is None  # stop outcome is resolved by caller
+
+    def test_short_stop_hit(self):
+        sig = _market_signal(direction=-1, stop=5115.0,
+                             targets=[5085.0, 5070.0, 5055.0])
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5116.0, low=5105.0, close=5110.0)
+        assert t.exit_price == 5115.0
+        assert t.outcome is None
+
+    def test_long_target_1(self):
+        sig = _market_signal(direction=1, targets=[5115.0, 5130.0, 5145.0])
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5116.0, low=5099.0, close=5115.0)
+        assert t.outcome == "target_1"
+        assert t.exit_price == 5115.0
+
+    def test_long_target_full(self):
+        sig = _market_signal(direction=1, targets=[5115.0, 5130.0, 5145.0])
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5146.0, low=5099.0, close=5145.0)
+        assert t.outcome == "target_full"
+        assert t.exit_price == 5145.0
+
+    def test_ttl_expired_ahead(self):
+        sig = _market_signal(bars_elapsed=11, ttl_bars=10)
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5108.0, low=5099.0, close=5105.0,
+                                  current_mfe=0.3)
+        assert t.outcome == "ttl_expired_ahead"
+
+    def test_ttl_expired_behind(self):
+        sig = _market_signal(bars_elapsed=11, ttl_bars=10)
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5097.0, low=5093.0, close=5094.0,
+                                  current_mfe=0.0)
+        assert t.outcome == "ttl_expired_behind"
+
+    def test_no_exit_returns_still_running(self):
+        """No stop/target/TTL hit → MarketTransition with outcome=None."""
+        sig = _market_signal(direction=1, bars_elapsed=3)
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5108.0, low=5099.0, close=5105.0)
+        assert t.outcome is None
+        assert t.exit_price is None
+
+    def test_risk_uses_market_entry_price_not_entry_price(self):
+        """Market track risk = abs(market_entry_price - stop), not abs(entry_price - stop)."""
+        # entry_price=5100, stop=5085 → zone risk=15
+        # market_entry_price=5090, stop=5085 → market risk=5
+        sig = _market_signal(direction=1, entry=5100.0, stop=5085.0,
+                             targets=[5105.0])
+        t = evaluate_market_entry(sig, market_entry_price=5090.0,
+                                  high=5106.0, low=5089.0, close=5105.0)
+        expected_pnl_r = round((5105.0 - 5090.0) * 1 / abs(5090.0 - 5085.0), 4)
+        assert t.pnl_r == expected_pnl_r
+
+    def test_stop_checked_before_target(self):
+        """Same bar hits both stop and target — stop wins."""
+        sig = _market_signal(direction=1, stop=5085.0, targets=[5115.0])
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5116.0, low=5084.0, close=5100.0)
+        assert t.exit_price == 5085.0
+        assert t.outcome is None  # stop → caller classifies
+
+    def test_never_activated_absent_from_market_track(self):
+        """Market track never returns never_activated — the concept doesn't apply."""
+        sig = _market_signal(bars_elapsed=11, ttl_bars=10)
+        t = evaluate_market_entry(sig, market_entry_price=5100.0,
+                                  high=5097.0, low=5093.0, close=5094.0)
+        assert t.outcome != "never_activated"
+
+
+@pytest.mark.unit
+class TestMarketTrackMathInvariants:
+    """Assert on final MarketTransition values only — not intermediate per-bar state."""
+
+    def _run_bars(self, sig, market_price, bars):
+        """Feed N bars to evaluate_market_entry, returning final transition."""
+        mae = mfe = 0.0
+        t = None
+        for high, low, close in bars:
+            t = evaluate_market_entry(sig, market_entry_price=market_price,
+                                      high=high, low=low, close=close,
+                                      current_mae=mae, current_mfe=mfe)
+            if t.outcome is not None:
+                return t
+            # accumulate excursions on no-exit bars (mirrors service logic)
+            direction = sig["direction"]
+            risk = abs(market_price - sig["stop_loss"])
+            if risk > 0:
+                close_pnl_r = (close - market_price) * direction / risk
+                mae = min(mae, close_pnl_r)
+                mfe = max(mfe, close_pnl_r)
+        return t
+
+    def test_mae_le_pnl_r_le_mfe(self):
+        sig = _market_signal(direction=1, stop=5085.0, targets=[5120.0])
+        bars = [(5103.0, 5098.0, 5101.0),
+                (5110.0, 5102.0, 5108.0),
+                (5121.0, 5105.0, 5120.0)]
+        t = self._run_bars(sig, 5100.0, bars)
+        assert t.mae <= t.pnl_r <= t.mfe
+
+    def test_mae_nonpositive_on_losing_trade(self):
+        sig = _market_signal(direction=1, stop=5085.0, targets=[5120.0])
+        bars = [(5095.0, 5084.0, 5085.0)]  # stop hit immediately
+        t = self._run_bars(sig, 5100.0, bars)
+        assert t.mae <= 0
+
+    def test_pnl_r_formula_exact(self):
+        sig = _market_signal(direction=1, stop=5085.0, targets=[5115.0])
+        bars = [(5116.0, 5100.0, 5115.0)]
+        t = self._run_bars(sig, 5100.0, bars)
+        expected = round((5115.0 - 5100.0) * 1 / abs(5100.0 - 5085.0), 4)
+        assert t.pnl_r == expected
+
+    def test_stop_exit_price_exact(self):
+        sig = _market_signal(direction=1, stop=5085.0)
+        bars = [(5098.0, 5084.0, 5086.0)]
+        t = self._run_bars(sig, 5100.0, bars)
+        assert t.exit_price == 5085.0
+
+    def test_target_exit_price_exact(self):
+        sig = _market_signal(direction=1, stop=5085.0, targets=[5115.0])
+        bars = [(5116.0, 5099.0, 5115.0)]
+        t = self._run_bars(sig, 5100.0, bars)
+        assert t.exit_price == 5115.0
