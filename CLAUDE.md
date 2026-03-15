@@ -254,11 +254,14 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Skeleton cards**: `SkeletonCard` renders a shimmer placeholder while `symbolData[sym]` is null on page load/SSE reconnect. Prevents blank card flash.
 - **`symbol-config.ts` `loadConfig()`**: Fetches all asset classes from `/api/instruments` (not just `futures`). ETFs have `asset_class: "equity"` in the DB. `SymbolInfo.sector` is `string` (not a union) to accommodate all ETF sectors.
 - **Signal alert strip**: `SignalAlertStrip` renders above content when any instrument has a signal ≥ 0.65 confidence. Scans all TFs per symbol; deduplicates to one pill per symbol (highest confidence).
+- **`allowedDevOrigins` (Next.js dev)**: Next.js 16+ blocks cross-origin `/_next/*` HMR requests by default — causes full page reload every ~30-80s when accessing dev server from a non-localhost host. Fix: add all access origins (local IP, CF domains) to `allowedDevOrigins` in `next.config.ts`. Current: `["dash.indicagent.com", "www.indicagent.com", "192.168.1.158"]`.
+- **`getApiBase()` runtime detection** (`src/lib/api.ts`): Returns the correct API base URL at runtime based on `window.location.hostname`. LAN/localhost → `http://<hostname>:8000`; any other host → `https://api.indicagent.com`. Use this instead of `NEXT_PUBLIC_API_BASE_URL` so both direct LAN access and CloudFlare tunnel work without config changes. `NEXT_PUBLIC_API_BASE_URL` still overrides if set.
+- **SSE `Cache-Control` / `X-Accel-Buffering`**: `sse_events` StreamingResponse includes `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers — prevents reverse proxies (nginx, CF) from buffering the stream.
 
 ## System Access
 
 - **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
-- **Server IP:** `10.0.0.39` (WiFi, `wlp193s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
+- **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
 
 ## Environment Variables
 

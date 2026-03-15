@@ -10,6 +10,7 @@ import { useMemo, useState, useEffect } from "react";
 import { OutcomeBadge } from "@/components/outcome-badge";
 import { TierTooltip } from "@/components/tier-tooltip";
 import { SignalScorecard } from "@/components/signal-scorecard";
+import { getApiBase } from "@/lib/api";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -323,7 +324,7 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
 
   useEffect(() => {
     const controller = new AbortController();
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const base = getApiBase();
     fetch(
       `${base}/api/signals/recent?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=20`,
       { signal: controller.signal }
