@@ -4,7 +4,8 @@ export interface SymbolInfo {
   display_name: string
   contract?: string
   description: string
-  sector: "equity_index" | "energy" | "metals" | "volatility" | "interest_rates" | "agriculture" | "fx" | "crypto"
+  asset_class?: string
+  sector: string // equity_index | energy | metals | volatility | interest_rates | agriculture | fx | crypto | broad_market | rates | credit | etc.
 }
 
 export interface SymbolProfile {
@@ -102,6 +103,20 @@ const defaultConfig: DashboardConfig = {
         description: "Crude Oil WTI Futures",
         sector: "energy",
       },
+      {
+        symbol: "BZ",
+        display_name: "Brent Crude",
+        contract: "BZK6",
+        description: "Brent Crude Oil Futures",
+        sector: "energy",
+      },
+      {
+        symbol: "NG",
+        display_name: "Natural Gas",
+        contract: "NGJ6",
+        description: "Natural Gas Futures",
+        sector: "energy",
+      },
       // Precious Metals
       {
         symbol: "GC",
@@ -123,13 +138,6 @@ const defaultConfig: DashboardConfig = {
         display_name: "Copper",
         contract: "HGH6",
         description: "Copper Futures",
-        sector: "metals",
-      },
-      {
-        symbol: "PL",
-        display_name: "Platinum",
-        contract: "PLJ6",
-        description: "Platinum Futures",
         sector: "metals",
       },
       // Equity Index
@@ -177,6 +185,13 @@ const defaultConfig: DashboardConfig = {
         description: "2-Year Treasury Note Futures",
         sector: "interest_rates",
       },
+      {
+        symbol: "SR1",
+        display_name: "SOFR 1M",
+        contract: "SR1H6",
+        description: "1-Month SOFR Futures",
+        sector: "interest_rates",
+      },
       // Agriculture
       {
         symbol: "ZS",
@@ -199,7 +214,22 @@ const defaultConfig: DashboardConfig = {
         description: "Wheat Futures",
         sector: "agriculture",
       },
-      // FX
+      // FX Futures
+      {
+        symbol: "6E",
+        display_name: "Euro FX",
+        contract: "6EH6",
+        description: "Euro FX Futures",
+        sector: "fx",
+      },
+      {
+        symbol: "6J",
+        display_name: "Japanese Yen",
+        contract: "6JH6",
+        description: "Japanese Yen Futures",
+        sector: "fx",
+      },
+      // FX Spot
       {
         symbol: "EURUSD",
         display_name: "Euro/USD",
@@ -243,59 +273,110 @@ const defaultConfig: DashboardConfig = {
         description: "Ether/USD Spot",
         sector: "crypto",
       },
-      {
-        symbol: "SOLUSD",
-        display_name: "Solana",
-        contract: "SOLUSD",
-        description: "Solana/USD Spot",
-        sector: "crypto",
-      },
+      // ETFs — Broad Market
+      { symbol: "SPY",  display_name: "S&P 500 ETF",    contract: "SPY",  description: "SPDR S&P 500 ETF",                    sector: "broad_market",          asset_class: "equity" },
+      { symbol: "QQQ",  display_name: "Nasdaq 100 ETF", contract: "QQQ",  description: "Invesco QQQ Trust",                   sector: "broad_market",          asset_class: "equity" },
+      { symbol: "IWM",  display_name: "Russell 2000 ETF",contract: "IWM", description: "iShares Russell 2000 ETF",            sector: "broad_market",          asset_class: "equity" },
+      { symbol: "DIA",  display_name: "Dow Jones ETF",  contract: "DIA",  description: "SPDR Dow Jones ETF",                  sector: "broad_market",          asset_class: "equity" },
+      // ETFs — Rates / Credit
+      { symbol: "TLT",  display_name: "20yr Treasury",  contract: "TLT",  description: "iShares 20+ Year Treasury Bond ETF",  sector: "rates",                 asset_class: "equity" },
+      { symbol: "IEF",  display_name: "7-10yr Treasury", contract: "IEF", description: "iShares 7-10 Year Treasury Bond ETF", sector: "rates",                 asset_class: "equity" },
+      { symbol: "SHY",  display_name: "1-3yr Treasury", contract: "SHY",  description: "iShares 1-3 Year Treasury Bond ETF",  sector: "rates",                 asset_class: "equity" },
+      { symbol: "HYG",  display_name: "High Yield Bonds",contract: "HYG", description: "iShares iBoxx High Yield ETF",        sector: "credit",                asset_class: "equity" },
+      { symbol: "LQD",  display_name: "IG Corp Bonds",  contract: "LQD",  description: "iShares Investment Grade ETF",        sector: "credit",                asset_class: "equity" },
+      // ETFs — Commodities
+      { symbol: "GLD",  display_name: "Gold ETF",       contract: "GLD",  description: "SPDR Gold Shares",                    sector: "commodity",             asset_class: "equity" },
+      { symbol: "SLV",  display_name: "Silver ETF",     contract: "SLV",  description: "iShares Silver Trust",                sector: "commodity",             asset_class: "equity" },
+      { symbol: "USO",  display_name: "Oil ETF",        contract: "USO",  description: "United States Oil Fund",              sector: "energy",                asset_class: "equity" },
+      { symbol: "GDX",  display_name: "Gold Miners",    contract: "GDX",  description: "VanEck Gold Miners ETF",              sector: "gold_miners",           asset_class: "equity" },
+      { symbol: "GDXJ", display_name: "Jr Gold Miners", contract: "GDXJ", description: "VanEck Junior Gold Miners ETF",       sector: "gold_miners",           asset_class: "equity" },
+      // ETFs — SPDR Sectors
+      { symbol: "XLK",  display_name: "Technology",     contract: "XLK",  description: "Technology Select Sector SPDR",       sector: "technology",            asset_class: "equity" },
+      { symbol: "XLF",  display_name: "Financials",     contract: "XLF",  description: "Financial Select Sector SPDR",        sector: "equity",                asset_class: "equity" },
+      { symbol: "XLV",  display_name: "Health Care",    contract: "XLV",  description: "Health Care Select Sector SPDR",      sector: "healthcare",            asset_class: "equity" },
+      { symbol: "XLE",  display_name: "Energy",         contract: "XLE",  description: "Energy Select Sector SPDR",           sector: "energy",                asset_class: "equity" },
+      { symbol: "XLI",  display_name: "Industrials",    contract: "XLI",  description: "Industrial Select Sector SPDR",       sector: "industrials",           asset_class: "equity" },
+      { symbol: "XLY",  display_name: "Cons. Discret.", contract: "XLY",  description: "Consumer Discretionary SPDR",         sector: "consumer_discretionary",asset_class: "equity" },
+      { symbol: "XLP",  display_name: "Cons. Staples",  contract: "XLP",  description: "Consumer Staples SPDR",               sector: "consumer_staples",      asset_class: "equity" },
+      { symbol: "XLB",  display_name: "Materials",      contract: "XLB",  description: "Materials Select Sector SPDR",        sector: "materials",             asset_class: "equity" },
+      { symbol: "XLC",  display_name: "Comm. Services", contract: "XLC",  description: "Communication Services SPDR",         sector: "communications",        asset_class: "equity" },
+      { symbol: "XLU",  display_name: "Utilities",      contract: "XLU",  description: "Utilities Select Sector SPDR",        sector: "utilities",             asset_class: "equity" },
+      { symbol: "XLRE", display_name: "Real Estate",    contract: "XLRE", description: "Real Estate Select Sector SPDR",      sector: "real_estate",           asset_class: "equity" },
+      { symbol: "XOP",  display_name: "Oil & Gas E&P",  contract: "XOP",  description: "SPDR Oil & Gas Exploration ETF",      sector: "energy",                asset_class: "equity" },
+      // ETFs — Thematic / Factor
+      { symbol: "SMH",  display_name: "Semiconductors", contract: "SMH",  description: "VanEck Semiconductor ETF",            sector: "technology",            asset_class: "equity" },
+      { symbol: "IBB",  display_name: "Biotech",        contract: "IBB",  description: "iShares Biotechnology ETF",           sector: "biotech",               asset_class: "equity" },
+      { symbol: "ITB",  display_name: "Homebuilders",   contract: "ITB",  description: "iShares U.S. Home Construction ETF",  sector: "homebuilders",          asset_class: "equity" },
+      { symbol: "MTUM", display_name: "Momentum",       contract: "MTUM", description: "iShares MSCI USA Momentum ETF",       sector: "factor",                asset_class: "equity" },
+      { symbol: "QUAL", display_name: "Quality",        contract: "QUAL", description: "iShares MSCI USA Quality ETF",        sector: "factor",                asset_class: "equity" },
+      { symbol: "VLUE", display_name: "Value",          contract: "VLUE", description: "iShares MSCI USA Value ETF",          sector: "factor",                asset_class: "equity" },
+      { symbol: "USMV", display_name: "Min Volatility", contract: "USMV", description: "iShares MSCI USA Min Vol ETF",        sector: "factor",                asset_class: "equity" },
+      // ETFs — International / EM
+      { symbol: "EEM",  display_name: "Emerging Mkts",  contract: "EEM",  description: "iShares MSCI Emerging Markets ETF",   sector: "emerging_markets",      asset_class: "equity" },
+      { symbol: "EFA",  display_name: "Intl Dev Mkts",  contract: "EFA",  description: "iShares MSCI EAFE ETF",               sector: "international",         asset_class: "equity" },
+      { symbol: "FXI",  display_name: "China",          contract: "FXI",  description: "iShares China Large-Cap ETF",         sector: "emerging_markets",      asset_class: "equity" },
+      { symbol: "EWZ",  display_name: "Brazil",         contract: "EWZ",  description: "iShares MSCI Brazil ETF",             sector: "emerging_markets",      asset_class: "equity" },
+      { symbol: "EMB",  display_name: "EM Bonds",       contract: "EMB",  description: "iShares EM Bond ETF",                 sector: "emerging_markets",      asset_class: "equity" },
     ],
   },
   active_profile: "all_futures",
   profiles: {
     all_futures: {
-      name: "All Futures",
+      name: "Futures",
       symbols: [
         "ES", "NQ", "RTY", "YM",
-        "CL",
-        "GC", "SI", "HG", "PL",
+        "CL", "BZ", "NG",
+        "GC", "SI", "HG",
         "VX",
-        "ZN", "ZF", "ZB", "ZT",
+        "ZN", "ZF", "ZB", "ZT", "SR1",
         "ZS", "ZC", "ZW",
+        "6E", "6J",
       ],
-      description: "All 17 futures contracts",
+      description: "All active futures contracts",
     },
     equity_index: {
-      name: "Equity Indices",
-      symbols: ["ES", "NQ", "RTY", "YM"],
-      description: "E-mini equity index futures",
+      name: "Indices",
+      symbols: ["ES", "NQ", "RTY", "YM", "VX"],
+      description: "E-mini equity index + VIX futures",
+    },
+    etf_broad: {
+      name: "ETFs Core",
+      symbols: ["SPY", "QQQ", "IWM", "DIA", "TLT", "IEF", "SHY", "HYG", "LQD", "GLD", "SLV", "USO", "GDX", "GDXJ"],
+      description: "Broad market, rates, credit, and commodity ETFs",
+    },
+    etf_sectors: {
+      name: "Sectors",
+      symbols: ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLB", "XLC", "XLU", "XLRE", "XOP", "SMH", "IBB"],
+      description: "SPDR sector ETFs + thematic",
+    },
+    etf_factor: {
+      name: "Factor/Intl",
+      symbols: ["MTUM", "QUAL", "VLUE", "USMV", "EEM", "EFA", "FXI", "EWZ", "EMB", "ITB"],
+      description: "Factor ETFs and international/EM",
+    },
+    fx_crypto: {
+      name: "FX + Crypto",
+      symbols: ["EURUSD", "GBPUSD", "USDCHF", "BTCUSD", "ETHUSD"],
+      description: "Spot FX and crypto",
     },
     commodities: {
       name: "Commodities",
-      symbols: ["CL", "GC", "SI", "HG", "PL", "ZS", "ZC", "ZW"],
+      symbols: ["CL", "BZ", "NG", "GC", "SI", "HG", "ZS", "ZC", "ZW"],
       description: "Energy, metals, and agriculture futures",
     },
-    fx: {
-      name: "FX",
-      symbols: ["EURUSD", "GBPUSD", "USDJPY", "USDCHF"],
-      description: "Spot FX pairs",
-    },
-    crypto: {
-      name: "Crypto",
-      symbols: ["BTCUSD", "ETHUSD", "SOLUSD"],
-      description: "Spot crypto",
-    },
     interest_rates: {
-      name: "Interest Rates",
-      symbols: ["ZN", "ZF", "ZB", "ZT"],
-      description: "Treasury futures",
+      name: "Rates",
+      symbols: ["ZN", "ZF", "ZB", "ZT", "SR1", "TLT", "IEF", "SHY"],
+      description: "Treasury futures + rate ETFs",
     },
   },
 }
 
 class SymbolConfigManager {
   private config: DashboardConfig = defaultConfig
+  private symbolInfoMap: Map<string, SymbolInfo> = new Map(
+    defaultConfig.dashboard_symbols.futures.map((s) => [s.symbol, s])
+  )
 
   getActiveSymbols(): string[] {
     const activeProfile = this.config.active_profile
@@ -304,12 +385,7 @@ class SymbolConfigManager {
   }
 
   getSymbolInfo(symbol: string): SymbolInfo | null {
-    for (const future of this.config.dashboard_symbols.futures) {
-      if (future.symbol === symbol) {
-        return future
-      }
-    }
-    return null
+    return this.symbolInfoMap.get(symbol) ?? null
   }
 
   getDisplayName(symbol: string): string {
@@ -323,9 +399,8 @@ class SymbolConfigManager {
   }
 
   isFuturesSymbol(symbol: string): boolean {
-    return this.config.dashboard_symbols.futures.some(
-      (f) => f.symbol === symbol
-    )
+    const info = this.symbolInfoMap.get(symbol)
+    return info?.asset_class === "futures"
   }
 
   getAllProfiles(): Record<string, SymbolProfile> {
@@ -364,16 +439,22 @@ class SymbolConfigManager {
       }> = await res.json()
 
       const futures: SymbolInfo[] = instruments
-        .filter((i) => i.is_active && i.asset_class === "futures")
-        .map((i) => ({
-          symbol: this.contractToBase(i.symbol),
-          display_name: i.name,
-          contract: i.symbol,
-          description: `${i.name} Futures`,
-          sector: i.sector as SymbolInfo["sector"],
-        }))
+        .filter((i) => i.is_active)
+        .map((i) => {
+          const isFutures = i.asset_class === "futures"
+          const baseSymbol = isFutures ? this.contractToBase(i.symbol) : i.symbol
+          return {
+            symbol: baseSymbol,
+            display_name: i.name,
+            contract: i.symbol,
+            description: i.name,
+            asset_class: i.asset_class,
+            sector: i.sector ?? "",
+          }
+        })
 
       this.config = { ...this.config, dashboard_symbols: { ...this.config.dashboard_symbols, futures } }
+      this.symbolInfoMap = new Map(futures.map((s) => [s.symbol, s]))
     } catch {
       // Keep static fallback on error
     }

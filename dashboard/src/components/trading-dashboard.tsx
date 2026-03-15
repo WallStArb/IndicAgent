@@ -16,10 +16,14 @@ import { SignalBanner } from "./signal-banner";
 import { NarrativeElevated } from "./narrative-elevated";
 import { TimeframeMatrix } from "./timeframe-matrix";
 import { DrillPanel } from "./drill-panel";
+import { WatchlistRail } from "./watchlist-rail";
+import { SignalAlertStrip } from "./signal-alert-strip";
+import { SkeletonCard } from "./skeleton-card";
 import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarrativeData, SignalData } from "@/lib/types";
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
 import { fmtTimeHMS } from "@/lib/format";
+import { LayoutGrid, Rows3 } from "lucide-react";
 
 const TF_STALENESS_MS: Record<string, number> = {
   "1m":  10 * 60_000,
@@ -29,6 +33,119 @@ const TF_STALENESS_MS: Record<string, number> = {
   "4h":  40 * 3_600_000,
   "1d":  10 * 86_400_000,
 };
+
+// Auto-switch to focus layout above this count
+const GRID_MODE_MAX = 12;
+
+type LayoutMode = "focus" | "grid";
+
+// ── Sector grouping config ──
+
+const SECTOR_GROUPS: { key: string; label: string; sectors: string[] }[] = [
+  { key: "equity",    label: "Equity Indices",    sectors: ["equity_index", "volatility"] },
+  { key: "rates",     label: "Interest Rates",    sectors: ["interest_rates"] },
+  { key: "energy",    label: "Energy",            sectors: ["energy"] },
+  { key: "metals",    label: "Metals",            sectors: ["metals", "gold_miners", "commodity"] },
+  { key: "ag",        label: "Agriculture",       sectors: ["agriculture"] },
+  { key: "fx",        label: "FX",                sectors: ["fx"] },
+  { key: "crypto",    label: "Crypto",            sectors: ["crypto"] },
+  // ETF sub-groups
+  { key: "etf_broad", label: "ETFs — Broad/Macro",sectors: ["broad_market", "rates", "credit"] },
+  { key: "etf_sector",label: "ETFs — Sectors",    sectors: ["technology", "healthcare", "financials", "industrials", "consumer_discretionary", "consumer_staples", "materials", "communications", "utilities", "real_estate", "homebuilders", "biotech"] },
+  { key: "etf_factor",label: "ETFs — Factor/Intl",sectors: ["factor", "emerging_markets", "international"] },
+  { key: "other",     label: "Other",             sectors: [] }, // catch-all
+];
+
+function getSectorGroup(sector: string | undefined, assetClass?: string): string {
+  if (!sector && !assetClass) return "other";
+  for (const g of SECTOR_GROUPS) {
+    if (g.key === "other") continue;
+    if (sector && g.sectors.includes(sector)) return g.key;
+  }
+  // equity asset_class with unrecognized sector → ETF broad as fallback
+  if (assetClass === "equity") return "etf_broad";
+  return "other";
+}
+
+function filterNarrativesBySymbol(narratives: Record<string, NarrativeData>, symbol: string): Record<string, NarrativeData> {
+  return Object.fromEntries(Object.entries(narratives).filter(([, n]) => n.symbol === symbol));
+}
+
+/** Groups symbols by sector and renders them in labeled sections */
+function GroupedSymbolGrid({
+  symbols,
+  symbolData,
+  narratives,
+  timeframe,
+  selectedDrillSignal,
+  signalsHistory,
+  setSelectedDrillSignal,
+}: {
+  symbols: string[];
+  symbolData: Record<string, SymbolData>;
+  narratives: Record<string, NarrativeData>;
+  timeframe: Timeframe;
+  selectedDrillSignal: SignalData | null;
+  signalsHistory: Record<string, SignalData[]>;
+  setSelectedDrillSignal: (s: SignalData | null) => void;
+}) {
+  // Build groups — preserve original order within each group
+  const grouped = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const sym of symbols) {
+      const info = symbolConfig.getSymbolInfo(sym);
+      const groupKey = getSectorGroup(info?.sector, info?.asset_class);
+      if (!map.has(groupKey)) map.set(groupKey, []);
+      map.get(groupKey)!.push(sym);
+    }
+    // Return in canonical SECTOR_GROUPS order
+    return SECTOR_GROUPS
+      .map((g) => ({ ...g, symbols: map.get(g.key) ?? [] }))
+      .filter((g) => g.symbols.length > 0);
+  }, [symbols]);
+
+  return (
+    <div className="p-1.5 space-y-3">
+      {grouped.map((group) => (
+        <section key={group.key}>
+          {/* Section header */}
+          <div className="flex items-center gap-2 mb-1.5 px-0.5">
+            <span className="text-[0.6rem] font-bold uppercase tracking-widest text-[var(--text-muted)]">
+              {group.label}
+            </span>
+            <span className="text-[0.55rem] text-[var(--border-bright)]">
+              {group.symbols.length}
+            </span>
+            <div className="flex-1 h-px bg-[var(--border-subtle)]" />
+          </div>
+
+          {/* Card grid */}
+          <div
+            className="grid gap-1.5 content-start"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}
+          >
+            {group.symbols.map((sym) => {
+              const data = symbolData[sym];
+              if (!data) return <SkeletonCard key={sym} symbol={sym} />;
+              const symNarratives = filterNarrativesBySymbol(narratives, sym);
+              return (
+                <SymbolCard
+                  key={sym}
+                  data={data}
+                  narratives={symNarratives}
+                  globalTf={timeframe}
+                  selectedDrillSignal={selectedDrillSignal}
+                  signalsHistory={signalsHistory}
+                  setSelectedDrillSignal={setSelectedDrillSignal}
+                />
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 function IndicAgentLogo({ size = 28 }: { size?: number }) {
   return (
@@ -62,6 +179,20 @@ export default function TradingDashboard() {
     [activeProfile, profiles]
   );
 
+  // Layout mode: auto-select based on profile size, but allow manual override
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(
+    symbols.length > GRID_MODE_MAX ? "focus" : "grid"
+  );
+
+  // Selected instrument in focus mode (defaults to first symbol)
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(symbols[0] ?? "ES");
+
+  // When profile changes: re-evaluate layout and reset selection
+  useEffect(() => {
+    setLayoutMode(symbols.length > GRID_MODE_MAX ? "focus" : "grid");
+    setSelectedSymbol(symbols[0] ?? "ES");
+  }, [symbols]);
+
   const { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives, signalsHistory } = useMarketStream(
     timeframe,
     symbols
@@ -75,6 +206,14 @@ export default function TradingDashboard() {
     symbolConfig.setActiveProfile(profile);
     setActiveProfile(profile);
   }
+
+  function handleSignalAlertSelect(sym: string) {
+    setSelectedSymbol(sym);
+    if (layoutMode === "grid") setLayoutMode("focus");
+  }
+
+  // Ensure selectedSymbol is always valid within current profile
+  const activeSymbol = symbols.includes(selectedSymbol) ? selectedSymbol : (symbols[0] ?? "ES");
 
   if (!mounted) {
     return (
@@ -143,45 +282,89 @@ export default function TradingDashboard() {
               </button>
             ))}
           </div>
+
+          {/* Layout mode toggle */}
+          <LayoutToggle mode={layoutMode} onChange={setLayoutMode} />
+
           <StatusDot status={connectionStatus} />
         </div>
       </header>
 
-      {/* ── Symbol Grid ── */}
-      <main className="flex-1 overflow-auto p-1.5">
-        <div
-          className="grid gap-1.5 content-start"
-          style={{
-            gridTemplateColumns: `repeat(auto-fill, minmax(340px, 1fr))`,
-          }}
-        >
-          {symbols.map((sym) => {
-            const data = symbolData[sym];
-            if (!data) return null;
-            // Pass all narratives for this symbol — card picks the right TF
-            const symNarratives = Object.fromEntries(
-              Object.entries(narratives).filter(([, n]) => n.symbol === sym)
-            );
-            return <SymbolCard
-            key={sym}
-            data={data}
-            narratives={symNarratives}
-            globalTf={timeframe}
-            selectedDrillSignal={selectedDrillSignal}
-            signalsHistory={signalsHistory}
-            setSelectedDrillSignal={setSelectedDrillSignal}
-          />;
-          })}
-        </div>
-      </main>
-
-      {/* ── AI Narrative Feed ── */}
-      <NarrativePanel
-        narratives={narratives}
-        groupNarratives={groupNarratives}
-        activeSymbol={symbols[0] ?? "ES"}
-        activeTimeframe={timeframe}
+      {/* ── Global Signal Alert Strip ── */}
+      <SignalAlertStrip
+        symbolData={symbolData}
+        symbols={symbols}
+        onSelectSymbol={handleSignalAlertSelect}
       />
+
+      {/* ── Main Content: Rail + View ── */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left watchlist rail — focus mode only */}
+        {layoutMode === "focus" && (
+          <WatchlistRail
+            symbols={symbols}
+            symbolData={symbolData}
+            selectedSymbol={activeSymbol}
+            globalTf={timeframe}
+            onSelect={setSelectedSymbol}
+          />
+        )}
+
+        {/* Content area */}
+        <main className="flex-1 overflow-auto">
+          {layoutMode === "grid" ? (
+            /* ── Grouped Grid View ── */
+            <GroupedSymbolGrid
+              symbols={symbols}
+              symbolData={symbolData}
+              narratives={narratives}
+              timeframe={timeframe}
+              selectedDrillSignal={selectedDrillSignal}
+              signalsHistory={signalsHistory}
+              setSelectedDrillSignal={setSelectedDrillSignal}
+            />
+          ) : (
+            /* ── Focus View ── */
+            <div className="p-1.5 flex gap-1.5 h-full">
+              {/* Primary card */}
+              <div className="flex-1 min-w-0 max-w-[480px]">
+                {symbolData[activeSymbol] ? (
+                  <SymbolCard
+                    data={symbolData[activeSymbol]}
+                    narratives={filterNarrativesBySymbol(narratives, activeSymbol)}
+                    globalTf={timeframe}
+                    selectedDrillSignal={selectedDrillSignal}
+                    signalsHistory={signalsHistory}
+                    setSelectedDrillSignal={setSelectedDrillSignal}
+                  />
+                ) : (
+                  <SkeletonCard symbol={activeSymbol} />
+                )}
+              </div>
+
+              {/* Narrative feed: right column in focus mode */}
+              <div className="w-72 shrink-0 hidden lg:block overflow-auto">
+                <NarrativePanel
+                  narratives={narratives}
+                  groupNarratives={groupNarratives}
+                  activeSymbol={activeSymbol}
+                  activeTimeframe={timeframe}
+                />
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ── AI Narrative Feed — grid mode only (fixed bottom strip) ── */}
+      {layoutMode === "grid" && (
+        <NarrativePanel
+          narratives={narratives}
+          groupNarratives={groupNarratives}
+          activeSymbol={symbols[0] ?? "ES"}
+          activeTimeframe={timeframe}
+        />
+      )}
 
       {/* ── Footer ── */}
       <footer className="flex items-center justify-between px-3 py-1 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">
@@ -456,6 +639,42 @@ function ProfileSwitcher({
           {profiles[key].name}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Grid / Focus layout toggle */
+function LayoutToggle({
+  mode,
+  onChange,
+}: {
+  mode: LayoutMode;
+  onChange: (m: LayoutMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 bg-[var(--bg-base)] rounded p-0.5">
+      <button
+        onClick={() => onChange("grid")}
+        title="Grid view — all instruments"
+        className={`p-1 rounded transition-colors ${
+          mode === "grid"
+            ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+            : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+        }`}
+      >
+        <LayoutGrid size={11} />
+      </button>
+      <button
+        onClick={() => onChange("focus")}
+        title="Focus view — watchlist + detail"
+        className={`p-1 rounded transition-colors ${
+          mode === "focus"
+            ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+            : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+        }`}
+      >
+        <Rows3 size={11} />
+      </button>
     </div>
   );
 }
