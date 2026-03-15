@@ -33,7 +33,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import asyncio
+
 import redis
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+from aiokafka.errors import UnknownTopicOrPartitionError
 
 # Allow running from repo root
 sys.path.insert(0, str(Path(__file__).parents[2]))
@@ -51,6 +55,8 @@ _ALWAYS_CLEAR = [
     "intelligence_features",
     "technical_indicators",
     "setup_performance",  # no symbol column — always truncated in full
+    "drift_state",
+    "drift_monitor",
 ]
 
 # Tables in _ALWAYS_CLEAR that have no symbol column (always TRUNCATE, never per-symbol DELETE)
@@ -134,6 +140,62 @@ def clear_redis_streams(r: redis.Redis, env_prefix: str) -> int:
             r.delete(*keys)
             deleted += len(keys)
     return deleted
+
+
+_KAFKA_TOPIC_SPECS = [
+    ("market.ticks", 1, "604800000"),
+    ("market.bars", 1, "604800000"),
+    ("indicators", 1, "604800000"),
+    ("intelligence", 1, "604800000"),
+    ("intelligence.i7", 1, "86400000"),
+    ("intelligence.i8", 1, "86400000"),
+    ("signals", 1, "604800000"),
+    ("signals.aggregated", 1, "604800000"),
+    ("narratives", 1, "604800000"),
+    ("llm.calls", 1, "604800000"),
+    ("llm.outcomes", 1, "604800000"),
+]
+
+
+async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
+    """Delete and recreate all pipeline Kafka topics to flush all stream data.
+
+    Returns number of topics cleared.
+    """
+    prefix = f"{env_prefix}." if env_prefix else ""
+    topic_names = [f"{prefix}{suffix}" for suffix, _, _ in _KAFKA_TOPIC_SPECS]
+
+    client = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
+    await client.start()
+    try:
+        try:
+            await client.delete_topics(topic_names)
+        except UnknownTopicOrPartitionError:
+            pass  # topics may not exist on first run
+        except Exception as e:
+            if "unknown topic" not in str(e).lower():
+                raise
+
+        new_topics = [
+            NewTopic(
+                name=name,
+                num_partitions=partitions,
+                replication_factor=1,
+                topic_configs={"retention.ms": retention_ms},
+            )
+            for name, (_, partitions, retention_ms) in zip(
+                topic_names, _KAFKA_TOPIC_SPECS, strict=True
+            )
+        ]
+        try:
+            await client.create_topics(new_topics)
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                raise
+    finally:
+        await client.close()
+
+    return len(topic_names)
 
 
 def publish_reset_sentinel(r: redis.Redis, env_prefix: str, symbols: list[str]) -> None:
@@ -294,16 +356,12 @@ def main() -> None:
     # --- Stage 1: Stop services ---
     _pause_for_services("stop", _STOP_SERVICES)
 
-    # --- Stage 2: Clear Redis ---
-    env_prefix = f"{settings.env_name}:" if settings.env_name else ""
-    print("\n[1/5] Clearing Redis streams...")
-    r = redis.Redis(host=settings.redis_host, port=settings.redis_port, db=settings.redis_db)
-    n_keys = clear_redis_streams(r, env_prefix)
-    print(f"      Deleted {n_keys} stream keys")
-
-    # Publish sentinel so connected SSE clients auto-clear stale state
-    publish_reset_sentinel(r, env_prefix, target_symbols or [c.symbol for c in settings.contracts])
-    print("      Published pipeline_reset sentinel to system:events")
+    # --- Stage 2: Clear Kafka topics ---
+    kafka_env_prefix = settings.env_name or ""
+    print("\n[1/5] Clearing Kafka topics (delete + recreate)...")
+    bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+    n_topics = asyncio.run(clear_kafka_topics(bootstrap, env_prefix=kafka_env_prefix))
+    print(f"      Cleared {n_topics} Kafka topics")
 
     # --- Stage 3: Truncate DB ---
     print("\n[2/5] Truncating DB tables...")

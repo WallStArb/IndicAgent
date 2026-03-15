@@ -205,3 +205,57 @@ def test_publish_reset_sentinel_uses_no_prefix():
 
     stream_key = r.xadd.call_args.args[0]
     assert stream_key == "system:events"
+
+
+# ---------------------------------------------------------------------------
+# drift tables + Kafka topic clearing
+# ---------------------------------------------------------------------------
+
+
+def test_always_clear_includes_drift_tables():
+    """drift_state and drift_monitor must be in _ALWAYS_CLEAR so a full reset wipes them."""
+    from production.scripts.pipeline_reset import _ALWAYS_CLEAR
+
+    assert "drift_state" in _ALWAYS_CLEAR
+    assert "drift_monitor" in _ALWAYS_CLEAR
+
+
+def test_clear_kafka_topics_deletes_all_env_prefixed_topics():
+    """clear_kafka_topics deletes all pipeline topics under the given env prefix."""
+    from unittest.mock import AsyncMock, patch
+
+    from production.scripts.pipeline_reset import clear_kafka_topics
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.close = AsyncMock()
+    mock_client.delete_topics = AsyncMock()
+    mock_client.create_topics = AsyncMock()
+
+    with patch("production.scripts.pipeline_reset.AIOKafkaAdminClient", return_value=mock_client):
+        import asyncio
+        count = asyncio.run(clear_kafka_topics("localhost:19092", env_prefix="development"))
+
+    mock_client.delete_topics.assert_called_once()
+    topics_deleted = mock_client.delete_topics.call_args.args[0]
+    assert all(t.startswith("development.") for t in topics_deleted)
+    assert count == len(topics_deleted)
+
+
+def test_clear_kafka_topics_recreates_topics_after_delete():
+    """After deleting, clear_kafka_topics calls create_topics to restore topic config."""
+    from unittest.mock import AsyncMock, patch
+
+    from production.scripts.pipeline_reset import clear_kafka_topics
+
+    mock_client = MagicMock()
+    mock_client.start = AsyncMock()
+    mock_client.close = AsyncMock()
+    mock_client.delete_topics = AsyncMock()
+    mock_client.create_topics = AsyncMock()
+
+    with patch("production.scripts.pipeline_reset.AIOKafkaAdminClient", return_value=mock_client):
+        import asyncio
+        asyncio.run(clear_kafka_topics("localhost:19092", env_prefix="development"))
+
+    mock_client.create_topics.assert_called_once()

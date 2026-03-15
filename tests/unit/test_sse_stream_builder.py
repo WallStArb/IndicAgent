@@ -115,11 +115,11 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_kafka_broadcaster_fan_out():
-    """KAFKA-07: KafkaSSEBroadcaster fan-out delivers to subscribed queues and populates snapshot.
+    """KAFKA-07: KafkaSSEBroadcaster fan-out delivers to subscribed queues and populates _latest.
 
-    - subscribe() returns (deque, asyncio.Queue)
+    - subscribe() returns (_latest dict, asyncio.Queue)
     - After broadcaster processes a message, the queue receives it
-    - The _snapshot[topic] deque has the message
+    - The _latest[topic][key] has the message
     """
     from src.api.routes.sse import KafkaSSEBroadcaster
 
@@ -130,27 +130,26 @@ async def test_kafka_broadcaster_fan_out():
     test_topic = "dev.intelligence"
     test_key = "ES:1m"
     test_payload = {"event": '{"ts": "2026-03-14T10:00:00Z", "symbol": "ES", "tf": "1m"}'}
+    item = {"topic": test_topic, "key": test_key, "payload": test_payload}
 
     # Manually drive the broadcaster's fan-out (bypass actual Kafka consumer)
-    broadcaster._snapshot[test_topic].appendleft(
-        {"topic": test_topic, "key": test_key, "payload": test_payload}
-    )
+    broadcaster._latest[test_topic][test_key] = item
     for q in list(broadcaster._queues):
         try:
-            q.put_nowait({"topic": test_topic, "key": test_key, "payload": test_payload})
+            q.put_nowait(item)
         except asyncio.QueueFull:
             pass
 
-    # Assert snapshot populated
-    assert len(broadcaster._snapshot[test_topic]) == 1
-    assert broadcaster._snapshot[test_topic][0]["topic"] == test_topic
+    # Assert _latest populated
+    assert test_key in broadcaster._latest[test_topic]
+    assert broadcaster._latest[test_topic][test_key]["topic"] == test_topic
 
     # Assert queue received message
     assert not live_q.empty()
-    item = await live_q.get()
-    assert item["topic"] == test_topic
-    assert item["key"] == test_key
-    assert item["payload"] == test_payload
+    received = await live_q.get()
+    assert received["topic"] == test_topic
+    assert received["key"] == test_key
+    assert received["payload"] == test_payload
 
     # unsubscribe removes queue
     broadcaster.unsubscribe(live_q)

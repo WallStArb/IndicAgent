@@ -151,6 +151,47 @@ def _make_bar_history(n: int = 55) -> deque:
     return bars
 
 
+def test_build_ledger_entries_sets_market_entry_price_to_bar_close():
+    """market_entry_price must equal the close of the last bar in bar_history (signal bar close)."""
+    from production.scripts.historical_backfill import _build_ledger_entries
+    from src.intelligence.trading.aggregator import AggregatedResult
+
+    bar_history = _make_bar_history(n=55)
+    expected_close = bar_history[-1]["close"]  # 100.5 + 54 = 154.5
+
+    result = AggregatedResult(
+        selected_signal={"direction": 1, "composite_rank": 1},
+        all_ranked=[
+            {
+                "direction": 1,
+                "composite_rank": 1,
+                "setup_plugin": "trad_TrendFollowing",
+                "signal_type": "long",
+                "entry_price": 160.0,  # zone entry — different from market close
+                "stop_loss": 150.0,
+                "targets": [170.0],
+                "confidence": 0.7,
+                "confluence_score": 0.8,
+                "regime_context": "trend",
+                "supporting_factors": [],
+            }
+        ],
+        resolution_method="highest_rank",
+        num_signals_fired=1,
+        num_agreeing=1,
+        num_conflicting=0,
+        cis_score=0.42,
+        bucket_scores={},
+        weights_version=0,
+    )
+
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+    entries = _build_ledger_entries(result, "ESH6", "1m", ts, {}, bar_history=bar_history)
+
+    assert len(entries) == 1
+    assert entries[0].market_entry_price == expected_close
+
+
 def test_run_i7_and_persist_populates_cis_fields():
     """CIS fields from AggregatedResult flow through _build_ledger_entries into LedgerEntry."""
     from production.scripts.historical_backfill import (
