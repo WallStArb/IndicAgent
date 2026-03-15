@@ -114,7 +114,6 @@ You should see checks for tables, indexes, hypertables, and continuous aggregate
 ### Current DB tables (from migrations)
 
 - **market_data_ohlcv** – OHLCV bars (hypertable). Used by API and cold path.
-- **technical_indicators** – Indicator values (hypertable).
 - **features**, **intelligence** – Hypertables for I1/I2 and intelligence (migrations create them; used for future/cold storage).
 - **trading_signals**, **instruments** – In `schemas/create_schema.sql`; migrations may add or extend.
 - **Continuous aggregates** – backtesting_data_5m, ohlcv_15m, ohlcv_1h, ohlcv_4h, ohlcv_1d (verified by `db_verify.sh`).

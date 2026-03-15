@@ -82,7 +82,7 @@ def test_clear_redis_streams_returns_zero_when_no_keys():
 
 
 def test_truncate_tables_always_clears_core_tables():
-    """truncate_tables always clears signal_ledger, intelligence_features, technical_indicators."""
+    """truncate_tables always clears signal_ledger and intelligence_features."""
     from production.scripts.pipeline_reset import truncate_tables
 
     conn = MagicMock()
@@ -95,7 +95,6 @@ def test_truncate_tables_always_clears_core_tables():
     executed = [call.args[0] for call in cur.execute.call_args_list]
     assert any("signal_ledger" in sql for sql in executed)
     assert any("intelligence_features" in sql for sql in executed)
-    assert any("technical_indicators" in sql for sql in executed)
     assert not any("market_data_ohlcv" in sql for sql in executed)
 
 

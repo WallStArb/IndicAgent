@@ -10,7 +10,7 @@ TimescaleDB handles most routine maintenance automatically (compression, retenti
 
 Storage is trivially cheap. Historical signal outcomes, feature vectors, and LLM call logs are irreplaceable labeled training data. Patterns we can't see today may be discoverable in 2 years with better models. Retention policies exist for log files and confirmed-unused legacy tables — not intelligence data.
 
-The only table with a retention policy is `technical_indicators` (legacy unused EAV table, no signal value).
+No tables have automated retention policies — all intelligence data is kept forever.
 
 ## Automated Policies (no action needed)
 
@@ -20,7 +20,6 @@ The only table with a retention policy is `technical_indicators` (legacy unused 
 | `intelligence_features` | after 7d | **none — keep forever** | The ML training dataset |
 | `signal_ledger` | after 7d | **none — keep forever** | Labeled outcomes; irreplaceable training signal |
 | `llm_calls` | after 7d | **none — keep forever** | Model performance history |
-| `technical_indicators` | after 7d | 60d | Confirmed unused legacy EAV — only exception |
 
 Continuous aggregate refresh:
 - `ohlcv_15m`, `ohlcv_1h`: every 1–5 min
@@ -213,7 +212,6 @@ docker exec timescaledb psql -U postgres -d indicagent
 | `signal_ledger` | I7 signals + lifecycle outcomes | Yes (7d chunk) | Per signal |
 | `llm_calls` | LLM audit log, outcome backfill | Yes (7d chunk) | Per narrative |
 | `market_data_ohlcv` | Raw OHLCV cold storage | Yes (1d chunk) | Backfill only |
-| `technical_indicators` | Legacy EAV indicator store | Yes (1d chunk) | Unused |
 | `setup_performance` | Adaptive aggregator weights | No | Nightly (job) |
 | `cis_weights` | CIS bucket weights | No | Infrequent |
 | `llm_model_scores` | Per-model performance scores | No | Every 15 min |
