@@ -200,6 +200,10 @@ class TestFreshnessDecayWiring:
         svc._mae = {}
         svc._mfe = {}
         svc._activated_at = {}
+        svc._market_mae = {}
+        svc._market_mfe = {}
+        svc._market_activated_at = {}
+        svc._resolved_market = set()
         svc.env_prefix = "test:"
         svc.env_name = "test"
         svc._kafka_producer = None  # KAFKA-08: service uses Kafka; None disables publish
@@ -252,7 +256,7 @@ class TestFreshnessDecayWiring:
         bar = {"high": 4015.0, "low": 4001.0, "close": 4012.0}
 
         with patch(
-            "services.signal_lifecycle_service.update_signal_status",
+            "services.signal_lifecycle_service.record_zone_resolution",
             new_callable=AsyncMock,
         ) as mock_update:
             await svc._evaluate_signals_against_bar(
@@ -263,7 +267,7 @@ class TestFreshnessDecayWiring:
                 all_active=[sig],
             )
 
-        assert mock_update.called, "update_signal_status must be called on exit"
+        assert mock_update.called, "record_zone_resolution must be called on exit"
         kwargs = mock_update.call_args.kwargs
         signal_quality = kwargs.get("signal_quality")
         pnl_r = kwargs.get("pnl_r")
@@ -323,7 +327,7 @@ class TestFreshnessDecayWiring:
         bar = {"high": 4015.0, "low": 4001.0, "close": 4012.0}
 
         with patch(
-            "services.signal_lifecycle_service.update_signal_status",
+            "services.signal_lifecycle_service.record_zone_resolution",
             new_callable=AsyncMock,
         ) as mock_update:
             await svc._evaluate_signals_against_bar(
@@ -334,10 +338,10 @@ class TestFreshnessDecayWiring:
                 all_active=[sig],
             )
 
-        assert mock_update.called, "update_signal_status must be called on exit"
+        assert mock_update.called, "record_zone_resolution must be called on exit"
         kwargs = mock_update.call_args.kwargs
 
         assert "confidence" not in kwargs, (
-            f"update_signal_status must NOT receive 'confidence' kwarg — "
+            f"record_zone_resolution must NOT receive 'confidence' kwarg — "
             f"stored DB confidence is immutable. Got kwargs keys: {list(kwargs.keys())}"
         )
