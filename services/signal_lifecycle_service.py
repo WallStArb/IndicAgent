@@ -269,7 +269,6 @@ class SignalLifecycleService:
 
         relevant = [s for s in (all_active or []) if s.get("timeframe") == timeframe]
         self.active_signals_count.set(len(relevant))
-        now = datetime.now(tz=UTC)
 
         for sig in relevant:
             sid = str(sig["signal_id"])
@@ -358,8 +357,8 @@ class SignalLifecycleService:
 
                 # Shadow signal exit (stop/target/TTL hit)
                 if transition.exit_reason:
-                    exit_at = now
-                    bit = _bars_in_trade(self._activated_at.get(sid), now, timeframe)
+                    exit_at = bar_time
+                    bit = _bars_in_trade(self._activated_at.get(sid), bar_time, timeframe)
                     outcome = transition.outcome
                     if outcome is None:
                         outcome = _classify_stop_outcome(current_mfe, bit)
@@ -469,15 +468,15 @@ class SignalLifecycleService:
 
             if transition.new_status == "active":
                 # Pending → Active
-                activated_at = now
-                self._activated_at[sid] = now
+                activated_at = bar_time
+                self._activated_at[sid] = bar_time
                 self._mae[sid] = 0.0
                 self._mfe[sid] = 0.0
 
             elif transition.exit_reason:
                 # Active → Exit
-                exit_at = now
-                bit = _bars_in_trade(self._activated_at.get(sid), now, timeframe)
+                exit_at = bar_time
+                bit = _bars_in_trade(self._activated_at.get(sid), bar_time, timeframe)
 
                 # Resolve stop outcome (needs bars_in_trade which lifecycle_tracker doesn't have)
                 if outcome is None:
