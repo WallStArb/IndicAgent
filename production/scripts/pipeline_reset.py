@@ -142,28 +142,24 @@ def clear_redis_streams(r: redis.Redis, env_prefix: str) -> int:
     return deleted
 
 
-_KAFKA_TOPIC_SPECS = [
-    ("market.ticks", 1, "604800000"),
-    ("market.bars", 1, "604800000"),
-    ("indicators", 1, "604800000"),
-    ("intelligence", 1, "604800000"),
-    ("intelligence.i7", 1, "86400000"),
-    ("intelligence.i8", 1, "86400000"),
-    ("signals", 1, "604800000"),
-    ("signals.aggregated", 1, "604800000"),
-    ("narratives", 1, "604800000"),
-    ("llm.calls", 1, "604800000"),
-    ("llm.outcomes", 1, "604800000"),
-]
-
-
 async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
     """Delete and recreate all pipeline Kafka topics to flush all stream data.
 
     Returns number of topics cleared.
     """
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
     prefix = f"{env_prefix}." if env_prefix else ""
-    topic_names = [f"{prefix}{suffix}" for suffix, _, _ in _KAFKA_TOPIC_SPECS]
+    new_topics = [
+        NewTopic(
+            name=f"{prefix}{suffix}",
+            num_partitions=partitions,
+            replication_factor=1,
+            topic_configs={"retention.ms": retention_ms},
+        )
+        for suffix, partitions, retention_ms in _TOPIC_SPECS
+    ]
+    topic_names = [t.name for t in new_topics]
 
     client = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
     await client.start()
@@ -175,18 +171,6 @@ async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
         except Exception as e:
             if "unknown topic" not in str(e).lower():
                 raise
-
-        new_topics = [
-            NewTopic(
-                name=name,
-                num_partitions=partitions,
-                replication_factor=1,
-                topic_configs={"retention.ms": retention_ms},
-            )
-            for name, (_, partitions, retention_ms) in zip(
-                topic_names, _KAFKA_TOPIC_SPECS, strict=True
-            )
-        ]
         try:
             await client.create_topics(new_topics)
         except Exception as e:

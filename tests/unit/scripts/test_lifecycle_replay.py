@@ -111,7 +111,7 @@ class TestEndOfBarsHandling:
         result = replay.resolve_at_end_of_bars(sig, last_bar, tf_seconds=60,
                                                zone_mfe=0.0, market_mfe=-0.1)
         assert result["zone_outcome"] in ("never_activated", "ttl_expired_ahead", "ttl_expired_behind")
-        assert result["market_outcome"] in ("ttl_expired_ahead", "ttl_expired_behind")
+        assert result["market_entry_outcome"] in ("ttl_expired_ahead", "ttl_expired_behind")
 
     def test_end_of_bars_uses_last_bar_timestamp(self):
         """exit_at must be last_bar.timestamp, not datetime.now()."""
@@ -169,7 +169,7 @@ class TestMarketOutcomeNeverActivatedInvariant:
         last_bar = _bar(BASE_TS + timedelta(seconds=300), 5097.0, 5093.0, 5094.0)
         result = replay.resolve_at_end_of_bars(sig, last_bar, tf_seconds=60,
                                                zone_mfe=0.0, market_mfe=0.0)
-        assert result["market_outcome"] != "never_activated"
+        assert result["market_entry_outcome"] != "never_activated"
 
 
 @pytest.mark.unit
