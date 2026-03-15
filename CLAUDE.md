@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Version: 5.21.0
-Last Updated: 2026-03-13
+Last Updated: 2026-03-14
 Status: I1-I8 pipeline complete — 103 plugins + 2 aggregation components + feature store + typed intelligence bus + drift detection, 1754 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 60 instruments
 
 This file provides guidance to Claude Code when working in this repository.
@@ -182,6 +182,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`pg_class` shows near-zero size for hypertable parents** — use `hypertable_size('table')` for real sizes and `timescaledb_information.hypertables` for num_chunks.
 - **Applying psql migrations via `docker exec`**: `docker exec timescaledb psql ... -f /dev/stdin <<'EOF'` does NOT work. Always `docker cp file.sql timescaledb:/tmp/file.sql` then `docker exec timescaledb psql -U postgres -d indicagent -f /tmp/file.sql`.
 - **`market_data_ohlcv` missing index**: `CREATE INDEX ON market_data_ohlcv (symbol, timeframe, timestamp DESC);` — without this, ORDER BY DESC LIMIT queries scan all 10k chunks and time out. Omit CONCURRENTLY (not supported on hypertables).
+- **`instruments` table key is base symbol**: `symbol` column stores base (e.g., `PL`, `SOL`, `ES`), NOT the contract code. Contract code lives inside `contract_details->>'symbol'`. The API spreads `json.loads(contract_details)` so the JSONB `symbol` key overrides the DB key in API responses. To deactivate: `UPDATE instruments SET is_active = FALSE WHERE symbol IN ('PL', 'SOL')`.
+- **`instruments.contract_details` is stored as a JSON string**: `jsonb` column stores a serialized string value, not a JSON object. `jsonb_typeof(contract_details)` returns `"string"`, so `->>'field'` operators don't work directly in SQL. Use Python `json.loads()` to parse, or in SQL: `(contract_details #>> '{}')::jsonb->>'field'`.
 
 ## Plugin System
 
@@ -241,6 +243,10 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`intelligence_i7` SSE domain**: `intelligence_i7:SYMBOL:TF` stream is subscribed in `_build_stream_list()` (alongside `intelligence:`); event name is `signal_scorecard`. Check must appear before `intelligence:` startswith check to prevent shadowing.
 - **`signal_scorecard` event payload**: `{"ts": "...", "symbol": "ES", "tf": "1m", "data": "[{...}]"}` where `data` is a JSON-encoded string of `RankedSignal[]`. Parse with `JSON.parse(String(payload.data || "[]"))`.
 - **`GET /api/signals/recent`**: `?symbol=&timeframe=&limit=` — returns `signal_ledger` rows with `setup_performance` LEFT JOIN, ordered by `computed_at DESC`. Drill panel fetches on mount and merges with SSE history deduplicated by `signal_id` (SSE version wins on conflict).
+- **Dashboard layout modes**: `trading-dashboard.tsx` has two modes — `"focus"` (left `WatchlistRail` + single `SymbolCard`) and `"grid"` (`GroupedSymbolGrid` grouped by sector). Auto-switches to focus when profile > 12 instruments. Toggle in header.
+- **Skeleton cards**: `SkeletonCard` renders a shimmer placeholder while `symbolData[sym]` is null on page load/SSE reconnect. Prevents blank card flash.
+- **`symbol-config.ts` `loadConfig()`**: Fetches all asset classes from `/api/instruments` (not just `futures`). ETFs have `asset_class: "equity"` in the DB. `SymbolInfo.sector` is `string` (not a union) to accommodate all ETF sectors.
+- **Signal alert strip**: `SignalAlertStrip` renders above content when any instrument has a signal ≥ 0.65 confidence. Scans all TFs per symbol; deduplicates to one pill per symbol (highest confidence).
 
 ## System Access
 
@@ -253,8 +259,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Current Status
 
-**Tests:** 1754 passing (equity expansion Phase A+B: +95 new tests)
-I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips) + Renaissance quality gates (Hurst/Shannon I4, alpha decay, freshness decay, KS+CUSUM drift detection) + equity expansion (60 instruments: 16 futures + 4 FX + 2 crypto + 38 ETFs, asset-class guards, session infrastructure)
+**Tests:** 1754 passing
+I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips) + Renaissance quality gates (Hurst/Shannon I4, alpha decay, freshness decay, KS+CUSUM drift detection) + equity expansion (65 instruments: 22 futures + 38 ETFs + 3 FX + 2 crypto; PL and SOL deactivated 2026-03-14) + dashboard UX refactor (focus/grid layout modes, WatchlistRail, SignalAlertStrip, SkeletonCard, GroupedSymbolGrid by sector)
 **v1.8 SHIPPED 2026-03-13** — see `.planning/ROADMAP.md`
 
 ## Roadmap Position
