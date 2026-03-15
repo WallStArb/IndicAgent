@@ -97,7 +97,6 @@ You should see checks for tables, indexes, hypertables, and continuous aggregate
 | Single-file schema (dev reference) | `production/schemas/create_schema.sql` |
 | Apply migrations | `production/scripts/db_setup.sh` |
 | Verify schema | `production/scripts/db_verify.sh` |
-| Dragonfly sample config | `production/config/dragonfly.conf` |
 | Env template | `.env.example` (repo root) |
 | Quick Start (app + dashboard) | Root `README.md` |
 

@@ -2,11 +2,11 @@
 
 **Version:** 8.0.0
 **Last Updated:** 2026-03-11
-**Status:** I1-I8 production complete — 95 plugins + 2 aggregation components, 1497 passing tests
+**Status:** I1-I8 production complete — 98 plugins + 2 aggregation components, 1754 passing tests
 
 ## Executive Summary
 
-IndicAgent is a real-time market intelligence platform that transforms raw IBKR market data into actionable trading intelligence through a layered plugin-native architecture. The full I1-I8 pipeline is production-complete: 95 plugins across 7 intelligence tiers, 2 aggregation components, 9 systemd services, and a typed event bus persisted to TimescaleDB.
+IndicAgent is a real-time market intelligence platform that transforms raw IBKR market data into actionable trading intelligence through a layered plugin-native architecture. The full I1-I8 pipeline is production-complete: 98 plugins across 8 intelligence tiers, 2 aggregation components, 9 systemd services, and a typed event bus persisted to TimescaleDB.
 
 **Architecture Philosophy:** Service-hosted plugin pipeline with a strict hot/warm/cold data tiering model. The real-time pipeline never touches the database directly — all cold persistence is decoupled through the feature_writer_service.
 
@@ -18,7 +18,7 @@ IndicAgent is a real-time market intelligence platform that transforms raw IBKR 
 Layer 4: AI Intelligence (I8)              → LLM analysis, local Ollama (qwen3.5:9b / phi4-mini:3.8b)
 Layer 3: Pattern Intelligence (I5-I7)      → Pattern detection, confluence, trading signals
 Layer 2: Mathematical Intelligence (I1-I4) → Technical indicators, second-derivative events, market structure, regime context
-Layer 1: Data Foundation                   → IBKR TWS collection, DragonflyDB streams, TimescaleDB
+Layer 1: Data Foundation                   → IBKR TWS collection, Redpanda topics, TimescaleDB
 ```
 
 **Full pipeline:**
@@ -36,13 +36,13 @@ IBKR TWS → indicator_service (I1+I2) → market_analysis_service (I3→I4→I5
 - Collects tick and OHLCV bar data from Interactive Brokers TWS at `10.0.0.33:7497`
 - All ib_insync logic isolated to `src/providers/ibkr.py` — no imports outside this file
 - Multi-timeframe aggregation: 1m → 5m → 15m → 1h → 1d
-- 24 active contracts defined in `src/config/settings.py` via `get_active_contracts()`
+- 60 active instruments defined in `src/config/settings.py` via `get_active_contracts()`
 
-### DragonflyDB (Hot Tier)
-- Hosts all Redis Streams for real-time pipeline communication
+### Redpanda (Hot Tier)
+- Kafka-compatible streaming backbone for real-time pipeline communication (replaced DragonflyDB, Phase 30, 2026-03-14)
 - Sub-millisecond latency for inter-service messaging
-- No Redis modules (TS.*, RediSearch unavailable) — time-series handled by TimescaleDB
-- Stream keys constructed exclusively via `src/core/stream_keys.py` with `env_prefix`
+- Topic names use dots not colons: `development.market.bars`, `development.indicators`, etc.
+- Topic keys constructed exclusively via `src/core/stream_keys.py` with `env_prefix`
 
 ### TimescaleDB (Cold Tier)
 - Populated only by `feature_writer_service` (real-time) and `historical_backfill.py` (backfill)
@@ -180,7 +180,7 @@ All stream keys are constructed via `src/core/stream_keys.py` with environment p
 
 | Tier | Storage | Latency | Role |
 |---|---|---|---|
-| Hot | DragonflyDB Streams | sub-ms | Inter-service message bus |
+| Hot | Redpanda Topics | sub-ms | Inter-service message bus |
 | Warm | Service in-memory state | <10ms | Plugin state, bar history, lifecycle tracking |
 | Cold | TimescaleDB | batch, async | ML training dataset, audit log, scoring |
 
@@ -223,7 +223,7 @@ The full event is persisted as a single row in `intelligence_features` by `featu
 
 ## Plugin System
 
-**Total: 95 plugins + 2 aggregation components** across tiers I1–I7.
+**Total: 98 plugins + 2 aggregation components** across tiers I1–I7.
 
 Plugin tier membership is defined in `src/intelligence/register_plugins.py` (`TIER_I1`…`TIER_I7`) — single source of truth. `registry.validate_tier()` hard-crashes at startup on any missing plugin name.
 

@@ -2,7 +2,7 @@
 
 **Version:** 3.0.0
 **Last Updated:** 2026-03-11
-**Status:** I1-I8 Complete — 95 Plugins Operational
+**Status:** I1-I8 Complete — 98 Plugins Operational
 
 ## Overview
 
@@ -56,7 +56,7 @@ registry.register_indicator(rsi_plugin)
 ```
 IBKR TWS -> High-Frequency Collection (100-500+ ticks/sec)
          -> Multi-Timeframe Aggregation (1m -> 5m -> 15m -> 1h -> 4h -> 1d)
-         -> DragonflyDB Redis Streams Distribution (3,200+ ops/sec)
+         -> Redpanda Topic Distribution (3,200+ ops/sec)
          -> TimescaleDB Cold Storage
 ```
 
@@ -303,7 +303,7 @@ narratives:ES:1m          # I8 AI narrative
 ```
 
 ### Hot/Warm/Cold Data Flow
-- **Hot (DragonflyDB):** Real-time streams, sub-ms latency, no database in the critical path
+- **Hot (Redpanda):** Real-time topics, sub-ms latency, no database in the critical path
 - **Warm (Stream Processing):** Service mesh processes bars through plugins in <200ms
 - **Cold (TimescaleDB):** Background archival only — `feature_writer_service` batches `intelligence_features`; `signal_ledger` written by `signal_generator_service`
 
@@ -440,9 +440,9 @@ The distinction is that plugins aren't bolted onto an existing system — they A
 
 ## Current Status & Metrics
 
-- **95 active plugins** + 2 aggregation components (CISScorer, SignalAggregator)
-- **Breakdown:** 25 I1 + 10 I2 + 8 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7 = 95 plugins
-- **1497 unit tests** passing
+- **98 active plugins** + 2 aggregation components (CISScorer, SignalAggregator)
+- **Breakdown:** 25 I1 + 11 I2 + 8 I3 + 9 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7 = 98 plugins
+- **1754 unit tests** passing
 - **141x** incremental performance boost measured
 - **100-500+** ticks/sec ingestion during RTH
 - **<1ms** per-plugin incremental calculation latency

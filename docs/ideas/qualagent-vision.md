@@ -1066,7 +1066,6 @@ Ideas that are harder to validate but worth capturing:
 - `.planning/milestones/v1.0-REQUIREMENTS.md` — PLAT-01/02/03/04 (original multi-platform requirements)
 - `.planning/IDEAS.md` — News Sentiment Integration (early idea, now superseded by this vision)
 - `docs/intelligence/market-intelligence-strategy.md` — Sentiment Analysis Agent
-- `docs/plans/ai-agents-innovative-concepts-and-ideas-2025-08-11.md` — News Catalyst, Research Agent
 - [CFTC COT data](https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm)
 - [Kalshi API](https://kalshi.com/docs/kalshi-api/b3A6OTExMTE2-get-markets)
 - [Polymarket API](https://docs.polymarket.com/)

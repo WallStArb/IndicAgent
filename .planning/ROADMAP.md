@@ -320,4 +320,4 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 27. Signal Lifecycle Stream Events | v1.7 | 10/10 | Complete | 2026-03-12 |
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
-| 30. Redpanda Migration | v1.8+ | 5/5 | Complete | 2026-03-14 |
+| 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |

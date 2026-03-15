@@ -27,7 +27,7 @@ The pipeline is fully service-native: each tier runs in a dedicated systemd serv
 #### **Stream Infrastructure**
 - `src/core/stream_keys.py` — all stream key construction (env-prefixed)
 - `src/core/stream_utils.py` — `ensure_consumer_group_with_reset()` and consumer group helpers
-- `src/config/settings.py` — `Settings`, `get_active_contracts()`, 24 active contracts
+- `src/config/settings.py` — `Settings`, `get_active_contracts()`, 60 active instruments
 
 #### **Service Orchestration**
 - `services/indicator_service.py` — I1+I2 pipeline
@@ -57,7 +57,7 @@ llm_writer_service reads llm_calls:stream
 ### **Processing Stages**
 
 1. **Market Data** — `indicagent-tws` collects IBKR ticks + bars, aggregates multi-TF bars, publishes to `market:{symbol}:{tf}` and `ticks:{symbol}:live`
-2. **I1+I2 Features** — `indicagent-indicator` reads market bars, runs 25 I1 indicator plugins + 10 I2 composite/derivative plugins per symbol/TF, publishes to `indicators:{symbol}:{tf}`
+2. **I1+I2 Features** — `indicagent-indicator` reads market bars, runs 25 I1 indicator plugins + 11 I2 composite/derivative plugins per symbol/TF, publishes to `indicators:{symbol}:{tf}`
 3. **I3→I6 Analysis** — `indicagent-market-analysis` reads indicator stream, runs I3→I4→I5→SMC→I6 in sequence, publishes typed `IntelligenceEvent` to `intelligence:{symbol}:{tf}`
 4. **I7 Setups** — `indicagent-signal-generator` reads intelligence stream, runs 17 setup plugins + CISScorer + SignalAggregator, writes to `signals:{symbol}:{tf}:aggregated` and `signal_ledger`
 5. **I8 Narrative** — `indicagent-ai-narrative` reads aggregated signals, calls Ollama LLM, publishes to `narratives:{symbol}:{tf}`

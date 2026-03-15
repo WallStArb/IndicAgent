@@ -40,7 +40,7 @@ Context-aware intelligence: HMM hidden states, GARCH volatility forecast, Kalman
 
 - **Learn by doing:** [Guides](../guides/) for hands-on tasks
 - **Look up specifics:** [Reference](../reference/) for API docs
-- **See examples:** [Getting Started](../getting-started/) for tutorials
+
 
 ---
 

@@ -476,4 +476,3 @@ deriv  = ema3 - signal
 2. Add **Volume-Weighted Momentum Acceleration** to I2 composite backlog
 3. Research **Cross-TF acceleration confluence** architecture — decide on state-sharing approach
 4. Prototype **Jerk** indicator with smoothing tests — validate false positive rate
-5. Update IDEAS-INDEX.md with this file

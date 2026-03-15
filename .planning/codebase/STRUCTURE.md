@@ -157,7 +157,7 @@ indicagent/
 **docs/ideas/:**
 - Purpose: Research topics, vision documents, open questions
 - Contains: Ideas not yet ready to build (e.g., TradeAgent, QualAgent, DerivAgent product visions)
-- Key file: `IDEAS-INDEX.md` — primary lookup for all research
+- Status/priority/milestone live in each file's frontmatter — no separate index
 
 **docs/plans/:**
 - Purpose: Design documents and implementation plans (output of brainstorming + writing-plans)

@@ -1,17 +1,17 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (101 total + 2 aggregation)
+## Plugin Tiers (98 total + 2 aggregation)
 
-### I1 Technical Indicators (24) — incremental `compute_next()`
+### I1 Technical Indicators (25) — incremental `compute_next()`
 Trend, Momentum, Volatility, Volume. Full list: `TIER_I1` in `register_plugins.py`.
 
-### I2 Composite Events (9) — on I1 features, before I3
-MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration, DonchianPosition, OBVMomentum, DerivativeOscillator.
+### I2 Composite Events (11) — on I1 features, before I3
+MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration, DonchianPosition, OBVMomentum, DerivativeOscillator, ExhaustionScore, AccelerationRegime.
 Defined in `composites/`. Shared utilities in `composites/common.py`: `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`.
 
-### I3 Structure (7) · I4 Context (7)
-- **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones
-- **I4**: vol/trend/momentum regime, GARCH volatility, Kalman trend, SessionContext, MTFVolatility
+### I3 Structure (8) · I4 Context (9)
+- **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones, SwingMomentum
+- **I4**: vol/trend/momentum regime, GARCH volatility, HurstExponent, ShannonEntropy, Kalman trend, SessionContext, MTFVolatility
 
 ### I5 Patterns (14) · I6 SMC (13) · I6 Confluence (1)
 - **I5**: RSI divergence, squeeze, vol divergence, confluence, trend confluence, DoubleTopBottom, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction

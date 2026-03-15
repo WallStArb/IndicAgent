@@ -29,7 +29,7 @@ A DAG gives you a clean way to:
 
 ## IndicAgent's Plugin DAG
 
-The intelligence pipeline is a DAG of 95 plugins across 8 tiers:
+The intelligence pipeline is a DAG of 98 plugins across 8 tiers:
 
 ```
 Raw OHLCV Data
