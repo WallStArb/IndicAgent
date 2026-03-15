@@ -74,9 +74,11 @@ class LedgerEntry:
     mfe: float | None = None
     bars_in_trade: int | None = None
     outcome: str | None = None
+    # Market-entry parallel track — Phase 1 field set at INSERT
+    market_entry_price: float | None = None  # ask (long) / bid (short) at signal fire; NULL if unavailable
 
     def to_insert_params(self) -> tuple:
-        """Return a 37-element tuple ready for batch INSERT.
+        """Return a 38-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores)
         are serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
@@ -119,6 +121,7 @@ class LedgerEntry:
             self.entry_zone_high,  # $35
             self.zone_valid_at_signal,  # $36
             json.dumps(self.cis_attribution) if self.cis_attribution is not None else None,  # $37
+            self.market_entry_price,  # $38 — FLOAT, nullable
         )
 
 
@@ -138,7 +141,8 @@ INSERT INTO signal_ledger (
     signal_computed_at,
     determined_at, ask_at_signal, bid_at_signal, market_price_at_signal,
     entry_zone_low, entry_zone_high, zone_valid_at_signal,
-    cis_attribution
+    cis_attribution,
+    market_entry_price
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -150,7 +154,8 @@ INSERT INTO signal_ledger (
     $29,
     $30, $31, $32, $33,
     $34, $35, $36,
-    $37::jsonb
+    $37::jsonb,
+    $38
 )
 """
 
@@ -185,6 +190,64 @@ _SELECT_ACTIVE_BY_SYMBOL_SQL = """
 SELECT * FROM signal_ledger
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND symbol = $1 AND exit_at IS NULL
 ORDER BY timestamp DESC
+"""
+
+_RECORD_ACTIVATION_SQL = """
+UPDATE signal_ledger
+SET status = 'active',
+    activated_at = $2,
+    activation_price = $3,
+    zone_entry_pct = $4,
+    bars_to_activation = $5
+WHERE signal_id = $1::uuid
+"""
+
+_RECORD_ZONE_RESOLUTION_SQL = """
+UPDATE signal_ledger
+SET status = $2,
+    exit_at = $3,
+    exit_price = $4,
+    exit_reason = $5,
+    pnl_r = $6,
+    pnl_dollars = $7,
+    signal_quality = $8,
+    mae = $9,
+    mfe = $10,
+    bars_in_trade = $11,
+    outcome = $12
+WHERE signal_id = $1::uuid
+"""
+
+_RECORD_MARKET_RESOLUTION_SQL = """
+UPDATE signal_ledger
+SET market_entry_exit_price    = $2,
+    market_entry_pnl_r         = $3,
+    market_entry_mae           = $4,
+    market_entry_mfe           = $5,
+    market_entry_bars_in_trade = $6,
+    market_entry_outcome       = $7,
+    market_entry_gap_bars      = $8
+WHERE signal_id = $1::uuid
+"""
+
+_RECORD_ZONE_WITH_ACTIVATION_SQL = """
+UPDATE signal_ledger
+SET status = $2,
+    activated_at = $3,
+    activation_price = $4,
+    zone_entry_pct = $5,
+    bars_to_activation = $6,
+    exit_at = $7,
+    exit_price = $8,
+    exit_reason = $9,
+    pnl_r = $10,
+    pnl_dollars = $11,
+    signal_quality = $12,
+    mae = $13,
+    mfe = $14,
+    bars_in_trade = $15,
+    outcome = $16
+WHERE signal_id = $1::uuid
 """
 
 
@@ -253,3 +316,97 @@ async def get_active_signals(
     if symbol is not None:
         return await db_manager.execute_query(_SELECT_ACTIVE_BY_SYMBOL_SQL, symbol)
     return await db_manager.execute_query(_SELECT_ACTIVE_SQL)
+
+
+async def record_activation(
+    db_manager: Any,
+    signal_id: str,
+    *,
+    activated_at: datetime,
+    activation_price: float,
+    zone_entry_pct: float | None,
+    bars_to_activation: int,
+) -> None:
+    """Write zone-track activation fields. Sets status='active'. Phase 2."""
+    await db_manager.execute_command(
+        _RECORD_ACTIVATION_SQL,
+        signal_id, activated_at, activation_price, zone_entry_pct, bars_to_activation,
+    )
+
+
+async def record_zone_resolution(
+    db_manager: Any,
+    signal_id: str,
+    *,
+    status: str,
+    exit_at: datetime,
+    exit_price: float | None,
+    exit_reason: str | None,
+    pnl_r: float | None,
+    pnl_dollars: float | None,
+    signal_quality: float | None,
+    mae: float | None,
+    mfe: float | None,
+    bars_in_trade: int | None,
+    outcome: str | None,
+) -> None:
+    """Write zone-track resolution fields. Phase 3, zone track only."""
+    await db_manager.execute_command(
+        _RECORD_ZONE_RESOLUTION_SQL,
+        signal_id, status, exit_at, exit_price, exit_reason,
+        pnl_r, pnl_dollars, signal_quality,
+        mae, mfe, bars_in_trade, outcome,
+    )
+
+
+async def record_market_resolution(
+    db_manager: Any,
+    signal_id: str,
+    *,
+    market_entry_exit_price: float | None,
+    market_entry_pnl_r: float | None,
+    market_entry_mae: float,
+    market_entry_mfe: float,
+    market_entry_bars_in_trade: int | None,
+    market_entry_outcome: str,
+    market_entry_gap_bars: int | None = None,
+) -> None:
+    """Write market-track resolution fields. Phase 3, market track only."""
+    await db_manager.execute_command(
+        _RECORD_MARKET_RESOLUTION_SQL,
+        signal_id,
+        market_entry_exit_price, market_entry_pnl_r,
+        market_entry_mae, market_entry_mfe,
+        market_entry_bars_in_trade, market_entry_outcome, market_entry_gap_bars,
+    )
+
+
+async def record_zone_resolution_with_activation(
+    db_manager: Any,
+    signal_id: str,
+    *,
+    activated_at: datetime,
+    activation_price: float,
+    zone_entry_pct: float | None,
+    bars_to_activation: int,
+    status: str,
+    exit_at: datetime,
+    exit_price: float | None,
+    exit_reason: str | None,
+    pnl_r: float | None,
+    pnl_dollars: float | None,
+    signal_quality: float | None,
+    mae: float | None,
+    mfe: float | None,
+    bars_in_trade: int | None,
+    outcome: str | None,
+) -> None:
+    """Atomically write activation + zone exit on same bar. Prevents status stuck in 'active'."""
+    await db_manager.execute_command(
+        _RECORD_ZONE_WITH_ACTIVATION_SQL,
+        signal_id, status,
+        activated_at, activation_price, zone_entry_pct, bars_to_activation,
+        exit_at, exit_price, exit_reason,
+        pnl_r, pnl_dollars, signal_quality,
+        mae, mfe, bars_in_trade, outcome,
+    )

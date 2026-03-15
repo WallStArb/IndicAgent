@@ -69,7 +69,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 37
+        assert len(params) == 38
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -105,7 +105,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 37
+        assert len(params) == 38
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -181,7 +181,7 @@ class TestLedgerEntryNewFields:
             composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 37  # 29 existing + 7 new fire-time fields + cis_attribution
+        assert len(params) == 38  # 29 existing + 7 new fire-time fields + cis_attribution + market_entry_price
 
 
 def test_ledger_entry_has_cis_attribution_field():
@@ -236,8 +236,8 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 37  # was 36, now 37
-    assert '"psar_direction"' in params[36]  # last param is JSON string
+    assert len(params) == 38  # was 36, now 38 (includes market_entry_price)
+    assert '"psar_direction"' in params[36]  # $37 = cis_attribution JSON string
 
 
 # ---------------------------------------------------------------------------
@@ -424,3 +424,148 @@ class TestRegimeSuppressedStatus:
             "so that shadow signals are loaded by the lifecycle service. "
             f"Current SQL:\n{_SELECT_ACTIVE_SQL}"
         )
+
+
+# ============================================================
+# New targeted DB write functions
+# ============================================================
+
+import asyncio  # noqa: E402
+
+from src.intelligence.trading.signal_ledger import (  # noqa: E402
+    record_activation,
+    record_market_resolution,
+    record_zone_resolution,
+    record_zone_resolution_with_activation,
+    _RECORD_ACTIVATION_SQL,
+    _RECORD_ZONE_RESOLUTION_SQL,
+    _RECORD_MARKET_RESOLUTION_SQL,
+    _RECORD_ZONE_WITH_ACTIVATION_SQL,
+)
+
+
+@pytest.mark.unit
+class TestRecordActivation:
+    def test_calls_execute_command_with_activation_fields(self):
+        db = AsyncMock()
+        db.execute_command = AsyncMock()
+        signal_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        activated_at = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+
+        asyncio.run(record_activation(db, signal_id,
+                                      activated_at=activated_at,
+                                      activation_price=5098.5,
+                                      zone_entry_pct=0.25,
+                                      bars_to_activation=3))
+
+        db.execute_command.assert_awaited_once()
+        call_args = db.execute_command.call_args
+        assert call_args[0][0] == _RECORD_ACTIVATION_SQL
+        assert "market_entry" not in _RECORD_ACTIVATION_SQL  # no cross-contamination
+
+    def test_activation_sql_does_not_touch_zone_resolution_columns(self):
+        for col in ["exit_at", "exit_price", "outcome", "pnl_r"]:
+            assert col not in _RECORD_ACTIVATION_SQL
+
+
+@pytest.mark.unit
+class TestRecordZoneResolution:
+    def test_calls_execute_command(self):
+        db = AsyncMock()
+        db.execute_command = AsyncMock()
+        exit_at = datetime(2026, 3, 14, 11, 0, 0, tzinfo=UTC)
+
+        asyncio.run(record_zone_resolution(db, "aaaa-bbbb",
+                                           status="stopped_out",
+                                           exit_at=exit_at,
+                                           exit_price=5085.0,
+                                           exit_reason="stop_loss",
+                                           pnl_r=-1.0,
+                                           pnl_dollars=-750.0,
+                                           signal_quality=0.0,
+                                           mae=-1.0,
+                                           mfe=0.3,
+                                           bars_in_trade=5,
+                                           outcome="stopped_in_trade"))
+        db.execute_command.assert_awaited_once()
+
+    def test_zone_resolution_sql_does_not_touch_market_columns(self):
+        for col in ["market_entry_price", "market_entry_outcome", "market_entry_pnl_r"]:
+            assert col not in _RECORD_ZONE_RESOLUTION_SQL
+
+
+@pytest.mark.unit
+class TestRecordMarketResolution:
+    def test_calls_execute_command_with_market_fields(self):
+        db = AsyncMock()
+        db.execute_command = AsyncMock()
+
+        asyncio.run(record_market_resolution(db, "aaaa-bbbb",
+                                             market_entry_exit_price=5084.0,
+                                             market_entry_pnl_r=-1.07,
+                                             market_entry_mae=-1.07,
+                                             market_entry_mfe=0.2,
+                                             market_entry_bars_in_trade=3,
+                                             market_entry_outcome="stopped_in_trade",
+                                             market_entry_gap_bars=None))
+        db.execute_command.assert_awaited_once()
+
+    def test_market_resolution_sql_does_not_touch_zone_columns(self):
+        for col in ["activated_at", "activation_price", "exit_at", "pnl_ticks", "outcome "]:
+            # Note: 'outcome' with trailing space avoids matching 'market_entry_outcome'
+            assert col not in _RECORD_MARKET_RESOLUTION_SQL.replace(
+                "market_entry_outcome", "")
+
+    def test_gap_bars_defaults_to_none(self):
+        """gap_bars=None is the default (live signals)."""
+        db = AsyncMock()
+        db.execute_command = AsyncMock()
+        asyncio.run(record_market_resolution(db, "aaaa",
+                                             market_entry_exit_price=5115.0,
+                                             market_entry_pnl_r=1.0,
+                                             market_entry_mae=0.0,
+                                             market_entry_mfe=1.0,
+                                             market_entry_bars_in_trade=2,
+                                             market_entry_outcome="target_1"))
+        db.execute_command.assert_awaited_once()
+
+
+@pytest.mark.unit
+class TestRecordZoneWithActivation:
+    def test_atomic_write_called_once(self):
+        """Same-bar activation+exit must call execute_command exactly once."""
+        db = AsyncMock()
+        db.execute_command = AsyncMock()
+        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+
+        asyncio.run(record_zone_resolution_with_activation(
+            db, "aaaa-bbbb",
+            activated_at=ts, activation_price=5098.0,
+            zone_entry_pct=0.1, bars_to_activation=1,
+            status="stopped_out", exit_at=ts,
+            exit_price=5085.0, exit_reason="stop_loss",
+            pnl_r=-0.87, pnl_dollars=-650.0,
+            signal_quality=0.0, mae=-0.87, mfe=0.0,
+            bars_in_trade=0, outcome="stopped_at_entry"))
+        db.execute_command.assert_awaited_once()
+        assert db.execute_command.call_args[0][0] == _RECORD_ZONE_WITH_ACTIVATION_SQL
+
+
+@pytest.mark.unit
+class TestLedgerEntryMarketEntryPrice:
+    def test_market_entry_price_field_exists(self):
+        e = _make_entry(market_entry_price=5098.5)
+        assert e.market_entry_price == 5098.5
+
+    def test_market_entry_price_defaults_none(self):
+        e = _make_entry()
+        assert e.market_entry_price is None
+
+    def test_to_insert_params_includes_market_entry_price(self):
+        e = _make_entry(market_entry_price=5101.25)
+        params = e.to_insert_params()
+        assert 5101.25 in params
+
+    def test_insert_sql_includes_market_entry_price(self):
+        from src.intelligence.trading.signal_ledger import _INSERT_SQL
+        assert "market_entry_price" in _INSERT_SQL
