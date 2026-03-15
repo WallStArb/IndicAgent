@@ -5,25 +5,25 @@ Last Updated: 2026-03-11
 > Source of truth for architectural decisions. The *why* behind the build sequence.
 > Full design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md`
 
-Status: I1-I8 complete — 95 plugins + 2 aggregation components, 1497 passing tests
+Status: I1-I8 complete — 98 plugins + 2 aggregation components, 1754 passing tests
 
 ---
 
 ## Core Architecture
 
 ```
-IBKR TWS → Redis Streams (hot path) → Dashboard (SSE, real-time)
-                │                    → LLM agents (consumer group)
-                │                    → Signal generator (consumer group)
+IBKR TWS → Redpanda (hot path) → Dashboard (SSE, real-time)
+                │              → LLM agents (consumer group)
+                │              → Signal generator (consumer group)
                 │
                 ↓ feature_writer_service (async, decoupled)
           TimescaleDB intelligence_features hypertable
                 │
                 ↓ REST API (/api/features, /api/signals)
-          Vercel frontend (via HTTPS)
+          Next.js dashboard (via localhost SSE + REST)
 ```
 
-**Stack choice rationale:** Redis + TimescaleDB was chosen over NATS/Kafka — no new infrastructure, hot path unchanged, external consumers use REST not Redis. Right-sized for current scale (24 contracts × 4 TFs).
+**Stack choice rationale:** Redpanda (Kafka-compatible) + TimescaleDB — Kafka-native streaming with consumer groups, hot path unchanged, external consumers use REST not Redpanda directly. Right-sized for current scale (60 active instruments × 5 TFs).
 
 ---
 
@@ -40,7 +40,7 @@ class IntelligenceEvent(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     ts: datetime; symbol: str; tf: str
     bar: OHLCVBar
-    i1: dict[str, float]   # 35 indicator outputs (25 I1 raw + 10 I2 composite)
+    i1: dict[str, float]   # indicator outputs (25 I1 raw + 11 I2 composite plugins)
     i3: dict[str, Any]     # structure: swing, S/R, trend
     i4: dict[str, float]   # context: regimes, GARCH (4 fields), Kalman (7 fields)
     i5: dict[str, Any]     # patterns: divergence, squeeze, confluence

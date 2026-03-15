@@ -12,13 +12,13 @@
 
 ```
 IBKR TWS → I1 Indicators → I3 Structure → I4 Context →
-I5 Patterns → I6 Smart Money → I7 Trading → Redis → Dashboard
+I5 Patterns → I6 Smart Money → I7 Trading → Redpanda → Dashboard
 ```
 
 ### Data Flow
 
-**Hot Tier:** DragonflyDB (sub-ms)
-**Warm Tier:** Redis Streams (real-time)
+**Hot Tier:** Redpanda (sub-ms)
+**Warm Tier:** Redpanda Streams (real-time)
 **Cold Tier:** TimescaleDB (historical)
 
 ---

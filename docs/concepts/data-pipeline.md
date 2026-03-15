@@ -1,13 +1,13 @@
 # Data Pipeline
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-15
 
 ## Overview
 
 IndicAgent's data pipeline is organized into three thermal tiers — **hot**, **warm**, and **cold** — reflecting how quickly data must move and how long it must persist.
 
 ```
-IBKR TWS ──► Hot (DragonflyDB Streams) ──► Warm (Processing Services) ──► Cold (TimescaleDB)
+IBKR TWS ──► Hot (Redpanda Streams) ──► Warm (Processing Services) ──► Cold (TimescaleDB)
                sub-millisecond writes        <10ms per bar                   async batch writes
 ```
 
@@ -15,10 +15,10 @@ The real-time pipeline **never touches the database directly**. All live process
 
 ---
 
-## Hot Tier: DragonflyDB Streams
+## Hot Tier: Redpanda Streams
 
 **Purpose:** Ingestion and distribution of raw market data
-**Technology:** DragonflyDB (Redis-compatible, :6379)
+**Technology:** Redpanda (Kafka-compatible, :19092) — replaced DragonflyDB (Phase 30, 2026-03-14)
 **Latency:** Sub-millisecond writes
 
 The TWS Daemon (`indicagent-tws`) connects to IBKR at `10.0.0.33:7497` and writes completed bars to Redis Streams as they arrive. All stream keys are constructed via `src/core/stream_keys.py` and are environment-prefixed.
@@ -138,7 +138,7 @@ Downstream plugins read from this single event rather than subscribing to multip
 
 ```
 IBKR TWS
-  └─► bar stream (hot, DragonflyDB)
+  └─► bar stream (hot, Redpanda)
         └─► indicator_service (I1+I2, warm)
               └─► indicators:SYMBOL:TF stream
                     └─► market_analysis_service (I3–I6, warm)

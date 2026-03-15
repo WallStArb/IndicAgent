@@ -8,7 +8,7 @@ Detailed setup for all components.
 
 IndicAgent requires:
 1. Python 3.11+ environment
-2. Docker infrastructure (TimescaleDB, DragonflyDB, Ollama)
+2. Docker infrastructure (TimescaleDB, Redpanda, Ollama)
 3. IBKR TWS or IB Gateway (paper trading)
 4. Node.js 18+ for dashboard
 

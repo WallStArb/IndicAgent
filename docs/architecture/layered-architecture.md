@@ -1,12 +1,12 @@
 # IndicAgent Layered Architecture
 
-**Version:** 6.0.0
-**Last Updated:** 2026-03-11
-**Status:** I1-I8 production complete — 95 plugins + 2 aggregation components, 1497 passing tests
+**Version:** 6.1.0
+**Last Updated:** 2026-03-15
+**Status:** I1-I8 production complete — 98 plugins + 2 aggregation components, 1754 passing tests
 
 ## Overview
 
-IndicAgent implements a 4-layer intelligence platform that progresses from raw data collection through AI-powered narrative synthesis. All layers are production-operational as of v1.7 (2026-03-11).
+IndicAgent implements a 4-layer intelligence platform that progresses from raw data collection through AI-powered narrative synthesis. All layers are production-operational as of v1.8 (2026-03-13).
 
 The central architectural principle: **the real-time pipeline never touches the database directly.** All persistence is handled asynchronously by `feature_writer_service`, decoupling hot-path latency from cold storage.
 
@@ -21,7 +21,7 @@ The central architectural principle: **the real-time pipeline never touches the 
 **Components:**
 - `production/daemons/high_frequency_tws_daemon.py` — IBKR tick collection (100–500+ ticks/sec) with built-in multi-timeframe bar aggregation (1m → 5m → 15m → 1h → 4h → 1d)
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB connection pooling
-- DragonflyDB — hot-path stream distribution (no Redis modules; TS.* and RediSearch unavailable)
+- Redpanda — hot-path stream distribution (Kafka-compatible; Phase 30, 2026-03-14)
 
 **Note:** `timeframes_builder_service.py` exists but is legacy and unused. All aggregation runs inside the TWS daemon.
 
@@ -154,7 +154,7 @@ All stream keys are env-prefixed (e.g., `development:` in dev) and constructed v
 
 | Tier | Path | Latency |
 |------|------|---------|
-| Hot | DragonflyDB Streams | sub-ms |
+| Hot | Redpanda Streams | sub-ms |
 | Warm | Service pipeline (indicator → analysis → signal) | <10ms |
 | Cold | feature_writer_service → TimescaleDB (batch, async) | seconds |
 
@@ -166,7 +166,7 @@ The real-time pipeline never touches the database directly.
 
 All tier membership is declared in `src/intelligence/register_plugins.py` (`TIER_I1` … `TIER_I7`). `registry.validate_tier()` hard-crashes at startup on any missing plugin name — this is intentional to prevent silent misconfiguration.
 
-**Plugin counts:** 25 I1 + 10 I2 + 8 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7 = 95 plugins + 2 aggregation components (CISScorer, SignalAggregator)
+**Plugin counts:** 25 I1 + 11 I2 + 8 I3 + 9 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7 = 98 plugins + 2 aggregation components (CISScorer, SignalAggregator)
 
 ---
 

@@ -1,6 +1,6 @@
 # Signal Lifecycle
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-15
 
 ## Overview
 

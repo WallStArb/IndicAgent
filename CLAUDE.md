@@ -116,12 +116,12 @@ Layer 1: Data Foundation                   -> HF collection, aggregation, typed 
 
 **Intelligence Pipeline:**
 ```
-IBKR TWS → indicator_service (I1) → market_analysis_service (I3→I6) →
+IBKR TWS → indicator_service (I1) → market_analysis_service (I2→I6) →
   signal_generator_service (I7) → signal_ledger + intelligence_features →
   feature_writer_service → TimescaleDB → SSE → Dashboard
 ```
 
-**Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i3/i4/i5/smc/i6), persisted to `intelligence_features` hypertable by `feature_writer_service`.
+**Typed Bus:** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` hypertable by `feature_writer_service`.
 
 ## Key Components
 

@@ -224,32 +224,29 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
-- [ ] 30-01-PLAN.md — Infrastructure + Core Abstractions: Redpanda compose, aiokafka, stream_utils rewrite, stream_keys rewrite, topic init script
-- [ ] 30-02-PLAN.md — Hot Tier + Intelligence Pipeline: tws_daemon, timeframes_builder, indicator_service, market_analysis_service
-- [ ] 30-03-PLAN.md — Signal + AI Services: signal_generator, signal_lifecycle, ai_narrative; _live_quotes dict + _llm_scores_cache
-- [ ] 30-04-PLAN.md — Writer Services + API/SSE: feature_writer, llm_writer, SSE broadcaster fan-out
-- [ ] 30-05-PLAN.md — Cache Migration + DragonflyDB Removal + E2E Validation
+- [x] 30-01-PLAN.md — Infrastructure + Core Abstractions: Redpanda compose, aiokafka, stream_utils rewrite, stream_keys rewrite, topic init script
+- [x] 30-02-PLAN.md — Hot Tier + Intelligence Pipeline: tws_daemon, timeframes_builder, indicator_service, market_analysis_service
+- [x] 30-03-PLAN.md — Signal + AI Services: signal_generator, signal_lifecycle, ai_narrative; _live_quotes dict + _llm_scores_cache
+- [x] 30-04-PLAN.md — Writer Services + API/SSE: feature_writer, llm_writer, SSE broadcaster fan-out
+- [x] 30-05-PLAN.md — Cache Migration + DragonflyDB Removal + E2E Validation
 
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
-Re-prioritized 2026-03-10 after v1.6 shipped.
+Re-prioritized 2026-03-15 after v1.8 shipped.
 
-### Tier 1 — Ready now / v1.7 candidates (data exists, no blockers)
+### Tier 1 — Ready now / v1.9 candidates (data exists, no blockers)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| Renaissance Gaps (Signal Quality) | → **Scheduled as Phase 29** | `docs/ideas/renaissance-gap-analysis.md` |
-| Dashboard Complete | → **Scheduled as Phase 28** | `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md`, `.planning/todos/pending/2026-03-11-drill-panel-signal-history-from-db.md`, `.planning/todos/pending/2026-02-27-add-tooltips-to-intelligence-level-indicators.md` |
 | Expand I5 candlestick + I7 setup | 18 patterns spec'd (Tier 1: Harami, Dark Cloud, Three Soldiers/Crows, Morning/Evening Star). Research doc complete. | `docs/ideas/candlestick-pattern-expansion-research.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
-| Audit + remove dead DB tables | `technical_indicators` table appears orphaned — confirm unused and drop. | `.planning/todos/pending/2026-03-06-audit-and-remove-dead-database-tables.md` |
 | CIS Null Repair Execution | Phase 25 repair script complete + tested (11 tests). Blocked by PostgreSQL shared memory error on 1.8M row JOIN. Investigate Docker cgroup limits, batch by symbol/TF, then run repair. Code: `production/scripts/repair_cis_nulls.py`. | memory: `Phase 25 Complete` |
 | validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
-| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. SSE fan-out: one Redis reader → broadcast to N clients (not N independent pollers). `next build` + nginx for prod dashboard. | — |
+| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. SSE fan-out: one Redpanda consumer → broadcast to N clients (not N independent pollers). `next build` + nginx for prod dashboard. | — |
 
-### Tier 2 — v1.7 or v1.8 (moderate dependencies)
+### Tier 2 — v1.9+ (moderate dependencies)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
@@ -280,7 +277,7 @@ Re-prioritized 2026-03-10 after v1.6 shipped.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-27 shipped. v1.8: phases 28-29 shipped. Next: Phase 30 (Redpanda Migration).
+Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-27 shipped. v1.8: phases 28-29 shipped. Phase 30 (Redpanda Migration): complete 2026-03-14. Next: `/gsd:new-milestone` to define v1.9.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -323,4 +320,4 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 27. Signal Lifecycle Stream Events | v1.7 | 10/10 | Complete | 2026-03-12 |
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
-| 30. Redpanda Migration | 5/5 | Complete   | 2026-03-14 | — |
+| 30. Redpanda Migration | v1.8+ | 5/5 | Complete | 2026-03-14 |

@@ -1,6 +1,6 @@
 # Composite Intelligence Score (CIS)
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-15
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves

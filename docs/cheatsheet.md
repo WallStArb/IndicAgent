@@ -7,8 +7,8 @@ pip install -r requirements.txt
 
 # PostgreSQL/TimescaleDB — native: sudo systemctl start postgresql
 # Ollama — native: ollama serve
-# DragonflyDB — Docker only:
-cd production && docker compose up -d dragonfly
+# Redpanda — Docker only:
+cd production && docker compose up -d redpanda
 
 # Database schema
 psql -U postgres -d indicagent -f production/schemas/create_schema.sql
@@ -63,7 +63,7 @@ cd production && docker compose up -d prometheus grafana
 ## Pipeline Reset (full housekeeping + fetch + replay)
 # pipeline_reset.py is the single entry point — handles everything in order:
 #   1. Truncates signal_ledger, intelligence_features (+ market_data_ohlcv unless --keep-ohlcv)
-#   2. Clears Redis streams (indicators, intelligence, signals, narratives)
+#   2. Clears Redpanda topics (indicators, intelligence, signals, narratives)
 #   3. Fetches OHLCV from IBKR per-TF: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous
 #   4. Replays I1→I7 pipeline through all stored bars → signal_ledger + intelligence_features
 #   5. Verifies row counts and signal distribution
@@ -96,7 +96,7 @@ sudo systemctl start indicagent-market-analysis indicagent-feature-writer \
 ## Development & Testing
 ```bash
 .venv/bin/pytest tests/unit/ -v        # Unit tests
-.venv/bin/pytest tests/integration/ -v # Integration (requires live Redis + PostgreSQL)
+.venv/bin/pytest tests/integration/ -v # Integration (requires live Redpanda + PostgreSQL)
 .venv/bin/ruff check . --fix           # Linting
 .venv/bin/black .                      # Formatting
 .venv/bin/mypy src/ --ignore-missing-imports
@@ -107,9 +107,9 @@ cd dashboard && npm run dev            # Frontend dev server
 ```bash
 INDICAGENT_ENV="development"
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/indicagent"
-REDIS_URL="redis://localhost:6379/0"
+KAFKA_BOOTSTRAP_SERVERS="localhost:19092"
 IBKR_HOST="10.0.0.33"
 IBKR_PORT=7497
 OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_DEFAULT_MODEL="qwen3:8b"
+OLLAMA_DEFAULT_MODEL="qwen3.5:9b"
 ```

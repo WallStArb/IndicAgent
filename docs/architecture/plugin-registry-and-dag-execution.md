@@ -1,14 +1,14 @@
 # Intelligence Plugin Registry & DAG Execution Framework
 
-**Version:** 6.0.0
-**Last Updated:** 2026-03-11
-**Status:** I1-I8 Complete — 95 Plugins + 2 Aggregation Components Operational
+**Version:** 6.1.0
+**Last Updated:** 2026-03-15
+**Status:** I1-I8 Complete — 98 Plugins + 2 Aggregation Components Operational
 
 ## Executive Summary
 
 IndicAgent's Intelligence Plugin Registry and DAG Execution Framework provides the foundation for market intelligence processing. The framework uses a simple, protocol-based plugin architecture with dependency-aware DAG execution, supporting the I1-I8 intelligence tiers.
 
-**Core Capability:** 95 plugins + 2 aggregation components across I1-I8 tiers, 1497 passing tests, all tiers operational.
+**Core Capability:** 98 plugins + 2 aggregation components across I1-I8 tiers, 1754 passing tests, all tiers operational.
 
 ---
 
@@ -190,7 +190,7 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (95 Total + 2 Aggregation Components)
+## Registered Plugins (98 Total + 2 Aggregation Components)
 
 ### I1 Indicator Plugins (25) — All support incremental `compute_next()`
 
@@ -222,7 +222,7 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 | AC Oscillator | Momentum | `ac_osc` |
 | HMA | Trend | `hma_value` |
 
-### I2 Second-Derivative / Event Plugins (10) — detect state changes in I1 outputs
+### I2 Second-Derivative / Event Plugins (11) — detect state changes in I1 outputs
 
 | Plugin | Outputs |
 |--------|---------|
@@ -236,6 +236,7 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 | OBV Momentum | `obv_momentum`, `obv_trend_align` |
 | DerivOsc (AO) | `ao_value`, `ao_cross_zero` |
 | ExhaustionScore | `exhaustion_score`, `exhaustion_signal` |
+| AccelerationRegime | `accel_regime`, `accel_score`, `accel_agreement` |
 
 ### I3 Structure Plugins (8) — `supports_incremental = False`
 
@@ -250,7 +251,7 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 | Fibonacci Zones | Auto-fib from swing H/L, key retracement levels |
 | Swing Momentum | Momentum at swing highs/lows for divergence context |
 
-### I4 Context Plugins (7) — `supports_incremental = False`
+### I4 Context Plugins (9) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
@@ -258,8 +259,10 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 | Trend Regime | SMA-20/50 alignment, 5-state classification |
 | Momentum Context | Multi-oscillator direction scoring (RSI/MACD/Stoch/CCI) |
 | GARCH Volatility | `garch_vol_regime`, `garch_sigma`, conditional vol forecast |
+| Hurst Exponent | `hurst_exponent`, `hurst_trend_quality`, `hurst_mr_quality` |
+| Shannon Entropy | `shannon_entropy`, `entropy_quality` |
 | Kalman Trend | `kalman_price_position`, `kalman_trend_slope`, 7 outputs |
-| Session Context | Active session (London/NY/Asia), killzone timing |
+| Session Context | Active session (London/NY/Asia/overlap), killzone timing |
 | MTF Volatility | Multi-timeframe volatility alignment score |
 
 ### I5 Pattern Plugins (14) — `supports_incremental = False`
@@ -422,7 +425,7 @@ Circuit breakers protect against cascade failures via LangGraph integration:
 - Pattern detection correctness: `tests/unit/intelligence/test_pattern_plugins.py`
 - Structure plugins: `tests/unit/intelligence/test_structure_plugins.py`
 - Context plugins: `tests/unit/intelligence/test_context_plugins.py`
-- **Total: 1497 unit tests passing**
+- **Total: 1754 unit tests passing**
 
 ---
 
@@ -454,13 +457,13 @@ ticks:ES:live         # Raw tick data
 
 ### Current Production Performance
 - **Tick Ingestion:** 100-500+ ticks/sec during RTH
-- **Hot Path Latency:** Sub-millisecond DragonflyDB stream writes
+- **Hot Path Latency:** Sub-millisecond Redpanda stream writes
 - **I1 Indicator Calculation:** <1ms per plugin via incremental compute_next()
 - **I3-I6 Pipeline:** <10ms per bar (market_analysis_service)
 - **I7 Signal Generation:** <50ms per bar
 - **Full Recomputation (I1):** ~50-100ms for all 25 indicators (batch mode)
 - **Incremental vs Batch:** 141x speedup measured
-- **Tests:** 1497 passing
+- **Tests:** 1754 passing
 
 ### SLO Targets
 | Metric | Target | Status |
@@ -468,7 +471,7 @@ ticks:ES:live         # Raw tick data
 | Plugin execution latency | <50ms p99 | Achieved (<1ms incremental) |
 | End-to-end bar-to-indicator | <200ms | Achieved |
 | Stream backlog | <30s | Achieved |
-| Test suite pass rate | 100% | 1497 passing |
+| Test suite pass rate | 100% | 1754 passing |
 
 ---
 

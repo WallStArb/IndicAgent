@@ -1,7 +1,7 @@
 # Renaissance Principles Gap Analysis
 
 **Created:** 2026-03-08
-**Status:** Consolidated — ready for milestone planning
+**Status:** Phase 29 shipped — T0-B, T1-A–E, T2-A, T2-B, T3-A, T3-B all live as of 2026-03-13
 **Related:** `docs/ideas/renaissance-i7-i8-refinement.md` (105 ideas, 48 sections)
 
 ## Overview
@@ -37,7 +37,7 @@ These are things that are supposed to work but don't.
 - Fix: pass the feature dict when calling the CIS aggregator during backfill replay
 - Impact: fixes the entire ML training dataset for CIS analysis
 
-**T0-B: Populate `constituent_contributions` in `cis_scorer.py`**
+**T0-B: Populate `constituent_contributions` in `cis_scorer.py`** ✅ SHIPPED (Phase 29-01)
 - `cis_scorer.py:158` initializes `constituent_contributions: {b: {} for b in BUCKET_NAMES}` — always empty, never populated
 - Each bucket scorer runs and produces per-setup scores but discards them before writing to `CISResult`
 - Fix: capture per-setup score contributions during bucket scoring and write them to the JSONB field
@@ -50,31 +50,31 @@ These are things that are supposed to work but don't.
 
 These use data that already exists in the pipeline and wire it into CIS scoring or signal gating logic. Buildable now.
 
-**T1-A: Alpha Decay Rate**
+**T1-A: Alpha Decay Rate** ✅ SHIPPED (Phase 29-03)
 - Renaissance principle: the 5th consecutive same-direction signal has less alpha than the 1st
 - Add `alpha_decay_rate` to I4 feature output: `1.0 - (bars_since_last_signal / alpha_half_life)`
 - Wire decay factor into `_build_all_ranked()` in `signal_generator_service.py` as a CIS score multiplier
 - Vol-of-vol variant: `vol_adjusted_half_life = base_half_life / (1 + vol_of_vol)` — decay accelerates in unstable regimes
 
-**T1-B: Time-Weighted Signal Freshness**
+**T1-B: Time-Weighted Signal Freshness** ✅ SHIPPED (Phase 29-03)
 - Distinct from alpha decay: this is about how stale the *signal instance* is from the moment it fired, not setup clustering
 - Exponential decay: `freshness = exp(-lambda * bars_since_fire)` applied to CIS confidence on each downstream bar
 - Prevents signals fired 20 bars ago from competing with fresh signals at equal confidence
 - Wire into `signal_lifecycle_service.py` when evaluating active signals
 
-**T1-C: Signal Recycling Window**
+**T1-C: Signal Recycling Window** ✅ SHIPPED (Phase 29-02)
 - Prevent same setup from firing multiple times within N bars in the same direction
 - Add per-symbol per-TF per-setup cooldown window in `signal_generator_service.py`
 - Configurable: `_SIGNAL_COOLDOWN_BARS` (suggested: 3 bars for 1m, 2 bars for 5m+)
 - Reduces noise from setup clustering in strong trends without killing legitimate re-entries
 
-**T1-D: Volume-Weighted Confidence**
+**T1-D: Volume-Weighted Confidence** ✅ SHIPPED (Phase 29-02)
 - `rel_volume` is already computed in I1 (relative volume vs rolling average)
 - Not currently wired into CIS bucket scoring
 - Wire as a momentum/institutional bucket multiplier: `rel_volume > 1.5` → confidence boost; `rel_volume < 0.5` → suppress
 - Prevents signals firing on dead-volume bars where breakouts are likely false
 
-**T1-E: Killzone Acceleration**
+**T1-E: Killzone Acceleration** ✅ SHIPPED (Phase 29-02)
 - Killzones (Asian/London/NY open) are already tracked in the intelligence bus
 - Currently used for context display only — not as a signal gate or boost
 - Wire as a time-of-day gate in CIS: boost signal confidence in killzone opens, reduce during dead sessions
@@ -86,13 +86,13 @@ These use data that already exists in the pipeline and wire it into CIS scoring 
 
 These require new computations but use existing data (rolling returns, price stream). No external data dependencies.
 
-**T2-A: Hurst Exponent Regime Detection**
+**T2-A: Hurst Exponent Regime Detection** ✅ SHIPPED (Phase 29-04/05)
 - Measures fractal dimension of price series: H > 0.5 = trending, H < 0.5 = mean-reverting, H ≈ 0.5 = random
 - Complements HMM regime (which classifies direction) with a *type* classification
 - Hard gate: mean-reversion setups suppressed when H > 0.65; trend setups suppressed when H < 0.45
 - Requires rolling 64–256 bar window of returns (already available)
 
-**T2-B: Shannon Entropy Market Quality Gate**
+**T2-B: Shannon Entropy Market Quality Gate** ✅ SHIPPED (Phase 29)
 - Measures information entropy of the return distribution: low entropy = structured/predictable, high entropy = noise
 - Universal signal confidence gate: `entropy > threshold` → all signal confidence reduced by 30–50%
 - Particularly valuable for filtering out choppy, non-directional periods where all setups underperform
@@ -110,14 +110,14 @@ These require new computations but use existing data (rolling returns, price str
 
 These detect system degradation before it becomes a crisis. No signal dependencies; uses existing data.
 
-**T3-A: KS Distribution Drift Detection**
+**T3-A: KS Distribution Drift Detection** ✅ SHIPPED (Phase 29-06)
 - Kolmogorov-Smirnov test on I1/I4 feature distributions vs a baseline reference window
 - Detects when market microstructure has changed enough to invalidate model assumptions
 - Alert: `KS p-value < 0.05` on key features (RSI, vol regime, HMM state distribution) triggers monitoring flag
 - Reference window: establish from first 30 days of `intelligence_features` data
 - Implementation: periodic background job (every 4h), writes drift flags to a monitoring table
 
-**T3-B: CUSUM Performance Drift Detection**
+**T3-B: CUSUM Performance Drift Detection** ✅ SHIPPED (Phase 29-07)
 - Cumulative sum control chart on rolling `pnl_r` from `signal_ledger` outcomes
 - Detects when signal performance is statistically degrading vs expected baseline
 - Alert triggers: CUSUM statistic exceeds control limit → flag in observability dashboard

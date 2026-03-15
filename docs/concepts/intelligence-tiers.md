@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-15
 
 ## Overview
 
@@ -33,7 +33,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Output:** Event flags, bar counts, magnitude readings published into the IntelligenceEvent payload
 - **Code Location:** `src/intelligence/composites/`
 - **Shared Utilities:** `common.py` — `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`
-- **Plugins (10):**
+- **Plugins (11):**
   - `MACDEvents` — MACD line crossovers, histogram sign flips, zero-line crosses
   - `RSIEvents` — overbought/oversold threshold crosses, bars-since tracking
   - `StochasticEvents` — %K/%D crossovers, extreme zone entries/exits
@@ -44,6 +44,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
   - `OBVMomentum` — OBV trend direction and momentum score
   - `DerivOscillator (AO)` — Awesome Oscillator: fast vs slow momentum
   - `ExhaustionScore` — multi-indicator exhaustion scoring (overbought/oversold composite)
+  - `AccelerationRegime` — sign-vote momentum acceleration regime: building / peak / trough / waning / neutral; outputs `accel_regime`, `accel_score`, `accel_agreement`
 
 #### **I3: Market Structure Analysis**
 **Purpose:** Identify structural patterns, key levels, and price geometry
@@ -69,11 +70,13 @@ The Intelligence Engine implements progressive intelligence extraction through e
 - **Input:** I1/I2/I3 features
 - **Output:** Context data published into IntelligenceEvent `i4` JSONB field
 - **Code Location:** `src/intelligence/context/`
-- **Plugins (7):**
+- **Plugins (9):**
   - `VolatilityRegime` — low / normal / high volatility state from ATR percentile
   - `TrendRegime` — uptrend / downtrend / sideways with ADX-based strength
   - `MomentumContext` — momentum state (accelerating / decelerating / neutral)
   - `GARCHVolatility` — GARCH(1,1) one-step volatility forecast; gates I7 quality checks
+  - `HurstExponent` — R/S analysis over 64-bar window; H>0.65 = trending, H<0.35 = mean-reverting; hard gate for I7 setup eligibility
+  - `ShannonEntropy` — return distribution entropy; high entropy = noise/random, low entropy = structured regime; universal signal confidence gate
   - `KalmanTrend` — 1D Kalman filter, 7 outputs, optional GARCH-adaptive R matrix
   - `SessionContext` — active trading session (Asian / London / NY / overlap)
   - `MTFVolatility` — multi-timeframe volatility spread and compression detection
@@ -307,9 +310,9 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 | Tier | Plugins | Notes |
 |------|---------|-------|
 | I1 Technical Indicators | 25 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA — all incremental `compute_next()` |
-| I2 Composite Events | 10 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore |
+| I2 Composite Events | 11 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore, AccelerationRegime |
 | I3 Market Structure | 8 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones, SwingMomentum |
-| I4 Context / Regime | 7 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, KalmanTrend, SessionContext, MTFVolatility |
+| I4 Context / Regime | 9 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, MTFVolatility |
 | I5 Patterns | 14 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction |
 | I6 SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
 | I6 Confluence | 1 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, 10 output fields |
@@ -317,8 +320,8 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 | I8 AI Narrative | 1 service | `ai_narrative_service` — Ollama qwen3.5:9b (per-signal, conf>0.7, 5m/15m/1h) + phi4-mini:3.8b (group synthesis) |
 
 ### **Totals**
-- **95 registered plugins + 2 aggregation components:** 25 I1 + 10 I2 + 8 I3 + 7 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7
-- **1497 unit tests passing**, 106 ruff errors (E501 line-too-long)
+- **98 registered plugins + 2 aggregation components:** 25 I1 + 11 I2 + 8 I3 + 9 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7
+- **1754 unit tests passing**, 106 ruff errors (E501 line-too-long)
 
 ---
 

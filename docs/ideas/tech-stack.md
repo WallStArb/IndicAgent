@@ -19,20 +19,19 @@ Open source is a hard requirement for everything. No vendor lock-in. Every compo
 
 ---
 
-## Current stack (IndicAgent v1.3, live)
+## Current stack (IndicAgent v1.8, live)
 
 | Layer | Technology | License | Notes |
 |-------|-----------|---------|-------|
-| Event bus | DragonflyDB (Redis Streams) | BSL (free for non-competing use) | Hot + warm tier |
-| Key/value cache | DragonflyDB | BSL | Bid/ask snapshots, session state |
+| Event bus | Redpanda (Kafka-compatible) | Apache 2.0 | Hot + warm tier — migrated Phase 30, 2026-03-14 |
 | Time-series DB | PostgreSQL + TimescaleDB | Apache 2.0 (core) | Feature store, signal ledger |
 | Services | Python (asyncio) | — | 8 systemd-managed services |
 | API | FastAPI | MIT | SSE + REST on :8000 |
-| LLM | Ollama + qwen3:8b | MIT / Apache | I8 AI narrative |
+| LLM | Ollama + qwen3.5:9b | MIT / Apache | I8 AI narrative |
 | Logging | structlog | MIT | Structured JSON logs |
-| Metrics | Prometheus (per-service exporters) | Apache 2.0 | Metrics on :9109–:9116 |
+| Metrics | Prometheus (per-service exporters) | Apache 2.0 | Metrics on :9109–:9117 |
 
-1083 tests passing. 0 ruff errors. This stack works. We are not changing anything today.
+1754 tests passing. 167 ruff errors (E501 line-too-long, 64 fixable with --fix). This stack works.
 
 ---
 
@@ -397,8 +396,8 @@ This principle applies platform-wide: intelligence signals, regime states, fills
 
 | Layer | Technology | Status | Notes |
 |-------|-----------|--------|-------|
-| **Event bus** | **Redpanda** | Migrate before QualAgent | Replaces all DragonflyDB streams |
-| **Key/value cache** | ~~DragonflyDB~~ → in-process | On migration | `price:SYMBOL:latest` replaced by signal_generator in-process dict |
+| **Event bus** | **Redpanda** | **Live** (Phase 30, 2026-03-14) | Replaced all DragonflyDB streams |
+| **Key/value cache** | ~~DragonflyDB~~ → in-process | **Done** (Phase 30) | `price:SYMBOL:latest` replaced by signal_generator `_live_quotes` dict |
 | **Time-series DB** | **TimescaleDB** | Live, keep | Feature store, signal ledger |
 | **Vector search** | **pgvector** | Add with QualAgent | PostgreSQL extension, zero new infra |
 | **Workflows** | **LangGraph + APScheduler** | Add with strategy bots | LangGraph already in stack; APScheduler is a library |
@@ -547,7 +546,7 @@ See full design: `docs/ideas/ml-learning-machine.md`
 - **Temporal** — institutional-scale workflow orchestration; LangGraph is sufficient until multi-product scale
 
 ### Inter-Agent Communication (ML topics)
-Over DragonflyDB streams now → Redpanda topics after migration:
+Over Redpanda topics (migration complete as of Phase 30, 2026-03-14):
 ```
 ml.discovery.completed    → Orchestrator routes to Training Agent
 ml.drift.detected         → Orchestrator evaluates retrain

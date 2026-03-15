@@ -1,8 +1,8 @@
 # AI Intelligence Architecture
 
 **Version:** 3.1.0
-**Last Updated:** 2026-03-10
-**Status:** Operational — I1–I8 pipeline complete (95 plugins + 2 aggregation). LLM stack: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline fallback). MLAgent learning machine in design (v1.8+). See `CLAUDE.md` for full current state.
+**Last Updated:** 2026-03-15
+**Status:** Operational — I1–I8 pipeline complete (98 plugins + 2 aggregation). LLM stack: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline fallback). MLAgent learning machine in design (v1.8+). See `CLAUDE.md` for full current state.
 
 ## Executive Summary
 
@@ -306,7 +306,7 @@ class IntelligenceValidator:
 
 ## Current Status (as of v1.6)
 
-**All I1–I8 phases complete.** 95 plugins + 2 aggregation components operational. MLAgent learning machine in design (v1.8+).
+**All I1–I8 phases complete.** 98 plugins + 2 aggregation components operational. MLAgent learning machine in design (v1.8+).
 
 | Layer | Status |
 |-------|--------|
