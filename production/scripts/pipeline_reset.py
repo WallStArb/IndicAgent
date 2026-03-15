@@ -367,8 +367,6 @@ def main() -> None:
 
     if not args.keep_ohlcv:
         print("\n[3/5] Fetching OHLCV from IBKR...")
-        import asyncio
-
         from production.scripts.historical_backfill import (
             _TF_FETCH_CONFIG,
             store_bars,
