@@ -76,6 +76,15 @@ class KafkaConsumerClient:
         """Commit pending offsets, leave consumer group, and close the connection."""
         await self._consumer.stop()
 
+    async def seek_to_beginning(self) -> None:
+        """Seek all assigned partitions to the earliest offset.
+
+        Call after start() to replay all topic history regardless of any previously
+        committed offsets. For a subscribed consumer the seek is applied once
+        partitions are assigned by the group coordinator.
+        """
+        await self._consumer.seek_to_beginning()
+
     async def messages(self) -> AsyncGenerator[tuple[str, str | None, dict]]:
         """Yield (topic, key, payload_dict) tuples from subscribed topics.
 
