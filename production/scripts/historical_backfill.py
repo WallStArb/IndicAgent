@@ -402,7 +402,8 @@ INSERT INTO signal_ledger (
     was_selected, num_signals_bar, num_agreeing, num_conflicting,
     resolution_method, composite_rank, market_context, status,
     feature_ts, feature_tf,
-    cis_score, bucket_scores, weights_version, signal_quality
+    cis_score, bucket_scores, weights_version, signal_quality,
+    market_entry_price
 ) VALUES (
     %s::uuid, %s, %s, %s, %s, %s,
     %s, %s, %s, %s::jsonb,
@@ -410,7 +411,8 @@ INSERT INTO signal_ledger (
     %s, %s, %s, %s,
     %s, %s, %s::jsonb, %s,
     %s, %s,
-    %s, %s::jsonb, %s, %s
+    %s, %s::jsonb, %s, %s,
+    %s
 ) ON CONFLICT DO NOTHING
 """
 
@@ -423,6 +425,7 @@ def _build_ledger_entries(
     features: dict[str, Any],
     feature_ts: datetime | None = None,
     feature_tf: str | None = None,
+    bar_history: Any = None,
 ) -> list[LedgerEntry]:
     """Convert an AggregatedResult into LedgerEntry objects for DB insertion.
 
@@ -434,11 +437,13 @@ def _build_ledger_entries(
         features: merged feature dict for market_context extraction
         feature_ts: timestamp of the corresponding intelligence_features row (None if not written)
         feature_tf: timeframe of the corresponding intelligence_features row (None if not written)
+        bar_history: rolling bar deque; close of last bar used as market_entry_price proxy
     """
     if not result.all_ranked:
         return []
 
     market_ctx = {k: features[k] for k in MARKET_CONTEXT_KEYS if k in features}
+    bar_close = float(bar_history[-1]["close"]) if bar_history else None
 
     entries = []
     for sig in result.all_ranked:
@@ -473,6 +478,7 @@ def _build_ledger_entries(
                 cis_score=result.cis_score,
                 bucket_scores=result.bucket_scores,
                 weights_version=result.weights_version,
+                market_entry_price=bar_close,
             )
         )
     return entries
@@ -514,6 +520,7 @@ def _insert_signals_sync(conn: Any, entries: list[LedgerEntry]) -> None:
                 json.dumps(e.bucket_scores) if e.bucket_scores is not None else None,
                 e.weights_version,
                 None,  # signal_quality — populated by lifecycle on exit
+                e.market_entry_price,
             )
         )
     with conn.cursor() as cur:
@@ -576,6 +583,7 @@ def run_i7_and_persist(
         features,
         feature_ts=feature_ts,
         feature_tf=feature_tf,
+        bar_history=bar_history,
     )
 
     if entries and db_conn is not None:

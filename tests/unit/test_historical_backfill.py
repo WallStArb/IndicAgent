@@ -518,10 +518,12 @@ class TestCISColumnsInSQL:
 
         assert len(captured_params) == 1
         row = captured_params[0]
-        # Row must have 28 elements (24 original + 4 CIS)
-        assert len(row) == 28, f"Expected 28 params, got {len(row)}"
+        # Row must have 29 elements (24 original + 4 CIS + 1 market_entry_price)
+        assert len(row) == 29, f"Expected 29 params, got {len(row)}"
         # CIS columns are positions 24-27 (0-indexed) — all NULL for backfill
         assert row[24] is None, f"cis_score should be None, got {row[24]}"
         assert row[25] is None, f"bucket_scores should be None, got {row[25]}"
         assert row[26] is None, f"weights_version should be None, got {row[26]}"
         assert row[27] is None, f"signal_quality should be None, got {row[27]}"
+        # market_entry_price is position 28 — None when no bar_history passed
+        assert row[28] is None, f"market_entry_price should be None, got {row[28]}"
