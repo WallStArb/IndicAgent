@@ -62,7 +62,7 @@ cd production && docker compose up -d prometheus grafana
 
 ## Pipeline Reset (full housekeeping + fetch + replay)
 # pipeline_reset.py is the single entry point — handles everything in order:
-#   1. Truncates signal_ledger, intelligence_features, technical_indicators (+ market_data_ohlcv unless --keep-ohlcv)
+#   1. Truncates signal_ledger, intelligence_features (+ market_data_ohlcv unless --keep-ohlcv)
 #   2. Clears Redis streams (indicators, intelligence, signals, narratives)
 #   3. Fetches OHLCV from IBKR per-TF: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous
 #   4. Replays I1→I7 pipeline through all stored bars → signal_ledger + intelligence_features

@@ -53,7 +53,6 @@ from src.config.settings import Settings
 _ALWAYS_CLEAR = [
     "signal_ledger",
     "intelligence_features",
-    "technical_indicators",
     "setup_performance",  # no symbol column — always truncated in full
     "drift_state",
     "drift_monitor",

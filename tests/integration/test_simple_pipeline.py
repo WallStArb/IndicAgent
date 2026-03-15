@@ -197,32 +197,12 @@ class TestSimplePipeline:
                 market_data["volume"],
             )
 
-            # Step 3: Calculate and store indicator
-            rsi_value = 65.5  # Simulated RSI
-            await db_manager.execute_query(
-                """
-                INSERT INTO technical_indicators
-                (timestamp, symbol, timeframe, indicator_name, value)
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                market_data["timestamp"],
-                market_data["symbol"],
-                market_data["timeframe"],
-                "RSI",
-                rsi_value,
-            )
-
-            # Step 4: Verify complete pipeline
+            # Step 3: Verify complete pipeline
             market_count = await db_manager.execute_query(
                 "SELECT COUNT(*) FROM market_data_ohlcv WHERE symbol = $1", market_data["symbol"]
             )
 
-            indicator_count = await db_manager.execute_query(
-                "SELECT COUNT(*) FROM technical_indicators WHERE symbol = $1", market_data["symbol"]
-            )
-
             assert market_count[0]["count"] > 0
-            assert indicator_count[0]["count"] > 0
 
             print("✅ End-to-end minimal test: Market Data → Indicators → Database")
 
