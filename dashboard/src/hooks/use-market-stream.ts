@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { symbolConfig } from "@/lib/symbol-config";
+import { getApiBase } from "@/lib/api";
 import { pipelineLagS } from "@/lib/format";
 import type {
   SymbolData,
@@ -294,8 +295,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     esRef.current?.close();
     esRef.current = null;
 
-    const base =
-      process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const base = getApiBase();
     const ALL_TFS = "1m,5m,15m,1h,4h,1d";
     const url = `${base}/api/sse/events?symbols=${encodeURIComponent(symbolsCsv)}&timeframe=${encodeURIComponent(ALL_TFS)}`;
     const es = new EventSource(url);

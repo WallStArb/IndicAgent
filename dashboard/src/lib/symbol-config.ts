@@ -1,4 +1,5 @@
 // Symbol configuration for dashboard
+import { getApiBase } from "@/lib/api";
 export interface SymbolInfo {
   symbol: string
   display_name: string
@@ -415,7 +416,7 @@ class SymbolConfigManager {
 
   async loadConfig(): Promise<void> {
     try {
-      const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+      const base = getApiBase()
       const res = await fetch(`${base}/api/instruments`)
       if (!res.ok) return
       const instruments: Array<{

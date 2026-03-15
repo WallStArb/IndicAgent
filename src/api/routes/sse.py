@@ -352,6 +352,7 @@ async def sse_events(
             # ── Live: await messages from broadcaster fan-out ──
             while True:
                 if await request.is_disconnected():
+                    logger.info("SSE client is_disconnected=True, breaking", symbols=symbols, timeframe=timeframe)
                     break
 
                 try:
@@ -376,11 +377,19 @@ async def sse_events(
                 yield frame
 
         except asyncio.CancelledError:
-            logger.info("SSE client disconnected (cancelled)")
+            logger.info("SSE client disconnected (cancelled)", symbols=symbols, timeframe=timeframe)
         except Exception as e:
-            logger.error("SSE stream error", error=str(e))
+            logger.error("SSE stream error", error=str(e), symbols=symbols, timeframe=timeframe)
             yield b'event: error\ndata: {"error": "stream error"}\n\n'
         finally:
+            logger.info("SSE generator closing", symbols=symbols, timeframe=timeframe)
             broadcaster.unsubscribe(live_q)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
