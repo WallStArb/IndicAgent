@@ -11,7 +11,7 @@ IBKR TWS ──► Hot (Redpanda Streams) ──► Warm (Processing Services) �
                sub-millisecond writes        <10ms per bar                   async batch writes
 ```
 
-The real-time pipeline **never touches the database directly**. All live processing flows through Redis streams. TimescaleDB receives data only after it has been processed by the intelligence pipeline.
+The real-time pipeline **never touches the database directly**. All live processing flows through Redpanda topics. TimescaleDB receives data only after it has been processed by the intelligence pipeline.
 
 ---
 
@@ -21,7 +21,7 @@ The real-time pipeline **never touches the database directly**. All live process
 **Technology:** Redpanda (Kafka-compatible, :19092) — replaced DragonflyDB (Phase 30, 2026-03-14)
 **Latency:** Sub-millisecond writes
 
-The TWS Daemon (`indicagent-tws`) connects to IBKR at `10.0.0.33:7497` and writes completed bars to Redis Streams as they arrive. All stream keys are constructed via `src/core/stream_keys.py` and are environment-prefixed.
+The TWS Daemon (`indicagent-tws`) connects to IBKR at `10.0.0.33:7497` and writes completed bars to Redpanda topics as they arrive. All stream keys are constructed via `src/core/stream_keys.py` and are environment-prefixed.
 
 ### Stream Key Convention
 
@@ -50,7 +50,7 @@ Each service reads its input streams via an exclusive consumer group. The consum
 **Technology:** Python async services, systemd-managed
 **Latency:** <10ms per bar per symbol/timeframe
 
-Each service reads from one or more Redis streams, computes intelligence, and writes results back to Redis streams. Services are stateful — they maintain plugin state in memory across bars.
+Each service reads from one or more Redpanda topics, computes intelligence, and writes results back to Redpanda topics. Services are stateful — they maintain plugin state in memory across bars.
 
 ### Service Pipeline
 
@@ -66,13 +66,14 @@ Each service reads from one or more Redis streams, computes intelligence, and wr
 
 ### Multi-Stream Reading
 
-Services that monitor 24 contracts × 4 timeframes = 96 streams (varies by active contracts) use a **single `xreadgroup` call** with all stream names in one dict. This avoids worst-case polling latency from sequential blocking reads.
+Services that monitor 60 instruments × 4 timeframes = 240 topic partitions (varies by active instruments) use a **single consumer group poll** with all topic assignments. This avoids worst-case polling latency from sequential blocking reads.
 
 ```python
-all_streams = {name: ">" for name in self._stream_map}  # built once at init
-messages = await self.redis_client.xreadgroup(
-    group, consumer, all_streams, count=10, block=1000
-)
+# AIOKafkaConsumer subscribed to all topics at init
+async for msg in self._consumer:
+    topic = msg.topic   # e.g. "development.indicators"
+    key = msg.key.decode() if msg.key else None  # e.g. "ES:1m"
+    payload = json.loads(msg.value)
 ```
 
 ---

@@ -7,7 +7,7 @@
 
 ## Principle
 
-Each service has **one reason to change**. Services communicate exclusively via Redis Streams —
+Each service has **one reason to change**. Services communicate exclusively via Redpanda topics —
 no direct HTTP calls between services in the pipeline. A service can be restarted, redeployed,
 or scaled independently without affecting others.
 
@@ -271,7 +271,7 @@ market_data_daemon
 | `price:SYMBOL:latest` | `market_data_daemon` | `api_service` (REST) |
 | `indicators:SYMBOL:TF` | `indicator_service` | `market_analysis_service` |
 | `intelligence:SYMBOL:TF` | `market_analysis_service` | `signal_generator_service`, `feature_writer_service`, `api_service` |
-| `signals:SYMBOL:TF:aggregated` | `signal_generator_service` | `narrative_service`, `api_service` |
+| `signals:SYMBOL:TF:aggregated` | `signal_generator_service` | `ai_narrative_service`, `api_service` |
 | `narratives:SYMBOL:TF` | `ai_narrative_service` | `api_service` |
 | `llm_calls:stream` | `ai_narrative_service` | `llm_writer_service` |
 | `llm_outcomes:stream` | `signal_lifecycle_service` | `llm_writer_service` |

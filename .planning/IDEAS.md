@@ -1,7 +1,8 @@
 # Ideas
 
 Rough captures — no structure required, no commitment needed to add here.
-When an idea is ready to flesh out, move it to `analysis/`. When ready to build, add to ROADMAP.md Backlog.
+When ready to flesh out: create `docs/ideas/<topic>.md` with frontmatter (Status/Priority/Milestone) and link from here.
+When ready to build: run `brainstorming` → `docs/plans/` → `/gsd:plan-phase`.
 
 ---
 
@@ -28,6 +29,14 @@ When an idea is ready to flesh out, move it to `analysis/`. When ready to build,
 - **Continuous contract support in live pipeline** — live services use named contracts (correct for trading). At roll, there's a one-time price gap in stored bars. Could store a parallel continuous-adjusted series for indicator computation, while keeping named contract for signal price levels.
 
 - **Cross-asset plugin inputs** — plugins that consume multiple symbols simultaneously (e.g., ES vs VIX correlation, CL vs XLE divergence, SPY vs IWM rotation). Currently all plugins are single-symbol; the DAG and InputSpec would need to support `symbol="*"` or named multi-symbol inputs. Data alignment (temporal join across symbols) is the hard part — bars don't arrive at exactly the same time.
+
+- **I8 intelligence extensions** — Counterfactual Insight Generator ("what needs to be true to validate/invalidate this setup?"), Regime Change Explainer (LLM narrative on HMM transitions + daily brief), Anomaly Triage Assistant (ops LLM that reads metrics/logs and explains pipeline anomalies). All use existing LLM chain. See `docs/ideas/i8-intelligence-extensions.md`.
+
+- **Agent orchestration patterns** — MoA (parallel proposer models + aggregator), adversarial red team (bull/bear debate for high-stakes signals), dynamic leadership (regime-aware leading agent), semantic memory (pgvector insight store), specialist agents: fractal multi-TF pattern matcher, session transition intelligence (Asia→EU→US handoff forecasting), behavioral sentiment capture (emotional state from price/volume without NLP), agent performance auditor. See `docs/ideas/agent-orchestration-patterns.md`.
+
+- **Service resilience patterns** — consumer proxy/circuit breaker, changelog streams for fast state recovery on restart (replaces ~50 min signal generator warmup), enhanced consumer lag + processing duration Prometheus metrics. See `docs/ideas/service-resilience-patterns.md`.
+
+- **Granular Redpanda stream topology** — publish each intelligence tier to its own topic (`intelligence.regime`, `intelligence.patterns`, `intelligence.smc`, `intelligence.composite`) in addition to the monolithic `intelligence` event. Enables selective subscription by future consumers (MLAgent training pipeline, cross-asset regime aggregator, AegisAgent risk overlay) without paying the cost of deserializing the full event. Not worth building until a real consumer justifies it. See `docs/ideas/granular-stream-topology.md`.
 
 - **Parallel DAG execution** — plugins within the same tier that share no dependencies could run concurrently (async tasks). Today execution is sequential within each tier. Benefit is mostly for I3–I5 which are `compute_full()` and the most expensive. Distinct from the per-TF worker refactor (which is about service-level sharding, not intra-stage plugin parallelism).
 

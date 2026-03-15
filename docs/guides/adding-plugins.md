@@ -29,4 +29,4 @@ Step-by-step guide to creating new plugins.
 ---
 
 **Reference:** [Plugin Architecture](../concepts/plugin-architecture.md)
-**Example:** [First Plugin Tutorial](../getting-started/first-plugin.md)
+**Example:** See `docs/ideas/` for existing plugin design docs and `docs/plans/` for implementation plans.

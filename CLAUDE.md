@@ -1,10 +1,8 @@
 # CLAUDE.md
 
-Version: 5.21.0
-Last Updated: 2026-03-14
-Status: I1-I8 pipeline complete — 103 plugins + 2 aggregation components + feature store + typed intelligence bus + drift detection, 1754 passing, 167 ruff errors (E501 line-too-long, 64 fixable with --fix), 60 instruments
-
-This file provides guidance to Claude Code when working in this repository.
+Version: 5.23.0
+Last Updated: 2026-03-15
+Status: v1.8 SHIPPED — I1-I8 pipeline complete, 60 instruments, 98 plugins + 2 aggregation
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -19,40 +17,30 @@ Renaissance principles that govern this codebase:
 - **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
 - **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
 - **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
-- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Retention policies are for log files and legacy garbage — not intelligence data. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered, and you cannot discover patterns you didn't know to look for at collection time. The only data we drop is confirmed-unused legacy tables with no signal value.
+- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered. The only data we drop is confirmed-unused legacy tables with no signal value.
 
 Apply this framing when: designing new features, choosing between approaches, deciding what to log, evaluating model/strategy performance, or questioning whether something is "good enough."
 
 # IndicAgent Market Intelligence Platform
 
-Real-time market intelligence platform with plugin-native architecture, LangGraph event-driven workflows, and production-grade monitoring infrastructure.
+Real-time market intelligence platform with plugin-native architecture, Redpanda event-driven pipeline, and production-grade monitoring infrastructure.
 
 ## Knowledge Hierarchy
 
 | Level | Location | Description |
 |-------|----------|-------------|
-| **Ideas** | `.planning/IDEAS.md` | Rough bullet captures |
-| **Ideas (detailed)** | `docs/ideas/*.md` | Context, trade-offs, open questions |
-| **Ideas catalog** | `docs/ideas/IDEAS-INDEX.md` | **Primary lookup** for all research ideas, status, priority, search tags |
-| **TradeAgent vision** | `docs/ideas/tradeagent-vision.md` | Autonomous trading app (separate repo): agents, broker-agnostic execution, learning, HITL, guardrails, dashboards. Consumes IndicAgent + QualAgent signals. |
-| **QualAgent vision** | `docs/ideas/qualagent-vision.md` | Standalone qualitative intelligence platform (separate repo): macro regime, COT, prediction markets, news NLP, sentiment, QualScore, quantamental feedback loop. Build deferred. |
-| **DerivAgent vision** | `docs/ideas/derivagent-vision.md` | Derivatives intelligence + autonomous options execution platform (separate repo, name confirmed): vol surface, GEX, VANNA/CHARM, VRP, skew, term structure + agentic strategy selection, multi-leg execution, Greeks management, lifecycle, learning loop. Build deferred. |
-| **Platform architecture** | `docs/ideas/platform-architecture.md` | Unified platform architecture across all four products: hot/warm/cold data spine, canonical stream namespace, cross-product signal flow, portfolio/risk management, trade execution, strategy bots/automation. |
-| **PrimeAgent vision** | `docs/ideas/primeagent-vision.md` | Portfolio management product (name confirmed): unified P&L across all execution products, portfolio Greek aggregation, capital allocation, Kelly sizing inputs, performance attribution by source/regime, multi-account/SMA/fund management. |
-| **AegisAgent vision** | `docs/ideas/aegisagent-vision.md` | Independent risk management product (name confirmed): VaR, drawdown enforcement, margin monitoring, stress testing, pre-trade check protocol, emergency halt. Override authority over all execution products. Required before real capital deployed at scale. |
-| **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning: Redpanda (live, replaced DragonflyDB), pgvector, TimescaleDB consolidation strategy, migration timing, decision log. Living document — update when stack decisions are made. |
-| **Renaissance framing** | `docs/ideas/renaissance-framing.md` | Philosophical and architectural framing of the entire product family through the Jim Simons / Medallion lens: all 10 principles mapped to platform decisions, the VRP as primary edge, unified model over siloed strategies, learning machine, compounding insight. |
-| **Analysis** | `docs/plans/*.md` | Design docs and implementation plans — output of the brainstorming + writing-plans skill chain |
-| **Backlog** | `.planning/ROADMAP.md` → `## Backlog` | Milestone-scale features |
-| **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements |
-| **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases (GSD-managed) |
-| **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans |
+| **Captures** | `.planning/IDEAS.md` | Bullet list of ideas; links to detailed files when fleshed out |
+| **Research** | `docs/ideas/*.md` | Per-idea files — status/priority/milestone in frontmatter; reviewed by human + LLM |
+| **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning — living document |
+| **Design docs** | `docs/plans/*.md` | `brainstorming` output — reviewed before planning |
+| **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements (`/gsd:add-todo`) |
+| **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases + backlog (GSD-managed) |
+| **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (`/gsd:plan-phase`) |
 
-> **NOTE:** `.planning/IDEAS.md` is not defunct — it feeds GSD planning discovery. Both `.planning/IDEAS.md` and `docs/ideas/IDEAS-INDEX.md` should be kept in sync. When planning, check both sources.
+> **`docs/ideas/` is a living research workspace** — files are actively reviewed, trimmed, and developed over time. Large ideas (e.g. Renaissance intelligence, MLAgent) are built incrementally: each session starts from the file to discuss what subset is feasible, too complex, or too compute-intensive, then plans/builds that slice. The file tracks what's shipped vs still future. Status/priority/milestone live in each file's frontmatter. No separate index.
+> **When a subset is ready to build:** `brainstorming` → `docs/plans/` → `/gsd:plan-phase` → `/gsd:execute-phase`.
 
-> **Document graduation rule:** `docs/ideas/` is for research and open questions — things not yet ready to build. `docs/plans/` is the output of the brainstorming + writing-plans skill chain. Once an implementation plan lands in `docs/plans/`, add it to the ROADMAP Backlog immediately — that's the trigger to not lose it. `/gsd:plan-phase` then uses the `docs/plans/` doc as research context when creating the phase PLAN.md files.
-
-Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features. GSD skills (`/gsd:plan-phase`, `/gsd:execute-phase`) take over from there.
+Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features.
 
 ## Required Workflows
 
@@ -80,7 +68,7 @@ Before committing: `/simplify` then `/coderabbit:code-review`.
 `revise-claude-md` · `verification-before-completion` · `requesting-code-review`
 
 ### Library & Framework Documentation
-Use `context7` MCP for FastAPI, SQLAlchemy, LangGraph, pytest, Redis, etc.
+Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB, etc.
 
 ### Todo Management
 `/gsd:add-todo` · `/gsd:check-todos` · `/gsd:review-todos`
@@ -129,7 +117,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I2→I6) →
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
-| Indicator Service | `indicagent-indicator` | I1: 24 indicators → `indicators:SYMBOL:TF` | :9109 |
+| Indicator Service | `indicagent-indicator` | I1: 25 indicators → `indicators:SYMBOL:TF` | :9109 |
 | Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; needs ~50 live 1m bars (~50 min) warmup after restart before signals fire | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
@@ -147,14 +135,6 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I2→I6) →
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
 
 ## Data Flow
-
-### Stream Keys (env-prefixed: `development:` in dev)
-- `indicators:SYMBOL:TF` — I1 output
-- `intelligence:SYMBOL:TF` — typed IntelligenceEvent (I3→I6 output)
-- `signals:SYMBOL:TF:aggregated` — selected I7 signal (direction=0 = terminal/resolved event)
-- `narratives:SYMBOL:TF` — I8 AI narrative
-- `llm_calls:stream` — every LLM call (success + failure + counterfactual); maxlen=500
-- `llm_outcomes:stream` — signal lifecycle exits with outcome/pnl_r/mae/mfe; maxlen=200
 
 ### Hot/Warm/Cold Tiers
 ```
@@ -196,7 +176,32 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
 - **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
+- **Documentation accuracy**: Docs may contain fabricated content (nonexistent classes, functions, DB tables) written as forward-looking specs never implemented. Always verify doc claims against actual code (`src/`) before trusting them — if a doc references a class or function, grep for it first.
 
+### Naming Conventions
+
+> Full reference: `docs/reference/documentation-standards.md`
+
+**Python**
+- Plugin classes: `PascalCase` + `Plugin` suffix — `MACDPlugin`, `BollingerPlugin`, `CHoCHReversalPlugin`
+- Aggregator/result classes: `PascalCase`, no suffix required — `CISScorer`, `AggregatedResult`
+- Service files: `snake_case_service.py` — `signal_generator_service.py`
+- Plugin files: `snake_case.py`, short — `adx.py`, `bollinger.py`, `choch_reversal.py`
+- Topic builder functions: `topic_<thing>()` — `topic_indicators()`, `topic_signals_aggregated()`
+- Constants: `UPPER_SNAKE_CASE` — `TIER_I1`, `PLUGIN_METRICS_SAMPLE_RATE`
+- Private attrs: `_snake_case` leading underscore — `_regime_cache`, `_plugin_states`
+
+**Redpanda topics**: dots not colons — `development.indicators`, `development.intelligence.i7`. Always via `stream_keys.py`.
+
+**Database**: tables/columns `snake_case`; migrations `NNN_description.sql` (zero-padded); views `<source>_<tf>` (`ohlcv_15m`).
+
+**Systemd**: `indicagent-<name>.service`
+
+**Tests**: `tests/unit/test_<module>.py`; functions as `test_<what>_<condition>`
+
+**TypeScript**: components `PascalCase.tsx`, hooks `use-kebab-case.ts`, utils `kebab-case.ts`
+
+**Docs**: kebab-case files, uppercase for `README.md`/`CLAUDE.md`/`CHANGELOG.md`; plan docs date-prefixed `YYYY-MM-DD-<topic>.md`
 
 ### Key Rules
 
@@ -233,7 +238,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules). **Topic naming uses dots not colons**: `development.market.bars`, `development.indicators`, etc. Colons are invalid Kafka topic names.
+- **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules). Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **TWS `bars_processed` freeze**: `seen_bar_timestamps` dedup caches all timestamps from initial poll — subsequent polls return 0 new bars. Symptom: counter stuck at N×60 forever. Fix: restart TWS service.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 
@@ -257,33 +262,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 `INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=10.0.0.33`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
 
-## Current Status
+## Roadmap
 
-**Tests:** 1754 passing
-I1→I2→I3→I4→I5→SMC→I6→I7→I8 fully wired + feature store + CIS aggregator + signal gate + second-derivative intelligence + CIS data repair + signal lifecycle stream events + full dashboard (Signal Scorecard, DB signal history, GARCH/Kalman I4, SMC detail, tier tooltips) + Renaissance quality gates (Hurst/Shannon I4, alpha decay, freshness decay, KS+CUSUM drift detection) + equity expansion (65 instruments: 22 futures + 38 ETFs + 3 FX + 2 crypto; PL and SOL deactivated 2026-03-14) + dashboard UX refactor (focus/grid layout modes, WatchlistRail, SignalAlertStrip, SkeletonCard, GroupedSymbolGrid by sector)
-**v1.8 SHIPPED 2026-03-13** — see `.planning/ROADMAP.md`
+**v1.8 SHIPPED 2026-03-13** — tagged `v1.8`. Next: `/gsd:new-milestone` to define v1.9.
 
-## Roadmap Position
-
-- v1.0 SHIPPED 2026-02-28 — milestone archived (`de075f7`), tagged `v1.0`
-- v1.1 SHIPPED 2026-03-01 — milestone archived, tagged `v1.1`
-- v1.2 SHIPPED 2026-03-02 — milestone archived, tagged `v1.2`
-- v1.3 SHIPPED 2026-03-04 — milestone archived, tagged `v1.3`
-- v1.4 SHIPPED 2026-03-07 — milestone archived (`de075f7`), tagged `v1.4`
-- v1.5 SHIPPED 2026-03-07 — milestone archived (`c927b3e`), tagged `v1.5`
-- v1.6 SHIPPED 2026-03-10 — milestone archived, tagged `v1.6`
-- v1.7 SHIPPED 2026-03-12 — milestone archived, tagged `v1.7`
-- **v1.8 SHIPPED 2026-03-13** — milestone archived, tagged `v1.8`
-
-- Next: `/gsd:new-milestone` to define v1.9
-
-## Key References
-
-- `.planning/ROADMAP.md` — phases, backlog
-- `.planning/IDEAS.md` — rough captures
-- `docs/plans/` — design docs and implementation plans (brainstorm + writing-plans output)
-- `docs/concepts/intelligence-tiers.md`
-- `docs/reference/schemas/stream-schemas.md`
-- IBKR TWS: https://interactivebrokers.github.io/tws-api/
-- TimescaleDB: https://docs.timescale.com/
-- DB Maintenance Runbook: `docs/reference/db-maintenance.md` — weekly slow-query review, vacuum health, monthly storage audit; automated weekly ANALYZE via TimescaleDB job 1020 (Sundays 02:00 UTC)
+Full history: `.planning/ROADMAP.md`

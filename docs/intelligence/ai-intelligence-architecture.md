@@ -2,26 +2,20 @@
 
 **Version:** 3.1.0
 **Last Updated:** 2026-03-15
-**Status:** Operational — I1–I8 pipeline complete (98 plugins + 2 aggregation). LLM stack: ZAI GLM-5 (primary) → OpenRouter (fallback) → Ollama local (offline fallback). MLAgent learning machine in design (v1.8+). See `CLAUDE.md` for full current state.
+**Status:** Operational — I1–I8 pipeline complete (98 plugins + 2 aggregation). LLM stack: OpenRouter (primary) → Ollama local (offline fallback). MLAgent learning machine in design (v1.9+). See `CLAUDE.md` for full current state.
 
 ## Executive Summary
 
 Comprehensive technical architecture for AI intelligence systems within IndicAgent. Provides sophisticated, modular foundation for market intelligence extraction that integrates seamlessly with existing infrastructure. The I8 AI Narrative layer uses a **3-tier LLM inference chain** — highest-quality cloud inference first, broad-model cloud fallback second, and always-available local inference as the last resort.
 
-**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are operational (95 plugins). See `CLAUDE.md` for current state.
+**Core Mission:** Transform raw market data into actionable intelligence through multi-layer AI analysis, pattern recognition, and synthesis. I1-I8 are operational (98 plugins). See `CLAUDE.md` for current state.
 
-## 3-Tier LLM Inference Chain (I8)
+## 2-Tier LLM Inference Chain (I8)
 
 The `ai_narrative_service` (I8) uses `LLMChain` from `src/intelligence/llm_providers.py` — providers are tried in order and the first successful response is returned immediately.
 
 ```
-Tier 1 (Primary)   — ZAI / GLM-5
-                     State-of-the-art foundation model via Z.ai API.
-                     Best reasoning quality; lowest-latency for complex market narratives.
-                     Endpoint: https://api.z.ai/api/paas/v4/chat/completions
-                     Env: ZAI_API_KEY, ZAI_MODEL (default: glm-5), ZAI_TIMEOUT_SEC
-
-Tier 2 (Fallback)  — OpenRouter
+Tier 1 (Primary)   — OpenRouter
                      Access to 100+ models from major providers (Llama, Mistral, Gemini,
                      Claude, etc.) through a single API. Free-tier models available.
                      Endpoint: https://openrouter.ai/api/v1
@@ -29,7 +23,7 @@ Tier 2 (Fallback)  — OpenRouter
                      Per-signal default: meta-llama/llama-3.3-70b-instruct:free
                      Group synthesis default: stepfun/step-3.5-flash:free
 
-Tier 3 (Offline)   — Ollama (local)
+Tier 2 (Offline)   — Ollama (local)
                      Runs entirely on-device — always available even with no internet
                      or API access. Adds latency but guarantees narrative generation.
                      Endpoint: http://localhost:11434
@@ -40,16 +34,15 @@ Tier 3 (Offline)   — Ollama (local)
 ### Provider Chain Setup
 
 ```python
-from src.intelligence.llm_providers import LLMChain, ZAIProvider, OpenRouterProvider, OllamaProvider
+from src.intelligence.llm_providers import LLMChain, OpenRouterProvider, OllamaProvider
 
 chain = LLMChain([
-    ZAIProvider(model=settings.zai_model, api_key=settings.zai_api_key),
     OpenRouterProvider(model="meta-llama/llama-3.3-70b-instruct:free",
                        api_key=settings.openrouter_api_key),
     OllamaProvider(model="qwen3.5:9b", base_url=settings.ollama_base_url),
 ])
 text = await chain.generate(prompt, system, max_tokens=500, timeout=30.0)
-# chain.last_provider_id — which provider succeeded (e.g. "zai:glm-5")
+# chain.last_provider_id — which provider succeeded (e.g. "openrouter:llama-3.3-70b")
 ```
 
 ### Adding a New Provider
@@ -70,9 +63,10 @@ Add to `Settings` with `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec` fie
 ## Scope and Non-Goals
 
 ### Scope
-- AI intelligence architecture for I5–I8 tiers integrating with LangGraph event-driven workflows
-- Agent coordination patterns with circuit breakers and enhanced monitoring
-- Stream-based distribution with intelligence-aware messaging and observability
+- AI intelligence architecture for I1–I8 tiers (plugin-native, systemd-managed services)
+- LLM inference chain and provider failover (I8)
+- Redpanda topic distribution and TimescaleDB persistence
+- MLAgent learning machine design (v1.9+ — not yet built)
 
 ### Non-Goals
 - Trading execution systems (orders, broker integration)
@@ -81,232 +75,87 @@ Add to `Settings` with `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec` fie
 
 ## Intelligence System Design Principles
 
-### Intelligence-First Architecture
-- Clean separation between intelligence extraction and analysis logic
-- Pattern recognition and market structure analysis as primary capabilities
-- Multi-layer intelligence processing (I1-I8 tiers) with clear data contracts
+- **Intelligence-first**: Plugin protocol (`compute_next` / `compute_full`) separates extraction logic from service orchestration. Each plugin owns one capability; the service owns the loop.
+- **Data contracts over APIs**: All inter-service communication is typed Redpanda messages (`IntelligenceEvent` from `src/intelligence/schemas.py`). No direct service-to-service calls.
+- **Degrade gracefully**: LLM chain tries providers in order, returns `None` if all fail — the pipeline continues without narrative rather than blocking.
+- **Earn the right through proof**: Signal quality gates (`p < 0.05`, `sample_size >= 30`) are encoded in `setup_performance` writes and the CIS `perf_multiplier`. No model touches live selection without evidence.
 
-### Simplicity & Elegance
-- Configuration-driven behavior with minimal hard-coding
-- Standardized interfaces and communication protocols
-- Consistent patterns across all agent implementations
+## Architecture Overview
 
-### Sophisticated Analysis Framework
-- Multi-timeframe confluence intelligence validation
-- Cross-asset correlation and market regime detection
-- Advanced pattern recognition with confidence scoring
+The intelligence pipeline is a set of systemd services communicating over Redpanda topics. Each service subscribes to upstream topics, runs its plugin tier, and publishes results downstream.
 
-### Infrastructure Integration
-- Leverage existing Redis Streams, PostgreSQL/TimescaleDB, Docker services
-- Integrate with hybrid service-plugin architecture for I5-I8 capabilities
-- Maintain compatibility with existing observability and monitoring
-
-## Intelligence Architecture Overview
-
-### AI Intelligence Stack
 ```
-AI Intelligence System Architecture:
-├── Intelligence Runtime Layer
-│   ├── Intelligence Agent Lifecycle (spawn, analyze, synthesize)
-│   ├── LangGraph Intelligence Workflows (multi-agent coordination)
-│   ├── Intelligence Bus (Redis streams, insight routing)
-│   └── Resource Management (model pools, throttling, monitoring)
-├── Intelligence Analysis Layer (I5-I8 Implementation)  
-│   ├── Pattern Intelligence Agent (I5: technical patterns, market structure)
-│   ├── Market Context Agent (I4: regime detection, volatility analysis)
-│   ├── Confluence Agent (I6: multi-factor synthesis, confidence scoring)
-│   ├── Smart Money Agent (I5: institutional flow, liquidity analysis)
-│   └── Research Agent (context: news analysis, sentiment, economic data)
-├── Intelligence Learning Layer
-│   ├── Pattern Validation (prediction accuracy, intelligence quality)
-│   ├── Confidence Calibration (accuracy tracking, threshold adjustment)
-│   ├── Intelligence Evolution (success rate tracking, model adaptation)
-│   └── Meta-Intelligence (learning optimization, capability development)
-├── Intelligence Infrastructure Layer
-│   ├── Data Integration (Redis Streams I1-I8, PostgreSQL, TimescaleDB)
-│   ├── Observability (intelligence metrics, analysis tracing)
-│   ├── Safety & Validation (pattern validation, confidence guardrails)
-│   └── Deployment (Docker Compose, service discovery, health checks)
-└── External Intelligence Layer
-    ├── MCP Tools (brave-search, ref for research)
-    ├── AI/ML Services (ZAI GLM-5 → OpenRouter → Ollama local — 3-tier chain)
-    ├── Market Data (existing IBKR intelligence streams)
-    └── Intelligence Interfaces (dashboard, SSE intelligence broadcasting)
+IBKR TWS → tws_daemon ──► market.bars (Redpanda)
+                              │
+                    indicator_service (I1)
+                              │
+                         indicators (Redpanda)
+                              │
+               market_analysis_service (I2→I6)
+                              │
+                         intelligence (Redpanda)
+                         intelligence.i7
+                              │
+              signal_generator_service (I7)
+                              │
+               ┌──────────────┴───────────────┐
+          signals.aggregated            signal_ledger (TimescaleDB)
+               │
+      feature_writer_service → intelligence_features (TimescaleDB)
+               │
+      ai_narrative_service (I8) → narratives (Redpanda) → llm_calls (TimescaleDB)
+               │
+           API (SSE) → Dashboard
 ```
 
-### Architecture Flow (Simplified)
+## Redpanda Topic Reference
 
-```mermaid
-flowchart TD
-  A[Market Data & Indicators\nRedis Streams] --> B[Intelligence Framework\nI5-I8 Agents]
-  B --> C[Confluence & Validation]
-  C --> D[Intelligence Outputs\npatterns/composite/insight]
-  D --> E[Distribution\nRedis Streams / APIs]
-```
+All topic names are built via `src/core/stream_keys.py`. Never construct topic strings manually.
 
-## Intelligence Agent Framework
-
-### Base Intelligence Agent Interface
 ```python
-class BaseIntelligenceAgent:
-    """Foundation interface for all IndicAgent intelligence agents"""
-    
-    # Intelligence Capabilities (I-Tier Mapping)
-    intelligence_capabilities: List[str] = [
-        "pattern_recognition",      # I5: Technical patterns, market structure
-        "market_context",          # I4: Regime detection, volatility assessment
-        "confluence_synthesis",    # I6: Multi-factor intelligence combination
-        "confidence_assessment",   # I6: Intelligence quality and reliability
-        "predictive_intelligence"  # I7: Insight generation with uncertainty
-    ]
-    
-    # Intelligence Processing States
-    class IntelligenceState(Enum):
-        ANALYZING = "analyzing"        # Processing market data for patterns
-        SYNTHESIZING = "synthesizing"  # Combining multiple intelligence sources  
-        VALIDATING = "validating"      # Confidence scoring and validation
-        LEARNING = "learning"          # Pattern adaptation and improvement
-        DORMANT = "dormant"           # Waiting for market conditions
-    
-    # Intelligence Configuration
-    intelligence_config: IntelligenceConfig = Field(...)
-    pattern_tracker: PatternPerformanceTracker = Field(...)
-    confidence_validator: ConfidenceValidator = Field(...)
-```
-
-### Intelligence Processing Patterns
-
-Multi-Timeframe Intelligence Confluence:
-```yaml
-# Intelligence confluence configuration
-intelligence_processing:
-  confluence_analysis:
-    timeframes: ["1m", "5m", "15m", "1h", "4h", "1d"]
-    confidence_weights:
-      pattern_strength: 0.3
-      multi_timeframe_agreement: 0.25
-      volume_confirmation: 0.2
-      market_context: 0.15
-      historical_success: 0.1
-  
-  intelligence_thresholds:
-    minimum_confidence: 0.7
-    multi_timeframe_agreement: 0.8
-    pattern_strength_threshold: 0.75
-```
-
-Smart Money Intelligence Detection:
-```yaml
-# Institutional flow analysis
-smart_money_intelligence:
-  institutional_indicators:
-    - large_volume_analysis
-    - dark_pool_flow_estimation
-    - options_flow_correlation
-    - futures_basis_analysis
-  
-  liquidity_intelligence:
-    - fair_value_gap_detection
-    - liquidity_sweep_identification
-    - order_block_analysis
-    - market_structure_shifts
-```
-
-## Intelligence Integration Patterns
-
-### Redis Streams Intelligence Distribution
-```python
-# Intelligence stream architecture - use src/core/stream_keys.py helpers
 from src.core.stream_keys import (
-    features as sk_features,
-    composite as sk_composite, 
-    patterns as sk_patterns,
-    regime as sk_regime,
-    insights as sk_insights
+    topic_market_bars,       # market.bars — OHLCV bars from TWS daemon
+    topic_indicators,        # indicators — I1 output per bar
+    topic_intelligence,      # intelligence — I2–I6 IntelligenceEvent per bar
+    topic_intelligence_i7,   # intelligence.i7 — I7 signal scorecard (all_ranked)
+    topic_intelligence_i8,   # intelligence.i8 — I8 narrative metadata
+    topic_signals,           # signals — individual I7 signals pre-aggregation
+    topic_signals_aggregated,# signals.aggregated — selected signal per bar
+    topic_narratives,        # narratives — I8 LLM narrative per bar
+    topic_llm_calls,         # llm.calls — full LLM audit log
+    topic_llm_outcomes,      # llm.outcomes — signal lifecycle exits for back-fill
+    message_key,             # partition key: "SYMBOL:TF" or "SYMBOL"
 )
-
-intelligence_streams = {
-    # I1 Raw Features
-    "features": sk_features(env_prefix, symbol, timeframe),
-
-    # I2–I7 Composite Intelligence  
-    "composite": sk_composite(env_prefix, symbol, timeframe),
-
-    # I5–I7 Pattern Intelligence
-    "patterns": sk_patterns(env_prefix, symbol, timeframe),
-
-    # I4 Market Context
-    "regime": sk_regime(env_prefix, scope),  # scope: MARKET or SYMBOL:TF
-
-    # I8 AI Intelligence (human-readable insights)
-    "insights": sk_insights(env_prefix, symbol, timeframe)
-}
 ```
 
-**Critical Standards:**
-- Always use `src/core/stream_keys.py` helpers to build stream names
-- Never construct stream keys manually with f-strings
-- Environment prefix is derived from `INDICAGENT_ENV` via Settings
+Topics use dot-separated names (`development.indicators`) — colons are invalid Kafka topic names.
 
-### Intelligence Database Schema
-```sql
--- Intelligence analysis storage
-CREATE TABLE intelligence_analysis (
-    id BIGSERIAL PRIMARY KEY,
-    timestamp TIMESTAMPTZ NOT NULL,
-    symbol VARCHAR(20) NOT NULL,
-    timeframe VARCHAR(10) NOT NULL,
-    intelligence_type VARCHAR(50) NOT NULL,
-    analysis_data JSONB NOT NULL,
-    confidence_score DECIMAL(5,4),
-    intelligence_tier INTEGER, -- I1-I8 classification
-    validation_status VARCHAR(20),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+## TimescaleDB Tables (Intelligence Layer)
 
--- Pattern intelligence tracking
-CREATE TABLE pattern_intelligence (
-    id BIGSERIAL PRIMARY KEY,
-    timestamp TIMESTAMPTZ NOT NULL,
-    symbol VARCHAR(20) NOT NULL,
-    timeframe VARCHAR(10) NOT NULL,
-    pattern_type VARCHAR(100) NOT NULL,
-    pattern_data JSONB NOT NULL,
-    confidence_score DECIMAL(5,4),
-    validation_outcome VARCHAR(20),
-    performance_metrics JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+```
+intelligence_features  — full feature vectors per bar incl. I1–I8 JSONB (ML training dataset)
+signal_ledger          — I7 signals + lifecycle outcomes; JOIN via (symbol, feature_ts, feature_tf)
+llm_calls              — full LLM audit log per call; outcome back-filled by llm_writer_service
+llm_model_scores       — per-model win rate / avg pnl_r / p-value; refreshed every 15 min
+setup_performance      — per-setup rolling 30d stats (win_rate, avg_pnl_r, sharpe); rows written
+                         only when sample_size >= 30 (FEED-02 gate)
+drift_state            — per-feature KS/CUSUM drift scores; written by market_analysis_service
 ```
 
-## Intelligence Safety & Validation
+## Quality Gates (Live System)
 
-### Intelligence Confidence Framework
-- **Pattern Validation**: Historical success rate tracking
-- **Multi-Timeframe Agreement**: Cross-timeframe pattern confirmation
-- **Market Context Validation**: Regime-appropriate pattern recognition
-- **Confidence Decay**: Time-based confidence degradation
-- **Intelligence Quality Scoring**: Comprehensive reliability metrics
-
-### Intelligence Guardrails
-```python
-class IntelligenceValidator:
-    """Ensures intelligence quality and reliability"""
-    
-    def validate_intelligence(self, intelligence_output):
-        validations = [
-            self._validate_confidence_thresholds(intelligence_output),
-            self._validate_market_context_appropriateness(intelligence_output),
-            self._validate_multi_timeframe_consistency(intelligence_output),
-            self._validate_pattern_historical_performance(intelligence_output),
-            self._validate_data_quality_requirements(intelligence_output)
-        ]
-        return all(validations)
+| Gate | Mechanism | Where |
+|------|-----------|-------|
+| **CIS score** | Weighted sum across I1–I6 signals → 0–1 | CIS aggregator plugin (I7) |
+| **Performance weight** | `perf_multiplier` from `setup_performance` — only rows with N≥30 | Signal aggregator |
+| **Alpha decay** | Freshness-weighted confidence — older signals score lower | I6 confluence plugin |
+| **Drift detection** | KS + CUSUM per feature; drift scores in `drift_state` table | Market analysis service |
+| **Shadow mode gate** | p < 0.05 with sufficient N required before ML models affect selection | MLAgent (v1.9+) |
 ```
 
 ## Current Status (as of v1.6)
 
-**All I1–I8 phases complete.** 98 plugins + 2 aggregation components operational. MLAgent learning machine in design (v1.8+).
+**All I1–I8 phases complete.** 98 plugins + 2 aggregation components operational. MLAgent learning machine in design (v1.9+).
 
 | Layer | Status |
 |-------|--------|
@@ -317,12 +166,12 @@ class IntelligenceValidator:
 | I5 Patterns (14) | ✅ Running — chart patterns, divergence, squeeze, VolumeProfile, KeyLevelReaction |
 | I6 SMC + Confluence (14) | ✅ Running — BOS/CHoCH, FVG, order blocks, ICT killzones, AMD, breakers, cross-TF confluence |
 | I7 Trading Setups (17+2) | ✅ Running — 17 setup plugins + CIS aggregator + TradeFramer |
-| I8 AI Narrative (1) | ✅ Running — ZAI GLM-5 → OpenRouter → Ollama (qwen3.5:9b) chain |
-| **ML Layer (MLAgent)** | 🔬 Design complete — v1.8+ build target |
+| I8 AI Narrative (1) | ✅ Running — OpenRouter (primary) → Ollama qwen3.5:9b (offline fallback) |
+| **ML Layer (MLAgent)** | 🔬 Design complete — v1.9+ build target |
 
 **See** `.planning/ROADMAP.md` for the next milestone backlog.
 
-## ML Intelligence Layer (MLAgent — v1.8+)
+## ML Intelligence Layer (MLAgent — v1.9+)
 
 The I1–I8 pipeline produces labeled training data: every signal outcome (8-class taxonomy: never_activated, stopped_at_entry, stopped_in_trade, target_1, target_1_2, target_full, ttl_expired_ahead, ttl_expired_behind) is recorded in `signal_ledger` alongside the full `intelligence_features` vector captured at signal time. MLAgent is the system that closes the loop from that labeled data back to improved signal selection.
 
