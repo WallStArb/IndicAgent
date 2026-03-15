@@ -36,6 +36,7 @@ from src.core.stream_keys import (
 )
 from src.intelligence.trading.lifecycle_tracker import (
     OUTCOME_THRESHOLD_QUICK_STOP_BARS,
+    _classify_stop_outcome,
     evaluate_signal,
 )
 from src.intelligence.trading.signal_ledger import get_active_signals, update_signal_status
@@ -81,17 +82,6 @@ def _bars_in_trade(activated_at: datetime | None, exit_at: datetime, timeframe: 
     tf_secs = TF_SECONDS.get(timeframe, 60)
     delta = (exit_at - activated_at).total_seconds()
     return max(0, int(delta / tf_secs))
-
-
-def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> str:
-    """Resolve fine-grained outcome for a stopped-out signal."""
-    if (
-        bars_in_trade_count is None
-        or bars_in_trade_count <= OUTCOME_THRESHOLD_QUICK_STOP_BARS
-        or current_mfe <= 0.05
-    ):
-        return "stopped_at_entry"
-    return "stopped_in_trade"
 
 
 def _build_outcome_payload(
