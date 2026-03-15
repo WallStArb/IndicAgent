@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -493,6 +493,10 @@ class TestTerminalEventWiring:
         svc._mae = {}
         svc._mfe = {}
         svc._activated_at = {}
+        svc._market_mae = {}
+        svc._market_mfe = {}
+        svc._market_activated_at = {}
+        svc._resolved_market = set()
         svc.lifecycle_transitions_total = AsyncMock()
         svc.lifecycle_transitions_total.inc = lambda: None
         svc.active_signals_count = AsyncMock()
@@ -620,3 +624,124 @@ def test_signal_lifecycle_stream_map_test_updated():
     assert not hasattr(
         svc, "_setup_consumer_groups"
     ), "_setup_consumer_groups must be removed — service uses _setup_kafka_clients now"
+
+
+# ============================================================
+# Market Track Tests (Task 5)
+# ============================================================
+
+
+def _make_service():
+    """Create SignalLifecycleService without triggering asyncio/kafka/db setup."""
+    from services.signal_lifecycle_service import SignalLifecycleService
+    svc = SignalLifecycleService.__new__(SignalLifecycleService)
+    # Replicate __init__ state that tests depend on
+    svc._mae = {}
+    svc._mfe = {}
+    svc._activated_at = {}
+    svc._market_mae = {}
+    svc._market_mfe = {}
+    svc._market_activated_at = {}
+    svc._resolved_market = set()
+    svc.db_manager = AsyncMock()
+    svc.db_manager.execute_command = AsyncMock()
+    svc._kafka_producer = None
+    svc.point_values = {"ES": 50.0}
+    svc.env_name = "test"
+    svc.lifecycle_transitions_total = MagicMock()
+    svc.lifecycle_transitions_total.inc = MagicMock()
+    svc.active_signals_count = MagicMock()
+    svc.active_signals_count.set = MagicMock()
+    svc.logger = MagicMock()
+    return svc
+
+
+def _pending_sig(signal_id="sig-001", direction=1, market_entry_price=5100.0,
+                 entry=5100.0, stop=5085.0, targets=None):
+    ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+    return {
+        "signal_id": signal_id,
+        "status": "pending",
+        "direction": direction,
+        "entry_price": entry,
+        "stop_loss": stop,
+        "targets": targets or [5115.0, 5130.0, 5145.0],
+        "ttl_bars": 10,
+        "confidence": 0.8,
+        "timestamp": ts,
+        "timeframe": "1m",
+        "market_entry_price": market_entry_price,
+        "entry_zone_low": entry - 5.0,
+        "entry_zone_high": entry + 5.0,
+    }
+
+
+@pytest.mark.unit
+class TestMarketTrackStateInitialization:
+    def test_new_market_state_dicts_exist(self):
+        svc = _make_service()
+        assert hasattr(svc, "_market_mae")
+        assert hasattr(svc, "_market_mfe")
+        assert hasattr(svc, "_market_activated_at")
+        assert hasattr(svc, "_resolved_market")
+
+    def test_null_market_entry_price_skips_market_track(self):
+        """market_entry_price=None → market track not evaluated, no error."""
+        svc = _make_service()
+        sig = _pending_sig(market_entry_price=None)
+        bar_time = datetime(2026, 3, 14, 10, 1, 0, tzinfo=UTC)
+        bar = {"high": 5110.0, "low": 5098.0, "close": 5105.0}
+
+        with patch("services.signal_lifecycle_service.record_market_resolution") as mock_rec:
+            asyncio.run(svc._evaluate_signals_against_bar("ES", "1m", bar, bar_time,
+                                                           all_active=[sig]))
+            mock_rec.assert_not_called()
+
+    def test_market_activated_at_set_on_first_bar(self):
+        """_market_activated_at is set to bar_time on first bar evaluated."""
+        svc = _make_service()
+        sig = _pending_sig(signal_id="sig-001")
+        bar_time = datetime(2026, 3, 14, 10, 1, 0, tzinfo=UTC)
+        bar = {"high": 5108.0, "low": 5098.0, "close": 5105.0}
+
+        with patch("services.signal_lifecycle_service.record_market_resolution"):
+            asyncio.run(svc._evaluate_signals_against_bar("ES", "1m", bar, bar_time,
+                                                           all_active=[sig]))
+        assert "sig-001" in svc._market_activated_at
+        assert svc._market_activated_at["sig-001"] == bar_time
+
+
+@pytest.mark.unit
+class TestMarketTrackResolution:
+    def test_market_resolution_cleans_up_state(self):
+        """After market resolution, market state dicts are cleaned up."""
+        svc = _make_service()
+        svc._market_mae["sig-001"] = -0.5
+        svc._market_mfe["sig-001"] = 0.0
+        svc._market_activated_at["sig-001"] = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+        sig = _pending_sig(signal_id="sig-001", direction=1,
+                           market_entry_price=5100.0, stop=5085.0)
+        bar_time = datetime(2026, 3, 14, 10, 1, 0, tzinfo=UTC)
+        bar = {"high": 5098.0, "low": 5084.0, "close": 5086.0}
+
+        with patch("services.signal_lifecycle_service.record_market_resolution"), \
+             patch("services.signal_lifecycle_service.record_zone_resolution_with_activation"), \
+             patch("services.signal_lifecycle_service.record_activation"):
+            asyncio.run(svc._evaluate_signals_against_bar("ES", "1m", bar, bar_time,
+                                                           all_active=[sig]))
+
+        assert "sig-001" not in svc._market_mae
+        assert "sig-001" not in svc._market_mfe
+        assert "sig-001" not in svc._market_activated_at
+
+
+@pytest.mark.unit
+class TestBarTimeVsNow:
+    def test_bars_in_trade_uses_bar_time_not_now(self):
+        """_bars_in_trade for market track must use bar_time, not datetime.now()."""
+        from services.signal_lifecycle_service import _bars_in_trade
+        from datetime import UTC, datetime
+        activated = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+        bar_time = datetime(2026, 3, 14, 10, 5, 0, tzinfo=UTC)  # 5 bars later at 1m
+        result = _bars_in_trade(activated, bar_time, "1m")
+        assert result == 5

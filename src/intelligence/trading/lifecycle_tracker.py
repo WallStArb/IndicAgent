@@ -230,6 +230,123 @@ def _determine_target_outcome(target_index: int) -> str:
     return ["target_1", "target_1_2", "target_full"][min(target_index, 2)]
 
 
+def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> str:
+    """Resolve fine-grained outcome for a stopped-out signal."""
+    if (
+        bars_in_trade_count is None
+        or bars_in_trade_count <= OUTCOME_THRESHOLD_QUICK_STOP_BARS
+        or current_mfe <= 0.05
+    ):
+        return "stopped_at_entry"
+    return "stopped_in_trade"
+
+
+@dataclass
+class MarketTransition:
+    """State for the market-entry parallel track. outcome=None means still running."""
+
+    signal_id: str
+    exit_price: float | None = None
+    pnl_r: float | None = None
+    mae: float = 0.0
+    mfe: float = 0.0
+    outcome: str | None = None  # None = still running; stops resolved by caller
+    gap_bars: int | None = None  # replay only; None for live signals
+
+
+def evaluate_market_entry(
+    signal: dict[str, Any],
+    *,
+    market_entry_price: float,
+    high: float,
+    low: float,
+    close: float,
+    current_mae: float = 0.0,
+    current_mfe: float = 0.0,
+) -> MarketTransition:
+    """Evaluate market-entry track for one bar.
+
+    Always "active" from bar 1 — no zone activation.
+    Risk is based on market_entry_price (not entry_price).
+    Returns MarketTransition with outcome=None while running; populated on exit.
+    Stop outcomes (stopped_at_entry vs stopped_in_trade) are resolved by the
+    caller via _classify_stop_outcome() using bars_in_trade context.
+    """
+    sid = signal["signal_id"]
+    direction = signal["direction"]
+    stop = signal["stop_loss"]
+    targets = signal.get("targets") or []
+    ttl = signal.get("ttl_bars", 10)
+    bars = signal.get("bars_elapsed", 0)
+    risk = abs(market_entry_price - stop)
+
+    # TTL check first (mirrors evaluate_signal)
+    if bars >= ttl:
+        pnl_ticks = (close - market_entry_price) * direction
+        pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+        outcome = "ttl_expired_ahead" if current_mfe > 0 else "ttl_expired_behind"
+        final_mae = min(current_mae, pnl_r)
+        final_mfe = max(current_mfe, pnl_r)
+        return MarketTransition(
+            signal_id=sid,
+            exit_price=close,
+            pnl_r=pnl_r,
+            mae=round(final_mae, 4),
+            mfe=round(final_mfe, 4),
+            outcome=outcome,
+        )
+
+    # Stop loss check (stop before target on same bar — conservative)
+    if (direction == 1 and low <= stop) or (direction == -1 and high >= stop):
+        return _make_market_exit(sid, stop, market_entry_price, direction, risk,
+                                 current_mae, current_mfe)
+
+    # Target checks (highest target first for maximum credit)
+    for i in range(len(targets) - 1, -1, -1):
+        target = targets[i]
+        hit = (direction == 1 and high >= target) or (direction == -1 and low <= target)
+        if hit:
+            pnl_ticks = (target - market_entry_price) * direction
+            pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+            final_mae = min(current_mae, pnl_r)
+            final_mfe = max(current_mfe, pnl_r)
+            return MarketTransition(
+                signal_id=sid,
+                exit_price=target,
+                pnl_r=pnl_r,
+                mae=round(final_mae, 4),
+                mfe=round(final_mfe, 4),
+                outcome=_determine_target_outcome(i),
+            )
+
+    # Still running
+    return MarketTransition(signal_id=sid)
+
+
+def _make_market_exit(
+    sid: str,
+    exit_price: float,
+    market_entry_price: float,
+    direction: int,
+    risk: float,
+    current_mae: float,
+    current_mfe: float,
+) -> MarketTransition:
+    """Build a stop-exit MarketTransition. outcome=None — resolved by caller."""
+    pnl_ticks = (exit_price - market_entry_price) * direction
+    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+    final_mae = min(current_mae, pnl_r)
+    final_mfe = max(current_mfe, pnl_r)
+    return MarketTransition(
+        signal_id=sid,
+        exit_price=exit_price,
+        pnl_r=pnl_r,
+        mae=round(final_mae, 4),
+        mfe=round(final_mfe, 4),
+        outcome=None,
+    )
+
+
 def _make_exit(
     sid: str,
     status: str,
