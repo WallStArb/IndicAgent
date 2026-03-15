@@ -33,10 +33,12 @@ Two parallel outcome tracks for every signal — both stored permanently in `sig
 - Answers: *what happens if you take every signal immediately at market?*
 
 ### Value of comparison
-| Signal fired, zone never hit | Zone: `never_activated` | Market: target_full |
-| → Signal was directionally right; you missed it waiting for a pullback |
-| Signal fired, zone hit, both win | Confirms zone entry was worth waiting for |
-| Signal fired, zone hit, zone loses worse | Market entry had tighter stop → better R |
+
+| Scenario | Zone Outcome | Market Outcome | Insight |
+|----------|-------------|----------------|---------|
+| Signal fired, zone never hit | `never_activated` | `target_full` | Signal was directionally right; you missed it waiting for a pullback |
+| Signal fired, zone hit, both win | win | win | Confirms zone entry was worth waiting for |
+| Signal fired, zone hit, zone loses worse | loss | better R | Market entry had tighter stop → better R |
 
 ---
 
@@ -45,9 +47,14 @@ Two parallel outcome tracks for every signal — both stored permanently in `sig
 ```sql
 -- Migration 031
 ALTER TABLE signal_ledger
-  ADD COLUMN market_entry_price   DOUBLE PRECISION,  -- tick (live) or bar N+1 open (replay)
-  ADD COLUMN market_entry_pnl_r   DOUBLE PRECISION,  -- P&L in R-multiples from market fill
-  ADD COLUMN market_entry_outcome TEXT;              -- same outcome taxonomy as 'outcome'
+  ADD COLUMN market_entry_price        DOUBLE PRECISION,  -- tick (live) or bar N+1 open (replay)
+  ADD COLUMN market_entry_pnl_r        DOUBLE PRECISION,  -- P&L in R-multiples from market fill
+  ADD COLUMN market_entry_outcome      TEXT,              -- same outcome taxonomy as 'outcome'
+  ADD COLUMN market_entry_mae          DOUBLE PRECISION,  -- max adverse excursion from market fill
+  ADD COLUMN market_entry_mfe          DOUBLE PRECISION,  -- max favorable excursion from market fill
+  ADD COLUMN market_entry_bars_in_trade INTEGER,          -- bars from market fill to exit
+  ADD COLUMN market_entry_exit_price   DOUBLE PRECISION,  -- exit price for market track
+  ADD COLUMN market_entry_gap_bars     INTEGER;           -- bars between signal fire and bar N+1 fill
 ```
 
 ---
