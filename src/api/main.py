@@ -4,6 +4,7 @@ IndicAgent FastAPI Main Application
 Clean, focused API for technical indicators and market data.
 """
 
+import uuid
 from contextlib import asynccontextmanager
 
 import structlog
@@ -77,7 +78,7 @@ async def lifespan(app: FastAPI):
             topic_narratives(env_name),
             topic_narratives_group(env_name),
             bootstrap_servers=kafka_bootstrap,
-            group_id="sse_broadcaster",
+            group_id=f"sse_broadcaster_{uuid.uuid4().hex[:8]}",
             auto_offset_reset="earliest",
         )
         await _sse_consumer.start()
