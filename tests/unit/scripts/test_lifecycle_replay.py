@@ -129,14 +129,13 @@ class TestChronologicalOrdering:
     def test_earlier_signal_activates_before_later_signal(self):
         """Signal with earlier timestamp must be added to live_signals first."""
         replay = _get_replay()
-        sig_early = _sig("s-early", ts_offset_secs=0)
-        sig_late = _sig("s-late", ts_offset_secs=120)
+        # sig_early fires at 10:00, sig_late fires at 10:02
+        sig_early = _sig("s-early", ts_offset_secs=0)   # ts = 10:00:00
+        sig_late = _sig("s-late", ts_offset_secs=120)   # ts = 10:02:00
 
-        bar_ts = BASE_TS + timedelta(seconds=180)
-        bar = _bar(bar_ts, 5108.0, 5098.0, 5105.0)
+        # bar_ts = 10:01 → sig_early (10:00 < 10:01) is active, sig_late (10:02 < 10:01) is not
+        bar_ts = BASE_TS + timedelta(seconds=60)
 
-        # After this bar, only sig_early should be in live_signals
-        # (sig_late.timestamp = 10:02, bar.timestamp = 10:03 → added next bar)
         live = replay.get_signals_active_at(
             [sig_early, sig_late],
             bar_ts=bar_ts,
@@ -191,7 +190,7 @@ class TestTrackComparisonInvariants:
     def test_zone_target_full_market_never_activated_is_impossible(self):
         """Zone target_full + market never_activated cannot coexist. Market always fills."""
         from production.scripts.lifecycle_replay import validate_track_pair
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             validate_track_pair(zone_outcome="target_full",
                                 market_outcome="never_activated")
 
