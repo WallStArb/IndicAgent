@@ -2,7 +2,7 @@ import asyncio
 import functools
 import json
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import AsyncGenerator
 
 import structlog
@@ -56,7 +56,11 @@ class KafkaSSEBroadcaster:
 
     def __init__(self) -> None:
         self._queues: list[asyncio.Queue] = []
-        self._snapshot: dict[str, deque] = defaultdict(lambda: deque(maxlen=30))
+        # Per-topic, per-message-key: latest message only.
+        # Stores the most recent message for every (topic, key) pair so new clients
+        # receive complete current state for all symbols/TFs on connect — no matter
+        # how many seeded events were published before they connected.
+        self._latest: dict[str, dict[str, dict]] = defaultdict(dict)
 
     async def run(self, consumer: object) -> None:
         """Consume from KafkaConsumerClient and fan-out to all subscribed clients.
@@ -65,8 +69,10 @@ class KafkaSSEBroadcaster:
         """
         async for topic, key, payload in consumer.messages():  # type: ignore[union-attr]
             item = {"topic": topic, "key": key, "payload": payload}
-            # Snapshot: newest-first (appendleft keeps deque maxlen=30 newest messages)
-            self._snapshot[topic].appendleft(item)
+            # Latest-per-key: always keep the most recent message for each key.
+            # Uses key or falls back to a monotonic counter for keyless messages.
+            slot = key if key is not None else f"__keyless_{len(self._latest[topic])}"
+            self._latest[topic][slot] = item
             # Fan-out: deliver to all connected clients; skip full queues (slow client)
             for q in list(self._queues):
                 try:
@@ -78,12 +84,12 @@ class KafkaSSEBroadcaster:
         """Register a new SSE client.
 
         Returns:
-            (snapshot_dict, live_queue): snapshot dict (topic → deque) for initial drain,
-            and a live asyncio.Queue for subsequent messages.
+            (latest_dict, live_queue): latest dict (topic → {key → item}) for initial
+            snapshot drain, and a live asyncio.Queue for subsequent messages.
         """
         q: asyncio.Queue = asyncio.Queue(maxsize=500)
         self._queues.append(q)
-        return self._snapshot, q
+        return self._latest, q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         """Deregister a client queue on disconnect."""
@@ -328,15 +334,14 @@ async def sse_events(
             # Initial keep-alive
             yield b": keep-alive\n\n"
 
-            # ── Snapshot phase: drain per-topic deque for initial data ──
+            # ── Snapshot phase: send latest-per-key state for each subscribed topic ──
             if not last_event_id:
                 for topic in topic_list:
-                    topic_snapshot = list(snapshot.get(topic, []))
-                    if not topic_snapshot:
+                    topic_latest = snapshot.get(topic, {})
+                    if not topic_latest:
                         continue
-                    # Deque is newest-first; reverse for chronological order
                     event_name = _event_name_for_topic(topic)
-                    for item in reversed(topic_snapshot):
+                    for item in topic_latest.values():
                         try:
                             data_json = _serialize_sse_item(item)
                         except Exception:

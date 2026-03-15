@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
             topic_narratives_group(env_name),
             bootstrap_servers=kafka_bootstrap,
             group_id="sse_broadcaster",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
         )
         await _sse_consumer.start()
         _broadcaster_task = asyncio.create_task(dependencies.kafka_broadcaster.run(_sse_consumer))
