@@ -1,6 +1,6 @@
 # Service Separation of Duties
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-15
 **Status:** Production — I1-I8 complete, 9 active services
 
 ---
@@ -40,7 +40,7 @@ services are insulated from broker connectivity by the stream bus.
 **Responsibility:** Compute all I1 + I2 indicators (35 total) incrementally for every incoming bar.
 
 - **25 I1 technical indicators** — RSI, MACD, ATR, Bollinger Bands, VWAP, Parabolic SAR, StochRSI, CMF, Aroon, ADX/DI, Supertrend, ROC, AO, AC, etc.
-- **10 I2 second-derivative/event plugins** — MACD Events, RSI Events, Stoch Events, ADX Events, Volume Events, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore
+- **11 I2 second-derivative/event plugins** — MACD Events, RSI Events, Stoch Events, ADX Events, Volume Events, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore
 
 Publishes **one combined message per bar** containing OHLCV + all I1/I2 fields as flat key-value
 pairs. This design is deliberate: a single combined message avoids the coordination problem of
@@ -140,7 +140,7 @@ are stopped for maintenance or redeployment.
 
 ---
 
-### `narrative_service`
+### `ai_narrative_service`
 
 **Responsibility:** Synthesise AI narratives from aggregated signals using a local LLM.
 
@@ -202,7 +202,7 @@ market_data_daemon
               │
               ▼
     indicator_service
-    (25 I1 + 10 I2 plugins, incremental)
+    (25 I1 + 11 I2 plugins, incremental)
     one combined message per bar
               │
               ▼
@@ -229,7 +229,7 @@ market_data_daemon
     signals:SYMBOL:TF:aggregated        signal_lifecycle_service
               │                         (subscribes to market:SYMBOL:1m
               ▼                          zone-aware activation + MAE/MFE
-    narrative_service                    8-class outcome classification)
+    ai_narrative_service                 8-class outcome classification)
     (qwen3.5:9b per-signal,                       │
      phi4-mini:3.8b group synthesis)              ▼
               │                         llm_outcomes:stream
@@ -255,7 +255,7 @@ market_data_daemon
 | `feature_writer_service` | Any computation — pure persistence only |
 | `signal_generator_service` | Lifecycle tracking of open signals |
 | `signal_lifecycle_service` | Must NOT run I7 plugins or generate new signals |
-| `narrative_service` | Signal generation or lifecycle decisions |
+| `ai_narrative_service` | Signal generation or lifecycle decisions |
 | `llm_writer_service` | Must NOT generate narratives or make LLM calls |
 | `api_service` | Any computation or persistence |
 
@@ -272,8 +272,8 @@ market_data_daemon
 | `indicators:SYMBOL:TF` | `indicator_service` | `market_analysis_service` |
 | `intelligence:SYMBOL:TF` | `market_analysis_service` | `signal_generator_service`, `feature_writer_service`, `api_service` |
 | `signals:SYMBOL:TF:aggregated` | `signal_generator_service` | `narrative_service`, `api_service` |
-| `narratives:SYMBOL:TF` | `narrative_service` | `api_service` |
-| `llm_calls:stream` | `narrative_service` | `llm_writer_service` |
+| `narratives:SYMBOL:TF` | `ai_narrative_service` | `api_service` |
+| `llm_calls:stream` | `ai_narrative_service` | `llm_writer_service` |
 | `llm_outcomes:stream` | `signal_lifecycle_service` | `llm_writer_service` |
 
 ---

@@ -1,8 +1,8 @@
 # Intelligence Stream Schemas & Data Contracts
 
 **Version:** 2.2.0
-**Last Updated:** 2026-02-19
-**Status:** bar.v1, features.v1, signals.aggregated, and narratives.v1 operational; composite/pattern/regime schemas defined for future tiers
+**Last Updated:** 2026-03-15
+**Status:** bar.v1, features.v1, signals.aggregated, and narratives.v1 operational; composite/pattern/regime schemas defined for future tiers. Transport: Redpanda (Kafka-compatible) as of Phase 30, 2026-03-14 — replaced Redis Streams.
 
 ## Executive Summary
 
@@ -10,7 +10,7 @@ This document defines the complete data contracts for IndicAgent's intelligence 
 
 **Core Purpose:** Standardized data contracts that enable seamless intelligence processing from raw market data to AI-powered insights. I1-I5 schemas are in production use; I6-I8 are defined for future tiers.
 
-**Runtime stream names (code):** The app builds stream names in `src/core/stream_keys.py`. Current patterns use an optional env prefix plus: `ticks:SYMBOL:live`, `market:SYMBOL:TIMEFRAME`, `indicators:SYMBOL:TIMEFRAME`, `intelligence:SYMBOL:TIMEFRAME`. So Redis keys are `market/` (OHLCV bars), `indicators/` (I1 output), `intelligence/` (I3/I4/I5 output), and `ticks/` (live ticks). The names in the "Data Flow Architecture" section below (bar, features, composite, etc.) are schema/contract names; implementation uses the stream_keys patterns.
+**Runtime stream names (code):** The app builds Kafka topic names in `src/core/stream_keys.py`. Post-Redpanda migration (Phase 30), topics use dot-separated names: `dev.market.bars`, `dev.indicators`, `dev.intelligence`, `dev.signals`, `dev.signals.aggregated`, `dev.narratives`. The names in the "Data Flow Architecture" section below (bar, features, composite, etc.) are schema/contract names; implementation uses the stream_keys patterns.
 
 ---
 

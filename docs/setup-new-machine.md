@@ -1,7 +1,7 @@
-# New Machine Setup: Redis, PostgreSQL, TimescaleDB
+# New Machine Setup: Redpanda, PostgreSQL, TimescaleDB
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-02-13  
+**Version:** 2.0.0
+**Last Updated:** 2026-03-15
 **Status:** Checklist for moving IndicAgent to a new machine
 
 Use this when setting up infrastructure on a new machine. All scripts and configs referenced here live in the repo. DB and stream names below match the current codebase (`src/core/stream_keys.py`, migrations, `db_verify.sh`).
@@ -10,37 +10,27 @@ Use this when setting up infrastructure on a new machine. All scripts and config
 
 ## 1. Prerequisites
 
-- **Docker** (for PostgreSQL/TimescaleDB and Dragonfly)
+- **Docker** (for PostgreSQL/TimescaleDB, Redpanda, and Ollama)
 - **Python 3.13** and **Node 20+** (for app and dashboard)
 - **psql** (PostgreSQL client) for running migrations and verify
 
 ---
 
-## 2. Start Redis (Dragonfly)
+## 2. Start Infrastructure (Docker Compose)
 
-Dragonfly is Redis-compatible. Either use Docker Compose (recommended) or a single container.
-
-**Option A – Docker Compose (TimescaleDB + Dragonfly together):**
+The single source of truth is `production/docker-compose.yml`. It starts TimescaleDB, Redpanda, and Ollama together:
 
 ```bash
 cd /path/to/indicagent/production
 docker compose up -d
 ```
 
-**Option B – Standalone containers (from repo root):**
+With Docker Compose, the `indicagent` database is created automatically. Redpanda starts on ports 9092 (internal) and 19092 (external/localhost).
+
+If you need to create the database manually:
 
 ```bash
-# Dragonfly (Redis-compatible) on port 6379
-docker run -d --name dragonfly -p 6379:6379 docker.dragonflydb.io/dragonflydb/dragonfly
-
-# TimescaleDB on port 5432 (see step 3)
-docker run -d --name timescaledb -e POSTGRES_PASSWORD=postgres -p 5432:5432 timescale/timescaledb:latest-pg15
-```
-
-With Docker Compose, the `indicagent` database is created automatically. With standalone TimescaleDB, create it once:
-
-```bash
-psql -U postgres -h localhost -p 5432 -c "CREATE DATABASE indicagent;"
+docker exec timescaledb psql -U postgres -c "CREATE DATABASE indicagent;"
 ```
 
 ---
@@ -87,12 +77,12 @@ You should see checks for tables, indexes, hypertables, and continuous aggregate
 
   ```bash
   cp .env.example .env
-  # Edit .env: DATABASE_URL, REDIS_URL, IBKR_*, etc.
+  # Edit .env: DATABASE_URL, KAFKA_BOOTSTRAP_SERVERS, IBKR_*, etc.
   ```
 
 - Defaults that match the setup above:
   - `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/indicagent`
-  - `REDIS_URL=redis://localhost:6379/0`
+  - `KAFKA_BOOTSTRAP_SERVERS=localhost:19092`
 
 - Install and run the app (see root [README.md](../README.md) Quick Start).
 
@@ -102,7 +92,7 @@ You should see checks for tables, indexes, hypertables, and continuous aggregate
 
 | Item | Location |
 |------|----------|
-| Docker Compose (TimescaleDB + Dragonfly + Ollama) | `production/docker-compose.yml` |
+| Docker Compose (TimescaleDB + Redpanda + Ollama) | `production/docker-compose.yml` |
 | DB migrations (run in order) | `production/migrations/001_*.sql` … `007_*.sql` |
 | Single-file schema (dev reference) | `production/schemas/create_schema.sql` |
 | Apply migrations | `production/scripts/db_setup.sh` |
@@ -118,28 +108,15 @@ You should see checks for tables, indexes, hypertables, and continuous aggregate
 - **trading_signals**, **instruments** – In `schemas/create_schema.sql`; migrations may add or extend.
 - **Continuous aggregates** – backtesting_data_5m, ohlcv_15m, ohlcv_1h, ohlcv_4h, ohlcv_1d (verified by `db_verify.sh`).
 
-### Current Redis streams (from `src/core/stream_keys.py`)
+### Current Kafka topics (from `src/core/stream_keys.py`)
 
-All stream names use an optional env prefix (e.g. `development:` or empty). Then:
+All topic names use an optional env prefix (e.g. `dev.` for development). Then:
 
-- **ticks:SYMBOL:live** – Live tick data from IBKR.
-- **market:SYMBOL:TIMEFRAME** – OHLCV bars (1m, 5m, 15m, 1h, 4h, 1d).
-- **indicators:SYMBOL:TIMEFRAME** – I1 indicator output.
-- **intelligence:SYMBOL:TIMEFRAME** – I3/I4/I5 plugin output.
+- **market.ticks** – Live tick data from IBKR.
+- **market.bars** – OHLCV bars (all timeframes; key=`SYMBOL:TF`).
+- **indicators** – I1+I2 indicator output (key=`SYMBOL:TF`).
+- **intelligence** – I3–I6 typed IntelligenceEvent (key=`SYMBOL:TF`).
+- **signals.aggregated** – I7 selected signal (key=`SYMBOL:TF`).
+- **narratives** – I8 AI narrative (key=`SYMBOL:TF`).
 
-No Redis schema or DB creation is required for streams; services create consumer groups as needed.
-
----
-
-## Optional: Dragonfly with custom config
-
-To use the sample config (e.g. persistence):
-
-```bash
-docker run -d --name dragonfly -p 6379:6379 \
-  -v /path/to/indicagent/production/config/dragonfly.conf:/etc/dragonfly.conf \
-  docker.dragonflydb.io/dragonflydb/dragonfly \
-  --redis-compatible yes --appendonly yes --dir /data --dbfilename dump.aof
-```
-
-Adjust the volume path to your repo location.
+Redpanda creates topics automatically on first publish (auto-create enabled in docker-compose).

@@ -1,7 +1,7 @@
 # Plugin Architecture
 
 **Current Plugin Count:** See [STATUS.md](../STATUS.md)
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-15
 
 ## Executive Summary
 
@@ -191,7 +191,7 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (95 Total + 2 Aggregation)
+## Registered Plugins (98 Total + 2 Aggregation)
 
 See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summary below.
 
@@ -225,6 +225,22 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | AC Oscillator | Momentum | `ac_osc` (Awesome Oscillator) |
 | HMA | Trend | `hma_value` (Hull Moving Average) |
 
+### I2 Composite Event Plugins (11) — detect state changes in I1 outputs
+
+| Plugin | Outputs |
+|--------|---------|
+| MACD Events | `macd_cross_up`, `macd_cross_dn`, `macd_hist_flip` |
+| RSI Events | `rsi_ob`, `rsi_os`, `rsi_cross_mid` |
+| Stoch Events | `stoch_cross_up`, `stoch_cross_dn`, `stoch_ob`, `stoch_os` |
+| ADX Events | `adx_rising`, `adx_falling`, `adx_strong_trend` |
+| Volume Events | `vol_spike`, `vol_dry`, `vol_expanding` |
+| MomentumAccel | `mom_accel`, `mom_decel` |
+| DonchianPos | `price_near_upper`, `price_near_lower`, `donchian_position` |
+| OBV Momentum | `obv_momentum`, `obv_trend_align` |
+| DerivOsc (AO) | `ao_value`, `ao_cross_zero` |
+| ExhaustionScore | `exhaustion_score`, `exhaustion_signal` |
+| AccelerationRegime | `accel_regime`, `accel_score`, `accel_agreement` |
+
 ### I3 Structure Plugins (8) — `supports_incremental = False`
 
 | Plugin | Outputs |
@@ -238,7 +254,7 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | Fibonacci Zones | Fib retracement and extension zones from swing range |
 | Swing Momentum | Momentum at swing highs/lows for divergence context |
 
-### I4 Context Plugins (7) — `supports_incremental = False`
+### I4 Context Plugins (9) — `supports_incremental = False`
 
 | Plugin | Outputs |
 |--------|---------|
@@ -246,6 +262,8 @@ See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summar
 | Trend Regime | SMA-20/50 alignment, 5-state classification |
 | Momentum Context | Multi-oscillator direction scoring (RSI/MACD/Stoch/CCI) |
 | GARCH Volatility | `garch_vol_regime`, `garch_sigma`, conditional vol forecast |
+| Hurst Exponent | `hurst_exponent`, `hurst_trend_quality`, `hurst_mr_quality` |
+| Shannon Entropy | `shannon_entropy`, `entropy_quality` |
 | Kalman Trend | `kalman_price_position`, `kalman_trend_slope`, 7 outputs |
 | Session Context | Active session (London/NY/Asia/overlap), killzone timing |
 | MTF Volatility | Multi-timeframe volatility alignment score |
@@ -379,7 +397,7 @@ Each plugin call is wrapped with error isolation. If a plugin raises an exceptio
 - Pattern detection correctness: `tests/unit/intelligence/test_pattern_plugins.py` (16 tests)
 - Structure plugins: `tests/unit/intelligence/test_structure_plugins.py` (12 tests)
 - Context plugins: `tests/unit/intelligence/test_context_plugins.py` (13 tests)
-- **Total: 1497 unit tests passing**
+- **Total: 1754 unit tests passing**
 
 ---
 
@@ -412,7 +430,7 @@ ticks:ES:live         # Raw tick data
 
 ### Current Production Performance
 - **Tick Ingestion:** 100-500+ ticks/sec during RTH
-- **Hot Path Latency:** Sub-millisecond DragonflyDB stream writes
+- **Hot Path Latency:** Sub-millisecond Redpanda stream writes
 - **Indicator Calculation:** <1ms per plugin via incremental compute_next()
 - **Full Recomputation:** ~50-100ms for all 25 indicators (batch mode)
 - **Incremental vs Batch:** 141x speedup measured
@@ -423,7 +441,7 @@ ticks:ES:live         # Raw tick data
 | Plugin execution latency | <50ms p99 | Achieved (<1ms incremental) |
 | End-to-end bar-to-indicator | <200ms | Achieved |
 | Stream backlog | <30s | Achieved |
-| Test suite pass rate | 100% | 1497/1497 passing |
+| Test suite pass rate | 100% | 1754/1754 passing |
 
 ---
 

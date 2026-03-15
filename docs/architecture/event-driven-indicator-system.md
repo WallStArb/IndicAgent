@@ -1,14 +1,14 @@
 # Plugin-Native Intelligence Processing Architecture
 
-**Version:** 5.0.0
-**Last Updated:** 2026-03-11
-**Status:** I1-I8 pipeline complete — 95 plugins + 2 aggregation components + feature store + typed intelligence bus, 1497 passing
+**Version:** 5.1.0
+**Last Updated:** 2026-03-15
+**Status:** I1-I8 pipeline complete — 98 plugins + 2 aggregation components + feature store + typed intelligence bus, 1754 passing
 
 ## Executive Summary
 
-IndicAgent's plugin-native intelligence processing system transforms live market data into sophisticated intelligence through event-driven, stream-based processing. The system implements a complete I1-I8 intelligence framework using plugin-based DAG execution, real-time DragonflyDB stream processing, and a typed intelligence bus that carries all tier outputs from raw features through AI synthesis.
+IndicAgent's plugin-native intelligence processing system transforms live market data into sophisticated intelligence through event-driven, stream-based processing. The system implements a complete I1-I8 intelligence framework using plugin-based DAG execution, real-time Redpanda stream processing, and a typed intelligence bus that carries all tier outputs from raw features through AI synthesis.
 
-**Core Capability:** Real-time intelligence generation across 95 plugins spanning 8 tiers — from mathematical indicators through smart money concepts, confluence scoring, trading setups, and LLM-powered market narratives. 1497 passing tests. 24 active contracts.
+**Core Capability:** Real-time intelligence generation across 98 plugins spanning 8 tiers — from mathematical indicators through smart money concepts, confluence scoring, trading setups, and LLM-powered market narratives. 1754 passing tests. 60 active instruments.
 
 ---
 
@@ -16,7 +16,7 @@ IndicAgent's plugin-native intelligence processing system transforms live market
 
 ### **Event-Driven Intelligence Processing**
 
-The pipeline is fully service-native: each tier runs in a dedicated systemd service consuming upstream Redis streams and publishing to downstream streams. There is no LangGraph workflow layer — orchestration is handled by the stream topology itself.
+The pipeline is fully service-native: each tier runs in a dedicated systemd service consuming upstream Redpanda topics and publishing to downstream topics. There is no LangGraph workflow layer — orchestration is handled by the stream topology itself.
 
 #### **Core Intelligence Files**
 - `src/intelligence/register_plugins.py` — `TIER_I1`…`TIER_I7` lists, single source of truth for plugin registration
@@ -35,7 +35,7 @@ The pipeline is fully service-native: each tier runs in a dedicated systemd serv
 - `services/signal_generator_service.py` — I7 setup detection + aggregation
 - `services/signal_lifecycle_service.py` — signal zone tracking, MAE/MFE, 8-class outcome
 - `services/ai_narrative_service.py` — I8 LLM narrative generation
-- `services/feature_writer_service.py` — Redis → TimescaleDB batch writer
+- `services/feature_writer_service.py` — Redpanda → TimescaleDB batch writer
 - `services/llm_writer_service.py` — LLM call audit + outcome back-fill + score cache
 - `src/api/main.py` — FastAPI + SSE on :8000
 - `production/daemons/high_frequency_tws_daemon.py` — IBKR tick + bar collection with built-in multi-TF aggregation
@@ -163,7 +163,7 @@ llm_calls:stream                   # Every LLM call (maxlen=500)
 llm_outcomes:stream                # Signal lifecycle exits (maxlen=200)
 ```
 
-**Consumer groups:** Use `ensure_consumer_group_with_reset()` from `src/core/stream_utils`. Gotcha: `xgroup_create(..., "$")` silently fails when group already exists — the `except` block must call `xgroup_setid(stream, group, "$")` to force-reset to current position.
+**Consumer groups:** Kafka consumer groups via `aiokafka`. Group offsets are tracked by Redpanda — services resume from their last committed offset on restart. See `src/core/stream_utils.py` for consumer group helpers.
 
 ---
 
@@ -201,7 +201,7 @@ All services are systemd-managed with `Restart=always`. Logs: `journalctl -u ind
 ### **Hot/Warm/Cold Tiers**
 
 ```
-Hot:  IBKR TWS → DragonflyDB Streams → Services          (<1ms)
+Hot:  IBKR TWS → Redpanda Streams → Services             (<1ms)
 Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
 Cold: feature_writer_service → TimescaleDB                (batch, async)
 ```
@@ -215,20 +215,21 @@ The real-time pipeline never touches the database directly.
 - **Plugin calculation:** <1ms per plugin incremental (141x vs batch recalculation)
 - **Tick throughput:** 100–500+ ticks/second during RTH
 - **Consumer group polling:** Single `xreadgroup` across all streams (not sequential) to avoid worst-case lag
-- **Test coverage:** 1497 passing unit tests
+- **Test coverage:** 1754 passing unit tests
 
 ---
 
-## **Current Status (v1.7, 2026-03-11)**
+## **Current Status (v1.8, 2026-03-13)**
 
-- **95 registered plugins** across I1–I7 (25+10+8+7+14+13+1+17)
+- **98 registered plugins** across I1–I7 (25+11+8+9+14+13+1+17)
 - **2 aggregation components** (CISScorer, SignalAggregator)
 - **I1→I2→I3→I4→I5→SMC→I6→I7→I8** fully wired end-to-end
 - **Feature store** operational — `intelligence_features` hypertable populated by `feature_writer_service`
 - **Signal lifecycle** — zone-aware activation, MAE/MFE tracking, 8-class outcome classification
 - **LLM audit** — every call logged; model score cache updated every 15 min
-- **24 active contracts** via `get_active_contracts()` in `src/config/settings.py`
-- **1497 passing tests**
+- **60 active instruments** via `get_active_contracts()` in `src/config/settings.py`
+- **Redpanda** streaming backbone (replaced DragonflyDB, Phase 30, 2026-03-14)
+- **1754 passing tests**
 
 ---
 

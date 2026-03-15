@@ -1,7 +1,7 @@
 # Ideas Catalog — Research Backlog Index
 
 **Version:** 1.0.0
-**Last Updated:** 2026-03-08
+**Last Updated:** 2026-03-15
 **Purpose:** Single source of truth for all research ideas, their status, and implementation priority.
 
 ---
@@ -28,8 +28,8 @@ Each idea is a `.md` file in this directory. This index tracks:
 
 | # | File | Title | Status | Priority | Milestone | Tags | Last Updated |
 |---|-------|-------|----------|-----------|-------|--------------|
-| 1 | `i6-confluence-expansion.md` | I6 Confluence Expansion — Cross-TF + Cross-Asset | design | high | v1.5? | 2026-03-08 |
-| 2 | `renaissance-i7-i8-refinement.md` | Renaissance-Style Intelligence Refinement — 105 ideas across 48 sections | design | high | v1.5+ | 2026-03-07 |
+| 1 | `i6-confluence-expansion.md` | I6 Confluence Expansion — Cross-TF + Cross-Asset | design | high | v1.9+ | 2026-03-08 |
+| 2 | `renaissance-i7-i8-refinement.md` | Renaissance-Style Intelligence Refinement — 105 ideas across 48 sections | design | high | v1.9+ | 2026-03-07 |
 | 3 | `intelligence-redo-brainstorm.md` | Intelligence Palette Expansion — I2 + I3/I4/I5/SMC/I6 depth | archived | high | v1.2 (shipped 2026-03-02) | 2026-03-10 |
 | 4 | `regime-adaptive-trading.md` | Regime-Adaptive Trading — HMM + regime-specific models | design | medium | v1.5+ | 2026-02-27 |
 | 5 | `renaissance-framing.md` | Renaissance Framing — 10 Simons principles applied to platform | design | — | — | 2026-03-07 |
@@ -84,7 +84,9 @@ Each idea is a `.md` file in this directory. This index tracks:
 
 | Milestone | Focus | Status |
 |-----------|-------|--------|
-| **v1.7** | Not yet defined — planning next | — |
+| **v1.9** | Not yet defined — run `/gsd:new-milestone` to define | — |
+| **v1.8** | Signal Intelligence — dashboard completion, Renaissance quality gates | Shipped 2026-03-13 |
+| **v1.7** | Data Integrity — CIS data repair, warmup seeding, lifecycle stream events | Shipped 2026-03-12 |
 | **v1.6** | Signal Quality — signal gate, 2nd-derivative acceleration | Shipped 2026-03-10 |
 | **v1.5** | Production Hardening — financial math, circuit breakers, I8 redesign | Shipped 2026-03-10 |
 | **v1.4** | Quant Foundation — signal lifecycle, feedback loop, LLM layer | Shipped 2026-03-07 |
@@ -149,9 +151,9 @@ Each idea is a `.md` file in this directory. This index tracks:
 - **1 blocked on data**: `orderflow-based-setups.md` (needs tick-by-tick from IBKR)
 
 **Next steps:**
-1. Define v1.7 milestone (`/gsd:new-milestone`)
-2. Include `i6-confluence-expansion.md` and `renaissance-gap-analysis.md` Tier 1 items in v1.7
-3. Promote `candlestick-pattern-expansion-research.md` from design → planned for v1.7
+1. Define v1.9 milestone (`/gsd:new-milestone`)
+2. Consider `i6-confluence-expansion.md` and `renaissance-i7-i8-refinement.md` Tier 1 items for v1.9
+3. Promote `candlestick-pattern-expansion-research.md` from design → planned for v1.9
 
 ---
 

@@ -37,7 +37,7 @@ Key variables:
 |----------|---------|-------------|
 | `INDICAGENT_ENV` | `development` | `development` or `production` |
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/indicagent` | TimescaleDB |
-| `REDIS_URL` | `redis://localhost:6379` | DragonflyDB |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Redpanda |
 | `IBKR_HOST` | `10.0.0.33` | TWS host |
 | `IBKR_PORT` | `7497` | TWS port (7497=paper, 7496=live) |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama LLM endpoint |
@@ -50,7 +50,7 @@ docker compose up -d
 cd ..
 ```
 
-Starts TimescaleDB (:5432), DragonflyDB (:6379), and Ollama (:11434).
+Starts TimescaleDB (:5432), Redpanda (:9092/:19092), and Ollama (:11434).
 
 ## 4. Apply database migrations
 
