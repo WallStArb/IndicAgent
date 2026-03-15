@@ -62,12 +62,11 @@ def get_signals_active_at(
 ) -> list[dict]:
     """Return signals that are actionable at bar_ts.
 
-    A signal fired at T on bar close is actionable starting from the bar
-    strictly after T + tf_seconds. Using strict less-than on the signal
-    timestamp means we only include signals that fired at least one full
-    tf period before bar_ts.
+    A signal fired at T on bar close is actionable at bar N+1 (the bar
+    immediately after the signal). Bar N+1 is the first bar where the
+    signal can be evaluated, so we include any signal where timestamp < bar_ts.
     """
-    return [s for s in signals if s["timestamp"] + timedelta(seconds=tf_seconds) < bar_ts]
+    return [s for s in signals if s["timestamp"] < bar_ts]
 
 
 def handle_no_data(sig: dict) -> dict:
@@ -108,7 +107,7 @@ def resolve_at_end_of_bars(
     market_outcome = "ttl_expired_ahead" if market_mfe > 0 else "ttl_expired_behind"
 
     market_bit = min(bars_elapsed, sig.get("ttl_bars", 10))
-    mep = market_entry_price or sig.get("market_entry_price")
+    mep = market_entry_price if market_entry_price is not None else sig.get("market_entry_price")
 
     return {
         "zone_outcome": zone_outcome,
@@ -125,13 +124,14 @@ def resolve_at_end_of_bars(
 
 
 def validate_track_pair(zone_outcome: str, market_outcome: str | None) -> None:
-    """Assert impossible track combination is absent. Raises AssertionError if detected."""
+    """Check for impossible track combination. Raises ValueError if detected."""
     if market_outcome is None:
         return
-    assert not (zone_outcome == "target_full" and market_outcome == "never_activated"), (
-        "Impossible: zone=target_full + market=never_activated "
-        "(market track never produces never_activated)"
-    )
+    if zone_outcome == "target_full" and market_outcome == "never_activated":
+        raise ValueError(
+            f"Impossible: zone=target_full + market=never_activated "
+            f"(market track never produces never_activated)"
+        )
 
 
 # ── Core replay logic ────────────────────────────────────────────────────────
@@ -209,6 +209,7 @@ def _process_symbol_tf(
         market_mfe_acc: dict[str, float] = {}
         market_entry_prices: dict[str, float | None] = {}
         market_activated_at: dict[str, datetime] = {}
+        zone_activated_at: dict[str, datetime] = {}
         zone_activated: dict[str, bool] = {}
         pending_writes: list[tuple] = []
         last_bar: dict | None = None
@@ -331,6 +332,7 @@ def _process_symbol_tf(
 
                     if z_trans.new_status == "active":
                         zone_activated[sid] = True
+                        zone_activated_at[sid] = bar_ts
                         pending_writes.append(("activation", sid, {
                             "activation_price": z_trans.activation_price,
                             "zone_entry_pct": z_trans.zone_entry_pct,
@@ -343,7 +345,7 @@ def _process_symbol_tf(
                         # Exit
                         z_outcome = z_trans.outcome
                         if z_outcome is None:
-                            z_bit = int((bar_ts - market_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs)
+                            z_bit = int((bar_ts - zone_activated_at.get(sid, bar_ts)).total_seconds() / tf_secs)
                             z_outcome = _classify_stop_outcome(z_mfe, z_bit)
                         stats["zone"][z_outcome] = stats["zone"].get(z_outcome, 0) + 1
                         stats["processed"] += 1
@@ -383,9 +385,6 @@ def _process_symbol_tf(
                     market_entry_price=market_entry_prices.get(sid),
                 )
                 stats["zone"][result["zone_outcome"]] = stats["zone"].get(result["zone_outcome"], 0) + 1
-                if result.get("market_entry_outcome"):
-                    stats["market"][result["market_entry_outcome"]] = (
-                        stats["market"].get(result["market_entry_outcome"], 0) + 1)
                 stats["processed"] += 1
                 if zone_activated.get(sid):
                     pending_writes.append(("zone_exit", sid, {
@@ -393,7 +392,7 @@ def _process_symbol_tf(
                         "exit_price": last_bar["close"], "exit_reason": "ttl_expired",
                         "pnl_ticks": None, "pnl_r": None, "pnl_dollars": None,
                         "signal_quality": None,
-                        "mae": zone_mfe.get(sid, 0.0),
+                        "mae": zone_mae.get(sid, 0.0),
                         "mfe": zone_mfe.get(sid, 0.0),
                         "bars_in_trade": None, "outcome": result["zone_outcome"],
                     }))
@@ -407,6 +406,8 @@ def _process_symbol_tf(
                     }))
                 mep = market_entry_prices.get(sid)
                 if mep is not None and not sig.get("_market_resolved"):
+                    stats["market"][result["market_entry_outcome"]] = (
+                        stats["market"].get(result["market_entry_outcome"], 0) + 1)
                     pending_writes.append(("market", sid, {
                         "market_entry_exit_price": float(last_bar["close"]),
                         "market_entry_pnl_r": None,
@@ -476,53 +477,29 @@ def _flush_writes(conn, writes: list[tuple]) -> None:
 
 
 def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
-    """Validate replay logic against already-resolved signals. Logs result."""
+    """Validate: confirm resolved signals exist and have outcome populated. Logs result."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            """SELECT * FROM signal_ledger
+            """SELECT COUNT(*) as total,
+                      COUNT(outcome) as with_outcome,
+                      COUNT(market_entry_outcome) as with_market_outcome
+               FROM signal_ledger
                WHERE status NOT IN ('pending', 'regime_suppressed')
-                 AND outcome IS NOT NULL
-                 AND symbol = %s AND timeframe = %s
-               ORDER BY RANDOM() LIMIT 100""",
+                 AND symbol = %s AND timeframe = %s""",
             (symbol, timeframe),
         )
-        resolved = cur.fetchall()
+        row = cur.fetchone()
 
-    if not resolved:
+    if not row or row["total"] == 0:
         logger.info("VALIDATE %s %s: no resolved signals found, skipping", symbol, timeframe)
         return
 
-    market_outcomes_present = any(r.get("market_entry_outcome") for r in resolved)
-    if not market_outcomes_present:
-        logger.info(
-            "VALIDATE %s %s: Market track validation skipped — no resolved market outcomes yet. "
-            "Re-run --validate after live signals accumulate.", symbol, timeframe
-        )
-
-    mismatches = []
-    excluded = 0
-    for sig in resolved:
-        sig = dict(sig)
-        with conn.cursor() as cur2:
-            cur2.execute(
-                "SELECT COUNT(*) FROM market_data_ohlcv WHERE symbol=%s AND timeframe=%s "
-                "AND timestamp >= %s AND timestamp <= %s",
-                (symbol, timeframe, sig["timestamp"], sig.get("exit_at") or sig["timestamp"]),
-            )
-            bar_count = cur2.fetchone()[0]
-        if bar_count == 0:
-            excluded += 1
-            continue
-
-    match_rate = 1.0 if not mismatches else (len(resolved) - len(mismatches) - excluded) / max(len(resolved) - excluded, 1)
-    if mismatches:
-        logger.error("VALIDATE %s %s: %d/%d mismatches — BLOCKING REPLAY",
-                     symbol, timeframe, len(mismatches), len(resolved) - excluded)
-        for m in mismatches:
-            logger.error("  signal_id=%s field=%s stored=%s replay=%s", *m)
-        raise RuntimeError(f"Validation failed for {symbol} {timeframe}")
-    logger.info("VALIDATE %s %s: %.1f%% match (%d excluded as ambiguous)",
-                symbol, timeframe, match_rate * 100, excluded)
+    logger.info(
+        "VALIDATE %s %s: %d resolved signals, %d with zone outcome, %d with market outcome",
+        symbol, timeframe, row["total"], row["with_outcome"], row["with_market_outcome"],
+    )
+    # Full re-simulation validation is not implemented — this confirms DB read consistency only.
+    logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
 
 
 def _worker(args):
