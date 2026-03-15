@@ -113,8 +113,7 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
     () => deriveBarCloseIso(signal.bar_close_ts, signal.timestamp, signal.timeframe),
     [signal.bar_close_ts, signal.timestamp, signal.timeframe]
   );
-  const signalTimeStr = fmtTimeHMS(signal.signal_computed_at);
-  const barCloseStr = fmtTimeHMS(barCloseIso);
+  const signalTimeStr = useMemo(() => fmtTimeHMS(signal.signal_computed_at), [signal.signal_computed_at]);
   const ttsS = useMemo(
     () => pipelineLagS(signal.signal_computed_at, barCloseIso) ?? (signal.pipeline_lag_s ?? null),
     [signal.signal_computed_at, barCloseIso, signal.pipeline_lag_s]
@@ -136,108 +135,92 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
   return (
     <div
       onClick={onClick}
-      className={`p-2 rounded cursor-pointer transition-all ${
+      className={`px-2 py-1.5 rounded cursor-pointer transition-all flex flex-col gap-1 ${
         isSelected ? "ring-1 ring-[var(--accent-cyan)]" : ""
       } ${signal.resolved ? "opacity-60" : ""}`}
       style={{ background: "var(--bg-elevated)" }}
     >
-      {/* Row 1: bar close @ price → signal time @ price + TTS, direction, plugin, confidence, outcome */}
-      <div className="text-xs flex items-center gap-2 flex-wrap">
-        {(barCloseStr || signalTimeStr) && (
-          <span className="font-data flex items-center gap-0.5 text-[0.55rem]">
-            {barCloseStr && (
-              <span className="opacity-60">
-                {barCloseStr}
-                {signal.bar_close_price != null && (
-                  <span className="ml-0.5">@ {fmtPrice(signal.bar_close_price)}</span>
-                )}
-              </span>
-            )}
-            {barCloseStr && signalTimeStr && <span className="opacity-30 mx-0.5">→</span>}
-            {signalTimeStr && (
-              <span style={{ color: "var(--text-secondary)" }}>
-                {signalTimeStr}
-                {signal.market_price_at_signal != null && (
-                  <span className="ml-0.5 opacity-80">@ {fmtPrice(signal.market_price_at_signal)}</span>
-                )}
-              </span>
-            )}
-            {ttsStr && <span className="opacity-50 ml-0.5">{ttsStr}</span>}
-          </span>
-        )}
+      {/* Row 1: badge · confidence · plugin · outcome · pnl | time */}
+      <div className="flex items-center gap-1.5">
         <span
-          className="inline-flex items-center px-1 py-0 rounded text-[0.55rem] font-bold uppercase tracking-widest"
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.55rem] font-bold uppercase tracking-widest"
           style={{ backgroundColor: dirDim, color: dirColor }}
         >
           {isLong ? "LONG" : "SHORT"}
         </span>
-        <span className="text-[var(--text-muted)]">{pluginShort}</span>
-        <span className="font-data" style={{ color: dirColor }}>{fmtNum(signal.confidence * 100, 0)}%</span>
-        {signal.resolved && (
-          <OutcomeBadge outcome={signal.outcome} />
+        <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>
+          {fmtNum(signal.confidence * 100, 0)}%
+        </span>
+        <span className="text-[0.55rem] text-[var(--text-muted)]">{pluginShort}</span>
+        {signal.resolved && <OutcomeBadge outcome={signal.outcome} />}
+        {pnlR && <span className="ml-auto">{pnlR}</span>}
+        {signalTimeStr && (
+          <span className={`text-[0.52rem] font-data text-[var(--text-muted)] ${pnlR ? "" : "ml-auto"}`}>
+            {signalTimeStr}{ttsStr && <span className="opacity-50 ml-0.5">{ttsStr}</span>}
+          </span>
         )}
       </div>
-      {/* Setup performance annotation — only shown when 30d sample data available */}
-      {signal.setup_win_rate != null && (
-        <div className="text-[0.5rem] text-[var(--text-muted)] mt-0.5">
-          {Math.round(signal.setup_win_rate * 100)}% win
-          {signal.setup_avg_pnl_r != null &&
-            ` · avg ${signal.setup_avg_pnl_r >= 0 ? "+" : ""}${signal.setup_avg_pnl_r.toFixed(2)}R`
-          }
-          {" (30d)"}
-        </div>
-      )}
-      {/* Row 2: entry target, SL, T1 + RR */}
-      <div className="text-[0.55rem] flex items-center gap-2 mt-0.5">
+
+      {/* Row 2: E target · SL · T1 rr  (mirroring SignalBanner line 1) */}
+      <div className="flex items-center gap-1 text-[0.58rem] font-data flex-wrap">
         <Tooltip tooltip={entryTooltip()}>
-          <span className="opacity-60">E</span>
+          <span className="text-[var(--text-muted)]">E</span>
         </Tooltip>
-        <span>{fmtPrice(signal.entry_price)}</span>
-        {signal.entry_type && signal.entry_type !== "at_close" && (
-          <span className="opacity-40">({signal.entry_type.replace(/_/g, " ")})</span>
+        <span style={{ color: dirColor }}>{fmtPrice(signal.entry_price)}</span>
+        {signal.market_price_at_signal != null && (
+          <span className="text-[var(--text-muted)] opacity-50">
+            ({fmtPrice(signal.market_price_at_signal)} live)
+          </span>
         )}
-        <span>·</span>
+        <span className="opacity-20">·</span>
         <Tooltip tooltip={slTooltip()}>
-          <span>SL</span>
+          <span className="text-[var(--text-muted)]">SL</span>
         </Tooltip>
-        <span>{fmtPrice(signal.stop_loss)}</span>
+        <span className="text-[var(--text-secondary)]">{fmtPrice(signal.stop_loss)}</span>
         {t1 !== null && (
           <>
-            <span>·</span>
+            <span className="opacity-20">·</span>
             <Tooltip tooltip={t1Tooltip()}>
-              <span>T1</span>
+              <span className="text-[var(--text-muted)]">T1</span>
             </Tooltip>
-            <span>{fmtPrice(t1)}</span>
-            {rr1 > 0 && <Tooltip tooltip={rrTooltip()}><span className="font-data">{fmtNum(rr1, 1)}R</span></Tooltip>}
+            <span className="text-[var(--text-secondary)]">{fmtPrice(t1)}</span>
+            {rr1 > 0 && (
+              <Tooltip tooltip={rrTooltip()}>
+                <span className="font-semibold" style={{ color: dirColor }}>{fmtNum(rr1, 1)}R</span>
+              </Tooltip>
+            )}
+          </>
+        )}
+        {signal.resolved && signal.exit_price != null && (
+          <>
+            <span className="opacity-20">·</span>
+            <Tooltip tooltip={exitTooltip()}>
+              <span className="text-[var(--text-muted)]">X</span>
+            </Tooltip>
+            <span className="text-[var(--text-secondary)]">{fmtPrice(signal.exit_price)}</span>
           </>
         )}
       </div>
 
-      {/* Entry Zone — wait for price to trade into this range */}
-      {signal.entry_zone_low != null && signal.entry_zone_high != null && (
-        <div className="text-[0.55rem] flex items-center gap-1.5 mt-0.5">
-          <Tooltip tooltip={zoneTooltip()}>
-            <span style={{ color: "var(--accent-cyan)", opacity: 0.8 }}>WAIT →</span>
-          </Tooltip>
-          <span className="opacity-50">ZONE</span>
-          <span>{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
-          {signal.zone_valid_at_signal === true && (
-            <span style={{ color: "var(--green)", opacity: 0.7 }}>✓ in zone</span>
+      {/* Row 3: zone + perf  (mirroring SignalBanner line 2) */}
+      {((signal.entry_zone_low != null && signal.entry_zone_high != null) || signal.setup_win_rate != null) && (
+        <div className="flex items-center gap-2 text-[0.52rem] font-data text-[var(--text-muted)]">
+          {signal.entry_zone_low != null && signal.entry_zone_high != null && (
+            <span className="flex items-center gap-1">
+              <Tooltip tooltip={zoneTooltip()}>
+                <span className="uppercase tracking-widest font-semibold" style={{ color: "var(--accent-cyan)", opacity: 0.8 }}>Zone</span>
+              </Tooltip>
+              <span className="text-[var(--text-secondary)]">{fmtPriceRange(signal.entry_zone_low, signal.entry_zone_high)}</span>
+              {signal.zone_valid_at_signal === true && <span style={{ color: "var(--green)", opacity: 0.7 }}>✓</span>}
+              {signal.zone_valid_at_signal === false && <span className="opacity-40">not yet</span>}
+            </span>
           )}
-          {signal.zone_valid_at_signal === false && (
-            <span className="opacity-40">not yet</span>
+          {signal.setup_win_rate != null && (
+            <span className="ml-auto opacity-70">
+              {Math.round(signal.setup_win_rate * 100)}% win
+              {signal.setup_avg_pnl_r != null && ` · ${signal.setup_avg_pnl_r >= 0 ? "+" : ""}${fmtNum(signal.setup_avg_pnl_r, 1)}R`}
+            </span>
           )}
-        </div>
-      )}
-
-      {/* Row 3: exit price + PnL (only for resolved) */}
-      {signal.resolved && signal.exit_price && (
-        <div className="text-[0.55rem] flex items-center gap-2 mt-0.5 text-[var(--text-muted)] opacity-70">
-          <Tooltip tooltip={exitTooltip()}>
-            <span>X</span>
-          </Tooltip>
-          <span>{fmtPrice(signal.exit_price)}</span>
-          {pnlR && <span className="ml-auto">{pnlR}</span>}
         </div>
       )}
     </div>
