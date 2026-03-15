@@ -569,3 +569,87 @@ class TestLedgerEntryMarketEntryPrice:
     def test_insert_sql_includes_market_entry_price(self):
         from src.intelligence.trading.signal_ledger import _INSERT_SQL
         assert "market_entry_price" in _INSERT_SQL
+
+
+@pytest.mark.unit
+class TestBuildLedgerEntriesMarketEntryPrice:
+    """market_entry_price is set correctly in build_ledger_entries()."""
+
+    def _make_result(self, direction=1):
+        from src.intelligence.trading.aggregator import AggregatedResult
+
+        sig = {
+            "composite_rank": 1,
+            "regime_eligible": True,
+            "direction": direction,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5115.0],
+            "confidence": 0.8,
+            "confluence_score": 0.7,
+            "regime_context": "bullish",
+            "supporting_factors": [],
+            "setup_plugin": "test",
+            "signal_type": "long",
+        }
+        return AggregatedResult(
+            all_ranked=[sig],
+            selected_signal=sig,
+            num_signals_fired=1,
+            num_agreeing=0,
+            num_conflicting=0,
+            resolution_method="rank",
+            cis_score=None,
+            bucket_scores=None,
+            weights_version=None,
+        )
+
+    def test_long_market_entry_price_is_ask(self):
+        from services.signal_generator_service import build_ledger_entries
+
+        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+        quote = {"ask": 5100.25, "bid": 5100.0}
+        entries = build_ledger_entries(
+            self._make_result(direction=1),
+            "ES",
+            "1m",
+            ts,
+            {},
+            quote=quote,
+            signal_computed_at=ts,
+            determined_at=ts,
+        )
+        assert entries[0].market_entry_price == 5100.25  # ask for long
+
+    def test_short_market_entry_price_is_bid(self):
+        from services.signal_generator_service import build_ledger_entries
+
+        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+        quote = {"ask": 5100.25, "bid": 5100.0}
+        entries = build_ledger_entries(
+            self._make_result(direction=-1),
+            "ES",
+            "1m",
+            ts,
+            {},
+            quote=quote,
+            signal_computed_at=ts,
+            determined_at=ts,
+        )
+        assert entries[0].market_entry_price == 5100.0  # bid for short
+
+    def test_no_quote_market_entry_price_is_none(self):
+        from services.signal_generator_service import build_ledger_entries
+
+        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
+        entries = build_ledger_entries(
+            self._make_result(direction=1),
+            "ES",
+            "1m",
+            ts,
+            {},
+            quote=None,
+            signal_computed_at=ts,
+            determined_at=ts,
+        )
+        assert entries[0].market_entry_price is None

@@ -318,6 +318,7 @@ def build_ledger_entries(
                 ask_at_signal=ask,
                 bid_at_signal=bid,
                 market_price_at_signal=market_price,
+                market_entry_price=ask if direction == 1 else bid,
                 entry_zone_low=zone_low,
                 entry_zone_high=zone_high,
                 zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
