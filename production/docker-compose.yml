@@ -6,6 +6,7 @@ services:
     image: timescale/timescaledb:latest-pg15
     container_name: timescaledb
     restart: unless-stopped
+    shm_size: '512m'
     command: [
       "postgres",
       "-c", "max_locks_per_transaction=16384",

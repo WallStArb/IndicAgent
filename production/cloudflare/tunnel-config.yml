@@ -10,7 +10,10 @@ ingress:
   # Backend API + SSE stream
   - hostname: api.indicagent.com
     service: http://localhost:8000
-  # Dashboard (optional — add if serving Next.js via tunnel instead of Cloudflare Pages)
-  # - hostname: dash.indicagent.com
-  #   service: http://localhost:3000
+  - hostname: indicagent.com
+    service: http://localhost:3000
+  - hostname: www.indicagent.com
+    service: http://localhost:3000
+  - hostname: dash.indicagent.com
+    service: http://localhost:3000
   - service: http_status:404

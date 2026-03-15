@@ -27,7 +27,7 @@ class TestRunI1Plugins:
         from historical_backfill import MIN_BARS, run_i1_plugins
 
         history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS - 1)], maxlen=200)
-        result = run_i1_plugins(history, "ESH6", "5m")
+        result = run_i1_plugins(history, "ESH6", "5m", {})
         assert result == {}
 
     @pytest.mark.unit
@@ -40,7 +40,7 @@ class TestRunI1Plugins:
         )
         # With real plugins registered, we should get some numeric features
         register_all_plugins()
-        result = run_i1_plugins(history, "ESH6", "5m")
+        result = run_i1_plugins(history, "ESH6", "5m", {})
         # At minimum should have some keys (plugins may skip on low data but dict is returned)
         assert isinstance(result, dict)
 
@@ -51,7 +51,7 @@ class TestRunI1Plugins:
         history = deque([_bar(_ts(9, i)) for i in range(MIN_BARS)], maxlen=200)
         register_all_plugins()
         # Should not raise even if some plugins fail internally
-        result = run_i1_plugins(history, "FAKE", "5m")
+        result = run_i1_plugins(history, "FAKE", "5m", {})
         assert isinstance(result, dict)
 
 
@@ -64,7 +64,7 @@ class TestRunAnalysisPipeline:
         df = pd.DataFrame([_bar(_ts(9, i)) for i in range(60)])
         frames = {"main": df, "features": {"rsi_14": 55.0, "atr_14": 2.5}}
         intel_cache: dict = {}
-        result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
+        result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m", {})
         assert isinstance(result, dict)
 
     @pytest.mark.unit
@@ -75,7 +75,7 @@ class TestRunAnalysisPipeline:
         df = pd.DataFrame([_bar(_ts(9, i)) for i in range(60)])
         frames = {"main": df, "features": {"rsi_14": 55.0}}
         intel_cache: dict = {}
-        run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
+        run_analysis_pipeline(frames, intel_cache, "ESH6", "5m", {})
         assert "ESH6" in intel_cache
         assert "5m" in intel_cache["ESH6"]
 
@@ -86,7 +86,7 @@ class TestRunAnalysisPipeline:
         frames = {"main": pd.DataFrame(), "features": {}}
         intel_cache: dict = {}
         # Empty DataFrame may cause some plugins to raise — should not propagate
-        result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m")
+        result = run_analysis_pipeline(frames, intel_cache, "ESH6", "5m", {})
         assert isinstance(result, dict)
 
 

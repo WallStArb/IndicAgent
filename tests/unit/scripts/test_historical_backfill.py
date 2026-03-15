@@ -395,3 +395,183 @@ def test_run_i7_and_persist_cis_null_when_no_raw_signals():
     assert result == 0
     # DB insert never called when no signals
     mock_conn.cursor.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Plugin state isolation tests (Fix 1)
+# ---------------------------------------------------------------------------
+
+
+def test_run_i1_plugins_isolates_state_between_symbols():
+    """Plugin state accumulated for sym1 must not bleed into sym2's plugin_states dict."""
+    from production.scripts.historical_backfill import run_i1_plugins
+
+    # A mock plugin that accumulates a counter in _state
+    plugin = MagicMock()
+    plugin._state = {}
+
+    def fake_compute(frames):
+        plugin._state["counter"] = plugin._state.get("counter", 0) + 1
+        return {"rsi_14": 55.0}
+
+    plugin.compute_full.side_effect = fake_compute
+
+    mock_registry = MagicMock()
+    mock_registry.get_indicator.return_value = plugin
+
+    history = _make_bar_history(n=55)
+    plugin_states_sym1: dict = {}
+    plugin_states_sym2: dict = {}
+
+    with patch("production.scripts.historical_backfill.registry", mock_registry):
+        run_i1_plugins(history, "ESH6", "1m", plugin_states_sym1)
+        # Simulate what would happen if sym1's state leaked into sym2 by checking that
+        # sym2's plugin_states starts with empty dicts (no inherited counter)
+        run_i1_plugins(history, "NQH6", "1m", plugin_states_sym2)
+
+    # ESH6 state keys exist only in sym1's dict
+    sym1_keys = {k for k in plugin_states_sym1 if k[1] == "ESH6"}
+    sym2_keys = {k for k in plugin_states_sym2 if k[1] == "NQH6"}
+    assert sym1_keys, "sym1 plugin_states must have ESH6 entries"
+    assert sym2_keys, "sym2 plugin_states must have NQH6 entries"
+
+    # No ESH6 state should appear in sym2's dict and vice versa
+    assert not any(k[1] == "NQH6" for k in plugin_states_sym1), "ESH6 dict must not have NQH6 keys"
+    assert not any(k[1] == "ESH6" for k in plugin_states_sym2), "NQH6 dict must not have ESH6 keys"
+
+
+def test_run_i1_plugins_state_written_back_after_compute():
+    """plugin_states must be updated with the plugin's _state after compute_full()."""
+    from production.scripts.historical_backfill import run_i1_plugins
+
+    plugin = MagicMock()
+    plugin._state = {}
+
+    def fake_compute(frames):
+        # Simulate GARCH-style full reassignment of _state
+        plugin._state = {"model_fitted": True, "sigma": 0.02}
+        return {"rsi_14": 60.0}
+
+    plugin.compute_full.side_effect = fake_compute
+
+    mock_registry = MagicMock()
+    mock_registry.get_indicator.return_value = plugin
+
+    history = _make_bar_history(n=55)
+    plugin_states: dict = {}
+
+    with patch("production.scripts.historical_backfill.registry", mock_registry):
+        run_i1_plugins(history, "ESH6", "1m", plugin_states)
+
+    # Write-back must have captured the reassigned _state
+    written = [v for k, v in plugin_states.items() if k[1] == "ESH6"]
+    assert written, "plugin_states must have ESH6 entries after compute"
+    assert any(v.get("model_fitted") for v in written), (
+        "Write-back must capture GARCH-style _state reassignment"
+    )
+
+
+def test_run_analysis_pipeline_includes_i2_tier():
+    """run_analysis_pipeline must call get_pattern() for I2 plugin names."""
+    import pandas as pd
+
+    from production.scripts.historical_backfill import I2_PLUGINS, run_analysis_pipeline
+
+    called_names: list[str] = []
+
+    plugin = MagicMock()
+    plugin._state = {}
+    plugin.compute_full.return_value = {}
+
+    def fake_get_pattern(name):
+        called_names.append(name)
+        p = MagicMock()
+        p._state = {}
+        p.compute_full.return_value = {}
+        return p
+
+    mock_registry = MagicMock()
+    mock_registry.get_pattern.side_effect = fake_get_pattern
+
+    df = pd.DataFrame([_make_bar_history(n=1)[0]])
+    frames = {"main": df, "features": {"rsi_14": 55.0}}
+    intel_cache: dict = {}
+    plugin_states: dict = {}
+
+    with patch("production.scripts.historical_backfill.registry", mock_registry):
+        run_analysis_pipeline(frames, intel_cache, "ESH6", "1m", plugin_states)
+
+    for i2_name in I2_PLUGINS:
+        assert i2_name in called_names, f"I2 plugin {i2_name!r} was not called in pipeline"
+
+
+def test_i2_plugins_list_matches_tier_i2():
+    """I2_PLUGINS in backfill must contain exactly the same names as TIER_I2 in register_plugins."""
+    from production.scripts.historical_backfill import I2_PLUGINS
+    from src.intelligence.register_plugins import TIER_I2
+
+    assert set(I2_PLUGINS) == set(TIER_I2), (
+        f"I2_PLUGINS mismatch.\n"
+        f"  In backfill only : {set(I2_PLUGINS) - set(TIER_I2)}\n"
+        f"  In TIER_I2 only  : {set(TIER_I2) - set(I2_PLUGINS)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parallel worker tests
+# ---------------------------------------------------------------------------
+
+
+def test_replay_worker_calls_replay_symbol_and_returns_tuple():
+    """_replay_worker opens its own connection, calls replay_symbol, and returns
+    (symbol, total_signals, counts_by_tf)."""
+    from production.scripts.historical_backfill import _replay_worker
+
+    fake_counts = {"1m": 3, "5m": 1}
+    mock_conn = MagicMock()
+    ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
+
+    with (
+        patch("production.scripts.historical_backfill.psycopg2.connect", return_value=mock_conn),
+        patch(
+            "production.scripts.historical_backfill.register_all_plugins"
+        ) as mock_register,
+        patch(
+            "production.scripts.historical_backfill.replay_symbol", return_value=fake_counts
+        ) as mock_replay,
+    ):
+        result = _replay_worker(
+            ("ESH6", "postgresql://u:p@localhost/indicagent", ["1m", "5m"], ts)
+        )
+
+    sym, total, counts = result
+    assert sym == "ESH6"
+    assert total == 4
+    assert counts == fake_counts
+    mock_register.assert_not_called()  # registry inherited via Linux fork
+    mock_replay.assert_called_once_with("ESH6", mock_conn, ["1m", "5m"], since=ts)
+    mock_conn.commit.assert_called_once()
+    mock_conn.close.assert_called_once()
+
+
+def test_replay_worker_closes_connection_on_failure():
+    """Connection must be closed even when replay_symbol raises."""
+    from production.scripts.historical_backfill import _replay_worker
+
+    mock_conn = MagicMock()
+
+    with (
+        patch("production.scripts.historical_backfill.psycopg2.connect", return_value=mock_conn),
+        patch("production.scripts.historical_backfill.register_all_plugins"),
+        patch(
+            "production.scripts.historical_backfill.replay_symbol",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        try:
+            _replay_worker(("ESH6", "postgresql://u:p@localhost/indicagent", ["1m"], None))
+        except RuntimeError:
+            pass
+
+    mock_conn.close.assert_called_once()
+    mock_conn.commit.assert_not_called()

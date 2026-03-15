@@ -108,14 +108,6 @@ const defaultConfig: DashboardConfig = {
         asset_class: "futures",
       },
       {
-        symbol: "BZ",
-        display_name: "Brent Crude",
-        contract: "BZK6",
-        description: "Brent Crude Oil Futures",
-        sector: "energy",
-        asset_class: "futures",
-      },
-      {
         symbol: "NG",
         display_name: "Natural Gas",
         contract: "NGJ6",
@@ -200,14 +192,6 @@ const defaultConfig: DashboardConfig = {
         sector: "interest_rates",
         asset_class: "futures",
       },
-      {
-        symbol: "SR1",
-        display_name: "SOFR 1M",
-        contract: "SR1H6",
-        description: "1-Month SOFR Futures",
-        sector: "interest_rates",
-        asset_class: "futures",
-      },
       // Agriculture
       {
         symbol: "ZS",
@@ -234,22 +218,6 @@ const defaultConfig: DashboardConfig = {
         asset_class: "futures",
       },
       // FX Futures
-      {
-        symbol: "6E",
-        display_name: "Euro FX",
-        contract: "6EH6",
-        description: "Euro FX Futures",
-        sector: "fx",
-        asset_class: "futures",
-      },
-      {
-        symbol: "6J",
-        display_name: "Japanese Yen",
-        contract: "6JH6",
-        description: "Japanese Yen Futures",
-        sector: "fx",
-        asset_class: "futures",
-      },
       // FX Spot
       {
         symbol: "EURUSD",
@@ -346,12 +314,11 @@ const defaultConfig: DashboardConfig = {
       name: "Futures",
       symbols: [
         "ES", "NQ", "RTY", "YM",
-        "CL", "BZ", "NG",
+        "CL", "NG",
         "GC", "SI", "HG",
         "VX",
-        "ZN", "ZF", "ZB", "ZT", "SR1",
+        "ZN", "ZF", "ZB", "ZT",
         "ZS", "ZC", "ZW",
-        "6E", "6J",
       ],
       description: "All active futures contracts",
     },
@@ -382,12 +349,12 @@ const defaultConfig: DashboardConfig = {
     },
     commodities: {
       name: "Commodities",
-      symbols: ["CL", "BZ", "NG", "GC", "SI", "HG", "ZS", "ZC", "ZW"],
+      symbols: ["CL", "NG", "GC", "SI", "HG", "ZS", "ZC", "ZW"],
       description: "Energy, metals, and agriculture futures",
     },
     interest_rates: {
       name: "Rates",
-      symbols: ["ZN", "ZF", "ZB", "ZT", "SR1", "TLT", "IEF", "SHY"],
+      symbols: ["ZN", "ZF", "ZB", "ZT", "TLT", "IEF", "SHY"],
       description: "Treasury futures + rate ETFs",
     },
   },

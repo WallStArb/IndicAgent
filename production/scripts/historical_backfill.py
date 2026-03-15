@@ -16,7 +16,7 @@ use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span roll
     Use --days N to cap ALL timeframes at N days (e.g. --days 2 for a gap-fill).
 
 Stage 2 (--replay-only): Reads each timeframe's native stored bars and replays
-them through the full I1→I3→I4→I5→SMC→I6→I7 pipeline to populate
+them through the full I1→I2→I3→I4→I5→SMC→I6→I7 pipeline to populate
 signal_ledger and intelligence_features.
 
 Replaces: production/scripts/simple_seeder.py (retired)
@@ -42,6 +42,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sys
 import time
@@ -96,6 +97,19 @@ I1_PLUGINS = [
     "ind_ParabolicSAR",
     "ind_StochRSI",
 ]
+I2_PLUGINS = [
+    "evt_MACDEvents",
+    "evt_RSIEvents",
+    "evt_StochasticEvents",
+    "evt_ADXEvents",
+    "evt_VolumeEvents",
+    "evt_MomentumAcceleration",
+    "evt_DonchianPosition",
+    "evt_OBVMomentum",
+    "cmp_DerivativeOscillator",
+    "cmp_ExhaustionScore",
+    "cmp_AccelerationRegime",
+]
 I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
 I4_PLUGINS = [
     "ctx_VolatilityRegime",
@@ -130,6 +144,9 @@ I7_PLUGINS = [
 
 MIN_BARS = 50
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
+# Larger than live service batch (50) — replay has no latency pressure and benefits from
+# fewer commits over millions of bars.
+_FEATURE_BATCH_SIZE = 500
 
 # Per-TF fetch config: (days_of_history, use_continuous_contract)
 #
@@ -190,11 +207,16 @@ def run_i1_plugins(
     bar_history: deque,
     symbol: str,
     timeframe: str,
+    plugin_states: dict[tuple[str, str, str], dict],
 ) -> dict[str, Any]:
     """Run all I1 indicator plugins on the current bar history.
 
     Returns empty dict if fewer than MIN_BARS are available (indicators
     need warmup history to produce meaningful values).
+
+    Args:
+        plugin_states: per-(name, symbol, tf) state dict; mutated in place to
+            isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
     """
     if len(bar_history) < MIN_BARS:
         return {}
@@ -206,7 +228,10 @@ def run_i1_plugins(
     for name in I1_PLUGINS:
         try:
             plugin = registry.get_indicator(name)
+            state_key = (name, symbol, timeframe)
+            plugin._state = plugin_states.setdefault(state_key, {})
             out = plugin.compute_full(frames)
+            plugin_states[state_key] = plugin._state  # write-back is load-bearing (GARCH/HMM)
             if out:
                 features.update(
                     {k: v for k, v in out.items() if isinstance(v, (int, float, str, bool))}
@@ -223,11 +248,16 @@ def run_analysis_pipeline(
     intelligence_cache: dict[str, dict[str, Any]],
     symbol: str,
     timeframe: str,
+    plugin_states: dict[tuple[str, str, str], dict],
 ) -> dict[str, Any]:
-    """Run I3 → I4 → I5 → SMC → I6 plugins in tier order.
+    """Run I2 → I3 → I4 → I5 → SMC → I6 plugins in tier order.
 
     Mutates frames["features"] in-place (same as market_analysis_service).
     Caches result in intelligence_cache[symbol][timeframe] for I6 cross-TF plugin.
+
+    Args:
+        plugin_states: per-(name, symbol, tf) state dict; mutated in place to
+            isolate stateful plugins (GARCH, HMM, Kalman) across symbols.
 
     Returns:
         Merged intelligence dict from all tiers.
@@ -237,6 +267,7 @@ def run_analysis_pipeline(
     intelligence: dict[str, Any] = {}
 
     tier_sequence = [
+        (I2_PLUGINS, "I2"),
         (I3_PLUGINS, "I3"),
         (I4_PLUGINS, "I4"),
         (I5_PLUGINS, "I5"),
@@ -248,7 +279,10 @@ def run_analysis_pipeline(
         for name in plugin_names:
             try:
                 plugin = registry.get_pattern(name)
+                state_key = (name, symbol, timeframe)
+                plugin._state = plugin_states.setdefault(state_key, {})
                 out = plugin.compute_full(frames)
+                plugin_states[state_key] = plugin._state  # write-back is load-bearing
                 if out:
                     intelligence.update(out)
                     features.update(out)
@@ -268,10 +302,15 @@ _INSERT_FEATURE_SYNC_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
     bar, i1, i3, i4, i5, smc, i6
-) VALUES (%s, %s, %s, %s, %s, %s,
-    %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)
+) VALUES %s
 ON CONFLICT (ts, symbol, tf) DO NOTHING
 """
+
+# Per-row template for execute_values — JSONB casts must be explicit per column.
+_INSERT_FEATURE_SYNC_TEMPLATE = (
+    "(%s, %s, %s, %s, %s, %s,"
+    " %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)"
+)
 
 
 def _build_intelligence_event(
@@ -366,6 +405,9 @@ def _event_to_sync_params(event: Any) -> tuple:
 def _insert_features_sync(conn: Any, rows: list) -> None:
     """Synchronous psycopg2 batch insert into intelligence_features.
 
+    Uses execute_values() (single multi-row INSERT) rather than execute_batch()
+    (N separate statements) for ~3-5x throughput on large replay batches.
+
     Args:
         conn: psycopg2 connection
         rows: list of 13-element tuples from _event_to_sync_params()
@@ -373,7 +415,9 @@ def _insert_features_sync(conn: Any, rows: list) -> None:
     if not rows:
         return
     with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, _INSERT_FEATURE_SYNC_SQL, rows)
+        psycopg2.extras.execute_values(
+            cur, _INSERT_FEATURE_SYNC_SQL, rows, template=_INSERT_FEATURE_SYNC_TEMPLATE
+        )
     conn.commit()
 
 
@@ -619,21 +663,8 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 
 
 def connect_db(settings: Settings) -> Any:
-    """Create a synchronous psycopg2 connection from Settings."""
-    # Parse DATABASE_URL: postgresql://user:pass@host:port/dbname
-    url = settings.database_url
-    # Simple parse — production URLs follow this pattern
-    url = url.replace("postgresql://", "").replace("postgres://", "")
-    userpass, rest = url.split("@", 1)
-    user, password = userpass.split(":", 1)
-    hostport_db = rest.split("/", 1)
-    hostport = hostport_db[0]
-    dbname = hostport_db[1] if len(hostport_db) > 1 else "indicagent"
-    host, port = hostport.split(":", 1) if ":" in hostport else (hostport, "5432")
-
-    return psycopg2.connect(
-        host=host, port=int(port), database=dbname, user=user, password=password
-    )
+    """Create a synchronous psycopg2 connection from Settings DSN."""
+    return psycopg2.connect(dsn=settings.database_url)
 
 
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
@@ -749,8 +780,6 @@ def replay_symbol(
     if timeframes is None:
         timeframes = DEFAULT_TIMEFRAMES
 
-    register_all_plugins()
-
     # Load native stored bars for each requested timeframe.
     # Each TF reads its own rows from market_data_ohlcv (1m = named contract,
     # 5m/1h/1d = back-adjusted continuous). Higher TFs have deeper history.
@@ -771,6 +800,10 @@ def replay_symbol(
     bar_histories: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
     intelligence_cache: dict[str, dict] = {}
 
+    # Per-(plugin_name, symbol, tf) state dict — isolates stateful plugins (GARCH/HMM/Kalman)
+    # across symbols. Scoped to this symbol so state never bleeds into the next symbol.
+    plugin_states: dict[tuple[str, str, str], dict] = {}
+
     signal_counts: dict[str, int] = {}
 
     for tf in timeframes:
@@ -781,6 +814,8 @@ def replay_symbol(
         total_signals = 0
         print(f"  {symbol}/{tf}: replaying {len(bars):,} bars...")
 
+        feature_buffer: list[tuple] = []
+
         for i, bar in enumerate(bars):
             ts = bar["timestamp"]
             history_key = f"{symbol}:{tf}"
@@ -788,7 +823,7 @@ def replay_symbol(
             history = bar_histories[history_key]
 
             # I1
-            i1_features = run_i1_plugins(history, symbol, tf)
+            i1_features = run_i1_plugins(history, symbol, tf, plugin_states)
             if not i1_features:
                 continue  # not enough bars yet
 
@@ -807,18 +842,23 @@ def replay_symbol(
                 if cached:
                     frames[f"intel_{other_tf}"] = cached
 
-            # I3 → I6
-            intelligence = run_analysis_pipeline(frames, intelligence_cache, symbol, tf)
+            # I2 → I6
+            intelligence = run_analysis_pipeline(
+                frames, intelligence_cache, symbol, tf, plugin_states
+            )
 
             # Merge all features for I7
             all_features = {**i1_features, **intelligence}
 
-            # Build IntelligenceEvent and write to intelligence_features
+            # Build IntelligenceEvent and buffer for batch insert
             event = _build_intelligence_event(bar, i1_features, intelligence, symbol, tf, ts)
             written_feature_ts: datetime | None = None
             if event is not None:
-                _insert_features_sync(db_conn, [_event_to_sync_params(event)])
+                feature_buffer.append(_event_to_sync_params(event))
                 written_feature_ts = ts
+                if len(feature_buffer) >= _FEATURE_BATCH_SIZE:
+                    _insert_features_sync(db_conn, feature_buffer)
+                    feature_buffer.clear()
 
             # I7 → signal_ledger (with feature_ts populated when features row was written)
             n = run_i7_and_persist(
@@ -836,10 +876,37 @@ def replay_symbol(
             if (i + 1) % 1000 == 0:
                 print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals")
 
+        # Flush remaining buffered feature rows
+        if feature_buffer:
+            _insert_features_sync(db_conn, feature_buffer)
+
         signal_counts[tf] = total_signals
         print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
 
     return signal_counts
+
+
+def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
+    """Worker for parallel symbol replay.
+
+    Runs in a subprocess via ProcessPoolExecutor. Opens its own psycopg2
+    connection (connections cannot be shared across processes), registers
+    plugins, replays the symbol, commits, and closes.
+
+    Args:
+        args: (symbol, db_url, timeframes, since_dt)
+
+    Returns:
+        (symbol, total_signals, counts_by_tf)
+    """
+    symbol, db_url, timeframes, since_dt = args
+    conn = psycopg2.connect(dsn=db_url)
+    try:
+        counts = replay_symbol(symbol, conn, timeframes, since=since_dt)
+        conn.commit()
+        return symbol, sum(counts.values()), counts
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -880,6 +947,12 @@ def main() -> None:
         "--clean",
         action="store_true",
         help="Delete existing signals before replay (use with --replay-only to avoid duplicates)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Parallel worker processes for replay stage (default: 4). Use 1 to disable.",
     )
     args = parser.parse_args()
 
@@ -1074,17 +1147,11 @@ def main() -> None:
                 # This allows re-running backfill on specific symbols cleanly
                 symbol_values = [c.symbol for c in contracts]
 
-                # Delete matching intelligence_features rows FIRST
-                # Must do this before deleting signal_ledger so subquery finds rows
+                # Delete all intelligence_features rows for these symbols directly.
+                # The old subquery JOIN against signal_ledger only deleted rows that had
+                # a matching signal, orphaning feature rows for bars where I7 fired no signals.
                 cur.execute(
-                    """
-                    DELETE FROM intelligence_features
-                    WHERE (ts, symbol, tf) IN (
-                        SELECT feature_ts, symbol, feature_tf
-                        FROM signal_ledger
-                        WHERE symbol = ANY(%s)
-                    );
-                """,
+                    "DELETE FROM intelligence_features WHERE symbol = ANY(%s)",
                     (symbol_values,),
                 )
                 deleted_features = cur.rowcount
@@ -1105,13 +1172,36 @@ def main() -> None:
                     f"{deleted_features:,} intelligence feature rows"
                 )
 
+        register_all_plugins()
         grand_total = 0
-        for contract in contracts:
-            print(f"\n{contract.symbol}:")
-            counts = replay_symbol(contract.symbol, db_conn, timeframes, since=since_dt)
-            symbol_total = sum(counts.values())
-            grand_total += symbol_total
-            print(f"  {contract.symbol} total: {symbol_total} signals")
+
+        if args.workers == 1:
+            for contract in contracts:
+                print(f"\n{contract.symbol}:")
+                counts = replay_symbol(contract.symbol, db_conn, timeframes, since=since_dt)
+                symbol_total = sum(counts.values())
+                grand_total += symbol_total
+                print(f"  {contract.symbol} total: {symbol_total} signals")
+        else:
+            worker_args = [
+                (contract.symbol, settings.database_url, timeframes, since_dt)
+                for contract in contracts
+            ]
+            print(f"  Spawning {args.workers} workers for {len(contracts)} symbols...")
+            try:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as executor:
+                    futures = {executor.submit(_replay_worker, arg): arg[0] for arg in worker_args}
+                    for future in concurrent.futures.as_completed(futures):
+                        symbol = futures[future]
+                        try:
+                            sym, total, counts = future.result()
+                            grand_total += total
+                            print(f"\n  {sym} done: {total} signals  {dict(counts)}")
+                        except Exception as exc:
+                            print(f"\n  {symbol} FAILED: {exc}")
+            except KeyboardInterrupt:
+                print("\nInterrupted — workers will be terminated.")
+                raise
 
         print(f"\nStage 2 complete: {grand_total} total signals inserted into signal_ledger")
 

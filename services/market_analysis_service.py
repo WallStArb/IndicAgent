@@ -609,9 +609,63 @@ class MarketAnalysisService:
         tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
         await asyncio.gather(*tasks)
 
+        # ── Fallback: seed bar_history from market_data_ohlcv for combos still below threshold ──
+        fallback_seeded = 0
+
+        async def _fallback_one(symbol: str, tf: str) -> None:
+            nonlocal fallback_seeded
+            key = f"{symbol}:{tf}"
+            if len(self.bar_history[key]) >= min_bars_for_tf(tf):
+                return  # already enough from intelligence_features
+            async with sem:
+                min_bars = min_bars_for_tf(tf) * 2
+                tf_secs = TF_SECONDS.get(tf, 60)
+                lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
+                try:
+                    rows = await self.db_manager.execute_query(  # type: ignore[union-attr]
+                        f"""
+                        SELECT timestamp, open, high, low, close, volume
+                        FROM market_data_ohlcv
+                        WHERE symbol = $1 AND timeframe = $2
+                          AND timestamp > NOW() - INTERVAL '{lookback_secs} seconds'
+                        ORDER BY timestamp DESC
+                        LIMIT {min_bars}
+                        """,
+                        symbol,
+                        tf,
+                    )
+                except Exception as e:
+                    self.logger.warning("Fallback seed query failed", symbol=symbol, tf=tf, error=str(e))
+                    return
+                if not rows:
+                    return
+                for row in reversed(rows):  # DB returns DESC; insert oldest→newest
+                    try:
+                        bar_ts = row["timestamp"]
+                        if isinstance(bar_ts, str):
+                            bar_ts = datetime.fromisoformat(bar_ts)
+                        self.bar_history[key].append({
+                            "open": float(row["open"]),
+                            "high": float(row["high"]),
+                            "low": float(row["low"]),
+                            "close": float(row["close"]),
+                            "volume": int(row["volume"]),
+                            "timestamp": bar_ts,
+                        })
+                        fallback_seeded += 1
+                    except Exception as e:
+                        self.logger.debug(
+                            "Fallback bar parse failed — skipping row",
+                            symbol=symbol, tf=tf, error=str(e),
+                        )
+
+        fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]
+        await asyncio.gather(*fallback_tasks)
+
         self.logger.info(
             "Seeded bar_history and published intelligence",
             seeded_bars=seeded_bars,
+            fallback_bars=fallback_seeded,
             published_events=published_events,
         )
 
