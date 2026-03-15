@@ -1,9 +1,9 @@
 # MLAgent — Renaissance-Style Learning Machine
 
-**Status:** design
+**Status:** design — prerequisites met, ready for roadmap planning
 **Priority:** high
-**Milestone:** v1.8+
-**Last Updated:** 2026-03-10
+**Milestone:** v1.9+
+**Last Updated:** 2026-03-15
 
 ---
 
@@ -301,7 +301,7 @@ pgvector enables the Discovery Agent to recall: "we tested RSI acceleration vs r
 
 **Within a run:** LangGraph shared `StateGraph` — typed state passed between nodes.
 
-**Cross-service / async:** event streams (DragonflyDB now → Redpanda after migration):
+**Cross-service / async:** Redpanda event streams (migration complete as of 2026-03-14):
 
 ```
 ml.discovery.completed      → Orchestrator wakes, routes to Training Agent
@@ -483,9 +483,11 @@ ml_shap_top_features JSONB    -- top 5 SHAP contributors for this signal
 
 ## Prerequisites
 
-1. **CIS backfill fix** — `aggregate()` must receive `features=` kwarg; NULL CIS corrupts training data
-2. **constituent_contributions** — which plugins drove the CIS score; required for IC analysis
-3. **Signal replay verification** — confirm pipeline_reset.py generates signal_ledger rows with valid outcomes
+All three prerequisites are met as of v1.8 (2026-03-13):
+
+1. **CIS backfill fix** ✅ — `aggregate()` now receives `features=` kwarg; fixed in Phase 25 + historical_backfill.py
+2. **constituent_contributions** ✅ — Phase 29-01: per-setup score contributions now populated in CISResult; written to signal_ledger JSONB
+3. **Signal replay verification** ✅ — lifecycle_replay.py inverted-condition bug fixed (2026-03-14); dual-track market entry outcomes backfilled for all historical signals
 
 ---
 
