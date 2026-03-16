@@ -669,6 +669,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           zone_valid_at_signal: payload.zone_valid_at_signal != null ? Number(payload.zone_valid_at_signal) > 0 : undefined,
           signal_id: String(payload.signal_id || ""),
           intelligence_snapshot: intelSnapshot,
+          cis_score: payload.cis_score !== undefined ? (parseFloat(String(payload.cis_score)) || null) : null,
+          was_selected: payload.was_selected !== undefined ? Number(payload.was_selected) > 0 : true,
         };
 
         // Lightweight matrix entry

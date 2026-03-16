@@ -11,6 +11,7 @@ import { OutcomeBadge } from "@/components/outcome-badge";
 import { TierTooltip } from "@/components/tier-tooltip";
 import { SignalScorecard } from "@/components/signal-scorecard";
 import { getApiBase } from "@/lib/api";
+import { computeSignalTier, tierColor } from "@/lib/signal-tier";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -126,6 +127,12 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
   const dirColor = isLong ? "var(--green)" : "var(--red)";
   const dirDim = isLong ? "var(--green-dim)" : "var(--red-dim)";
 
+  const tier = (signal as any).signal_tier ?? computeSignalTier(
+    (signal as any).was_selected ?? true,
+    signal.confidence,
+    (signal as any).cis_score ?? null,
+  );
+
   const pnlR = signal.pnl_r != null ? (
     <span className="font-data" style={{ color: signal.pnl_r > 0 ? "var(--green)" : "var(--red)" }}>
       {signal.pnl_r > 0 ? "+" : ""}{fmtNum(signal.pnl_r, 1)}R
@@ -140,8 +147,13 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
       } ${signal.resolved ? "opacity-60" : ""}`}
       style={{ background: "var(--bg-elevated)" }}
     >
-      {/* Row 1: badge · confidence · plugin · outcome · pnl | time */}
+      {/* Row 1: tier dot · badge · confidence · plugin · outcome · pnl | time */}
       <div className="flex items-center gap-1.5">
+        <span
+          className="shrink-0 w-1.5 h-1.5 rounded-full inline-block"
+          style={{ backgroundColor: tierColor(tier) }}
+          title={`${tier} tier`}
+        />
         <span
           className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.55rem] font-bold uppercase tracking-widest"
           style={{ backgroundColor: dirDim, color: dirColor }}
