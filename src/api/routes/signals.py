@@ -5,11 +5,13 @@ Provides access to signal_ledger with optional JOIN to intelligence_features
 for full feature context at signal time.
 """
 
+import math
 from datetime import datetime
 from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
+from scipy import stats as _scipy_stats
 
 from ...core.database_manager import DatabaseManager
 from ..dependencies import get_db_manager
@@ -44,6 +46,17 @@ def _compute_signal_tier(
     if was_selected:
         return "monitored"
     return "candidate"
+
+
+def _compute_p_value(avg_pnl_r: float, std_pnl_r: float, n: int) -> float | None:
+    """Two-sided one-sample t-test p-value against null hypothesis mean=0.
+
+    Returns None if inputs are invalid (n < 2, std near-zero or NaN/Inf).
+    """
+    if n < 2 or std_pnl_r < 1e-9 or math.isnan(std_pnl_r) or math.isinf(std_pnl_r):
+        return None
+    t_stat = avg_pnl_r / (std_pnl_r / math.sqrt(n))
+    return float(_scipy_stats.t.sf(abs(t_stat), df=n - 1) * 2)
 
 
 def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
@@ -382,6 +395,165 @@ async def get_signals_stats(
     except Exception as e:
         logger.error("Error fetching signal stats", error=str(e))
         raise HTTPException(status_code=500, detail=f"Error fetching signal stats: {str(e)}") from e
+
+
+_WINDOW_MAP: dict[str, str] = {
+    "7d": "7 days",
+    "30d": "30 days",
+    "90d": "90 days",
+}
+
+
+@router.get("/signals/attribution")
+async def get_signals_attribution(
+    window: str = Query("30d", pattern="^(7d|30d|90d)$"),
+    group_by: str = Query("setup", pattern="^(setup|asset_class)$"),
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """
+    Per-setup or per-asset-class alpha table.
+
+    Computes AVG/STDDEV of pnl_r from signal_ledger directly (NOT setup_performance).
+    Includes sharpe_proxy and two-sided t-test p-value.
+    """
+    try:
+        interval = _WINDOW_MAP.get(window, "30 days")
+
+        if group_by == "setup":
+            group_field = "sl.setup_plugin"
+        else:
+            group_field = "sl.symbol"  # will be remapped to asset_class in Python
+
+        query = f"""
+            SELECT
+                {group_field}                                                 AS group_key,
+                COUNT(*) FILTER (
+                    WHERE sl.outcome IS NOT NULL
+                      AND sl.status NOT IN ('pending', 'active')
+                )                                                             AS n,
+                ROUND(
+                    AVG(CASE
+                            WHEN sl.outcome IN ('target_1','target_1_2','target_full') THEN 1.0
+                            WHEN sl.outcome IS NOT NULL
+                             AND sl.status NOT IN ('pending','active') THEN 0.0
+                            ELSE NULL
+                        END)::numeric, 4
+                )                                                             AS win_rate,
+                ROUND(
+                    AVG(sl.pnl_r) FILTER (WHERE sl.pnl_r IS NOT NULL)::numeric, 4
+                )                                                             AS avg_pnl_r,
+                ROUND(
+                    STDDEV(sl.pnl_r) FILTER (WHERE sl.pnl_r IS NOT NULL)::numeric, 4
+                )                                                             AS std_pnl_r,
+                COUNT(*) FILTER (WHERE sl.pnl_r IS NOT NULL)                 AS n_pnl
+            FROM signal_ledger sl
+            WHERE sl.was_selected = true
+              AND sl.timestamp >= NOW() - INTERVAL '{interval}'
+            GROUP BY {group_field}
+            ORDER BY avg_pnl_r DESC NULLS LAST
+        """
+        rows = await db_manager.fetch(query)
+
+        if group_by == "asset_class":
+            from collections import defaultdict
+
+            from src.config.settings import Settings
+
+            _settings = Settings()
+            contracts = _settings.get_active_contracts()
+            sym_to_sector: dict[str, str] = {
+                c.symbol: (c.sector or c.asset_class.value) for c in contracts
+            }
+            base_symbols = sorted(sym_to_sector, key=len, reverse=True)
+
+            def _classify(contract_sym: str) -> str:
+                if contract_sym in sym_to_sector:
+                    return sym_to_sector[contract_sym]
+                for base in base_symbols:
+                    if contract_sym.startswith(base):
+                        return sym_to_sector[base]
+                return "unknown"
+
+            sector_buckets: dict[str, dict[str, Any]] = defaultdict(
+                lambda: {
+                    "n": 0,
+                    "win_wins": 0,
+                    "win_total": 0,
+                    "pnl_r_sum": 0.0,
+                    "pnl_r_sq_sum": 0.0,
+                    "n_pnl": 0,
+                }
+            )
+            for row in rows:
+                sector = _classify(str(row["group_key"]))
+                b = sector_buckets[sector]
+                b["n"] += int(row["n"] or 0)
+                b["n_pnl"] += int(row["n_pnl"] or 0)
+                if row["avg_pnl_r"] is not None and row["n_pnl"]:
+                    b["pnl_r_sum"] += float(row["avg_pnl_r"]) * int(row["n_pnl"])
+                if row["win_rate"] is not None and row["n"]:
+                    b["win_wins"] += float(row["win_rate"]) * int(row["n"])
+                    b["win_total"] += int(row["n"])
+
+            groups = []
+            for sector, b in sorted(
+                sector_buckets.items(),
+                key=lambda x: x[1]["pnl_r_sum"] / max(x[1]["n_pnl"], 1),
+                reverse=True,
+            ):
+                n_pnl = b["n_pnl"]
+                avg_r = round(b["pnl_r_sum"] / n_pnl, 4) if n_pnl > 0 else None
+                win_r = round(b["win_wins"] / b["win_total"], 4) if b["win_total"] > 0 else None
+                groups.append(
+                    {
+                        "name": sector,
+                        "n": b["n"],
+                        "win_rate": win_r,
+                        "avg_pnl_r": avg_r,
+                        "sharpe_proxy": None,
+                        "p_value": None,
+                        "std_pnl_r": None,
+                    }
+                )
+        else:
+
+            def _f(v: Any) -> float | None:
+                return float(v) if v is not None else None
+
+            groups = []
+            for row in rows:
+                avg_r = _f(row["avg_pnl_r"])
+                std_r = _f(row["std_pnl_r"])
+                n_pnl = int(row["n_pnl"] or 0)
+                sharpe = (
+                    round(avg_r / std_r, 4)
+                    if avg_r is not None and std_r and std_r != 0
+                    else None
+                )
+                p_val = (
+                    _compute_p_value(avg_r, std_r, n_pnl)
+                    if avg_r is not None and std_r is not None
+                    else None
+                )
+                groups.append(
+                    {
+                        "name": str(row["group_key"]),
+                        "n": int(row["n"] or 0),
+                        "win_rate": _f(row["win_rate"]),
+                        "avg_pnl_r": avg_r,
+                        "std_pnl_r": std_r,
+                        "sharpe_proxy": sharpe,
+                        "p_value": round(p_val, 4) if p_val is not None else None,
+                    }
+                )
+
+        return {"window": window, "group_by": group_by, "groups": groups}
+
+    except Exception as e:
+        logger.error("Error fetching signal attribution", error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching attribution: {str(e)}"
+        ) from e
 
 
 @router.get("/signals/{symbol}")
