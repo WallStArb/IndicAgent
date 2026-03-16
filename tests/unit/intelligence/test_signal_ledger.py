@@ -501,7 +501,9 @@ class TestRecordMarketResolution:
         db.execute_command = AsyncMock()
 
         asyncio.run(record_market_resolution(db, "aaaa-bbbb",
+                                             market_entry_at=None,
                                              market_entry_exit_price=5084.0,
+                                             market_entry_exit_at=None,
                                              market_entry_pnl_r=-1.07,
                                              market_entry_mae=-1.07,
                                              market_entry_mfe=0.2,
@@ -511,17 +513,21 @@ class TestRecordMarketResolution:
         db.execute_command.assert_awaited_once()
 
     def test_market_resolution_sql_does_not_touch_zone_columns(self):
-        for col in ["activated_at", "activation_price", "exit_at", "pnl_ticks", "outcome "]:
-            # Note: 'outcome' with trailing space avoids matching 'market_entry_outcome'
-            assert col not in _RECORD_MARKET_RESOLUTION_SQL.replace(
-                "market_entry_outcome", "")
+        import re
+        for col in ["activated_at", "activation_price", "pnl_ticks"]:
+            assert col not in _RECORD_MARKET_RESOLUTION_SQL
+        # 'exit_at' and 'outcome' need word boundaries to avoid matching market_entry_exit_at/market_entry_outcome
+        for col in ["exit_at", "outcome"]:
+            assert not re.search(rf"(?<!market_entry_)\b{col}\b", _RECORD_MARKET_RESOLUTION_SQL)
 
     def test_gap_bars_defaults_to_none(self):
         """gap_bars=None is the default (live signals)."""
         db = AsyncMock()
         db.execute_command = AsyncMock()
         asyncio.run(record_market_resolution(db, "aaaa",
+                                             market_entry_at=None,
                                              market_entry_exit_price=5115.0,
+                                             market_entry_exit_at=None,
                                              market_entry_pnl_r=1.0,
                                              market_entry_mae=0.0,
                                              market_entry_mfe=1.0,

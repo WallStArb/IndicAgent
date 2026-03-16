@@ -36,7 +36,8 @@ Design notes:
           pnl_dollars=NULL, mae=NULL, mfe=NULL, bars_in_trade=NULL,
           signal_quality=NULL, activated_at=NULL, activation_price=NULL,
           zone_entry_pct=NULL, bars_to_activation=NULL,
-          market_entry_exit_price=NULL, market_entry_pnl_r=NULL,
+          market_entry_at=NULL, market_entry_exit_price=NULL,
+          market_entry_exit_at=NULL, market_entry_pnl_r=NULL,
           market_entry_mae=NULL, market_entry_mfe=NULL,
           market_entry_bars_in_trade=NULL, market_entry_outcome=NULL,
           market_entry_gap_bars=NULL
@@ -144,10 +145,9 @@ def resolve_at_end_of_bars(
     zone_outcome = "ttl_expired_ahead" if zone_mfe > 0 else (
         "never_activated" if not zone_activated else "ttl_expired_behind"
     )
-    market_outcome = "ttl_expired_ahead" if market_mfe > 0 else "ttl_expired_behind"
-
-    market_bit = min(bars_elapsed, sig.get("ttl_bars", 10))
     mep = market_entry_price if market_entry_price is not None else sig.get("market_entry_price")
+    market_outcome = ("ttl_expired_ahead" if market_mfe > 0 else "ttl_expired_behind") if mep is not None else None
+    market_bit = min(bars_elapsed, sig.get("ttl_bars", 10))
 
     return {
         "zone_outcome": zone_outcome,
