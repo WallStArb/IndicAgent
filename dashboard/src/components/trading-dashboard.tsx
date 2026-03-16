@@ -251,6 +251,14 @@ export default function TradingDashboard() {
             </span>
           </div>
 
+          <Link
+            href="/signals"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[0.62rem] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors"
+          >
+            <BarChart2 size={10} />
+            Signals
+          </Link>
+
           {/* Profile switcher */}
           <ProfileSwitcher
             profiles={profiles}
@@ -261,14 +269,6 @@ export default function TradingDashboard() {
           <span className="text-[0.6rem] text-[var(--text-muted)]">
             {symbols.length} instruments
           </span>
-
-          <Link
-            href="/signals"
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-[0.62rem] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors"
-          >
-            <BarChart2 size={10} />
-            Signals
-          </Link>
         </div>
 
         <div className="flex items-center gap-3">
