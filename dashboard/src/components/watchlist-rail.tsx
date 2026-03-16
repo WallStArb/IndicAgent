@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { fmtPrice } from "@/lib/format";
+import { isHeroTier } from "@/lib/signal-tier";
 import type { SymbolData } from "@/lib/types";
 
 const TF_STALENESS_MS: Record<string, number> = {
@@ -120,11 +121,12 @@ function WatchlistRow({
   const signal1m = data && globalTf !== "1m" ? getActiveSignal(data, "1m") : null;
   const bestSignal = activeSignal ?? signal1m;
 
+  const isHero = bestSignal !== null && isHeroTier(bestSignal.confidence, bestSignal.cis_score);
   const isLong = bestSignal?.direction === "long";
   const price = data?.tick?.price ?? 0;
   const tickFlash = data?.tickFlash ?? null;
 
-  const hasSignal = bestSignal !== null && !bestSignal.resolved;
+  const hasSignal = isHero && !bestSignal?.resolved;
   const borderColor = hasSignal ? (isLong ? "var(--green)" : "var(--red)") : regimeColor;
 
   return (

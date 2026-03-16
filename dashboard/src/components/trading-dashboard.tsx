@@ -23,7 +23,8 @@ import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, GroupNarra
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
 import { fmtTimeHMS } from "@/lib/format";
-import { LayoutGrid, Rows3 } from "lucide-react";
+import { LayoutGrid, Rows3, BarChart2 } from "lucide-react";
+import Link from "next/link";
 
 const TF_STALENESS_MS: Record<string, number> = {
   "1m":  10 * 60_000,
@@ -260,6 +261,14 @@ export default function TradingDashboard() {
           <span className="text-[0.6rem] text-[var(--text-muted)]">
             {symbols.length} instruments
           </span>
+
+          <Link
+            href="/signals"
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-[0.62rem] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] transition-colors"
+          >
+            <BarChart2 size={10} />
+            Signals
+          </Link>
         </div>
 
         <div className="flex items-center gap-3">

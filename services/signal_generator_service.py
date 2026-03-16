@@ -627,7 +627,7 @@ class SignalGeneratorService:
             )
             await resolution_consumer.start()
             try:
-                async for _topic, key, payload in resolution_consumer.messages():
+                async for _topic, _key, payload in resolution_consumer.messages():
                     if self.shutdown_requested:
                         break
                     try:
@@ -1025,6 +1025,12 @@ class SignalGeneratorService:
                 message["zone_valid_at_signal"] = (
                     "1" if selected_entry.zone_valid_at_signal else "0"
                 )
+            # Tier data — required by frontend Hero tier gate
+            # cis_score is on result (AggregatedResult), not on result.selected_signal
+            if result.cis_score is not None:
+                message["cis_score"] = str(result.cis_score)
+            # was_selected is always True for the published signal
+            message["was_selected"] = "1"
             msg_key = message_key(symbol, timeframe)
             # Publish to both signals and signals.aggregated topics
             try:
