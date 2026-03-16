@@ -2,6 +2,7 @@
 "use client";
 
 import type { ConfluenceData, SignalData } from "@/lib/types";
+import { computeSignalTier, tierColor } from "@/lib/signal-tier";
 
 interface ConfidenceRingProps {
   confluence: ConfluenceData | null;
@@ -26,6 +27,14 @@ export function ConfidenceRing({ confluence, signal, price }: ConfidenceRingProp
   const isLong = signal?.direction === "long";
   const isShort = signal?.direction === "short";
   const hasSignal = signal !== null;
+
+  const tier = hasSignal
+    ? computeSignalTier(
+        signal!.was_selected ?? true,  // SSE signals are always was_selected=true
+        signal!.confidence,
+        signal!.cis_score ?? null,
+      )
+    : null;
 
   // Ring color
   const ringColor =
@@ -101,6 +110,19 @@ export function ConfidenceRing({ confluence, signal, price }: ConfidenceRingProp
           }}
         >
           {isLong ? "LONG" : "SHORT"}
+        </span>
+      )}
+
+      {/* Tier badge */}
+      {tier && (
+        <span
+          className="text-[0.42rem] font-bold uppercase tracking-widest px-1 py-0 rounded"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.05)",
+            color: tierColor(tier),
+          }}
+        >
+          {tier}
         </span>
       )}
     </div>
