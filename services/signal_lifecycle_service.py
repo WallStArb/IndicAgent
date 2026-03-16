@@ -44,6 +44,7 @@ from src.intelligence.trading.signal_ledger import (
     record_activation,
     record_market_resolution,
     record_zone_resolution,
+    record_zone_resolution_with_activation,  # noqa: F401 — used via mock.patch in tests
     update_signal_status,
 )
 from src.observability.metrics import counter, gauge, start_metrics_server
