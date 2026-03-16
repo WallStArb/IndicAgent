@@ -220,13 +220,15 @@ WHERE signal_id = $1::uuid
 
 _RECORD_MARKET_RESOLUTION_SQL = """
 UPDATE signal_ledger
-SET market_entry_exit_price    = $2,
-    market_entry_pnl_r         = $3,
-    market_entry_mae           = $4,
-    market_entry_mfe           = $5,
-    market_entry_bars_in_trade = $6,
-    market_entry_outcome       = $7,
-    market_entry_gap_bars      = $8
+SET market_entry_at            = $2,
+    market_entry_exit_price    = $3,
+    market_entry_exit_at       = $4,
+    market_entry_pnl_r         = $5,
+    market_entry_mae           = $6,
+    market_entry_mfe           = $7,
+    market_entry_bars_in_trade = $8,
+    market_entry_outcome       = $9,
+    market_entry_gap_bars      = $10
 WHERE signal_id = $1::uuid
 """
 
@@ -363,7 +365,9 @@ async def record_market_resolution(
     db_manager: Any,
     signal_id: str,
     *,
+    market_entry_at: datetime | None,
     market_entry_exit_price: float | None,
+    market_entry_exit_at: datetime | None,
     market_entry_pnl_r: float | None,
     market_entry_mae: float,
     market_entry_mfe: float,
@@ -375,7 +379,8 @@ async def record_market_resolution(
     await db_manager.execute_command(
         _RECORD_MARKET_RESOLUTION_SQL,
         signal_id,
-        market_entry_exit_price, market_entry_pnl_r,
+        market_entry_at, market_entry_exit_price, market_entry_exit_at,
+        market_entry_pnl_r,
         market_entry_mae, market_entry_mfe,
         market_entry_bars_in_trade, market_entry_outcome, market_entry_gap_bars,
     )
