@@ -736,7 +736,7 @@ class AINarrativeService:
     async def _warm_llm_scores_cache_from_db(self) -> None:
         """Seed _llm_scores_cache from llm_model_scores table (KAFKA-08).
 
-        SELECT call_type, model, regime, win_rate, avg_pnl_r, sample_size, p_value
+        SELECT call_type, model, regime, win_rate, avg_pnl_r, n_outcomes, p_value
         FROM llm_model_scores WHERE p_value < 0.05
         """
         if not self.db_manager:
@@ -744,7 +744,7 @@ class AINarrativeService:
         try:
             async with self.db_manager.get_connection() as conn:
                 rows = await conn.fetch("""
-                    SELECT call_type, model, regime, win_rate, avg_pnl_r, sample_size, p_value
+                    SELECT call_type, model, regime, win_rate, avg_pnl_r, n_outcomes, p_value
                     FROM llm_model_scores
                     WHERE p_value < 0.05
                     """)
@@ -756,7 +756,7 @@ class AINarrativeService:
                 new_cache.setdefault(ct, {}).setdefault(regime, {})[model] = {
                     "win_rate": float(row["win_rate"] or 0),
                     "avg_pnl_r": float(row["avg_pnl_r"] or 0),
-                    "sample_size": int(row["sample_size"] or 0),
+                    "sample_size": int(row["n_outcomes"] or 0),
                     "p_value": float(row["p_value"] or 1),
                     "is_significant": True,  # WHERE p_value < 0.05 guarantees this
                 }
@@ -1266,7 +1266,6 @@ class AINarrativeService:
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
-                asyncio.create_task(self._group_synthesis_loop()),
                 asyncio.create_task(self._score_refresh_loop()),
                 asyncio.create_task(self._llm_scores_cache_refresh_loop()),
             ]

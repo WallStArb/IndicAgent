@@ -58,3 +58,5 @@ Trade-off: 6× service instances vs current monolith
 Context: discovered while fixing the 5m/15m+ indicator silent-discard bug (2026-02-25).
 Triggered when indicator service's sequential multi-TF loop + min_history_bars=120 caused all
 non-1m indicators to silently stall after each restart.
+
+- **market track timestamps**: add `market_entry_at` + `market_entry_exit_at` to `signal_ledger` — mirrors zone track's `activated_at`/`exit_at`; enables price/time audit against `market_data_ohlcv`; touches migration + replay script + lifecycle service

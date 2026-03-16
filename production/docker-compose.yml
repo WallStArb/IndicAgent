@@ -57,7 +57,7 @@ services:
       - "127.0.0.1:11434:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0
-      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      - HSA_OVERRIDE_GFX_VERSION=11.5.0
     devices:
       - /dev/kfd
       - /dev/dri
