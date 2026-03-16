@@ -31,6 +31,7 @@ import pandas as pd
 import structlog
 from pydantic import ValidationError
 
+from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -720,7 +721,7 @@ class SignalGeneratorService:
                 key = f"{symbol}:{tf}"
                 # DB returns DESC (newest first); reverse to append oldest→newest
                 for row in reversed(rows):
-                    bar_json = row["bar"]
+                    bar_json = parse_jsonb(row["bar"], default={})
                     self.bar_history[key].append(
                         {
                             "open": bar_json.get("o"),
