@@ -203,12 +203,15 @@ def _make_recent_signal_row(**overrides):
             "entry_price": 4521.50,
             "stop_loss": 4515.25,
             "confidence": 0.87,
+            "was_selected": True,
+            "cis_score": 0.45,
             "status": "expired",
             "outcome": "ttl_expired_ahead",
             "exit_price": None,
             "pnl_r": None,
             "signal_computed_at": datetime(2026, 3, 11, 14, 23, 45, tzinfo=UTC),
             "timeframe": "1m",
+            "symbol": "ESH6",
             "setup_win_rate": 0.58,
             "setup_avg_pnl_r": 0.38,
         }
@@ -290,13 +293,13 @@ class TestGetRecentSignals:
         assert 5 in positional
 
     @pytest.mark.unit
-    def test_limit_200_returns_422(self):
-        """limit > 100 returns 422 validation error."""
+    def test_limit_501_returns_422(self):
+        """limit > 500 returns 422 validation error."""
         mock_db = _make_recent_mock_db()
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)
 
-        response = client.get("/api/signals/recent?symbol=ESH6&limit=200")
+        response = client.get("/api/signals/recent?symbol=ESH6&limit=501")
 
         assert response.status_code == 422
 
