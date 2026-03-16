@@ -1,5 +1,8 @@
 // ── Market data types ──
 
+// ── Signal Quality Tier ──
+export type SignalTier = "hero" | "monitored" | "candidate";
+
 export interface TickData {
   price: number;
   bid: number;
@@ -278,6 +281,10 @@ export interface SignalData {
   // Setup performance — from setup_performance table JOIN (populated by DB fetch, null when < 30 samples)
   setup_win_rate?: number;       // 30d rolling win rate for this setup (0.0–1.0)
   setup_avg_pnl_r?: number;      // 30d rolling avg pnl_r for this setup
+  // Tier classification — from API response or computed client-side from cis_score + was_selected
+  cis_score?: number | null;         // CIS composite score (null for pre-CIS signals and SSE before Task 6)
+  was_selected?: boolean;            // Did this signal win aggregation? (always true in SSE stream)
+  signal_tier?: SignalTier;          // Computed tier — present in API responses; derive client-side for SSE
 }
 
 // ── I7 Signal Scorecard (all_ranked from signal_generator_service) ──
@@ -403,3 +410,58 @@ export const TIMEFRAMES: { value: Timeframe; label: string; short: string }[] =
     { value: "4h", label: "4 Hours", short: "4H" },
     { value: "1d", label: "1 Day", short: "1D" },
   ];
+
+// ── /api/signals/stats response ──
+export interface SignalStatsData {
+  signals_today: number;
+  signals_prev_session: number;
+  hero_rate: number;
+  hero_rate_trend: number;
+  avg_confidence: number | null;
+  avg_confidence_7d: number | null;
+  pipeline_latency_p50: number | null;
+  pipeline_latency_p95: number | null;
+  alpha_7d: number | null;
+  alpha_30d: number | null;
+  edge_trend: "expanding" | "compressing" | "stable";
+}
+
+// ── /api/signals/attribution response ──
+export interface AttributionGroup {
+  name: string;
+  n: number;
+  win_rate: number | null;
+  avg_pnl_r: number | null;
+  std_pnl_r: number | null;
+  sharpe_proxy: number | null;
+  p_value: number | null;
+}
+
+export interface SignalAttributionData {
+  window: string;
+  group_by: string;
+  groups: AttributionGroup[];
+}
+
+// ── /api/signals/recent ledger row ──
+export interface LedgerSignal {
+  signal_id: string;
+  computed_at: string | null;
+  symbol: string;
+  timeframe: string;
+  setup_plugin: string;
+  signal_type: string;
+  direction: number;
+  confidence: number | null;
+  cis_score: number | null;
+  was_selected: boolean;
+  signal_tier: SignalTier;
+  status: string;
+  outcome: string | null;
+  pnl_r: number | null;
+  entry_price: number | null;
+  stop_loss: number | null;
+  exit_price: number | null;
+  setup_win_rate: number | null;
+  setup_avg_pnl_r: number | null;
+}
