@@ -470,7 +470,9 @@ class SignalLifecycleService:
                         await record_market_resolution(
                             self.db_manager,
                             sid,
+                            market_entry_at=self._market_activated_at.get(sid),
                             market_entry_exit_price=m_trans.exit_price,
+                            market_entry_exit_at=bar_time,
                             market_entry_pnl_r=m_trans.pnl_r,
                             market_entry_mae=m_trans.mae,
                             market_entry_mfe=m_trans.mfe,
