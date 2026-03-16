@@ -1,41 +1,12 @@
 // dashboard/src/components/signals/attribution-row.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { getApiBase } from "@/lib/api";
 import type { SignalAttributionData, AttributionGroup } from "@/lib/types";
 import { fmtNum } from "@/lib/format";
 
-// ── Mini histogram (9 buckets, 80×20px canvas) ──
-function MiniHistogram({ values }: { values: number[] }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas || values.length === 0) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = max - min || 1;
-    const bucketCount = 9;
-    const buckets = new Array(bucketCount).fill(0);
-    for (const v of values) {
-      const idx = Math.min(Math.floor(((v - min) / range) * bucketCount), bucketCount - 1);
-      buckets[idx]++;
-    }
-    const maxCount = Math.max(...buckets, 1);
-    ctx.clearRect(0, 0, 80, 20);
-    const barW = 80 / bucketCount;
-    buckets.forEach((count, i) => {
-      const h = (count / maxCount) * 20;
-      const midpointNorm = (i + 0.5) / bucketCount;
-      ctx.fillStyle = midpointNorm > 0.5 ? "rgba(0,220,130,0.7)" : "rgba(255,71,87,0.5)";
-      ctx.fillRect(i * barW, 20 - h, barW - 1, h);
-    });
-  }, [values]);
-  return <canvas ref={ref} width={80} height={20} className="rounded-sm" />;
-}
-
+// ── P-value table ──
 function PValueCell({ p }: { p: number | null }) {
   if (p === null) return <span className="text-[var(--text-muted)]">—</span>;
   const sig = p < 0.05;
@@ -59,6 +30,29 @@ function AttributionTable({
   data: AttributionGroup[];
   onRowClick: (name: string) => void;
 }) {
+  const [setupData, setSetupData] = useState<SignalAttributionData | null>(null);
+  const [acData, setAcData] = useState<SignalAttributionData | null>(null);
+
+  // Helper function to handle fetch errors properly
+  const fetchJson = async (url: string) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  };
+
+  useEffect(() => {
+    const base = getApiBase();
+    Promise.all([
+      fetchJson(`${base}/api/signals/attribution?window=30d&group_by=setup`),
+      fetchJson(`${base}/api/signals/attribution?window=30d&group_by=asset_class`),
+    ]).then(([setup, ac]) => {
+      setSetupData(setup);
+      setAcData(ac);
+    }).catch((err) => {
+      console.error("Failed to fetch attribution data:", err);
+    });
+  }, []);
+
   return (
     <div className="flex-1 min-w-0">
       <div className="text-[0.6rem] font-bold uppercase tracking-widest text-[var(--text-muted)] mb-2 px-1">
@@ -88,11 +82,11 @@ function AttributionTable({
               </td>
               <td className="py-1 px-1 text-right font-data text-[var(--text-muted)]">{g.n}</td>
               <td className="py-1 px-1 text-right font-data"
-                  style={{ color: g.win_rate != null && g.win_rate >= 0.5 ? "var(--green)" : "var(--red)" }}>
+                style={{ color: g.win_rate != null && g.win_rate >= 0.5 ? "var(--green)" : "var(--red)" }}>
                 {g.win_rate != null ? `${fmtNum(g.win_rate * 100, 1)}%` : "—"}
               </td>
               <td className="py-1 px-1 text-right font-data"
-                  style={{ color: g.avg_pnl_r != null ? g.avg_pnl_r >= 0 ? "var(--green)" : "var(--red)" : "var(--text-muted)" }}>
+                style={{ color: g.avg_pnl_r != null ? g.avg_pnl_r >= 0 ? "var(--green)" : "var(--red)" : "var(--text-muted)" }}>
                 {g.avg_pnl_r != null ? (g.avg_pnl_r >= 0 ? "+" : "") + fmtNum(g.avg_pnl_r, 3) : "—"}
               </td>
               <td className="py-1 px-1 text-right font-data text-[var(--text-secondary)]">
@@ -123,12 +117,14 @@ export function AttributionRow({
   useEffect(() => {
     const base = getApiBase();
     Promise.all([
-      fetch(`${base}/api/signals/attribution?window=30d&group_by=setup`).then((r) => r.json()),
-      fetch(`${base}/api/signals/attribution?window=30d&group_by=asset_class`).then((r) => r.json()),
+      fetchJson(`${base}/api/signals/attribution?window=30d&group_by=setup`),
+      fetchJson(`${base}/api/signals/attribution?window=30d&group_by=asset_class`),
     ]).then(([setup, ac]) => {
       setSetupData(setup);
       setAcData(ac);
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error("Failed to fetch attribution data:", err);
+    });
   }, []);
 
   return (

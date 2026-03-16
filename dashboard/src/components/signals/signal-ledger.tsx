@@ -11,7 +11,6 @@ import { fmtNum, fmtTimeHMS } from "@/lib/format";
 import { TrendingUp, TrendingDown, X } from "lucide-react";
 
 // ── Row component ──
-
 function TierDot({ tier }: { tier: SignalTier }) {
   return (
     <span
@@ -189,7 +188,6 @@ function LedgerHeader() {
 }
 
 // ── Detail panel ──
-
 function SignalDetailPanel({
   signalId,
   onClose,
@@ -200,15 +198,27 @@ function SignalDetailPanel({
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Helper function to handle fetch errors properly
+  const fetchJson = async (url: string) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  };
+
   useEffect(() => {
-    setLoading(true);
-    fetch(`${getApiBase()}/api/signals/detail/${signalId}`)
-      .then((r) => r.json())
-      .then((d: Record<string, unknown>) => {
+    const fetchSignalDetail = async () => {
+      setLoading(true);
+      try {
+        const d = await fetchJson(`${getApiBase()}/api/signals/detail/${signalId}`);
         setDetail(d);
+      } catch (err) {
+        console.error("Failed to fetch signal detail:", err);
+      } finally {
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
+      }
+    };
+
+    fetchSignalDetail();
   }, [signalId]);
 
   useEffect(() => {
@@ -230,6 +240,7 @@ function SignalDetailPanel({
         </span>
         <button
           onClick={onClose}
+          aria-label="Close signal detail panel"
           className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
         >
           <X size={14} />
@@ -287,8 +298,14 @@ function SignalDetailPanel({
                     ? fmtNum(detail.stop_loss as number, 2)
                     : "—",
                 ],
-                ["Status", detail.status],
-                ["Outcome", detail.outcome ?? "—"],
+                [
+                  "Status",
+                  detail.status,
+                ],
+                [
+                  "Outcome",
+                  detail.outcome ?? "—",
+                ],
                 [
                   "PnL R",
                   detail.pnl_r != null
@@ -347,7 +364,6 @@ function SignalDetailPanel({
 }
 
 // ── Main SignalLedger ──
-
 function buildQueryParams(filters: FilterState): string {
   const params = new URLSearchParams();
   params.set("limit", "500");
@@ -361,8 +377,7 @@ function buildQueryParams(filters: FilterState): string {
   }
 
   if (filters.symbol.length === 1) params.set("symbol", filters.symbol[0]);
-  if (filters.timeframe.length === 1)
-    params.set("timeframe", filters.timeframe[0]);
+  if (filters.timeframe.length === 1) params.set("timeframe", filters.timeframe[0]);
 
   return params.toString();
 }
@@ -374,15 +389,28 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
 
   useEffect(() => {
     const qs = buildQueryParams(filters);
-    fetch(`${getApiBase()}/api/signals/recent?${qs}`)
-      .then((r) => r.json())
+
+    // Helper function to handle fetch errors properly
+    const fetchJson = async (url: string) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    };
+
+    fetchJson(`${getApiBase()}/api/signals/recent?${qs}`)
       .then((d: { signals?: LedgerSignal[] }) => setSignals(d.signals ?? []))
-      .catch(() => setSignals([]));
+      .catch((err) => {
+        console.error("Failed to fetch signals:", err);
+        setSignals([]);
+      });
   }, [filters]);
 
   // Client-side filtering for multi-select cases
   const filtered = useMemo(() => {
     return signals.filter((s) => {
+      // Null confidence signals should NOT bypass filters when a confidence range is set
+      if (s.confidence === null) return false;
+
       if (filters.tier.length > 0 && !filters.tier.includes(s.signal_tier))
         return false;
       if (
@@ -392,28 +420,33 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
         return false;
       if (filters.symbol.length > 0 && !filters.symbol.includes(s.symbol))
         return false;
-      if (
-        filters.setup_plugin.length > 0 &&
-        !filters.setup_plugin.includes(s.setup_plugin)
-      )
+      if (filters.setup_plugin.length > 0 && !filters.setup_plugin.includes(s.setup_plugin))
         return false;
       if (filters.status.length > 0 && !filters.status.includes(s.status))
         return false;
-      if (s.confidence != null && s.confidence < filters.confidence_min)
+
+      // Check confidence min filter
+      if (filters.confidence_min > 0 && s.confidence < filters.confidence_min)
         return false;
-      if (s.confidence != null && s.confidence > filters.confidence_max)
+
+      // Check confidence max filter (if set)
+      if (filters.confidence_max < 1 && s.confidence > filters.confidence_max)
         return false;
+
+      // CIS filter - only active when CIS score exists and meets threshold
       if (
         filters.cis_filter === "cis_only" &&
         (s.cis_score == null || Math.abs(s.cis_score) <= 0.35)
       )
         return false;
+
+      // Fallback filter - only active when CIS score exists and exceeds threshold
       if (
         filters.cis_filter === "fallback_only" &&
-        s.cis_score != null &&
-        Math.abs(s.cis_score) > 0.35
+        (s.cis_score != null && Math.abs(s.cis_score) > 0.35)
       )
         return false;
+
       return true;
     });
   }, [signals, filters]);
@@ -426,28 +459,12 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
   });
 
   return (
-    <div
-      className="flex rounded overflow-hidden"
-      style={{
-        border: "1px solid var(--border-subtle)",
-        background: "var(--bg-surface)",
-        height: "600px",
-      }}
-    >
+    <div className="flex rounded overflow-hidden" style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)", height: "600px" }}>
       {/* Table */}
       <div className="flex flex-col flex-1 min-w-0">
         <LedgerHeader />
-        <div
-          ref={parentRef}
-          className="flex-1 overflow-y-auto overflow-x-auto"
-          style={{ position: "relative" }}
-        >
-          <div
-            style={{
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              position: "relative",
-            }}
-          >
+        <div ref={parentRef} className="flex-1 overflow-y-auto overflow-x-auto" style={{ position: "relative" }}>
+          <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: "relative" }}>
             {rowVirtualizer.getVirtualItems().map((vi) => {
               const sig = filtered[vi.index];
               return (
@@ -472,8 +489,6 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
         <div className="px-3 py-1 border-t border-[var(--border-subtle)] text-[0.55rem] text-[var(--text-muted)]">
           {filtered.length} signals
         </div>
-      </div>
-
       {/* Detail panel */}
       {selectedId && (
         <SignalDetailPanel

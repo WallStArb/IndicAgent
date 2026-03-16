@@ -1,3 +1,4 @@
+// dashboard/src/components/signals/filter-bar.tsx
 "use client";
 
 import { useCallback } from "react";
@@ -16,25 +17,27 @@ export interface FilterState {
   date_to: string;     // YYYY-MM-DD
 }
 
-function defaultDateFrom() {
+// Factory function that returns fresh default filters on each call
+function getDefaultFilters(): FilterState {
   const d = new Date();
   d.setDate(d.getDate() - 7);
-  return d.toISOString().slice(0, 10);
+  return {
+    symbol: [],
+    asset_class: [],
+    setup_plugin: [],
+    timeframe: [],
+    tier: [],
+    confidence_min: 0,
+    confidence_max: 1,
+    cis_filter: "all",
+    status: [],
+    date_from: d.toISOString().slice(0, 10),
+    date_to: new Date().toISOString().slice(0, 10),
+  };
 }
 
-export const defaultFilters: FilterState = {
-  symbol: [],
-  asset_class: [],
-  setup_plugin: [],
-  timeframe: [],
-  tier: [],
-  confidence_min: 0,
-  confidence_max: 1,
-  cis_filter: "all",
-  status: [],
-  date_from: defaultDateFrom(),
-  date_to: new Date().toISOString().slice(0, 10),
-};
+// Export defaultFilters constant for backward compatibility
+export const defaultFilters = getDefaultFilters();
 
 const TIER_OPTIONS = ["hero", "monitored", "candidate"] as const;
 const TF_OPTIONS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
@@ -76,7 +79,7 @@ function PillToggle<T extends string>({
             color: selected.includes(opt)
               ? "var(--text-primary)"
               : "var(--text-muted)",
-            border: `1px solid ${selected.includes(opt) ? "var(--border-bright)" : "var(--border-subtle)"}`,
+            border: `1px solid ${selected.includes(opt) ? "var(--border-right)" : "var(--border-subtle)"}`,
           }}
         >
           {opt}
@@ -131,9 +134,13 @@ export function FilterBar({
             onClick={() => onChange({ cis_filter: opt })}
             className="px-2 py-0.5 rounded text-[0.6rem] font-semibold transition-colors"
             style={{
-              backgroundColor: filters.cis_filter === opt ? "var(--bg-elevated)" : "transparent",
-              color: filters.cis_filter === opt ? "var(--text-primary)" : "var(--text-muted)",
-              border: `1px solid ${filters.cis_filter === opt ? "var(--border-bright)" : "var(--border-subtle)"}`,
+              backgroundColor: filters.cis_filter === opt
+                ? "var(--bg-elevated)"
+                : "transparent",
+              color: filters.cis_filter === opt
+                ? "var(--text-primary)"
+                : "var(--text-muted)",
+              border: `1px solid ${filters.cis_filter === opt ? "var(--border-right)" : "var(--border-subtle)"}`,
             }}
           >
             {opt.replace("_", " ")}
@@ -154,6 +161,13 @@ export function FilterBar({
         <span className="text-[0.6rem] font-data text-[var(--text-secondary)]">
           {(filters.confidence_min * 100).toFixed(0)}%–{(filters.confidence_max * 100).toFixed(0)}%
         </span>
+        <input
+          type="range"
+          min={0} max={1} step={0.05}
+          value={filters.confidence_max}
+          onChange={(e) => onChange({ confidence_max: parseFloat(e.target.value) })}
+          className="w-20 h-1 accent-[var(--blue)]"
+        />
       </div>
 
       {/* Date range */}
@@ -176,7 +190,7 @@ export function FilterBar({
 
       {/* Reset */}
       <button
-        onClick={() => onChange(defaultFilters)}
+        onClick={() => onChange(getDefaultFilters())}
         className="ml-auto text-[0.55rem] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
       >
         Reset
