@@ -7,13 +7,12 @@ import { TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 import { OutcomeBadge } from "@/components/outcome-badge";
+import { isHeroTier } from "@/lib/signal-tier";
 
 interface SignalBannerProps {
   signal: SignalData | null;
   onDrillDown?: () => void;
 }
-
-const HIGH_CONFIDENCE_THRESHOLD = 0.75;
 
 function fmtSignalType(raw: string): string {
   return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -36,7 +35,7 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
   );
   const ttsStr = useMemo(() => fmtLagSeconds(ttsS), [ttsS]);
 
-  if (!signal || signal.confidence < HIGH_CONFIDENCE_THRESHOLD) return null;
+  if (!signal || !isHeroTier(signal.confidence, signal.cis_score)) return null;
 
   const hasZone = signal.entry_zone_low != null && signal.entry_zone_high != null;
   const hasLine2 = hasZone || !!signalTimeStr;
