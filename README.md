@@ -14,7 +14,9 @@
 
 ## What It Is
 
-IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, drift-corrected — in under 10ms. 103 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event bus. Any HTTP client subscribes to live intelligence over SSE or pulls over REST with no pipeline changes required.
+IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, drift-corrected — in under 10ms. 103 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream. Any HTTP client subscribes to live intelligence over SSE or pulls over REST with no pipeline changes required.
+
+Built on an **event-driven microservices architecture**: each of the 8 pipeline services owns a single responsibility (Separation of Concerns) and communicates exclusively through a Redpanda event stream — no service calls another directly. Services are deployed, restarted, and scaled independently. The stream is the only contract.
 
 Signals don't fire on a single indicator. The CIS scorer requires cross-tier agreement from at least 3 of 6 independent evidence buckets. Regime conflicts veto. Signals that age lose confidence explicitly. Every winner and every counterfactual lands in the feature store with its full I1–I8 context — the system accumulates its own labeled training dataset with every bar it processes.
 
@@ -22,7 +24,7 @@ Signals don't fire on a single indicator. The CIS scorer requires cross-tier agr
 
 ## Design Principles
 
-Every architectural decision in this platform maps back to four principles:
+Every architectural decision in this platform maps back to five principles:
 
 | | |
 |---|---|
@@ -30,12 +32,15 @@ Every architectural decision in this platform maps back to four principles:
 | **Signal with evidence** | No signal fires on a single indicator. CIS requires cross-tier agreement from at least 3 of 6 independent evidence buckets. A strong momentum reading cannot override a conflicting regime state. |
 | **Learn from every outcome** | Every signal — winner, loser, rejected counterfactual — lands in the feature store with its full I1–I8 context vector. The system trains on what actually happened, not what was expected. |
 | **Degrade gracefully, adapt automatically** | The pipeline monitors its own feature distributions and signal performance in real time. When drift is detected, scoring is adjusted without restart or code change. The system self-corrects. |
+| **Separation of Concerns** | The platform is built as **event-driven microservices** — each of the 8 services owns exactly one responsibility and communicates exclusively through the Redpanda event stream. No service calls another directly. Data collection, indicator computation, regime classification, signal generation, lifecycle tracking, persistence, AI narrative, and API delivery are all independently deployable processes. Restart one, the rest continue unaffected. Scale one, no other service changes. Replace one, the stream contract is the only interface to honour. SoC is not a coding guideline here — it is enforced at the process boundary. |
 
 ---
 
 ## The Unified Data Bus
 
-The central architectural decision: **everything flows through streams. Services never call each other directly.**
+The central architectural decision: **event-driven microservices over a shared stream. Services never call each other directly.**
+
+This is what makes the microservices split real rather than cosmetic. In a conventional microservices setup, services still call each other via REST or gRPC — they are decoupled in name but coupled in operation: if service B is down, service A fails. Here, the coupling is eliminated entirely. Services are producers and consumers on a durable event stream. A service going down means messages queue on the stream. When it restarts, it resumes from its committed offset — nothing lost, nothing re-requested. No service needs to know any other service exists.
 
 The unified data bus is the data spine of the platform — the single structure everything attaches to and everything flows through. Every tick ingested, every indicator computed, every regime classified, every signal fired, every AI narrative generated: all of it moves as messages on the bus. No service calls another. No shared database in the hot path. The bus is the only contract between producers and consumers, and that contract is a typed schema.
 
@@ -45,7 +50,20 @@ The unified data bus is the data spine of the platform — the single structure 
 
 The most operationally powerful property of this architecture: **a new consumer gets the full intelligence history on day one.** A trading bot, ML model, alert engine, or downstream product bootstraps by replaying the stream from the beginning. No data migration. No special onboarding. No pipeline changes. The history is already there.
 
-### Zero coupling between services
+### Zero coupling between services — Separation of Concerns in practice
+
+This is Separation of Concerns (SoC) as an architectural invariant, not a coding guideline. Each service has exactly one responsibility:
+
+| Service | Owns |
+|---------|------|
+| TWS Daemon | Data collection from market feed |
+| Indicator Service | I1/I2 mathematical computation |
+| Market Analysis | I3–I6 structure, regime, pattern intelligence |
+| Signal Generator | I7 setup detection and CIS adjudication |
+| Signal Lifecycle | Open trade tracking, MAE/MFE, outcome classification |
+| Feature Writer | Persistence of intelligence vectors to TimescaleDB |
+| AI Narrative | I8 LLM analysis and group synthesis |
+| API | SSE fan-out and REST delivery to clients |
 
 Producers publish. Consumers subscribe. No service knows the others exist.
 

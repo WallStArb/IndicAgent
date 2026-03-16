@@ -50,6 +50,8 @@ Each service reads its input streams via an exclusive consumer group. The consum
 **Technology:** Python async services, systemd-managed
 **Latency:** <10ms per bar per symbol/timeframe
 
+The microservices architecture enforces **Separation of Concerns (SoC)** as an operational invariant: each service owns exactly one responsibility and is deployed, restarted, and scaled independently. Data collection, indicator computation, regime classification, signal generation, lifecycle tracking, persistence, AI narrative, and API delivery are fully decoupled processes — the Redpanda stream bus is the only contract between them.
+
 Each service reads from one or more Redpanda topics, computes intelligence, and writes results back to Redpanda topics. Services are stateful — they maintain plugin state in memory across bars.
 
 ### Service Pipeline
