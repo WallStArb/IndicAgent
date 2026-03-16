@@ -526,9 +526,7 @@ async def get_signals_attribution(
                 std_r = _f(row["std_pnl_r"])
                 n_pnl = int(row["n_pnl"] or 0)
                 sharpe = (
-                    round(avg_r / std_r, 4)
-                    if avg_r is not None and std_r and std_r != 0
-                    else None
+                    round(avg_r / std_r, 4) if avg_r is not None and std_r and std_r != 0 else None
                 )
                 p_val = (
                     _compute_p_value(avg_r, std_r, n_pnl)
@@ -551,8 +549,100 @@ async def get_signals_attribution(
 
     except Exception as e:
         logger.error("Error fetching signal attribution", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching attribution: {str(e)}") from e
+
+
+@router.get("/signals/detail/{signal_id}")
+async def get_signal_detail(
+    signal_id: str,
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """
+    Full signal detail with intelligence_features JOIN.
+    Path is /signals/detail/{signal_id} (not /signals/{signal_id})
+    to avoid shadowing the existing /signals/{symbol} catch-all route.
+    """
+    try:
+        query = """
+            SELECT
+                sl.signal_id, sl.timestamp, sl.symbol, sl.timeframe,
+                sl.setup_plugin, sl.signal_type, sl.direction,
+                sl.entry_price, sl.stop_loss, sl.targets, sl.confidence,
+                sl.was_selected, sl.cis_score, sl.bucket_scores,
+                sl.status, sl.outcome, sl.exit_price, sl.pnl_r,
+                sl.signal_computed_at, sl.feature_ts, sl.feature_tf,
+                sl.entry_zone_low, sl.entry_zone_high, sl.zone_valid_at_signal,
+                sl.activation_price, sl.mae, sl.mfe, sl.bars_in_trade,
+                f.bar, f.i1, f.i3, f.i4, f.i5, f.smc, f.i6
+            FROM signal_ledger sl
+            LEFT JOIN intelligence_features f
+              ON sl.symbol = f.symbol
+             AND sl.feature_ts = f.ts
+             AND sl.feature_tf = f.tf
+            WHERE sl.signal_id = $1::uuid
+        """
+        row = await db_manager.fetchrow(query, signal_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
+
+        def _f(v: Any) -> float | None:
+            return float(v) if v is not None else None
+
+        return {
+            "signal_id": str(row["signal_id"]),
+            "timestamp": row["timestamp"].isoformat() if row["timestamp"] else None,
+            "symbol": row["symbol"],
+            "timeframe": row["timeframe"],
+            "setup_plugin": row["setup_plugin"],
+            "signal_type": row["signal_type"],
+            "direction": row["direction"],
+            "entry_price": _f(row["entry_price"]),
+            "stop_loss": _f(row["stop_loss"]),
+            "targets": _parse_jsonb(row["targets"], default=[]),
+            "confidence": _f(row["confidence"]),
+            "was_selected": row["was_selected"],
+            "cis_score": _f(row["cis_score"]),
+            "bucket_scores": _parse_jsonb(row["bucket_scores"], default=None),
+            "status": row["status"],
+            "outcome": row["outcome"],
+            "exit_price": _f(row["exit_price"]),
+            "pnl_r": _f(row["pnl_r"]),
+            "signal_computed_at": (
+                row["signal_computed_at"].isoformat() if row["signal_computed_at"] else None
+            ),
+            "entry_zone_low": _f(row["entry_zone_low"]),
+            "entry_zone_high": _f(row["entry_zone_high"]),
+            "zone_valid_at_signal": row["zone_valid_at_signal"],
+            "activation_price": _f(row["activation_price"]),
+            "mae": _f(row["mae"]),
+            "mfe": _f(row["mfe"]),
+            "bars_in_trade": row["bars_in_trade"],
+            "signal_tier": _compute_signal_tier(
+                row["was_selected"],
+                _f(row["confidence"]),
+                _f(row["cis_score"]),
+            ),
+            "features": (
+                {
+                    "bar": _parse_jsonb(row["bar"], default=None),
+                    "i1": _parse_jsonb(row["i1"], default=None),
+                    "i3": _parse_jsonb(row["i3"], default=None),
+                    "i4": _parse_jsonb(row["i4"], default=None),
+                    "i5": _parse_jsonb(row["i5"], default=None),
+                    "smc": _parse_jsonb(row["smc"], default=None),
+                    "i6": _parse_jsonb(row["i6"], default=None),
+                }
+                if row["feature_ts"]
+                else None
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error fetching signal detail", signal_id=signal_id, error=str(e))
         raise HTTPException(
-            status_code=500, detail=f"Error fetching attribution: {str(e)}"
+            status_code=500, detail=f"Error fetching signal detail: {str(e)}"
         ) from e
 
 
