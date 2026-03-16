@@ -7,12 +7,14 @@ for full feature context at signal time.
 
 import math
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from scipy import stats as _scipy_stats
 
+from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
@@ -21,6 +23,12 @@ from ..utils import resolve_contract as _resolve_contract
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+
+@lru_cache(maxsize=1)
+def _get_settings() -> Settings:
+    """Cached Settings instance to avoid re-instantiation on every request."""
+    return Settings()
 
 
 def _compute_signal_tier(
@@ -457,10 +465,7 @@ async def get_signals_attribution(
         if group_by == "asset_class":
             from collections import defaultdict
 
-            from src.config.settings import Settings
-
-            _settings = Settings()
-            contracts = _settings.get_active_contracts()
+            contracts = _get_settings().get_active_contracts()
             sym_to_sector: dict[str, str] = {
                 c.symbol: (c.sector or c.asset_class.value) for c in contracts
             }
