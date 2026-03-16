@@ -46,7 +46,10 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
       {/* Signal rows */}
       {sorted.map((signal, idx) => {
         const isWinner = signal.is_winner;
-        const dotColor = isWinner ? "var(--accent-cyan)" : "var(--text-muted)";
+        const isHighQuality = signal.confidence >= 0.40;
+        const dotColor = isWinner
+          ? isHighQuality ? "var(--blue)" : "var(--amber)"
+          : "var(--text-muted)";
         const dirArrow =
           signal.direction > 0 ? "▲" : signal.direction < 0 ? "▼" : "–";
         const dirColor =
@@ -57,16 +60,28 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
               : "var(--text-muted)";
         const confPct = (signal.confidence * 100).toFixed(0) + "%";
         const displayName = stripPrefix(signal.setup_type);
+        const rowOpacity = !isWinner && signal.confidence < 0.40 ? 0.6 : 1.0;
 
         return (
           <div
             key={`${signal.setup_type}-${idx}`}
             className="flex items-center gap-2 text-[0.65rem]"
+            style={{ opacity: rowOpacity }}
           >
             {/* Rank + dot */}
             <span style={{ color: dotColor, fontFamily: "monospace" }}>
               {isWinner ? "●" : "○"}
             </span>
+
+            {/* Winner badge */}
+            {isWinner && isHighQuality && (
+              <span
+                className="text-[0.4rem] font-bold uppercase px-0.5 rounded"
+                style={{ backgroundColor: "rgba(59,130,246,0.15)", color: "var(--blue)" }}
+              >
+                hero
+              </span>
+            )}
 
             {/* Plugin name */}
             <span
