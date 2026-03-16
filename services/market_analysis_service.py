@@ -30,10 +30,10 @@ import structlog
 from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
-from src.config.settings import Settings, get_active_contracts
-from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.database_manager import DatabaseManager
 from src.api.utils import parse_jsonb
+from src.config.settings import Settings, get_active_contracts
+from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     SEED_LOOKBACK_MULTIPLIER,
