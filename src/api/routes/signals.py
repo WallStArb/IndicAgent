@@ -30,7 +30,8 @@ def _compute_signal_tier(
 
     Evaluation order: Hero → Monitored → Candidate.
     NULL cis_score → always Monitored (never Hero).
-    Thresholds: confidence >= 0.40 (data-derived breakeven); abs(cis_score) > 0.35 (CIS fire threshold).
+    Thresholds: confidence >= 0.40 (data-derived breakeven);
+                abs(cis_score) > 0.35 (CIS fire threshold).
     """
     if (
         was_selected
@@ -175,7 +176,7 @@ async def get_recent_signals(
         """
         rows = await db_manager.fetch(main_query, resolved_symbol, timeframe, limit)
 
-        summary_query = f"""
+        summary_query = """
             SELECT
                 COUNT(*)                                                          AS n_total,
                 COUNT(*) FILTER (WHERE status NOT IN ('pending', 'active'))       AS n_resolved,
