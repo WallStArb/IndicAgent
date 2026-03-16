@@ -390,6 +390,7 @@ class OllamaProvider:
                     {"role": "user", "content": prompt},
                 ],
                 "stream": False,
+                "think": False,
                 "options": {"num_predict": max_tokens},
             }
             data = json.dumps(payload).encode()
