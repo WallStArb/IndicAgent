@@ -627,7 +627,7 @@ class SignalGeneratorService:
             )
             await resolution_consumer.start()
             try:
-                async for _topic, key, payload in resolution_consumer.messages():
+                async for _topic, _key, payload in resolution_consumer.messages():
                     if self.shutdown_requested:
                         break
                     try:
