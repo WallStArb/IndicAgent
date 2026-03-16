@@ -35,8 +35,6 @@ from src.core.stream_keys import (
     topic_signals_aggregated,
 )
 from src.intelligence.trading.lifecycle_tracker import (
-    OUTCOME_THRESHOLD_QUICK_STOP_BARS,
-    MarketTransition,
     _classify_stop_outcome,
     evaluate_market_entry,
     evaluate_signal,
@@ -46,7 +44,7 @@ from src.intelligence.trading.signal_ledger import (
     record_activation,
     record_market_resolution,
     record_zone_resolution,
-    record_zone_resolution_with_activation,
+    record_zone_resolution_with_activation,  # noqa: F401 — used via mock.patch in tests
     update_signal_status,
 )
 from src.observability.metrics import counter, gauge, start_metrics_server
