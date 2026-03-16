@@ -3,6 +3,7 @@
 
 import { useMemo } from "react";
 import { fmtPrice, fmtNum } from "@/lib/format";
+import { isHeroTier } from "@/lib/signal-tier";
 import type { SymbolData, SignalData } from "@/lib/types";
 import { TrendingUp, TrendingDown, Zap } from "lucide-react";
 
@@ -15,7 +16,6 @@ const TF_STALENESS_MS: Record<string, number> = {
   "1d":  10 * 86_400_000,
 };
 
-const ALERT_CONFIDENCE_THRESHOLD = 0.65;
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
 interface ActiveSignalInfo {
@@ -43,7 +43,7 @@ export function SignalAlertStrip({
       for (const tf of TIMEFRAMES) {
         const signal = data.signalsByTf?.[tf];
         if (!signal || signal.resolved) continue;
-        if (signal.confidence < ALERT_CONFIDENCE_THRESHOLD) continue;
+        if (!isHeroTier(signal.confidence, signal.cis_score)) continue;
         const ts = new Date(signal.timestamp).getTime();
         const cutoff = TF_STALENESS_MS[tf] ?? 3_600_000;
         if (isNaN(ts) || Date.now() - ts > cutoff) continue;
