@@ -21,6 +21,30 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 
+def _compute_signal_tier(
+    was_selected: bool,
+    confidence: float | None,
+    cis_score: float | None,
+) -> str:
+    """Classify a signal into Hero / Monitored / Candidate tier.
+
+    Evaluation order: Hero → Monitored → Candidate.
+    NULL cis_score → always Monitored (never Hero).
+    Thresholds: confidence >= 0.40 (data-derived breakeven); abs(cis_score) > 0.35 (CIS fire threshold).
+    """
+    if (
+        was_selected
+        and confidence is not None
+        and cis_score is not None
+        and confidence >= 0.40
+        and abs(cis_score) > 0.35
+    ):
+        return "hero"
+    if was_selected:
+        return "monitored"
+    return "candidate"
+
+
 def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     """Build signal response dict from asyncpg row."""
     signal: dict[str, Any] = {
@@ -93,9 +117,10 @@ _WIN_OUTCOMES = frozenset({"target_1", "target_1_2", "target_full"})
 
 @router.get("/signals/recent")
 async def get_recent_signals(
-    symbol: str = Query(..., description="Symbol, e.g. ESH6 or ES"),
+    symbol: str | None = Query(None, description="Symbol, e.g. ESH6 or ES. Omit for all symbols."),
     timeframe: str | None = Query(None, description="Filter by timeframe, e.g. 1m"),
-    limit: int = Query(20, ge=1, le=100, description="Max signals to return"),
+    limit: int = Query(20, ge=1, le=500, description="Max signals to return"),
+    tier: str = Query("hero", pattern="^(hero|monitored|all)$", description="Quality tier filter"),
     db_manager: DatabaseManager = Depends(get_db_manager),
 ) -> dict[str, Any]:
     """
@@ -104,9 +129,23 @@ async def get_recent_signals(
     Annotated with 30d setup performance from setup_performance table.
     Includes aggregate summary over the returned window.
     """
-    contract = _resolve_contract(symbol)
+    # Build tier WHERE clause
+    if tier == "hero":
+        tier_clause = """
+        AND sl.was_selected = true
+        AND sl.confidence >= 0.40
+        AND sl.cis_score IS NOT NULL
+        AND abs(sl.cis_score) > 0.35
+    """
+    elif tier == "monitored":
+        tier_clause = "AND sl.was_selected = true"
+    else:  # all
+        tier_clause = ""
+
+    resolved_symbol = _resolve_contract(symbol) if symbol else None
+
     try:
-        main_query = """
+        main_query = f"""
             SELECT
                 sl.signal_id,
                 sl.setup_plugin,
@@ -115,24 +154,28 @@ async def get_recent_signals(
                 sl.entry_price,
                 sl.stop_loss,
                 sl.confidence,
+                sl.was_selected,
+                sl.cis_score,
                 sl.status,
                 sl.outcome,
                 sl.exit_price,
                 sl.pnl_r,
                 sl.signal_computed_at,
                 sl.timeframe,
+                sl.symbol,
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
             LEFT JOIN setup_performance sp ON sp.setup_type = sl.signal_type
-            WHERE sl.symbol = $1
+            WHERE ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
+              {tier_clause}
             ORDER BY sl.signal_computed_at DESC
             LIMIT $3
         """
-        rows = await db_manager.fetch(main_query, contract, timeframe, limit)
+        rows = await db_manager.fetch(main_query, resolved_symbol, timeframe, limit)
 
-        summary_query = """
+        summary_query = f"""
             SELECT
                 COUNT(*)                                                          AS n_total,
                 COUNT(*) FILTER (WHERE status NOT IN ('pending', 'active'))       AS n_resolved,
@@ -145,10 +188,10 @@ async def get_recent_signals(
                 )                                                                 AS win_rate,
                 ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 3)   AS avg_pnl_r
             FROM signal_ledger
-            WHERE symbol = $1
+            WHERE ($1::text IS NULL OR symbol = $1)
               AND ($2::text IS NULL OR timeframe = $2)
         """
-        summary_row = await db_manager.fetchrow(summary_query, contract, timeframe)
+        summary_row = await db_manager.fetchrow(summary_query, resolved_symbol, timeframe)
 
         def _f(v: Any) -> float | None:
             return float(v) if v is not None else None
@@ -162,6 +205,8 @@ async def get_recent_signals(
                 "entry_price": _f(row["entry_price"]),
                 "stop_loss": _f(row["stop_loss"]),
                 "confidence": _f(row["confidence"]),
+                "was_selected": row["was_selected"],
+                "cis_score": _f(row["cis_score"]),
                 "status": row["status"],
                 "outcome": row["outcome"],
                 "exit_price": _f(row["exit_price"]),
@@ -173,8 +218,14 @@ async def get_recent_signals(
                     else None
                 ),
                 "timeframe": row["timeframe"],
+                "symbol": row["symbol"],
                 "setup_win_rate": _f(row["setup_win_rate"]),
                 "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
+                "signal_tier": _compute_signal_tier(
+                    row["was_selected"],
+                    _f(row["confidence"]),
+                    _f(row["cis_score"]),
+                ),
             }
             for row in rows
         ]
@@ -190,7 +241,7 @@ async def get_recent_signals(
         return {"signals": signals, "summary": summary}
 
     except Exception as e:
-        logger.error("Error fetching recent signals", symbol=contract, error=str(e))
+        logger.error("Error fetching recent signals", symbol=resolved_symbol, error=str(e))
         raise HTTPException(
             status_code=500, detail=f"Error fetching recent signals: {str(e)}"
         ) from e
