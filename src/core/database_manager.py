@@ -103,6 +103,11 @@ class DatabaseManager:
         async with self.get_connection() as conn:
             return await conn.fetch(query, *args)
 
+    async def fetchrow(self, query: str, *args) -> Any | None:
+        """Compatibility method for API routes - returns single row or None."""
+        async with self.get_connection() as conn:
+            return await conn.fetchrow(query, *args)
+
     async def upsert_instruments(self, contracts: list) -> int:
         """Upsert instrument records from IBKRContract list into instruments table.
 

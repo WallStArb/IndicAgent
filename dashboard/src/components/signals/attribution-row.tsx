@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, fetchJson } from "@/lib/api";
 import type { SignalAttributionData, AttributionGroup } from "@/lib/types";
 import { fmtNum } from "@/lib/format";
 
@@ -30,29 +30,6 @@ function AttributionTable({
   data: AttributionGroup[];
   onRowClick: (name: string) => void;
 }) {
-  const [setupData, setSetupData] = useState<SignalAttributionData | null>(null);
-  const [acData, setAcData] = useState<SignalAttributionData | null>(null);
-
-  // Helper function to handle fetch errors properly
-  const fetchJson = async (url: string) => {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  };
-
-  useEffect(() => {
-    const base = getApiBase();
-    Promise.all([
-      fetchJson(`${base}/api/signals/attribution?window=30d&group_by=setup`),
-      fetchJson(`${base}/api/signals/attribution?window=30d&group_by=asset_class`),
-    ]).then(([setup, ac]) => {
-      setSetupData(setup);
-      setAcData(ac);
-    }).catch((err) => {
-      console.error("Failed to fetch attribution data:", err);
-    });
-  }, []);
-
   return (
     <div className="flex-1 min-w-0">
       <div className="text-[0.6rem] font-bold uppercase tracking-widest text-[var(--text-muted)] mb-2 px-1">

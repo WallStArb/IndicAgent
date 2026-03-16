@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, fetchJson } from "@/lib/api";
 import type { LedgerSignal, SignalTier } from "@/lib/types";
 import { FilterState } from "./filter-bar";
 import { tierColor, tierOpacity } from "@/lib/signal-tier";
@@ -22,7 +22,7 @@ function TierDot({ tier }: { tier: SignalTier }) {
 }
 
 function OutcomeCell({ outcome }: { outcome: string | null }) {
-  if (!outcome) return <span className="text-[var(--text-muted)]">—</span>;
+  if (!outcome) return <span className="text-[var(--text-muted)]">-</span>;
   const isWin = ["target_1", "target_1_2", "target_full"].includes(outcome);
   return (
     <span
@@ -59,7 +59,7 @@ function LedgerRow({
   const cisStr =
     signal.cis_score != null
       ? (signal.cis_score >= 0 ? "+" : "") + fmtNum(signal.cis_score, 2)
-      : "—";
+      : "-";
 
   return (
     <div
@@ -77,7 +77,7 @@ function LedgerRow({
     >
       {/* Time */}
       <span className="w-[90px] shrink-0 px-2 text-[0.6rem] font-data text-[var(--text-muted)]">
-        {timeStr ?? "—"}
+        {timeStr ?? "-"}
       </span>
       {/* Symbol */}
       <span className="w-[70px] shrink-0 px-1 text-[0.65rem] font-bold font-data text-[var(--text-secondary)]">
@@ -116,7 +116,7 @@ function LedgerRow({
               : "var(--text-muted)",
         }}
       >
-        {signal.confidence != null ? fmtNum(signal.confidence, 2) : "—"}
+        {signal.confidence != null ? fmtNum(signal.confidence, 2) : "-"}
       </span>
       {/* CIS */}
       <span
@@ -147,7 +147,7 @@ function LedgerRow({
       >
         {signal.pnl_r != null
           ? (signal.pnl_r >= 0 ? "+" : "") + fmtNum(signal.pnl_r, 1) + "R"
-          : "—"}
+          : "-"}
       </span>
     </div>
   );
@@ -197,13 +197,6 @@ function SignalDetailPanel({
 }) {
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Helper function to handle fetch errors properly
-  const fetchJson = async (url: string) => {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
-  };
 
   useEffect(() => {
     const fetchSignalDetail = async () => {
@@ -278,25 +271,25 @@ function SignalDetailPanel({
                   "Confidence",
                   typeof detail.confidence === "number"
                     ? fmtNum(detail.confidence, 3)
-                    : "—",
+                    : "-",
                 ],
                 [
                   "CIS Score",
                   detail.cis_score != null
                     ? fmtNum(detail.cis_score as number, 3)
-                    : "—",
+                    : "-",
                 ],
                 [
                   "Entry",
                   detail.entry_price != null
                     ? fmtNum(detail.entry_price as number, 2)
-                    : "—",
+                    : "-",
                 ],
                 [
                   "Stop",
                   detail.stop_loss != null
                     ? fmtNum(detail.stop_loss as number, 2)
-                    : "—",
+                    : "-",
                 ],
                 [
                   "Status",
@@ -304,31 +297,31 @@ function SignalDetailPanel({
                 ],
                 [
                   "Outcome",
-                  detail.outcome ?? "—",
+                  detail.outcome ?? "-",
                 ],
                 [
                   "PnL R",
                   detail.pnl_r != null
                     ? fmtNum(detail.pnl_r as number, 2) + "R"
-                    : "—",
+                    : "-",
                 ],
                 [
                   "MAE",
                   detail.mae != null
                     ? fmtNum(detail.mae as number, 2)
-                    : "—",
+                    : "-",
                 ],
                 [
                   "MFE",
                   detail.mfe != null
                     ? fmtNum(detail.mfe as number, 2)
-                    : "—",
+                    : "-",
                 ],
                 [
                   "Bars",
                   detail.bars_in_trade != null
                     ? String(detail.bars_in_trade)
-                    : "—",
+                    : "-",
                 ],
               ] as [string, unknown][]
             ).map(([k, v]) => (
@@ -337,7 +330,7 @@ function SignalDetailPanel({
                   {k}
                 </span>
                 <span className="text-[0.65rem] font-data text-[var(--text-primary)]">
-                  {v != null ? String(v) : "—"}
+                  {v != null ? String(v) : "-"}
                 </span>
               </div>
             ))}
@@ -389,13 +382,6 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
 
   useEffect(() => {
     const qs = buildQueryParams(filters);
-
-    // Helper function to handle fetch errors properly
-    const fetchJson = async (url: string) => {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    };
 
     fetchJson(`${getApiBase()}/api/signals/recent?${qs}`)
       .then((d: { signals?: LedgerSignal[] }) => setSignals(d.signals ?? []))
@@ -489,6 +475,7 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
         <div className="px-3 py-1 border-t border-[var(--border-subtle)] text-[0.55rem] text-[var(--text-muted)]">
           {filtered.length} signals
         </div>
+      </div>
       {/* Detail panel */}
       {selectedId && (
         <SignalDetailPanel

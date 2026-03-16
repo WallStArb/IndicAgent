@@ -6,9 +6,12 @@ for full feature context at signal time.
 """
 
 import math
+from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
+
+import asyncio
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -188,15 +191,13 @@ async def get_recent_signals(
                 sp.win_rate   AS setup_win_rate,
                 sp.avg_pnl_r  AS setup_avg_pnl_r
             FROM signal_ledger sl
-            LEFT JOIN setup_performance sp ON sp.setup_type = sl.signal_type
+            LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
             WHERE ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               {tier_clause}
             ORDER BY sl.signal_computed_at DESC
             LIMIT $3
         """
-        rows = await db_manager.fetch(main_query, resolved_symbol, timeframe, limit)
-
         summary_query = """
             SELECT
                 COUNT(*)                                                          AS n_total,
@@ -213,7 +214,10 @@ async def get_recent_signals(
             WHERE ($1::text IS NULL OR symbol = $1)
               AND ($2::text IS NULL OR timeframe = $2)
         """
-        summary_row = await db_manager.fetchrow(summary_query, resolved_symbol, timeframe)
+        rows, summary_row = await asyncio.gather(
+            db_manager.fetch(main_query, resolved_symbol, timeframe, limit),
+            db_manager.fetchrow(summary_query, resolved_symbol, timeframe),
+        )
 
         def _f(v: Any) -> float | None:
             return float(v) if v is not None else None
@@ -463,9 +467,7 @@ async def get_signals_attribution(
         rows = await db_manager.fetch(query)
 
         if group_by == "asset_class":
-            from collections import defaultdict
-
-            contracts = _get_settings().get_active_contracts()
+            contracts = _get_settings().contracts
             sym_to_sector: dict[str, str] = {
                 c.symbol: (c.sector or c.asset_class.value) for c in contracts
             }

@@ -25,3 +25,9 @@ export function getApiBase(): string {
       : "https://api.indicagent.com";
   return _cachedBase;
 }
+
+export async function fetchJson<T = unknown>(url: string, options?: RequestInit): Promise<T> {
+  const r = await fetch(url, options);
+  if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+  return r.json();
+}
