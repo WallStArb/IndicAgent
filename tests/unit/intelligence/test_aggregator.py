@@ -371,14 +371,14 @@ class TestRegimeEligibilityFilter:
 
     @pytest.mark.unit
     def test_gate_bypassed_when_regime_duration_short(self):
-        """Gate is skipped when hmm_regime_duration < 5 — newly-started regime.
+        """Gate is skipped when hmm_regime_duration < 3 — newly-started regime.
 
-        Probe value 4 is below new threshold of 5.
+        Probe value 2 is below threshold of 3.
         Signal is suppressed with reason='regime_duration'.
         """
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        result = aggregate([sig], regime_data=_regime_features(0, duration=4))
+        result = aggregate([sig], regime_data=_regime_features(0, duration=2))
         assert result.num_signals_fired == 0
         assert len(result.all_ranked) == 1
         assert result.all_ranked[0]["suppression_reason"] == "regime_duration"
@@ -481,30 +481,30 @@ class TestShadowSignals:
 
     @pytest.mark.unit
     def test_regime_prob_below_threshold_suppresses_all(self):
-        """Trend signal with prob=0.55 (below new threshold 0.60) is suppressed."""
+        """Trend signal with prob=0.50 (below threshold 0.55) is suppressed."""
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        # prob=0.55 is below new threshold of 0.60
-        result = aggregate([sig], regime_data=_regime_features(1, prob=0.55, duration=10))
+        # prob=0.50 is below threshold of 0.55
+        result = aggregate([sig], regime_data=_regime_features(1, prob=0.50, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
         assert (
             result.all_ranked[0].get("regime_eligible") is False
-        ), "Signal with prob=0.55 must be suppressed under new threshold of 0.60"
+        ), "Signal with prob=0.50 must be suppressed under threshold of 0.55"
         assert (
             result.all_ranked[0].get("suppression_reason") == "regime_prob"
         ), "Suppression due to low regime probability must set reason='regime_prob'"
 
     @pytest.mark.unit
     def test_regime_duration_below_threshold_suppresses_all(self):
-        """Trend signal with duration=4 (below new threshold 5) is suppressed."""
+        """Trend signal with duration=2 (below threshold 3) is suppressed."""
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        # duration=4 is above old threshold (3) but below new threshold (5)
-        result = aggregate([sig], regime_data=_regime_features(1, prob=0.80, duration=4))
+        # duration=2 is below threshold of 3
+        result = aggregate([sig], regime_data=_regime_features(1, prob=0.80, duration=2))
         assert result.all_ranked, "all_ranked must not be empty"
         assert (
             result.all_ranked[0].get("regime_eligible") is False
-        ), "Signal with duration=4 must be suppressed under new threshold of 5"
+        ), "Signal with duration=2 must be suppressed under threshold of 3"
         assert (
             result.all_ranked[0].get("suppression_reason") == "regime_duration"
         ), "Suppression due to short duration must set reason='regime_duration'"
@@ -612,7 +612,11 @@ class TestAlphaDecay:
 
 
 class TestQualityMultiplierWiring:
-    """_build_all_ranked() applies hurst_q * entropy_q multiplier to each signal confidence.
+    """_build_all_ranked() applies min(hurst_q, entropy_q) multiplier to each signal confidence.
+
+    Uses min() instead of multiplication because Hurst and entropy both measure market
+    structure/predictability (correlated measures). Multiplying correlated penalties
+    causes catastrophic compounding that is not justified by the signal independence assumption.
 
     Trend setups use hurst_trend_quality; mean-reversion setups use hurst_mr_quality.
     features=None leaves confidence unchanged (backwards compatible).
@@ -620,12 +624,12 @@ class TestQualityMultiplierWiring:
 
     @pytest.mark.unit
     def test_trend_setup_confidence_reduced_by_quality_multipliers(self):
-        """Trend setup confidence = original * hurst_trend_quality * entropy_quality."""
+        """Trend setup confidence = original * min(hurst_trend_quality, entropy_quality)."""
         sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
         sig["regime_eligible"] = True
         features = {"hurst_trend_quality": 0.5, "entropy_quality": 0.8}
         ranked = _build_all_ranked([sig], features=features)
-        expected = round(0.8 * 0.5 * 0.8, 4)
+        expected = round(0.8 * min(0.5, 0.8), 4)  # min(0.5, 0.8) = 0.5
         assert ranked[0]["confidence"] == pytest.approx(expected, abs=0.0001)
 
     @pytest.mark.unit
@@ -638,12 +642,12 @@ class TestQualityMultiplierWiring:
 
     @pytest.mark.unit
     def test_missing_hurst_quality_defaults_to_1_0(self):
-        """features dict missing 'hurst_trend_quality' → default 1.0, only entropy applied."""
+        """features dict missing 'hurst_trend_quality' → default 1.0, min(1.0, entropy) = entropy."""
         sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
         sig["regime_eligible"] = True
         features = {"entropy_quality": 0.6}  # no hurst keys
         ranked = _build_all_ranked([sig], features=features)
-        expected = round(0.8 * 1.0 * 0.6, 4)
+        expected = round(0.8 * min(1.0, 0.6), 4)  # min(1.0, 0.6) = 0.6
         assert ranked[0]["confidence"] == pytest.approx(expected, abs=0.0001)
 
     @pytest.mark.unit
@@ -657,7 +661,7 @@ class TestQualityMultiplierWiring:
             "entropy_quality": 1.0,
         }
         ranked = _build_all_ranked([sig], features=features)
-        expected = round(0.9 * 0.7 * 1.0, 4)
+        expected = round(0.9 * min(0.7, 1.0), 4)  # min(hurst_mr=0.7, entropy=1.0) = 0.7
         assert ranked[0]["confidence"] == pytest.approx(expected, abs=0.0001)
 
     @pytest.mark.unit

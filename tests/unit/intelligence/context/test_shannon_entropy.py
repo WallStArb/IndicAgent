@@ -108,29 +108,44 @@ class TestEntropyQualityFunction:
 
     @pytest.mark.unit
     def test_high_entropy_returns_0_5(self):
-        """entropy_quality(0.9) == 0.5 — chaotic market, minimum quality."""
+        """entropy_quality(0.95) == 0.5 — chaotic market, minimum quality (upper boundary)."""
         from src.intelligence.context.shannon_entropy import _entropy_quality
 
-        assert _entropy_quality(0.9) == 0.5
+        assert _entropy_quality(0.95) == 0.5
+
+    @pytest.mark.unit
+    def test_above_upper_boundary_returns_0_5(self):
+        """entropy_quality(1.0) == 0.5 — above upper boundary, clamped."""
+        from src.intelligence.context.shannon_entropy import _entropy_quality
+
+        assert _entropy_quality(1.0) == 0.5
 
     @pytest.mark.unit
     def test_mid_range_entropy_between_0_5_and_1_0(self):
-        """entropy_quality(0.6) is between 0.5 and 1.0 — interpolated range."""
+        """entropy_quality(0.80) is between 0.5 and 1.0 — interpolated range (0.65-0.95)."""
         from src.intelligence.context.shannon_entropy import _entropy_quality
 
-        q = _entropy_quality(0.6)
+        q = _entropy_quality(0.80)
         assert 0.5 < q < 1.0, f"Expected value between 0.5 and 1.0, got {q}"
 
     @pytest.mark.unit
-    def test_boundary_0_4_returns_1_0(self):
-        """entropy_quality(0.4) == 1.0 — exactly at lower boundary."""
+    def test_boundary_0_65_returns_1_0(self):
+        """entropy_quality(0.65) == 1.0 — exactly at lower boundary."""
+        from src.intelligence.context.shannon_entropy import _entropy_quality
+
+        assert _entropy_quality(0.65) == 1.0
+
+    @pytest.mark.unit
+    def test_below_lower_boundary_returns_1_0(self):
+        """entropy_quality(0.4) == 1.0 — below lower boundary, still structured."""
         from src.intelligence.context.shannon_entropy import _entropy_quality
 
         assert _entropy_quality(0.4) == 1.0
 
     @pytest.mark.unit
-    def test_boundary_0_8_returns_0_5(self):
-        """entropy_quality(0.8) == 0.5 — exactly at upper boundary."""
+    def test_typical_5m_entropy_gets_mild_penalty(self):
+        """entropy_quality(0.75) > 0.8 — typical 5m bar entropy should not be heavily penalised."""
         from src.intelligence.context.shannon_entropy import _entropy_quality
 
-        assert _entropy_quality(0.8) == 0.5
+        q = _entropy_quality(0.75)
+        assert q > 0.8, f"Expected mild penalty for typical 5m entropy 0.75, got {q}"

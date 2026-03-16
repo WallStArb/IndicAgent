@@ -22,8 +22,8 @@ _REGIME_MAP: dict[str, list[int]] = {
     "any": [0, 1, 2],
 }
 
-_REGIME_PROB_MIN = 0.60  # minimum confidence to trust regime label (raised from 0.55)
-_REGIME_DUR_MIN = 5  # minimum bars before regime is considered stable (raised from 3)
+_REGIME_PROB_MIN = 0.55  # minimum confidence to trust regime label
+_REGIME_DUR_MIN = 3  # minimum bars before regime is considered stable
 
 # Plugin priority: higher value = higher priority
 SETUP_PRIORITY: dict[str, int] = {
@@ -402,7 +402,11 @@ def _build_all_ranked(
     )
     with_ranks = [{**sig, "composite_rank": i + 1} for i, sig in enumerate(priority_sorted)]
 
-    # 1b. Apply quality multipliers (Hurst × Entropy) before adjusted_rank assignment.
+    # 1b. Apply quality multiplier before adjusted_rank assignment.
+    #     Uses min(hurst_q, entropy_q) instead of multiplication — both Hurst and entropy
+    #     measure market structure/predictability (correlated, not orthogonal), so multiplying
+    #     them compounds penalties catastrophically. min() takes the worse of the two signals
+    #     without the 2x amplification of dependent measures.
     #     CRITICAL: applied BEFORE step 2 so confident signals still compete first,
     #     just with reduced absolute confidence (per RESEARCH.md Pitfall 2).
     if features:
@@ -413,7 +417,8 @@ def _build_all_ranked(
             )
             hurst_q = float(features.get(hurst_field, 1.0))
             entropy_q = float(features.get("entropy_quality", 1.0))
-            sig["confidence"] = round(float(sig.get("confidence", 0.0)) * hurst_q * entropy_q, 4)
+            quality = min(hurst_q, entropy_q)
+            sig["confidence"] = round(float(sig.get("confidence", 0.0)) * quality, 4)
 
     # 1c. Apply KS drift penalty (QUAL-09) after Hurst × Entropy, before adjusted_rank.
     #     penalty=1.0 (severity="none") is a no-op. Applies uniformly to all signals

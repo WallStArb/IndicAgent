@@ -76,7 +76,7 @@ _SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 # has its confidence multiplied by max(0.0, 1.0 - bars_since / half_life).
 # Starting values — replace with learned values after 90 days of outcome data.
 # Regress half-life against Sharpe per TF when data justifies it.
-ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 6, "15m": 4, "1h": 3}
+ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.

@@ -53,16 +53,21 @@ def _entropy_quality(normalised_entropy: float) -> float:
 
     Penalises high-entropy (noisy) markets by reducing all signal confidences.
 
-    Scoring rationale:
-      entropy <= 0.4  — structured market; all setups reliable → 1.0
-      entropy >= 0.8  — chaotic market; all setups unreliable → 0.5
-      0.4 < entropy < 0.8 — linear interpolation between 1.0 and 0.5
+    Scoring rationale (calibrated from live data 2026-03-16):
+      entropy <= 0.65  — structured/trending market → 1.0
+      entropy >= 0.95  — pure noise/chaos → 0.5
+      0.65 < entropy < 0.95 — linear interpolation between 1.0 and 0.5
+
+    Thresholds raised from 0.40/0.80 because financial log-returns on 5m/15m/1h bars
+    routinely produce entropy of 0.70-0.79 (near-Gaussian, central limit theorem).
+    The old thresholds penalised normal longer-TF markets by 40-47% with no signal
+    degradation justification. 1m bars have lower entropy (avg ~0.33) and are unaffected.
     """
-    if normalised_entropy <= 0.4:
+    if normalised_entropy <= 0.65:
         return 1.0
-    if normalised_entropy >= 0.8:
+    if normalised_entropy >= 0.95:
         return 0.5
-    return 1.0 - 0.5 * ((normalised_entropy - 0.4) / 0.4)
+    return 1.0 - 0.5 * ((normalised_entropy - 0.65) / 0.30)
 
 
 @dataclass
