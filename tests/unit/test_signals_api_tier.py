@@ -1,9 +1,12 @@
 """Tests for GET /api/signals/recent tier filtering and signal_tier field."""
 from unittest.mock import AsyncMock
+
 import pytest
 from fastapi.testclient import TestClient
+
 from src.api.dependencies import get_db_manager
 from src.api.main import app
+
 
 def _row(**kwargs):
     """Build a minimal asyncpg-like row dict."""
