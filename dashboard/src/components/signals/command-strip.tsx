@@ -31,7 +31,7 @@ function StatPill({
         {value}
       </span>
       {sub && (
-        <span className="text-[0.52rem] font-data text-[var(--text-muted)]">{sub}</span>
+        <span className="text-sm font-data text-[var(--text-muted)]">{sub}</span>
       )}
     </div>
   );
@@ -69,14 +69,14 @@ export function CommandStrip() {
 
   const s = stats;
   const heroRatePct = s ? `${fmtNum(s.hero_rate * 100, 1)}%` : "—";
-  const heroRateTrend = s && s.hero_rate_trend !== 0
+  const heroRateTrend = s && typeof s.hero_rate_trend === 'number' && s.hero_rate_trend !== null
     ? (s.hero_rate_trend > 0 ? `↑ ${fmtNum(s.hero_rate_trend * 100, 1)}%` : `↓ ${fmtNum(Math.abs(s.hero_rate_trend) * 100, 1)}%`)
     : undefined;
   const confToday = s?.avg_confidence != null ? fmtNum(s.avg_confidence, 3) : "—";
   const conf7d = s?.avg_confidence_7d != null ? `7d avg ${fmtNum(s.avg_confidence_7d, 3)}` : undefined;
   const latP50 = s?.pipeline_latency_p50 != null ? `${fmtNum(s.pipeline_latency_p50, 1)}s` : "—";
   const latP95 = s?.pipeline_latency_p95 != null ? `p95 ${fmtNum(s.pipeline_latency_p95, 1)}s` : undefined;
-  const alpha7d = s?.alpha_7d != null ? (s.alpha_7d >= 0 ? `+${fmtNum(s.alpha_7d, 3)}R` : `${fmtNum(s.alpha_7d, 3)}R`) : "—";
+  const alpha7d = s?.alpha_7d != null ? (s.alpha_7d >= 0 ? `+${fmtNum(s.alpha_7d, 3)}R` : `${fmtNum(s.alpha_7d, 3)}R`) : undefined;
   const alpha30d = s?.alpha_30d != null ? `30d ${s.alpha_30d >= 0 ? "+" : ""}${fmtNum(s.alpha_30d, 3)}R` : undefined;
 
   return (
@@ -91,33 +91,30 @@ export function CommandStrip() {
         label="Hero rate"
         value={heroRatePct}
         sub={heroRateTrend}
-        color={s && s.hero_rate_trend > 0 ? "var(--amber)" : "var(--text-secondary)"}
+        color={s && s.hero_rate_trend !== null && s.hero_rate_trend > 0 ? "var(--amber)" : "var(--text-secondary)"}
       />
       <StatPill
         label="Avg confidence"
         value={confToday}
         sub={conf7d}
-        color={s && s.avg_confidence != null && s.avg_confidence_7d != null
-          ? s.avg_confidence > s.avg_confidence_7d ? "var(--green)" : "var(--red)"
-          : "var(--text-secondary)"}
       />
       <StatPill
-        label="Pipeline latency"
+        label="P50 latency"
         value={latP50}
-        sub={latP95}
         color={latencyColor(s?.pipeline_latency_p50 ?? null)}
       />
       <StatPill
-        label="Alpha composite"
-        value={alpha7d}
-        sub={alpha30d}
-        color={s && s.alpha_7d != null ? s.alpha_7d > 0 ? "var(--green)" : "var(--red)" : "var(--text-secondary)"}
+        label="P95 latency"
+        value={latP95}
+        color={latencyColor(s?.pipeline_latency_p95 ?? null)}
       />
       <StatPill
-        label="Edge trend"
-        value={s?.edge_trend ?? "—"}
-        sub={s ? `7d−30d ${s.alpha_7d != null && s.alpha_30d != null ? fmtNum((s.alpha_7d ?? 0) - (s.alpha_30d ?? 0), 3) : "—"}R` : undefined}
-        color={edgeTrendColor(s?.edge_trend ?? "")}
+        label="7d alpha"
+        value={alpha7d}
+      />
+      <StatPill
+        label="30d alpha"
+        value={alpha30d}
       />
     </div>
   );
