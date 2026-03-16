@@ -119,7 +119,7 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I2→I6) →
 | TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
 | Indicator Service | `indicagent-indicator` | I1: 25 indicators → `indicators:SYMBOL:TF` | :9109 |
 | Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
-| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; needs ~50 live 1m bars (~50 min) warmup after restart before signals fire | :9112 |
+| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; seeds `bar_history` from `intelligence_features` on startup — no warmup delay; falls back to ~50 live 1m bars (~50 min) if DB seed fails | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
