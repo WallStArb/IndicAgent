@@ -248,6 +248,142 @@ async def get_recent_signals(
         ) from e
 
 
+@router.get("/signals/stats")
+async def get_signals_stats(
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """
+    Command strip metrics: throughput, hero rate, avg confidence,
+    pipeline latency percentiles, alpha composite, edge trend.
+    Refreshes on a 60s client polling cadence.
+    """
+    try:
+        query = """
+            SELECT
+                -- Session counts (last 24h as proxy for current session)
+                COUNT(*) FILTER (
+                    WHERE was_selected = true
+                      AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                ) AS signals_today,
+                COUNT(*) FILTER (
+                    WHERE was_selected = true
+                      AND signal_computed_at >= NOW() - INTERVAL '48 hours'
+                      AND signal_computed_at < NOW() - INTERVAL '24 hours'
+                ) AS signals_prev_session,
+                -- Hero tier count today
+                COUNT(*) FILTER (
+                    WHERE was_selected = true
+                      AND confidence >= 0.40
+                      AND cis_score IS NOT NULL
+                      AND abs(cis_score) > 0.35
+                      AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                ) AS hero_count_today,
+                -- Selected count today (denominator for hero_rate)
+                COUNT(*) FILTER (
+                    WHERE was_selected = true
+                      AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                ) AS selected_count_today,
+                -- Avg confidence
+                ROUND(
+                    AVG(confidence) FILTER (
+                        WHERE was_selected = true
+                          AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                    )::numeric, 4
+                ) AS avg_confidence_today,
+                ROUND(
+                    AVG(confidence) FILTER (
+                        WHERE was_selected = true
+                          AND signal_computed_at >= NOW() - INTERVAL '7 days'
+                    )::numeric, 4
+                ) AS avg_confidence_7d,
+                -- Pipeline latency: signal_computed_at - timestamp (bar close time)
+                ROUND(
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM (signal_computed_at - timestamp))
+                    ) FILTER (
+                        WHERE was_selected = true
+                          AND signal_computed_at IS NOT NULL
+                          AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                    )::numeric, 2
+                ) AS latency_p50,
+                ROUND(
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (
+                        ORDER BY EXTRACT(EPOCH FROM (signal_computed_at - timestamp))
+                    ) FILTER (
+                        WHERE was_selected = true
+                          AND signal_computed_at IS NOT NULL
+                          AND signal_computed_at >= NOW() - INTERVAL '24 hours'
+                    )::numeric, 2
+                ) AS latency_p95,
+                -- Rolling pnl_r
+                ROUND(
+                    AVG(pnl_r) FILTER (
+                        WHERE was_selected = true
+                          AND pnl_r IS NOT NULL
+                          AND timestamp >= NOW() - INTERVAL '7 days'
+                    )::numeric, 4
+                ) AS avg_pnl_r_7d,
+                ROUND(
+                    AVG(pnl_r) FILTER (
+                        WHERE was_selected = true
+                          AND pnl_r IS NOT NULL
+                          AND timestamp >= NOW() - INTERVAL '30 days'
+                    )::numeric, 4
+                ) AS avg_pnl_r_30d
+            FROM signal_ledger
+        """
+        row = await db_manager.fetchrow(query)
+
+        def _f(v: Any) -> float | None:
+            return float(v) if v is not None else None
+
+        signals_today = int(row["signals_today"] or 0)
+        signals_prev = int(row["signals_prev_session"] or 0)
+        hero_count = int(row["hero_count_today"] or 0)
+        selected_count = int(row["selected_count_today"] or 0)
+        avg_conf_today = _f(row["avg_confidence_today"])
+        avg_conf_7d = _f(row["avg_confidence_7d"])
+        latency_p50 = _f(row["latency_p50"])
+        latency_p95 = _f(row["latency_p95"])
+        alpha_7d = _f(row["avg_pnl_r_7d"])
+        alpha_30d = _f(row["avg_pnl_r_30d"])
+
+        hero_rate = round(hero_count / selected_count, 4) if selected_count > 0 else 0.0
+
+        # Edge trend: comparing recent vs baseline rolling pnl_r
+        if alpha_7d is not None and alpha_30d is not None:
+            diff = alpha_7d - alpha_30d
+            if diff > 0.02:
+                edge_trend = "expanding"
+            elif diff < -0.02:
+                edge_trend = "compressing"
+            else:
+                edge_trend = "stable"
+        else:
+            edge_trend = "stable"
+
+        # hero_rate_trend: v1 returns 0.0
+        hero_rate_trend = 0.0
+
+        return {
+            "signals_today": signals_today,
+            "signals_prev_session": signals_prev,
+            "hero_rate": hero_rate,
+            "hero_rate_trend": hero_rate_trend,
+            "avg_confidence": avg_conf_today,
+            "avg_confidence_7d": avg_conf_7d,
+            "pipeline_latency_p50": latency_p50,
+            "pipeline_latency_p95": latency_p95,
+            "alpha_7d": alpha_7d,
+            "alpha_30d": alpha_30d,
+            "edge_trend": edge_trend,
+        }
+
+    except Exception as e:
+        logger.error("Error fetching signal stats", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching signal stats: {str(e)}") from e
+
+
 @router.get("/signals/{symbol}")
 async def get_signals(
     symbol: str,
