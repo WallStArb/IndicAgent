@@ -77,7 +77,7 @@ from .smart_money.mitigation_blocks import plugin as mitigation_blocks_plugin
 from .smart_money.order_blocks import plugin as ob_plugin
 from .smart_money.premium_discount import plugin as premium_discount_plugin
 from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
-from .structure.anchored_vwap import plugin as anchored_vwap_plugin
+from .context.anchored_vwap import plugin as anchored_vwap_plugin
 from .structure.fibonacci_zones import plugin as fib_zones_plugin
 from .structure.market_profile import plugin as market_profile_plugin
 from .structure.session_levels import plugin as session_levels_plugin
@@ -121,11 +121,12 @@ def validate_schema_coverage() -> None:
     """
     tier_checks: list[tuple[str, list, type]] = [
         ("I3", [swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
-                session_levels_plugin, anchored_vwap_plugin, fib_zones_plugin,
+                session_levels_plugin, fib_zones_plugin,
                 swing_momentum_plugin], I3Structure),
         ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
                 garch_vol_plugin, hurst_plugin, shannon_plugin,
-                kalman_trend_plugin, session_ctx_plugin, mtf_vol_plugin], I4Context),
+                kalman_trend_plugin, session_ctx_plugin, mtf_vol_plugin,
+                anchored_vwap_plugin], I4Context),
         ("I5", [rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
                 trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
                 triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
@@ -333,7 +334,6 @@ TIER_I3: list[str] = [
     trend_plugin.name,
     market_profile_plugin.name,
     session_levels_plugin.name,
-    anchored_vwap_plugin.name,
     fib_zones_plugin.name,
     swing_momentum_plugin.name,  # "struct_SwingMomentum"
 ]
@@ -348,6 +348,7 @@ TIER_I4: list[str] = [
     kalman_trend_plugin.name,
     session_ctx_plugin.name,
     mtf_vol_plugin.name,
+    anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
 ]
 
 TIER_I5: list[str] = [

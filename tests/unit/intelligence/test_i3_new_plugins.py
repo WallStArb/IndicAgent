@@ -192,7 +192,7 @@ class TestSessionLevels:
 
 class TestAnchoredVWAP:
     def test_session_vwap_in_price_range(self):
-        from src.intelligence.structure.anchored_vwap import AnchoredVWAPPlugin
+        from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -202,7 +202,7 @@ class TestAnchoredVWAP:
             assert 5000 <= vwap <= 5100
 
     def test_above_flags_are_binary(self):
-        from src.intelligence.structure.anchored_vwap import AnchoredVWAPPlugin
+        from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -213,7 +213,7 @@ class TestAnchoredVWAP:
                 assert val in (0.0, 1.0)
 
     def test_alignment_score_in_range(self):
-        from src.intelligence.structure.anchored_vwap import AnchoredVWAPPlugin
+        from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -223,7 +223,7 @@ class TestAnchoredVWAP:
             assert 0.0 <= score <= 1.0
 
     def test_swing_vwap_with_anchor(self):
-        from src.intelligence.structure.anchored_vwap import AnchoredVWAPPlugin
+        from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -232,7 +232,7 @@ class TestAnchoredVWAP:
         assert "swing_vwap" in result
 
     def test_empty_returns_empty(self):
-        from src.intelligence.structure.anchored_vwap import AnchoredVWAPPlugin
+        from src.intelligence.context.anchored_vwap import AnchoredVWAPPlugin
 
         assert AnchoredVWAPPlugin().compute_full({}) == {}
 
@@ -309,11 +309,13 @@ class TestFibonacciZones:
 
 class TestI3Registration:
     def test_all_new_plugins_in_tier_i3(self):
-        from src.intelligence.register_plugins import TIER_I3
+        from src.intelligence.register_plugins import TIER_I3, TIER_I4
 
         assert "struct_MarketProfile" in TIER_I3
         assert "struct_SessionLevels" in TIER_I3
-        assert "struct_AnchoredVWAP" in TIER_I3
+        # AnchoredVWAP migrated to I4 (runs after I3 swing detection)
+        assert "struct_AnchoredVWAP" not in TIER_I3
+        assert "ctx_AnchoredVWAP" in TIER_I4
         assert "struct_FibonacciZones" in TIER_I3
 
     def test_new_plugins_registered_in_registry(self):
@@ -324,20 +326,25 @@ class TestI3Registration:
         names = set(registry.list_patterns())
         assert "struct_MarketProfile" in names
         assert "struct_SessionLevels" in names
-        assert "struct_AnchoredVWAP" in names
+        # AnchoredVWAP migrated from struct_AnchoredVWAP (I3) to ctx_AnchoredVWAP (I4)
+        assert "struct_AnchoredVWAP" not in names
+        assert "ctx_AnchoredVWAP" in names
         assert "struct_FibonacciZones" in names
 
     def test_i3structure_accepts_new_fields(self):
-        from src.intelligence.schemas import I3Structure
+        from src.intelligence.schemas import I3Structure, I4Context
 
-        # All new fields should be accepted without ValidationError
+        # I3Structure no longer contains VWAP fields (migrated to I4Context)
         obj = I3Structure(
             poc_level=5050.0,
             va_high=5080.0,
             va_low=5020.0,
-            session_vwap=5055.0,
             fib_618=5124.0,
             weekly_pivot=5040.0,
         )
         assert obj.poc_level == 5050.0
         assert obj.fib_618 == 5124.0
+
+        # VWAP fields now live in I4Context
+        ctx = I4Context(session_vwap=5055.0)
+        assert ctx.session_vwap == 5055.0
