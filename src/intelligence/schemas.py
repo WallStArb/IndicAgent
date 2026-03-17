@@ -155,10 +155,9 @@ class I3Structure(BaseModel):
     - struct_TrendStructure (6 fields)
     - struct_MarketProfile (9 fields)
     - struct_SessionLevels (16 fields)
-    - struct_AnchoredVWAP (8 fields)
     - struct_FibonacciZones (12 fields)
     - struct_SwingMomentum (6 fields)
-    Total: 75 fields
+    Total: 67 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -223,16 +222,6 @@ class I3Structure(BaseModel):
     asian_session_high: float | None = None
     asian_session_low: float | None = None
 
-    # AnchoredVWAPPlugin outputs
-    session_vwap: float | None = None
-    session_vwap_dist_pct: float | None = None
-    swing_vwap: float | None = None
-    weekly_vwap: float | None = None
-    above_session_vwap: float | None = None
-    above_swing_vwap: float | None = None
-    above_weekly_vwap: float | None = None
-    vwap_alignment_score: float | None = None
-
     # FibonacciZonesPlugin outputs
     fib_swing_high: float | None = None
     fib_swing_low: float | None = None
@@ -269,7 +258,8 @@ class I4Context(BaseModel):
     - MTFVolatility (4 fields)
     - HurstExponent (3 fields)
     - ShannonEntropy (2 fields)
-    Total: 60 fields
+    - AnchoredVWAP (15 fields)
+    Total: 75 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -356,6 +346,24 @@ class I4Context(BaseModel):
     # ShannonEntropyPlugin outputs
     shannon_entropy: float | None = None
     entropy_quality: float | None = None
+
+    # AnchoredVWAPPlugin outputs (migrated from I3Structure)
+    session_vwap: float | None = None
+    session_vwap_dist_pct: float | None = None
+    swing_vwap: float | None = None
+    weekly_vwap: float | None = None
+    above_session_vwap: float | None = None
+    above_swing_vwap: float | None = None
+    above_weekly_vwap: float | None = None
+    vwap_alignment_score: float | None = None
+    # New I4 VWAP fields
+    avwap_upper_band: float | None = None
+    avwap_lower_band: float | None = None
+    swing_vwap_upper_band: float | None = None
+    swing_vwap_lower_band: float | None = None
+    session_vwap_deviation_sigma: float | None = None
+    swing_vwap_deviation_sigma: float | None = None
+    session_vwap_deviation_velocity: float | None = None
 
 
 class I5Patterns(BaseModel):
