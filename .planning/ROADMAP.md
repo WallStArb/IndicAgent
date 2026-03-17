@@ -312,7 +312,12 @@ Plans:
   2. `trad_AnchoredVWAPReversion` fires only when price is extended more than 1.5 std from anchored VWAP AND HMM regime is ranging AND Hurst < 0.55 — regime and Hurst values logged on each fire for auditability.
   3. `trad_VolumeProfileReaction` fires in all three variants (POC rejection, HVN rejection, LVN breakout) across a one-week replay window — each variant label appears in signal_ledger metadata.
   4. Both new I7 plugins appear in `TIER_I7` and pass `registry.validate_tier()` at startup.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 34-01-PLAN.md — Migrate AnchoredVWAP to I4/context/ with std bands, sigma, velocity (VWAP-01)
+- [ ] 34-02-PLAN.md — Migrate VolumeProfile to I4/context/ with session-reset + rolling dual-track POC/VAH/VAL (VOL-01)
+- [ ] 34-03-PLAN.md — Five I7 plugins (VWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout) + registration (VWAP-02, VOL-02)
 
 ### Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter
 **Goal**: Signal confidence is calibrated against historical outcomes, adjusted by time-of-day win rates, and smoothed through a Kalman filter — making every confidence number a reliable probability estimate rather than a raw score.
@@ -440,7 +445,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 31. CIS Learning Loop + Signal Feature Snapshots | 3/3 | Complete    | 2026-03-17 | - |
 | 32. Stop Architecture + Extended Divergence Stack | 1/3 | In Progress|  | - |
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
-| 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
+| 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/3 | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
 | 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
 | 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
