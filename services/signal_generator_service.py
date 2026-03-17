@@ -83,6 +83,17 @@ _SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 # Regress half-life against Sharpe per TF when data justifies it.
 ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 
+# Per-TF signal TTL — replaces hardcoded default of 10 in signal_schema.make_signal().
+# Time window: 1m=20 min, 5m=60 min, 15m=2 hr, 1h=6 hr.
+# Lifecycle tracker reads ttl_bars from the signal dict; this dict provides the
+# timeframe-appropriate default when plugins call make_signal(timeframe=tf).
+TF_TTL_BARS: dict[str, int] = {
+    "1m": 20,   # 20 min window for 1m signals
+    "5m": 12,   # 60 min window for 5m signals
+    "15m": 8,   # 2 hour window for 15m signals
+    "1h": 6,    # 6 hour window for 1h signals
+}
+
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.
 # If the authority TF stream is not subscribed, cache entry is absent → gate skipped.
@@ -327,6 +338,13 @@ def build_ledger_entries(
                 entry_zone_low=zone_low,
                 entry_zone_high=zone_high,
                 zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
+                # Phase 32: stop basis + fire-time snapshot fields (only populated for selected signal)
+                stop_basis=sig.get("stop_basis"),
+                stop_structure_type=sig.get("stop_structure_type"),
+                stop_structure_age_bars=sig.get("stop_structure_age_bars"),
+                structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
+                hmm_regime_at_fire=sig.get("hmm_regime_at_fire"),
+                garch_sigma_at_fire=sig.get("garch_sigma_at_fire"),
             )
         )
     return entries
@@ -369,6 +387,12 @@ def _build_i7_payload(
                 "target": float(targets[0]) if targets and targets[0] is not None else None,
                 "composite_rank": int(sig.get("composite_rank", 99)),
                 "is_winner": is_winner,
+                # Phase 32: stop basis fields — written to intelligence_features.i7 JSONB per bar
+                "stop_basis": sig.get("stop_basis"),
+                "stop_structure_type": sig.get("stop_structure_type"),
+                "structural_stop_distance_atr": float(sig.get("structural_stop_distance_atr") or 0),
+                "stop_structure_age_bars": sig.get("stop_structure_age_bars"),
+                "chandelier_vol_source": sig.get("chandelier_vol_source"),
             }
         )
 
@@ -850,6 +874,13 @@ class SignalGeneratorService:
         calc_start = time.time()
 
         raw_signals = self._run_setup_plugins(frames)
+
+        # Apply per-TF TTL — overrides the hardcoded default of 10 in make_signal().
+        # TF_TTL_BARS provides timeframe-appropriate windows for lifecycle tracking.
+        tf_ttl = TF_TTL_BARS.get(timeframe, 10)
+        for sig in raw_signals:
+            sig["ttl_bars"] = tf_ttl
+
         # QUAL-04: per-setup cooldown — strip same setup/direction within N bars.
         # Runs before aggregation so blocked signals never enter alpha decay path.
         raw_signals = self._filter_setup_cooldown(symbol, timeframe, raw_signals, timestamp)
@@ -931,6 +962,14 @@ class SignalGeneratorService:
                         "framing_method": frame.method,
                         "entry_zone_low": frame.zone_low,
                         "entry_zone_high": frame.zone_high,
+                        # Phase 32: stop basis fields — flow into LedgerEntry AND i7 payload
+                        "stop_basis": frame.stop_basis,
+                        "stop_structure_type": frame.stop_structure_type,
+                        "stop_structure_age_bars": frame.stop_structure_age_bars,
+                        "structural_stop_distance_atr": frame.structural_stop_distance_atr,
+                        # Fire-time snapshots for ML segmentation
+                        "hmm_regime_at_fire": features.get("hmm_regime"),
+                        "garch_sigma_at_fire": features.get("garch_sigma"),
                     }
                 )
 

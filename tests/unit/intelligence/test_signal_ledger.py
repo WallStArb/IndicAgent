@@ -69,7 +69,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 39
+        assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -105,7 +105,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 39
+        assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -181,7 +181,7 @@ class TestLedgerEntryNewFields:
             composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 39  # 38 existing + is_shadow
+        assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
 
 
 def test_ledger_entry_has_cis_attribution_field():
@@ -236,7 +236,7 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 39  # 38 existing + is_shadow
+    assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
     assert '"psar_direction"' in params[36]  # $37 = cis_attribution JSON string
 
 
@@ -674,7 +674,7 @@ class TestIsShadowField:
 
     def test_to_insert_params_length_39(self):
         entry = _make_entry()
-        assert len(entry.to_insert_params()) == 39
+        assert len(entry.to_insert_params()) == 54  # 39 original + 15 Phase 32 fields
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)
