@@ -466,3 +466,4 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
 | 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
 | 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
+| 38. Automated Futures Roll Detection | v1.9 | 0/3 | Not started | - |
