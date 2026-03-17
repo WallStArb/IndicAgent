@@ -76,9 +76,11 @@ class LedgerEntry:
     outcome: str | None = None
     # Market-entry parallel track — Phase 1 field set at INSERT
     market_entry_price: float | None = None  # ask (long) / bid (short) at signal fire; NULL if unavailable
+    # Shadow signal flag — A/B matched-pair comparison (Phase 31)
+    is_shadow: bool = False
 
     def to_insert_params(self) -> tuple:
-        """Return a 38-element tuple ready for batch INSERT.
+        """Return a 39-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores)
         are serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
@@ -122,6 +124,7 @@ class LedgerEntry:
             self.zone_valid_at_signal,  # $36
             json.dumps(self.cis_attribution) if self.cis_attribution is not None else None,  # $37
             self.market_entry_price,  # $38 — FLOAT, nullable
+            self.is_shadow,  # $39 — BOOLEAN
         )
 
 
@@ -142,7 +145,8 @@ INSERT INTO signal_ledger (
     determined_at, ask_at_signal, bid_at_signal, market_price_at_signal,
     entry_zone_low, entry_zone_high, zone_valid_at_signal,
     cis_attribution,
-    market_entry_price
+    market_entry_price,
+    is_shadow
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -155,9 +159,115 @@ INSERT INTO signal_ledger (
     $30, $31, $32, $33,
     $34, $35, $36,
     $37::jsonb,
-    $38
+    $38,
+    $39
 )
 """
+
+
+# ---------------------------------------------------------------------------
+# signal_features — flat feature snapshot at signal fire time (Phase 31)
+# ---------------------------------------------------------------------------
+
+# Feature-to-bucket mapping (derived from CISScorer bucket methods)
+FEATURE_BUCKET_MAP: dict[str, str] = {
+    # trend bucket
+    "ema_slope_20": "trend",
+    "ema_slope_50": "trend",
+    "adx_14": "trend",
+    "kalman_trend_direction": "trend",
+    "kalman_trend_strength": "trend",
+    "trend_direction": "trend",
+    "trend_strength": "trend",
+    # momentum bucket
+    "rsi_14": "momentum",
+    "macd_histogram_12_26_9": "momentum",
+    "stochastic_k_14": "momentum",
+    "roc_10": "momentum",
+    "momentum_acceleration": "momentum",
+    "derivative_oscillator": "momentum",
+    "rel_volume": "momentum",
+    # structure bucket
+    "nearest_support_dist_atr": "structure",
+    "nearest_resistance_dist_atr": "structure",
+    "swing_momentum": "structure",
+    # pattern bucket
+    "squeeze_active": "pattern",
+    "rsi_divergence_bullish": "pattern",
+    "rsi_divergence_bearish": "pattern",
+    "vol_divergence_bullish": "pattern",
+    "vol_divergence_bearish": "pattern",
+    # institutional bucket
+    "bos_count_bullish": "institutional",
+    "bos_count_bearish": "institutional",
+    "choch_detected": "institutional",
+    "fvg_present": "institutional",
+    "order_block_present": "institutional",
+    "bsl_dist_atr": "institutional",
+    "ssl_dist_atr": "institutional",
+    # regime bucket
+    "hmm_regime": "regime",
+    "garch_vol_regime": "regime",
+    "hurst_exponent": "regime",
+    "shannon_entropy": "regime",
+    "ict_killzone": "regime",
+}
+
+_INSERT_FEATURES_SQL = """
+INSERT INTO signal_features
+    (signal_id, computed_at, feature_name, feature_value, feature_bucket, bucket_contribution)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (signal_id, feature_name) DO NOTHING
+"""
+
+
+def _build_feature_rows(
+    signal_id: str,
+    computed_at: datetime,
+    features: dict[str, Any],
+    cis_result: Any | None = None,
+) -> list[tuple]:
+    """Extract non-null numeric feature values for signal_features INSERT.
+
+    Parameters
+    ----------
+    signal_id:
+        UUID of the signal in signal_ledger.
+    computed_at:
+        Timestamp of signal computation (UTC).
+    features:
+        Flat dict of intelligence features (all I1-I6 fields merged).
+    cis_result:
+        Optional CISResult with constituent_contributions for bucket_contribution cross-ref.
+
+    Returns list of (signal_id, computed_at, feature_name, feature_value,
+    feature_bucket, bucket_contribution) tuples.
+    """
+    contributions: dict[str, float] = {}
+    if cis_result is not None and hasattr(cis_result, "constituent_contributions"):
+        # Flatten: {bucket: {feature: score}} -> {feature: score}
+        for bucket_contribs in cis_result.constituent_contributions.values():
+            if isinstance(bucket_contribs, dict):
+                contributions.update(bucket_contribs)
+
+    rows = []
+    for key, value in features.items():
+        if value is None:
+            continue
+        if not isinstance(value, (int, float)):
+            continue
+        bucket = FEATURE_BUCKET_MAP.get(key)
+        contribution = contributions.get(key)
+        rows.append((
+            signal_id,
+            computed_at,
+            key,
+            float(value),
+            bucket,
+            float(contribution) if contribution is not None else None,
+        ))
+    return rows
+
 
 _UPDATE_STATUS_SQL = """
 UPDATE signal_ledger

@@ -69,7 +69,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 38
+        assert len(params) == 39
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -105,7 +105,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 38
+        assert len(params) == 39
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -181,7 +181,7 @@ class TestLedgerEntryNewFields:
             composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 38  # 29 existing + 7 new fire-time fields + cis_attribution + market_entry_price
+        assert len(params) == 39  # 38 existing + is_shadow
 
 
 def test_ledger_entry_has_cis_attribution_field():
@@ -236,7 +236,7 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 38  # was 36, now 38 (includes market_entry_price)
+    assert len(params) == 39  # 38 existing + is_shadow
     assert '"psar_direction"' in params[36]  # $37 = cis_attribution JSON string
 
 
@@ -659,3 +659,88 @@ class TestBuildLedgerEntriesMarketEntryPrice:
             determined_at=ts,
         )
         assert entries[0].market_entry_price is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 31 Plan 03 — is_shadow + _build_feature_rows
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestIsShadowField:
+    def test_is_shadow_default_false(self):
+        entry = _make_entry()
+        assert entry.is_shadow is False
+
+    def test_to_insert_params_length_39(self):
+        entry = _make_entry()
+        assert len(entry.to_insert_params()) == 39
+
+    def test_to_insert_params_is_shadow_position_false(self):
+        entry = _make_entry(is_shadow=False)
+        params = entry.to_insert_params()
+        assert params[38] is False
+
+    def test_to_insert_params_is_shadow_position_true(self):
+        entry = _make_entry(is_shadow=True)
+        params = entry.to_insert_params()
+        assert params[38] is True
+
+    def test_insert_sql_contains_is_shadow_and_dollar39(self):
+        from src.intelligence.trading.signal_ledger import _INSERT_SQL
+        assert "is_shadow" in _INSERT_SQL
+        assert "$39" in _INSERT_SQL
+
+
+@pytest.mark.unit
+class TestBuildFeatureRows:
+    def test_extracts_float_values(self):
+        from src.intelligence.trading.signal_ledger import _build_feature_rows
+
+        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+        rows = _build_feature_rows(
+            "sig-123",
+            ts,
+            {"rsi_14": 55.0, "adx_14": 30.0, "name": "test", "missing": None},
+        )
+        # Only numeric non-None values
+        assert len(rows) == 2
+        names = {r[2] for r in rows}
+        assert names == {"rsi_14", "adx_14"}
+
+    def test_maps_bucket_correctly(self):
+        from src.intelligence.trading.signal_ledger import _build_feature_rows
+
+        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+        rows = _build_feature_rows("sig-123", ts, {"rsi_14": 55.0})
+        assert len(rows) == 1
+        row = rows[0]
+        # (signal_id, computed_at, feature_name, feature_value, feature_bucket, bucket_contribution)
+        assert row[4] == "momentum"
+
+    def test_skips_none_values(self):
+        from src.intelligence.trading.signal_ledger import _build_feature_rows
+
+        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+        rows = _build_feature_rows("sig-123", ts, {"rsi_14": None, "adx_14": 30.0})
+        assert len(rows) == 1
+        assert rows[0][2] == "adx_14"
+
+    def test_skips_string_values(self):
+        from src.intelligence.trading.signal_ledger import _build_feature_rows
+
+        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+        rows = _build_feature_rows("sig-123", ts, {"hmm_regime": "trending"})
+        assert rows == []
+
+    def test_skips_dict_values(self):
+        from src.intelligence.trading.signal_ledger import _build_feature_rows
+
+        ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
+        rows = _build_feature_rows("sig-123", ts, {"i5": {"some": "dict"}})
+        assert rows == []
+
+    def test_insert_features_sql_has_on_conflict(self):
+        from src.intelligence.trading.signal_ledger import _INSERT_FEATURES_SQL
+        assert "ON CONFLICT" in _INSERT_FEATURES_SQL
+        assert "DO NOTHING" in _INSERT_FEATURES_SQL
