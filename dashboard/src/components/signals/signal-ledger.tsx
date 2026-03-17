@@ -146,7 +146,9 @@ function LedgerRow({
         style={{ color: pnlColor }}
       >
         {signal.pnl_r != null
-          ? (signal.pnl_r >= 0 ? "+" : "") + fmtNum(signal.pnl_r, 1) + "R"
+          ? (signal.outcome === "never_activated" ? "~" : "")
+            + (signal.pnl_r >= 0 ? "+" : "")
+            + fmtNum(signal.pnl_r, 1) + "R"
           : "-"}
       </span>
     </div>
