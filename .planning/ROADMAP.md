@@ -134,7 +134,7 @@ Full details: `.planning/milestones/v1.8-ROADMAP.md`
 
 - [x] **Phase 31: CIS Learning Loop + Signal Feature Snapshots** - Self-improving CIS with DB weight loading, binary win labels, asset-cluster segmentation, and mid-bar feature snapshots for ML training (completed 2026-03-17)
 - [ ] **Phase 32: Stop Architecture + Extended Divergence Stack** - Structure-first stop placement centralized in trade_framer.py (all 17 plugins inherit), Chandelier trailing stop, staleness score, and 5-input divergence convergence scoring
-- [ ] **Phase 33: Five New I7 Signal Plugins** - FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP — covering reversal, session, level-test, and contraction setups
+- [x] **Phase 33: Five New I7 Signal Plugins** - FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP — covering reversal, session, level-test, and contraction setups (completed 2026-03-17)
 - [ ] **Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile** - Two new I4 computation plugins plus two I7 setups consuming them
 - [ ] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score
 - [ ] **Phase 36: Microstructure Plugins** - OFI and CVD as I1 features plus two new I7 plugins consuming order-flow signals
@@ -439,7 +439,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
 | 31. CIS Learning Loop + Signal Feature Snapshots | 3/3 | Complete    | 2026-03-17 | - |
 | 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/3 | Planned | - |
-| 33. Five New I7 Signal Plugins | 2/3 | In Progress|  | - |
+| 33. Five New I7 Signal Plugins | 3/3 | Complete   | 2026-03-17 | - |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
 | 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |

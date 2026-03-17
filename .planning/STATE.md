@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-03-17T05:08:14.286Z"
+stopped_at: Completed 33-03-PLAN.md
+last_updated: "2026-03-17T05:13:52.130Z"
 last_activity: 2026-03-17 — 031-03 executed (is_shadow field, _build_feature_rows, atomic signal_features write, promote_shadow.py CLI gate)
 progress:
   total_phases: 13
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 5
-  percent: 50
+  completed_plans: 6
+  percent: 67
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 31 (complete — all 3 plans done)
-Plan: 03 complete → Phase 32 next
-Status: Phase 31 complete — all 3 plans done; Phase 32 ready
-Last activity: 2026-03-17 — 031-03 executed (is_shadow field, _build_feature_rows, atomic signal_features write, promote_shadow.py CLI gate)
+Phase: 33 (complete — all 3 plans done)
+Plan: 03 complete → Phase 34 next
+Status: Phase 33 complete — all 3 plans done; Phase 34 ready
+Last activity: 2026-03-17 — 033-03 executed (6 new I7 plugins registered: FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP; TIER_I7=23, TREND_SETUPS=12)
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -46,7 +46,7 @@ Progress: [█████░░░░░] 50%
 - **DAG ordering**: I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7; new I4/I5 plugins computed before I7
 - **`indicator_service` is per-symbol isolated**: cross-asset features require `cross_asset_service.py` (new service in Phase 37)
 - **`lifecycle_tracker.py` is pure-function**: staleness state injected from service; no DB/Kafka in tracker
-- **`trade_framer.py` is single source of truth for stop sizing**: all 17 plugins inherit changes; no per-plugin stop logic
+- **`trade_framer.py` is single source of truth for stop sizing**: all 23 plugins inherit changes; no per-plugin stop logic
 - **`CISScorer` stays stateless**: Kalman filter wraps it in service layer (Phase 35)
 - **Plugin registry is source of truth**: all new plugins registered in `TIER_I4`, `TIER_I5`, or `TIER_I7`; `registry.validate_tier()` hard-crashes on missing names
 
@@ -66,6 +66,8 @@ Progress: [█████░░░░░] 50%
 - **signal_features writes atomically** — _write_signal_with_features() in signal_generator_service uses asyncpg conn.transaction(); features_per_signal is same mid-bar dict for all entries on a bar
 - **promote_shadow.py uses statsmodels not scipy** — scipy 1.17+ removed proportions_ztest from scipy.stats; correct import: `from statsmodels.stats.proportion import proportions_ztest`
 - **asyncpg conn.transaction() is synchronous** — returns a sync context manager (Transaction object), not a coroutine; tests must use MagicMock (not AsyncMock) for transaction()
+- **TIER_I7 = 23, total registered plugins = 104** — after Phase 33-03; FailedBreakout/PrevDayLevelTest excluded from TREND_SETUPS; ORB15/ORB30/SecondLegContinuation/VCP added to TREND_SETUPS (12 entries)
+- **Plugin count tests must be updated when TIER_I7 grows** — test_tier_i7_has_N_plugins and test_total_plugin_count have hardcoded values that track plugin totals
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -81,7 +83,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T05:08:14.284Z
-Stopped at: Completed 33-02-PLAN.md
+Last session: 2026-03-17T05:13:52.129Z
+Stopped at: Completed 33-03-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 32 01` (Phase 32: stop architecture)
