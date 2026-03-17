@@ -50,6 +50,10 @@ TREND_SETUPS: frozenset[str] = frozenset(
         "trad_LiquidityHunt",
         "trad_RegimeTransition",
         "trad_GapAnalysisSetup",
+        "trad_ORB15",                 # new — trend continuation setup
+        "trad_ORB30",                 # new — trend continuation setup
+        "trad_SecondLegContinuation", # new — trend continuation
+        "trad_VCP",                   # new — momentum/trend compression
     }
 )
 
