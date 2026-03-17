@@ -16,12 +16,16 @@ Renaissance principles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
 from ..plugins import InputSpec
 from .trade_framer import frame_trade
+
+_ET_TZ = ZoneInfo("America/New_York")
 
 
 @dataclass
@@ -81,6 +85,18 @@ class PrevDayLevelTestPlugin:
         # ── State ───────────────────────────────────────────────────────────
         state = self._state.get((symbol, tf), {})
 
+        # ── Session date reset ───────────────────────────────────────────────
+        if "timestamp" in df.columns:
+            ts_raw = df["timestamp"].iloc[-1]
+            if hasattr(ts_raw, "to_pydatetime"):
+                ts_raw = ts_raw.to_pydatetime()
+            if isinstance(ts_raw, datetime):
+                if ts_raw.tzinfo is None:
+                    ts_raw = ts_raw.replace(tzinfo=UTC)
+                session_date = ts_raw.astimezone(_ET_TZ).date()
+                if session_date != state.get("session_date"):
+                    state = {"session_date": session_date}
+
         # ── Prior session levels ─────────────────────────────────────────────
         pdh_raw = features.get("prior_session_high")
         pdl_raw = features.get("prior_session_low")
@@ -101,16 +117,12 @@ class PrevDayLevelTestPlugin:
         open_price = float(df["open"].iloc[-1])
 
         # ── Breakout tracking for continuation ──────────────────────────────
-        # If close is clearly above PDH (outside proximity zone) -> mark breakout
+        # If close is clearly outside a level (beyond proximity zone) -> mark breakout
         proximity = 0.5 * atr
-        if pdh is not None:
-            if close_price > pdh + proximity:
-                state["breakout_level"] = pdh
-                state["breakout_direction"] = 1
-            elif close_price < pdl - proximity if pdl is not None else False:
-                state["breakout_level"] = pdl
-                state["breakout_direction"] = -1
-        if pdl is not None and close_price < pdl - proximity:
+        if pdh is not None and close_price > pdh + proximity:
+            state["breakout_level"] = pdh
+            state["breakout_direction"] = 1
+        elif pdl is not None and close_price < pdl - proximity:
             state["breakout_level"] = pdl
             state["breakout_direction"] = -1
 
@@ -157,21 +169,11 @@ class PrevDayLevelTestPlugin:
                 signal_type = "prev_day_cont_short"
         else:
             setup_variant = "fade"
-            # Direction from bar momentum
             if level_name == "PDH":
-                # At resistance: bearish bar -> fade short
-                if close_price < open_price:
-                    direction = -1
-                else:
-                    # No clear reversal momentum — still fire with lower confidence
-                    direction = -1
+                direction = -1
                 signal_type = "prev_day_fade_short"
             elif level_name == "PDL":
-                # At support: bullish bar -> fade long
-                if close_price > open_price:
-                    direction = 1
-                else:
-                    direction = 1
+                direction = 1
                 signal_type = "prev_day_fade_long"
             else:
                 # PDC: infer from bar direction
