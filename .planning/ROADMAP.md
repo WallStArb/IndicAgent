@@ -282,9 +282,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 32-01-PLAN.md -- DB migration 035 + TradeFrame/LedgerEntry + GARCH multiplier + FVG tier + stop_basis + TTL constants
-- [ ] 32-02-PLAN.md -- Chandelier trailing stop + staleness score + condition_expired + shadow tracking
-- [ ] 32-03-PLAN.md -- MACD/OBV/CMF divergence I5 plugins + DivergenceStack 5-input weighted score
+- [x] 32-01-PLAN.md -- DB migration 035 + TradeFrame/LedgerEntry + GARCH multiplier + FVG tier + stop_basis + TTL constants
+- [x] 32-02-PLAN.md -- Chandelier trailing stop + staleness score + condition_expired + shadow tracking
+- [x] 32-03-PLAN.md -- MACD/OBV/CMF divergence I5 plugins + DivergenceStack 5-input weighted score
 
 ### Phase 33: Five New I7 Signal Plugins
 **Goal**: Five market conditions previously invisible to I7 — failed breakouts, opening range setups, previous-day level tests, second-leg continuations, and volatility contractions — are now covered by registered plugins that fire in replay runs.
@@ -442,8 +442,8 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
-| 31. CIS Learning Loop + Signal Feature Snapshots | 3/3 | Complete    | 2026-03-17 | - |
-| 32. Stop Architecture + Extended Divergence Stack | 3/3 | Complete    | 2026-03-17 | - |
+| 31. CIS Learning Loop + Signal Feature Snapshots | v1.9 | 3/3 | Complete | 2026-03-17 |
+| 32. Stop Architecture + Extended Divergence Stack | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/3 | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |

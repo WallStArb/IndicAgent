@@ -672,7 +672,7 @@ class TestIsShadowField:
         entry = _make_entry()
         assert entry.is_shadow is False
 
-    def test_to_insert_params_length_39(self):
+    def test_to_insert_params_length_54(self):
         entry = _make_entry()
         assert len(entry.to_insert_params()) == 54  # 39 original + 15 Phase 32 fields
 

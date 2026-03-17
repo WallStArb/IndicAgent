@@ -16,8 +16,12 @@ OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2  # bars_in_trade <= this → stopped_at_en
 # Staleness score constants — tune after 90 days of outcome data
 STALENESS_REGIME_WEIGHT = 0.6  # weight of HMM regime drift component
 STALENESS_SIGMA_WEIGHT = 0.4   # weight of GARCH sigma ratio component
-STALENESS_SIGMA_SCALE = 3.0    # sigma ratio at which sigma_component reaches 1.0
-STALENESS_SCORE_THRESHOLD = 0.5          # score above which a bar counts as "stale"
+assert STALENESS_REGIME_WEIGHT + STALENESS_SIGMA_WEIGHT == 1.0, (
+    f"Staleness weights must sum to 1.0; got {STALENESS_REGIME_WEIGHT} + {STALENESS_SIGMA_WEIGHT}"
+)
+STALENESS_SIGMA_SCALE = 3.0              # sigma ratio at which sigma_component reaches 1.0
+STALENESS_SIGMA_COMPONENT_THRESHOLD = 0.5  # sigma_component level that triggers "both" reason label
+STALENESS_SCORE_THRESHOLD = 0.5          # composite score above which a bar counts as "stale"
 STALENESS_CONSECUTIVE_THRESHOLD = 3     # consecutive stale bars before condition_expired
 
 
@@ -101,7 +105,7 @@ def compute_staleness_score(
         STALENESS_REGIME_WEIGHT * regime_drift + STALENESS_SIGMA_WEIGHT * sigma_component, 4
     )
 
-    if regime_drift > 0 and sigma_component >= STALENESS_SCORE_THRESHOLD:
+    if regime_drift > 0 and sigma_component >= STALENESS_SIGMA_COMPONENT_THRESHOLD:
         reason = "both"
     elif regime_drift > 0:
         reason = "hmm_regime_flip"
