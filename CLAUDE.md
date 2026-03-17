@@ -2,7 +2,7 @@
 
 Version: 5.23.0
 Last Updated: 2026-03-15
-Status: v1.8 SHIPPED — I1-I8 pipeline complete, 60 instruments, 98 plugins + 2 aggregation
+Status: v1.8 SHIPPED — I1-I8 pipeline complete, 60 instruments, 111 plugins + 2 aggregation
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -167,7 +167,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Plugin System
 
-101 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+111 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
