@@ -16,6 +16,12 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
+# Signal outcome constants — 8-class taxonomy (authoritative source)
+# ---------------------------------------------------------------------------
+
+WIN_OUTCOMES: frozenset[str] = frozenset({"target_1", "target_1_2", "target_full"})
+
+# ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
 
@@ -373,6 +379,45 @@ async def insert_signals(
     params = [entry.to_insert_params() for entry in entries]
     await db_manager.execute_batch(_INSERT_SQL, params)
     logger.info("Inserted signals into ledger", count=len(entries))
+
+
+async def insert_signals_with_features(
+    pool: Any,
+    entries: list[LedgerEntry],
+    features: dict,
+    cis_result: Any = None,
+) -> None:
+    """Atomic write: signal_ledger + signal_features in one transaction per bar.
+
+    FEAT-02: No orphaned feature rows — both tables succeed or both fail for
+    all signals on the bar. All entries share the same mid-bar feature snapshot.
+
+    Parameters
+    ----------
+    pool:
+        asyncpg connection pool (db_manager.pool).
+    entries:
+        Signals fired on this bar evaluation.
+    features:
+        Flat feature dict shared by all signals (same bar, same snapshot).
+    cis_result:
+        Optional CISResult for bucket_contribution cross-reference.
+    """
+    if not entries or pool is None:
+        return
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for entry in entries:
+                await conn.execute(_INSERT_SQL, *entry.to_insert_params())
+                feature_rows = _build_feature_rows(
+                    entry.signal_id,
+                    entry.signal_computed_at or entry.timestamp,
+                    features,
+                    cis_result,
+                )
+                if feature_rows:
+                    await conn.executemany(_INSERT_FEATURES_SQL, feature_rows)
+    logger.info("Wrote signals + features atomically", count=len(entries))
 
 
 async def update_signal_status(

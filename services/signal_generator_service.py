@@ -51,10 +51,7 @@ from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_ledger import (
     LedgerEntry,
-    _INSERT_FEATURES_SQL,
-    _INSERT_SQL,
-    _build_feature_rows,
-    insert_signals,
+    insert_signals_with_features,
 )
 from src.intelligence.trading.trade_framer import frame_trade
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
@@ -1074,12 +1071,7 @@ class SignalGeneratorService:
         # DB INSERT SECOND (cold tier) — atomic signal_ledger + signal_features write
         if entries and self.db_manager:
             try:
-                # Build features_per_signal and cis_results lists aligned with entries.
-                # All signals on the same bar share the same mid-bar features snapshot.
-                # cis_result not available post-aggregate(); pass None for bucket_contribution.
-                features_per_signal = [features] * len(entries)
-                cis_results_list = [None] * len(entries)
-                await self._write_signal_with_features(entries, features_per_signal, cis_results_list)
+                await insert_signals_with_features(self.db_manager.pool, entries, features)
             except Exception:
                 raise
             selected_count = sum(1 for e in entries if e.was_selected)
@@ -1322,34 +1314,6 @@ class SignalGeneratorService:
             except Exception as exc:
                 self.logger.warning("Drift penalties refresh error", error=str(exc))
                 await asyncio.sleep(30)
-
-    async def _write_signal_with_features(
-        self,
-        entries: list[LedgerEntry],
-        features_per_signal: list[dict],
-        cis_results: list[Any],
-    ) -> None:
-        """Atomic write: signal_ledger + signal_features in one transaction per signal.
-
-        FEAT-02: No orphaned feature rows — both tables succeed or both fail.
-        """
-        if not entries or not self.db_manager or not self.db_manager.pool:
-            return
-
-        async with self.db_manager.pool.acquire() as conn:
-            async with conn.transaction():
-                for entry, features, cis_result in zip(entries, features_per_signal, cis_results):
-                    await conn.execute(_INSERT_SQL, *entry.to_insert_params())
-                    feature_rows = _build_feature_rows(
-                        entry.signal_id,
-                        entry.signal_computed_at or entry.timestamp,
-                        features,
-                        cis_result,
-                    )
-                    if feature_rows:
-                        await conn.executemany(_INSERT_FEATURES_SQL, feature_rows)
-
-        self.logger.info("Wrote signals + features atomically", count=len(entries))
 
     async def _read_drift_penalty(self, symbol: str, timeframe: str) -> float:
         """QUAL-09: Read KS drift penalty from in-process _drift_penalties dict.

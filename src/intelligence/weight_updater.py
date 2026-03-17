@@ -33,6 +33,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 from .trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES
+from .trading.signal_ledger import WIN_OUTCOMES
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,6 @@ MIN_SAMPLES_TRAIN = 50
 MIN_SAMPLES_FULL = 100
 MIN_WEIGHT = 0.05
 BLEND_DESIGNED_RATIO = 0.70  # at 50-99 samples: 70% designed
-
-WIN_OUTCOMES: frozenset[str] = frozenset({"target_1", "target_1_2", "target_full"})
 
 ASSET_CLUSTER_MAP: dict[str, str] = {
     # eq_index: equity index futures
@@ -235,14 +234,12 @@ async def _write_weights_to_db(
         result.n_resolved,
     )
     logger.info(
-        "Wrote CIS weights to DB",
-        extra={
-            "version": next_version,
-            "cluster": asset_cluster,
-            "tf": timeframe,
-            "weights_type": result.weights_type,
-            "n": result.n_resolved,
-        },
+        "Wrote CIS weights to DB (version=%d, cluster=%s, tf=%s, type=%s, n=%d)",
+        next_version,
+        asset_cluster,
+        timeframe,
+        result.weights_type,
+        result.n_resolved,
     )
 
 
