@@ -198,5 +198,20 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
+## Current Milestone: v1.9 I7 Alpha Engine
+
+**Goal:** Transform I7 from a static threshold system into a self-improving alpha factory — wired learning loop, structure-aware stops, 10 new signal plugins covering uncaptured market conditions, and microstructure intelligence.
+
+**Target features:**
+- CIS runtime learning loop (DB weight loading + binary win labels + asset-cluster segmentation)
+- Signal feature snapshots for ML training dataset foundation
+- Structure-first + GARCH-adaptive stop architecture via `trade_framer.py`
+- Extended divergence stack (5 inputs), staleness decay, CIS Kalman filter
+- 5 new I7 plugins: FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP
+- Anchored VWAP + Volume Profile I4 infrastructure + 2 new I7 plugins
+- Confidence calibration + time-of-day multiplier
+- OFI + CVD microstructure plugins (Phase D)
+- Cross-asset intelligence service + plugin (Phase E)
+
 ---
-*Last updated: 2026-03-13 after v1.8 milestone*
+*Last updated: 2026-03-16 after v1.9 milestone start*
