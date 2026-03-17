@@ -15,7 +15,7 @@ class TestI7Registration:
         register_all_plugins()
 
     def test_i7_plugins_registered(self):
-        """All 17 I7 plugins should be in the registry."""
+        """All 23 I7 plugins should be in the registry."""
         expected_i7 = {
             "trad_TrendFollowing",
             "trad_MeanReversion",
@@ -34,16 +34,22 @@ class TestI7Registration:
             "trad_GapAnalysisSetup",
             "trad_CandlestickPatternSetup",
             "trad_SessionExtremesSetup",
+            "trad_FailedBreakout",
+            "trad_ORB15",
+            "trad_ORB30",
+            "trad_PrevDayLevelTest",
+            "trad_SecondLegContinuation",
+            "trad_VCP",
         }
         registered = set(registry.patterns.keys())
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 25 indicators + 73 patterns = 98 total (29-05 adds ShannonEntropy to I4)."""
+        """Should have 25 indicators + 79 patterns = 104 total (33-03 adds 6 new I7 plugins)."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 98, f"Expected 98, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 104, f"Expected 104, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):

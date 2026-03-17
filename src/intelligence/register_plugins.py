@@ -86,6 +86,7 @@ from .structure.trend_structure import plugin as trend_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
 from .trading.divergence_stack import plugin as divergence_stack_plugin
+from .trading.failed_breakout import plugin as failed_breakout_plugin
 from .trading.fvg_fill import plugin as fvg_fill_plugin
 from .trading.gap_analysis_setup import plugin as gap_analysis_setup_plugin
 from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
@@ -93,12 +94,17 @@ from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
 from .trading.mean_reversion import plugin as mean_revert_plugin
 from .trading.momentum_breakout import plugin as momentum_breakout_plugin
 from .trading.mtf_alignment import plugin as mtf_align_plugin
+from .trading.orb15 import plugin as orb15_plugin
+from .trading.orb30 import plugin as orb30_plugin
 from .trading.pattern_completion import plugin as pattern_completion_plugin
+from .trading.prev_day_level_test import plugin as prev_day_level_test_plugin
 from .trading.regime_transition import plugin as regime_transition_plugin
+from .trading.second_leg_continuation import plugin as second_leg_continuation_plugin
 from .trading.session_extremes_setup import plugin as session_extremes_setup_plugin
 from .trading.squeeze_expansion import plugin as squeeze_exp_plugin
 from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
+from .trading.vcp import plugin as vcp_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
 
 
@@ -259,6 +265,12 @@ def register_all_plugins() -> None:
     registry.register_pattern(gap_analysis_setup_plugin)
     registry.register_pattern(candlestick_pattern_setup_plugin)
     registry.register_pattern(session_extremes_setup_plugin)
+    registry.register_pattern(failed_breakout_plugin)
+    registry.register_pattern(orb15_plugin)
+    registry.register_pattern(orb30_plugin)
+    registry.register_pattern(prev_day_level_test_plugin)
+    registry.register_pattern(second_leg_continuation_plugin)
+    registry.register_pattern(vcp_plugin)
 
     validate_schema_coverage()
 
@@ -389,4 +401,10 @@ TIER_I7: list[str] = [
     gap_analysis_setup_plugin.name,
     candlestick_pattern_setup_plugin.name,
     session_extremes_setup_plugin.name,  # "trad_SessionExtremesSetup"
+    failed_breakout_plugin.name,         # "trad_FailedBreakout"
+    orb15_plugin.name,                   # "trad_ORB15"
+    orb30_plugin.name,                   # "trad_ORB30"
+    prev_day_level_test_plugin.name,     # "trad_PrevDayLevelTest"
+    second_leg_continuation_plugin.name, # "trad_SecondLegContinuation"
+    vcp_plugin.name,                     # "trad_VCP"
 ]
