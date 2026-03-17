@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: executing
-stopped_at: Phase 32 context gathered
-last_updated: "2026-03-17T01:31:50.753Z"
-last_activity: 2026-03-17 — 031-01 executed (migration 034, CISScorer.update_weights, 30-min CIS weight refresh loop)
+status: "Phase 31 in progress — Plan 02 complete"
+stopped_at: Completed 031-02-PLAN.md
+last_updated: "2026-03-17T01:35:00Z"
+last_activity: 2026-03-17 — 031-02 executed (binary WIN_OUTCOMES labels, ASSET_CLUSTER_MAP, per-cluster training in weight_updater)
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 33
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 ## Current Position
 
 Phase: 31 (in progress)
-Plan: 01 complete → 02 next
-Status: Phase 31 in progress — Plan 01 complete
-Last activity: 2026-03-17 — 031-01 executed (migration 034, CISScorer.update_weights, 30-min CIS weight refresh loop)
+Plan: 02 complete → 03 next
+Status: Phase 31 in progress — Plan 02 complete
+Last activity: 2026-03-17 — 031-02 executed (binary WIN_OUTCOMES labels, ASSET_CLUSTER_MAP, per-cluster training in weight_updater)
 
-Progress: [███░░░░░░░] 25%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -51,7 +51,7 @@ Progress: [███░░░░░░░] 25%
 - **Plugin registry is source of truth**: all new plugins registered in `TIER_I4`, `TIER_I5`, or `TIER_I7`; `registry.validate_tier()` hard-crashes on missing names
 
 ### Key Verified Facts
-- `weight_updater.py` EXISTS at `src/intelligence/weight_updater.py` — trains LogisticRegression on `signal_quality` (Phase 31 upgrades to binary win labels); INSERT now uses `sample_size` (renamed from `n_training_samples`)
+- `weight_updater.py` UPGRADED in 031-02 — trains LogisticRegression on binary WIN_OUTCOMES labels (target_1/target_1_2/target_full=win, rest=loss); ASSET_CLUSTER_MAP (21 symbols, 5 clusters); per-cluster training when N >= 100; is_shadow=FALSE filter; WeightUpdateResult has win_rate (not signal_quality_mean)
 - `cis_weights` table has `asset_cluster` column + unique index on (asset_cluster, timeframe, version) — DONE in 031-01
 - `signal_features` hypertable EXISTS — 7-day chunks, PK (signal_id, feature_name, computed_at) — DONE in 031-01
 - `signal_ledger.is_shadow` column EXISTS — partial index WHERE is_shadow = TRUE — DONE in 031-01
@@ -77,7 +77,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T01:31:50.752Z
-Stopped at: Phase 32 context gathered
-Resume file: .planning/phases/32-stop-architecture-extended-divergence-stack/32-CONTEXT.md
-Next action: `/gsd:execute-phase 31 02` (031-02: signal_features writer)
+Last session: 2026-03-17T01:35:00Z
+Stopped at: Completed 031-02-PLAN.md
+Resume file: .planning/phases/31-cis-learning-loop-signal-feature-snapshots/031-02-SUMMARY.md
+Next action: `/gsd:execute-phase 31 03` (031-03: signal_features writer)
