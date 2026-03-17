@@ -1,7 +1,7 @@
 # Composite Intelligence Score (CIS) — Design
 
 Date: 2026-02-27
-Status: Approved for implementation
+Status: Shipped — CISScorer live in aggregator.py
 
 ## Problem
 

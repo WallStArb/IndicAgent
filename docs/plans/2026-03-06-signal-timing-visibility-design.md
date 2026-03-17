@@ -1,7 +1,7 @@
 # Signal Timing Visibility — Design Doc
 
 **Date:** 2026-03-06
-**Status:** Approved
+**Status:** Shipped — determined_at + pipeline latency metrics
 **Scope:** Signal pipeline lag + staleness ratio on signal card and narrative panel
 
 ---

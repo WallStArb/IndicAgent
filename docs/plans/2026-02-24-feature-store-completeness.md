@@ -1,7 +1,7 @@
 # Feature Store Completeness: I7 and I8 Gaps
 
 **Date:** 2026-02-24
-**Status:** Decision made — backlog items created
+**Status:** Shipped — i7 + i8 JSONB columns added to `intelligence_features`
 
 ## Current State
 

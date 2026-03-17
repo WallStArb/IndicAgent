@@ -1,7 +1,7 @@
 # OpenRouter LLM Provider Integration — Design
 
 **Date:** 2026-02-27
-**Status:** Approved
+**Status:** Shipped — OpenRouter + Z.ai wired in llm_providers.py
 **Scope:** `src/intelligence/llm_providers.py`, `services/ai_narrative_service.py`
 
 ## Problem

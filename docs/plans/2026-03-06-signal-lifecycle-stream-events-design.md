@@ -1,7 +1,7 @@
 # Design: Signal Lifecycle Stream Events
 
 **Date:** 2026-03-06
-**Status:** Approved
+**Status:** Shipped — _publish_terminal_event in signal_lifecycle_service.py
 **Related:** Phase 17 (LLM wiring — signal_id threading), signal_lifecycle_service, SSE endpoint
 
 ---

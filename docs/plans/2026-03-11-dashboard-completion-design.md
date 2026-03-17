@@ -1,7 +1,7 @@
 # Design: Dashboard Completion
 
 **Date:** 2026-03-11
-**Status:** Approved
+**Status:** Shipped — signal-banner.tsx, signal-alert-strip.tsx, all components present
 **Milestone:** v1.8
 **Related todos:**
 - `.planning/todos/pending/2026-03-06-dashboard-intelligence-field-gaps.md`
