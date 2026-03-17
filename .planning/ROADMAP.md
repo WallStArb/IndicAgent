@@ -329,7 +329,12 @@ Plans:
   2. TOD multiplier varies by hour in service logs — a signal fired at 09:30 ET shows a different multiplier than the same setup at 12:00 ET, observable via `grep "tod_multiplier"` in the signal_generator log.
   3. `filtered_cis_score` and `raw_cis_score` are both logged per signal; the updated fire condition (`filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing ≥ 3`) is enforced — signals that would have fired under the old condition but fail the new one are suppressed.
   4. The calibration batch job runs alongside the weight_updater timer without conflict — both complete without error in a single timer execution cycle.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 35-01-PLAN.md — DB migration 038 + LedgerEntry extension + confidence_calibrator module
+- [ ] 35-02-PLAN.md — TOD multiplier (pre-CIS Bayesian-smoothed) + calibrated_confidence sort key in aggregator
+- [ ] 35-03-PLAN.md — CIS Kalman filter + shadow fire condition + dashboard confidence fields
 
 ### Phase 36: Microstructure Plugins
 **Goal**: Order flow imbalance and cumulative volume delta are live I1 features and drive two new I7 plugins, giving the system its first microstructure signal layer.
