@@ -1,151 +1,69 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.7
-milestone_name: candidates
-status: completed
-stopped_at: Completed 30-05-PLAN.md (Task 4 checkpoint pending)
-last_updated: "2026-03-14T12:23:00.492Z"
-last_activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
+milestone: v1.9
+milestone_name: I7 Alpha Engine
+status: defining_requirements
+stopped_at: Requirements defined — roadmap being created
+last_updated: "2026-03-16T00:00:00.000Z"
+last_activity: 2026-03-16 — Milestone v1.9 started; requirements written (46 reqs, 10 new I7 plugins)
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-11)
+See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.8 archived — run /gsd:new-milestone to define v1.9
+**Current focus:** v1.9 I7 Alpha Engine — defining roadmap
 
 ## Current Position
 
-Phase: v1.8 complete ✅
+Phase: Not started (defining requirements)
 Plan: —
-Status: Complete — archived 2026-03-13
-Last activity: 2026-03-13 — Phases 28-29 complete; 15 plans; milestone archived + tagged v1.8
+Status: Defining requirements
+Last activity: 2026-03-16 — Milestone v1.9 started
 
-Progress: [██████████] 100% (v1.8 shipped)
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity (cumulative):**
-- Total plans completed: 85 (v1.0–v1.7)
+- Total plans completed: 100 (v1.0–v1.8)
 - Average duration: ~30 min/plan
-- Total execution time: ~43 hours
-
-**Recent phases (v1.7):**
-
-| Phase | Plans | Notes |
-|-------|-------|-------|
-| 25. CIS Data Repair | 2 | Backfill fix + repair script |
-| 26. Signal Generator Warmup | 1 | DB seed on startup, graceful fallback |
-| Phase 27-signal-lifecycle-stream-events P05 | 1 | 1 tasks | 0 files |
-| Phase 27 P01 | 1 | 1 tasks | 0 files |
-| Phase 27-signal-lifecycle-stream-events P03 | 3 | 2 tasks | 2 files |
-| Phase 27-signal-lifecycle-stream-events P04 | 6 | 2 tasks | 2 files |
-| Phase 27-signal-lifecycle-stream-events P06 | 1 | 1 tasks | 0 files |
-| Phase 27-signal-lifecycle-stream-events P02 | 3 | 2 tasks | 0 files |
-| Phase 27-signal-lifecycle-stream-events P07 | 5 | 1 tasks | 1 files |
-| Phase 27-signal-lifecycle-stream-events P08 | 205 | 2 tasks | 3 files |
-| Phase 29-renaissance-signal-quality P01 | 4 | 1 tasks | 2 files |
-| Phase 28-dashboard-completion P01 | 2 | 2 tasks | 2 files |
-| Phase 28-dashboard-completion P04 | 8 | 2 tasks | 2 files |
-| Phase 28-dashboard-completion P07 | 2 | 2 tasks | 2 files |
-| Phase 28-dashboard-completion P02 | 5 | 2 tasks | 3 files |
-| Phase 28-dashboard-completion P06 | 2 | 2 tasks | 3 files |
-| Phase 28-dashboard-completion P03 | 2 | 2 tasks | 2 files |
-| Phase 28-dashboard-completion P05 | 2 | 1 tasks | 2 files |
-| Phase 29-renaissance-signal-quality P02 | 12 | 2 tasks | 4 files |
-| Phase 29-renaissance-signal-quality P03 | 15 | 2 tasks | 2 files |
-| Phase 29-renaissance-signal-quality P04 | 251 | 2 tasks | 4 files |
-| Phase 29-renaissance-signal-quality P05 | 7 | 2 tasks | 7 files |
-| Phase 29-renaissance-signal-quality P06 | 30 | 3 tasks | 9 files |
-| Phase 29-renaissance-signal-quality P07 | 6 | 3 tasks | 8 files |
-| Phase 29-renaissance-signal-quality P08 | 4 | 2 tasks | 2 files |
-| Phase 30-redpanda-migration P01 | 6 | 3 tasks | 9 files |
-| Phase 30-redpanda-migration P02 | 13 | 2 tasks | 7 files |
-| Phase 30-redpanda-migration P03 | 35 | 2 tasks | 6 files |
-| Phase 30-redpanda-migration P04 | 11 | 2 tasks | 8 files |
-| Phase 30 P05 | 90 | 3 tasks | 14 files |
+- Total execution time: ~50 hours
 
 ## Accumulated Context
 
-### Roadmap Evolution
+### Architecture Constraints (SoC / DAG / Microservices)
+- **Plugin tier purity**: I5 divergence plugins → `src/intelligence/patterns/`; I7 setups → `src/intelligence/trading/`; I4 context → `src/intelligence/context/`
+- **DAG ordering**: I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7; new I4/I5 plugins computed before I7
+- **`indicator_service` is per-symbol isolated**: cross-asset features require `cross_asset_service.py` (new service)
+- **`lifecycle_tracker.py` is pure-function**: staleness state injected from service; no DB/Kafka in tracker
+- **`trade_framer.py` is single source of truth for stop sizing**: all 17 plugins inherit changes; no per-plugin stop logic
+- **`CISScorer` stays stateless**: Kalman filter wraps it in service layer
+- **Plugin registry is source of truth**: all new plugins registered in `TIER_I4`, `TIER_I5`, or `TIER_I7`; `registry.validate_tier()` hard-crashes on missing names
 
-- Phase 30 added: Redpanda Migration
+### Key Verified Facts
+- `weight_updater.py` EXISTS at `src/intelligence/weight_updater.py` — trains LogisticRegression on `signal_quality` (needs upgrade to binary win labels)
+- `cis_weights` table EXISTS — needs `asset_cluster` + `timeframe` schema extension
+- `cis_attribution` column EXISTS in `signal_ledger` — `signal_features` table adds raw feature values (not a duplicate)
+- CMF (`cmf_20`), OBV (`obv`), MACD histogram (`macd_histogram_12_26_9`) already exist as I1 indicators
+- `garch_vol_regime` field already exists in `IntelligenceEvent` (output of VolatilityRegimePlugin)
+- Correct outcome taxonomy: `target_1`, `target_1_2`, `target_full` (wins); `stopped_at_entry`, `stopped_in_trade`, `never_activated`, `ttl_expired_ahead`, `ttl_expired_behind`, `condition_expired` (losses)
+- `KalmanTrendPlugin` at `src/intelligence/context/kalman_trend.py` — reuse this implementation for CIS Kalman
 
-### Decisions
-
-- [v1.8 scope]: Phase 27 (Signal Lifecycle Stream Events) — fully designed and planned, execute directly
-- [v1.8 scope]: Phase 28 (Dashboard Completion) — design written 2026-03-11; I7 all_ranked scorecard, drill signal history, GARCH/Kalman/SMC gaps, tooltips
-- [v1.8 scope]: Phase 29 (Renaissance Signal Quality) — T0-B + T1 (all 5 wire-ins) + T2-A/B (Hurst + Shannon entropy)
-- [v1.8 scope]: Phase 30 (Candlestick Expansion) — Tier 1 + Tier 2 (18 new patterns); Tier 3 deferred (gap-dependent, poor futures applicability)
-- [Phase 27-signal-lifecycle-stream-events]: NO-OP: SignalData resolved/outcome/exit_price/pnl_r fields already present in types.ts from prior phase work
-- [Phase 27]: Plan 27-01: _publish_terminal_event() was already implemented in v1.6 monolith; verified passing with 23 tests
-- [Phase 27-03]: SSE snapshot age filter skips signal entries older than 2xTF to prevent stale replay on reconnect; cursor still advances for all entries
-- [Phase 27-signal-lifecycle-stream-events]: signals.py timeframe filter was already correctly implemented; plan 27-04 was test-only
-- [Phase 27-signal-lifecycle-stream-events]: NO-OP: Resolved event handling (dir=0 with signal_id matching, resolved SignalData construction) already implemented in use-market-stream.ts from prior phase work
-- [Phase 27-signal-lifecycle-stream-events]: Plan 27-02: Both terminal event exit path calls (active + shadow) already present in v1.6 monolith; verified passing with 23 tests
-- [Phase 27-signal-lifecycle-stream-events]: SignalPanel is a standalone component encapsulating price strip + resolved overlays, enabling reuse outside signal-card
-- [Phase 27-signal-lifecycle-stream-events]: signal-panel.tsx is the canonical home for OutcomeBadge — file retained as utility (SignalPanel deleted), single OutcomeBadge export used by both signal-banner and drill-panel
-- [Phase 27-signal-lifecycle-stream-events]: signal-panel.tsx is the canonical home for OutcomeBadge — file retained as utility, SignalPanel deleted
-- [Phase 27-signal-lifecycle-stream-events]: OutcomeBadge small prop added for compact banner use; signal-banner redesigned to two-line layout based on human verify feedback
-- [Phase 29-01]: Bucket methods return (float, dict[str,float]) tuple — public score() signature unchanged; contributions assembled in score()
-- [Phase 28-01]: intelligence_i7 startswith check placed before intelligence: to prevent shadowing; intelligence_i7 added to known_domains for env-prefix stripping
-- [Phase 28-dashboard-completion]: Route /signals/recent placed before /signals/{symbol} path param to prevent FastAPI matching 'recent' as symbol
-- [Phase 28-dashboard-completion]: Summary query runs against full signal_ledger (no LIMIT) so aggregate reflects full window, not just paged slice
-- [Phase 28-07]: TierTooltip uses existing CSS-only Tooltip component (no new Radix dep); Section label widened to ReactNode
-- [Phase 28-02]: scorecardByTf not added to pipeline_reset handler — current-bar-only, new bars overwrite naturally
-- [Phase 28-06]: GARCH regime amber styling uses pipeline-classified garch_vol_regime===2, never hardcoded threshold — UI is passive consumer of pipeline decisions
-- [Phase 28-03]: SignalScorecard handles undefined data gracefully — empty state renders at component level, no guard needed at call site
-- [Phase 28-dashboard-completion]: [Phase 28-05]: DB+SSE merge — DB provides history on fresh load; SSE provides live updates; deduplicate by signal_id with SSE winning
-- [Phase 27-signal-lifecycle-stream-events]: Plan 27-10: REST seed (fetchActiveSignals) reverted — 27-09 SSE snapshot fix already seeds signalsByTf on mount; setSignalsHistory updated in dir===0 branch to propagate OutcomeBadge for resolved signals
-- [Phase 29-02]: timestamp-based cooldown stores fire_ts not bars_left — consistent with _check_gate, avoids call-count brittleness
-- [Phase 29-02]: rel_volume and killzone sub-terms additive (supplemental 0.05 weight) — existing sub-term weights unchanged
-- [Phase 29-03]: Alpha decay (QUAL-02) applied BEFORE aggregate() — _apply_alpha_decay() is a module-level helper; _setup_last_fire keyed by (symbol, tf, plugin, direction)
-- [Phase 29-03]: Freshness decay (QUAL-03) is in-memory only — original confidence in signal_ledger never mutated; FRESHNESS_HALF_LIFE_BARS: 1m=20, 5m=10, 15m=6, 1h=4
-- [Phase 29-04]: HurstExponent R/S uses last-64-bar slice for consistent rolling estimate; quality thresholds from RESEARCH.md (trend>=0.65->1.0, mr<=0.35->1.0); register_all_plugins() and TIER_I4 updated atomically to avoid validate_tier() crash
-- [Phase 29-05]: Quality multipliers applied BEFORE adjusted_rank (per RESEARCH.md Pitfall 2) so confident signals still compete first with reduced absolute confidence
-- [Phase 29-05]: TREND_SETUPS frozenset at aggregator module level routes hurst_trend_quality vs hurst_mr_quality per signal; features=None is strict no-op
-- [Phase 29-06]: drift_penalty read per bar in _read_drift_penalty() — one Redis GET per bar, negligible overhead; drift_monitor_service runs KSDriftMonitor.run_forever() every 4h for all active symbol/TF pairs
-- [Phase 29-06]: Recovery mechanic: 2 consecutive clean KS cycles delete Redis key (full restore to 'none'); severity string not granular enough for partial penalty fade — clean count tracked in-memory
-- [Phase 29-07]: CUSUM adjustment applied after base perf_multiplier in setup_performance_updater — single Redis write point; drift_monitor_service never touches perf_weights directly
-- [Phase 29-07]: CUSUM floor=0.30 prevents complete suppression of any setup regardless of drift severity
-- [Phase 29-08]: effective_confidence computed once after sig_with_extras (not duplicated in each branch); patch target is services.signal_lifecycle_service.update_signal_status (imported name)
-- [Phase 30-01]: kafka_utils.py as new file (not stream_utils.py rename) for dual-run coexistence during Plans 1-4
-- [Phase 30-01]: TopicAlreadyExistsError (aiokafka 0.13.0) — TopicExistsException removed in 0.13.0
-- [Phase 30-01]: Redpanda external listener port 19092; internal 9092 container-only; host services use localhost:19092
-- [Phase 30-02]: services/tws_daemon.py created as Kafka-native service (not services/tws_daemon.py rename — new file); production/daemons/high_frequency_tws_daemon.py kept as legacy reference
-- [Phase 30-02]: _seed_bar_history_from_db() follows Phase 26 signal_generator pattern — reads market_data_ohlcv at startup
-- [Phase 30-02]: _get_field() dual-mode helper added for str/bytes dict compat between Kafka JSON and legacy test fixtures
-- [Phase 30-redpanda-migration]: signal_lifecycle + ai_narrative Redis client fully removed; _llm_scores_cache in-process dict replaces Redis HSET/HGETALL; _group_fingerprints replaces Redis hash fingerprint tracking
-- [Phase 30-redpanda-migration]: i8 stream publish deferred to Plan 4 (SSE migration) — pass + TODO(30-04) in _run_narrative_call; tests document deferred behavior
-- [Phase 30-redpanda-migration]: KafkaSSEBroadcaster in sse.py with per-topic deque snapshot + per-client asyncio.Queue fan-out replaces Redis xrevrange/xread
-- [Phase 30-redpanda-migration]: feature_writer_service and llm_writer_service redis_client fully removed; Kafka-native; CONSUMER_GROUP='feature_writer_group'
-- [Phase 30-redpanda-migration]: ai_narrative_service: i8 publish to topic_intelligence_i8 wired (was TODO(30-04) in Plan 3)
-- [Phase 30]: drift_state unified table with cusum tf='_cusum' sentinel avoids separate table
-- [Phase 30]: redis[hiredis] kept in requirements.txt — market_data API routes still use Redis streams
-
-### Pending Todos (addressed in v1.8)
-
-- 2026-03-06-dashboard-intelligence-field-gaps.md → Phase 28
-- 2026-03-11-drill-panel-signal-history-from-db.md → Phase 28
-- 2026-02-27-add-tooltips-to-intelligence-level-indicators.md → Phase 28
-- 2026-02-27-add-signal-history-view-to-dashboard.md → Phase 28
-- 2026-03-03-expand-i5-candlestickpatterns-and-i7-candlestickpatternsetup.md → Phase 30
-
-### Blockers/Concerns
-
-None blocking v1.8.
+### Design Anchor
+Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-03-16)
 
 ## Session Continuity
 
-Last session: 2026-03-14T12:23:00.490Z
-Stopped at: Completed 30-05-PLAN.md (Task 4 checkpoint pending)
+Last session: 2026-03-16
+Stopped at: Requirements defined — awaiting roadmap creation
 Resume file: None
