@@ -540,6 +540,10 @@ class AINarrativeService:
 
         self.shutdown_event = asyncio.Event()
 
+        # Tracked background tasks (Kafka publish, LLM narrative calls).
+        # Prevents silent exception swallowing and allows graceful drain on shutdown.
+        self._pending_tasks: set[asyncio.Task] = set()
+
         self.logger = structlog.get_logger(__name__)
         start_metrics_server(port=9113)
 
@@ -702,6 +706,19 @@ class AINarrativeService:
                 # Fallback for environments where add_signal_handler is not supported
                 signal.signal(sig, lambda s, f: _handle_signal())
 
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        """Remove completed task from tracking set and log any failures."""
+        self._pending_tasks.discard(task)
+        if not task.cancelled() and task.exception():
+            self.logger.error("background task failed", error=str(task.exception()))
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Create a tracked background task."""
+        task = asyncio.create_task(coro)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._on_task_done)
+        return task
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -788,6 +805,9 @@ class AINarrativeService:
         self.logger.info("Stopping AI Narrative Service")
         self.running = False
         self.shutdown_requested = True
+        if self._pending_tasks:
+            self.logger.info("Draining background tasks", count=len(self._pending_tasks))
+            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
         if self._kafka_producer:
@@ -975,7 +995,7 @@ class AINarrativeService:
                         succeeded=False,
                         model_id="",
                     )
-                    asyncio.create_task(
+                    self._spawn_task(
                         self._kafka_producer.publish(
                             topic_llm_calls(self.env_name),
                             cf_payload,
@@ -998,7 +1018,7 @@ class AINarrativeService:
             deep_prompt = build_deep_prompt(signal_data, deep_ctx)
 
             # Fire both tier tasks concurrently — neither blocks the processing loop
-            asyncio.create_task(
+            self._spawn_task(
                 self._run_narrative_call(
                     signal_data,
                     symbol,
@@ -1008,7 +1028,7 @@ class AINarrativeService:
                     self.short_chain,
                 )
             )
-            asyncio.create_task(
+            self._spawn_task(
                 self._run_narrative_call(
                     signal_data,
                     symbol,
@@ -1190,7 +1210,7 @@ class AINarrativeService:
                 succeeded=narrative_text is not None,
                 model_id=self.group_chain.last_provider_id or "",
             )
-            asyncio.create_task(
+            self._spawn_task(
                 self._kafka_producer.publish(
                     topic_llm_calls(self.env_name),
                     gs_payload,

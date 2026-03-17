@@ -878,6 +878,7 @@ def _make_service_concurrent():
     # In-process caches (KAFKA-08)
     svc._llm_scores_cache: dict = {}
     svc._group_fingerprints: dict = {}
+    svc._pending_tasks: set = set()
 
     return svc
 

@@ -207,6 +207,10 @@ class SignalLifecycleService:
         #   entry, targets, stop, shadow_mae, shadow_mfe}
         self._shadow_signals: dict[str, dict] = {}
 
+        # Tracked background tasks (Kafka publish, terminal event).
+        # Prevents silent exception swallowing and allows graceful drain on shutdown.
+        self._pending_tasks: set[asyncio.Task] = set()
+
         self.lifecycle_transitions_total = counter(
             "lifecycle_transitions_total", "Total signal lifecycle transitions"
         )
@@ -268,6 +272,19 @@ class SignalLifecycleService:
     def _signal_handler(self, signum: int, frame: Any) -> None:
         self.logger.info("Received shutdown signal", signal=signum)
         self.shutdown_requested = True
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        """Remove completed task from tracking set and log any failures."""
+        self._pending_tasks.discard(task)
+        if not task.cancelled() and task.exception():
+            self.logger.error("background task failed", error=str(task.exception()))
+
+    def _spawn_task(self, coro) -> asyncio.Task:
+        """Create a tracked background task."""
+        task = asyncio.create_task(coro)
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._on_task_done)
+        return task
 
     async def _publish_terminal_event(
         self,
@@ -428,7 +445,7 @@ class SignalLifecycleService:
 
                     # Emit outcome to llm.outcomes topic for LLM call back-fill (LLM-03)
                     if self._kafka_producer:
-                        asyncio.create_task(
+                        self._spawn_task(
                             self._kafka_producer.publish(
                                 topic_llm_outcomes(self.env_name),
                                 _build_outcome_payload(
@@ -467,7 +484,7 @@ class SignalLifecycleService:
                     self._activated_at.pop(sid, None)
 
                     # Publish terminal event to signals stream for dashboard resolved state
-                    asyncio.create_task(
+                    self._spawn_task(
                         self._publish_terminal_event(
                             signal_id=sid,
                             symbol=symbol,
@@ -642,6 +659,9 @@ class SignalLifecycleService:
                 if trailing_stop is not None:
                     history = ch_state.setdefault("history", [])
                     history.append({"ts": bar_time.isoformat(), "price": trailing_stop})
+                    # Cap at 20 entries — tightening_rate only needs last 5; prevents unbounded growth
+                    if len(history) > 20:
+                        del history[:-20]
                     tightening_rate = _compute_tightening_rate(history)
                     try:
                         await self.db_manager.execute_command(
@@ -702,7 +722,7 @@ class SignalLifecycleService:
 
                 # Emit outcome to llm.outcomes topic for LLM call back-fill (LLM-03)
                 if self._kafka_producer:
-                    asyncio.create_task(
+                    self._spawn_task(
                         self._kafka_producer.publish(
                             topic_llm_outcomes(self.env_name),
                             _build_outcome_payload(
@@ -763,7 +783,7 @@ class SignalLifecycleService:
                             )
 
                 # Publish terminal event to signals stream for dashboard resolved state
-                asyncio.create_task(
+                self._spawn_task(
                     self._publish_terminal_event(
                         signal_id=sid,
                         symbol=symbol,
@@ -1008,6 +1028,9 @@ class SignalLifecycleService:
         self.logger.info("Stopping Signal Lifecycle Service")
         self.running = False
         self.shutdown_requested = True
+        if self._pending_tasks:
+            self.logger.info("Draining background tasks", count=len(self._pending_tasks))
+            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
         if self._kafka_producer:
