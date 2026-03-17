@@ -1,8 +1,7 @@
 # Second-Derivative Indicator Coverage Expansion (I2/I3)
 
 **Date:** 2026-03-10
-**Status:** Approved — design + implementation plan complete
-**Estimated scope:** ~4d
+**Status:** Shipped — fully implemented
 **Milestone target:** v1.5
 
 ---
