@@ -1,6 +1,6 @@
 # IndicAgent Market Intelligence Platform
 
-**v1.8 · 103 plugins · 1754 tests · 60 instruments · <10ms end-to-end**
+**v1.9 · 111 plugins · 2159 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 

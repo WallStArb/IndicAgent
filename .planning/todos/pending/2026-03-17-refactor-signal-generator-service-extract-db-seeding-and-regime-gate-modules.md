@@ -21,10 +21,13 @@ Health audit (2026-03-17) flagged this as the primary refactor candidate before 
 
 ## Solution
 
-Extract into focused modules before Phase 38 execution:
+Refactor toward a clean DAG — each module owns one concern, is independently testable, and can be reused by other services (e.g. Phase 38 roll detection, future cross-asset service). Line count reduction is a side effect, not the goal.
 
-1. **`src/intelligence/trading/bar_history_seeder.py`** — DB seed logic (`_seed_bar_history_from_db`, semaphore, fallback) extracted from service into standalone async class. Related to `2026-03-14-aggregator-rebuild-and-db-seed-concurrency.md` (semaphore fix can be done together).
-2. **`src/intelligence/trading/regime_gate.py`** — regime suppression logic (`_check_regime_gate`, `_is_regime_eligible`) extracted into a pure function module.
-3. Service file retains: event loop, Redpanda consumer, signal publishing, startup/shutdown lifecycle.
+Proposed module boundaries:
 
-Target: service file under 800 lines after extraction. No behavior changes — pure structural move with test coverage verifying identical output.
+1. **`src/intelligence/trading/bar_history_seeder.py`** — DB seed logic as a standalone async class. Reusable by any service that needs to warm bar history on startup (signal_generator today, potentially roll detector in Phase 38). Related: `2026-03-14-aggregator-rebuild-and-db-seed-concurrency.md` (semaphore fix lands here).
+2. **`src/intelligence/trading/regime_gate.py`** — pure function module: `is_regime_eligible(signal, regime_context) -> bool`. No state, no service coupling — any consumer of I7 signals can apply the gate without importing the service.
+3. **`src/intelligence/trading/signal_scheduler.py`** — bar-triggered scheduling loop, decoupled from Redpanda transport. Allows the scheduling logic to be tested without a live broker.
+4. Service file retains: Redpanda consumer/producer, startup/shutdown lifecycle, wiring.
+
+Design principle: refactors should produce a cleaner DAG — modules with single responsibilities that compose upward into services, not monolithic services that accumulate logic over time. Extensibility > brevity.
