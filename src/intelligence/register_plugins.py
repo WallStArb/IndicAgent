@@ -61,7 +61,7 @@ from .patterns.rsi_divergence import plugin as rsi_div_plugin
 from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
-from .patterns.volume_profile import plugin as volume_profile_plugin
+from .context.volume_profile import plugin as volume_profile_plugin
 from .plugins import registry
 from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
 from .smart_money.amd_cycle import plugin as amd_cycle_plugin
@@ -126,11 +126,11 @@ def validate_schema_coverage() -> None:
         ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
                 garch_vol_plugin, hurst_plugin, shannon_plugin,
                 kalman_trend_plugin, session_ctx_plugin, mtf_vol_plugin,
-                anchored_vwap_plugin], I4Context),
+                anchored_vwap_plugin, volume_profile_plugin], I4Context),
         ("I5", [rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
                 trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
                 triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
-                cup_handle_plugin, measured_move_plugin, volume_profile_plugin,
+                cup_handle_plugin, measured_move_plugin,
                 key_level_reaction_plugin, macd_div_plugin, cmf_div_plugin], I5Patterns),
         ("SMC", [bos_choch_plugin, fvg_plugin, ob_plugin, liq_sweep_plugin,
                  bocpd_plugin, hmm_plugin, liquidity_pools_plugin,
@@ -349,6 +349,7 @@ TIER_I4: list[str] = [
     session_ctx_plugin.name,
     mtf_vol_plugin.name,
     anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
+    volume_profile_plugin.name,  # "ctx_VolumeProfile"
 ]
 
 TIER_I5: list[str] = [
@@ -366,7 +367,6 @@ TIER_I5: list[str] = [
     flag_pennant_plugin.name,
     cup_handle_plugin.name,
     measured_move_plugin.name,
-    volume_profile_plugin.name,
     key_level_reaction_plugin.name,
 ]
 

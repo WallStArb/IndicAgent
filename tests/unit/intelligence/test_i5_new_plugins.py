@@ -216,7 +216,7 @@ class TestMeasuredMove:
 
 class TestVolumeProfile:
     def test_nearest_hvn_in_price_range(self):
-        from src.intelligence.patterns.volume_profile import VolumeProfilePlugin
+        from src.intelligence.context.volume_profile import VolumeProfilePlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -226,7 +226,7 @@ class TestVolumeProfile:
             assert 4990 <= hvn <= 5110
 
     def test_in_lvn_is_binary(self):
-        from src.intelligence.patterns.volume_profile import VolumeProfilePlugin
+        from src.intelligence.context.volume_profile import VolumeProfilePlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -236,7 +236,7 @@ class TestVolumeProfile:
             assert val in (0.0, 1.0)
 
     def test_empty_returns_empty(self):
-        from src.intelligence.patterns.volume_profile import VolumeProfilePlugin
+        from src.intelligence.context.volume_profile import VolumeProfilePlugin
 
         assert VolumeProfilePlugin().compute_full({}) == {}
 
@@ -300,13 +300,18 @@ class TestI5NewRegistration:
             "patt_FlagPennant",
             "patt_CupHandle",
             "patt_MeasuredMove",
-            "patt_VolumeProfile",
+            # patt_VolumeProfile migrated to TIER_I4 as ctx_VolumeProfile in Phase 34-02
             "patt_KeyLevelReaction",
         }
         missing = new_names - set(TIER_I5)
         assert not missing, f"Missing from TIER_I5: {missing}"
 
-    def test_tier_i5_has_14_plugins(self):
+    def test_tier_i5_has_15_plugins(self):
         from src.intelligence.register_plugins import TIER_I5
 
-        assert len(TIER_I5) == 16, f"Expected 16 I5 plugins, got {len(TIER_I5)}"
+        assert len(TIER_I5) == 15, f"Expected 15 I5 plugins, got {len(TIER_I5)}"
+
+    def test_volume_profile_in_tier_i4(self):
+        from src.intelligence.register_plugins import TIER_I4
+
+        assert "ctx_VolumeProfile" in TIER_I4, "ctx_VolumeProfile should be in TIER_I4"
