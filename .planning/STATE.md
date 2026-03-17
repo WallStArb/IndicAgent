@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-03-17T10:54:08.913Z"
+stopped_at: Completed 34-01-PLAN.md
+last_updated: "2026-03-17T19:34:40.156Z"
 last_activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
 progress:
-  total_phases: 13
+  total_phases: 14
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 9
+  total_plans: 15
+  completed_plans: 10
   percent: 75
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete (plans 01+03), Phase 34 next
+**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete, Phase 34 Plan 01 complete (AVWAP migration)
 
 ## Current Position
 
-Phase: 32 (in progress — plans 01+03 done)
-Plan: 03 complete → Phase 34 next (AVWAP + Volume Profile)
-Status: Phase 32 Plan 03 complete — MACD/CMF/OBV divergence I5 plugins, DivergenceStack 5-input weighted rewrite, always-log i7 routing
-Last activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
+Phase: 34 (in progress — plan 01 done)
+Plan: 01 complete → Plan 02 next (VolumeProfile I5 plugin)
+Status: Phase 34 Plan 01 complete — AnchoredVWAP migrated from I3/structure/ to I4/context/ with 15 output fields
+Last activity: 2026-03-17 — 34-01 executed (AnchoredVWAP I4 migration: 15 fields, std bands, sigma, velocity)
 
-Progress: [███████░░░] 75%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -66,7 +66,10 @@ Progress: [███████░░░] 75%
 - **signal_features writes atomically** — _write_signal_with_features() in signal_generator_service uses asyncpg conn.transaction(); features_per_signal is same mid-bar dict for all entries on a bar
 - **promote_shadow.py uses statsmodels not scipy** — scipy 1.17+ removed proportions_ztest from scipy.stats; correct import: `from statsmodels.stats.proportion import proportions_ztest`
 - **asyncpg conn.transaction() is synchronous** — returns a sync context manager (Transaction object), not a coroutine; tests must use MagicMock (not AsyncMock) for transaction()
-- **TIER_I7 = 23, TIER_I5 = 16, total registered plugins = 106** — after Phase 32-03; MACDDivergence + CMFDivergence added to TIER_I5
+- **TIER_I7 = 23, TIER_I5 = 16, TIER_I4 = 10, total registered plugins = 107** — after Phase 34-01; ctx_AnchoredVWAP added to TIER_I4 (moved from TIER_I3)
+- **TIER_I3 = 7** — struct_AnchoredVWAP removed (migrated to I4); I3Structure now has 67 fields (was 75)
+- **I4Context has 75 fields** — +15 VWAP fields from 34-01 (was 60): session_vwap, session_vwap_dist_pct, swing_vwap, weekly_vwap, above_session_vwap, above_swing_vwap, above_weekly_vwap, vwap_alignment_score, avwap_upper_band, avwap_lower_band, swing_vwap_upper_band, swing_vwap_lower_band, session_vwap_deviation_sigma, swing_vwap_deviation_sigma, session_vwap_deviation_velocity
+- **TIER_I7 = 23, TIER_I5 = 16, total registered plugins = 106 (I3=7, I4=10)** — after Phase 34-01; VWAP moved tiers, net count unchanged
 - **Plugin count tests must be updated when tier counts grow** — test_tier_i5_has_N_plugins and test_total_plugin_count have hardcoded values that track plugin totals
 - **GARCH_MULTIPLIERS = {0:0.8, 1:1.0, 2:1.35}** — in trade_framer.py; applied to effective_atr in frame_trade(); all 23 I7 plugins inherit vol-regime-scaled stops automatically (032-01)
 - **FVG is Priority 0 structural stop** — fvg_low (long) / fvg_high (short) beats demand/supply zone in stop hierarchy (032-01)
@@ -93,7 +96,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T10:48:14.841Z
-Stopped at: Completed 32-02-PLAN.md
+Last session: 2026-03-17T19:34:40.152Z
+Stopped at: Completed 34-01-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34: AVWAP + Volume Profile infrastructure)
