@@ -138,7 +138,7 @@ class VCPPlugin:
         last_range, last_vol = contractions[-1]
 
         is_contraction = bar_range < last_range and bar_volume <= last_vol
-        is_expansion = bar_range >= last_range
+        is_expansion = bar_range > last_range
 
         if is_contraction:
             # Continue the contraction sequence
