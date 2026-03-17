@@ -1,6 +1,6 @@
 # Signal Intelligence Command Center — Design Spec
 
-**Date:** 2026-03-16
+**Date:** 2026-03-17
 **Status:** Approved for planning
 **Scope:** Two deliverables — (1) unified signal quality tier system applied across all dashboard surfaces, (2) new `/signals` Signal Intelligence Command Center page
 
@@ -35,15 +35,17 @@ Confidence ≥ 0.40 is the empirically derived breakeven — the exact confidenc
 
 **NULL cis_score handling:** Signals written before CIS was introduced have `cis_score IS NULL`. These always classify as Monitored (never Hero, never Candidate), regardless of confidence. The three-way tier classification must be evaluated in order: Hero gate first (requires non-null cis_score), then Monitored (was_selected=true), then Candidate.
 
+**Phase 35 gate evolution:** When Phase 35 ships, the Hero gate should migrate to use `calibrated_confidence >= 0.40` (when non-NULL, falling back to `confidence`) and `filtered_cis_score > 0.35` (when non-NULL, falling back to `abs(cis_score) > 0.35`). See [Phase 35 Integration Notes](#phase-35-integration-notes) below.
+
 ### API changes — `/api/signals/recent`
 
-Add `tier` query param: `hero` (default for drill panel) | `monitored` | `all`.
+`tier` query param is already implemented: `hero` (default for drill panel) | `monitored` | `all`.
 
 - Default (`tier=hero`): `WHERE was_selected = true AND confidence >= 0.40 AND cis_score IS NOT NULL AND abs(cis_score) > 0.35`
 - `tier=monitored`: `WHERE was_selected = true`
 - `tier=all`: no filter on quality
 
-Add computed `signal_tier` field to response: `"hero"` | `"monitored"` | `"candidate"`.
+`signal_tier` computed field is already returned in response: `"hero"` | `"monitored"` | `"candidate"`.
 
 ### Dashboard surface changes
 
@@ -112,7 +114,7 @@ Six stat pills. Each: label + primary value + trend indicator subtext.
 
 **Edge trend** replaces "open signals count" — per Renaissance principle: the question is not how many signals are open, it is whether the system's alpha is growing or decaying.
 
-Data source: single `GET /api/signals/stats` endpoint. Refreshes every 60 seconds.
+Data source: `GET /api/signals/stats` endpoint. Refreshes every 60 seconds.
 
 ---
 
@@ -127,7 +129,7 @@ Columns: Setup · N (resolved) · Win rate · Avg pnl_r · Sharpe proxy · p-val
 - **Sharpe proxy**: `avg_pnl_r / std_pnl_r` — penalises high-variance strategies
 - **p-value**: one-sample t-test against null hypothesis mean=0. Formula: `p = 2 * (1 - t_cdf(|avg_pnl_r| / (std_pnl_r / sqrt(N))))` where `std_pnl_r = STDDEV(pnl_r)` and `N = COUNT(*)` computed directly from `signal_ledger` in the attribution query (not from `setup_performance` — that table does not expose std_pnl_r). Display as `p=0.031` with `--cyan` highlight if `p < 0.05`.
 - **pnl_r distribution**: small inline histogram cell (9 buckets, canvas element, 80×20px) — shows whether edge is clean or outlier-driven
-- **Regime breakdown (v2)**: deferred to v2. Requires JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` to access `i4->>'hmm_regime'` (integer: 0=ranging, 1=trending_up, 2=trending_down). Not in v1 scope — consistent with Asset Class table carve-out below.
+- **Regime breakdown (v2)**: deferred to v2. Requires JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` to access `i4->>'hmm_regime'` (integer: 0=ranging, 1=trending_up, 2=trending_down). Not in v1 scope.
 - Sorted by avg pnl_r descending. Color-coded pnl_r cells (green positive, red negative)
 - Clicking a row sets `setup_plugin` filter on the Signal Ledger
 
@@ -135,7 +137,7 @@ Columns: Setup · N (resolved) · Win rate · Avg pnl_r · Sharpe proxy · p-val
 
 Same columns (without regime breakdown in v1). Groups: Equity Futures · Energy · Metals · Rates · FX · Crypto. Clicking a row sets `asset_class` filter on the Signal Ledger.
 
-Data source: `GET /api/signals/attribution?window=30d`. Computes entirely from `signal_ledger` using `AVG(pnl_r)`, `STDDEV(pnl_r)`, `COUNT(*)` grouped by `setup_plugin` and `asset_class`. The `setup_performance` table is not used — it does not expose `std_pnl_r` and the sharpe_ratio back-computation is algebraically unstable near zero.
+Data source: `GET /api/signals/attribution?window=30d`. Computes entirely from `signal_ledger` using `AVG(pnl_r)`, `STDDEV(pnl_r)`, `COUNT(*)` grouped by `setup_plugin` and `asset_class`. Note: `asset_class` is not a direct `signal_ledger` column — the endpoint groups by `symbol` and remaps to sector/asset_class via settings contracts in Python. The `setup_performance` table is not used — it does not expose `std_pnl_r` and the sharpe_ratio back-computation is algebraically unstable near zero.
 
 ---
 
@@ -169,7 +171,7 @@ Persistent above the ledger. All filters are multi-select or range:
 |--------|------|---------|
 | Symbol | Multi-select typeahead | All active instruments |
 | Asset class | Pill toggle | All / Futures / FX / Crypto / Equity |
-| Setup plugin | Multi-select | All 17 I7 setups |
+| Setup plugin | Multi-select | All 28 I7 setups |
 | Timeframe | Pill toggle | All / 1m / 5m / 15m / 1h / 4h / 1d |
 | Quality tier | Pill toggle | All / Hero / Monitored / Candidate |
 | Confidence | Range slider | 0.0 – 1.0 |
@@ -215,18 +217,51 @@ Right-side panel slides in on row click (320px, same width and layout as existin
 
 Close on Escape or click outside.
 
-Data source: `GET /api/signals/recent?tier=all` (existing endpoint, extended). Detail fetched lazily on row click: `GET /api/signals/detail/{signal_id}`. Note: path must be `detail/{signal_id}` not `{signal_id}` — the existing route `GET /api/signals/{symbol}` uses a catch-all path param that would shadow a bare UUID.
+Data source: `GET /api/signals/recent?tier=all` (existing endpoint). Detail fetched lazily on row click: `GET /api/signals/detail/{signal_id}`. Note: path must be `detail/{signal_id}` not `{signal_id}` — the existing route `GET /api/signals/{symbol}` uses a catch-all path param that would shadow a bare UUID.
+
+When Phase 35 ships, the detail panel should surface `raw_cis_score`, `filtered_cis_score`, and `calibrated_confidence` side by side alongside `cis_score` for full transparency. The `DrillPanel` already renders these fields per the Phase 35 dashboard spec.
 
 ---
 
 ## API endpoints required
 
-| Endpoint | New / Modified | Purpose |
-|----------|---------------|---------|
-| `GET /api/signals/recent` | Modified | Add `tier` param, `signal_tier` field in response |
-| `GET /api/signals/stats` | **New** | Command strip metrics (throughput, hero rate, latency, alpha composite, edge trend) |
-| `GET /api/signals/attribution` | **New** | Setup and asset class alpha table with p-value, regime breakdown |
-| `GET /api/signals/detail/{signal_id}` | **New** | Full signal detail for ledger row expansion |
+| Endpoint | Status | Purpose |
+|----------|--------|---------|
+| `GET /api/signals/recent` | Already implemented | `tier` param + `signal_tier` field in response |
+| `GET /api/signals/stats` | Already implemented | Command strip metrics (throughput, hero rate, latency, alpha composite, edge trend) |
+| `GET /api/signals/attribution` | Already implemented | Setup and asset class alpha table with p-value (`window` + `group_by` params) |
+| `GET /api/signals/detail/{signal_id}` | Already implemented | Full signal detail for ledger row expansion |
+
+---
+
+## Phase 35 Integration Notes
+
+Phase 35 (Calibration + TOD Multiplier + CIS Kalman Filter) adds four new columns to `signal_ledger`:
+- `raw_cis_score` — CIS composite score before Kalman filtering
+- `filtered_cis_score` — Kalman-smoothed CIS score; new fire condition gate is `filtered_cis_score > 0.35`
+- `calibrated_confidence` — isotonic regression calibrated probability [0,1]; NULL when N < 100 for (plugin_name, timeframe)
+- `regime_type_at_fire` — the winning signal's regime_type at fire time (trend|mean_reversion|any)
+
+**Hero tier gate migration (post Phase 35):**
+
+Current gate:
+```sql
+confidence >= 0.40 AND cis_score IS NOT NULL AND abs(cis_score) > 0.35
+```
+
+Should evolve to:
+```sql
+COALESCE(calibrated_confidence, confidence) >= 0.40
+AND (
+  (filtered_cis_score IS NOT NULL AND filtered_cis_score > 0.35)
+  OR
+  (filtered_cis_score IS NULL AND cis_score IS NOT NULL AND abs(cis_score) > 0.35)
+)
+```
+
+Pre-Phase-35 signals (NULL `filtered_cis_score`, NULL `calibrated_confidence`) continue to classify correctly via the fallback path. The `_compute_signal_tier()` function in `src/api/routes/signals.py` needs updating when Phase 35 ships.
+
+**Note:** `LedgerEntry` extends from 54 to 58 fields in Phase 35. All four new fields are nullable with default `None` — no existing signal writes break on migration.
 
 ---
 
