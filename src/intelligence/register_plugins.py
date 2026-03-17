@@ -108,6 +108,11 @@ from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vcp import plugin as vcp_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
+from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
+from .trading.vwap_reclaim import plugin as vwap_reclaim_plugin
+from .trading.poc_rejection import plugin as poc_rejection_plugin
+from .trading.hvn_rejection import plugin as hvn_rejection_plugin
+from .trading.lvn_breakout import plugin as lvn_breakout_plugin
 
 
 def validate_schema_coverage() -> None:
@@ -276,6 +281,11 @@ def register_all_plugins() -> None:
     registry.register_pattern(prev_day_level_test_plugin)
     registry.register_pattern(second_leg_continuation_plugin)
     registry.register_pattern(vcp_plugin)
+    registry.register_pattern(anchored_vwap_reversion_plugin)
+    registry.register_pattern(vwap_reclaim_plugin)
+    registry.register_pattern(poc_rejection_plugin)
+    registry.register_pattern(hvn_rejection_plugin)
+    registry.register_pattern(lvn_breakout_plugin)
 
     validate_schema_coverage()
 
@@ -414,4 +424,9 @@ TIER_I7: list[str] = [
     prev_day_level_test_plugin.name,     # "trad_PrevDayLevelTest"
     second_leg_continuation_plugin.name, # "trad_SecondLegContinuation"
     vcp_plugin.name,                     # "trad_VCP"
+    anchored_vwap_reversion_plugin.name, # "trad_AnchoredVWAPReversion"
+    vwap_reclaim_plugin.name,            # "trad_VWAPReclaim"
+    poc_rejection_plugin.name,           # "trad_POCRejection"
+    hvn_rejection_plugin.name,           # "trad_HVNRejection"
+    lvn_breakout_plugin.name,            # "trad_LVNBreakout"
 ]

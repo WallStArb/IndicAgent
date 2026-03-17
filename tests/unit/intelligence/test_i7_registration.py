@@ -4,6 +4,7 @@ import pytest
 
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
+from src.intelligence.trading.aggregator import TREND_SETUPS
 
 _VALID_REGIME_TYPES = {"trend", "mean_reversion", "any"}
 
@@ -15,7 +16,7 @@ class TestI7Registration:
         register_all_plugins()
 
     def test_i7_plugins_registered(self):
-        """All 23 I7 plugins should be in the registry."""
+        """All 28 I7 plugins should be in the registry."""
         expected_i7 = {
             "trad_TrendFollowing",
             "trad_MeanReversion",
@@ -40,16 +41,22 @@ class TestI7Registration:
             "trad_PrevDayLevelTest",
             "trad_SecondLegContinuation",
             "trad_VCP",
+            # Phase 34-03: VWAP + Volume Profile I7 plugins
+            "trad_AnchoredVWAPReversion",
+            "trad_VWAPReclaim",
+            "trad_POCRejection",
+            "trad_HVNRejection",
+            "trad_LVNBreakout",
         }
         registered = set(registry.patterns.keys())
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 25 indicators + 81 patterns = 106 total (32-03 adds 2 new I5 plugins)."""
+        """Should have 25 indicators + 86 patterns = 111 total (34-03 adds 5 new I7 plugins)."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 106, f"Expected 106, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 111, f"Expected 111, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):
@@ -72,3 +79,22 @@ class TestI7Registration:
             f"I7 plugins with invalid regime_type value (must be one of "
             f"{_VALID_REGIME_TYPES}): {invalid}"
         )
+
+    def test_lvn_breakout_in_trend_setups(self):
+        """trad_LVNBreakout must appear in TREND_SETUPS (regime_type='trend')."""
+        assert "trad_LVNBreakout" in TREND_SETUPS
+
+    def test_mean_reversion_vwap_plugins_not_in_trend_setups(self):
+        """Mean-reversion and any-regime VWAP/VP plugins must NOT appear in TREND_SETUPS."""
+        should_not_be_trend = {
+            "trad_AnchoredVWAPReversion",
+            "trad_VWAPReclaim",
+            "trad_POCRejection",
+            "trad_HVNRejection",
+        }
+        for name in should_not_be_trend:
+            assert name not in TREND_SETUPS, f"{name} should NOT be in TREND_SETUPS"
+
+    def test_tier_i7_count(self):
+        """TIER_I7 should contain exactly 28 plugins (23 + 5 new)."""
+        assert len(TIER_I7) == 28, f"Expected 28 TIER_I7 plugins, got {len(TIER_I7)}"

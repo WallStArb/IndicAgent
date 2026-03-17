@@ -51,6 +51,7 @@ TREND_SETUPS: frozenset[str] = frozenset(
         "trad_ORB30",                 # new — trend continuation setup
         "trad_SecondLegContinuation", # new — trend continuation
         "trad_VCP",                   # new — momentum/trend compression
+        "trad_LVNBreakout",           # new — trend expansion through thin volume
     }
 )
 
