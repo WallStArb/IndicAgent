@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Completed 32-01-PLAN.md
-last_updated: "2026-03-17T10:26:54.530Z"
-last_activity: "2026-03-17 — 033-03 executed (6 new I7 plugins registered: FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP; TIER_I7=23, TREND_SETUPS=12)"
+stopped_at: Completed 32-03-PLAN.md
+last_updated: "2026-03-17T10:46:02.531Z"
+last_activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
 progress:
   total_phases: 13
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 7
-  percent: 67
+  total_plans: 12
+  completed_plans: 8
+  percent: 78
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 I7 Alpha Engine — Phase 31 ready to plan
+**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete (plans 01+03), Phase 34 next
 
 ## Current Position
 
-Phase: 32 (in progress — plan 01 done)
-Plan: 01 complete → Plan 02 next (or Phase 34 if no remaining 32 plans)
-Status: Phase 32 Plan 01 complete — stop architecture, GARCH multiplier, FVG tier, LedgerEntry 54 fields
-Last activity: 2026-03-17 — 32-01 executed (GARCH-adaptive stops, FVG Priority 0, stop_basis classification, migration 035, LedgerEntry +15 fields, TF_TTL_BARS, i7 payload enrichment)
+Phase: 32 (in progress — plans 01+03 done)
+Plan: 03 complete → Phase 34 next (AVWAP + Volume Profile)
+Status: Phase 32 Plan 03 complete — MACD/CMF/OBV divergence I5 plugins, DivergenceStack 5-input weighted rewrite, always-log i7 routing
+Last activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
 
 Progress: [████████░░] 78%
 
@@ -66,12 +66,14 @@ Progress: [████████░░] 78%
 - **signal_features writes atomically** — _write_signal_with_features() in signal_generator_service uses asyncpg conn.transaction(); features_per_signal is same mid-bar dict for all entries on a bar
 - **promote_shadow.py uses statsmodels not scipy** — scipy 1.17+ removed proportions_ztest from scipy.stats; correct import: `from statsmodels.stats.proportion import proportions_ztest`
 - **asyncpg conn.transaction() is synchronous** — returns a sync context manager (Transaction object), not a coroutine; tests must use MagicMock (not AsyncMock) for transaction()
-- **TIER_I7 = 23, total registered plugins = 104** — after Phase 33-03; FailedBreakout/PrevDayLevelTest excluded from TREND_SETUPS; ORB15/ORB30/SecondLegContinuation/VCP added to TREND_SETUPS (12 entries)
-- **Plugin count tests must be updated when TIER_I7 grows** — test_tier_i7_has_N_plugins and test_total_plugin_count have hardcoded values that track plugin totals
+- **TIER_I7 = 23, TIER_I5 = 16, total registered plugins = 106** — after Phase 32-03; MACDDivergence + CMFDivergence added to TIER_I5
+- **Plugin count tests must be updated when tier counts grow** — test_tier_i5_has_N_plugins and test_total_plugin_count have hardcoded values that track plugin totals
 - **GARCH_MULTIPLIERS = {0:0.8, 1:1.0, 2:1.35}** — in trade_framer.py; applied to effective_atr in frame_trade(); all 23 I7 plugins inherit vol-regime-scaled stops automatically (032-01)
 - **FVG is Priority 0 structural stop** — fvg_low (long) / fvg_high (short) beats demand/supply zone in stop hierarchy (032-01)
 - **stop_basis classification** — structure_snap (≤1.5xATR from fallback), garch_adaptive (>1.5xATR or GARCH-scaled ATR), atr_static (no regime); persisted to signal_ledger AND intelligence_features.i7 JSONB (032-01)
 - **TF_TTL_BARS = {"1m":20, "5m":12, "15m":8, "1h":6}** — per-TF TTL overrides hardcoded default of 10; applied in signal_generator_service before aggregation (032-01)
+- **DivergenceStack 5-input weights**: DIVERGENCE_WEIGHTS = {rsi:0.30, macd:0.25, vol:0.20, obv:0.15, cmf:0.10}; gate: score > 0.40 AND n_agreeing >= 3; always-log base_output pattern; divergence_scoring block in _build_i7_payload() routes to intelligence_features.i7 JSONB on every bar (032-03)
+- **I5Patterns has 79 fields** — +9 from 032-03 (macd_div_*, obv_div_*, cmf_div_*); extra=forbid enforced; validate_schema_coverage() passes
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -87,7 +89,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T10:26:54.528Z
-Stopped at: Completed 32-01-PLAN.md
+Last session: 2026-03-17T10:46:02.529Z
+Stopped at: Completed 32-03-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34: AVWAP + Volume Profile infrastructure)

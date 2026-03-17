@@ -39,10 +39,10 @@
 
 ### DIV — Extended Divergence Stack
 
-- [ ] **DIV-01**: New I5 plugin `src/intelligence/patterns/macd_divergence.py` — detects MACD histogram divergence from price direction; outputs `macd_div_bullish`, `macd_div_bearish`; consumes existing `macd_histogram_12_26_9` from I1
-- [ ] **DIV-02**: New I5 plugin `src/intelligence/patterns/obv_divergence.py` — detects OBV direction diverging from price direction over N bars; outputs `obv_div_bullish`, `obv_div_bearish`; consumes existing `obv` from I1
-- [ ] **DIV-03**: New I5 plugin `src/intelligence/patterns/cmf_divergence.py` — detects Chaikin Money Flow divergence from price direction; outputs `cmf_div_bullish`, `cmf_div_bearish`; consumes existing `cmf_20` from I1
-- [ ] **DIV-04**: `divergence_stack.py` upgraded from hard AND-gate to 5-input weighted convergence score (RSI 0.30, MACD 0.25, vol 0.20, OBV 0.15, CMF 0.10); fires when score > 0.40 AND n_agreeing ≥ 3; preserves quality bar while extending recall ~40%
+- [x] **DIV-01**: New I5 plugin `src/intelligence/patterns/macd_divergence.py` — detects MACD histogram divergence from price direction; outputs `macd_div_bullish`, `macd_div_bearish`; consumes existing `macd_histogram_12_26_9` from I1
+- [x] **DIV-02**: New I5 plugin `src/intelligence/patterns/obv_divergence.py` — detects OBV direction diverging from price direction over N bars; outputs `obv_div_bullish`, `obv_div_bearish`; consumes existing `obv` from I1
+- [x] **DIV-03**: New I5 plugin `src/intelligence/patterns/cmf_divergence.py` — detects Chaikin Money Flow divergence from price direction; outputs `cmf_div_bullish`, `cmf_div_bearish`; consumes existing `cmf_20` from I1
+- [x] **DIV-04**: `divergence_stack.py` upgraded from hard AND-gate to 5-input weighted convergence score (RSI 0.30, MACD 0.25, vol 0.20, OBV 0.15, CMF 0.10); fires when score > 0.40 AND n_agreeing ≥ 3; preserves quality bar while extending recall ~40%
 
 ### PLUG — New I7 Signal Plugins
 
@@ -144,10 +144,10 @@
 | SIG-03 | Phase 32 | Pending |
 | SIG-04 | Phase 32 | Pending |
 | SIG-05 | Phase 32 | Complete |
-| DIV-01 | Phase 32 | Pending |
-| DIV-02 | Phase 32 | Pending |
-| DIV-03 | Phase 32 | Pending |
-| DIV-04 | Phase 32 | Pending |
+| DIV-01 | Phase 32 | Complete |
+| DIV-02 | Phase 32 | Complete |
+| DIV-03 | Phase 32 | Complete |
+| DIV-04 | Phase 32 | Complete |
 | PLUG-01 | Phase 33 | Complete |
 | PLUG-02 | Phase 33 | Complete |
 | PLUG-03 | Phase 33 | Complete |
