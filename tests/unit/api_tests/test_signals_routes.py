@@ -388,3 +388,59 @@ class TestGetRecentSignals:
         response = client.get("/api/signals/recent?symbol=ESH6")
 
         assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# TestSignalTimestampFallback
+# ---------------------------------------------------------------------------
+
+
+class TestSignalTimestampFallback:
+    """COALESCE(signal_computed_at, feature_ts) must be used for computed_at."""
+
+    @pytest.mark.unit
+    def test_sql_uses_coalesce_for_signal_computed_at(self):
+        """The SQL query passed to db.fetch must use COALESCE for timestamp."""
+        mock_db = _make_recent_mock_db()
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        client.get("/api/signals/recent?limit=5")
+
+        sql = mock_db.fetch.call_args.args[0]
+        assert "COALESCE(sl.signal_computed_at, sl.feature_ts)" in sql, (
+            f"Expected COALESCE in SQL, got: {sql[:300]}"
+        )
+
+    @pytest.mark.unit
+    def test_null_signal_computed_at_falls_back_to_feature_ts(self):
+        """When SQL COALESCE returns feature_ts (signal_computed_at was NULL), computed_at must be set."""
+        feature_ts = datetime(2026, 3, 10, 14, 30, 0, tzinfo=UTC)
+        # Simulate what COALESCE returns: signal_computed_at = feature_ts (because original was NULL)
+        row = _make_recent_signal_row(signal_computed_at=feature_ts)
+        mock_db = _make_recent_mock_db(signal_rows=[row])
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?limit=5")
+
+        assert response.status_code == 200
+        signals = response.json()["signals"]
+        assert len(signals) == 1
+        assert signals[0]["computed_at"] is not None
+        assert "2026-03-10" in signals[0]["computed_at"]
+
+    @pytest.mark.unit
+    def test_live_signal_computed_at_renders_correctly(self):
+        """When signal_computed_at is a live timestamp, computed_at renders it."""
+        live_ts = datetime(2026, 3, 17, 10, 5, 0, tzinfo=UTC)
+        row = _make_recent_signal_row(signal_computed_at=live_ts)
+        mock_db = _make_recent_mock_db(signal_rows=[row])
+        test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+        client = TestClient(test_app)
+
+        response = client.get("/api/signals/recent?limit=5")
+
+        assert response.status_code == 200
+        signals = response.json()["signals"]
+        assert "10:05:00" in signals[0]["computed_at"]
