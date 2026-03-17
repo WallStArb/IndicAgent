@@ -259,7 +259,8 @@ class I4Context(BaseModel):
     - HurstExponent (3 fields)
     - ShannonEntropy (2 fields)
     - AnchoredVWAP (15 fields)
-    Total: 75 fields
+    - VolumeProfile (18 fields, migrated from I5Patterns in Phase 34-02)
+    Total: 93 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -365,6 +366,27 @@ class I4Context(BaseModel):
     swing_vwap_deviation_sigma: float | None = None
     session_vwap_deviation_velocity: float | None = None
 
+    # VolumeProfilePlugin outputs (migrated from I5Patterns in Phase 34-02)
+    nearest_hvn_level: float | None = None
+    nearest_hvn_dist_atr: float | None = None
+    nearest_lvn_level: float | None = None
+    in_lvn: float | None = None
+    # New I4 volume profile fields
+    poc_price: float | None = None
+    vah: float | None = None
+    val: float | None = None
+    nearest_hvn_above: float | None = None
+    nearest_hvn_below: float | None = None
+    nearest_lvn_above: float | None = None
+    nearest_lvn_below: float | None = None
+    poc_price_rolling: float | None = None
+    vah_rolling: float | None = None
+    val_rolling: float | None = None
+    price_in_value_area: float | None = None
+    va_width_atr: float | None = None
+    distance_to_vah_atr: float | None = None
+    distance_to_val_atr: float | None = None
+
 
 class I5Patterns(BaseModel):
     """I5 pattern detection outputs.
@@ -384,9 +406,10 @@ class I5Patterns(BaseModel):
     - patt_FlagPennant (4 fields)
     - patt_CupHandle (3 fields)
     - patt_MeasuredMove (4 fields)
-    - patt_VolumeProfile (4 fields)
     - patt_KeyLevelReaction (2 fields)
-    Total: 79 fields
+    Total: 75 fields
+
+    NOTE: VolumeProfile (18 fields) migrated to I4Context in Phase 34-02.
 
     NOTE: DivergenceStack I7 outputs (div_weighted_score, div_n_agreeing, per-input scores,
     age_bars, magnitudes) are NOT here -- they are I7-tier outputs that bypass the I5 schema check.
@@ -500,12 +523,6 @@ class I5Patterns(BaseModel):
     abcd_direction: float | None = None
     abcd_d_target: float | None = None
     abcd_completion_pct: float | None = None
-
-    # VolumeProfilePlugin outputs
-    nearest_hvn_level: float | None = None
-    nearest_hvn_dist_atr: float | None = None
-    nearest_lvn_level: float | None = None
-    in_lvn: float | None = None
 
     # KeyLevelReactionPlugin outputs
     key_level_reaction_type: float | None = None
