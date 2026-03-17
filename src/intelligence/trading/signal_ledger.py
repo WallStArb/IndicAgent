@@ -249,6 +249,9 @@ def _build_feature_rows(
     Returns list of (signal_id, computed_at, feature_name, feature_value,
     feature_bucket, bucket_contribution) tuples.
     """
+    if not isinstance(features, dict):
+        return []
+
     contributions: dict[str, float] = {}
     if cis_result is not None and hasattr(cis_result, "constituent_contributions"):
         # Flatten: {bucket: {feature: score}} -> {feature: score}

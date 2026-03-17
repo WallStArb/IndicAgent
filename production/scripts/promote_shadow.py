@@ -98,6 +98,7 @@ async def main() -> None:
             SELECT outcome, is_shadow
             FROM signal_ledger
             WHERE outcome IS NOT NULL
+              AND timestamp >= NOW() - INTERVAL '30 days'
             ORDER BY timestamp DESC
             LIMIT 50000
         """)

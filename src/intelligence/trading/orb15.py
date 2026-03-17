@@ -82,7 +82,7 @@ class ORB15Plugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
-            return {}
+            return self._no_signal()
 
         # ── Extract timestamp ────────────────────────────────────────────────
         if "timestamp" not in df.columns:
@@ -112,6 +112,8 @@ class ORB15Plugin:
         if _in_window(et, _RANGE_START, _RANGE_END) and not state.get("range_complete"):
             bar_high = float(df["high"].iloc[-1])
             bar_low = float(df["low"].iloc[-1])
+            if "session_open" not in state:
+                state["session_open"] = float(df["open"].iloc[-1])
             state["orb_high"] = max(state.get("orb_high", -math.inf), bar_high)
             state["orb_low"] = min(state.get("orb_low", math.inf), bar_low)
             self._state[(symbol, tf)] = state
@@ -188,7 +190,7 @@ class ORB15Plugin:
         gap_boost = 0.0
         pdc = features.get("prior_session_close")
         if pdc is not None and isinstance(pdc, (int, float)) and float(pdc) > 0:
-            open_price = float(df["open"].iloc[0])
+            open_price = state.get("session_open") or float(df["open"].iloc[0])
             gap_pct = (open_price - float(pdc)) / float(pdc)
             if abs(gap_pct) > 0.001:
                 if (direction == 1 and gap_pct > 0) or (direction == -1 and gap_pct < 0):
