@@ -210,13 +210,14 @@ def test_fires_only_once_per_direction():
 
 
 def test_min_lookback_guard():
-    """Returns empty dict when df has fewer rows than min_lookback."""
+    """Returns no_signal when df has fewer rows than min_lookback."""
     from src.intelligence.trading.orb15 import ORB15Plugin
     plugin = ORB15Plugin()
     close = np.array([5000.0] * 5)
     ts = _ts_utc(10, 0)
     result = plugin.compute_full(_make_frames(close, _base_features(), ts))
-    assert result == {}
+    assert result.get("signal_type") == "none"
+    assert result.get("direction") == 0
 
 
 def test_module_level_plugin_instance():
