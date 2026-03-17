@@ -185,7 +185,7 @@ async def get_recent_signals(
                 sl.outcome,
                 sl.exit_price,
                 sl.pnl_r,
-                sl.signal_computed_at,
+                COALESCE(sl.signal_computed_at, sl.feature_ts) AS signal_computed_at,
                 sl.timeframe,
                 sl.symbol,
                 sp.win_rate   AS setup_win_rate,
@@ -195,7 +195,7 @@ async def get_recent_signals(
             WHERE ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
               {tier_clause}
-            ORDER BY sl.signal_computed_at DESC
+            ORDER BY COALESCE(sl.signal_computed_at, sl.feature_ts) DESC
             LIMIT $3
         """
         summary_query = """
