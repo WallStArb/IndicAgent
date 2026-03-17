@@ -20,13 +20,16 @@ import asyncio
 import sys
 from typing import Any
 
-WIN_OUTCOMES = frozenset({"target_1", "target_1_2", "target_full"})
+from src.config.settings import Settings
+from src.core.database_manager import DatabaseManager
+from src.intelligence.trading.signal_ledger import WIN_OUTCOMES
+
 MIN_SAMPLES = 200
 
 
 def run_promotion_test(
-    prod_signals: list[dict[str, Any]],
-    shadow_signals: list[dict[str, Any]],
+    prod_signals: list[Any],
+    shadow_signals: list[Any],
 ) -> int:
     """Run two-sample proportion z-test on production vs shadow signals.
 
@@ -45,8 +48,8 @@ def run_promotion_test(
         )
         return 1
 
-    prod_wins = sum(1 for r in prod_signals if r.get("outcome") in WIN_OUTCOMES)
-    shadow_wins = sum(1 for r in shadow_signals if r.get("outcome") in WIN_OUTCOMES)
+    prod_wins = sum(1 for r in prod_signals if r["outcome"] in WIN_OUTCOMES)
+    shadow_wins = sum(1 for r in shadow_signals if r["outcome"] in WIN_OUTCOMES)
 
     prod_wr = prod_wins / n_prod
     shadow_wr = shadow_wins / n_shadow
@@ -79,34 +82,30 @@ async def main() -> None:
     parser.add_argument(
         "--db-url",
         default=None,
-        help="Database URL (defaults to INDICAGENT_DATABASE_URL or DATABASE_URL env var)",
+        help="Database URL (defaults to DATABASE_URL env var via Settings)",
     )
     args = parser.parse_args()
 
-    db_url = args.db_url
-    if db_url is None:
-        import os
-        db_url = os.environ.get("INDICAGENT_DATABASE_URL") or os.environ.get("DATABASE_URL")
-    if db_url is None:
+    db_url = args.db_url or Settings().database_url
+    if not db_url:
         print("ERROR: No database URL. Set DATABASE_URL or pass --db-url.")
         sys.exit(2)
 
-    import asyncpg
-
-    conn = await asyncpg.connect(db_url)
+    db = DatabaseManager(db_url)
+    await db.initialize()
     try:
-        rows = await conn.fetch("""
+        rows = await db.execute_query("""
             SELECT outcome, is_shadow
             FROM signal_ledger
             WHERE outcome IS NOT NULL
             ORDER BY timestamp DESC
             LIMIT 50000
         """)
-        prod = [dict(r) for r in rows if not r["is_shadow"]]
-        shadow = [dict(r) for r in rows if r["is_shadow"]]
+        prod = [r for r in rows if not r["is_shadow"]]
+        shadow = [r for r in rows if r["is_shadow"]]
         exit_code = run_promotion_test(prod, shadow)
     finally:
-        await conn.close()
+        await db.close()
 
     sys.exit(exit_code)
 
