@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils import linreg_slope
 
 
 @dataclass
@@ -47,8 +48,8 @@ class VolumeDivergencePlugin:
 
         # Linear regression slopes over lookback window
         window = min(self.lookback, len(close))
-        price_slope = self._linreg_slope(close[-window:])
-        obv_slope = self._linreg_slope(obv[-window:])
+        price_slope = linreg_slope(close[-window:])
+        obv_slope = linreg_slope(obv[-window:])
 
         # Normalize slopes to percentage scale
         price_mean = float(np.mean(close[-window:]))
@@ -70,21 +71,17 @@ class VolumeDivergencePlugin:
 
         strength = max(bullish, bearish)
 
-        # OBV divergence -- computed explicitly from the OBV cumulative series via linreg
-        # (not aliased from vol_div_*; both derive from OBV but computed independently)
-        obv_slope_for_obv = self._linreg_slope(obv[-window:])
-        price_slope_for_obv = self._linreg_slope(close[-window:])
-
+        # OBV divergence — reuses already-computed slopes (same window, same series)
         obv_div_bullish = 0.0
         obv_div_bearish = 0.0
 
-        if price_slope_for_obv < 0 and obv_slope_for_obv > 0:
+        if price_slope < 0 and obv_slope > 0:
             # Price declining + OBV rising -> accumulation (bullish divergence)
-            obv_mag = abs(price_slope_for_obv) + abs(obv_slope_for_obv)
+            obv_mag = abs(price_slope) + abs(obv_slope)
             obv_div_bullish = min(1.0, 0.3 + obv_mag * 2.0)
-        elif price_slope_for_obv > 0 and obv_slope_for_obv < 0:
+        elif price_slope > 0 and obv_slope < 0:
             # Price rising + OBV declining -> distribution (bearish divergence)
-            obv_mag = abs(price_slope_for_obv) + abs(obv_slope_for_obv)
+            obv_mag = abs(price_slope) + abs(obv_slope)
             obv_div_bearish = min(1.0, 0.3 + obv_mag * 2.0)
 
         obv_div_strength = max(obv_div_bullish, obv_div_bearish)
@@ -100,19 +97,6 @@ class VolumeDivergencePlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _linreg_slope(y: np.ndarray) -> float:
-        """Simple linear regression slope: sum((x - x_mean)(y - y_mean)) / sum((x - x_mean)^2)."""
-        n = len(y)
-        if n < 2:
-            return 0.0
-        x = np.arange(n, dtype=float)
-        x_mean = (n - 1) / 2.0
-        y_mean = float(np.mean(y))
-        num = float(np.sum((x - x_mean) * (y - y_mean)))
-        den = float(np.sum((x - x_mean) ** 2))
-        return num / den if den != 0 else 0.0
 
 
 plugin = VolumeDivergencePlugin()

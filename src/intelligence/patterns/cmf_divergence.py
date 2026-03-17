@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils import linreg_slope
 
 
 @dataclass
@@ -54,8 +55,8 @@ class CMFDivergencePlugin:
 
         # Use linear regression slopes over lookback window
         window = min(self.lookback, n)
-        price_slope = self._linreg_slope(close[-window:])
-        cmf_slope = self._linreg_slope(cmf_series[-window:])
+        price_slope = linreg_slope(close[-window:])
+        cmf_slope = linreg_slope(cmf_series[-window:])
 
         bullish = 0.0
         bearish = 0.0
@@ -79,19 +80,6 @@ class CMFDivergencePlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _linreg_slope(y: np.ndarray) -> float:
-        """Simple linear regression slope: Σ((x - x̄)(y - ȳ)) / Σ((x - x̄)²)."""
-        n = len(y)
-        if n < 2:
-            return 0.0
-        x = np.arange(n, dtype=float)
-        x_mean = (n - 1) / 2.0
-        y_mean = float(np.mean(y))
-        num = float(np.sum((x - x_mean) * (y - y_mean)))
-        den = float(np.sum((x - x_mean) ** 2))
-        return num / den if den != 0 else 0.0
 
 
 plugin = CMFDivergencePlugin()
