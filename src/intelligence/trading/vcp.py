@@ -76,7 +76,7 @@ class VCPPlugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
-            return {}
+            return self._no_signal()
 
         # ── State ───────────────────────────────────────────────────────────
         state = self._state.get((symbol, tf), {})

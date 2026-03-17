@@ -78,7 +78,10 @@ class VolumeProfilePlugin:
         close_arr: np.ndarray,
         volume: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, float, float] | None:
-        """Build volume-weighted histogram. Returns (vol_hist, bucket_prices, bucket_size, price_min)."""
+        """Build volume-weighted histogram.
+
+        Returns (vol_hist, bucket_prices, bucket_size, price_min).
+        """
         typical = (high + low + close_arr) / 3.0
         price_min = float(low.min())
         price_max = float(high.max())
@@ -220,11 +223,7 @@ class VolumeProfilePlugin:
         if total_vol == 0:
             return {}
 
-        # Guard against empty nonzero volumes
         nonzero = s_vol_hist[s_vol_hist > 0]
-        if len(nonzero) == 0:
-            return {}
-
         poc_price, vah, val = self._compute_value_area(s_vol_hist, s_bucket_prices)
         directional = self._compute_directional_nodes(s_vol_hist, s_bucket_prices, close)
 
@@ -249,9 +248,17 @@ class VolumeProfilePlugin:
             if val is not None and vah is not None and val <= close <= vah
             else 0.0
         )
-        va_width_atr = (vah - val) / float(atr_14) if atr_valid and vah is not None and val is not None else None
-        distance_to_vah_atr = (vah - close) / float(atr_14) if atr_valid and vah is not None else None
-        distance_to_val_atr = (close - val) / float(atr_14) if atr_valid and val is not None else None
+        va_width_atr = (
+            (vah - val) / float(atr_14)
+            if atr_valid and vah is not None and val is not None
+            else None
+        )
+        distance_to_vah_atr = (
+            (vah - close) / float(atr_14) if atr_valid and vah is not None else None
+        )
+        distance_to_val_atr = (
+            (close - val) / float(atr_14) if atr_valid and val is not None else None
+        )
 
         # ----------------------------------------------------------------
         # Rolling track: last min(_ROLLING_WINDOW, len(df)) bars

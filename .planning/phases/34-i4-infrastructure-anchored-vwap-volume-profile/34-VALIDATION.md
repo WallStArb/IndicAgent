@@ -65,7 +65,7 @@ created: 2026-03-17
 - [ ] `tests/unit/intelligence/trading/test_lvn_breakout.py` — stubs for VOL-02
 
 Existing tests to UPDATE (not create):
-- `tests/unit/intelligence/test_i7_registration.py` — update count 23→28, total 104→109, add 5 plugin names
+- `tests/unit/intelligence/test_i7_registration.py` — update count 23→28, total 106→111, add 5 plugin names
 - `tests/unit/intelligence/test_i4_new_plugins.py` — add AVWAP/VP migration coverage
 - `tests/unit/intelligence/test_structure_plugins.py` — remove VWAP fields from I3 coverage
 - `tests/unit/intelligence/test_pattern_plugins.py` — remove VP fields from I5 coverage
