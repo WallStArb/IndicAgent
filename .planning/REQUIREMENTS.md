@@ -48,9 +48,9 @@
 
 - [ ] **PLUG-01**: New I7 plugin `trad_FailedBreakout` — price breaks key level (BOS/CHoCH confirmed) then reverses within N bars; one of the highest-conviction reversal setups; complementary to `trad_MomentumBreakout`; SoC: standalone plugin consuming existing BOS/CHoCH features
 - [ ] **PLUG-02**: New I7 plugin `trad_OpeningRangeBreakout` — 15-min and 30-min ORB with overnight gap directional bias and volume expansion gate; fires NY session only (09:30–11:30 ET); extension of session infrastructure from `session_extremes_setup`
-- [ ] **PLUG-03**: New I7 plugin `trad_PrevDayLevelTest` — PDH/PDL/PDC (previous day high/low/close) fade or breakout-continuation setups; institutional magnet levels; PDH/PDL computed from `bar_history` rolling window in `signal_generator_service`; regime-gated
-- [ ] **PLUG-04**: New I7 plugin `trad_SecondLegContinuation` — detects leg 1 + pullback to Fibonacci retracement (38.2%–61.8%) → leg 2 entry signal; measured move targets at 100%, 127.2%, 161.8% of leg 1 amplitude; requires swing detection from I3
-- [ ] **PLUG-05**: New I7 plugin `trad_VCP` (Volatility Contraction Pattern) — 3+ successive range contractions with decreasing volume → breakout entry on first expansion bar; directional bias from HMM regime; momentum-regime gated
+- [x] **PLUG-03**: New I7 plugin `trad_PrevDayLevelTest` — PDH/PDL/PDC (previous day high/low/close) fade or breakout-continuation setups; institutional magnet levels; PDH/PDL computed from `bar_history` rolling window in `signal_generator_service`; regime-gated
+- [x] **PLUG-04**: New I7 plugin `trad_SecondLegContinuation` — detects leg 1 + pullback to Fibonacci retracement (38.2%–61.8%) → leg 2 entry signal; measured move targets at 100%, 127.2%, 161.8% of leg 1 amplitude; requires swing detection from I3
+- [x] **PLUG-05**: New I7 plugin `trad_VCP` (Volatility Contraction Pattern) — 3+ successive range contractions with decreasing volume → breakout entry on first expansion bar; directional bias from HMM regime; momentum-regime gated
 
 ### VWAP — Anchored VWAP
 
@@ -150,9 +150,9 @@
 | DIV-04 | Phase 32 | Pending |
 | PLUG-01 | Phase 33 | Pending |
 | PLUG-02 | Phase 33 | Pending |
-| PLUG-03 | Phase 33 | Pending |
-| PLUG-04 | Phase 33 | Pending |
-| PLUG-05 | Phase 33 | Pending |
+| PLUG-03 | Phase 33 | Complete |
+| PLUG-04 | Phase 33 | Complete |
+| PLUG-05 | Phase 33 | Complete |
 | VWAP-01 | Phase 34 | Pending |
 | VWAP-02 | Phase 34 | Pending |
 | VOL-01 | Phase 34 | Pending |
