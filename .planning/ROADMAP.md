@@ -11,6 +11,7 @@
 - ✅ **v1.6 Signal Quality** — Phases 23-24 (shipped 2026-03-10)
 - ✅ **v1.7 Data Integrity** — Phases 25-27 (shipped 2026-03-12)
 - ✅ **v1.8 Signal Intelligence** — Phases 28-29 (shipped 2026-03-13)
+- 🔄 **v1.9 I7 Alpha Engine** — Phases 31-37 (in progress)
 
 ## Phases
 
@@ -119,6 +120,25 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 Full details: `.planning/milestones/v1.8-ROADMAP.md`
 
 </details>
+
+<details>
+<summary>✅ Phase 30: Redpanda Migration — SHIPPED 2026-03-14</summary>
+
+- [x] **Phase 30: Redpanda Migration** — Replace DragonflyDB with Redpanda across all 8 services; pure transport-layer migration (5/5 plans) — completed 2026-03-14
+
+</details>
+
+---
+
+### v1.9 I7 Alpha Engine — In Progress
+
+- [ ] **Phase 31: CIS Learning Loop + Signal Feature Snapshots** - Self-improving CIS with DB weight loading, binary win labels, asset-cluster segmentation, and mid-bar feature snapshots for ML training
+- [ ] **Phase 32: Stop Architecture + Extended Divergence Stack** - Structure-first stop placement centralized in trade_framer.py (all 17 plugins inherit), Chandelier trailing stop, staleness score, and 5-input divergence convergence scoring
+- [ ] **Phase 33: Five New I7 Signal Plugins** - FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP — covering reversal, session, level-test, and contraction setups
+- [ ] **Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile** - Two new I4 computation plugins plus two I7 setups consuming them
+- [ ] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score
+- [ ] **Phase 36: Microstructure Plugins** - OFI and CVD as I1 features plus two new I7 plugins consuming order-flow signals
+- [ ] **Phase 37: Cross-Asset Intelligence Service** - New cross_asset_service microservice, equity spread features, and CrossAssetDivergence I7 plugin
 
 ## Phase Details
 
@@ -230,6 +250,88 @@ Plans:
 - [x] 30-04-PLAN.md — Writer Services + API/SSE: feature_writer, llm_writer, SSE broadcaster fan-out
 - [x] 30-05-PLAN.md — Cache Migration + DragonflyDB Removal + E2E Validation
 
+---
+
+### Phase 31: CIS Learning Loop + Signal Feature Snapshots
+**Goal**: The CIS scorer self-improves — loading learned weights from DB at runtime, training on binary win/loss labels, segmenting by asset cluster and timeframe, and capturing mid-bar feature snapshots for every new signal as the ML training dataset foundation.
+**Depends on**: Phase 30 (Redpanda pipeline live, weight_updater.py exists, cis_weights table exists)
+**Requirements**: LEARN-01, LEARN-02, LEARN-03, LEARN-04, FEAT-01, FEAT-02, SHAD-01, SHAD-02
+**Success Criteria** (what must be TRUE):
+  1. After `weight_updater` timer runs with N ≥ 100 resolved signals in a cluster, CIS scorer loads those weights from DB on next 30-min refresh cycle — observable via service log "Loaded weights from DB for cluster=eq_index tf=1m" rather than the bootstrap fallback message.
+  2. `signal_features` rows appear in TimescaleDB atomically with every new `signal_ledger` row — a query joining the two tables on `signal_id` returns zero NULL feature rows for signals fired after the migration.
+  3. `signal_ledger` has an `is_shadow BOOLEAN NOT NULL DEFAULT FALSE` column; shadow signals written alongside production signals share the same bar timestamp and are distinguishable by this field alone.
+  4. The CLI promotion script exits non-zero when given fewer than 200 matched pairs and prints a human-readable reason; exits zero and prints "PROMOTED" only when p < 0.05 AND N ≥ 200.
+  5. `cis_weights` rows have non-NULL `asset_cluster` and `timeframe` values; the five cluster values (`eq_index`, `commodity`, `rates`, `crypto`, `ag`) cover all 60 active instruments with no unassigned symbols.
+**Plans**: TBD
+
+### Phase 32: Stop Architecture + Extended Divergence Stack
+**Goal**: Every signal carries a verifiable stop basis — structural snap, GARCH-adaptive, or ATR static — computed once in `trade_framer.py` so all 17 plugins inherit it without change, while the divergence stack expands from a hard AND-gate to a 5-input weighted convergence score.
+**Depends on**: Phase 31 (learning loop active, signal_features schema in place)
+**Requirements**: SIG-01, SIG-02, SIG-03, SIG-04, SIG-05, DIV-01, DIV-02, DIV-03, DIV-04
+**Success Criteria** (what must be TRUE):
+  1. Every row in `signal_ledger` has a non-NULL `stop_basis` field with one of three values: `"structure_snap"`, `"garch_adaptive"`, or `"atr_static"` — verifiable by querying `SELECT DISTINCT stop_basis FROM signal_ledger WHERE computed_at > now() - interval '1 hour'`.
+  2. `structure_snap` fires when an OB low, demand zone boundary, swing low, or FVG low exists within 1.5×ATR of the raw ATR stop level — and logs the structural level used; no per-plugin stop logic remains outside `trade_framer.py`.
+  3. Active signals show a `trailing_stop_price` logged per lifecycle update in `signal_lifecycle_service` — the value tightens monotonically (Chandelier: `highest_high_since_entry - 3×ATR` for longs) and never widens.
+  4. Signals with an expired regime or vol-drift beyond threshold receive outcome `condition_expired` — observable in `signal_ledger` after a simulated regime flip in a replay run.
+  5. `DivergenceStackPlugin` fires when weighted convergence score > 0.40 AND n_agreeing ≥ 3 across RSI, MACD histogram, volume, OBV, and CMF inputs — with individual weights (0.30, 0.25, 0.20, 0.15, 0.10) logged on each fire.
+**Plans**: TBD
+
+### Phase 33: Five New I7 Signal Plugins
+**Goal**: Five market conditions previously invisible to I7 — failed breakouts, opening range setups, previous-day level tests, second-leg continuations, and volatility contractions — are now covered by registered plugins that fire in replay runs.
+**Depends on**: Phase 32 (stop architecture and divergence stack complete; BOS/CHoCH features available from SMC tier; swing detection from I3)
+**Requirements**: PLUG-01, PLUG-02, PLUG-03, PLUG-04, PLUG-05
+**Success Criteria** (what must be TRUE):
+  1. `TIER_I7` in `register_plugins.py` contains all five new plugin names; `registry.validate_tier()` passes without error on service startup.
+  2. Each of the five plugins fires at least once in a historical replay run over a one-week window on ES/NQ 1m — observable via `SELECT setup_plugin, COUNT(*) FROM signal_ledger WHERE computed_at > now() - interval '7 days' GROUP BY setup_plugin` showing non-zero rows for each new setup name.
+  3. `trad_OpeningRangeBreakout` fires only between 09:30 and 11:30 ET — no signals appear outside this window in the replay output.
+  4. `trad_SecondLegContinuation` sets targets at 100%, 127.2%, and 161.8% of leg 1 amplitude — verifiable in signal_ledger `target_1`, `target_2` fields.
+  5. `trad_VCP` requires three or more successive range contractions with decreasing volume before firing — the contraction count is logged in signal metadata.
+**Plans**: TBD
+
+### Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile
+**Goal**: Anchored VWAP and Volume Profile are live I4 features in every `IntelligenceEvent`, enabling two new I7 plugins that trade VWAP extensions and volume-node reactions.
+**Depends on**: Phase 33 (TIER_I7 plugin count stable; I4 DAG ordering confirmed clean)
+**Requirements**: VWAP-01, VWAP-02, VOL-01, VOL-02
+**Success Criteria** (what must be TRUE):
+  1. `intelligence_features` rows for ES/NQ 1m bars contain non-NULL `avwap_session`, `avwap_swing`, `avwap_deviation_pct`, `poc_price`, `vah`, and `val` fields after the migration — verifiable by querying one recent feature row.
+  2. `trad_AnchoredVWAPReversion` fires only when price is extended more than 1.5 std from anchored VWAP AND HMM regime is ranging AND Hurst < 0.55 — regime and Hurst values logged on each fire for auditability.
+  3. `trad_VolumeProfileReaction` fires in all three variants (POC rejection, HVN rejection, LVN breakout) across a one-week replay window — each variant label appears in signal_ledger metadata.
+  4. Both new I7 plugins appear in `TIER_I7` and pass `registry.validate_tier()` at startup.
+**Plans**: TBD
+
+### Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter
+**Goal**: Signal confidence is calibrated against historical outcomes, adjusted by time-of-day win rates, and smoothed through a Kalman filter — making every confidence number a reliable probability estimate rather than a raw score.
+**Depends on**: Phase 34 (full plugin set stable; `signal_ledger` accumulating data; `setup_performance` table populated)
+**Requirements**: CAL-01, CAL-02, CAL-03, TOD-01, TOD-02, KAL-01, KAL-02
+**Success Criteria** (what must be TRUE):
+  1. `signal_ledger` rows contain a non-NULL `calibrated_confidence` field for signals where the isotonic regression calibration curve exists (N ≥ 100 per plugin/TF); signals without sufficient history fall back to raw confidence gracefully.
+  2. TOD multiplier varies by hour in service logs — a signal fired at 09:30 ET shows a different multiplier than the same setup at 12:00 ET, observable via `grep "tod_multiplier"` in the signal_generator log.
+  3. `filtered_cis_score` and `raw_cis_score` are both logged per signal; the updated fire condition (`filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing ≥ 3`) is enforced — signals that would have fired under the old condition but fail the new one are suppressed.
+  4. The calibration batch job runs alongside the weight_updater timer without conflict — both complete without error in a single timer execution cycle.
+**Plans**: TBD
+
+### Phase 36: Microstructure Plugins
+**Goal**: Order flow imbalance and cumulative volume delta are live I1 features and drive two new I7 plugins, giving the system its first microstructure signal layer.
+**Depends on**: Phase 35 (calibration and Kalman filter in place; signal confidence pipeline stable before adding new firing sources)
+**Requirements**: OFI-01, OFI-02, OFI-03, CVD-01, CVD-02
+**Success Criteria** (what must be TRUE):
+  1. `intelligence_features` rows for all active instruments contain non-NULL `ofi_ewma_20`, `ofi_divergence`, `cvd`, `cvd_slope_5bar`, and `cvd_divergence` fields — or the implementation variant (bar-level proxy vs tick) is documented in a comment and the OFI audit result is logged at service startup.
+  2. `trad_OrderFlowImbalance` and `trad_CVDDivergence` appear in `TIER_I7`; `registry.validate_tier()` passes; both plugins fire at least once in a one-week replay on ES 1m.
+  3. `trad_CVDDivergence` logs a `dual_divergence=True` flag when both CVD and OFI diverge simultaneously — the highest-conviction variant is distinguishable in signal_ledger metadata.
+  4. The bar-level OFI proxy formula `(close - low) / (high - low + ε) × volume` is used as fallback when tick data is unavailable, with the implementation variant documented in `OFI-01` audit output.
+**Plans**: TBD
+
+### Phase 37: Cross-Asset Intelligence Service
+**Goal**: A new `cross_asset_service` microservice monitors equity index spread dynamics across ES, NQ, RTY, and YM and publishes cross-asset divergence signals when spread z-scores exceed meaningful thresholds.
+**Depends on**: Phase 36 (microstructure layer complete; all I7 plugins stable before adding a new microservice dependency)
+**Requirements**: XA-01, XA-02, XA-03
+**Success Criteria** (what must be TRUE):
+  1. `indicagent-cross-asset` systemd service starts, subscribes to `intelligence:ES:1m`, `intelligence:NQ:1m`, `intelligence:RTY:1m`, and `intelligence:YM:1m` Redpanda topics, and publishes to `cross_asset:EQ_INDEX:1m` — observable via `rpk topic consume cross_asset.EQ_INDEX.1m` showing live messages.
+  2. `es_nq_spread_z`, `es_rty_spread_z`, and `eq_corr_break` appear as fields in the cross-asset topic payload — verifiable by consuming one message and inspecting the JSON keys.
+  3. `trad_CrossAssetDivergence` fires in `signal_generator_service` when `|spread_z| > 2.0` — at least one fire is observable in a replay run with an injected spread event; the signal's direction reflects regime bias (reversion in ranging, continuation in trending).
+  4. The new service is registered in `CLAUDE.md` service table with its metrics port and in the systemd unit file inventory.
+**Plans**: TBD
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
@@ -255,7 +357,6 @@ Re-prioritized 2026-03-15 after v1.8 shipped.
 | ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
 | Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | `.planning/todos/pending/2026-03-04-add-gap-fill-service.md` |
 | Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | `.planning/todos/pending/2026-03-04-add-roll-premium-discount-feature.md` |
-| Volume Profile POC/VAH/VAL | Session volume profile as S/R anchors — I1 plugin. POC = magnetic price level, VAH/VAL = range boundaries for breakout/rejection setups. | `.planning/todos/pending/2026-02-27-add-volume-profile-poc-vah-val-as-sr-anchors.md` |
 | Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | `.planning/todos/pending/2026-02-27-add-multi-timeframe-sr-awareness-to-signal-plugins.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
 | Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | `.planning/todos/pending/2026-02-28-offload-plugin-pipeline-to-thread-pool.md` |
@@ -277,7 +378,7 @@ Re-prioritized 2026-03-15 after v1.8 shipped.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phases 25-27 shipped. v1.8: phases 28-29 shipped. Phase 30 (Redpanda Migration): complete 2026-03-14. Next: `/gsd:new-milestone` to define v1.9.
+Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Phase 30 (Redpanda Migration): complete 2026-03-14. v1.9 (Phases 31-37): in progress.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -321,3 +422,10 @@ Phases execute in numeric order: 0-24 complete (v1.0–v1.6 shipped). v1.7: phas
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
+| 31. CIS Learning Loop + Signal Feature Snapshots | v1.9 | 0/TBD | Not started | - |
+| 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/TBD | Not started | - |
+| 33. Five New I7 Signal Plugins | v1.9 | 0/TBD | Not started | - |
+| 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
+| 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
+| 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
+| 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
