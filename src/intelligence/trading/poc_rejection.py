@@ -11,7 +11,7 @@ Renaissance principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -61,7 +61,6 @@ class POCRejectionPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "mean_reversion"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=120),)
     regime_type: str = "mean_reversion"
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -106,12 +105,16 @@ class POCRejectionPlugin:
             rsi_div_ok = rsi_div_bullish > _DIV_THRESHOLD
             stoch_ok = stoch_k < _STOCH_OVERSOLD
             reversal_ok = rsi_div_ok or stoch_ok
-            reversal_strength = max(rsi_div_bullish, (30.0 - stoch_k) / 30.0 if stoch_k < 30 else 0.0)
+            reversal_strength = max(
+                rsi_div_bullish, (30.0 - stoch_k) / 30.0 if stoch_k < 30 else 0.0
+            )
         else:
             rsi_div_ok = rsi_div_bearish > _DIV_THRESHOLD
             stoch_ok = stoch_k > _STOCH_OVERBOUGHT
             reversal_ok = rsi_div_ok or stoch_ok
-            reversal_strength = max(rsi_div_bearish, (stoch_k - 70.0) / 30.0 if stoch_k > 70 else 0.0)
+            reversal_strength = max(
+                rsi_div_bearish, (stoch_k - 70.0) / 30.0 if stoch_k > 70 else 0.0
+            )
 
         if not reversal_ok:
             return self._no_signal()

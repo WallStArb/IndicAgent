@@ -653,6 +653,7 @@ def _make_service():
     svc._chandelier_state = {}
     svc._staleness_consecutive = {}
     svc._shadow_signals = {}
+    svc._pending_tasks = set()
     svc.db_manager = AsyncMock()
     svc.db_manager.execute_command = AsyncMock()
     svc._kafka_producer = None
@@ -749,8 +750,9 @@ class TestMarketTrackResolution:
 class TestBarTimeVsNow:
     def test_bars_in_trade_uses_bar_time_not_now(self):
         """_bars_in_trade for market track must use bar_time, not datetime.now()."""
-        from services.signal_lifecycle_service import _bars_in_trade
         from datetime import UTC, datetime
+
+        from services.signal_lifecycle_service import _bars_in_trade
         activated = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
         bar_time = datetime(2026, 3, 14, 10, 5, 0, tzinfo=UTC)  # 5 bars later at 1m
         result = _bars_in_trade(activated, bar_time, "1m")

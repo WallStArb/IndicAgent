@@ -12,7 +12,7 @@ Renaissance principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -55,7 +55,6 @@ class LVNBreakoutPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "trend"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=120),)
     regime_type: str = "trend"
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
@@ -186,7 +185,7 @@ class LVNBreakoutPlugin:
 
         # ── Supporting factors ────────────────────────────────────────────────
         supporting: list[str] = [
-            f"in_lvn=1.0",
+            "in_lvn=1.0",
             f"lvn_width_atr={lvn_width_atr:.3f}",
             f"lvn_breakout_volume_ratio={volume_ratio:.2f}",
         ]

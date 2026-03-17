@@ -270,7 +270,8 @@ def test_insufficient_lookback_returns_empty():
     df = make_ohlcv(close)
     frames = {"main": df, "features": _base_features(), "__symbol__": "ES", "__timeframe__": "1m"}
     result = plugin.compute_full(frames)
-    assert result == {}
+    assert result["signal_type"] == "none"
+    assert result["direction"] == 0
 
 
 def test_plugin_instance_exists():
