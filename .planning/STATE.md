@@ -4,8 +4,8 @@ milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
 stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-03-17T10:48:14.842Z"
-last_activity: 2026-03-17 — 32-02 executed (Chandelier trailing stop, staleness score, condition_expired, shadow tracking; lifecycle_tracker pure; 65 tests pass)
+last_updated: "2026-03-17T10:54:08.913Z"
+last_activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
 progress:
   total_phases: 13
   completed_phases: 3
