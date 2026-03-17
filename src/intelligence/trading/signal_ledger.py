@@ -81,14 +81,16 @@ class LedgerEntry:
     bars_in_trade: int | None = None
     outcome: str | None = None
     # Market-entry parallel track — Phase 1 field set at INSERT
-    market_entry_price: float | None = None  # ask (long) / bid (short) at signal fire; NULL if unavailable
+    # ask (long) / bid (short) at signal fire; NULL if unavailable
+    market_entry_price: float | None = None
     # Shadow signal flag — A/B matched-pair comparison (Phase 31)
     is_shadow: bool = False
     # Stop basis fields — Phase 32 stop architecture (all nullable; NULL for pre-migration rows)
     stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
     stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
     stop_structure_age_bars: int | None = None  # bars since structural level was formed
-    structural_stop_distance_atr: float | None = None  # |structural_stop - atr_fallback| / effective_atr
+    # |structural_stop - atr_fallback| / effective_atr
+    structural_stop_distance_atr: float | None = None
     # Fire-time point-in-time snapshots
     hmm_regime_at_fire: int | None = None  # HMM regime integer at signal fire
     garch_sigma_at_fire: float | None = None  # instantaneous GARCH σ at signal fire
@@ -160,7 +162,10 @@ class LedgerEntry:
             self.hmm_regime_at_fire,            # $44
             self.garch_sigma_at_fire,           # $45
             self.chandelier_vol_source,         # $46
-            json.dumps(self.trailing_stop_price) if self.trailing_stop_price is not None else None,  # $47::jsonb
+            # $47::jsonb — trailing stop path [{ts, price}]
+            json.dumps(self.trailing_stop_price)
+            if self.trailing_stop_price is not None
+            else None,
             self.trailing_stop_tightening_rate, # $48
             self.staleness_score,               # $49
             self.staleness_trigger_reason,      # $50
