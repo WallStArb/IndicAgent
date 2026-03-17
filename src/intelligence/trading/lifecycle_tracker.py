@@ -13,6 +13,13 @@ from typing import Any
 
 OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2  # bars_in_trade <= this → stopped_at_entry
 
+# Staleness score constants — tune after 90 days of outcome data
+STALENESS_REGIME_WEIGHT = 0.6  # weight of HMM regime drift component
+STALENESS_SIGMA_WEIGHT = 0.4   # weight of GARCH sigma ratio component
+STALENESS_SIGMA_SCALE = 3.0    # sigma ratio at which sigma_component reaches 1.0
+STALENESS_SCORE_THRESHOLD = 0.5          # score above which a bar counts as "stale"
+STALENESS_CONSECUTIVE_THRESHOLD = 3     # consecutive stale bars before condition_expired
+
 
 # ---------------------------------------------------------------------------
 # Chandelier Trailing Stop
@@ -84,13 +91,17 @@ def compute_staleness_score(
         and garch_sigma_now > 0
     ):
         sigma_ratio = garch_sigma_now / garch_sigma_at_fire
-        sigma_component = min(1.0, math.log(max(sigma_ratio, 1.0)) / math.log(3.0))
+        sigma_component = min(
+            1.0, math.log(max(sigma_ratio, 1.0)) / math.log(STALENESS_SIGMA_SCALE)
+        )
     else:
         sigma_component = 0.0
 
-    score = round(0.6 * regime_drift + 0.4 * sigma_component, 4)
+    score = round(
+        STALENESS_REGIME_WEIGHT * regime_drift + STALENESS_SIGMA_WEIGHT * sigma_component, 4
+    )
 
-    if regime_drift > 0 and sigma_component >= 0.5:
+    if regime_drift > 0 and sigma_component >= STALENESS_SCORE_THRESHOLD:
         reason = "both"
     elif regime_drift > 0:
         reason = "hmm_regime_flip"
@@ -240,7 +251,10 @@ def evaluate_signal(
                     )
 
         # --- Staleness condition_expired check (3-bar confirmation) ---
-        if staleness_consecutive_bars >= 3 and staleness_score > 0.5:
+        if (
+            staleness_consecutive_bars >= STALENESS_CONSECUTIVE_THRESHOLD
+            and staleness_score > STALENESS_SCORE_THRESHOLD
+        ):
             pnl_ticks = (close - entry) * direction
             pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
             pnl_dollars = round(pnl_ticks * point_value, 2)

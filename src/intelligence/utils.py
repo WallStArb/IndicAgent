@@ -86,6 +86,23 @@ def clamp(value: float, min_val: float = -1.0, max_val: float = 1.0) -> float:
     return max(min_val, min(max_val, value))
 
 
+def linreg_slope(y: np.ndarray) -> float:
+    """Simple linear regression slope: Σ((x - x̄)(y - ȳ)) / Σ((x - x̄)²).
+
+    Returns 0.0 for arrays with fewer than 2 elements or zero denominator.
+    Used by divergence plugins (VolumeDivergence, MACDDivergence, CMFDivergence).
+    """
+    n = len(y)
+    if n < 2:
+        return 0.0
+    x = np.arange(n, dtype=float)
+    x_mean = (n - 1) / 2.0
+    y_mean = float(np.mean(y))
+    num = float(np.sum((x - x_mean) * (y - y_mean)))
+    den = float(np.sum((x - x_mean) ** 2))
+    return num / den if den != 0 else 0.0
+
+
 def utc_datetime_from_df(df: Any) -> datetime | None:
     """Extract a timezone-aware UTC datetime from the last bar's timestamp column.
 

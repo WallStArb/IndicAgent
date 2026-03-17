@@ -659,7 +659,7 @@ class SignalLifecycleService:
                 if trailing_stop is not None:
                     history = ch_state.setdefault("history", [])
                     history.append({"ts": bar_time.isoformat(), "price": trailing_stop})
-                    # Cap at 20 entries — tightening_rate only needs last 5; prevents unbounded growth
+                    # Cap at 20 entries — tightening_rate only needs last 5
                     if len(history) > 20:
                         del history[:-20]
                     tightening_rate = _compute_tightening_rate(history)
