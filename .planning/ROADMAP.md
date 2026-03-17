@@ -11,7 +11,7 @@
 - ✅ **v1.6 Signal Quality** — Phases 23-24 (shipped 2026-03-10)
 - ✅ **v1.7 Data Integrity** — Phases 25-27 (shipped 2026-03-12)
 - ✅ **v1.8 Signal Intelligence** — Phases 28-29 (shipped 2026-03-13)
-- 🔄 **v1.9 I7 Alpha Engine** — Phases 31-37 (in progress)
+- 🔄 **v1.9 I7 Alpha Engine** — Phases 31-38 (in progress)
 
 ## Phases
 
@@ -351,6 +351,23 @@ Plans:
   3. `trad_CrossAssetDivergence` fires in `signal_generator_service` when `|spread_z| > 2.0` — at least one fire is observable in a replay run with an injected spread event; the signal's direction reflects regime bias (reversion in ranging, continuation in trending).
   4. The new service is registered in `CLAUDE.md` service table with its metrics port and in the systemd unit file inventory.
 **Plans**: TBD
+
+### Phase 38: Automated Futures Roll Detection
+**Goal**: The TWS daemon automatically detects futures roll events using volume-based statistical analysis and propagates roll events through the pipeline without service restarts, ensuring continuous data capture across contract transitions.
+**Depends on**: Phase 34 (I4 infrastructure stable; contract data flowing reliably)
+**Requirements**: ROLL-01, ROLL-02, ROLL-03, ROLL-04, ROLL-05, ROLL-06
+**Success Criteria** (what must be TRUE):
+  1. `contract_metadata` table has `is_front_month`, `roll_gap`, `roll_direction`, `roll_detected_at`, `confirmation_count` columns and `system_events` table exists — verifiable via `\d contract_metadata` and `\d system_events` in psql.
+  2. `derive_roll_chain("ES")` returns a 3-contract list with correct month codes and `roll_from`/`roll_to` linkage — verifiable by unit test.
+  3. With `ROLL_MONITOR_ENABLED=false` (default), the system behaves identically to current behavior — no roll events published, services use `Settings().contracts` — verifiable by confirming no `system_events` rows exist after a normal run.
+  4. With `ROLL_MONITOR_ENABLED=true` and a simulated volume shift, tws_daemon logs "Roll detected" and `contract_metadata.is_front_month` toggles after 3 confirmation bars — verifiable in logs and DB.
+  5. Roll boundary marker (`{"roll_boundary": "ESM6->ESU6"}`) appears in `intelligence_features.i7` JSONB for the bar at roll time — verifiable by querying `intelligence_features` near roll timestamp.
+**Plans**: 3 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — DB foundation: migration 037, roll chain utility, DB-backed get_active_contracts(), stream key (ROLL-01, ROLL-02, ROLL-03)
+- [ ] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
+- [ ] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
 ## Backlog
 
