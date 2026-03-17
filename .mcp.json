@@ -8,7 +8,7 @@
       "command": "npx",
       "args": ["-y", "brave-search-mcp"],
       "env": {
-        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+        "BRAVE_API_KEY": "BSAiqDNl0xM1ws4F-X6La7MJjIdpdS8"
       }
     }
   }

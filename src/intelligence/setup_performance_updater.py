@@ -59,12 +59,12 @@ def compute_setup_performance(rows: list[dict]) -> dict[str, dict]:
         pnl_r = row.get("pnl_r")
         if pnl_r is None:
             continue
-        resolved_at = row.get("resolved_at")
-        if resolved_at is not None:
+        exit_at = row.get("exit_at")
+        if exit_at is not None:
             # Ensure timezone-aware comparison
-            if resolved_at.tzinfo is None:
-                resolved_at = resolved_at.replace(tzinfo=UTC)
-            if resolved_at <= cutoff:
+            if exit_at.tzinfo is None:
+                exit_at = exit_at.replace(tzinfo=UTC)
+            if exit_at <= cutoff:
                 continue
         setup_plugin = row.get("setup_plugin")
         if not setup_plugin:
@@ -133,10 +133,10 @@ async def run_setup_performance_update(
         DatabaseManager instance with execute_query / execute_command methods.
     """
     rows = await db_manager.execute_query("""
-        SELECT setup_plugin, pnl_r
+        SELECT setup_plugin, pnl_r, exit_at
         FROM signal_ledger
         WHERE pnl_r IS NOT NULL
-          AND resolved_at > now() - INTERVAL '30 days'
+          AND exit_at > now() - INTERVAL '30 days'
           AND setup_plugin IS NOT NULL
         ORDER BY setup_plugin
         """)

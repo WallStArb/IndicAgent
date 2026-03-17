@@ -124,23 +124,11 @@ I5_PLUGINS = [
     "Confluence",
     "TrendConfluence",
 ]
-SMC_PLUGINS = [
-    "smc_BOSCHoCH",
-    "smc_FairValueGap",
-    "smc_OrderBlocks",
-    "smc_LiquiditySweeps",
-    "smc_BOCPDChangePoint",
-]
-I6_PLUGINS = ["i6_CrossTimeframeConfluence"]
-I7_PLUGINS = [
-    "trad_TrendFollowing",
-    "trad_MeanReversion",
-    "trad_LiquiditySweepReclaim",
-    "trad_MTFAlignment",
-    "trad_SqueezeExpansion",
-    "trad_VWAPDeviation",
-    "trad_MomentumBreakout",
-]
+from src.intelligence.register_plugins import TIER_SMC, TIER_I6, TIER_I7
+
+SMC_PLUGINS = TIER_SMC
+I6_PLUGINS = TIER_I6
+I7_PLUGINS = TIER_I7
 
 MIN_BARS = 50
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
