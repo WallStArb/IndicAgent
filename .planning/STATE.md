@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: "Phase 31 complete — all 3 plans done"
+status: completed
 stopped_at: Completed 031-03-PLAN.md
-last_updated: "2026-03-17T02:35:00.000Z"
-last_activity: 2026-03-17 — 031-03 executed (is_shadow, _build_feature_rows, atomic signal_features write, promote_shadow.py CLI)
+last_updated: "2026-03-17T01:42:13.291Z"
+last_activity: 2026-03-17 — 031-03 executed (is_shadow field, _build_feature_rows, atomic signal_features write, promote_shadow.py CLI gate)
 progress:
   total_phases: 13
   completed_phases: 1
