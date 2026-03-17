@@ -63,6 +63,16 @@ TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h":
 # For all higher TFs ts is the period start; close = ts + duration.
 TF_DURATIONS: dict[str, int] = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
+# Per-TF signal TTL (bars). Lifecycle evaluation window per timeframe.
+# 1m=20 min, 5m=60 min, 15m=2 hr, 1h=6 hr.
+# Single source of truth — imported by signal_generator_service and lifecycle_replay.
+TF_TTL_BARS: dict[str, int] = {
+    "1m": 20,
+    "5m": 12,
+    "15m": 8,
+    "1h": 6,
+}
+
 
 def bar_close_ts(ts: datetime, tf: str) -> datetime:
     """Return actual bar close time.

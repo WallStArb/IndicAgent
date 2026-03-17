@@ -199,3 +199,67 @@ class TestTrackComparisonInvariants:
         # Should not raise
         validate_track_pair(zone_outcome="never_activated",
                             market_outcome="target_full")
+
+
+# ── Chunk 1: TF_TTL_BARS constant location ────────────────────────────────
+
+
+@pytest.mark.unit
+class TestTTLConstants:
+    def test_tf_ttl_bars_available_in_service_utils(self):
+        from src.core.service_utils import TF_TTL_BARS
+        assert TF_TTL_BARS["1m"] == 20
+        assert TF_TTL_BARS["5m"] == 12
+        assert TF_TTL_BARS["15m"] == 8
+        assert TF_TTL_BARS["1h"] == 6
+
+    def test_replay_imports_from_service_utils(self):
+        """Replay must not define its own TF_TTL_BARS — must import from service_utils."""
+        import inspect
+        from production.scripts import lifecycle_replay
+        source = inspect.getsource(lifecycle_replay)
+        assert "TF_TTL_BARS: dict" not in source  # no local definition
+        assert "TF_TTL_BARS" in source             # it is used
+
+
+# ── Chunk 2: TTL injection + bars_in_trade ────────────────────────────────
+
+
+@pytest.mark.unit
+class TestTTLInjection:
+    def test_1m_signal_uses_ttl_20_after_injection(self):
+        from src.core.service_utils import TF_TTL_BARS
+        sig = _sig(signal_id="ttl-test-1")
+        sig.pop("ttl_bars", None)
+        sig["ttl_bars"] = TF_TTL_BARS.get("1m", 10)
+        assert sig["ttl_bars"] == 20
+
+    def test_15m_signal_uses_ttl_8_after_injection(self):
+        from src.core.service_utils import TF_TTL_BARS
+        sig = _sig()
+        sig.pop("ttl_bars", None)
+        sig["ttl_bars"] = TF_TTL_BARS.get("15m", 10)
+        assert sig["ttl_bars"] == 8
+
+    def test_resolve_at_end_of_bars_respects_injected_ttl(self):
+        replay = _get_replay()
+        sig = _sig(signal_id="ttl-eob", ttl_bars=20)
+        last_bar = _bar(BASE_TS + timedelta(minutes=25), 5110, 5090, 5100)
+        result = replay.resolve_at_end_of_bars(
+            sig, last_bar,
+            tf_seconds=60,
+            zone_mfe=0.5,
+            market_mfe=0.3,
+            zone_activated=False,
+            market_entry_price=5100.0,
+        )
+        # market_bit = min(bars_elapsed, ttl_bars) = min(25, 20) = 20
+        assert result["market_entry_bars_in_trade"] == 20
+
+    def test_handle_no_data_uses_injected_ttl(self):
+        replay = _get_replay()
+        sig = _sig(signal_id="no-data-ttl", ttl_bars=20)
+        result = replay.handle_no_data(sig)
+        expected_exit = sig["timestamp"] + timedelta(seconds=20 * 60)
+        assert result["exit_at"] == expected_exit
+        assert result["zone_exit_at"] == expected_exit
