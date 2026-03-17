@@ -59,7 +59,7 @@
 
 ### VOL — Volume Profile
 
-- [ ] **VOL-01**: New I4 plugin `src/intelligence/context/volume_profile.py` — intraday session volume profile computing POC (Point of Control), HVN (High Volume Nodes top 3), LVN (Low Volume Nodes), VAH (Value Area High), VAL (Value Area Low); outputs `poc_price`, `vah`, `val`, `nearest_hvn_above`, `nearest_hvn_below`, `nearest_lvn_above`, `nearest_lvn_below`
+- [x] **VOL-01**: New I4 plugin `src/intelligence/context/volume_profile.py` — intraday session volume profile computing POC (Point of Control), HVN (High Volume Nodes top 3), LVN (Low Volume Nodes), VAH (Value Area High), VAL (Value Area Low); outputs `poc_price`, `vah`, `val`, `nearest_hvn_above`, `nearest_hvn_below`, `nearest_lvn_above`, `nearest_lvn_below`
 - [ ] **VOL-02**: New I7 plugin `trad_VolumeProfileReaction` — three variants: POC rejection (price tests POC and fails with momentum reversal), HVN rejection (stall + reversal at institutional accumulation), LVN breakout (fast expansion through thin area targeting next HVN); variant selected by proximity + momentum context
 
 ### CAL — Confidence Calibration
@@ -164,7 +164,7 @@
 | PLUG-05 | Phase 33 | Complete |
 | VWAP-01 | Phase 34 | Complete |
 | VWAP-02 | Phase 34 | Pending |
-| VOL-01 | Phase 34 | Pending |
+| VOL-01 | Phase 34 | Complete |
 | VOL-02 | Phase 34 | Pending |
 | CAL-01 | Phase 35 | Pending |
 | CAL-02 | Phase 35 | Pending |
