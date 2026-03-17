@@ -291,7 +291,12 @@ Plans:
   3. `trad_OpeningRangeBreakout` fires only between 09:30 and 11:30 ET — no signals appear outside this window in the replay output.
   4. `trad_SecondLegContinuation` sets targets at 100%, 127.2%, and 161.8% of leg 1 amplitude — verifiable in signal_ledger `target_1`, `target_2` fields.
   5. `trad_VCP` requires three or more successive range contractions with decreasing volume before firing — the contraction count is logged in signal metadata.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 33-01-PLAN.md — FailedBreakout + ORB15 + ORB30 plugins with TDD tests
+- [ ] 33-02-PLAN.md — PrevDayLevelTest + SecondLegContinuation + VCP plugins with TDD tests
+- [ ] 33-03-PLAN.md — Register all 6 plugins in TIER_I7 + TREND_SETUPS wiring
 
 ### Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile
 **Goal**: Anchored VWAP and Volume Profile are live I4 features in every `IntelligenceEvent`, enabling two new I7 plugins that trade VWAP extensions and volume-node reactions.
@@ -429,7 +434,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
 | 31. CIS Learning Loop + Signal Feature Snapshots | 1/3 | In Progress|  | - |
 | 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/TBD | Not started | - |
-| 33. Five New I7 Signal Plugins | v1.9 | 0/TBD | Not started | - |
+| 33. Five New I7 Signal Plugins | v1.9 | 0/3 | Planned | - |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
 | 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
