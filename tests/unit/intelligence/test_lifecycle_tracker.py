@@ -751,3 +751,281 @@ class TestConditionExpired:
             staleness_score=0.6,
         )
         assert t2 is None
+
+
+# ============================================================
+# Service-level state management integration tests
+# ============================================================
+
+
+def _make_lifecycle_service():
+    """Build SignalLifecycleService via __new__ (bypasses __init__), with minimal state."""
+    from unittest.mock import MagicMock
+
+    from services.signal_lifecycle_service import SignalLifecycleService
+
+    svc = SignalLifecycleService.__new__(SignalLifecycleService)
+    svc.db_manager = MagicMock()
+    svc.db_manager.execute_command = MagicMock(return_value=None)
+    svc.active_signals_count = MagicMock()
+    svc.point_values = {"ES": 50.0}
+    svc._mae = {}
+    svc._mfe = {}
+    svc._activated_at = {}
+    svc._market_mae = {}
+    svc._market_mfe = {}
+    svc._market_activated_at = {}
+    svc._resolved_market = set()
+    svc._chandelier_state = {}
+    svc._staleness_consecutive = {}
+    svc._shadow_signals = {}
+    svc.env_prefix = "test:"
+    svc.env_name = "test"
+    svc._kafka_producer = None
+    svc.lifecycle_transitions_total = MagicMock()
+    svc.logger = MagicMock()
+    return svc
+
+
+@pytest.mark.unit
+class TestChandelierServiceStateManagement:
+    """Service-level tests: Chandelier state initialized, updated, and cleaned up."""
+
+    @pytest.mark.asyncio
+    async def test_chandelier_state_initialized_on_first_active_bar(self):
+        """_chandelier_state[sid] is created on the first active bar evaluation."""
+        from unittest.mock import AsyncMock, patch
+
+        svc = _make_lifecycle_service()
+        signal_id = "chan-init-001"
+        svc._activated_at[signal_id] = None
+
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5120.0, 5140.0],
+            "confidence": 0.8,
+            "timeframe": "1m",
+            "symbol": "ES",
+            "timestamp": None,
+            "ttl_bars": 20,
+            "garch_sigma_at_fire": 8.0,
+            "atr_14": 5.0,
+        }
+        bar = {"high": 5110.0, "low": 5098.0, "close": 5105.0}
+
+        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
+            with patch("services.signal_lifecycle_service.record_activation", new_callable=AsyncMock):
+                await svc._evaluate_signals_against_bar(
+                    symbol="ES", timeframe="1m",
+                    bar=bar, bar_time=__import__("datetime").datetime(2026, 3, 17, 12, 0, 0,
+                                                                       tzinfo=__import__("datetime").timezone.utc),
+                    all_active=[sig],
+                )
+
+        assert signal_id in svc._chandelier_state
+        assert svc._chandelier_state[signal_id]["vol_source"] == "garch_sigma"
+        assert svc._chandelier_state[signal_id]["vol"] == pytest.approx(8.0)
+
+    @pytest.mark.asyncio
+    async def test_chandelier_state_uses_atr_fallback_when_no_garch(self):
+        """When garch_sigma_at_fire is 0, vol_source = 'atr_14' using atr_14 value."""
+        from datetime import UTC, datetime
+        from unittest.mock import AsyncMock, patch
+
+        svc = _make_lifecycle_service()
+        signal_id = "chan-atr-002"
+        svc._activated_at[signal_id] = None
+
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5120.0],
+            "confidence": 0.8,
+            "timeframe": "1m",
+            "symbol": "ES",
+            "timestamp": None,
+            "ttl_bars": 20,
+            "garch_sigma_at_fire": 0.0,
+            "atr_14": 12.0,
+        }
+        bar = {"high": 5105.0, "low": 5098.0, "close": 5102.0}
+        bar_time = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
+
+        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
+            with patch("services.signal_lifecycle_service.record_activation", new_callable=AsyncMock):
+                await svc._evaluate_signals_against_bar(
+                    symbol="ES", timeframe="1m",
+                    bar=bar, bar_time=bar_time,
+                    all_active=[sig],
+                )
+
+        assert signal_id in svc._chandelier_state
+        assert svc._chandelier_state[signal_id]["vol_source"] == "atr_14"
+        assert svc._chandelier_state[signal_id]["vol"] == pytest.approx(12.0)
+
+    @pytest.mark.asyncio
+    async def test_chandelier_state_cleaned_up_on_stop_exit(self):
+        """_chandelier_state[sid] removed when signal exits via stop loss."""
+        from datetime import UTC, datetime
+        from unittest.mock import AsyncMock, patch
+
+        svc = _make_lifecycle_service()
+        signal_id = "chan-cleanup-003"
+        bar_time = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
+        svc._activated_at[signal_id] = bar_time
+        svc._mae[signal_id] = 0.0
+        svc._mfe[signal_id] = 0.0
+        svc._chandelier_state[signal_id] = {
+            "trailing_stop": 5090.0,
+            "highest_high": 5110.0,
+            "lowest_low": 5095.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+            "history": [],
+        }
+        svc._staleness_consecutive[signal_id] = 0
+
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5120.0],
+            "confidence": 0.8,
+            "timeframe": "1m",
+            "symbol": "ES",
+            "timestamp": bar_time,
+            "ttl_bars": 20,
+            "garch_sigma_at_fire": 5.0,
+        }
+        # Bar with low <= stop_loss -> stop hit
+        bar = {"high": 5095.0, "low": 5084.0, "close": 5085.0}
+
+        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
+            await svc._evaluate_signals_against_bar(
+                symbol="ES", timeframe="1m",
+                bar=bar, bar_time=bar_time,
+                all_active=[sig],
+            )
+
+        assert signal_id not in svc._chandelier_state
+        assert signal_id not in svc._staleness_consecutive
+
+    @pytest.mark.asyncio
+    async def test_staleness_consecutive_increments_above_threshold(self):
+        """_staleness_consecutive[sid] increments each bar when staleness_score > 0.5."""
+        from datetime import UTC, datetime
+        from unittest.mock import AsyncMock, patch
+
+        svc = _make_lifecycle_service()
+        signal_id = "stale-incr-004"
+        bar_time = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
+        svc._activated_at[signal_id] = bar_time
+        svc._mae[signal_id] = 0.0
+        svc._mfe[signal_id] = 0.0
+
+        # Signal with differing regimes -> staleness_score = 0.6 (regime flip)
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5120.0],
+            "confidence": 0.8,
+            "timeframe": "1m",
+            "symbol": "ES",
+            "timestamp": bar_time,
+            "ttl_bars": 20,
+            "hmm_regime": 1,
+            "hmm_regime_at_fire": 0,
+            "garch_sigma": 5.0,
+            "garch_sigma_at_fire": 5.0,
+        }
+        bar = {"high": 5105.0, "low": 5098.0, "close": 5102.0}
+
+        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
+            with patch("services.signal_lifecycle_service.record_activation", new_callable=AsyncMock):
+                await svc._evaluate_signals_against_bar(
+                    symbol="ES", timeframe="1m",
+                    bar=bar, bar_time=bar_time,
+                    all_active=[sig],
+                )
+                # After 1 bar with score > 0.5, consecutive = 1
+                assert svc._staleness_consecutive.get(signal_id, 0) == 1
+                # Feed a second bar with same regime flip
+                await svc._evaluate_signals_against_bar(
+                    symbol="ES", timeframe="1m",
+                    bar=bar, bar_time=bar_time,
+                    all_active=[sig],
+                )
+                assert svc._staleness_consecutive.get(signal_id, 0) == 2
+
+    @pytest.mark.asyncio
+    async def test_shadow_signal_registered_on_condition_expired(self):
+        """_shadow_signals[sid] is populated when condition_expired fires."""
+        from datetime import UTC, datetime, timedelta
+        from unittest.mock import AsyncMock, patch
+
+        svc = _make_lifecycle_service()
+        signal_id = "shadow-reg-005"
+        bar_time = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
+        signal_ts = bar_time - timedelta(minutes=5)
+        svc._activated_at[signal_id] = signal_ts
+        svc._mae[signal_id] = 0.0
+        svc._mfe[signal_id] = 0.0
+        # Pre-seed staleness consecutive = 3 -> condition_expired fires on 4th bar
+        svc._staleness_consecutive[signal_id] = 3
+        svc._chandelier_state[signal_id] = {
+            "trailing_stop": None,
+            "highest_high": 5110.0,
+            "lowest_low": 5095.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+            "history": [],
+        }
+
+        sig = {
+            "signal_id": signal_id,
+            "status": "active",
+            "direction": 1,
+            "entry_price": 5100.0,
+            "stop_loss": 5085.0,
+            "targets": [5120.0, 5140.0],
+            "confidence": 0.8,
+            "timeframe": "1m",
+            "symbol": "ES",
+            "timestamp": signal_ts,
+            "ttl_bars": 20,
+            "hmm_regime": 1,
+            "hmm_regime_at_fire": 0,
+            "garch_sigma": 5.0,
+            "garch_sigma_at_fire": 5.0,
+        }
+        bar = {"high": 5105.0, "low": 5098.0, "close": 5102.0}
+
+        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
+            await svc._evaluate_signals_against_bar(
+                symbol="ES", timeframe="1m",
+                bar=bar, bar_time=bar_time,
+                all_active=[sig],
+            )
+
+        # Signal should have been moved to shadow tracking
+        assert signal_id in svc._shadow_signals
+        shadow = svc._shadow_signals[signal_id]
+        assert shadow["direction"] == 1
+        assert shadow["symbol"] == "ES"
+        assert shadow["timeframe"] == "1m"
+        assert shadow["remaining_ttl"] >= 0
+        # Chandelier + staleness cleaned up on exit
+        assert signal_id not in svc._chandelier_state
+        assert signal_id not in svc._staleness_consecutive

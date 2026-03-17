@@ -36,6 +36,8 @@ from src.core.stream_keys import (
 )
 from src.intelligence.trading.lifecycle_tracker import (
     _classify_stop_outcome,
+    compute_chandelier_stop,  # noqa: F401 — imported for service-level usage
+    compute_staleness_score,
     evaluate_market_entry,
     evaluate_signal,
 )
@@ -48,6 +50,52 @@ from src.intelligence.trading.signal_ledger import (
     update_signal_status,
 )
 from src.observability.metrics import counter, gauge, start_metrics_server
+
+# ---------------------------------------------------------------------------
+# Chandelier + staleness DB update helpers
+# ---------------------------------------------------------------------------
+
+_UPDATE_CHANDELIER_SQL = """
+UPDATE signal_ledger
+SET trailing_stop_price = $2::jsonb,
+    trailing_stop_tightening_rate = $3,
+    staleness_score = $4,
+    staleness_trigger_reason = $5,
+    chandelier_vol_source = COALESCE(chandelier_vol_source, $6)
+WHERE signal_id = $1::uuid
+"""
+
+_UPDATE_SHADOW_SQL = """
+UPDATE signal_ledger
+SET shadow_tracking_start_ts = $2,
+    shadow_mae = $3,
+    shadow_mfe = $4,
+    shadow_outcome = $5
+WHERE signal_id = $1::uuid
+"""
+
+
+def _tf_to_seconds(timeframe: str) -> int:
+    """Convert timeframe string to seconds."""
+    return TF_SECONDS.get(timeframe, 60)
+
+
+def _compute_tightening_rate(history: list[dict]) -> float | None:
+    """Compute trailing stop tightening rate as slope over last 5 entries.
+
+    A positive slope for longs (stop moving up) is tightening.
+    Returns None when history has < 2 entries.
+    """
+    if len(history) < 2:
+        return None
+    tail = history[-5:]
+    prices = [e["price"] for e in tail]
+    n = len(prices)
+    if n < 2:
+        return None
+    # Simple linear slope: (last - first) / n
+    return round((prices[-1] - prices[0]) / (n - 1), 6)
+
 
 # QUAL-03: freshness decay half-life — bars after which an active signal's effective
 # confidence halves. Applied in-memory per bar; original confidence in signal_ledger
@@ -149,6 +197,15 @@ class SignalLifecycleService:
         self._market_mfe: dict[str, float] = {}
         self._market_activated_at: dict[str, datetime] = {}
         self._resolved_market: set[str] = set()  # sids with market track already written
+
+        # Chandelier trailing stop state: signal_id → {trailing_stop, highest_high,
+        #   lowest_low, vol, vol_source, history: [{ts, price}]}
+        self._chandelier_state: dict[str, dict] = {}
+        # Staleness consecutive-bar counter: signal_id → int
+        self._staleness_consecutive: dict[str, int] = {}
+        # Shadow tracking state: signal_id → {start_ts, remaining_ttl, direction,
+        #   entry, targets, stop, shadow_mae, shadow_mfe}
+        self._shadow_signals: dict[str, dict] = {}
 
         self.lifecycle_transitions_total = counter(
             "lifecycle_transitions_total", "Total signal lifecycle transitions"
@@ -502,6 +559,58 @@ class SignalLifecycleService:
                         self._market_mfe[sid] = max(m_mfe, close_pnl_r)
             # ── End market track ──────────────────────────────────────────
 
+            # ── Chandelier + Staleness state for active signals ───────────
+            staleness_score_val = 0.0
+            staleness_reason_val: str | None = None
+            if status == "active":
+                # Initialize Chandelier state on first active bar
+                if sid not in self._chandelier_state:
+                    bar_high = float(bar["high"])
+                    bar_low = float(bar["low"])
+                    # Extract vol from bar features passed via sig dict
+                    garch_sigma = float(sig.get("garch_sigma_at_fire") or 0.0)
+                    # atr_14 not stored in signal_ledger but we can try features
+                    atr_14 = float(sig.get("atr_14") or 0.0)
+                    vol = garch_sigma if garch_sigma > 0 else atr_14
+                    vol_source = "garch_sigma" if garch_sigma > 0 else "atr_14"
+                    self._chandelier_state[sid] = {
+                        "trailing_stop": None,
+                        "highest_high": bar_high,
+                        "lowest_low": bar_low,
+                        "vol": vol,
+                        "vol_source": vol_source,
+                        "history": [],
+                    }
+                    # Write vol_source to DB at Chandelier initialization time
+                    if self.db_manager and vol_source:
+                        try:
+                            await self.db_manager.execute_command(
+                                "UPDATE signal_ledger SET chandelier_vol_source = $2 "
+                                "WHERE signal_id = $1::uuid AND chandelier_vol_source IS NULL",
+                                sid, vol_source,
+                            )
+                        except Exception as e:
+                            self.logger.warning(
+                                "Failed to write chandelier_vol_source",
+                                signal_id=sid, error=str(e),
+                            )
+
+                # Compute staleness score
+                hmm_now = sig.get("hmm_regime") if isinstance(sig.get("hmm_regime"), int) else None
+                garch_now = sig.get("garch_sigma") if isinstance(sig.get("garch_sigma"), (int, float)) else None
+                hmm_fire = sig.get("hmm_regime_at_fire") if isinstance(sig.get("hmm_regime_at_fire"), int) else None
+                garch_fire = sig.get("garch_sigma_at_fire") if isinstance(sig.get("garch_sigma_at_fire"), (int, float)) else None
+                staleness_score_val, staleness_reason_val = compute_staleness_score(
+                    hmm_now, hmm_fire, garch_now, garch_fire
+                )
+                consecutive = self._staleness_consecutive.get(sid, 0)
+                if staleness_score_val > 0.5:
+                    consecutive += 1
+                else:
+                    consecutive = 0
+                self._staleness_consecutive[sid] = consecutive
+            # ── End Chandelier + Staleness prep ───────────────────────────
+
             try:
                 transition = evaluate_signal(
                     sig_with_extras,
@@ -510,6 +619,13 @@ class SignalLifecycleService:
                     close=float(bar["close"]),
                     current_mae=current_mae,
                     current_mfe=current_mfe,
+                    chandelier_state=(
+                        self._chandelier_state.get(sid) if status == "active" else None
+                    ),
+                    staleness_consecutive_bars=(
+                        self._staleness_consecutive.get(sid, 0) if status == "active" else 0
+                    ),
+                    staleness_score=staleness_score_val,
                 )
             except Exception as e:
                 self.logger.warning(
@@ -518,6 +634,30 @@ class SignalLifecycleService:
                     error=str(e),
                 )
                 continue
+
+            # ── Post-eval: write Chandelier + staleness to DB (active signals) ──
+            if status == "active" and self.db_manager:
+                ch_state = self._chandelier_state.get(sid, {})
+                trailing_stop = ch_state.get("trailing_stop")
+                if trailing_stop is not None:
+                    history = ch_state.setdefault("history", [])
+                    history.append({"ts": bar_time.isoformat(), "price": trailing_stop})
+                    tightening_rate = _compute_tightening_rate(history)
+                    try:
+                        await self.db_manager.execute_command(
+                            _UPDATE_CHANDELIER_SQL,
+                            sid,
+                            json.dumps(history),
+                            tightening_rate,
+                            staleness_score_val,
+                            staleness_reason_val,
+                            ch_state.get("vol_source"),
+                        )
+                    except Exception as e:
+                        self.logger.warning(
+                            "Failed to write chandelier state",
+                            signal_id=sid, error=str(e),
+                        )
 
             if transition is None:
                 # Update in-memory MAE/MFE for active signals
@@ -582,6 +722,45 @@ class SignalLifecycleService:
                 self._mfe.pop(sid, None)
                 self._activated_at.pop(sid, None)
                 self._resolved_market.discard(sid)
+                self._chandelier_state.pop(sid, None)
+                self._staleness_consecutive.pop(sid, None)
+
+                # Shadow tracking: condition_expired signals continue in shadow mode
+                if outcome == "condition_expired":
+                    ttl_bars = sig.get("ttl_bars", 10)
+                    tf_seconds = _tf_to_seconds(timeframe)
+                    sig_ts = sig.get("timestamp")
+                    if sig_ts and isinstance(sig_ts, datetime) and tf_seconds > 0:
+                        bars_elapsed_total = int(
+                            (bar_time - sig_ts).total_seconds() / tf_seconds
+                        )
+                    else:
+                        bars_elapsed_total = sig.get("bars_elapsed", 0)
+                    remaining_ttl = max(0, ttl_bars - bars_elapsed_total)
+                    self._shadow_signals[sid] = {
+                        "start_ts": bar_time,
+                        "remaining_ttl": remaining_ttl,
+                        "direction": sig.get("direction", 1),
+                        "entry": float(sig.get("entry_price", 0)),
+                        "targets": list(sig.get("targets") or []),
+                        "stop": float(sig.get("stop_loss", 0)),
+                        "shadow_mae": 0.0,
+                        "shadow_mfe": 0.0,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                    }
+                    if self.db_manager:
+                        try:
+                            await self.db_manager.execute_command(
+                                "UPDATE signal_ledger SET shadow_tracking_start_ts = $2 "
+                                "WHERE signal_id = $1::uuid",
+                                sid, bar_time,
+                            )
+                        except Exception as e:
+                            self.logger.warning(
+                                "Failed to write shadow_tracking_start_ts",
+                                signal_id=sid, error=str(e),
+                            )
 
                 # Publish terminal event to signals stream for dashboard resolved state
                 asyncio.create_task(
@@ -630,6 +809,64 @@ class SignalLifecycleService:
                 pnl_r=transition.pnl_r,
                 outcome=outcome,
             )
+
+        # ── Shadow signal tracking loop (post-condition_expired) ────────────
+        bar_high = float(bar["high"])
+        bar_low = float(bar["low"])
+        for shadow_sid, shadow in list(self._shadow_signals.items()):
+            # Only process shadows relevant to this symbol+timeframe
+            if shadow.get("symbol") != symbol or shadow.get("timeframe") != timeframe:
+                continue
+            shadow["remaining_ttl"] -= 1
+
+            direction_s = shadow["direction"]
+            entry_s = shadow["entry"]
+            stop_s = shadow["stop"]
+            targets_s = shadow["targets"]
+            risk_s = abs(entry_s - stop_s)
+
+            if risk_s > 0:
+                # Update shadow MAE/MFE from bar prices
+                bar_close = float(bar["close"])
+                pnl_r_s = ((bar_close - entry_s) * direction_s) / risk_s
+                shadow["shadow_mae"] = min(shadow["shadow_mae"], pnl_r_s)
+                shadow["shadow_mfe"] = max(shadow["shadow_mfe"], pnl_r_s)
+
+            if shadow["remaining_ttl"] <= 0:
+                # Determine shadow_outcome counterfactually
+                s_outcome = "ttl_expired_behind"
+                if shadow["shadow_mfe"] > 0:
+                    # Check if any target would have been hit
+                    for i in range(len(targets_s) - 1, -1, -1):
+                        tgt = targets_s[i]
+                        hit = (direction_s == 1 and bar_high >= tgt) or (
+                            direction_s == -1 and bar_low <= tgt
+                        )
+                        if hit:
+                            s_outcome = ["target_1", "target_1_2", "target_full"][
+                                min(i, 2)
+                            ]
+                            break
+                    else:
+                        s_outcome = "ttl_expired_ahead"
+
+                if self.db_manager:
+                    try:
+                        await self.db_manager.execute_command(
+                            _UPDATE_SHADOW_SQL,
+                            shadow_sid,
+                            shadow["start_ts"],
+                            round(shadow["shadow_mae"], 4),
+                            round(shadow["shadow_mfe"], 4),
+                            s_outcome,
+                        )
+                    except Exception as e:
+                        self.logger.warning(
+                            "Failed to write shadow outcome",
+                            signal_id=shadow_sid, error=str(e),
+                        )
+                del self._shadow_signals[shadow_sid]
+        # ── End shadow signal tracking loop ─────────────────────────────────
 
     async def _process_single_bar(
         self,
@@ -708,12 +945,52 @@ class SignalLifecycleService:
             except asyncio.CancelledError:
                 break
 
+    async def _reseed_chandelier_state(self) -> None:
+        """Re-seed Chandelier state from DB for active signals on startup.
+
+        Reads trailing_stop_price JSONB history and chandelier_vol_source for
+        each active signal so the Chandelier stop continues from the last known
+        level after a restart (rather than re-initialising from scratch).
+        """
+        if not self.db_manager:
+            return
+        try:
+            symbols = self.config["service"]["symbols"]
+            for sym in symbols:
+                active = await get_active_signals(self.db_manager, symbol=sym)
+                for sig in active:
+                    sid = str(sig["signal_id"])
+                    if sig.get("status") != "active":
+                        continue
+                    trailing_history = sig.get("trailing_stop_price")
+                    garch_fire = float(sig.get("garch_sigma_at_fire") or 0.0)
+                    vol_source = sig.get("chandelier_vol_source") or "restored"
+                    if trailing_history and isinstance(trailing_history, list) and len(trailing_history) > 0:
+                        last_entry = trailing_history[-1]
+                        last_stop = float(last_entry.get("price", 0.0)) if isinstance(last_entry, dict) else 0.0
+                        if last_stop > 0:
+                            self._chandelier_state[sid] = {
+                                "trailing_stop": last_stop,
+                                "highest_high": last_stop,  # conservative; will update on next bar
+                                "lowest_low": last_stop,
+                                "vol": garch_fire,
+                                "vol_source": vol_source,
+                                "history": list(trailing_history),
+                            }
+                    # Always reset staleness consecutive counter on restart (conservative)
+                    self._staleness_consecutive[sid] = 0
+            self.logger.info("Chandelier state re-seeded from DB",
+                             signals_reseeded=len(self._chandelier_state))
+        except Exception as e:
+            self.logger.warning("Failed to re-seed Chandelier state", error=str(e))
+
     async def start(self) -> None:
         self.logger.info("Starting Signal Lifecycle Service")
         try:
             await self._connect_database()
             start_metrics_server(port=self.config.get("metrics_port", 9115))
             await self._setup_kafka_clients()
+            await self._reseed_chandelier_state()
             self.running = True
             tasks = [
                 asyncio.create_task(self._process_loop()),
