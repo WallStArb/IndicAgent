@@ -78,7 +78,7 @@ def test_fires_on_breakout_long():
 
     # Step 2: breakout bar at 09:46 ET — close clearly above range high (+30 pts), high volume
     ts_break = _ts_utc(9, 46)
-    close_break = np.linspace(5000.0, 5040.0, 25)  # close[-1]=5040, well above orb_high (~5015)
+    close_break = np.linspace(5000.0, 5040.0, 25)  # close[-1]=5040, well above orb_high (~5005+spread)
     high_vol = np.full(25, 800.0)
     high_vol[-1] = 3000.0  # large spike on last bar
 
@@ -101,7 +101,7 @@ def test_fires_on_breakout_short():
         ts = _ts_utc(9, minute)
         plugin.compute_full(_make_frames(close_range, _base_features(), ts))
 
-    # Breakout short: close well below orb_low (range low ~4985, need clearly below)
+    # Breakout short: close well below orb_low (range low ~5000-spread)
     ts_break = _ts_utc(9, 50)
     close_break = np.linspace(5005.0, 4960.0, 25)  # close[-1]=4960, well below range low
     high_vol = np.full(25, 800.0)

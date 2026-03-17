@@ -86,4 +86,4 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 Last session: 2026-03-17T10:13:23.212Z
 Stopped at: Phase 34 context gathered
 Resume file: .planning/phases/34-i4-infrastructure-anchored-vwap-volume-profile/34-CONTEXT.md
-Next action: `/gsd:execute-phase 32 01` (Phase 32: stop architecture)
+Next action: `/gsd:execute-phase 34` (Phase 34: AVWAP + Volume Profile infrastructure)

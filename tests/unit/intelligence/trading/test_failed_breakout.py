@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -221,7 +220,7 @@ def test_no_signal_when_frame_not_viable():
 
 
 def test_feature_logging_fields():
-    """Fired signal includes bos_level, bars_since_bos, reversal_close_delta in supporting_factors."""
+    """Fired signal includes bos_level, bars_since_bos, delta in supporting_factors."""
     from src.intelligence.trading.failed_breakout import FailedBreakoutPlugin
     plugin = FailedBreakoutPlugin()
     close_below = np.linspace(5000.0, 4990.0, 25)
@@ -236,7 +235,6 @@ def test_feature_logging_fields():
     assert result.get("direction") == 1
     supporting = result.get("supporting_factors", [])
     # Check that at least one supporting factor contains logging info about bos_level or bars_since
-    all_factors_str = " ".join(str(f) for f in supporting)
     assert any(
         "bos" in str(f).lower() or "bars" in str(f).lower() or "delta" in str(f).lower()
         for f in supporting
