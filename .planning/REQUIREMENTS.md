@@ -54,7 +54,7 @@
 
 ### VWAP — Anchored VWAP
 
-- [ ] **VWAP-01**: New I4 plugin `src/intelligence/context/anchored_vwap.py` — VWAP anchored to session open and last significant swing point (from I3 swing detection); outputs `avwap_session`, `avwap_swing`, `avwap_deviation_pct`, `avwap_upper_band`, `avwap_lower_band`
+- [x] **VWAP-01**: New I4 plugin `src/intelligence/context/anchored_vwap.py` — VWAP anchored to session open and last significant swing point (from I3 swing detection); outputs `avwap_session`, `avwap_swing`, `avwap_deviation_pct`, `avwap_upper_band`, `avwap_lower_band`
 - [ ] **VWAP-02**: New I7 plugin `trad_AnchoredVWAPReversion` — price extended > 1.5 std from anchored VWAP with mean-reversion regime context (HMM ranging + Hurst < 0.55); fade setup targeting VWAP as T1 and opposite band as T2
 
 ### VOL — Volume Profile
@@ -162,7 +162,7 @@
 | PLUG-03 | Phase 33 | Complete |
 | PLUG-04 | Phase 33 | Complete |
 | PLUG-05 | Phase 33 | Complete |
-| VWAP-01 | Phase 34 | Pending |
+| VWAP-01 | Phase 34 | Complete |
 | VWAP-02 | Phase 34 | Pending |
 | VOL-01 | Phase 34 | Pending |
 | VOL-02 | Phase 34 | Pending |
