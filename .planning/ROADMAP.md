@@ -139,6 +139,7 @@ Full details: `.planning/milestones/v1.8-ROADMAP.md`
 - [ ] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score
 - [ ] **Phase 36: Microstructure Plugins** - OFI and CVD as I1 features plus two new I7 plugins consuming order-flow signals
 - [ ] **Phase 37: Cross-Asset Intelligence Service** - New cross_asset_service microservice, equity spread features, and CrossAssetDivergence I7 plugin
+- [ ] **Phase 38: Automated Futures Roll Detection** - Volume-based roll detection in TWS daemon, DB-backed active contracts, plugin state migration, roll boundary markers
 
 ## Phase Details
 
@@ -415,7 +416,7 @@ Re-prioritized 2026-03-15 after v1.8 shipped.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Phase 30 (Redpanda Migration): complete 2026-03-14. v1.9 (Phases 31-37): in progress.
+Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Phase 30 (Redpanda Migration): complete 2026-03-14. v1.9 (Phases 31-38): in progress.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
