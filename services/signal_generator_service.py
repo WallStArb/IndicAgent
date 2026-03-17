@@ -48,6 +48,7 @@ from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import IntelligenceEvent
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
+from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_ledger import LedgerEntry, insert_signals
 from src.intelligence.trading.trade_framer import frame_trade
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
@@ -384,6 +385,7 @@ class SignalGeneratorService:
     # hasattr() on bare __new__ instances must be defined at class level.
     _perf_weights: dict[str, float] = {}  # noqa: RUF012
     _drift_penalties: dict[tuple[str, str], float] = {}  # noqa: RUF012
+    _cis_weights_cache: dict = {}  # noqa: RUF012
 
     def __init__(self, config_file: str | None = None):
         self.running = False
@@ -438,6 +440,12 @@ class SignalGeneratorService:
         # Value = {"bars_since": int} — incremented each bar for that (symbol, tf).
         # Reset to {"bars_since": 0} after each fire. Separate from _setup_cooldown.
         self._setup_last_fire: dict[tuple[str, str, str, int], dict] = {}
+        # CIS scorer instance — loaded with bootstrap weights at startup, updated
+        # every 30 minutes from the cis_weights table by _cis_weights_refresh_loop().
+        self._cis_scorer: CISScorer = CISScorer()
+        # CIS weights cache: (asset_cluster, timeframe) -> (weights_dict, version)
+        # Populated by _load_cis_weights_from_db(); used for per-cluster weight lookup.
+        self._cis_weights_cache: dict[tuple[str, str], tuple[dict[str, float], int]] = {}
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -1331,6 +1339,82 @@ class SignalGeneratorService:
                 self.logger.warning("Perf weights refresh error", error=str(e))
                 await asyncio.sleep(30)
 
+    async def _load_cis_weights_from_db(self) -> None:
+        """Load per-cluster learned weights from cis_weights table.
+
+        Only rows with sample_size >= 100 are considered.
+        Updates self._cis_scorer with global weights when available.
+        Falls back to bootstrap on empty result or DB error.
+        """
+        if self.db_manager is None:
+            return
+        try:
+            rows = await self.db_manager.execute_query(
+                """
+                SELECT DISTINCT ON (asset_cluster, timeframe)
+                    asset_cluster, timeframe, version, sample_size,
+                    trend_w, momentum_w, structure_w, pattern_w,
+                    institutional_w, regime_w
+                FROM cis_weights
+                WHERE sample_size >= 100
+                ORDER BY asset_cluster, timeframe, version DESC
+                """
+            )
+            if not rows:
+                self.logger.info(
+                    "No learned CIS weights with sample_size >= 100 — using bootstrap"
+                )
+                return
+            for row in rows:
+                weights = {
+                    "trend": row["trend_w"],
+                    "momentum": row["momentum_w"],
+                    "structure": row["structure_w"],
+                    "pattern": row["pattern_w"],
+                    "institutional": row["institutional_w"],
+                    "regime": row["regime_w"],
+                }
+                cluster = row["asset_cluster"]
+                tf = row["timeframe"]
+                self._cis_weights_cache[(cluster, tf)] = (weights, row["version"])
+                self.logger.info(
+                    "Loaded weights from DB",
+                    cluster=cluster,
+                    tf=tf,
+                    version=row["version"],
+                    sample_size=row["sample_size"],
+                )
+            # Update the global scorer with global/global weights when available.
+            # Phase 35 will extend this to per-cluster routing.
+            global_key = ("global", "global")
+            if global_key in self._cis_weights_cache:
+                w, v = self._cis_weights_cache[global_key]
+                self._cis_scorer.update_weights(w, v)
+        except Exception as exc:
+            self.logger.warning(
+                "CIS weights refresh error — keeping current weights", error=str(exc)
+            )
+
+    async def _cis_weights_refresh_loop(self) -> None:
+        """Refresh CIS weights from cis_weights DB table every 30 minutes."""
+        _REFRESH_INTERVAL = 1800  # 30 minutes
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL
+                    )
+                    break
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._load_cis_weights_from_db()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("CIS weights refresh loop error", error=str(e))
+
     async def start(self) -> None:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
         try:
@@ -1343,12 +1427,15 @@ class SignalGeneratorService:
             await self._load_perf_weights()
             # Load drift penalties at startup from drift_state DB table
             await self._refresh_drift_penalties_from_db()
+            # Load CIS weights at startup — first bar uses learned weights immediately
+            await self._load_cis_weights_from_db()
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
                 asyncio.create_task(self._perf_weights_refresh_loop()),
                 asyncio.create_task(self._drift_penalties_refresh_loop()),
                 asyncio.create_task(self._resolution_listener_loop()),
+                asyncio.create_task(self._cis_weights_refresh_loop()),
             ]
             self.logger.info("Signal Generator Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
