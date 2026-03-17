@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Completed 34-02-PLAN.md
-last_updated: "2026-03-17T19:43:15.376Z"
-last_activity: "2026-03-17 — 34-01 executed (AnchoredVWAP I4 migration: 15 fields, std bands, sigma, velocity)"
+stopped_at: Completed 34-03-PLAN.md
+last_updated: "2026-03-17T19:57:40.645Z"
+last_activity: "2026-03-17 — 34-03 executed (5 new I7 plugins: AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout; TIER_I7=28, total=111)"
 progress:
   total_phases: 14
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 11
-  percent: 67
+  completed_plans: 12
+  percent: 73
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete, Phase 34 Plans 01+02 complete (AVWAP + VolumeProfile I4 migrations)
+**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete, Phase 34 all 3 plans complete (AVWAP + VolumeProfile I4 migrations + 5 new I7 plugins)
 
 ## Current Position
 
-Phase: 34 (in progress — plans 01+02 done)
-Plan: 02 complete → Plan 03 next (I7 plugins: POCRejection, HVNRejection, LVNBreakout)
-Status: Phase 34 Plan 02 complete — VolumeProfile migrated from I5/patterns/ to I4/context/ with 18 output fields
+Phase: 34 (complete — all 3 plans done)
+Plan: 03 complete → Phase 34 DONE
+Status: Phase 34 Plan 03 complete — 5 new I7 plugins registered (AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout), TIER_I7=28, total=111
 Last activity: 2026-03-17 — 34-02 executed (VolumeProfile I4 migration: 18 fields, session-reset + rolling dual-track)
 
-Progress: [███████░░░] 73%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -77,7 +77,9 @@ Progress: [███████░░░] 73%
 - **ctx_VolumeProfile session track**: resets at 09:30 ET using _extract_ts/_et_from_utc from session_context.py; falls back to full df if before NY open or no timestamps
 - **ctx_VolumeProfile rolling track**: last min(480, N) bars — continuous window, no session reset
 - **ctx_VolumeProfile legacy fields preserved**: nearest_hvn_level, nearest_hvn_dist_atr, nearest_lvn_level, in_lvn — I7 plugins can continue reading these unchanged
-- **GARCH_MULTIPLIERS = {0:0.8, 1:1.0, 2:1.35}** — in trade_framer.py; applied to effective_atr in frame_trade(); all 23 I7 plugins inherit vol-regime-scaled stops automatically (032-01)
+- **GARCH_MULTIPLIERS = {0:0.8, 1:1.0, 2:1.35}** — in trade_framer.py; applied to effective_atr in frame_trade(); all 28 I7 plugins inherit vol-regime-scaled stops automatically (032-01)
+- **TIER_I7 = 28, total registered plugins = 111 (I3=7, I4=11, I5=15, I7=28)** — after Phase 34-03; 5 new I7 plugins added (AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout)
+- **TREND_SETUPS extended**: trad_LVNBreakout added; AnchoredVWAPReversion/VWAPReclaim/POCRejection/HVNRejection are mean_reversion or any regime
 - **FVG is Priority 0 structural stop** — fvg_low (long) / fvg_high (short) beats demand/supply zone in stop hierarchy (032-01)
 - **stop_basis classification** — structure_snap (≤1.5xATR from fallback), garch_adaptive (>1.5xATR or GARCH-scaled ATR), atr_static (no regime); persisted to signal_ledger AND intelligence_features.i7 JSONB (032-01)
 - **TF_TTL_BARS = {"1m":20, "5m":12, "15m":8, "1h":6}** — per-TF TTL overrides hardcoded default of 10; applied in signal_generator_service before aggregation (032-01)
@@ -102,7 +104,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T19:43:15.374Z
-Stopped at: Completed 34-02-PLAN.md
+Last session: 2026-03-17T19:57:40.642Z
+Stopped at: Completed 34-03-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34 Plan 03: I7 POC/HVN/LVN plugins)

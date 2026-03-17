@@ -55,12 +55,12 @@
 ### VWAP — Anchored VWAP
 
 - [x] **VWAP-01**: New I4 plugin `src/intelligence/context/anchored_vwap.py` — VWAP anchored to session open and last significant swing point (from I3 swing detection); outputs `avwap_session`, `avwap_swing`, `avwap_deviation_pct`, `avwap_upper_band`, `avwap_lower_band`
-- [ ] **VWAP-02**: New I7 plugin `trad_AnchoredVWAPReversion` — price extended > 1.5 std from anchored VWAP with mean-reversion regime context (HMM ranging + Hurst < 0.55); fade setup targeting VWAP as T1 and opposite band as T2
+- [x] **VWAP-02**: New I7 plugin `trad_AnchoredVWAPReversion` — price extended > 1.5 std from anchored VWAP with mean-reversion regime context (HMM ranging + Hurst < 0.55); fade setup targeting VWAP as T1 and opposite band as T2
 
 ### VOL — Volume Profile
 
 - [x] **VOL-01**: New I4 plugin `src/intelligence/context/volume_profile.py` — intraday session volume profile computing POC (Point of Control), HVN (High Volume Nodes top 3), LVN (Low Volume Nodes), VAH (Value Area High), VAL (Value Area Low); outputs `poc_price`, `vah`, `val`, `nearest_hvn_above`, `nearest_hvn_below`, `nearest_lvn_above`, `nearest_lvn_below`
-- [ ] **VOL-02**: New I7 plugin `trad_VolumeProfileReaction` — three variants: POC rejection (price tests POC and fails with momentum reversal), HVN rejection (stall + reversal at institutional accumulation), LVN breakout (fast expansion through thin area targeting next HVN); variant selected by proximity + momentum context
+- [x] **VOL-02**: New I7 plugin `trad_VolumeProfileReaction` — three variants: POC rejection (price tests POC and fails with momentum reversal), HVN rejection (stall + reversal at institutional accumulation), LVN breakout (fast expansion through thin area targeting next HVN); variant selected by proximity + momentum context
 
 ### CAL — Confidence Calibration
 
@@ -163,9 +163,9 @@
 | PLUG-04 | Phase 33 | Complete |
 | PLUG-05 | Phase 33 | Complete |
 | VWAP-01 | Phase 34 | Complete |
-| VWAP-02 | Phase 34 | Pending |
+| VWAP-02 | Phase 34 | Complete |
 | VOL-01 | Phase 34 | Complete |
-| VOL-02 | Phase 34 | Pending |
+| VOL-02 | Phase 34 | Complete |
 | CAL-01 | Phase 35 | Pending |
 | CAL-02 | Phase 35 | Pending |
 | CAL-03 | Phase 35 | Pending |

@@ -135,7 +135,7 @@ Full details: `.planning/milestones/v1.8-ROADMAP.md`
 - [x] **Phase 31: CIS Learning Loop + Signal Feature Snapshots** - Self-improving CIS with DB weight loading, binary win labels, asset-cluster segmentation, and mid-bar feature snapshots for ML training (completed 2026-03-17)
 - [x] **Phase 32: Stop Architecture + Extended Divergence Stack** - Structure-first stop placement centralized in trade_framer.py (all 17 plugins inherit), Chandelier trailing stop, staleness score, and 5-input divergence convergence scoring (completed 2026-03-17)
 - [x] **Phase 33: Five New I7 Signal Plugins** - FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP — covering reversal, session, level-test, and contraction setups (completed 2026-03-17)
-- [ ] **Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile** - Two new I4 computation plugins plus two I7 setups consuming them
+- [x] **Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile** - Two new I4 computation plugins plus two I7 setups consuming them (completed 2026-03-17)
 - [ ] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score
 - [ ] **Phase 36: Microstructure Plugins** - OFI and CVD as I1 features plus two new I7 plugins consuming order-flow signals
 - [ ] **Phase 37: Cross-Asset Intelligence Service** - New cross_asset_service microservice, equity spread features, and CrossAssetDivergence I7 plugin
@@ -463,7 +463,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 31. CIS Learning Loop + Signal Feature Snapshots | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 32. Stop Architecture + Extended Divergence Stack | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
-| 34. I4 Infrastructure — Anchored VWAP + Volume Profile | 2/3 | In Progress|  | - |
+| 34. I4 Infrastructure — Anchored VWAP + Volume Profile | 3/3 | Complete   | 2026-03-17 | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
 | 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
 | 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
