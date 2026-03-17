@@ -1,7 +1,7 @@
 # Pipeline Reset Sentinel Event — Design
 
 Date: 2026-03-07
-Status: Approved
+Status: Shipped — publish_reset_sentinel() in production/scripts/pipeline_reset.py
 
 ## Problem
 

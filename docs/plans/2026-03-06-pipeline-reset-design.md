@@ -1,7 +1,7 @@
 # Pipeline Reset Design
 
 **Date:** 2026-03-06
-**Status:** Approved
+**Status:** Shipped — production/scripts/pipeline_reset.py
 **Context:** Data integrity infrastructure — reusable capability to regenerate canonical dataset from raw OHLCV
 
 ## Problem

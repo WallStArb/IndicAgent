@@ -1,6 +1,6 @@
 # Market Entry Dual-Track Design
 **Date:** 2026-03-14
-**Status:** Approved for implementation
+**Status:** Shipped — entry_type (at_close|at_limit|at_reclaim|zone_proximal|at_pullback) in trade_framer.py + signal_schema.py
 
 ---
 

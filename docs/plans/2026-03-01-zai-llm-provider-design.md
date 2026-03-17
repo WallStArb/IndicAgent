@@ -1,7 +1,7 @@
 # ZAI LLM Provider Integration — Design
 
 **Date:** 2026-03-01
-**Status:** Approved
+**Status:** Shipped — Z.ai wired in settings.py + llm_providers.py
 **Scope:** `src/intelligence/llm_providers.py`, `src/config/settings.py`, `tests/unit/test_llm_providers.py`
 
 ## Problem

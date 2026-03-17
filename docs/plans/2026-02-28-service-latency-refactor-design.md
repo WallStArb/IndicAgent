@@ -1,7 +1,7 @@
 # Service Latency Refactor Design
 
 **Date:** 2026-02-28
-**Status:** Approved
+**Status:** Shipped — bar-to-stage latency metrics in src/observability/metrics.py
 **Motivation:** Real-time lag observed across the pipeline. Root causes identified across 6 services.
 
 ---

@@ -1,7 +1,7 @@
 # MomentumAcceleration I2 Plugin — Design
 
 **Date:** 2026-03-02
-**Status:** Approved
+**Status:** Shipped — src/intelligence/composites/momentum_accel.py
 **Tier:** I2 (consumes I1 features, runs before I3)
 
 ---
