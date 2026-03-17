@@ -166,7 +166,12 @@ Plans:
   2. The first live bar received after startup can trigger a signal — no warmup period elapses before signal evaluation begins.
   3. If `intelligence_features` is unreachable at startup, the service logs a loud WARNING ("DB seed failed — falling back to live warmup") and starts normally; it does not crash or hang.
   4. The startup log includes a seeding completion message with bar counts per symbol/TF (e.g., "Seeded ES 1m: 120 bars, ES 5m: 26 bars, ...").
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 Plans:
 - [ ] 26-01: DB seed implementation — `_seed_bar_history_from_db()` method + startup integration + tests
@@ -262,7 +267,12 @@ Plans:
   3. `signal_ledger` has an `is_shadow BOOLEAN NOT NULL DEFAULT FALSE` column; shadow signals written alongside production signals share the same bar timestamp and are distinguishable by this field alone.
   4. The CLI promotion script exits non-zero when given fewer than 200 matched pairs and prints a human-readable reason; exits zero and prints "PROMOTED" only when p < 0.05 AND N ≥ 200.
   5. `cis_weights` rows have non-NULL `asset_cluster` and `timeframe` values; the five cluster values (`eq_index`, `commodity`, `rates`, `crypto`, `ag`) cover all 60 active instruments with no unassigned symbols.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 32: Stop Architecture + Extended Divergence Stack
 **Goal**: Every signal carries a verifiable stop basis — structural snap, GARCH-adaptive, or ATR static — computed once in `trade_framer.py` so all 17 plugins inherit it without change, while the divergence stack expands from a hard AND-gate to a 5-input weighted convergence score.
@@ -274,7 +284,12 @@ Plans:
   3. Active signals show a `trailing_stop_price` logged per lifecycle update in `signal_lifecycle_service` — the value tightens monotonically (Chandelier: `highest_high_since_entry - 3×ATR` for longs) and never widens.
   4. Signals with an expired regime or vol-drift beyond threshold receive outcome `condition_expired` — observable in `signal_ledger` after a simulated regime flip in a replay run.
   5. `DivergenceStackPlugin` fires when weighted convergence score > 0.40 AND n_agreeing ≥ 3 across RSI, MACD histogram, volume, OBV, and CMF inputs — with individual weights (0.30, 0.25, 0.20, 0.15, 0.10) logged on each fire.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 33: Five New I7 Signal Plugins
 **Goal**: Five market conditions previously invisible to I7 — failed breakouts, opening range setups, previous-day level tests, second-leg continuations, and volatility contractions — are now covered by registered plugins that fire in replay runs.
@@ -286,7 +301,12 @@ Plans:
   3. `trad_OpeningRangeBreakout` fires only between 09:30 and 11:30 ET — no signals appear outside this window in the replay output.
   4. `trad_SecondLegContinuation` sets targets at 100%, 127.2%, and 161.8% of leg 1 amplitude — verifiable in signal_ledger `target_1`, `target_2` fields.
   5. `trad_VCP` requires three or more successive range contractions with decreasing volume before firing — the contraction count is logged in signal metadata.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile
 **Goal**: Anchored VWAP and Volume Profile are live I4 features in every `IntelligenceEvent`, enabling two new I7 plugins that trade VWAP extensions and volume-node reactions.
@@ -297,7 +317,12 @@ Plans:
   2. `trad_AnchoredVWAPReversion` fires only when price is extended more than 1.5 std from anchored VWAP AND HMM regime is ranging AND Hurst < 0.55 — regime and Hurst values logged on each fire for auditability.
   3. `trad_VolumeProfileReaction` fires in all three variants (POC rejection, HVN rejection, LVN breakout) across a one-week replay window — each variant label appears in signal_ledger metadata.
   4. Both new I7 plugins appear in `TIER_I7` and pass `registry.validate_tier()` at startup.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter
 **Goal**: Signal confidence is calibrated against historical outcomes, adjusted by time-of-day win rates, and smoothed through a Kalman filter — making every confidence number a reliable probability estimate rather than a raw score.
@@ -308,7 +333,12 @@ Plans:
   2. TOD multiplier varies by hour in service logs — a signal fired at 09:30 ET shows a different multiplier than the same setup at 12:00 ET, observable via `grep "tod_multiplier"` in the signal_generator log.
   3. `filtered_cis_score` and `raw_cis_score` are both logged per signal; the updated fire condition (`filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing ≥ 3`) is enforced — signals that would have fired under the old condition but fail the new one are suppressed.
   4. The calibration batch job runs alongside the weight_updater timer without conflict — both complete without error in a single timer execution cycle.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 36: Microstructure Plugins
 **Goal**: Order flow imbalance and cumulative volume delta are live I1 features and drive two new I7 plugins, giving the system its first microstructure signal layer.
@@ -319,7 +349,12 @@ Plans:
   2. `trad_OrderFlowImbalance` and `trad_CVDDivergence` appear in `TIER_I7`; `registry.validate_tier()` passes; both plugins fire at least once in a one-week replay on ES 1m.
   3. `trad_CVDDivergence` logs a `dual_divergence=True` flag when both CVD and OFI diverge simultaneously — the highest-conviction variant is distinguishable in signal_ledger metadata.
   4. The bar-level OFI proxy formula `(close - low) / (high - low + ε) × volume` is used as fallback when tick data is unavailable, with the implementation variant documented in `OFI-01` audit output.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 37: Cross-Asset Intelligence Service
 **Goal**: A new `cross_asset_service` microservice monitors equity index spread dynamics across ES, NQ, RTY, and YM and publishes cross-asset divergence signals when spread z-scores exceed meaningful thresholds.
@@ -330,7 +365,12 @@ Plans:
   2. `es_nq_spread_z`, `es_rty_spread_z`, and `eq_corr_break` appear as fields in the cross-asset topic payload — verifiable by consuming one message and inspecting the JSON keys.
   3. `trad_CrossAssetDivergence` fires in `signal_generator_service` when `|spread_z| > 2.0` — at least one fire is observable in a replay run with an injected spread event; the signal's direction reflects regime bias (reversion in ranging, continuation in trending).
   4. The new service is registered in `CLAUDE.md` service table with its metrics port and in the systemd unit file inventory.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ## Backlog
 
@@ -422,7 +462,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 28. Dashboard Completion | v1.8 | 7/7 | Complete | 2026-03-12 |
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
-| 31. CIS Learning Loop + Signal Feature Snapshots | v1.9 | 0/TBD | Not started | - |
+| 31. CIS Learning Loop + Signal Feature Snapshots | v1.9 | 0/3 | Planned | - |
 | 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/TBD | Not started | - |
 | 33. Five New I7 Signal Plugins | v1.9 | 0/TBD | Not started | - |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
