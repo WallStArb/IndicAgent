@@ -9,9 +9,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Task 1: TradeFrame and LedgerEntry field extension
 # ---------------------------------------------------------------------------
@@ -306,7 +303,7 @@ def test_frame_trade_garch_regime_2_widens_effective_atr():
 
 
 def test_frame_trade_no_garch_regime_uses_atr_static():
-    """frame_trade with no garch_vol_regime should produce stop_basis='atr_static' on ATR fallback."""
+    """frame_trade with no garch_vol_regime should produce stop_basis='atr_static'."""
     from src.intelligence.trading.trade_framer import frame_trade
 
     # Minimal features — no structural levels → ATR fallback
@@ -359,7 +356,6 @@ def test_fvg_stop_short_priority_0():
 def test_stop_basis_structure_snap_within_proximity():
     """Structural stop within 1.5xATR of ATR fallback → stop_basis='structure_snap'."""
     from src.intelligence.trading.trade_framer import (
-        ATR_STOP_FALLBACK_MULTIPLIER,
         GARCH_MULTIPLIERS,
         STRUCTURE_SNAP_PROXIMITY_ATR,
         _classify_stop_basis,
@@ -369,7 +365,7 @@ def test_stop_basis_structure_snap_within_proximity():
     effective_atr = atr * GARCH_MULTIPLIERS[1]  # regime=1: no change
     entry = 100.0
     direction = 1
-    atr_fallback_stop = entry - effective_atr * ATR_STOP_FALLBACK_MULTIPLIER  # 80.0
+    # atr_fallback_stop reference: entry - effective_atr * ATR_STOP_FALLBACK_MULTIPLIER = 80.0
 
     # Structural stop very close to ATR fallback (within 1.5×ATR = 15 pts)
     close_structural_stop = 82.0  # distance = |82 - 80| / 10 = 0.2 ATR → structure_snap
@@ -383,7 +379,6 @@ def test_stop_basis_structure_snap_within_proximity():
 def test_stop_basis_garch_adaptive_outside_proximity():
     """Structural stop beyond 1.5xATR of ATR fallback → stop_basis='garch_adaptive'."""
     from src.intelligence.trading.trade_framer import (
-        ATR_STOP_FALLBACK_MULTIPLIER,
         GARCH_MULTIPLIERS,
         STRUCTURE_SNAP_PROXIMITY_ATR,
         _classify_stop_basis,
@@ -393,7 +388,7 @@ def test_stop_basis_garch_adaptive_outside_proximity():
     effective_atr = atr * GARCH_MULTIPLIERS[1]
     entry = 100.0
     direction = 1
-    atr_fallback_stop = entry - effective_atr * ATR_STOP_FALLBACK_MULTIPLIER  # 80.0
+    # atr_fallback_stop reference: entry - effective_atr * ATR_STOP_FALLBACK_MULTIPLIER = 80.0
 
     # Far structural stop (> 1.5×ATR from fallback)
     far_structural_stop = 60.0  # distance = |60 - 80| / 10 = 2.0 ATR → garch_adaptive

@@ -338,7 +338,7 @@ def build_ledger_entries(
                 entry_zone_low=zone_low,
                 entry_zone_high=zone_high,
                 zone_valid_at_signal=_is_zone_valid(direction, market_price, zone_low, zone_high),
-                # Phase 32: stop basis + fire-time snapshot fields (only populated for selected signal)
+                # Phase 32: stop basis + fire-time snapshot fields
                 stop_basis=sig.get("stop_basis"),
                 stop_structure_type=sig.get("stop_structure_type"),
                 stop_structure_age_bars=sig.get("stop_structure_age_bars"),

@@ -433,14 +433,14 @@ class TestRegimeSuppressedStatus:
 import asyncio  # noqa: E402
 
 from src.intelligence.trading.signal_ledger import (  # noqa: E402
+    _RECORD_ACTIVATION_SQL,
+    _RECORD_MARKET_RESOLUTION_SQL,
+    _RECORD_ZONE_RESOLUTION_SQL,
+    _RECORD_ZONE_WITH_ACTIVATION_SQL,
     record_activation,
     record_market_resolution,
     record_zone_resolution,
     record_zone_resolution_with_activation,
-    _RECORD_ACTIVATION_SQL,
-    _RECORD_ZONE_RESOLUTION_SQL,
-    _RECORD_MARKET_RESOLUTION_SQL,
-    _RECORD_ZONE_WITH_ACTIVATION_SQL,
 )
 
 

@@ -121,7 +121,8 @@ class TradeFrame:
     stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
     stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
     stop_structure_age_bars: int | None = None  # bars since structural level formed
-    structural_stop_distance_atr: float | None = None  # |structural_stop - atr_fallback| / effective_atr
+    # |structural_stop - atr_fallback| / effective_atr
+    structural_stop_distance_atr: float | None = None
 
 
 def _stop_type_to_structure_type(stop_type: str) -> str:
@@ -717,7 +718,10 @@ def frame_trade(
     # Regime 0 (low vol) → tighter; regime 2 (high vol) → wider; None → use raw ATR.
     garch_vol_regime = features.get("garch_vol_regime")
     garch_regime_int = int(garch_vol_regime) if garch_vol_regime is not None else None
-    effective_atr = atr * GARCH_MULTIPLIERS.get(garch_regime_int, 1.0) if garch_regime_int is not None else atr
+    if garch_regime_int is not None:
+        effective_atr = atr * GARCH_MULTIPLIERS.get(garch_regime_int, 1.0)
+    else:
+        effective_atr = atr
 
     # Resolve entry with setup-specific offset
     resolved_entry, entry_type = _resolve_entry(setup_type, direction, entry, features)
@@ -731,7 +735,9 @@ def frame_trade(
         candidates = _collect_targets_short(resolved_entry, stop, effective_atr, features)
 
     # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
-    zone_low, zone_high = _resolve_zone_bounds(setup_type, direction, resolved_entry, features, effective_atr)
+    zone_low, zone_high = _resolve_zone_bounds(
+        setup_type, direction, resolved_entry, features, effective_atr
+    )
 
     risk = abs(resolved_entry - stop)
     if risk <= EPSILON_TOLERANCE:
