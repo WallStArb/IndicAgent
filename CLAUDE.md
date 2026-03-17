@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.23.0
-Last Updated: 2026-03-15
-Status: v1.8 SHIPPED — I1-I8 pipeline complete, 60 instruments, 111 plugins + 2 aggregation
+Version: 5.24.0
+Last Updated: 2026-03-17
+Status: v1.9 IN PROGRESS — Phases 31-34 complete, Phase 38 next
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -49,6 +49,8 @@ Before committing: `/simplify` then `/coderabbit:code-review`.
 
 ### Post-Milestone Housekeeping
 `git push origin main`, push tag (`git push origin vX.Y`), `/gsd:cleanup`, update README stats.
+**Design doc archive:** After each phase ships, move its `docs/plans/*.md` to `docs/plans/archive/` if `Status: Shipped`. Do this as part of post-phase cleanup, not just at milestone boundaries.
+**Todo store:** `.planning/todos/pending/` (active) and `.planning/todos/done/` (completed). GSD config reports `completed_dir` but actual dir on disk is `done/`.
 
 ### Feature Development (any new plugin, service, or significant change)
 **Mandatory skill chain — do not skip steps:**
@@ -59,6 +61,14 @@ Before committing: `/simplify` then `/coderabbit:code-review`.
 5. `finishing-a-development-branch` — clean git history, decide merge/PR/cleanup
 
 **Do NOT jump straight to coding.** Even "simple" plugins need the brainstorming step.
+
+### Refactoring Philosophy
+Refactors should produce a **cleaner DAG** — modules with single responsibilities that compose upward into services. Never refactor just to reduce line count. Ask: *can this module be reused by another service? does it have exactly one job? does it make the dependency graph more explicit?* Monolithic services that accumulate logic over time are the anti-pattern to avoid.
+
+### Plugin vs Service Boundary
+**If it decides something about market data or signals → plugin/intelligence layer (`src/intelligence/`)**
+**If it moves data between places → service layer (`services/`)**
+Services should be thin: Redpanda consumer/producer + lifecycle wiring only. Regime gating, staleness scoring, confidence adjustments, TTL logic — all analytical, all belong in `src/intelligence/`. Plugins must never know about other plugins directly; cross-plugin communication goes through tier output schemas only. A plugin reusable in multiple contexts signals it should be a shared module, not duplicated.
 
 ### Bug Fixes & Debugging
 1. `systematic-debugging` — structured investigation before proposing fixes
@@ -270,6 +280,6 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Roadmap
 
-**v1.8 SHIPPED 2026-03-13** — tagged `v1.8`. Next: `/gsd:new-milestone` to define v1.9.
+**v1.9 IN PROGRESS** — Phases 31-34 shipped (CIS learning loop, stop architecture, 5 new I7 plugins, AVWAP+Volume Profile). Phase 38 next: automated futures roll detection.
 
 Full history: `.planning/ROADMAP.md`
