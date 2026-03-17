@@ -1,13 +1,16 @@
 """CIS Weight Updater — adaptive weight learning via logistic regression.
 
 Runs nightly or when 20 new outcomes accumulate. Reads resolved signals from
-signal_ledger (bucket_scores + signal_quality), trains LogisticRegression,
-writes new version row to cis_weights table.
+signal_ledger (bucket_scores + outcome), trains LogisticRegression on binary
+win/loss labels, writes new version row to cis_weights table.
 
 Bootstrap transition rules (from CONTEXT.md):
   - n_resolved < 50:   use designed weights, no retraining → returns None
   - 50 <= n < 100:     train, blend 70% designed / 30% learned → returns blended weights
   - n >= 100:           full learned weights → returns learned weights
+
+Cluster segmentation: when a (asset_cluster, timeframe) group has >= 100 signals,
+a separate per-cluster model is trained and written. Global model always trained.
 
 Usage:
     # Standalone:
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +41,42 @@ MIN_SAMPLES_FULL = 100
 MIN_WEIGHT = 0.05
 BLEND_DESIGNED_RATIO = 0.70  # at 50-99 samples: 70% designed
 
+WIN_OUTCOMES: frozenset[str] = frozenset({"target_1", "target_1_2", "target_full"})
+
+ASSET_CLUSTER_MAP: dict[str, str] = {
+    # eq_index: equity index futures
+    "ES": "eq_index",
+    "NQ": "eq_index",
+    "RTY": "eq_index",
+    "YM": "eq_index",
+    # commodity: energy + metals
+    "CL": "commodity",
+    "GC": "commodity",
+    "SI": "commodity",
+    "NG": "commodity",
+    "HG": "commodity",
+    "PL": "commodity",
+    "PA": "commodity",
+    # rates: interest rate futures
+    "ZN": "rates",
+    "ZB": "rates",
+    "ZF": "rates",
+    "ZT": "rates",
+    # crypto
+    "BTC": "crypto",
+    "ETH": "crypto",
+    "SOL": "crypto",
+    # agriculture
+    "ZC": "ag",
+    "ZS": "ag",
+    "ZW": "ag",
+}
+
+
+def get_asset_cluster(symbol: str) -> str:
+    """Map base symbol to asset cluster. Returns 'global' for unmapped symbols."""
+    return ASSET_CLUSTER_MAP.get(symbol, "global")
+
 
 @dataclass
 class WeightUpdateResult:
@@ -45,8 +85,10 @@ class WeightUpdateResult:
     n_resolved: int
     weights_type: str  # 'designed' | 'learned' | 'blended'
     weights: dict[str, float]
-    signal_quality_mean: float
+    win_rate: float  # fraction of wins in training set
     did_retrain: bool
+    asset_cluster: str = "global"
+    timeframe: str = "global"
 
 
 def _softmax(x: np.ndarray) -> np.ndarray:
@@ -70,18 +112,20 @@ def compute_new_weights(
     ----------
     resolved_signals:
         List of dicts with keys: bucket_scores (dict or JSON string),
-        signal_quality (float). Only rows where both are present are used.
+        outcome (str from WIN_OUTCOMES or loss string). Only rows where
+        both bucket_scores and outcome are present are used.
+        signal_quality is ignored — binary outcome labels are used.
 
     Returns
     -------
     WeightUpdateResult or None if fewer than MIN_SAMPLES_TRAIN resolved
     signals or if LogisticRegression training is degenerate.
     """
-    # Filter to rows with both bucket_scores and signal_quality
+    # Filter to rows with both bucket_scores and outcome
     valid = [
         s
         for s in resolved_signals
-        if s.get("bucket_scores") is not None and s.get("signal_quality") is not None
+        if s.get("bucket_scores") is not None and s.get("outcome") is not None
     ]
     n = len(valid)
 
@@ -93,23 +137,20 @@ def compute_new_weights(
         )
         return None
 
-    # Build feature matrix X (n, 6) and quality scores
+    # Build feature matrix X (n, 6) and binary win/loss labels
     bucket_list = list(BUCKET_NAMES)
     x_rows = []
-    qualities = []
     for row in valid:
         bs = row["bucket_scores"]
         if isinstance(bs, str):
             bs = json.loads(bs)
         x_rows.append([float(bs.get(b, 0.0)) for b in bucket_list])
-        qualities.append(float(row["signal_quality"]))
 
     x = np.array(x_rows)
-    qualities_arr = np.array(qualities)
-    quality_mean = float(qualities_arr.mean())
 
-    # Binary target: above-mean signal quality
-    y = (qualities_arr >= quality_mean).astype(int)
+    # Binary target: 1.0 if outcome is a win, 0.0 otherwise
+    y = np.array([1.0 if row.get("outcome") in WIN_OUTCOMES else 0.0 for row in valid])
+    win_rate = float(y.mean())
 
     # Need both classes for LogisticRegression
     if y.sum() == 0 or y.sum() == len(y):
@@ -145,48 +186,46 @@ def compute_new_weights(
         n_resolved=n,
         weights_type=weights_type,
         weights=final_weights,
-        signal_quality_mean=quality_mean,
+        win_rate=win_rate,
         did_retrain=True,
     )
 
 
-async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
-    """Query DB and run weight update. Returns None if no update needed.
+async def _write_weights_to_db(
+    db_manager: Any,
+    result: WeightUpdateResult,
+    asset_cluster: str,
+    timeframe: str,
+) -> None:
+    """Write a WeightUpdateResult to the cis_weights table.
 
     Parameters
     ----------
     db_manager:
         DatabaseManager instance with execute_query / execute_command methods.
+    result:
+        Computed weights to persist.
+    asset_cluster:
+        Cluster key (e.g. 'global', 'eq_index', 'crypto').
+    timeframe:
+        Timeframe key (e.g. 'global', '1m', '5m').
     """
-    rows = await db_manager.execute_query("""
-        SELECT bucket_scores, signal_quality, confidence
-        FROM signal_ledger
-        WHERE signal_quality IS NOT NULL
-          AND bucket_scores IS NOT NULL
-        ORDER BY timestamp DESC
-        LIMIT 10000
-        """)
-    if not rows:
-        return None
-
-    result = compute_new_weights(rows)
-    if result is None or not result.did_retrain:
-        return result
-
-    # Write new version to cis_weights
     existing = await db_manager.execute_query(
-        "SELECT MAX(version) as max_v FROM cis_weights WHERE symbol = 'global'"
+        "SELECT MAX(version) as max_v FROM cis_weights WHERE asset_cluster = $1 AND timeframe = $2",
+        asset_cluster,
+        timeframe,
     )
-    next_version = ((existing[0]["max_v"] or 1) if existing else 1) + 1
+    next_version = ((existing[0]["max_v"] or 0) if existing else 0) + 1
     await db_manager.execute_command(
-        """
-        INSERT INTO cis_weights (version, weights_type, symbol, timeframe,
+        """INSERT INTO cis_weights (version, weights_type, symbol, timeframe, asset_cluster,
             trend_w, momentum_w, structure_w, pattern_w, institutional_w, regime_w,
-            sample_size, signal_quality_mean)
-        VALUES ($1, $2, 'global', 'global', $3, $4, $5, $6, $7, $8, $9, $10)
-        """,
+            sample_size)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
         next_version,
         result.weights_type,
+        "global",  # symbol retained for backward compatibility
+        timeframe,
+        asset_cluster,
         result.weights["trend"],
         result.weights["momentum"],
         result.weights["structure"],
@@ -194,15 +233,70 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
         result.weights["institutional"],
         result.weights["regime"],
         result.n_resolved,
-        result.signal_quality_mean,
     )
     logger.info(
-        "New weights written (version=%d, type=%s, n=%d)",
-        next_version,
-        result.weights_type,
-        result.n_resolved,
+        "Wrote CIS weights to DB",
+        extra={
+            "version": next_version,
+            "cluster": asset_cluster,
+            "tf": timeframe,
+            "weights_type": result.weights_type,
+            "n": result.n_resolved,
+        },
     )
-    return result
+
+
+async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
+    """Query DB and run weight update. Returns None if no update needed.
+
+    Trains global model on all resolved, non-shadow signals. Additionally
+    trains per-(asset_cluster, timeframe) models when cluster has >= 100 signals.
+
+    Parameters
+    ----------
+    db_manager:
+        DatabaseManager instance with execute_query / execute_command methods.
+    """
+    rows = await db_manager.execute_query("""
+        SELECT bucket_scores, outcome, confidence, symbol, timeframe
+        FROM signal_ledger
+        WHERE outcome IS NOT NULL
+          AND bucket_scores IS NOT NULL
+          AND is_shadow = FALSE
+        ORDER BY timestamp DESC
+        LIMIT 10000
+        """)
+    if not rows:
+        return None
+
+    # Train global model on all signals
+    global_result = compute_new_weights(rows)
+    if global_result is None:
+        return None
+
+    if global_result.did_retrain:
+        await _write_weights_to_db(
+            db_manager, global_result, asset_cluster="global", timeframe="global"
+        )
+
+    # Train per-cluster models when cluster has >= MIN_SAMPLES_FULL signals
+    groups: dict[tuple[str, str], list] = defaultdict(list)
+    for row in rows:
+        cluster = get_asset_cluster(row["symbol"])
+        if cluster == "global":
+            continue  # unmapped symbols go to global only
+        groups[(cluster, row["timeframe"])].append(row)
+
+    for (cluster, tf), group_rows in groups.items():
+        if len(group_rows) < MIN_SAMPLES_FULL:
+            continue
+        cluster_result = compute_new_weights(group_rows)
+        if cluster_result is not None and cluster_result.did_retrain:
+            await _write_weights_to_db(
+                db_manager, cluster_result, asset_cluster=cluster, timeframe=tf
+            )
+
+    return global_result
 
 
 if __name__ == "__main__":
