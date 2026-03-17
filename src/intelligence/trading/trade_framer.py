@@ -80,6 +80,16 @@ ATR_EMERGENCY_FALLBACK_PCT = 0.001  # 0.1% of price as emergency ATR
 MIN_STOP_ATR_MULTIPLIER = 1.0  # Minimum stop distance: at least 1×ATR from entry
 MIN_RR_T1 = 1.5  # Minimum reward-to-risk for T1: signals below this are rejected
 
+# GARCH vol-regime multipliers — scale effective ATR for stop/target sizing.
+# Regime 0 (low vol) → tighter stops; regime 2 (high vol) → wider stops.
+# Source: I4 VolatilityRegimePlugin garch_vol_regime output (0/1/2).
+GARCH_MULTIPLIERS: dict[int, float] = {0: 0.8, 1: 1.0, 2: 1.35}
+
+# Proximity gate: if structural stop is within this many effective-ATR units of the
+# ATR fallback stop, classify as "structure_snap" (structure is close to ATR anyway).
+# Signals beyond this boundary are "garch_adaptive" (structure diverges from ATR).
+STRUCTURE_SNAP_PROXIMITY_ATR = 1.5
+
 
 @dataclass
 class TradeTarget:
@@ -112,6 +122,88 @@ class TradeFrame:
     stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
     stop_structure_age_bars: int | None = None  # bars since structural level formed
     structural_stop_distance_atr: float | None = None  # |structural_stop - atr_fallback| / effective_atr
+
+
+def _stop_type_to_structure_type(stop_type: str) -> str:
+    """Map raw stop_type string to canonical stop_structure_type label."""
+    _MAP = {
+        "demand_zone": "demand_zone",
+        "supply_zone": "supply_zone",
+        "sweep_level": "sweep_level",
+        "ob_bottom": "ob_bottom",
+        "ob_top": "ob_top",
+        "swing_low": "swing_low",
+        "swing_high": "swing_high",
+        "sr_support": "sr_support",
+        "sr_resistance": "sr_resistance",
+        "fvg_low": "fvg_low",
+        "fvg_high": "fvg_high",
+    }
+    return _MAP.get(stop_type, "atr_fallback")
+
+
+def _get_structure_age_bars(stop_type: str, features: dict[str, Any]) -> int | None:
+    """Return bars-since-formed for the structural level used as stop, or None."""
+    _AGE_FIELD_MAP = {
+        "swing_low": "swing_low_age_bars",
+        "swing_high": "swing_high_age_bars",
+        "sr_support": "support_age_bars",
+        "sr_resistance": "resistance_age_bars",
+    }
+    age_field = _AGE_FIELD_MAP.get(stop_type)
+    if age_field is None:
+        return None  # no age field for zones/OBs/FVGs
+    v = features.get(age_field)
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _classify_stop_basis(
+    stop_type: str,
+    stop_price: float,
+    entry: float,
+    effective_atr: float,
+    garch_vol_regime: int | None,
+    direction: int,
+) -> tuple[str, str, float]:
+    """Classify stop into (stop_basis, stop_structure_type, structural_stop_distance_atr).
+
+    stop_basis values:
+      "atr_static"      — plain ATR fallback, no GARCH regime available
+      "garch_adaptive"  — GARCH-scaled ATR fallback, OR structural stop too far from ATR fallback
+      "structure_snap"  — structural stop within STRUCTURE_SNAP_PROXIMITY_ATR of ATR fallback
+
+    structural_stop_distance_atr:
+      0.0 for ATR fallback stops.
+      abs(stop_price - atr_fallback_stop) / effective_atr for structural stops.
+    """
+    structure_type = _stop_type_to_structure_type(stop_type)
+
+    # ATR fallback stop — no structural level used
+    if stop_type == "atr":
+        if garch_vol_regime is not None:
+            return "garch_adaptive", "atr_fallback", 0.0
+        return "atr_static", "atr_fallback", 0.0
+
+    # Structural stop — compute distance from ATR fallback
+    if effective_atr <= EPSILON_TOLERANCE:
+        return "garch_adaptive", structure_type, 0.0
+
+    # ATR fallback reference point (what the stop would be without a structural level)
+    if direction == 1:
+        atr_fallback_stop = entry - effective_atr * ATR_STOP_FALLBACK_MULTIPLIER
+    else:
+        atr_fallback_stop = entry + effective_atr * ATR_STOP_FALLBACK_MULTIPLIER
+
+    distance_atr = abs(stop_price - atr_fallback_stop) / effective_atr
+
+    if distance_atr <= STRUCTURE_SNAP_PROXIMITY_ATR:
+        return "structure_snap", structure_type, distance_atr
+    return "garch_adaptive", structure_type, distance_atr
 
 
 def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
@@ -283,6 +375,14 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
     """Stop placement hierarchy for long trades."""
     min_stop = entry - atr * MIN_STOP_ATR_MULTIPLIER
 
+    # Priority 0: FVG low — FVG bottom as structural stop for bullish FVG
+    fvg_type = _fval(features, "fvg_type")
+    fvg_bottom = _fval(features, "fvg_bottom")
+    if fvg_type == 1.0 and fvg_bottom > EPSILON_TOLERANCE and fvg_bottom < entry:
+        stop = fvg_bottom - atr * ATR_STOP_OB_MULTIPLIER
+        if stop < entry - EPSILON_TOLERANCE:
+            return min(stop, min_stop), "fvg_low"
+
     # Priority 1: in demand zone
     in_demand = _fval(features, "in_demand_zone")
     nearest_demand_low = _fval(features, "nearest_demand_low")
@@ -325,6 +425,14 @@ def _resolve_stop_long(entry: float, atr: float, features: dict[str, Any]) -> tu
 def _resolve_stop_short(entry: float, atr: float, features: dict[str, Any]) -> tuple[float, str]:
     """Stop placement hierarchy for short trades (mirror of long)."""
     max_stop = entry + atr * MIN_STOP_ATR_MULTIPLIER
+
+    # Priority 0: FVG high — FVG top as structural stop for bearish FVG
+    fvg_type = _fval(features, "fvg_type")
+    fvg_top = _fval(features, "fvg_top")
+    if fvg_type == -1.0 and fvg_top > EPSILON_TOLERANCE and fvg_top > entry:
+        stop = fvg_top + atr * ATR_STOP_OB_MULTIPLIER
+        if stop > entry + EPSILON_TOLERANCE:
+            return max(stop, max_stop), "fvg_high"
 
     # Priority 1: in supply zone
     in_supply = _fval(features, "in_supply_zone")
@@ -605,19 +713,25 @@ def frame_trade(
     if atr <= EPSILON_TOLERANCE:
         atr = abs(entry) * ATR_EMERGENCY_FALLBACK_PCT  # 0.1% of price as emergency fallback
 
+    # Apply GARCH vol-regime multiplier to scale effective ATR for stop/target sizing.
+    # Regime 0 (low vol) → tighter; regime 2 (high vol) → wider; None → use raw ATR.
+    garch_vol_regime = features.get("garch_vol_regime")
+    garch_regime_int = int(garch_vol_regime) if garch_vol_regime is not None else None
+    effective_atr = atr * GARCH_MULTIPLIERS.get(garch_regime_int, 1.0) if garch_regime_int is not None else atr
+
     # Resolve entry with setup-specific offset
     resolved_entry, entry_type = _resolve_entry(setup_type, direction, entry, features)
 
-    # Resolve stop
+    # Resolve stop (uses effective_atr for sizing)
     if direction == 1:
-        stop, stop_type = _resolve_stop_long(resolved_entry, atr, features)
-        candidates = _collect_targets_long(resolved_entry, stop, atr, features)
+        stop, stop_type = _resolve_stop_long(resolved_entry, effective_atr, features)
+        candidates = _collect_targets_long(resolved_entry, stop, effective_atr, features)
     else:
-        stop, stop_type = _resolve_stop_short(resolved_entry, atr, features)
-        candidates = _collect_targets_short(resolved_entry, stop, atr, features)
+        stop, stop_type = _resolve_stop_short(resolved_entry, effective_atr, features)
+        candidates = _collect_targets_short(resolved_entry, stop, effective_atr, features)
 
     # Resolve entry zone bounds (used by signal_lifecycle_service for activation)
-    zone_low, zone_high = _resolve_zone_bounds(setup_type, direction, resolved_entry, features, atr)
+    zone_low, zone_high = _resolve_zone_bounds(setup_type, direction, resolved_entry, features, effective_atr)
 
     risk = abs(resolved_entry - stop)
     if risk <= EPSILON_TOLERANCE:
@@ -691,6 +805,12 @@ def frame_trade(
             method=method,
         )
 
+    # Classify stop basis for ML segmentation
+    stop_basis, stop_structure_type, structural_stop_distance_atr = _classify_stop_basis(
+        stop_type, stop, resolved_entry, effective_atr, garch_regime_int, direction
+    )
+    stop_structure_age_bars = _get_structure_age_bars(stop_type, features)
+
     return TradeFrame(
         entry=resolved_entry,
         entry_type=entry_type,
@@ -705,4 +825,8 @@ def frame_trade(
         rejection_reason=None,
         zone_low=zone_low,
         zone_high=zone_high,
+        stop_basis=stop_basis,
+        stop_structure_type=stop_structure_type,
+        stop_structure_age_bars=stop_structure_age_bars,
+        structural_stop_distance_atr=structural_stop_distance_atr,
     )
