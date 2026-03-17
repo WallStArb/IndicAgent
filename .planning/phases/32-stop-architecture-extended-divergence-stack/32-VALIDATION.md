@@ -2,7 +2,7 @@
 phase: 32
 slug: stop-architecture-extended-divergence-stack
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-03-17
 ---

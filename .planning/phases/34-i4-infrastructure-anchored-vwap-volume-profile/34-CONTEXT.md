@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-Migrate and upgrade two existing computation plugins to I4/context/ (AnchoredVWAP from I3/structure, VolumeProfile from I5/patterns), extending each with richer fields that I7 setups require. Implement four I7 plugins consuming this new I4 infrastructure: trad_AnchoredVWAPReversion, trad_VWAPReclaim, trad_POCRejection, trad_HVNRejection, trad_LVNBreakout.
+Migrate and upgrade two existing computation plugins to I4/context/ (AnchoredVWAP from I3/structure, VolumeProfile from I5/patterns), extending each with richer fields that I7 setups require. Implement five I7 plugins consuming this new I4 infrastructure: trad_AnchoredVWAPReversion, trad_VWAPReclaim, trad_POCRejection, trad_HVNRejection, trad_LVNBreakout.
 
 Design framing: Renaissance — one canonical computation per feature, instrument everything, let the training pipeline discover which signals have alpha.
 
