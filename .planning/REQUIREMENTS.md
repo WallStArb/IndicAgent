@@ -33,8 +33,8 @@
 
 - [x] **SIG-01**: `trade_framer.py` implements structure-first stop placement — tries structural invalidation point first (OB low, demand zone boundary, swing low, FVG low); uses structure level when it exists within 1.5×ATR of raw ATR stop; falls back to ATR when no structure is nearby; `stop_basis` field (`"structure_snap"` | `"garch_adaptive"` | `"atr_static"`) logged in `signal_ledger` for every signal
 - [x] **SIG-02**: All 17 existing I7 plugins inherit GARCH-adaptive ATR scaling via centralized `trade_framer.py` — `garch_vol_regime` 0 (low) → 0.8× base multiplier, 1 (normal) → 1.0×, 2 (high) → 1.35×; no per-plugin changes required
-- [ ] **SIG-03**: Chandelier Exit trailing stop implemented in `lifecycle_tracker.py` for active signals — `highest_high_since_entry - 3×ATR` (long) / `lowest_low_since_entry + 3×ATR` (short); stop tightens but never widens; logged as `trailing_stop_price` per lifecycle update
-- [ ] **SIG-04**: Signal staleness score computed per bar in `signal_lifecycle_service` for all pending signals; regime-flip or vol-drift beyond threshold triggers `condition_expired` outcome; `hmm_regime_at_fire` and `garch_vol_regime_at_fire` stored in `signal_ledger` at generation time
+- [x] **SIG-03**: Chandelier Exit trailing stop implemented in `lifecycle_tracker.py` for active signals — `highest_high_since_entry - 3×ATR` (long) / `lowest_low_since_entry + 3×ATR` (short); stop tightens but never widens; logged as `trailing_stop_price` per lifecycle update
+- [x] **SIG-04**: Signal staleness score computed per bar in `signal_lifecycle_service` for all pending signals; regime-flip or vol-drift beyond threshold triggers `condition_expired` outcome; `hmm_regime_at_fire` and `garch_vol_regime_at_fire` stored in `signal_ledger` at generation time
 - [x] **SIG-05**: Time stop verified correct per TF — signals not activated within TTL bars automatically expire; TTL values reviewed and documented as named constants per TF
 
 ### DIV — Extended Divergence Stack
@@ -141,8 +141,8 @@
 | SHAD-02 | Phase 31 | Complete |
 | SIG-01 | Phase 32 | Complete |
 | SIG-02 | Phase 32 | Complete |
-| SIG-03 | Phase 32 | Pending |
-| SIG-04 | Phase 32 | Pending |
+| SIG-03 | Phase 32 | Complete |
+| SIG-04 | Phase 32 | Complete |
 | SIG-05 | Phase 32 | Complete |
 | DIV-01 | Phase 32 | Complete |
 | DIV-02 | Phase 32 | Complete |

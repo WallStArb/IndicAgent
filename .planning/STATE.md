@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Completed 32-03-PLAN.md
-last_updated: "2026-03-17T10:46:02.531Z"
-last_activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
+stopped_at: Completed 32-02-PLAN.md
+last_updated: "2026-03-17T10:48:14.842Z"
+last_activity: 2026-03-17 — 32-02 executed (Chandelier trailing stop, staleness score, condition_expired, shadow tracking; lifecycle_tracker pure; 65 tests pass)
 progress:
   total_phases: 13
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 8
+  completed_plans: 9
   percent: 78
 ---
 
@@ -72,6 +72,10 @@ Progress: [████████░░] 78%
 - **FVG is Priority 0 structural stop** — fvg_low (long) / fvg_high (short) beats demand/supply zone in stop hierarchy (032-01)
 - **stop_basis classification** — structure_snap (≤1.5xATR from fallback), garch_adaptive (>1.5xATR or GARCH-scaled ATR), atr_static (no regime); persisted to signal_ledger AND intelligence_features.i7 JSONB (032-01)
 - **TF_TTL_BARS = {"1m":20, "5m":12, "15m":8, "1h":6}** — per-TF TTL overrides hardcoded default of 10; applied in signal_generator_service before aggregation (032-01)
+- **Chandelier trailing stop tightens monotonically** — long stop only moves up, short stop only moves down; state in `_chandelier_state[sid]` dict injected to evaluate_signal() (032-02)
+- **Staleness formula**: score = 0.6*regime_drift + 0.4*sigma_component; condition_expired fires after 3 consecutive bars with score > 0.5; staleness_consecutive reset to 0 on service restart (032-02)
+- **Shadow tracking**: condition_expired signals continue in `_shadow_signals` dict with remaining_ttl_bars = ttl_bars - bars_elapsed; shadow_mae/mfe/outcome written to DB on TTL expiry (032-02)
+- **Service __new__ pattern requires new attrs**: `_chandelier_state`, `_staleness_consecutive`, `_shadow_signals` must be set in all test helpers that use SignalLifecycleService.__new__ (032-02)
 - **DivergenceStack 5-input weights**: DIVERGENCE_WEIGHTS = {rsi:0.30, macd:0.25, vol:0.20, obv:0.15, cmf:0.10}; gate: score > 0.40 AND n_agreeing >= 3; always-log base_output pattern; divergence_scoring block in _build_i7_payload() routes to intelligence_features.i7 JSONB on every bar (032-03)
 - **I5Patterns has 79 fields** — +9 from 032-03 (macd_div_*, obv_div_*, cmf_div_*); extra=forbid enforced; validate_schema_coverage() passes
 
@@ -89,7 +93,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T10:46:02.529Z
-Stopped at: Completed 32-03-PLAN.md
+Last session: 2026-03-17T10:48:14.841Z
+Stopped at: Completed 32-02-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34: AVWAP + Volume Profile infrastructure)

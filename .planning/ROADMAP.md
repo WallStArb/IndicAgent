@@ -133,7 +133,7 @@ Full details: `.planning/milestones/v1.8-ROADMAP.md`
 ### v1.9 I7 Alpha Engine — In Progress
 
 - [x] **Phase 31: CIS Learning Loop + Signal Feature Snapshots** - Self-improving CIS with DB weight loading, binary win labels, asset-cluster segmentation, and mid-bar feature snapshots for ML training (completed 2026-03-17)
-- [ ] **Phase 32: Stop Architecture + Extended Divergence Stack** - Structure-first stop placement centralized in trade_framer.py (all 17 plugins inherit), Chandelier trailing stop, staleness score, and 5-input divergence convergence scoring
+- [x] **Phase 32: Stop Architecture + Extended Divergence Stack** - Structure-first stop placement centralized in trade_framer.py (all 17 plugins inherit), Chandelier trailing stop, staleness score, and 5-input divergence convergence scoring (completed 2026-03-17)
 - [x] **Phase 33: Five New I7 Signal Plugins** - FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP — covering reversal, session, level-test, and contraction setups (completed 2026-03-17)
 - [ ] **Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile** - Two new I4 computation plugins plus two I7 setups consuming them
 - [ ] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score
@@ -443,7 +443,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
 | 31. CIS Learning Loop + Signal Feature Snapshots | 3/3 | Complete    | 2026-03-17 | - |
-| 32. Stop Architecture + Extended Divergence Stack | 2/3 | In Progress|  | - |
+| 32. Stop Architecture + Extended Divergence Stack | 3/3 | Complete   | 2026-03-17 | - |
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/3 | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
