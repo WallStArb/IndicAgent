@@ -107,6 +107,11 @@ class TradeFrame:
     rejection_reason: str | None = None
     zone_low: float = 0.0  # lower bound of entry zone (zone_low < zone_high always)
     zone_high: float = 0.0  # upper bound of entry zone
+    # Stop basis metadata — populated by _classify_stop_basis() in frame_trade()
+    stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
+    stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
+    stop_structure_age_bars: int | None = None  # bars since structural level formed
+    structural_stop_distance_atr: float | None = None  # |structural_stop - atr_fallback| / effective_atr
 
 
 def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:

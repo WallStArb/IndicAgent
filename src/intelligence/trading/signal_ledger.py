@@ -84,12 +84,33 @@ class LedgerEntry:
     market_entry_price: float | None = None  # ask (long) / bid (short) at signal fire; NULL if unavailable
     # Shadow signal flag — A/B matched-pair comparison (Phase 31)
     is_shadow: bool = False
+    # Stop basis fields — Phase 32 stop architecture (all nullable; NULL for pre-migration rows)
+    stop_basis: str | None = None  # "structure_snap" | "garch_adaptive" | "atr_static"
+    stop_structure_type: str | None = None  # "ob_bottom"|"demand_zone"|...|"atr_fallback"
+    stop_structure_age_bars: int | None = None  # bars since structural level was formed
+    structural_stop_distance_atr: float | None = None  # |structural_stop - atr_fallback| / effective_atr
+    # Fire-time point-in-time snapshots
+    hmm_regime_at_fire: int | None = None  # HMM regime integer at signal fire
+    garch_sigma_at_fire: float | None = None  # instantaneous GARCH σ at signal fire
+    # Chandelier + trailing stop
+    chandelier_vol_source: str | None = None  # "garch_sigma" | "atr_14"
+    trailing_stop_price: list | None = None  # JSONB array [{ts, price}]
+    trailing_stop_tightening_rate: float | None = None
+    # Staleness
+    staleness_score: float | None = None
+    staleness_trigger_reason: str | None = None
+    # Shadow tracking
+    shadow_tracking_start_ts: datetime | None = None
+    shadow_mae: float | None = None
+    shadow_mfe: float | None = None
+    shadow_outcome: str | None = None
 
     def to_insert_params(self) -> tuple:
-        """Return a 39-element tuple ready for batch INSERT.
+        """Return a 54-element tuple ready for batch INSERT.
 
-        JSONB columns (targets, supporting_factors, market_context, bucket_scores)
-        are serialized to JSON strings so asyncpg can cast them via ``::jsonb``.
+        JSONB columns (targets, supporting_factors, market_context, bucket_scores,
+        trailing_stop_price) are serialized to JSON strings so asyncpg can cast
+        them via ``::jsonb``.
         """
         return (
             self.signal_id,
@@ -131,6 +152,22 @@ class LedgerEntry:
             json.dumps(self.cis_attribution) if self.cis_attribution is not None else None,  # $37
             self.market_entry_price,  # $38 — FLOAT, nullable
             self.is_shadow,  # $39 — BOOLEAN
+            # Phase 32: stop basis fields
+            self.stop_basis,                    # $40
+            self.stop_structure_type,           # $41
+            self.stop_structure_age_bars,       # $42
+            self.structural_stop_distance_atr,  # $43
+            self.hmm_regime_at_fire,            # $44
+            self.garch_sigma_at_fire,           # $45
+            self.chandelier_vol_source,         # $46
+            json.dumps(self.trailing_stop_price) if self.trailing_stop_price is not None else None,  # $47::jsonb
+            self.trailing_stop_tightening_rate, # $48
+            self.staleness_score,               # $49
+            self.staleness_trigger_reason,      # $50
+            self.shadow_tracking_start_ts,      # $51
+            self.shadow_mae,                    # $52
+            self.shadow_mfe,                    # $53
+            self.shadow_outcome,                # $54
         )
 
 
@@ -152,7 +189,15 @@ INSERT INTO signal_ledger (
     entry_zone_low, entry_zone_high, zone_valid_at_signal,
     cis_attribution,
     market_entry_price,
-    is_shadow
+    is_shadow,
+    stop_basis, stop_structure_type, stop_structure_age_bars,
+    structural_stop_distance_atr,
+    hmm_regime_at_fire, garch_sigma_at_fire,
+    chandelier_vol_source,
+    trailing_stop_price, trailing_stop_tightening_rate,
+    staleness_score, staleness_trigger_reason,
+    shadow_tracking_start_ts,
+    shadow_mae, shadow_mfe, shadow_outcome
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -166,7 +211,15 @@ INSERT INTO signal_ledger (
     $34, $35, $36,
     $37::jsonb,
     $38,
-    $39
+    $39,
+    $40, $41, $42,
+    $43,
+    $44, $45,
+    $46,
+    $47::jsonb, $48,
+    $49, $50,
+    $51,
+    $52, $53, $54
 )
 """
 
