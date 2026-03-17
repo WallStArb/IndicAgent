@@ -309,4 +309,4 @@ class TestI5NewRegistration:
     def test_tier_i5_has_14_plugins(self):
         from src.intelligence.register_plugins import TIER_I5
 
-        assert len(TIER_I5) == 14, f"Expected 14 I5 plugins, got {len(TIER_I5)}"
+        assert len(TIER_I5) == 16, f"Expected 16 I5 plugins, got {len(TIER_I5)}"
