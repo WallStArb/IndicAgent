@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: completed
-stopped_at: Phase 35 context gathered
-last_updated: "2026-03-17T20:51:29.763Z"
-last_activity: "2026-03-17 — 34-02 executed (VolumeProfile I4 migration: 18 fields, session-reset + rolling dual-track)"
+status: plans_ready
+stopped_at: Phase 35 planned — ready to execute
+last_updated: "2026-03-17"
+last_activity: "2026-03-17 — Phase 35 planned (3 plans, 3 waves: calibration, TOD multiplier, CIS Kalman filter)"
 progress:
   total_phases: 14
   completed_phases: 4
-  total_plans: 15
+  total_plans: 18
   completed_plans: 12
   percent: 80
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete, Phase 34 all 3 plans complete (AVWAP + VolumeProfile I4 migrations + 5 new I7 plugins)
+**Current focus:** v1.9 I7 Alpha Engine — Phase 34 complete, Phase 35 planned and ready to execute
 
 ## Current Position
 
-Phase: 34 (complete — all 3 plans done)
-Plan: 03 complete → Phase 34 DONE
-Status: Phase 34 Plan 03 complete — 5 new I7 plugins registered (AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout), TIER_I7=28, total=111
-Last activity: 2026-03-17 — 34-02 executed (VolumeProfile I4 migration: 18 fields, session-reset + rolling dual-track)
+Phase: 35 (plans ready — 3 plans, 3 waves)
+Plan: ready to execute
+Status: Phase 35 planned — calibration (CAL-01/02/03), TOD multiplier (TOD-01/02), CIS Kalman filter (KAL-01/02); migration 038 adds `regime_type_at_fire`, `raw_cis_score`, `filtered_cis_score`, `calibrated_confidence` to signal_ledger; LedgerEntry extends to 58 fields
+Last activity: 2026-03-17 — Phase 35 planned (3 plans, 3 waves)
 
 Progress: [████████░░] 80%
 
