@@ -10,7 +10,7 @@
 
 *"Earn the right through proof. Let the system run. Instrument everything." — Renaissance principles*
 
-46 requirements · 10 new I7 plugins (17 → 27 total) · 5 new I4/I5 plugins · 1 new service
+52 requirements · 10 new I7 plugins (17 → 27 total) · 5 new I4/I5 plugins · 1 new service · automated roll detection (Phase 38)
 
 ### LEARN — CIS Learning Loop
 
@@ -95,6 +95,15 @@
 - [ ] **XA-02**: Equity index spread features: `es_nq_spread_z` (z-scored 5-bar return spread), `es_rty_spread_z`, `eq_corr_break` (abs diff between 5-bar and 20-bar rolling correlation)
 - [ ] **XA-03**: New I7 plugin `trad_CrossAssetDivergence` — fires when `|spread_z| > 2.0`; regime-biased direction (reversion in ranging, continuation in trending); confidence scales with spread magnitude and regime clarity; registered in `TIER_I7`
 
+### ROLL — Automated Futures Roll Detection
+
+- [ ] **ROLL-01**: `src/config/contracts.py` new module with `derive_roll_chain(base_symbol)` — returns 3-contract roll chain using IBKR month codes (H/M/U/Z + F/G/J/K/N/Q/V/X); applies only to `AssetClass.FUTURES`; ETFs/FX/Crypto excluded
+- [ ] **ROLL-02**: `contract_metadata` table extended via migration 037 with `is_front_month BOOLEAN`, `roll_gap DOUBLE PRECISION`, `roll_direction VARCHAR(10)`, `roll_detected_at TIMESTAMPTZ`, `confirmation_count INTEGER`; new `system_events` table with `event_type`, `base_symbol`, `old_symbol`, `new_symbol`, `roll_gap`, `roll_direction`, `detected_at`, `event_data JSONB`; `topic_system_events()` added to `stream_keys.py`
+- [ ] **ROLL-03**: `Settings.get_active_contracts()` queries `contract_metadata` where `is_front_month=true`; caches result for 60 seconds; falls back to config-file contracts on DB error; replaces all service hardcoded `Settings().contracts` references
+- [ ] **ROLL-04**: `tws_daemon.py` extended with roll detection: 100-bar rolling volume window per base symbol; volume ratio threshold (segmented: ES/NQ/RTY/YM=1.2, CL/GC/SI/HG=1.5, ZN/ZF/ZB/ZT=1.4); z-score > 2.0 gate; 3-bar confirmation window before commit; 30-minute cooldown per base symbol; RTH-only time-of-day gating; publishes roll events to `system_events` Kafka topic; atomic `contract_metadata` update (toggle `is_front_month`); feature flag `ROLL_MONITOR_ENABLED=false` default (shadow mode)
+- [ ] **ROLL-05**: All downstream services (`indicator_service`, `market_analysis_service`, `signal_generator_service`, `feature_writer_service`) consume roll events from `system_events` Kafka topic and update their active symbol lists; `indicator_service` migrates plugin state (price-sensitive indicators adjusted by `roll_gap`, volume-neutral indicators copied verbatim); `feature_writer_service` writes roll boundary marker to `intelligence_features` i7 JSONB
+- [ ] **ROLL-06**: `historical_backfill.py` extended with `--seed-roll-chain` flag that populates `contract_metadata` with the 3-contract roll chain for each active futures base symbol; sets `is_front_month=true` for the current front-month contract
+
 ---
 
 ## v2.0+ Requirements (Deferred)
@@ -172,12 +181,18 @@
 | XA-01 | Phase 37 | Pending |
 | XA-02 | Phase 37 | Pending |
 | XA-03 | Phase 37 | Pending |
+| ROLL-01 | Phase 38 | Pending |
+| ROLL-02 | Phase 38 | Pending |
+| ROLL-03 | Phase 38 | Pending |
+| ROLL-04 | Phase 38 | Pending |
+| ROLL-05 | Phase 38 | Pending |
+| ROLL-06 | Phase 38 | Pending |
 
 **Coverage:**
-- v1.9 requirements: 41 total
-- Mapped to phases: 41
+- v1.9 requirements: 47 total
+- Mapped to phases: 47
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-16*
-*Last updated: 2026-03-16 after roadmap creation (Phases 31-37 mapped)*
+*Last updated: 2026-03-17 — Phase 38 (Automated Futures Roll Detection) added (ROLL-01..06)*
