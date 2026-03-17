@@ -461,3 +461,293 @@ class TestMarketTrackMathInvariants:
         bars = [(5116.0, 5099.0, 5115.0)]
         t = self._run_bars(sig, 5100.0, bars)
         assert t.exit_price == 5115.0
+
+
+# ============================================================
+# Chandelier Stop Tests
+# ============================================================
+
+from src.intelligence.trading.lifecycle_tracker import (  # noqa: E402
+    compute_chandelier_stop,
+    compute_staleness_score,
+)
+
+
+@pytest.mark.unit
+class TestComputeChandelierStop:
+    def test_long_stop_formula(self):
+        """Long (direction=1): highest_high - 3 * vol."""
+        result = compute_chandelier_stop(
+            direction=1, highest_high=5120.0, lowest_low=5090.0, vol=10.0
+        )
+        assert result == pytest.approx(5120.0 - 3 * 10.0)
+
+    def test_short_stop_formula(self):
+        """Short (direction=-1): lowest_low + 3 * vol."""
+        result = compute_chandelier_stop(
+            direction=-1, highest_high=5120.0, lowest_low=5080.0, vol=10.0
+        )
+        assert result == pytest.approx(5080.0 + 3 * 10.0)
+
+    def test_custom_multiplier(self):
+        """Custom multiplier applied correctly."""
+        result = compute_chandelier_stop(
+            direction=1, highest_high=5100.0, lowest_low=5080.0, vol=5.0, multiplier=2.0
+        )
+        assert result == pytest.approx(5100.0 - 2 * 5.0)
+
+    def test_uses_vol_parameter(self):
+        """vol parameter drives the stop distance regardless of source (garch or atr)."""
+        garch_result = compute_chandelier_stop(
+            direction=1, highest_high=5100.0, lowest_low=5080.0, vol=8.0
+        )
+        atr_result = compute_chandelier_stop(
+            direction=1, highest_high=5100.0, lowest_low=5080.0, vol=8.0
+        )
+        assert garch_result == atr_result
+
+
+@pytest.mark.unit
+class TestChandelierTightening:
+    """Chandelier stop tightens monotonically via in-place mutation in evaluate_signal."""
+
+    def test_long_stop_tightens_when_high_increases(self):
+        """For a long, as highest_high rises the stop should move up (tighten)."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5150.0])
+        ch = {
+            "trailing_stop": 5090.0,  # previous stop
+            "highest_high": 5110.0,
+            "lowest_low": 5095.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+        }
+        # Bar: high=5115 exceeds highest_high -> new stop = 5115 - 3*5 = 5100 > 5090 -> tightens
+        evaluate_signal(
+            sig, high=5115.0, low=5098.0, close=5110.0,
+            chandelier_state=ch,
+        )
+        assert ch["trailing_stop"] == pytest.approx(5100.0)
+
+    def test_long_stop_does_not_widen(self):
+        """Chandelier stop for long never moves down (widen)."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5150.0])
+        ch = {
+            "trailing_stop": 5100.0,  # relatively tight stop
+            "highest_high": 5115.0,
+            "lowest_low": 5095.0,
+            "vol": 10.0,
+            "vol_source": "garch_sigma",
+        }
+        # Bar: high=5108 < highest_high=5115 -> new_stop = 5115 - 30 = 5085 < 5100 -> rejected
+        evaluate_signal(
+            sig, high=5108.0, low=5098.0, close=5105.0,
+            chandelier_state=ch,
+        )
+        assert ch["trailing_stop"] == pytest.approx(5100.0)  # unchanged
+
+    def test_short_stop_tightens_when_low_decreases(self):
+        """For a short, as lowest_low falls the stop should move down (tighten)."""
+        sig = _active_signal(
+            direction=-1, entry=5100.0, stop=5115.0, targets=[5060.0, 5040.0]
+        )
+        ch = {
+            "trailing_stop": 5110.0,
+            "highest_high": 5105.0,
+            "lowest_low": 5090.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+        }
+        # Bar: low=5085 < lowest_low -> new_stop = 5085 + 15 = 5100 < 5110 -> tightens
+        evaluate_signal(
+            sig, high=5097.0, low=5085.0, close=5088.0,
+            chandelier_state=ch,
+        )
+        assert ch["trailing_stop"] == pytest.approx(5100.0)
+
+
+@pytest.mark.unit
+class TestChandelierStopExit:
+    def test_long_exits_when_low_breaches_trailing_stop(self):
+        """Long: low <= trailing_stop -> chandelier_stop exit."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
+        ch = {
+            "trailing_stop": 5095.0,
+            "highest_high": 5110.0,
+            "lowest_low": 5095.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+        }
+        t = evaluate_signal(
+            sig, high=5100.0, low=5094.0, close=5096.0,
+            chandelier_state=ch,
+        )
+        assert t is not None
+        assert t.exit_reason == "chandelier_stop"
+        assert t.outcome == "stopped_in_trade"
+
+    def test_short_exits_when_high_breaches_trailing_stop(self):
+        """Short: high >= trailing_stop -> chandelier_stop exit."""
+        sig = _active_signal(
+            direction=-1, entry=5100.0, stop=5130.0, targets=[5060.0, 5040.0]
+        )
+        ch = {
+            "trailing_stop": 5108.0,
+            "highest_high": 5105.0,
+            "lowest_low": 5090.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+        }
+        t = evaluate_signal(
+            sig, high=5109.0, low=5098.0, close=5105.0,
+            chandelier_state=ch,
+        )
+        assert t is not None
+        assert t.exit_reason == "chandelier_stop"
+        assert t.outcome == "stopped_in_trade"
+
+    def test_no_exit_when_price_clear_of_trailing_stop(self):
+        """No chandelier exit when price is well above the trailing stop for a long."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
+        ch = {
+            "trailing_stop": 5090.0,
+            "highest_high": 5110.0,
+            "lowest_low": 5095.0,
+            "vol": 5.0,
+            "vol_source": "garch_sigma",
+        }
+        t = evaluate_signal(
+            sig, high=5115.0, low=5105.0, close=5112.0,
+            chandelier_state=ch,
+        )
+        assert t is None  # no exit
+
+
+# ============================================================
+# Staleness Score Tests
+# ============================================================
+
+@pytest.mark.unit
+class TestComputeStalenessScore:
+    def test_regime_flip_no_vol_drift(self):
+        """Regime flip alone (sigma ratio < 2.0) -> score = 0.6, reason = 'hmm_regime_flip'."""
+        score, reason = compute_staleness_score(
+            hmm_regime_now=1,
+            hmm_regime_at_fire=0,
+            garch_sigma_now=1.0,
+            garch_sigma_at_fire=1.0,
+        )
+        assert score == pytest.approx(0.6)
+        assert reason == "hmm_regime_flip"
+
+    def test_vol_drift_no_regime_flip(self):
+        """Sigma ratio > 2.0 but same regime -> reason = 'vol_drift'."""
+        score, reason = compute_staleness_score(
+            hmm_regime_now=1,
+            hmm_regime_at_fire=1,
+            garch_sigma_now=3.0,
+            garch_sigma_at_fire=1.0,
+        )
+        # sigma_ratio = 3.0, log(3)/log(3) = 1.0 -> sigma_component = min(1.0, 1.0) = 1.0
+        # score = 0.4 * 1.0 = 0.4
+        assert score > 0.0
+        assert reason == "vol_drift"
+
+    def test_both_regime_flip_and_vol_drift(self):
+        """Regime flip AND sigma ratio >= 2.0 -> reason = 'both'."""
+        score, reason = compute_staleness_score(
+            hmm_regime_now=2,
+            hmm_regime_at_fire=0,
+            garch_sigma_now=4.0,
+            garch_sigma_at_fire=1.0,
+        )
+        assert score > 0.5
+        assert reason == "both"
+
+    def test_no_drift_same_regime_same_vol(self):
+        """Same regime, sigma ratio = 1.0 -> score = 0.0, reason = 'vol_drift'."""
+        score, reason = compute_staleness_score(
+            hmm_regime_now=1,
+            hmm_regime_at_fire=1,
+            garch_sigma_now=1.0,
+            garch_sigma_at_fire=1.0,
+        )
+        assert score == pytest.approx(0.0)
+        assert reason == "vol_drift"
+
+    def test_none_regime_values_treated_as_matching(self):
+        """None regimes don't trigger regime_drift (matches any)."""
+        score, reason = compute_staleness_score(
+            hmm_regime_now=None,
+            hmm_regime_at_fire=None,
+            garch_sigma_now=1.0,
+            garch_sigma_at_fire=1.0,
+        )
+        assert score == pytest.approx(0.0)
+
+    def test_none_sigma_values_no_crash(self):
+        """None sigma values -> no vol component (zero sigma_component)."""
+        score, reason = compute_staleness_score(
+            hmm_regime_now=1,
+            hmm_regime_at_fire=0,
+            garch_sigma_now=None,
+            garch_sigma_at_fire=None,
+        )
+        # Only regime drift applies
+        assert score == pytest.approx(0.6)
+
+
+# ============================================================
+# Staleness condition_expired + confirmation window Tests
+# ============================================================
+
+@pytest.mark.unit
+class TestConditionExpired:
+    def test_condition_expired_fires_after_3_consecutive_bars(self):
+        """evaluate_signal returns condition_expired when consecutive >= 3 and score > 0.5."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
+        t = evaluate_signal(
+            sig, high=5110.0, low=5098.0, close=5105.0,
+            staleness_consecutive_bars=3,
+            staleness_score=0.6,
+        )
+        assert t is not None
+        assert t.exit_reason == "condition_expired"
+        assert t.outcome == "condition_expired"
+        assert t.new_status == "resolved"
+
+    def test_condition_expired_not_fired_after_2_bars(self):
+        """evaluate_signal returns None when consecutive = 2 (confirmation window not met)."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
+        t = evaluate_signal(
+            sig, high=5110.0, low=5098.0, close=5105.0,
+            staleness_consecutive_bars=2,
+            staleness_score=0.6,
+        )
+        assert t is None
+
+    def test_condition_expired_not_fired_when_score_low(self):
+        """No expiry when score <= 0.5 even if consecutive >= 3."""
+        sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
+        t = evaluate_signal(
+            sig, high=5110.0, low=5098.0, close=5105.0,
+            staleness_consecutive_bars=5,
+            staleness_score=0.4,
+        )
+        assert t is None
+
+    def test_return_type_is_transition_or_none(self):
+        """evaluate_signal always returns Transition | None -- never a tuple."""
+        from src.intelligence.trading.lifecycle_tracker import Transition
+        sig = _active_signal(direction=1, entry=5100.0, stop=5060.0, targets=[5150.0])
+        t = evaluate_signal(
+            sig, high=5110.0, low=5098.0, close=5105.0,
+            staleness_consecutive_bars=3,
+            staleness_score=0.6,
+        )
+        assert isinstance(t, Transition)
+        t2 = evaluate_signal(
+            sig, high=5110.0, low=5098.0, close=5105.0,
+            staleness_consecutive_bars=2,
+            staleness_score=0.6,
+        )
+        assert t2 is None
