@@ -355,12 +355,16 @@ def _build_i7_payload(
     timestamp: datetime,
     symbol: str,
     timeframe: str,
+    divergence_scoring: dict | None = None,
 ) -> dict:
     """Build the intelligence_i7 stream message from an AggregatedResult.
 
     Publishes all_ranked as a compact JSON list. is_winner flags the aggregator's
     selected signal so the ML layer can learn from both selected and counterfactual
     signals.
+
+    divergence_scoring: always-log DivergenceStack fields (div_weighted_score, per-input
+    scores) written to intelligence_features.i7 JSONB on every bar, even when no signal fires.
     """
     selected_plugin = None
     if result.selected_signal is not None:
@@ -396,12 +400,15 @@ def _build_i7_payload(
             }
         )
 
-    return {
+    payload: dict = {
         "ts": timestamp.isoformat(),
         "symbol": symbol,
         "tf": timeframe,
         "data": json.dumps(signals_out),
     }
+    if divergence_scoring:
+        payload["divergence_scoring"] = json.dumps(divergence_scoring)
+    return payload
 
 
 class SignalGeneratorService:
@@ -828,19 +835,37 @@ class SignalGeneratorService:
             self._df_cache[key] = pd.DataFrame(list(self.bar_history[key]))
         return self._df_cache[key]
 
-    def _run_setup_plugins(self, frames: dict[str, Any]) -> list[dict]:
-        """Run all I7 setup plugins and return only directional signals.
+    def _run_setup_plugins(self, frames: dict[str, Any]) -> tuple[list[dict], dict]:
+        """Run all I7 setup plugins and return directional signals + always-log metadata.
+
+        Returns:
+            (signals, plugin_metadata) where:
+            - signals: list of directional signal dicts (direction != 0)
+            - plugin_metadata: always-log fields from DivergenceStack regardless of signal fire
 
         Each signal dict is tagged with regime_type from the plugin attribute
         (Option B from RESEARCH.md — tag at plugin execution, keeps aggregator stateless).
         """
         signals = []
+        plugin_metadata: dict = {}
         for name in I7_PLUGINS:
             t0 = time.time()
             try:
                 plugin = registry.get_pattern(name)
                 result = plugin.compute_full(frames)
                 elapsed = time.time() - t0
+                # Capture DivergenceStack always-log fields regardless of signal direction
+                if name == "trad_DivergenceStack" and result:
+                    if result.get("div_weighted_score") is not None:
+                        plugin_metadata["divergence_scoring"] = {
+                            "div_weighted_score": result.get("div_weighted_score"),
+                            "div_n_agreeing": result.get("div_n_agreeing"),
+                            "rsi_div_score": result.get("rsi_div_score"),
+                            "macd_div_score": result.get("macd_div_score"),
+                            "vol_div_score": result.get("vol_div_score"),
+                            "obv_div_score": result.get("obv_div_score"),
+                            "cmf_div_score": result.get("cmf_div_score"),
+                        }
                 if result and result.get("direction", 0) != 0:
                     result["setup_plugin"] = name
                     # Tag with regime_type from plugin attribute for slow-clock gate
@@ -852,7 +877,7 @@ class SignalGeneratorService:
             except Exception as e:
                 self.logger.warning("I7 plugin failed", plugin=name, error=str(e))
                 record_plugin_execution(name, "", "", time.time() - t0, "error", "I7")
-        return signals
+        return signals, plugin_metadata
 
     async def _process_bar(
         self,
@@ -873,7 +898,7 @@ class SignalGeneratorService:
 
         calc_start = time.time()
 
-        raw_signals = self._run_setup_plugins(frames)
+        raw_signals, _plugin_metadata = self._run_setup_plugins(frames)
 
         # Apply per-TF TTL — overrides the hardcoded default of 10 in make_signal().
         # TF_TTL_BARS provides timeframe-appropriate windows for lifecycle tracking.
@@ -1120,7 +1145,10 @@ class SignalGeneratorService:
 
         # Publish all_ranked to intelligence.i7 Kafka topic (DATA-01)
         if self._kafka_producer:
-            i7_msg = _build_i7_payload(result, timestamp, symbol, timeframe)
+            i7_msg = _build_i7_payload(
+                result, timestamp, symbol, timeframe,
+                divergence_scoring=_plugin_metadata.get("divergence_scoring"),
+            )
             try:
                 await self._kafka_producer.publish(
                     topic_intelligence_i7(self.env_name),

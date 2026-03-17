@@ -334,7 +334,7 @@ class TestPatternCompletion:
 
 
 class TestDivergenceStack:
-    """Tests for trad_DivergenceStack plugin — dual-gate design is non-negotiable."""
+    """Tests for trad_DivergenceStack plugin — 5-input weighted convergence score."""
 
     def _plugin(self):
         from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
@@ -342,12 +342,14 @@ class TestDivergenceStack:
         return DivergenceStackPlugin()
 
     def test_dual_bullish_fires_long(self):
-        """rsi_div_bullish>0.3 AND vol_div_bullish>0.3 → direction==1."""
+        """RSI + MACD + vol bullish (n_agreeing=3, score=0.675 > 0.40) → direction==1."""
         plugin = self._plugin()
         features = {
-            "rsi_div_bullish": 0.6,
-            "vol_div_bullish": 0.5,
+            "rsi_div_bullish": 0.9,
+            "macd_div_bullish": 0.9,
+            "vol_div_bullish": 0.9,
             "rsi_div_bearish": 0.0,
+            "macd_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
         }
         result = plugin.compute_full(_frames(features=features))
@@ -355,13 +357,15 @@ class TestDivergenceStack:
         assert result.get("confidence", 0.0) > 0.0
 
     def test_dual_bearish_fires_short(self):
-        """rsi_div_bearish>0.3 AND vol_div_bearish>0.3 → direction==-1."""
+        """RSI + MACD + vol bearish (n_agreeing=3, score > 0.40) → direction==-1."""
         plugin = self._plugin()
         features = {
             "rsi_div_bullish": 0.0,
+            "macd_div_bullish": 0.0,
             "vol_div_bullish": 0.0,
-            "rsi_div_bearish": 0.55,
-            "vol_div_bearish": 0.45,
+            "rsi_div_bearish": 0.9,
+            "macd_div_bearish": 0.9,
+            "vol_div_bearish": 0.9,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == -1
@@ -404,17 +408,30 @@ class TestDivergenceStack:
             assert result.get("direction") == 0
 
     def test_confidence_formula(self):
-        """Verify confidence = 0.4*rsi + 0.4*vol + 0.2 for dual bullish gate."""
+        """Verify confidence = min(1.0, weighted_score / 0.60) for 5-input weighted gate.
+
+        With RSI=0.9 (0.30), MACD=0.9 (0.25), vol=0.9 (0.20) — 3 agreeing, score=0.675.
+        Expected confidence = min(1.0, 0.675 / 0.60) = 1.0.
+        """
+        from src.intelligence.trading.divergence_stack import DIVERGENCE_WEIGHTS
+
         plugin = self._plugin()
-        rsi_conf, vol_conf = 0.6, 0.5
+        rsi_val, macd_val, vol_val = 0.9, 0.9, 0.9
         features = {
-            "rsi_div_bullish": rsi_conf,
-            "vol_div_bullish": vol_conf,
+            "rsi_div_bullish": rsi_val,
+            "macd_div_bullish": macd_val,
+            "vol_div_bullish": vol_val,
             "rsi_div_bearish": 0.0,
+            "macd_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
         }
         result = plugin.compute_full(_frames(features=features))
-        expected = round(0.4 * rsi_conf + 0.4 * vol_conf + 0.2, 4)
+        weighted_score = (
+            DIVERGENCE_WEIGHTS["rsi"] * rsi_val
+            + DIVERGENCE_WEIGHTS["macd"] * macd_val
+            + DIVERGENCE_WEIGHTS["vol"] * vol_val
+        )
+        expected = round(min(1.0, weighted_score / 0.60), 4)
         assert abs(result.get("confidence", 0.0) - expected) < 1e-4
 
     def test_has_module_level_singleton(self):
