@@ -97,6 +97,23 @@ class CISScorer:
         # Pre-compute weights array once — self._weights is immutable after init
         self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
 
+    def update_weights(self, weights: dict[str, float], version: int) -> None:
+        """Runtime weight hot-swap. Called from service layer only.
+
+        The GIL protects dict/array assignment — no asyncio.Lock needed.
+        Do NOT call this from score() — it is a background refresh concern.
+
+        Parameters
+        ----------
+        weights:
+            New weight dict keyed by BUCKET_NAMES. Must sum to ~1.0.
+        version:
+            Version number from cis_weights table (positive = learned).
+        """
+        self._weights = weights
+        self._weights_version = version
+        self._weights_array = np.array([self._weights[b] for b in BUCKET_NAMES])
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
