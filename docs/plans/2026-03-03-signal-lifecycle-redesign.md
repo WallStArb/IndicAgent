@@ -1,8 +1,15 @@
 # Signal Lifecycle Redesign — Institutional-Grade Outcome Tracking
 
 **Date:** 2026-03-03
-**Status:** Approved — ready for implementation planning
+**Status:** Shipped — fully implemented
+**Shipped:** ~2026-03-10 (migration 015, not 014 — pipeline timing migration inserted first)
 **Author:** Design session with user
+
+**Implementation notes (diverged from design):**
+- Migration landed as `015_signal_lifecycle_fields.sql` (not 014)
+- `shadow_mae`, `shadow_mfe`, `shadow_outcome` added post-design with shadow mode work
+- `LedgerEntry` grew to 54 fields at time of shipping (not 42) — continued additions in subsequent phases; Phase 35 will extend to 58
+- `signal_tracker_service` retired as planned; `indicagent-signal-lifecycle` running at :9115
 
 ---
 
