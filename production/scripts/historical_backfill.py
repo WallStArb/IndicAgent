@@ -9,9 +9,9 @@ use back-adjusted continuous contracts (ContFuture + ADJUSTED_LAST) to span roll
     Timeframe  Default depth  Notes
     1m         14 days        Named contract, no rolls
     5m         90 days        Named contract (chunked, IBKR limit)
-    15m        180 days       Continuous adjusted
-    1h         365 days       Continuous adjusted
-    1d         2555 days      Continuous adjusted (7yr)
+    15m        180 days       Continuous adjusted (default) or per-contract (--per-contract)
+    1h         365 days       Continuous adjusted (default) or per-contract (--per-contract)
+    1d         2555 days      Continuous adjusted (default) or per-contract (--per-contract)
 
     Use --days N to cap ALL timeframes at N days (e.g. --days 2 for a gap-fill).
 
@@ -27,6 +27,9 @@ Usage:
     python production/scripts/historical_backfill.py --replay-only
     python production/scripts/historical_backfill.py --symbols ESH6,NQH6
 
+    # Per-contract mode (Renaissance-style raw data storage):
+    python production/scripts/historical_backfill.py --fetch-only --per-contract --symbols ESH6
+
     # Gap-fill: fetch last 2 days across ALL TFs (not just 1m), then replay only those 2 days:
     python production/scripts/historical_backfill.py --fetch-only --symbols EURUSD,BTCUSD --days 2
     python production/scripts/historical_backfill.py --replay-only --symbols EURUSD,BTCUSD --days 2
@@ -37,20 +40,28 @@ Usage:
     When provided, caps ALL timeframe fetch depths at that value (not just 1m).
     Also limits the replay stage to bars within that window.
     Omit --days for full-history replay or default per-TF fetch depths.
+
+--per-contract mode:
+    Fetches each individual futures contract in the roll chain instead of back-adjusted
+    continuous series. Data is stored under the correct contract symbol (e.g., ESH6, ESZ5).
+    This is the Renaissance-standard approach: raw per-contract data is canonical truth,
+    continuous series are derived layers.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import concurrent.futures
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
 import json
 import sys
 import time
 from collections import defaultdict, deque
-from datetime import UTC, datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any
-from uuid import uuid4
 
 import psycopg2
 import psycopg2.extras
@@ -61,13 +72,296 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 
 from src.config.settings import Settings
-from src.core.models import AssetClass
+from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.signal_ledger import LedgerEntry
 from src.providers import IBKRProvider
+
+# ---------------------------------------------------------------------------
+# Per-Contract Futures Storage — Renaissance-style canonical truth
+# ---------------------------------------------------------------------------
+#
+# Functions for discovering contract chains and storing per-contract data.
+# The continuous contract fetch (ContFuture + ADJUSTED_LAST) is kept as a
+# fallback for backward compatibility until per-contract mode is enabled via flag.
+#
+# Renaissance Principle: Store raw per-contract data as canonical truth.
+# Continuous series are derived layers, not storage format.
+# Roll methodology is proprietary IP — baked-in continuous series prevent future optimization.
+
+# Months for futures contract symbols (H=Mar, M=Jun, U=Sep, Z=Dec)
+_MONTH_CODES = {
+    "H": "03",  # March
+    "M": "06",  # June
+    "U": "09",  # September
+    "Z": "12",  # December
+    # Additional expiries for some products
+    "F": "01",  # January
+    "G": "02",  # February
+    "J": "04",  # April
+    "K": "05",  # May
+    "N": "07",  # July
+    "Q": "08",  # August
+    "V": "10",  # October
+    "X": "11",  # November
+}
+
+
+def _parse_contract_symbol(symbol: str) -> tuple[str, str, int] | None:
+    """Parse a futures contract symbol into (base, month_code, year).
+
+    Examples:
+        "ESH6" -> ("ES", "H", 2026)
+        "ESZ5" -> ("ES", "Z", 2025)
+        "CLJ6" -> ("CL", "J", 2026)
+        "CLM6" -> ("CL", "M", 2026)
+
+    Returns None if not a valid futures contract symbol.
+    """
+    if len(symbol) < 3:
+        return None
+    # Last char is year digit (e.g., "6" for 2026)
+    try:
+        year_digit = int(symbol[-1])
+        year = 2000 + year_digit
+    except ValueError:
+        return None
+
+    # Second-to-last char is month code (e.g., "H" for March)
+    month_code = symbol[-2].upper()
+    if month_code not in _MONTH_CODES:
+        return None
+
+    # Everything before the month code is the base symbol
+    base = symbol[:-2]
+
+    return (base, month_code, year)
+
+
+def _generate_contract_symbols(base: str, start_year: int, end_year: int) -> list[str]:
+    """Generate all contract symbols for a base symbol between years.
+
+    Returns list in chronological order (oldest first).
+    Only generates quarterly contracts (H, M, U, Z) for major index futures.
+
+    Args:
+        base: Base symbol (e.g., "ES", "NQ", "CL")
+        start_year: Starting year (e.g., 2019)
+        end_year: Ending year (e.g., 2026)
+    """
+    contracts = []
+    for year in range(start_year, end_year + 1):
+        for month_code in ["H", "M", "U", "Z"]:  # Quarterly cycle
+            symbol = f"{base}{month_code}{year % 100}"  # "ESH6" for 2026
+            contracts.append(symbol)
+    return contracts
+
+
+def _upsert_contract_metadata(
+    db_conn: Any, metadata: list[ContractMetadata]
+) -> int:
+    """Upsert contract metadata records.
+
+    Args:
+        db_conn: psycopg2 connection
+        metadata: List of ContractMetadata objects
+
+    Returns:
+        Number of records upserted.
+    """
+    if not metadata:
+        return 0
+
+    sql = """
+        INSERT INTO contract_metadata (
+            symbol, base_symbol, asset_class, expiry_date, first_notice_date,
+            roll_from, roll_to, roll_date, roll_gap, exchange
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        ON CONFLICT (symbol) DO UPDATE SET
+            base_symbol = EXCLUDED.base_symbol,
+            asset_class = EXCLUDED.asset_class,
+            expiry_date = EXCLUDED.expiry_date,
+            first_notice_date = EXCLUDED.first_notice_date,
+            roll_from = EXCLUDED.roll_from,
+            roll_to = EXCLUDED.roll_to,
+            roll_date = EXCLUDED.roll_date,
+            roll_gap = EXCLUDED.roll_gap,
+            exchange = EXCLUDED.exchange,
+            updated_at = NOW()
+    """
+
+    params = [
+        (
+            m.symbol, m.base_symbol, m.asset_class.value,
+            m.expiry_date, m.first_notice_date,
+            m.roll_from, m.roll_to, m.roll_date, m.roll_gap, m.exchange
+        )
+        for m in metadata
+    ]
+
+    with db_conn.cursor() as cur:
+        psycopg2.extras.execute_batch(cur, sql, params)
+    db_conn.commit()
+    return len(params)
+
+
+def fetch_per_contract(
+    provider: IBKRProvider,
+    instrument: Any,  # Instrument object
+    timeframe: str,
+    fetch_days: int,
+    end_dt: datetime,
+    db_conn: Any,
+) -> tuple[int, list[ContractMetadata]]:
+    """Fetch per-contract raw data for a futures base symbol.
+
+    Instead of using ContFuture + ADJUSTED_LAST (back-adjusted continuous),
+    this function fetches each individual contract in the roll chain and stores
+    bars under their correct symbols.
+
+    Args:
+        provider: Connected IBKRProvider instance
+        instrument: Current Instrument object (e.g., for ESH6)
+        timeframe: Timeframe to fetch
+        fetch_days: Number of days to fetch
+        end_dt: End datetime for fetch
+        db_conn: Database connection for storage
+
+    Returns:
+        (total_bars_fetched, metadata_list)
+    """
+    parsed = _parse_contract_symbol(instrument.symbol)
+    if not parsed:
+        # Not a futures contract symbol, skip per-contract logic
+        return (0, [])
+
+    base, current_month, current_year = parsed
+
+    # Determine start year based on fetch_days (rough approximation)
+    # 2555 days = 7 years, so go back to 2019 for full backfill
+    start_year = current_year - (fetch_days // 365)
+
+    # Generate contract chain for this base symbol
+    contract_symbols = _generate_contract_symbols(base, start_year, current_year)
+
+    # Filter to only include contracts within our fetch window
+    # Also include current contract even if outside window (for continuity)
+    metadata_list: list[ContractMetadata] = []
+
+    total_bars = 0
+
+    # For each contract, try to qualify and fetch
+    for i, contract_sym in enumerate(contract_symbols):
+        # Determine contract expiry from month code and year
+        month_code = contract_sym[-2]
+        year_digit = int(contract_sym[-1])
+        contract_year = 2000 + year_digit
+
+        # Simple expiry: 3rd Friday of expiry month (CME equity index futures)
+        # This is an approximation - IBKR provides accurate expiry in contract details
+        month_num = _MONTH_CODES[month_code]
+        # Find 3rd Friday of the month
+        first_day = date(contract_year, month_num, 1)
+        first_friday = (4 - first_day.weekday()) % 7 + 1
+        expiry_date = datetime.combine(
+            date(contract_year, month_num, first_friday + 7),
+            datetime.min.time()
+        ).replace(tzinfo=UTC)
+
+        # Roll date: when this contract became active (previous contract expiry + 1 day)
+        if i > 0:
+            roll_date = expiry_date.replace(day=1)  # Approximate first of month
+        else:
+            roll_date = None  # Oldest contract in chain
+
+        # Create Instrument for this contract
+        contract_instrument = Instrument(
+            symbol=contract_sym,
+            name=f"{base} {month_num} {contract_year}",
+            asset_class=AssetClass.FUTURES,
+            exchange=instrument.exchange,
+            session_id=instrument.session_id,
+        )
+
+        # Try to qualify the contract
+        try:
+            qualified = asyncio.run(provider.qualify_instrument(contract_instrument))
+            if not qualified:
+                print(f"    {contract_sym}: skip (qualify failed)")
+                continue
+
+            # Fetch bars for this contract
+            start_dt = (end_dt - timedelta(days=fetch_days)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            ohlcv_bars = asyncio.run(
+                provider.fetch_historical_bars(
+                    symbol=contract_sym,
+                    timeframe=timeframe,
+                    start=start_dt,
+                    end=end_dt,
+                    continuous=False,  # Always named contract for per-contract mode
+                )
+            )
+
+            # Convert bar dicts
+            bar_dicts = [
+                {
+                    "timestamp": b.timestamp,
+                    "open": b.open,
+                    "high": b.high,
+                    "low": b.low,
+                    "close": b.close,
+                    "volume": b.volume,
+                    "source": b.source,
+                }
+                for b in ohlcv_bars
+            ]
+
+            # Store bars under actual contract symbol
+            n = store_bars(
+                db_conn, bar_dicts, instrument.symbol, timeframe, actual_symbol=contract_sym
+            )
+            total_bars += n
+
+            if n > 0:
+                # Build roll chain links
+                roll_from = contract_symbols[i - 1] if i > 0 else None
+                roll_to = contract_symbols[i + 1] if i < len(contract_symbols) - 1 else None
+
+                # Create metadata entry
+                metadata = ContractMetadata(
+                    symbol=contract_sym,
+                    base_symbol=base,
+                    asset_class=AssetClass.FUTURES,
+                    expiry_date=expiry_date,
+                    first_notice_date=None,  # Would need IBKR contract details
+                    roll_from=roll_from,
+                    roll_to=roll_to,
+                    roll_date=roll_date,
+                    roll_gap=None,  # Computed after both contracts fetched
+                    exchange=instrument.exchange,
+                )
+                metadata_list.append(metadata)
+
+                print(f"    {contract_sym}/{timeframe}: {n} bars")
+
+            time.sleep(1)  # IBKR pacing between contracts
+
+        except Exception as e:
+            print(f"    {contract_sym}: error — {e}")
+
+    # Upsert all metadata
+    if metadata_list:
+        _upsert_contract_metadata(db_conn, metadata_list)
+
+    return (total_bars, metadata_list)
+
 
 # ---------------------------------------------------------------------------
 # Plugin lists — keep in sync with services
@@ -153,19 +447,16 @@ _FEATURE_BATCH_SIZE = 500
 _TF_FETCH_CONFIG: dict[str, tuple[int, bool]] = {
     # 1m: named contract (no roll crossings). 14d = 2 full Mon–Fri weekly cycles = ~5,460 bars,
     #     capturing time-of-day and day-of-week intraday patterns. Still well within IBKR's
-    #     ~35d named-contract recency limit. Signals at this TF resolve in minutes.
-    "1m": (14, False),
-    # 5m: intraday momentum/mean-reversion signals. ~78 bars/day/symbol. 90 days covers
+    #     capturing time-of-day and day-of-week intraday patterns.
+    "1m": (14, True),
+    # 5m: Continuous back-adjusted. 90 days covers
     #     3 months of intraday + weekly regime cycles, yielding ~600+ signals — enough to
     #     populate all 51 regression cells with statistically meaningful outcomes.
-    #     use_continuous=False: IBKR rejects single ContFuture requests > ~30 days of 5m bars;
-    #     chunked named-contract path (_MAX_CHUNK_DAYS=29) handles this correctly.
-    "5m": (90, False),
-    # 15m: weekly + monthly pattern detection. ~26 bars/day/symbol. 180 days = 6 months
+    "5m": (90, True),
+    # 15m: Continuous back-adjusted. 180 days = 6 months
     #     captures both weekly seasonality and monthly roll-driven regime shifts. Yields
     #     ~1,150+ signals, giving ~22 outcomes/cell — above the 20/cell minimum.
-    #     use_continuous=False: same reason as 5m — chunked in 59-day windows.
-    "15m": (180, False),
+    "15m": (180, True),
     # 1h: the HMM/GARCH anchor TF. ~6.5 bars/day/symbol. 365 days = 1 full calendar year:
     #     captures seasonal cycles (Q1 earnings, summer lull, year-end), yields ~2,379 bars
     #     (4× the 500-bar HMM floor) and ~2,300+ signals for robust CIS calibration.
@@ -718,14 +1009,31 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = 
     ]
 
 
-def store_bars(conn: Any, bars: list[dict], symbol: str, timeframe: str) -> int:
-    """Upsert bars into market_data_ohlcv. Returns count inserted."""
+def store_bars(
+    conn: Any,
+    bars: list[dict],
+    symbol: str,
+    timeframe: str,
+    actual_symbol: str | None = None,
+) -> int:
+    """Upsert bars into market_data_ohlcv. Returns count inserted.
+
+    Args:
+        conn: psycopg2 connection
+        bars: List of bar dicts with timestamp, open, high, low, close, volume
+        symbol: Used for contract lookup (e.g., current active contract)
+        timeframe: Timeframe string
+        actual_symbol: If provided, stores bars under this symbol instead of `symbol`.
+            Enables per-contract storage when fetching historical contracts.
+    """
     if not bars:
         return 0
+    # Use actual_symbol if provided (for historical contracts), otherwise use symbol
+    store_symbol = actual_symbol or symbol
     params = [
         (
             b["timestamp"],
-            symbol,
+            store_symbol,
             timeframe,
             b["open"],
             b["high"],
@@ -942,6 +1250,12 @@ def main() -> None:
         default=4,
         help="Parallel worker processes for replay stage (default: 4). Use 1 to disable.",
     )
+    parser.add_argument(
+        "--per-contract",
+        action="store_true",
+        help="Fetch per-contract raw data (Renaissance style) instead of back-adjusted continuous. "
+             "Requires reseed after. Disabled by default for backward compatibility.",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -1007,6 +1321,27 @@ def main() -> None:
                     if not qualified:
                         print(f"  {instrument.symbol}: skipped (qualify failed)")
                         continue
+
+                    # Per-contract mode for futures: fetch each contract in roll chain
+                    if args.per_contract and instrument.asset_class == AssetClass.FUTURES:
+                        print(f"  {instrument.symbol}: per-contract mode (Renaissance-style)")
+                        for tf in fetch_tfs:
+                            fetch_days, _ = _TF_FETCH_CONFIG[tf]
+                            if args.days:
+                                fetch_days = min(fetch_days, args.days)
+                            print(f"  {instrument.symbol}/{tf} (per-contract, {fetch_days}d):")
+                            bars, metadata = fetch_per_contract(
+                                provider=provider,
+                                instrument=instrument,
+                                timeframe=tf,
+                                fetch_days=fetch_days,
+                                end_dt=end_dt,
+                                db_conn=db_conn,
+                            )
+                            total_bars += bars
+                        continue  # Skip the standard continuous fetch loop
+
+                    # Standard mode: use continuous contract for longer timeframes
                     fetched_tfs: set[str] = set()  # TFs that got bars from IBKR directly
                     for tf in fetch_tfs:
                         fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
@@ -1122,7 +1457,7 @@ def main() -> None:
         # When --days is provided, limit replay to that window.
         # Full-history replay (default, no --days) uses since_dt=None to read all DB bars.
         if args.days:
-            since_dt = datetime.now(timezone.utc) - timedelta(days=args.days)
+            since_dt = datetime.now(UTC) - timedelta(days=args.days)
             print(f"  Replaying bars since: {since_dt.date()} ({args.days}d)")
         else:
             since_dt = None

@@ -120,6 +120,25 @@ Raw OHLCV
 
 ### Plugin count by tier
 
+
+### Plugin Validation Layer
+
+Comprehensive validation runs at service startup to ensure system integrity before processing any data.
+
+**Location:** `src/core/plugin_validator.py`
+
+**Validations:**
+
+- Tier list registration — all `TIER_*` plugins must be in registry
+- Required attributes — I7 plugins must have `regime_type` attribute; all plugins need `name`, `outputs`, `inputs`
+- Schema coverage — verifies all plugin outputs are covered by `IntelligenceEvent` schema
+- Orphaned plugins — detects imported plugin modules with missing `.py` files
+- TREND_SETUPS sync — ensures hardcoded trend setups match TIER_I7 plugins with `regime_type="trend"`
+
+**Integration:** Called at startup of `indicator_service`, `market_analysis_service`, and `signal_generator_service` before each service begins processing.
+
+**Error handling:** Raises `RuntimeError` with `sys.exit(1)` if any validation fails, preventing services from starting with misconfigured plugins.
+
 | Tier | Count | Role |
 |------|-------|------|
 | I1 | 25 | Raw technical indicators — RSI, MACD, ATR, VWAP, ADX, Supertrend, HMA, and 18 more |

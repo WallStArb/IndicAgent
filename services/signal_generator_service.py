@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+# Lookback multiplier: 3x minimum bars needed to ensure warmup buffer
+_LOOKBACK_MULTIPLIER = 3
+
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -35,6 +38,7 @@ from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.plugin_validator import PluginValidator
 from src.core.service_utils import TF_SECONDS, TF_TTL_BARS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
     message_key,
@@ -732,16 +736,29 @@ class SignalGeneratorService:
             # Lookback = 3× the data needed; lets TimescaleDB exclude most chunks
             # at planning time (same pattern as market_data_ohlcv seed fix).
             tf_secs = TF_SECONDS.get(tf, 60)
-            lookback_secs = min_bars * tf_secs * 3
-            query = f"""
-                SELECT ts, bar
-                FROM intelligence_features
-                WHERE symbol = $1 AND tf = $2
-                  AND ts > NOW() - INTERVAL '{lookback_secs} seconds'
-                ORDER BY ts DESC
-                LIMIT {min_bars}
+            lookback_secs = min_bars * tf_secs * _LOOKBACK_MULTIPLIER
+
+            # Query filters by contract lifetime for futures using contract_metadata table.
+            # For non-futures symbols (ETF, FX, crypto), LEFT JOIN returns NULL
+            # rows which pass the IS NULL filter.
+            # For futures: only seed bars from the contract's active period.
+            # PostgreSQL doesn't support parameterized INTERVAL syntax directly.
+            # Use ($3 || ' seconds')::interval instead of INTERVAL $3 seconds
+            query = """
+                SELECT f.ts, f.bar
+                FROM intelligence_features f
+                LEFT JOIN contract_metadata m ON f.symbol = m.symbol
+                WHERE (m.symbol IS NULL                      -- non-futures: no filtering
+                       OR (m.roll_date <= f.ts
+                           AND (m.roll_to IS NULL
+                               OR (SELECT roll_date FROM contract_metadata
+                                    WHERE symbol = m.roll_to) > f.ts)))
+                  AND f.symbol = $1 AND f.tf = $2
+                  AND f.ts > NOW() - ($3 || ' seconds')::interval
+                ORDER BY f.ts DESC
+                LIMIT $4
             """
-            result = await self.db_manager.execute_query(query, symbol, tf)
+            result = await self.db_manager.execute_query(query, symbol, tf, str(lookback_secs), min_bars)
             return symbol, tf, result or []
 
         try:
@@ -1513,6 +1530,15 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Signal Generator Service")
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
+
+    # Run plugin validation before starting service
+    validator = PluginValidator()
+    try:
+        validator.validate_all()
+        print("✅ Plugin validation passed")
+    except RuntimeError as e:
+        print(f"❌ Plugin validation failed: {e}")
+        sys.exit(1)
 
     svc = SignalGeneratorService(args.config)
     try:

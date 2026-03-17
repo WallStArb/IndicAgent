@@ -43,13 +43,10 @@ _REGIME_TIEBREAK_THRESHOLD = 0.4
 TREND_SETUPS: frozenset[str] = frozenset(
     {
         "trad_TrendFollowing",
-        "trad_LiquiditySweepReclaim",
         "trad_MTFAlignment",
         "trad_MomentumBreakout",
         "trad_SqueezeExpansion",
         "trad_LiquidityHunt",
-        "trad_RegimeTransition",
-        "trad_GapAnalysisSetup",
         "trad_ORB15",                 # new — trend continuation setup
         "trad_ORB30",                 # new — trend continuation setup
         "trad_SecondLegContinuation", # new — trend continuation
