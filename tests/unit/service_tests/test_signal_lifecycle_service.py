@@ -489,6 +489,7 @@ class TestTerminalEventWiring:
         svc._kafka_producer = AsyncMock()
         svc._kafka_producer.publish = AsyncMock()
         svc.db_manager = AsyncMock()
+        svc.db_manager.execute_command = AsyncMock()
         svc.logger = AsyncMock()
         svc._mae = {}
         svc._mfe = {}
@@ -497,6 +498,10 @@ class TestTerminalEventWiring:
         svc._market_mfe = {}
         svc._market_activated_at = {}
         svc._resolved_market = set()
+        # Chandelier + staleness + shadow tracking state (added in 32-02)
+        svc._chandelier_state = {}
+        svc._staleness_consecutive = {}
+        svc._shadow_signals = {}
         svc.lifecycle_transitions_total = AsyncMock()
         svc.lifecycle_transitions_total.inc = lambda: None
         svc.active_signals_count = AsyncMock()
@@ -643,6 +648,10 @@ def _make_service():
     svc._market_mfe = {}
     svc._market_activated_at = {}
     svc._resolved_market = set()
+    # Chandelier + staleness + shadow tracking state (added in 32-02)
+    svc._chandelier_state = {}
+    svc._staleness_consecutive = {}
+    svc._shadow_signals = {}
     svc.db_manager = AsyncMock()
     svc.db_manager.execute_command = AsyncMock()
     svc._kafka_producer = None

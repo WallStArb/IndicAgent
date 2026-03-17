@@ -195,6 +195,7 @@ class TestFreshnessDecayWiring:
 
         svc = SignalLifecycleService.__new__(SignalLifecycleService)
         svc.db_manager = MagicMock()
+        svc.db_manager.execute_command = MagicMock(return_value=None)
         svc.active_signals_count = MagicMock()
         svc.point_values = {"ES": 50.0}
         svc._mae = {}
@@ -204,6 +205,10 @@ class TestFreshnessDecayWiring:
         svc._market_mfe = {}
         svc._market_activated_at = {}
         svc._resolved_market = set()
+        # Chandelier + staleness + shadow tracking state (added in 32-02)
+        svc._chandelier_state = {}
+        svc._staleness_consecutive = {}
+        svc._shadow_signals = {}
         svc.env_prefix = "test:"
         svc.env_name = "test"
         svc._kafka_producer = None  # KAFKA-08: service uses Kafka; None disables publish
