@@ -779,6 +779,7 @@ def _make_lifecycle_service():
     svc._chandelier_state = {}
     svc._staleness_consecutive = {}
     svc._shadow_signals = {}
+    svc._pending_tasks = set()
     svc.env_prefix = "test:"
     svc.env_name = "test"
     svc._kafka_producer = None

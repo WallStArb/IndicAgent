@@ -502,6 +502,7 @@ class TestTerminalEventWiring:
         svc._chandelier_state = {}
         svc._staleness_consecutive = {}
         svc._shadow_signals = {}
+        svc._pending_tasks = set()
         svc.lifecycle_transitions_total = AsyncMock()
         svc.lifecycle_transitions_total.inc = lambda: None
         svc.active_signals_count = AsyncMock()
