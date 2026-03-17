@@ -365,7 +365,9 @@ class I5Patterns(BaseModel):
     - patt_RSIDivergence (3 fields)
     - patt_BollingerSqueeze (4 fields)
     - patt_Confluence (6 fields)
-    - patt_VolumeDivergence (3 fields)
+    - patt_VolumeDivergence (3 fields) + obv_div_* extension (3 fields)
+    - patt_MACDDivergence (3 fields)
+    - patt_CMFDivergence (3 fields)
     - patt_DoubleTB (4 fields)
     - patt_HeadShoulders (5 fields)
     - TrendConfluence (4 fields)
@@ -376,7 +378,10 @@ class I5Patterns(BaseModel):
     - patt_MeasuredMove (4 fields)
     - patt_VolumeProfile (4 fields)
     - patt_KeyLevelReaction (2 fields)
-    Total: 70 fields
+    Total: 79 fields
+
+    NOTE: DivergenceStack I7 outputs (div_weighted_score, div_n_agreeing, per-input scores,
+    age_bars, magnitudes) are NOT here -- they are I7-tier outputs that bypass the I5 schema check.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -404,6 +409,21 @@ class I5Patterns(BaseModel):
     vol_div_bullish: float | None = None  # confidence score 0.0–1.0 (not a boolean flag)
     vol_div_bearish: float | None = None  # confidence score 0.0–1.0
     vol_div_strength: float | None = None
+
+    # VolumeDivergencePlugin OBV extension outputs (computed from OBV cumulative series via linreg)
+    obv_div_bullish: float | None = None
+    obv_div_bearish: float | None = None
+    obv_div_strength: float | None = None
+
+    # MACDDivergencePlugin outputs (patt_MACDDivergence)
+    macd_div_bullish: float | None = None
+    macd_div_bearish: float | None = None
+    macd_div_strength: float | None = None
+
+    # CMFDivergencePlugin outputs (patt_CMFDivergence)
+    cmf_div_bullish: float | None = None
+    cmf_div_bearish: float | None = None
+    cmf_div_strength: float | None = None
 
     # DoubleTBPlugin outputs (double top/bottom)
     dt_db_pattern: float | None = None

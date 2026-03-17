@@ -11,7 +11,16 @@ from ..plugins import InputSpec
 @dataclass
 class VolumeDivergencePlugin:
     name: str = "VolumeDivergence"
-    outputs: frozenset[str] = frozenset({"vol_div_bullish", "vol_div_bearish", "vol_div_strength"})
+    outputs: frozenset[str] = frozenset(
+        {
+            "vol_div_bullish",
+            "vol_div_bearish",
+            "vol_div_strength",
+            "obv_div_bullish",
+            "obv_div_bearish",
+            "obv_div_strength",
+        }
+    )
     min_lookback: int = 30
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"pattern", "volume"})
@@ -51,20 +60,42 @@ class VolumeDivergencePlugin:
         bearish = 0.0
 
         if norm_price > 0 and norm_obv < 0:
-            # Price up, OBV down → distribution (bearish divergence)
+            # Price up, OBV down -> distribution (bearish divergence)
             mag = abs(norm_price) + abs(norm_obv)
             bearish = min(1.0, 0.3 + mag * 2.0)
         elif norm_price < 0 and norm_obv > 0:
-            # Price down, OBV up → accumulation (bullish divergence)
+            # Price down, OBV up -> accumulation (bullish divergence)
             mag = abs(norm_price) + abs(norm_obv)
             bullish = min(1.0, 0.3 + mag * 2.0)
 
         strength = max(bullish, bearish)
 
+        # OBV divergence -- computed explicitly from the OBV cumulative series via linreg
+        # (not aliased from vol_div_*; both derive from OBV but computed independently)
+        obv_slope_for_obv = self._linreg_slope(obv[-window:])
+        price_slope_for_obv = self._linreg_slope(close[-window:])
+
+        obv_div_bullish = 0.0
+        obv_div_bearish = 0.0
+
+        if price_slope_for_obv < 0 and obv_slope_for_obv > 0:
+            # Price declining + OBV rising -> accumulation (bullish divergence)
+            obv_mag = abs(price_slope_for_obv) + abs(obv_slope_for_obv)
+            obv_div_bullish = min(1.0, 0.3 + obv_mag * 2.0)
+        elif price_slope_for_obv > 0 and obv_slope_for_obv < 0:
+            # Price rising + OBV declining -> distribution (bearish divergence)
+            obv_mag = abs(price_slope_for_obv) + abs(obv_slope_for_obv)
+            obv_div_bearish = min(1.0, 0.3 + obv_mag * 2.0)
+
+        obv_div_strength = max(obv_div_bullish, obv_div_bearish)
+
         return {
             "vol_div_bullish": round(bullish, 4),
             "vol_div_bearish": round(bearish, 4),
             "vol_div_strength": round(strength, 4),
+            "obv_div_bullish": round(obv_div_bullish, 4),
+            "obv_div_bearish": round(obv_div_bearish, 4),
+            "obv_div_strength": round(obv_div_strength, 4),
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
@@ -72,7 +103,7 @@ class VolumeDivergencePlugin:
 
     @staticmethod
     def _linreg_slope(y: np.ndarray) -> float:
-        """Simple linear regression slope: Σ((x - x̄)(y - ȳ)) / Σ((x - x̄)²)."""
+        """Simple linear regression slope: sum((x - x_mean)(y - y_mean)) / sum((x - x_mean)^2)."""
         n = len(y)
         if n < 2:
             return 0.0

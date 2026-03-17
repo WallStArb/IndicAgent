@@ -47,6 +47,8 @@ from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
+from .patterns.cmf_divergence import plugin as cmf_div_plugin
+from .patterns.macd_divergence import plugin as macd_div_plugin
 from .patterns.candlestick_patterns import plugin as candlestick_plugin
 from .patterns.confluence import plugin as confluence_plugin
 from .patterns.cup_handle import plugin as cup_handle_plugin
@@ -128,7 +130,7 @@ def validate_schema_coverage() -> None:
                 trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
                 triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
                 cup_handle_plugin, measured_move_plugin, volume_profile_plugin,
-                key_level_reaction_plugin], I5Patterns),
+                key_level_reaction_plugin, macd_div_plugin, cmf_div_plugin], I5Patterns),
         ("SMC", [bos_choch_plugin, fvg_plugin, ob_plugin, liq_sweep_plugin,
                  bocpd_plugin, hmm_plugin, liquidity_pools_plugin,
                  supply_demand_zones_plugin, ict_killzones_plugin, amd_cycle_plugin,
@@ -198,6 +200,8 @@ def register_all_plugins() -> None:
     registry.register_pattern(rsi_div_plugin)
     registry.register_pattern(squeeze_plugin)
     registry.register_pattern(vol_div_plugin)
+    registry.register_pattern(macd_div_plugin)
+    registry.register_pattern(cmf_div_plugin)
     registry.register_pattern(confluence_plugin)
     registry.register_pattern(trend_confluence_plugin)
 
@@ -350,6 +354,8 @@ TIER_I5: list[str] = [
     rsi_div_plugin.name,
     squeeze_plugin.name,
     vol_div_plugin.name,
+    macd_div_plugin.name,
+    cmf_div_plugin.name,
     confluence_plugin.name,
     trend_confluence_plugin.name,
     double_tb_plugin.name,
