@@ -511,7 +511,7 @@ Expected: at least 5 columns listed.
 - [ ] **Step 1: Stop lifecycle service to avoid interference**
 
 ```bash
-echo '!123Angelina' | /usr/bin/sudo.ws -S systemctl stop indicagent-signal-lifecycle
+echo "$SUDO_PASSWORD" | /usr/bin/sudo.ws -S systemctl stop indicagent-signal-lifecycle
 ```
 
 - [ ] **Step 2: Reset 1m signal outcomes**
@@ -570,7 +570,7 @@ Check: `never_activated` avg_pnl_r should decrease significantly (more signals n
 - [ ] **Step 6: Restart lifecycle service**
 
 ```bash
-echo '!123Angelina' | /usr/bin/sudo.ws -S systemctl start indicagent-signal-lifecycle
+echo "$SUDO_PASSWORD" | /usr/bin/sudo.ws -S systemctl start indicagent-signal-lifecycle
 ```
 
 ---

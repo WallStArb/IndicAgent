@@ -11,7 +11,7 @@ progress:
   completed_phases: 3
   total_plans: 12
   completed_plans: 9
-  percent: 78
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 03 complete → Phase 34 next (AVWAP + Volume Profile)
 Status: Phase 32 Plan 03 complete — MACD/CMF/OBV divergence I5 plugins, DivergenceStack 5-input weighted rewrite, always-log i7 routing
 Last activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
 
-Progress: [████████░░] 78%
+Progress: [███████░░░] 75%
 
 ## Performance Metrics
 

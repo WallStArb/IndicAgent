@@ -35,6 +35,7 @@ from src.core.stream_keys import (
     topic_signals_aggregated,
 )
 from src.intelligence.trading.lifecycle_tracker import (
+    STALENESS_SCORE_THRESHOLD,
     _classify_stop_outcome,
     compute_chandelier_stop,  # noqa: F401 — imported for service-level usage
     compute_staleness_score,
@@ -621,7 +622,7 @@ class SignalLifecycleService:
                     hmm_now, hmm_fire, garch_now, garch_fire
                 )
                 consecutive = self._staleness_consecutive.get(sid, 0)
-                if staleness_score_val > 0.5:
+                if staleness_score_val > STALENESS_SCORE_THRESHOLD:
                     consecutive += 1
                 else:
                     consecutive = 0
@@ -693,7 +694,6 @@ class SignalLifecycleService:
                 continue
 
             # --- State transition ---
-            activated_at = None
             exit_at = None
             outcome = transition.outcome
             bit = None  # bars_in_trade
@@ -701,7 +701,6 @@ class SignalLifecycleService:
 
             if transition.new_status == "active":
                 # Pending → Active
-                activated_at = bar_time
                 self._activated_at[sid] = bar_time
                 self._mae[sid] = 0.0
                 self._mfe[sid] = 0.0
@@ -939,7 +938,7 @@ class SignalLifecycleService:
     async def _process_loop(self) -> None:
         if not self._kafka_consumer:
             return
-        async for topic, key, payload in self._kafka_consumer.messages():
+        async for _topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
             try:

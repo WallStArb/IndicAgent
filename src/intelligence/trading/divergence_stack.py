@@ -206,6 +206,7 @@ class DivergenceStackPlugin:
             "signal_type": "none",
             "direction": 0,
             "confidence": 0.0,
+            "supporting_factors": [],
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
