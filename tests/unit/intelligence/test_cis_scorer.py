@@ -512,3 +512,69 @@ class TestKillzoneRegimeSubterm:
         assert (
             "killzone" in contribs
         ), f"Expected 'killzone' in regime contributions, got {list(contribs)}"
+
+
+# ---------------------------------------------------------------------------
+# update_weights() — runtime weight hot-swap
+# ---------------------------------------------------------------------------
+
+_LEARNED_WEIGHTS = {
+    "trend": 0.30,
+    "momentum": 0.15,
+    "structure": 0.15,
+    "pattern": 0.10,
+    "institutional": 0.20,
+    "regime": 0.10,
+}
+
+
+class TestUpdateWeights:
+    @pytest.mark.unit
+    def test_update_weights_changes_weights_and_version(self):
+        """update_weights() changes _weights dict and _weights_version."""
+        scorer = CISScorer()
+        scorer.update_weights(_LEARNED_WEIGHTS, version=5)
+        assert scorer._weights["trend"] == 0.30
+        assert scorer._weights_version == 5
+
+    @pytest.mark.unit
+    def test_update_weights_recomputes_array(self):
+        """update_weights() recomputes _weights_array to match new dict."""
+        import numpy as np
+
+        scorer = CISScorer()
+        scorer.update_weights(_LEARNED_WEIGHTS, version=5)
+        expected = np.array(
+            [
+                _LEARNED_WEIGHTS["trend"],
+                _LEARNED_WEIGHTS["momentum"],
+                _LEARNED_WEIGHTS["structure"],
+                _LEARNED_WEIGHTS["pattern"],
+                _LEARNED_WEIGHTS["institutional"],
+                _LEARNED_WEIGHTS["regime"],
+            ]
+        )
+        assert np.allclose(scorer._weights_array, expected)
+
+    @pytest.mark.unit
+    def test_score_uses_updated_weights(self):
+        """After update_weights, score() uses new weights and produces a different result."""
+        features = _bullish_features()
+        scorer = CISScorer()
+        result_bootstrap = scorer.score(features, {})
+
+        # Heavily favour trend — should increase CIS for a bullish bar
+        trend_heavy = dict(BOOTSTRAP_WEIGHTS)
+        trend_heavy["trend"] = 0.60
+        trend_heavy["momentum"] = 0.10
+        trend_heavy["structure"] = 0.10
+        trend_heavy["pattern"] = 0.05
+        trend_heavy["institutional"] = 0.10
+        trend_heavy["regime"] = 0.05
+        scorer.update_weights(trend_heavy, version=99)
+        result_updated = scorer.score(features, {})
+
+        # The scores should differ since the weight distribution changed
+        assert result_bootstrap.cis_score != result_updated.cis_score
+        # Updated version is reflected in the result
+        assert result_updated.weights_version == 99
