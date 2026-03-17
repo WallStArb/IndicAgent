@@ -7,10 +7,97 @@ persists via signal_ledger.update_signal_status().
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
 OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2  # bars_in_trade <= this → stopped_at_entry
+
+
+# ---------------------------------------------------------------------------
+# Chandelier Trailing Stop
+# ---------------------------------------------------------------------------
+
+
+def compute_chandelier_stop(
+    direction: int,
+    highest_high: float,
+    lowest_low: float,
+    vol: float,  # garch_sigma or atr_14 — caller picks source
+    multiplier: float = 3.0,
+) -> float:
+    """Compute Chandelier Exit trailing stop level.
+
+    Args:
+        direction: 1 for long, -1 for short.
+        highest_high: Highest high since activation.
+        lowest_low: Lowest low since activation.
+        vol: Volatility measure (garch_sigma preferred; atr_14 fallback).
+        multiplier: ATR multiple for stop distance; default 3.0.
+
+    Returns:
+        Trailing stop price level.
+    """
+    if direction == 1:
+        return highest_high - multiplier * vol
+    return lowest_low + multiplier * vol
+
+
+# ---------------------------------------------------------------------------
+# Staleness Score
+# ---------------------------------------------------------------------------
+
+
+def compute_staleness_score(
+    hmm_regime_now: int | None,
+    hmm_regime_at_fire: int | None,
+    garch_sigma_now: float | None,
+    garch_sigma_at_fire: float | None,
+) -> tuple[float, str]:
+    """Compute staleness score (0.0-1.0) and trigger reason.
+
+    Staleness components:
+    - regime_drift: 1.0 if regimes differ (both non-None), else 0.0
+    - sigma_component: continuous log-ratio of sigma growth, capped at 1.0
+
+    Score = round(0.6 * regime_drift + 0.4 * sigma_component, 4)
+    Reason = "both" | "hmm_regime_flip" | "vol_drift"
+
+    Returns:
+        (score, reason)
+    """
+    # Regime component
+    if (
+        hmm_regime_now is not None
+        and hmm_regime_at_fire is not None
+        and hmm_regime_now != hmm_regime_at_fire
+    ):
+        regime_drift = 1.0
+    else:
+        regime_drift = 0.0
+
+    # Sigma component — log-ratio capped at 1.0
+    if (
+        garch_sigma_now is not None
+        and garch_sigma_at_fire is not None
+        and garch_sigma_at_fire > 0
+        and garch_sigma_now > 0
+    ):
+        sigma_ratio = garch_sigma_now / garch_sigma_at_fire
+        sigma_component = min(1.0, math.log(max(sigma_ratio, 1.0)) / math.log(3.0))
+    else:
+        sigma_component = 0.0
+
+    score = round(0.6 * regime_drift + 0.4 * sigma_component, 4)
+
+    if regime_drift > 0 and sigma_component >= 0.5:
+        reason = "both"
+    elif regime_drift > 0:
+        reason = "hmm_regime_flip"
+    else:
+        reason = "vol_drift"
+
+    return score, reason
 
 
 @dataclass
@@ -42,6 +129,11 @@ def evaluate_signal(
     close: float,
     current_mae: float = 0.0,
     current_mfe: float = 0.0,
+    # Chandelier state (injected from service, mutated in-place)
+    chandelier_state: dict | None = None,
+    # Staleness state (injected from service)
+    staleness_consecutive_bars: int = 0,
+    staleness_score: float = 0.0,
 ) -> Transition | None:
     """Evaluate whether a signal should transition state.
 
@@ -54,6 +146,11 @@ def evaluate_signal(
         close: Current bar's close price.
         current_mae: Current maximum adverse excursion (pnl_r units).
         current_mfe: Current maximum favorable excursion (pnl_r units).
+        chandelier_state: Mutable dict with Chandelier tracking state
+            (keys: trailing_stop, highest_high, lowest_low, vol, vol_source).
+            Updated in-place after each bar for active signals.
+        staleness_consecutive_bars: Consecutive bars where staleness_score > 0.5.
+        staleness_score: Current bar's staleness score (0.0-1.0).
 
     Returns:
         Transition if state changes (with updated mae/mfe on exit),
@@ -101,7 +198,69 @@ def evaluate_signal(
         return _check_zone_activation(sid, direction, zone_low, zone_high, high, low, bars)
 
     if status == "active":
-        return _check_active_exit(
+        # --- Chandelier trailing stop check (before standard stop/target) ---
+        if chandelier_state is not None:
+            trailing_stop = chandelier_state.get("trailing_stop")
+            if trailing_stop is not None:
+                if direction == 1 and low <= trailing_stop:
+                    pnl_ticks = (trailing_stop - entry) * direction
+                    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+                    pnl_dollars = round(pnl_ticks * point_value, 2)
+                    final_mae = min(current_mae, pnl_r)
+                    final_mfe = max(current_mfe, pnl_r)
+                    return Transition(
+                        signal_id=sid,
+                        new_status="resolved",
+                        exit_reason="chandelier_stop",
+                        exit_price=trailing_stop,
+                        pnl_ticks=round(pnl_ticks, 4),
+                        pnl_r=pnl_r,
+                        pnl_dollars=pnl_dollars,
+                        mae=round(final_mae, 4),
+                        mfe=round(final_mfe, 4),
+                        outcome="stopped_in_trade",
+                    )
+                elif direction == -1 and high >= trailing_stop:
+                    pnl_ticks = (trailing_stop - entry) * direction
+                    pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+                    pnl_dollars = round(pnl_ticks * point_value, 2)
+                    final_mae = min(current_mae, pnl_r)
+                    final_mfe = max(current_mfe, pnl_r)
+                    return Transition(
+                        signal_id=sid,
+                        new_status="resolved",
+                        exit_reason="chandelier_stop",
+                        exit_price=trailing_stop,
+                        pnl_ticks=round(pnl_ticks, 4),
+                        pnl_r=pnl_r,
+                        pnl_dollars=pnl_dollars,
+                        mae=round(final_mae, 4),
+                        mfe=round(final_mfe, 4),
+                        outcome="stopped_in_trade",
+                    )
+
+        # --- Staleness condition_expired check (3-bar confirmation) ---
+        if staleness_consecutive_bars >= 3 and staleness_score > 0.5:
+            pnl_ticks = (close - entry) * direction
+            pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
+            pnl_dollars = round(pnl_ticks * point_value, 2)
+            final_mae = min(current_mae, pnl_r)
+            final_mfe = max(current_mfe, pnl_r)
+            return Transition(
+                signal_id=sid,
+                new_status="resolved",
+                exit_reason="condition_expired",
+                exit_price=close,
+                pnl_ticks=round(pnl_ticks, 4),
+                pnl_r=pnl_r,
+                pnl_dollars=pnl_dollars,
+                mae=round(final_mae, 4),
+                mfe=round(final_mfe, 4),
+                outcome="condition_expired",
+            )
+
+        # --- Standard stop/target exit ---
+        result = _check_active_exit(
             sid,
             direction,
             entry,
@@ -115,6 +274,25 @@ def evaluate_signal(
             current_mae,
             current_mfe,
         )
+
+        # Update Chandelier state in-place (no exit: still running)
+        if result is None and chandelier_state is not None:
+            hh = max(chandelier_state.get("highest_high", high), high)
+            ll = min(chandelier_state.get("lowest_low", low), low)
+            chandelier_state["highest_high"] = hh
+            chandelier_state["lowest_low"] = ll
+            vol = chandelier_state.get("vol", 0.0)
+            if vol > 0:
+                new_stop = compute_chandelier_stop(direction, hh, ll, vol)
+                old_stop = chandelier_state.get("trailing_stop")
+                if old_stop is None:
+                    chandelier_state["trailing_stop"] = new_stop
+                elif direction == 1 and new_stop > old_stop:
+                    chandelier_state["trailing_stop"] = new_stop
+                elif direction == -1 and new_stop < old_stop:
+                    chandelier_state["trailing_stop"] = new_stop
+
+        return result
 
     return None
 
