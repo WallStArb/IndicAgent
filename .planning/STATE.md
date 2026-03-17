@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Completed 34-01-PLAN.md
-last_updated: "2026-03-17T19:34:40.156Z"
-last_activity: 2026-03-17 — 32-03 executed (MACDDivergence + CMFDivergence I5 plugins, OBV extension, DivergenceStack 5-input weighted rewrite, TIER_I5=16, total=106)
+stopped_at: Completed 34-02-PLAN.md
+last_updated: "2026-03-17T19:43:15.376Z"
+last_activity: "2026-03-17 — 34-01 executed (AnchoredVWAP I4 migration: 15 fields, std bands, sigma, velocity)"
 progress:
   total_phases: 14
   completed_phases: 3
   total_plans: 15
-  completed_plans: 10
-  percent: 75
+  completed_plans: 11
+  percent: 67
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete, Phase 34 Plan 01 complete (AVWAP migration)
+**Current focus:** v1.9 I7 Alpha Engine — Phase 32 complete, Phase 34 Plans 01+02 complete (AVWAP + VolumeProfile I4 migrations)
 
 ## Current Position
 
-Phase: 34 (in progress — plan 01 done)
-Plan: 01 complete → Plan 02 next (VolumeProfile I5 plugin)
-Status: Phase 34 Plan 01 complete — AnchoredVWAP migrated from I3/structure/ to I4/context/ with 15 output fields
-Last activity: 2026-03-17 — 34-01 executed (AnchoredVWAP I4 migration: 15 fields, std bands, sigma, velocity)
+Phase: 34 (in progress — plans 01+02 done)
+Plan: 02 complete → Plan 03 next (I7 plugins: POCRejection, HVNRejection, LVNBreakout)
+Status: Phase 34 Plan 02 complete — VolumeProfile migrated from I5/patterns/ to I4/context/ with 18 output fields
+Last activity: 2026-03-17 — 34-02 executed (VolumeProfile I4 migration: 18 fields, session-reset + rolling dual-track)
 
-Progress: [███████░░░] 67%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
@@ -71,6 +71,12 @@ Progress: [███████░░░] 67%
 - **I4Context has 75 fields** — +15 VWAP fields from 34-01 (was 60): session_vwap, session_vwap_dist_pct, swing_vwap, weekly_vwap, above_session_vwap, above_swing_vwap, above_weekly_vwap, vwap_alignment_score, avwap_upper_band, avwap_lower_band, swing_vwap_upper_band, swing_vwap_lower_band, session_vwap_deviation_sigma, swing_vwap_deviation_sigma, session_vwap_deviation_velocity
 - **TIER_I7 = 23, TIER_I5 = 16, total registered plugins = 106 (I3=7, I4=10)** — after Phase 34-01; VWAP moved tiers, net count unchanged
 - **Plugin count tests must be updated when tier counts grow** — test_tier_i5_has_N_plugins and test_total_plugin_count have hardcoded values that track plugin totals
+- **TIER_I4 = 11, TIER_I5 = 15** — after Phase 34-02; ctx_VolumeProfile added to I4, patt_VolumeProfile removed from I5
+- **I4Context has 93 fields** — +18 VP fields from 34-02 (was 75): poc_price, vah, val, poc_price_rolling, vah_rolling, val_rolling, nearest_hvn_above, nearest_hvn_below, nearest_lvn_above, nearest_lvn_below, price_in_value_area, va_width_atr, distance_to_vah_atr, distance_to_val_atr + 4 legacy fields
+- **I5Patterns has 75 fields** — -4 VP fields removed in 34-02 (was 79)
+- **ctx_VolumeProfile session track**: resets at 09:30 ET using _extract_ts/_et_from_utc from session_context.py; falls back to full df if before NY open or no timestamps
+- **ctx_VolumeProfile rolling track**: last min(480, N) bars — continuous window, no session reset
+- **ctx_VolumeProfile legacy fields preserved**: nearest_hvn_level, nearest_hvn_dist_atr, nearest_lvn_level, in_lvn — I7 plugins can continue reading these unchanged
 - **GARCH_MULTIPLIERS = {0:0.8, 1:1.0, 2:1.35}** — in trade_framer.py; applied to effective_atr in frame_trade(); all 23 I7 plugins inherit vol-regime-scaled stops automatically (032-01)
 - **FVG is Priority 0 structural stop** — fvg_low (long) / fvg_high (short) beats demand/supply zone in stop hierarchy (032-01)
 - **stop_basis classification** — structure_snap (≤1.5xATR from fallback), garch_adaptive (>1.5xATR or GARCH-scaled ATR), atr_static (no regime); persisted to signal_ledger AND intelligence_features.i7 JSONB (032-01)
@@ -96,7 +102,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T19:34:40.152Z
-Stopped at: Completed 34-01-PLAN.md
+Last session: 2026-03-17T19:43:15.374Z
+Stopped at: Completed 34-02-PLAN.md
 Resume file: None
-Next action: `/gsd:execute-phase 34` (Phase 34: AVWAP + Volume Profile infrastructure)
+Next action: `/gsd:execute-phase 34` (Phase 34 Plan 03: I7 POC/HVN/LVN plugins)
