@@ -92,8 +92,8 @@ async def main() -> None:
         sys.exit(2)
 
     db = DatabaseManager(db_url)
-    await db.initialize()
     try:
+        await db.initialize()
         rows = await db.execute_query("""
             SELECT outcome, is_shadow
             FROM signal_ledger
