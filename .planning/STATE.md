@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: "Phase 31 in progress — Plan 02 complete"
-stopped_at: Completed 031-02-PLAN.md
-last_updated: "2026-03-17T01:35:00Z"
-last_activity: 2026-03-17 — 031-02 executed (binary WIN_OUTCOMES labels, ASSET_CLUSTER_MAP, per-cluster training in weight_updater)
+status: "Phase 31 complete — all 3 plans done"
+stopped_at: Completed 031-03-PLAN.md
+last_updated: "2026-03-17T02:35:00.000Z"
+last_activity: 2026-03-17 — 031-03 executed (is_shadow, _build_feature_rows, atomic signal_features write, promote_shadow.py CLI)
 progress:
   total_phases: 13
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
-  completed_plans: 2
-  percent: 33
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 31 (in progress)
-Plan: 02 complete → 03 next
-Status: Phase 31 in progress — Plan 02 complete
-Last activity: 2026-03-17 — 031-02 executed (binary WIN_OUTCOMES labels, ASSET_CLUSTER_MAP, per-cluster training in weight_updater)
+Phase: 31 (complete — all 3 plans done)
+Plan: 03 complete → Phase 32 next
+Status: Phase 31 complete — all 3 plans done; Phase 32 ready
+Last activity: 2026-03-17 — 031-03 executed (is_shadow field, _build_feature_rows, atomic signal_features write, promote_shadow.py CLI gate)
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -62,6 +62,10 @@ Progress: [███░░░░░░░] 33%
 - `garch_vol_regime` field already exists in `IntelligenceEvent` (output of VolatilityRegimePlugin)
 - Correct outcome taxonomy: `target_1`, `target_1_2`, `target_full` (wins); `stopped_at_entry`, `stopped_in_trade`, `never_activated`, `ttl_expired_ahead`, `ttl_expired_behind`, `condition_expired` (losses)
 - `KalmanTrendPlugin` at `src/intelligence/context/kalman_trend.py` — reuse this implementation for CIS Kalman (Phase 35)
+- **LedgerEntry.to_insert_params() returns 39 elements** — any code calling it must expect 39, not 38 (updated in 031-03)
+- **signal_features writes atomically** — _write_signal_with_features() in signal_generator_service uses asyncpg conn.transaction(); features_per_signal is same mid-bar dict for all entries on a bar
+- **promote_shadow.py uses statsmodels not scipy** — scipy 1.17+ removed proportions_ztest from scipy.stats; correct import: `from statsmodels.stats.proportion import proportions_ztest`
+- **asyncpg conn.transaction() is synchronous** — returns a sync context manager (Transaction object), not a coroutine; tests must use MagicMock (not AsyncMock) for transaction()
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -77,7 +81,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T01:35:00Z
-Stopped at: Completed 031-02-PLAN.md
-Resume file: .planning/phases/31-cis-learning-loop-signal-feature-snapshots/031-02-SUMMARY.md
-Next action: `/gsd:execute-phase 31 03` (031-03: signal_features writer)
+Last session: 2026-03-17T02:35:00.000Z
+Stopped at: Completed 031-03-PLAN.md
+Resume file: .planning/phases/31-cis-learning-loop-signal-feature-snapshots/031-03-SUMMARY.md
+Next action: `/gsd:execute-phase 32 01` (Phase 32: stop architecture)

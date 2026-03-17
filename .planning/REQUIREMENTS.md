@@ -21,13 +21,13 @@
 
 ### FEAT — Signal Feature Snapshots
 
-- [ ] **FEAT-01**: `signal_features` TimescaleDB hypertable captures all non-null raw feature values from `IntelligenceEvent` at signal fire time (mid-bar snapshot, not bar-close state from `intelligence_features`)
-- [ ] **FEAT-02**: `signal_features` write committed atomically with `signal_ledger` row in `signal_generator_service`; no orphaned feature rows
+- [x] **FEAT-01**: `signal_features` TimescaleDB hypertable captures all non-null raw feature values from `IntelligenceEvent` at signal fire time (mid-bar snapshot, not bar-close state from `intelligence_features`)
+- [x] **FEAT-02**: `signal_features` write committed atomically with `signal_ledger` row in `signal_generator_service`; no orphaned feature rows
 
 ### SHAD — Shadow Infrastructure
 
-- [ ] **SHAD-01**: `is_shadow BOOLEAN NOT NULL DEFAULT FALSE` column added to `signal_ledger`; shadow signals co-emitted on same bar as production signals for valid A/B matched-pair comparison
-- [ ] **SHAD-02**: Statistical promotion gate runnable as CLI script: two-sample proportion z-test, requires p < 0.05 AND N ≥ 200 per variant before any experimental path promoted to production
+- [x] **SHAD-01**: `is_shadow BOOLEAN NOT NULL DEFAULT FALSE` column added to `signal_ledger`; shadow signals co-emitted on same bar as production signals for valid A/B matched-pair comparison
+- [x] **SHAD-02**: Statistical promotion gate runnable as CLI script: two-sample proportion z-test, requires p < 0.05 AND N ≥ 200 per variant before any experimental path promoted to production
 
 ### SIG — Signal Quality & Stop Architecture
 
@@ -135,10 +135,10 @@
 | LEARN-02 | Phase 31 | Complete |
 | LEARN-03 | Phase 31 | Complete |
 | LEARN-04 | Phase 31 | Complete |
-| FEAT-01 | Phase 31 | Pending |
-| FEAT-02 | Phase 31 | Pending |
-| SHAD-01 | Phase 31 | Pending |
-| SHAD-02 | Phase 31 | Pending |
+| FEAT-01 | Phase 31 | Complete |
+| FEAT-02 | Phase 31 | Complete |
+| SHAD-01 | Phase 31 | Complete |
+| SHAD-02 | Phase 31 | Complete |
 | SIG-01 | Phase 32 | Pending |
 | SIG-02 | Phase 32 | Pending |
 | SIG-03 | Phase 32 | Pending |
