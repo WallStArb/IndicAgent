@@ -553,6 +553,8 @@ def _flush_writes(conn, writes: list[tuple]) -> None:
                              data["market_entry_gap_bars"]))
 
     with conn.cursor() as cur:
+        # Must be set per-transaction — timescaledb decompression limit is transaction-scoped.
+        cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
         if zone_exits:
             psycopg2.extras.execute_values(
                 cur,
