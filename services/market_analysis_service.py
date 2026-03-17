@@ -34,6 +34,7 @@ from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.plugin_validator import PluginValidator
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     SEED_LOOKBACK_MULTIPLIER,
@@ -768,6 +769,15 @@ async def main() -> None:
     args = parser.parse_args()
 
     service = MarketAnalysisService(args.config)
+    # Run plugin validation before starting service
+    validator = PluginValidator()
+    try:
+        validator.validate_all()
+        print("✅ Plugin validation passed")
+    except RuntimeError as e:
+        print(f"❌ Plugin validation failed: {e}")
+        sys.exit(1)
+
     try:
         await service.start()
     except KeyboardInterrupt:

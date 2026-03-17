@@ -38,6 +38,7 @@ from src.core.service_utils import (
     should_skip_plugin,
 )
 from src.core.stream_keys import message_key, topic_indicators, topic_market_bars
+from src.core.plugin_validator import PluginValidator
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import (
@@ -588,6 +589,14 @@ async def main() -> None:
     parser.add_argument("--config", help="Config file path")
     args = parser.parse_args()
     service = IndicatorService(args.config)
+    # Run plugin validation before starting service
+    validator = PluginValidator()
+    try:
+        validator.validate_all()
+        print("✅ Plugin validation passed")
+    except RuntimeError as e:
+        print(f"❌ Plugin validation failed: {e}")
+        sys.exit(1)
     try:
         await service.start()
     except KeyboardInterrupt:
