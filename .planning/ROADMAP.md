@@ -279,7 +279,12 @@ Plans:
   3. Active signals show a `trailing_stop_price` logged per lifecycle update in `signal_lifecycle_service` — the value tightens monotonically (Chandelier: `highest_high_since_entry - 3×ATR` for longs) and never widens.
   4. Signals with an expired regime or vol-drift beyond threshold receive outcome `condition_expired` — observable in `signal_ledger` after a simulated regime flip in a replay run.
   5. `DivergenceStackPlugin` fires when weighted convergence score > 0.40 AND n_agreeing ≥ 3 across RSI, MACD histogram, volume, OBV, and CMF inputs — with individual weights (0.30, 0.25, 0.20, 0.15, 0.10) logged on each fire.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 32-01-PLAN.md -- DB migration 035 + TradeFrame/LedgerEntry + GARCH multiplier + FVG tier + stop_basis + TTL constants
+- [ ] 32-02-PLAN.md -- Chandelier trailing stop + staleness score + condition_expired + shadow tracking
+- [ ] 32-03-PLAN.md -- MACD/OBV/CMF divergence I5 plugins + DivergenceStack 5-input weighted score
 
 ### Phase 33: Five New I7 Signal Plugins
 **Goal**: Five market conditions previously invisible to I7 — failed breakouts, opening range setups, previous-day level tests, second-leg continuations, and volatility contractions — are now covered by registered plugins that fire in replay runs.
@@ -433,7 +438,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
 | 31. CIS Learning Loop + Signal Feature Snapshots | 3/3 | Complete    | 2026-03-17 | - |
-| 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/TBD | Not started | - |
+| 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/3 | Planned | - |
 | 33. Five New I7 Signal Plugins | v1.9 | 0/3 | Planned | - |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
