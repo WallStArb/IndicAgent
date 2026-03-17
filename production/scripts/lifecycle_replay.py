@@ -62,7 +62,7 @@ import psycopg2.extras
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from src.config.settings import Settings, get_active_contracts
-from src.core.service_utils import TF_SECONDS
+from src.core.service_utils import TF_SECONDS, TF_TTL_BARS
 from src.intelligence.trading.lifecycle_tracker import (
     _classify_stop_outcome,
     evaluate_market_entry,
@@ -240,6 +240,12 @@ def _process_symbol_tf(
         min_ts = min(s["timestamp"] for s in signals)
         # Map by signal_id for O(1) lookup during bar evaluation
         sig_map: dict[str, dict] = {str(s["signal_id"]): dict(s) for s in signals}
+
+        # Inject canonical per-TF TTL — overrides any stored ttl_bars (column doesn't
+        # exist in signal_ledger; sig.get("ttl_bars", 10) always falls back to 10).
+        _tf_ttl = TF_TTL_BARS.get(timeframe, 10)
+        for _sig_dict in sig_map.values():
+            _sig_dict["ttl_bars"] = _tf_ttl
 
         # In-memory accumulators keyed by signal_id
         zone_mae: dict[str, float] = {}
@@ -456,6 +462,10 @@ def _process_symbol_tf(
                 stats["zone"][result["zone_outcome"]] = stats["zone"].get(result["zone_outcome"], 0) + 1
                 stats["processed"] += 1
                 if zone_activated.get(sid):
+                    _activated_at = zone_activated_at.get(sid, sig["timestamp"])
+                    _bars_in_trade = int(
+                        (result["exit_at"] - _activated_at).total_seconds() / tf_secs
+                    )
                     pending_writes.append(("zone_exit", sid, {
                         "_ts": sig["timestamp"],
                         "status": "expired", "exit_at": result["exit_at"],
@@ -464,7 +474,7 @@ def _process_symbol_tf(
                         "signal_quality": None,
                         "mae": zone_mae.get(sid, 0.0),
                         "mfe": zone_mfe.get(sid, 0.0),
-                        "bars_in_trade": None, "outcome": result["zone_outcome"],
+                        "bars_in_trade": _bars_in_trade, "outcome": result["zone_outcome"],
                     }))
                 else:
                     pending_writes.append(("zone_exit", sid, {

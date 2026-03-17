@@ -35,7 +35,7 @@ from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_contracts
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.service_utils import TF_SECONDS, min_bars_for_tf, setup_service_logging
+from src.core.service_utils import TF_SECONDS, TF_TTL_BARS, min_bars_for_tf, setup_service_logging
 from src.core.stream_keys import (
     message_key,
     topic_intelligence,
@@ -83,16 +83,7 @@ _SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 # Regress half-life against Sharpe per TF when data justifies it.
 ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 
-# Per-TF signal TTL — replaces hardcoded default of 10 in signal_schema.make_signal().
-# Time window: 1m=20 min, 5m=60 min, 15m=2 hr, 1h=6 hr.
-# Lifecycle tracker reads ttl_bars from the signal dict; this dict provides the
-# timeframe-appropriate default when plugins call make_signal(timeframe=tf).
-TF_TTL_BARS: dict[str, int] = {
-    "1m": 20,   # 20 min window for 1m signals
-    "5m": 12,   # 60 min window for 5m signals
-    "15m": 8,   # 2 hour window for 15m signals
-    "1h": 6,    # 6 hour window for 1h signals
-}
+# TF_TTL_BARS imported from src.core.service_utils — single source of truth.
 
 # Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
 # is used for gating. Avoids gating 1m signals on noisy 1m HMM.
