@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: "Roadmap defined — awaiting `/gsd:plan-phase 31`"
-stopped_at: Phase 33 context gathered
-last_updated: "2026-03-17T01:06:55.440Z"
-last_activity: 2026-03-16 — Roadmap written for v1.9
+status: "Phase 31 in progress — Plan 01 complete"
+stopped_at: Completed 031-01-PLAN.md
+last_updated: "2026-03-17T01:27:02.385Z"
+last_activity: 2026-03-17 — 031-01 executed (migration 034, CISScorer.update_weights, 30-min CIS weight refresh loop)
 progress:
   total_phases: 13
   completed_phases: 0
-  total_plans: 3
-  completed_plans: 0
-  percent: 0
+  total_plans: 4
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 31 (not started)
-Plan: —
-Status: Roadmap defined — awaiting `/gsd:plan-phase 31`
-Last activity: 2026-03-16 — Roadmap written for v1.9
+Phase: 31 (in progress)
+Plan: 01 complete → 02 next
+Status: Phase 31 in progress — Plan 01 complete
+Last activity: 2026-03-17 — 031-01 executed (migration 034, CISScorer.update_weights, 30-min CIS weight refresh loop)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
@@ -51,8 +51,12 @@ Progress: [░░░░░░░░░░] 0%
 - **Plugin registry is source of truth**: all new plugins registered in `TIER_I4`, `TIER_I5`, or `TIER_I7`; `registry.validate_tier()` hard-crashes on missing names
 
 ### Key Verified Facts
-- `weight_updater.py` EXISTS at `src/intelligence/weight_updater.py` — trains LogisticRegression on `signal_quality` (Phase 31 upgrades to binary win labels)
-- `cis_weights` table EXISTS — needs `asset_cluster` + `timeframe` schema extension (Phase 31)
+- `weight_updater.py` EXISTS at `src/intelligence/weight_updater.py` — trains LogisticRegression on `signal_quality` (Phase 31 upgrades to binary win labels); INSERT now uses `sample_size` (renamed from `n_training_samples`)
+- `cis_weights` table has `asset_cluster` column + unique index on (asset_cluster, timeframe, version) — DONE in 031-01
+- `signal_features` hypertable EXISTS — 7-day chunks, PK (signal_id, feature_name, computed_at) — DONE in 031-01
+- `signal_ledger.is_shadow` column EXISTS — partial index WHERE is_shadow = TRUE — DONE in 031-01
+- `CISScorer.update_weights()` EXISTS — GIL-protected hot-swap; service has `_cis_scorer` instance refreshed every 30min from DB
+- **TimescaleDB hypertable unique constraint caveat**: PK must include partitioning column (computed_at). `PRIMARY KEY (signal_id, feature_name)` fails on hypertables.
 - `cis_attribution` column EXISTS in `signal_ledger` — `signal_features` table (Phase 31) adds raw feature values (not a duplicate)
 - CMF (`cmf_20`), OBV (`obv`), MACD histogram (`macd_histogram_12_26_9`) already exist as I1 indicators
 - `garch_vol_regime` field already exists in `IntelligenceEvent` (output of VolatilityRegimePlugin)
@@ -73,7 +77,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T01:06:55.438Z
-Stopped at: Phase 33 context gathered
-Resume file: .planning/phases/33-five-new-i7-signal-plugins/33-CONTEXT.md
-Next action: `/gsd:plan-phase 31`
+Last session: 2026-03-17T01:27:02.384Z
+Stopped at: Completed 031-01-PLAN.md
+Resume file: .planning/phases/31-cis-learning-loop-signal-feature-snapshots/031-01-SUMMARY.md
+Next action: `/gsd:execute-phase 31 02` (031-02: signal_features writer)

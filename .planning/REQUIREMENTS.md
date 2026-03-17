@@ -14,9 +14,9 @@
 
 ### LEARN — CIS Learning Loop
 
-- [ ] **LEARN-01**: CIS scorer loads learned weights from `cis_weights` DB at runtime on startup; refreshes every 30 min; falls back to bootstrap weights when `sample_size < 100` or DB unavailable
+- [x] **LEARN-01**: CIS scorer loads learned weights from `cis_weights` DB at runtime on startup; refreshes every 30 min; falls back to bootstrap weights when `sample_size < 100` or DB unavailable
 - [ ] **LEARN-02**: Weight updater trains on binary win/loss labels (`target_1`, `target_1_2`, `target_full` = win; all other outcomes = loss); replaces `signal_quality` proxy target
-- [ ] **LEARN-03**: `cis_weights` table extended with `asset_cluster` + `timeframe` columns; five clusters: `eq_index` (ES/NQ/RTY/YM), `commodity` (CL/GC/SI/NG/HG/PL/PA), `rates` (ZN/ZB/ZF/ZT), `crypto` (BTC/ETH/SOL), `ag` (ZC/ZS/ZW)
+- [x] **LEARN-03**: `cis_weights` table extended with `asset_cluster` + `timeframe` columns; five clusters: `eq_index` (ES/NQ/RTY/YM), `commodity` (CL/GC/SI/NG/HG/PL/PA), `rates` (ZN/ZB/ZF/ZT), `crypto` (BTC/ETH/SOL), `ag` (ZC/ZS/ZW)
 - [ ] **LEARN-04**: Weight learner trains separate logistic regression models per `(asset_cluster, timeframe)` when N ≥ 100 resolved signals; falls back to `global` model when cluster is sparse
 
 ### FEAT — Signal Feature Snapshots
@@ -131,9 +131,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LEARN-01 | Phase 31 | Pending |
+| LEARN-01 | Phase 31 | Complete |
 | LEARN-02 | Phase 31 | Pending |
-| LEARN-03 | Phase 31 | Pending |
+| LEARN-03 | Phase 31 | Complete |
 | LEARN-04 | Phase 31 | Pending |
 | FEAT-01 | Phase 31 | Pending |
 | FEAT-02 | Phase 31 | Pending |
