@@ -182,7 +182,7 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
         """
         INSERT INTO cis_weights (version, weights_type, symbol, timeframe,
             trend_w, momentum_w, structure_w, pattern_w, institutional_w, regime_w,
-            n_training_samples, signal_quality_mean)
+            sample_size, signal_quality_mean)
         VALUES ($1, $2, 'global', 'global', $3, $4, $5, $6, $7, $8, $9, $10)
         """,
         next_version,
