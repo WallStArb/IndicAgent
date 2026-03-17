@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: completed
-stopped_at: Phase 34 context gathered
-last_updated: "2026-03-17T10:13:23.213Z"
+stopped_at: Completed 32-01-PLAN.md
+last_updated: "2026-03-17T10:26:54.530Z"
 last_activity: "2026-03-17 — 033-03 executed (6 new I7 plugins registered: FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP; TIER_I7=23, TREND_SETUPS=12)"
 progress:
   total_phases: 13
   completed_phases: 2
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 67
 ---
 
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 33 (complete — all 3 plans done)
-Plan: 03 complete → Phase 34 next
-Status: Phase 33 complete — all 3 plans done; Phase 34 ready
-Last activity: 2026-03-17 — 033-03 executed (6 new I7 plugins registered: FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP; TIER_I7=23, TREND_SETUPS=12)
+Phase: 32 (in progress — plan 01 done)
+Plan: 01 complete → Plan 02 next (or Phase 34 if no remaining 32 plans)
+Status: Phase 32 Plan 01 complete — stop architecture, GARCH multiplier, FVG tier, LedgerEntry 54 fields
+Last activity: 2026-03-17 — 32-01 executed (GARCH-adaptive stops, FVG Priority 0, stop_basis classification, migration 035, LedgerEntry +15 fields, TF_TTL_BARS, i7 payload enrichment)
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -62,12 +62,16 @@ Progress: [███████░░░] 67%
 - `garch_vol_regime` field already exists in `IntelligenceEvent` (output of VolatilityRegimePlugin)
 - Correct outcome taxonomy: `target_1`, `target_1_2`, `target_full` (wins); `stopped_at_entry`, `stopped_in_trade`, `never_activated`, `ttl_expired_ahead`, `ttl_expired_behind`, `condition_expired` (losses)
 - `KalmanTrendPlugin` at `src/intelligence/context/kalman_trend.py` — reuse this implementation for CIS Kalman (Phase 35)
-- **LedgerEntry.to_insert_params() returns 39 elements** — any code calling it must expect 39, not 38 (updated in 031-03)
+- **LedgerEntry.to_insert_params() returns 54 elements** — extended in 032-01 with 15 stop/lifecycle fields; any code calling it must expect 54 (was 39 after 031-03)
 - **signal_features writes atomically** — _write_signal_with_features() in signal_generator_service uses asyncpg conn.transaction(); features_per_signal is same mid-bar dict for all entries on a bar
 - **promote_shadow.py uses statsmodels not scipy** — scipy 1.17+ removed proportions_ztest from scipy.stats; correct import: `from statsmodels.stats.proportion import proportions_ztest`
 - **asyncpg conn.transaction() is synchronous** — returns a sync context manager (Transaction object), not a coroutine; tests must use MagicMock (not AsyncMock) for transaction()
 - **TIER_I7 = 23, total registered plugins = 104** — after Phase 33-03; FailedBreakout/PrevDayLevelTest excluded from TREND_SETUPS; ORB15/ORB30/SecondLegContinuation/VCP added to TREND_SETUPS (12 entries)
 - **Plugin count tests must be updated when TIER_I7 grows** — test_tier_i7_has_N_plugins and test_total_plugin_count have hardcoded values that track plugin totals
+- **GARCH_MULTIPLIERS = {0:0.8, 1:1.0, 2:1.35}** — in trade_framer.py; applied to effective_atr in frame_trade(); all 23 I7 plugins inherit vol-regime-scaled stops automatically (032-01)
+- **FVG is Priority 0 structural stop** — fvg_low (long) / fvg_high (short) beats demand/supply zone in stop hierarchy (032-01)
+- **stop_basis classification** — structure_snap (≤1.5xATR from fallback), garch_adaptive (>1.5xATR or GARCH-scaled ATR), atr_static (no regime); persisted to signal_ledger AND intelligence_features.i7 JSONB (032-01)
+- **TF_TTL_BARS = {"1m":20, "5m":12, "15m":8, "1h":6}** — per-TF TTL overrides hardcoded default of 10; applied in signal_generator_service before aggregation (032-01)
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -83,7 +87,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T10:13:23.212Z
-Stopped at: Phase 34 context gathered
-Resume file: .planning/phases/34-i4-infrastructure-anchored-vwap-volume-profile/34-CONTEXT.md
+Last session: 2026-03-17T10:26:54.528Z
+Stopped at: Completed 32-01-PLAN.md
+Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34: AVWAP + Volume Profile infrastructure)

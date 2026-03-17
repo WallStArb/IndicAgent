@@ -438,7 +438,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 29. Renaissance Signal Quality | v1.8 | 8/8 | Complete | 2026-03-13 |
 | 30. Redpanda Migration | v1.8 | 5/5 | Complete | 2026-03-14 |
 | 31. CIS Learning Loop + Signal Feature Snapshots | 3/3 | Complete    | 2026-03-17 | - |
-| 32. Stop Architecture + Extended Divergence Stack | v1.9 | 0/3 | Planned | - |
+| 32. Stop Architecture + Extended Divergence Stack | 1/3 | In Progress|  | - |
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | v1.9 | 0/TBD | Not started | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | v1.9 | 0/TBD | Not started | - |
