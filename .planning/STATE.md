@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: completed
-stopped_at: Completed 038-02-PLAN.md
-last_updated: "2026-03-18T04:15:32.244Z"
-last_activity: 2026-03-18 — Phase 38 Plan 01 executed (migration, roll chain utility, get_active_contracts refactor)
+status: Plan 38-03 shipped — Pipeline integration: 4 services consume roll events, indicator_service migrates plugin state, feature_writer writes roll boundary markers, backfill seeds roll chains
+stopped_at: Completed 038-03-PLAN.md
+last_updated: "2026-03-18T04:28:17.600Z"
+last_activity: 2026-03-18 — Phase 38 Plan 02 executed (RollMonitor + 52 unit tests)
 progress:
   total_phases: 14
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 14
-  percent: 72
+  completed_plans: 16
+  percent: 78
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 038-automated-futures-roll-detection (plan 02 complete — plan 03 next)
-Plan: 38-03 (pipeline integration)
-Status: Plan 38-02 shipped — RollMonitor class with volume-based detection, segmented thresholds, z-score gate, 3-bar confirmation, 30-min cooldown, TOD gating, paper account detection, Kafka/DB publishing
-Last activity: 2026-03-18 — Phase 38 Plan 02 executed (RollMonitor + 52 unit tests)
+Phase: 35-calibration-tod-multiplier-cis-kalman-filter (plan 01 complete — plan 02 next)
+Plan: 35-02 (TOD multiplier)
+Status: Plan 35-01 shipped — confidence_calibration table, isotonic regression calibrator, LedgerEntry extended to 58 fields, wired into weight_updater
+Last activity: 2026-03-17 — Phase 35 Plan 01 executed (migration, calibrator module, weight_updater wiring)
 
-Progress: [████████░░] 78%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -62,7 +62,7 @@ Progress: [████████░░] 78%
 - `garch_vol_regime` field already exists in `IntelligenceEvent` (output of VolatilityRegimePlugin)
 - Correct outcome taxonomy: `target_1`, `target_1_2`, `target_full` (wins); `stopped_at_entry`, `stopped_in_trade`, `never_activated`, `ttl_expired_ahead`, `ttl_expired_behind`, `condition_expired` (losses)
 - `KalmanTrendPlugin` at `src/intelligence/context/kalman_trend.py` — reuse this implementation for CIS Kalman (Phase 35)
-- **LedgerEntry.to_insert_params() returns 54 elements** — extended in 032-01 with 15 stop/lifecycle fields; any code calling it must expect 54 (was 39 after 031-03)
+- **LedgerEntry.to_insert_params() returns 58 elements** — extended in 035-01 with 4 calibration fields (raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire); was 54 after 032-01 (was 39 after 031-03)
 - **signal_features writes atomically** — _write_signal_with_features() in signal_generator_service uses asyncpg conn.transaction(); features_per_signal is same mid-bar dict for all entries on a bar
 - **promote_shadow.py uses statsmodels not scipy** — scipy 1.17+ removed proportions_ztest from scipy.stats; correct import: `from statsmodels.stats.proportion import proportions_ztest`
 - **asyncpg conn.transaction() is synchronous** — returns a sync context manager (Transaction object), not a coroutine; tests must use MagicMock (not AsyncMock) for transaction()
@@ -94,6 +94,9 @@ Progress: [████████░░] 78%
 - **Migration 038 ready to apply** — production/migrations/038_roll_monitor_integration.sql; extends contract_metadata (is_front_month, roll_direction, roll_detected_at, confirmation_count) + system_events table + 2 indexes
 - **topic_system_events() added** — src/core/stream_keys.py; returns "{env}.system.events"
 - **RollMonitor class in services/tws_daemon.py** — 038-02; VOLUME_THRESHOLDS = {ES/NQ/RTY/YM:1.2, CL/GC/SI/HG:1.5, ZN/ZF/ZB/ZT:1.4}; dual gate: ratio >= threshold AND z_score > 2.0; 3-bar confirmation; 30-min cooldown; _apply_tod_adjustment() ET-aware (pre-open 1.3x, close 0.9x, post-close None); PAPER_ACCOUNT_HOSTS = {"192.168.1.157", "127.0.0.1"}; PAPER_SKIP_CONTRACTS = {"BZJ6", "NGJ6", "SR1H6", "ZWH6"}; _on_roll_confirmed() publishes Kafka + atomic DB update; wired into _fetch_bars_for_symbol when ROLL_MONITOR_ENABLED=true
+- **Pipeline roll integration (038-03)**: indicator_service._handle_roll_event() migrates (plugin_name, symbol, tf) state keys; PRICE_SENSITIVE_PLUGINS={bollinger_bands, keltner_channel, donchian_channel} adjusted by roll_gap via _adjust_price_state(); volume-neutral copied verbatim; market_analysis_service updates _active_symbols; signal_generator migrates bar_history deques; feature_writer writes roll_boundary marker to i7 JSONB via ON CONFLICT ... || merge; all 4 services conditionally subscribe to topic_system_events() when roll_monitor_enabled=True
+- **seed_roll_chain() in production/scripts/historical_backfill.py** — --seed-roll-chain flag; UPSERTs 3-contract chain per futures base symbol with is_front_month=True for index 0; ON CONFLICT (symbol) DO UPDATE; deduplicates base symbols via dict.fromkeys(); per-base errors caught and logged
+- **confidence_calibration table + 35-01 fields** — 038_calibration_fields.sql; isotonic regression curves per (plugin_name, timeframe); run_calibration_update() in src/intelligence/ml/confidence_calibrator.py; wired into weight_updater.run_weight_update() after cluster training; LedgerEntry.to_insert_params() now 58 elements ($55-$58: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire)
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -109,7 +112,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T04:15:32.242Z
-Stopped at: Completed 038-02-PLAN.md
+Last session: 2026-03-18T04:28:17.598Z
+Stopped at: Completed 038-03-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34 Plan 03: I7 POC/HVN/LVN plugins)
