@@ -13,6 +13,7 @@ from .composites.rsi_events import plugin as rsi_events_plugin
 from .composites.stochastic_events import plugin as stoch_events_plugin
 from .composites.volume_events import plugin as volume_events_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
+from .context.anchored_vwap import plugin as anchored_vwap_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
@@ -22,6 +23,7 @@ from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
+from .context.volume_profile import plugin as volume_profile_plugin
 from .indicators.ac_oscillator import plugin as ac_osc_plugin
 from .indicators.adx import plugin as adx_plugin
 from .indicators.aroon import plugin as aroon_plugin
@@ -30,6 +32,7 @@ from .indicators.bollinger import plugin as bb_plugin
 from .indicators.cci import plugin as cci_plugin
 from .indicators.chandelier import plugin as chandelier_plugin
 from .indicators.cmf import plugin as cmf_plugin
+from .indicators.cvd import plugin as cvd_plugin
 from .indicators.donchian import plugin as donchian_plugin
 from .indicators.historical_volatility import plugin as hv_plugin
 from .indicators.hma import plugin as hma_plugin
@@ -38,6 +41,7 @@ from .indicators.macd import plugin as macd_plugin
 from .indicators.mfi import plugin as mfi_plugin
 from .indicators.moving_averages import plugin as ma_plugin
 from .indicators.obv import plugin as obv_plugin
+from .indicators.ofi import plugin as ofi_plugin
 from .indicators.parabolic_sar import plugin as psar_plugin
 from .indicators.roc_ppo import plugin as roc_ppo_plugin
 from .indicators.rsi import plugin as rsi_plugin
@@ -47,21 +51,20 @@ from .indicators.supertrend import plugin as supertrend_plugin
 from .indicators.vwap import plugin as vwap_plugin
 from .indicators.williams_r import plugin as wr_plugin
 from .patterns.bollinger_squeeze import plugin as squeeze_plugin
-from .patterns.cmf_divergence import plugin as cmf_div_plugin
-from .patterns.macd_divergence import plugin as macd_div_plugin
 from .patterns.candlestick_patterns import plugin as candlestick_plugin
+from .patterns.cmf_divergence import plugin as cmf_div_plugin
 from .patterns.confluence import plugin as confluence_plugin
 from .patterns.cup_handle import plugin as cup_handle_plugin
 from .patterns.double_top_bottom import plugin as double_tb_plugin
 from .patterns.flag_pennant import plugin as flag_pennant_plugin
 from .patterns.head_shoulders import plugin as head_shoulders_plugin
 from .patterns.key_level_reaction import plugin as key_level_reaction_plugin
+from .patterns.macd_divergence import plugin as macd_div_plugin
 from .patterns.measured_move import plugin as measured_move_plugin
 from .patterns.rsi_divergence import plugin as rsi_div_plugin
 from .patterns.trend_confluence import plugin as trend_confluence_plugin
 from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
 from .patterns.volume_divergence import plugin as vol_div_plugin
-from .context.volume_profile import plugin as volume_profile_plugin
 from .plugins import registry
 from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
 from .smart_money.amd_cycle import plugin as amd_cycle_plugin
@@ -77,7 +80,6 @@ from .smart_money.mitigation_blocks import plugin as mitigation_blocks_plugin
 from .smart_money.order_blocks import plugin as ob_plugin
 from .smart_money.premium_discount import plugin as premium_discount_plugin
 from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
-from .context.anchored_vwap import plugin as anchored_vwap_plugin
 from .structure.fibonacci_zones import plugin as fib_zones_plugin
 from .structure.market_profile import plugin as market_profile_plugin
 from .structure.session_levels import plugin as session_levels_plugin
@@ -85,20 +87,24 @@ from .structure.support_resistance import plugin as sr_plugin
 from .structure.swing_detector import plugin as swing_plugin
 from .structure.swing_momentum import plugin as swing_momentum_plugin
 from .structure.trend_structure import plugin as trend_plugin
+from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
 from .trading.divergence_stack import plugin as divergence_stack_plugin
 from .trading.failed_breakout import plugin as failed_breakout_plugin
 from .trading.fvg_fill import plugin as fvg_fill_plugin
 from .trading.gap_analysis_setup import plugin as gap_analysis_setup_plugin
+from .trading.hvn_rejection import plugin as hvn_rejection_plugin
 from .trading.liquidity_hunt import plugin as liquidity_hunt_plugin
 from .trading.liquidity_sweep_reclaim import plugin as liq_sweep_reclaim_plugin
+from .trading.lvn_breakout import plugin as lvn_breakout_plugin
 from .trading.mean_reversion import plugin as mean_revert_plugin
 from .trading.momentum_breakout import plugin as momentum_breakout_plugin
 from .trading.mtf_alignment import plugin as mtf_align_plugin
 from .trading.orb15 import plugin as orb15_plugin
 from .trading.orb30 import plugin as orb30_plugin
 from .trading.pattern_completion import plugin as pattern_completion_plugin
+from .trading.poc_rejection import plugin as poc_rejection_plugin
 from .trading.prev_day_level_test import plugin as prev_day_level_test_plugin
 from .trading.regime_transition import plugin as regime_transition_plugin
 from .trading.second_leg_continuation import plugin as second_leg_continuation_plugin
@@ -108,11 +114,7 @@ from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vcp import plugin as vcp_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
-from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
 from .trading.vwap_reclaim import plugin as vwap_reclaim_plugin
-from .trading.poc_rejection import plugin as poc_rejection_plugin
-from .trading.hvn_rejection import plugin as hvn_rejection_plugin
-from .trading.lvn_breakout import plugin as lvn_breakout_plugin
 
 
 def validate_schema_coverage() -> None:
@@ -189,6 +191,8 @@ def register_all_plugins() -> None:
     registry.register_indicator(stoch_rsi_plugin)
     registry.register_indicator(ac_osc_plugin)
     registry.register_indicator(hma_plugin)
+    registry.register_indicator(ofi_plugin)
+    registry.register_indicator(cvd_plugin)
 
     # I2: Composite event plugins — run on I1 features, before I3
     registry.register_pattern(macd_events_plugin)
@@ -322,6 +326,8 @@ TIER_I1: list[str] = [
     stoch_rsi_plugin.name,
     ac_osc_plugin.name,
     hma_plugin.name,  # 'HMA'
+    ofi_plugin.name,  # 'ind_OFI'
+    cvd_plugin.name,  # 'ind_CVD'
 ]
 
 TIER_I2: list[str] = [
