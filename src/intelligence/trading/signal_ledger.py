@@ -292,7 +292,7 @@ _INSERT_FEATURES_SQL = """
 INSERT INTO signal_features
     (signal_id, computed_at, feature_name, feature_value, feature_bucket, bucket_contribution)
 VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (signal_id, feature_name) DO NOTHING
+ON CONFLICT (signal_id, feature_name, computed_at) DO NOTHING
 """
 
 

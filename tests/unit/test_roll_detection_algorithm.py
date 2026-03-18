@@ -418,7 +418,6 @@ class TestPaperSkipContracts:
         rm = _make_roll_monitor(s)
         assert rm.should_skip_symbol("BZJ6") is True
         assert rm.should_skip_symbol("NGJ6") is True
-        assert rm.should_skip_symbol("SR1H6") is True
         assert rm.should_skip_symbol("ZWH6") is True
 
     def test_should_not_skip_non_paper_contracts(self):

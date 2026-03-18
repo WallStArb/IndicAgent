@@ -285,3 +285,4 @@ dashboard/dist/
 !/hero-readme.png
 !/dashboard-readme.png
 .worktrees/
+plugin_validator

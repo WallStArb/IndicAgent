@@ -73,8 +73,7 @@ ASSET_GROUPS: dict[str, list[str]] = {
     "equity": ["ESH6", "NQH6", "RTYH6", "YMH6", "VXH6"],
     "energy": ["CLJ6", "BZJ6", "NGJ6"],
     "metals": ["GCJ6", "SIH6", "HGH6", "PLJ6"],
-    "rates": ["ZNH6", "ZFH6", "ZBH6", "ZTH6", "SR1H6"],
-    "fx_crypto": ["6EH6", "6JH6", "BTCH6"],
+    "rates": ["ZNH6", "ZFH6", "ZBH6", "ZTH6"],
     "ag": ["ZSH6", "ZCH6", "ZWH6"],
 }
 

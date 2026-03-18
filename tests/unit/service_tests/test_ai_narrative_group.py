@@ -1,11 +1,10 @@
 """Tests for group synthesis pure helpers."""
 
 
-def test_asset_groups_covers_all_23_contracts():
+def test_asset_groups_covers_all_20_contracts():
     from services.ai_narrative_service import ASSET_GROUPS
 
     all_symbols = [sym for syms in ASSET_GROUPS.values() for sym in syms]
-    # 23 active contracts (see CLAUDE.md)
     expected = {
         "ESH6",
         "NQH6",
@@ -21,15 +20,11 @@ def test_asset_groups_covers_all_23_contracts():
         "ZNH6",
         "ZFH6",
         "ZBH6",
-        "ZTH6",
-        "SR1H6",  # rates
+        "ZTH6",  # rates
         "VXH6",  # volatility — in equity group
         "ZSH6",
         "ZCH6",
         "ZWH6",  # ag
-        "6EH6",
-        "6JH6",
-        "BTCH6",  # fx_crypto
     }
     # All contracts appear in exactly one group
     assert set(all_symbols) == expected
@@ -43,7 +38,6 @@ def test_symbol_to_group_lookup():
     assert SYMBOL_TO_GROUP["CLJ6"] == "energy"
     assert SYMBOL_TO_GROUP["GCJ6"] == "metals"
     assert SYMBOL_TO_GROUP["ZNH6"] == "rates"
-    assert SYMBOL_TO_GROUP["6EH6"] == "fx_crypto"
     assert SYMBOL_TO_GROUP["ZSH6"] == "ag"
 
 

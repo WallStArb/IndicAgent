@@ -71,7 +71,7 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
-from src.config.contracts import derive_roll_chain
+from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
@@ -93,23 +93,6 @@ from src.providers import IBKRProvider
 # Renaissance Principle: Store raw per-contract data as canonical truth.
 # Continuous series are derived layers, not storage format.
 # Roll methodology is proprietary IP — baked-in continuous series prevent future optimization.
-
-# Months for futures contract symbols (H=Mar, M=Jun, U=Sep, Z=Dec)
-_MONTH_CODES = {
-    "H": "03",  # March
-    "M": "06",  # June
-    "U": "09",  # September
-    "Z": "12",  # December
-    # Additional expiries for some products
-    "F": "01",  # January
-    "G": "02",  # February
-    "J": "04",  # April
-    "K": "05",  # May
-    "N": "07",  # July
-    "Q": "08",  # August
-    "V": "10",  # October
-    "X": "11",  # November
-}
 
 
 def _parse_contract_symbol(symbol: str) -> tuple[str, str, int] | None:
@@ -134,7 +117,7 @@ def _parse_contract_symbol(symbol: str) -> tuple[str, str, int] | None:
 
     # Second-to-last char is month code (e.g., "H" for March)
     month_code = symbol[-2].upper()
-    if month_code not in _MONTH_CODES:
+    if month_code not in MONTH_CODE_TO_NUM:
         return None
 
     # Everything before the month code is the base symbol
@@ -1019,12 +1002,41 @@ WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
 ORDER BY timestamp ASC
 """
 
+_FETCH_BARS_BASE_SQL = """
+SELECT timestamp, open, high, low, close, volume
+FROM market_data_ohlcv
+WHERE symbol LIKE %s AND timeframe = %s
+ORDER BY timestamp ASC
+"""
+
+_FETCH_BARS_BASE_SINCE_SQL = """
+SELECT timestamp, open, high, low, close, volume
+FROM market_data_ohlcv
+WHERE symbol LIKE %s AND timeframe = %s AND timestamp >= %s
+ORDER BY timestamp ASC
+"""
+
 _STORE_SQL = """
 INSERT INTO market_data_ohlcv
     (timestamp, symbol, timeframe, open, high, low, close, volume, source)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
+
+
+def _row_to_bar(row: tuple, symbol: str, timeframe: str) -> dict:
+    """Convert a DB row tuple to a bar dict with UTC timestamp normalization."""
+    ts = row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC)
+    return {
+        "timestamp": ts,
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "open": float(row[1]),
+        "high": float(row[2]),
+        "low": float(row[3]),
+        "close": float(row[4]),
+        "volume": int(row[5]),
+    }
 
 
 def connect_db(settings: Settings) -> Any:
@@ -1071,28 +1083,38 @@ def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
 def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = None) -> list[dict]:
     """Fetch stored OHLCV bars for *symbol* + *timeframe*, ordered oldest-first.
 
+    For futures contracts (e.g. ESM6), also stitches bars from all historical
+    contract symbols sharing the same base (ESH6, ESZ5, …) so full history is
+    available regardless of which contract was front-month at fetch time.
+    Duplicate timestamps across contracts are deduplicated (last-seen wins).
+
     Args:
         since: If provided, only fetch bars on or after this timestamp.
     """
+    parsed = _parse_contract_symbol(symbol)
+    is_futures = parsed is not None
+
+    # Determine query and params based on contract type
+    if is_futures:
+        base_pattern = f"{parsed[0]}%"
+        query = _FETCH_BARS_BASE_SINCE_SQL if since else _FETCH_BARS_BASE_SQL
+        params = (base_pattern, timeframe, since) if since else (base_pattern, timeframe)
+    else:
+        query = _FETCH_BARS_SINCE_SQL if since else _FETCH_BARS_SQL
+        params = (symbol, timeframe, since) if since else (symbol, timeframe)
+
     with conn.cursor() as cur:
-        if since is not None:
-            cur.execute(_FETCH_BARS_SINCE_SQL, (symbol, timeframe, since))
-        else:
-            cur.execute(_FETCH_BARS_SQL, (symbol, timeframe))
+        cur.execute(query, params)
         rows = cur.fetchall()
-    return [
-        {
-            "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC),
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume": int(row[5]),
-        }
-        for row in rows
-    ]
+
+    bars = [_row_to_bar(row, symbol, timeframe) for row in rows]
+
+    if is_futures:
+        # Deduplicate by timestamp — last-seen wins (SQL already ordered by timestamp ASC)
+        seen: dict[datetime, dict] = {b["timestamp"]: b for b in bars}
+        return list(seen.values())  # Preserves insertion order (Python 3.7+)
+
+    return bars
 
 
 def store_bars(
@@ -1372,7 +1394,11 @@ def main() -> None:
     contracts = settings.contracts
     if args.symbols:
         wanted = {s.strip() for s in args.symbols.split(",") if s.strip()}
-        contracts = [c for c in contracts if c.symbol in wanted]
+        # Match on full contract symbol (e.g. ESM6) OR base symbol (e.g. ES)
+        contracts = [
+            c for c in contracts
+            if c.symbol in wanted or (_parse_contract_symbol(c.symbol) or (None,))[0] in wanted
+        ]
         if not contracts:
             print(f"No matching contracts for: {args.symbols}")
             return
