@@ -80,13 +80,13 @@
 
 ### OFI — Order Flow Imbalance
 
-- [ ] **OFI-01**: Tick data availability audited across all 60 instruments on IBKR paper account; bar-level OFI proxy (`(close - low) / (high - low + ε) × volume`) implemented as fallback if true tick-by-tick data unavailable; implementation variant documented
-- [ ] **OFI-02**: `ofi_ewma_20` and `ofi_divergence` computed as I1 features in `indicator_service`; EWMA spans: 5-bar and 20-bar; divergence = OFI direction vs price direction over same window
+- [x] **OFI-01**: Tick data availability audited across all 60 instruments on IBKR paper account; bar-level OFI proxy (`(close - low) / (high - low + ε) × volume`) implemented as fallback if true tick-by-tick data unavailable; implementation variant documented
+- [x] **OFI-02**: `ofi_ewma_20` and `ofi_divergence` computed as I1 features in `indicator_service`; EWMA spans: 5-bar and 20-bar; divergence = OFI direction vs price direction over same window
 - [ ] **OFI-03**: New I7 plugin `trad_OrderFlowImbalance` — three variants: continuation (sustained buy/sell OFI), divergence (price vs OFI disagree → exhaustion), spike (single-bar OFI > 2σ → potential breakout); registered in `TIER_I7`
 
 ### CVD — Cumulative Delta Divergence
 
-- [ ] **CVD-01**: Cumulative Volume Delta computed as I1 feature in `indicator_service` — running `Σ(buy_vol − sell_vol)` using tick rule; outputs `cvd`, `cvd_slope_5bar`, `cvd_divergence` (CVD direction vs price direction)
+- [x] **CVD-01**: Cumulative Volume Delta computed as I1 feature in `indicator_service` — running `Σ(buy_vol − sell_vol)` using tick rule; outputs `cvd`, `cvd_slope_5bar`, `cvd_divergence` (CVD direction vs price direction)
 - [ ] **CVD-02**: New I7 plugin `trad_CVDDivergence` — CVD direction diverging from price direction for N bars signals sustained institutional pressure; highest-conviction when CVD and OFI both diverge simultaneously; registered in `TIER_I7`
 
 ### XA — Cross-Asset Intelligence
@@ -173,10 +173,10 @@
 | TOD-02 | Phase 35 | Complete |
 | KAL-01 | Phase 35 | Complete |
 | KAL-02 | Phase 35 | Complete |
-| OFI-01 | Phase 36 | Pending |
-| OFI-02 | Phase 36 | Pending |
+| OFI-01 | Phase 36 | Complete |
+| OFI-02 | Phase 36 | Complete |
 | OFI-03 | Phase 36 | Pending |
-| CVD-01 | Phase 36 | Pending |
+| CVD-01 | Phase 36 | Complete |
 | CVD-02 | Phase 36 | Pending |
 | XA-01 | Phase 37 | Pending |
 | XA-02 | Phase 37 | Pending |
