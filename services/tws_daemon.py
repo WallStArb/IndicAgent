@@ -89,7 +89,7 @@ class RollMonitor:
     }
 
     # Paper account contracts known to be unavailable
-    PAPER_SKIP_CONTRACTS: set[str] = {"BZJ6", "NGJ6", "SR1H6", "ZWH6"}
+    PAPER_SKIP_CONTRACTS: set[str] = {"BZJ6", "NGJ6", "ZWH6"}
 
     # Paper account ib_host values (per CONTEXT.md decision)
     PAPER_ACCOUNT_HOSTS: set[str] = {"192.168.1.157", "127.0.0.1"}
