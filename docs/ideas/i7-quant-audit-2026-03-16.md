@@ -1,7 +1,7 @@
 ---
-status: research
+status: shipped
 priority: high
-milestone: v1.9
+milestone: v1.9 (shipped 2026-03-18)
 created: 2026-03-16
 reviewed: 2026-03-16
 reviewer: spec-document-reviewer (automated) + manual code verification

@@ -1,8 +1,8 @@
 # Intelligence Palette Expansion — Brainstorming Design
 
-**Status:** Design approved — route to writing-plans  
-**Date:** 2026-03-01  
-**Milestone:** v1.1 (standalone milestone before market_context_service)
+**Status:** Shipped — v1.2 Intelligence Palette Expansion
+**Date:** 2026-03-01
+**Milestone:** v1.1/v1.2 (shipped 2026-03-02)
 
 ---
 
