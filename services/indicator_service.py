@@ -26,7 +26,7 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 import structlog
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import (
@@ -181,7 +181,9 @@ class IndicatorService:
         self.db_manager: DatabaseManager | None = DatabaseManager(settings.database_url)
 
         # Build instrument map for asset-class guard
-        self._instrument_map: dict[str, Any] = {inst.symbol: inst for inst in settings.contracts}
+        self._instrument_map: dict[str, Any] = {
+            inst.symbol: inst for inst in get_active_contracts(settings)
+        }
 
         self.bar_history: dict[str, OrderedDict] = defaultdict(OrderedDict)
         self._bar_history_max = 200
@@ -211,7 +213,7 @@ class IndicatorService:
         default: dict[str, Any] = {
             "redis": {"host": "localhost", "port": 6379, "db": 0},
             "service": {
-                "symbols": get_active_contracts(),
+                "symbols": get_active_symbols(),
                 "timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"],
                 "min_history_bars": 120,
                 "processing_interval": 0.1,

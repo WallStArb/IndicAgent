@@ -28,7 +28,7 @@ sys.path.insert(0, str(project_root))
 
 import structlog  # noqa: E402
 
-from src.config.settings import Settings, get_active_contracts  # noqa: E402
+from src.config.settings import Settings, get_active_symbols  # noqa: E402
 from src.core.database_manager import DatabaseManager  # noqa: E402
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
@@ -613,7 +613,7 @@ class AINarrativeService:
                 )
             },
             "service": {
-                "symbols": get_active_contracts(_settings),
+                "symbols": get_active_symbols(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.1,
                 "health_check_interval": 30,

@@ -31,7 +31,7 @@ from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.api.utils import parse_jsonb
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
@@ -130,7 +130,9 @@ class MarketAnalysisService:
         )
 
         # Build instrument map for asset-class guard
-        self._instrument_map: dict[str, Any] = {inst.symbol: inst for inst in settings.contracts}
+        self._instrument_map: dict[str, Any] = {
+            inst.symbol: inst for inst in get_active_contracts(settings)
+        }
 
         self.bars_processed_total = counter(
             "market_analysis_bars_processed_total",
@@ -172,7 +174,7 @@ class MarketAnalysisService:
         default_config: dict[str, Any] = {
             "redis": {"host": "localhost", "port": 6379, "db": 0},
             "service": {
-                "symbols": get_active_contracts(settings),
+                "symbols": get_active_symbols(settings),
                 # 4h and 1d intentionally excluded: day-trading focus. 4h bars close 4×/day,
                 # 1d once/day — signal latency too high for intraday entries. Extend in a future
                 # phase if swing-trading scope is added.
@@ -516,7 +518,7 @@ class MarketAnalysisService:
             self.logger.warning("DB init failed — skipping seed", error=str(e))
             return
 
-        active_contracts = get_active_contracts()
+        active_contracts = get_active_symbols()
         timeframes = self.config["service"]["timeframes"]
         seeded_bars = 0
         published_events = 0

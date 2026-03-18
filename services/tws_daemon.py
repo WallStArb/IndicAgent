@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import structlog
 from prometheus_client import start_http_server
 
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import message_key, topic_market_bars, topic_market_ticks
 from src.observability.metrics import counter as prom_counter
@@ -76,7 +76,7 @@ class TwsDaemon:
         self.last_health_check = 0
         self.reconnects = 0
 
-        self.contracts = [c.model_dump() for c in self.settings.contracts]
+        self.contracts = [c.model_dump() for c in get_active_contracts(self.settings)]
         self.health_check_interval = 30
 
         # Stream namespacing by environment (e.g., dev, prod)
@@ -166,7 +166,7 @@ class TwsDaemon:
     def _qualify_all_instruments(self) -> None:
         if not self.provider:
             return
-        for instrument in self.settings.contracts:
+        for instrument in get_active_contracts(self.settings):
             try:
                 if self.loop:
                     fut = asyncio.run_coroutine_threadsafe(

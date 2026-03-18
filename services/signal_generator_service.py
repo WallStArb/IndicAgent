@@ -35,7 +35,7 @@ import structlog
 from pydantic import ValidationError
 
 from src.api.utils import parse_jsonb
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
@@ -527,7 +527,7 @@ class SignalGeneratorService:
                 )
             },
             "service": {
-                "symbols": get_active_contracts(_settings),
+                "symbols": get_active_symbols(_settings),
                 # 4h and 1d intentionally excluded: day-trading focus. 4h bars close 4×/day,
                 # 1d once/day — signal latency too high for intraday entries. Extend in a future
                 # phase if swing-trading scope is added.
@@ -725,7 +725,7 @@ class SignalGeneratorService:
             )
             return
 
-        active_contracts = get_active_contracts()
+        active_contracts = get_active_symbols()
         timeframes = self.config["service"]["timeframes"]
         # Pre-compute min_bars per TF (pure dict lookup, same for all symbols)
         min_bars_per_tf = {tf: min_bars_for_tf(tf) for tf in timeframes}
@@ -1530,6 +1530,9 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Signal Generator Service")
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
+
+    # Register plugins first so the validator sees a populated registry
+    register_all_plugins()
 
     # Run plugin validation before starting service
     validator = PluginValidator()
