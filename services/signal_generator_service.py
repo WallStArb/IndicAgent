@@ -1256,6 +1256,13 @@ class SignalGeneratorService:
                         "_kalman_suppression_reason", "kalman_suppressed"
                     )
 
+        # Phase 036-02: Plugin-level shadow mode (e.g., trad_DualDivergence IS_SHADOW=True)
+        # Mark all entries from shadow plugins as is_shadow=True regardless of selection.
+        for entry in entries:
+            plugin_instance = registry.patterns.get(entry.setup_plugin)
+            if plugin_instance is not None and getattr(plugin_instance, "IS_SHADOW", False):
+                entry.is_shadow = True
+
         # ── Signal gate: suppress condition re-fires and direction flips ─────────────
         # Prevents same setup re-publishing every bar the condition persists (onset-only).
         # Also blocks direction flip until prior signal resolves (direction=0 exit event).
