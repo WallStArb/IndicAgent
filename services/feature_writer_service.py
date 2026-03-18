@@ -29,7 +29,7 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import setup_service_logging
+from src.core.service_utils import parse_roll_event, setup_service_logging
 from src.core.stream_keys import (
     topic_intelligence,
     topic_intelligence_i7,
@@ -78,6 +78,9 @@ INSERT INTO intelligence_features (ts, symbol, tf, i7)
 VALUES ($1::timestamptz, $2, $3, $4::jsonb)
 ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = intelligence_features.i7 || EXCLUDED.i7
 """
+
+# Roll detection runs against 1m bars; boundary markers are written to the 1m row.
+_ROLL_BOUNDARY_TF = "1m"
 
 logger = structlog.get_logger(__name__)
 
@@ -235,10 +238,12 @@ class FeatureWriterService:
             _s = Settings()
             self._env_name: str = _s.env_name or ""
             self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
+            self._roll_monitor_enabled: bool = getattr(_s, "roll_monitor_enabled", False)
         except Exception as e:
             self.logger.warning("Settings() failed — defaulting env/kafka to ''", error=str(e))
             self._env_name = ""
             self._kafka_bootstrap = "localhost:19092"
+            self._roll_monitor_enabled = False
 
         # Prometheus metrics
         self.events_consumed_total = counter(
@@ -342,13 +347,12 @@ class FeatureWriterService:
             self._expiry_map = {}
 
         # Build topics list — conditionally add system.events when roll_monitor_enabled
-        _roll_enabled = getattr(_s, "roll_monitor_enabled", False)
         topics = [
             topic_intelligence(self._env_name),
             topic_intelligence_i7(self._env_name),
             topic_intelligence_i8(self._env_name),
         ]
-        if _roll_enabled:
+        if self._roll_monitor_enabled:
             topics.append(topic_system_events(self._env_name))
 
         # Single consumer subscribed to intelligence topics (and optionally system.events)
@@ -485,15 +489,11 @@ class FeatureWriterService:
         roll detection timestamp. Uses ON CONFLICT ... DO UPDATE to merge into any
         existing i7 data for that (ts, symbol, tf) row.
         """
-        if event.get("event_type") != "roll":
+        result = parse_roll_event(event, self.logger)
+        if result is None:
             return
-        try:
-            old_symbol: str = event["old_symbol"]
-            new_symbol: str = event["new_symbol"]
-            detected_at: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
-        except KeyError as exc:
-            self.logger.warning("roll_event_missing_fields", error=str(exc))
-            return
+        old_symbol, new_symbol = result
+        detected_at: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
 
         if not self.db_manager:
             self.logger.warning(
@@ -507,7 +507,7 @@ class FeatureWriterService:
         try:
             await self.db_manager.execute_batch(
                 _UPSERT_ROLL_BOUNDARY_SQL,
-                [(detected_at, new_symbol, "1m", marker)],
+                [(detected_at, new_symbol, _ROLL_BOUNDARY_TF, marker)],
             )
             self.logger.info(
                 "roll_boundary_written",
