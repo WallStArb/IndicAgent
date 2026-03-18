@@ -28,7 +28,7 @@ sys.path.insert(0, str(project_root))
 
 import structlog
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_symbols
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_DURATIONS
 from src.core.stream_keys import message_key, topic_market_bars
@@ -49,7 +49,7 @@ class TimeframeBuilderService:
         settings = Settings()
         self._env_name = settings.env_name.strip()
         self._bootstrap = settings.kafka_bootstrap_servers
-        self._symbols: list[str] = get_active_contracts(settings)
+        self._symbols: list[str] = get_active_symbols(settings)
 
         self.running = False
         self.shutdown_requested = False

@@ -28,7 +28,7 @@ sys.path.insert(0, str(project_root))
 
 import structlog
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.monitoring.cusum_monitor import CUSUMMonitor
 from src.monitoring.ks_drift_monitor import KSDriftMonitor
@@ -83,7 +83,7 @@ class DriftMonitorService:
                 )
             },
             "service": {
-                "symbols": get_active_contracts(),
+                "symbols": get_active_symbols(),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "ks_interval_seconds": 4 * 3600,  # 4 hours
                 "cusum_interval_seconds": 3600,  # 1 hour

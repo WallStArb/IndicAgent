@@ -12,6 +12,7 @@ overrides.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, field_validator
@@ -89,6 +90,23 @@ class Settings(BaseSettings):
 
     # Computed contracts list
     contracts: list[Instrument] = Field(default_factory=list)
+
+    # Roll monitoring (shadow mode by default — ROLL_MONITOR_ENABLED=false)
+    roll_monitor_enabled: bool = Field(default=False, validation_alias="ROLL_MONITOR_ENABLED")
+    roll_monitor_window_size: int = Field(default=100, validation_alias="ROLL_MONITOR_WINDOW_SIZE")
+    roll_monitor_threshold_default: float = Field(
+        default=1.2, validation_alias="ROLL_MONITOR_THRESHOLD_DEFAULT"
+    )
+    roll_monitor_postroll_bars: int = Field(
+        default=10, validation_alias="ROLL_MONITOR_POSTROLL_BARS"
+    )
+    roll_monitor_cooldown_min: int = Field(
+        default=30, validation_alias="ROLL_MONITOR_COOLDOWN_MIN"
+    )
+    roll_confirmation_bars: int = Field(default=3, validation_alias="ROLL_CONFIRMATION_BARS")
+    roll_time_of_day_gated: bool = Field(
+        default=True, validation_alias="ROLL_TIME_OF_DAY_GATED"
+    )
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 
@@ -786,6 +804,11 @@ class Settings(BaseSettings):
 
 _settings_singleton: Settings | None = None
 
+# Cache for DB-backed active contracts (used when roll_monitor_enabled=True)
+_active_contracts_cache: list[Instrument] | None = None
+_active_contracts_last_refresh: float = 0.0
+_ACTIVE_CONTRACTS_TTL = 60.0  # seconds
+
 
 def _default_settings() -> Settings:
     """Lazily create a module-level Settings instance."""
@@ -795,10 +818,111 @@ def _default_settings() -> Settings:
     return _settings_singleton
 
 
-def get_active_contracts(settings: Settings | None = None) -> list[str]:
-    """Return active contract symbol strings (e.g. ['ESH6', 'NQH6', ...])."""
+def _build_instrument_from_db_row(
+    row: tuple,
+    config_by_base: dict[str, Instrument],
+    config_by_symbol: dict[str, Instrument],
+) -> Instrument:
+    """Build an Instrument from a DB row, inheriting config-file defaults.
+
+    Args:
+        row: (symbol, base_symbol, exchange) tuple from contract_metadata query
+        config_by_base: config-file Instruments keyed by base symbol
+        config_by_symbol: config-file Instruments keyed by symbol
+    """
+    symbol, base_symbol, exchange = row[0], row[1], row[2] if len(row) > 2 else ""
+
+    # Look up config-file template to inherit non-DB fields
+    template = config_by_symbol.get(symbol) or config_by_base.get(base_symbol)
+
+    if template is not None:
+        # Inherit all fields from config but use DB symbol (may be a new front-month)
+        return template.model_copy(update={"symbol": symbol})
+
+    # No config template — build with available DB data and sensible defaults
+    return Instrument(
+        symbol=symbol,
+        base=base_symbol,
+        exchange=exchange or "",
+        asset_class=AssetClass.FUTURES,
+    )
+
+
+def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
+    """Return active contract Instruments (e.g. [Instrument(symbol='ESM6'), ...]).
+
+    When ROLL_MONITOR_ENABLED=false (default): returns Settings().contracts unchanged.
+    When ROLL_MONITOR_ENABLED=true:
+        - Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures'
+        - Reconstructs Instrument objects inheriting config-file defaults (point_value,
+          tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol
+        - Merges DB-sourced futures Instruments + config-file non-futures Instruments
+        - Caches result for 60 seconds
+        - Falls back to config-file contracts on DB error (logs WARNING)
+    """
+    global _active_contracts_cache, _active_contracts_last_refresh  # noqa: PLW0603
+
     s = settings or _default_settings()
-    return [c.symbol for c in s.contracts]
+
+    if not s.roll_monitor_enabled:
+        return list(s.contracts)
+
+    # Check cache
+    now = time.monotonic()
+    cache_age = now - _active_contracts_last_refresh
+    if _active_contracts_cache is not None and cache_age < _ACTIVE_CONTRACTS_TTL:
+        return _active_contracts_cache
+
+    # Build config-file lookup tables
+    config_by_base: dict[str, Instrument] = {}
+    config_by_symbol: dict[str, Instrument] = {}
+    for c in s.contracts:
+        config_by_symbol[c.symbol] = c
+        if c.base:
+            config_by_base[c.base] = c
+
+    try:
+        import psycopg2
+
+        with psycopg2.connect(s.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, base_symbol, exchange "
+                    "FROM contract_metadata "
+                    "WHERE is_front_month = true AND asset_class = 'futures'"
+                )
+                rows = cur.fetchall()
+
+        # Build DB-sourced futures Instruments
+        db_instruments: list[Instrument] = [
+            _build_instrument_from_db_row(row, config_by_base, config_by_symbol)
+            for row in rows
+        ]
+
+        # Add config-file non-futures Instruments (FX, equity, crypto)
+        non_futures = [c for c in s.contracts if c.asset_class != AssetClass.FUTURES]
+
+        result = db_instruments + non_futures
+        _active_contracts_cache = result
+        _active_contracts_last_refresh = now
+        return result
+
+    except Exception as exc:
+        import structlog as _structlog
+        _structlog.get_logger(__name__).warning(
+            "get_active_contracts DB query failed — falling back to config-file contracts",
+            error=str(exc),
+        )
+        return list(s.contracts)
+
+
+def get_active_symbols(settings: Settings | None = None) -> list[str]:
+    """Return active contract symbol strings (e.g. ['ESM6', 'NQM6', ...]).
+
+    Convenience wrapper for call sites that only need symbol strings.
+    Delegates to get_active_contracts() for DB-backed resolution.
+    """
+    return [c.symbol for c in get_active_contracts(settings)]
 
 
 def get_base_symbols(settings: Settings | None = None) -> list[str]:

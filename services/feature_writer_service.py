@@ -26,7 +26,7 @@ sys.path.insert(0, str(project_root))
 import structlog
 from pydantic import ValidationError
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
@@ -110,7 +110,7 @@ def _build_expiry_map(settings: Settings) -> dict[str, date]:
     from src.core.models import AssetClass
 
     result: dict[str, date] = {}
-    for inst in settings.contracts:
+    for inst in get_active_contracts(settings):
         if inst.asset_class in (AssetClass.FX, AssetClass.CRYPTO) or not inst.expiry:
             continue
         expiry_str = inst.expiry
@@ -273,7 +273,7 @@ class FeatureWriterService:
         default_config: dict[str, Any] = {
             "database": {"dsn": "postgresql://postgres:postgres@localhost:5432/indicagent"},
             "service": {
-                "symbols": get_active_contracts(_settings),
+                "symbols": get_active_symbols(_settings),
                 "timeframes": ["1m", "5m", "15m", "1h"],
                 "processing_interval": 0.01,
                 "metrics_port": 9116,
