@@ -4,7 +4,7 @@ milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
 stopped_at: Completed 036-02-PLAN.md (OFI+CVD I7 plugins)
-last_updated: "2026-03-18T15:30:28.883Z"
+last_updated: "2026-03-18T15:35:22.676Z"
 last_activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
 progress:
   total_phases: 14
