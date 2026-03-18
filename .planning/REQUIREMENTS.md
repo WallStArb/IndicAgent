@@ -66,17 +66,17 @@
 
 - [x] **CAL-01**: `confidence_calibration` DB table stores isotonic regression calibration curves per `(plugin_name, timeframe)`; columns: `breakpoints DOUBLE PRECISION[]`, `values DOUBLE PRECISION[]`, `ece DOUBLE PRECISION`, `sample_size INT`, `updated_at TIMESTAMPTZ`
 - [x] **CAL-02**: Calibration batch job `src/intelligence/ml/confidence_calibrator.py` trains isotonic regression when N ≥ 100 completed signals per `(plugin_name, timeframe)`; runs alongside weight updater systemd timer; `calibrated_confidence` stored in `signal_ledger`
-- [ ] **CAL-03**: Aggregator `_build_all_ranked()` applies calibrated confidence as final step after all quality multipliers (Hurst, KS drift, GARCH); `calibrated_confidence` used for winner ranking when available; raw confidence fallback when calibration curve absent
+- [x] **CAL-03**: Aggregator `_build_all_ranked()` applies calibrated confidence as final step after all quality multipliers (Hurst, KS drift, GARCH); `calibrated_confidence` used for winner ranking when available; raw confidence fallback when calibration curve absent
 
 ### TOD — Time-of-Day Multiplier
 
-- [ ] **TOD-01**: Time-of-day win rate computed per `(setup_plugin, timeframe, hour_et)` from `signal_ledger`; seeded with known session priors (NY open +10% trend, lunch chop −10% all, London close +8% SMC, MOC +10% session extremes) until N ≥ 20
-- [ ] **TOD-02**: TOD multiplier ∈ [0.7, 1.3] applied to signal confidence in `signal_generator_service` before aggregation; cached in-memory dict refreshed every 4h
+- [x] **TOD-01**: Time-of-day win rate computed per `(setup_plugin, timeframe, hour_et)` from `signal_ledger`; seeded with known session priors (NY open +10% trend, lunch chop −10% all, London close +8% SMC, MOC +10% session extremes) until N ≥ 20
+- [x] **TOD-02**: TOD multiplier ∈ [0.7, 1.3] applied to signal confidence in `signal_generator_service` before aggregation; cached in-memory dict refreshed every 4h
 
 ### KAL — CIS Kalman Filter
 
-- [ ] **KAL-01**: Per-`(symbol, timeframe)` 1D Kalman filter smooths CIS score in `signal_generator_service`; implementation reuses `KalmanTrendPlugin` local-level state machine (Q=0.01, R=0.05); filter state persists across bars
-- [ ] **KAL-02**: Both `raw_cis_score` and `filtered_cis_score` logged per signal; updated fire condition: `filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing ≥ 3`
+- [x] **KAL-01**: Per-`(symbol, timeframe)` 1D Kalman filter smooths CIS score in `signal_generator_service`; implementation reuses `KalmanTrendPlugin` local-level state machine (Q=0.01, R=0.05); filter state persists across bars
+- [x] **KAL-02**: Both `raw_cis_score` and `filtered_cis_score` logged per signal; updated fire condition: `filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing ≥ 3`
 
 ### OFI — Order Flow Imbalance
 
@@ -168,11 +168,11 @@
 | VOL-02 | Phase 34 | Complete |
 | CAL-01 | Phase 35 | Complete |
 | CAL-02 | Phase 35 | Complete |
-| CAL-03 | Phase 35 | Pending |
-| TOD-01 | Phase 35 | Pending |
-| TOD-02 | Phase 35 | Pending |
-| KAL-01 | Phase 35 | Pending |
-| KAL-02 | Phase 35 | Pending |
+| CAL-03 | Phase 35 | Complete |
+| TOD-01 | Phase 35 | Complete |
+| TOD-02 | Phase 35 | Complete |
+| KAL-01 | Phase 35 | Complete |
+| KAL-02 | Phase 35 | Complete |
 | OFI-01 | Phase 36 | Pending |
 | OFI-02 | Phase 36 | Pending |
 | OFI-03 | Phase 36 | Pending |
