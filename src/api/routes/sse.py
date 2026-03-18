@@ -1,7 +1,6 @@
 import asyncio
 import functools
 import json
-import time
 from collections import defaultdict
 from collections.abc import AsyncGenerator
 
@@ -38,8 +37,6 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 _NARRATIVE_GROUPS = ("equity", "energy", "metals", "rates", "fx_crypto", "ag")
-
-_TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
 # ── KafkaSSEBroadcaster ──────────────────────────────────────────────────────
@@ -197,37 +194,6 @@ def _event_name_for_topic(topic: str) -> str:
     if candidate == "narratives" or candidate.startswith("narratives"):
         return "narrative_data"
     return "message"
-
-
-# ── Legacy Redis stream helpers (kept for backward compat — tests) ─────────────
-
-
-@functools.lru_cache(maxsize=256)
-def _signal_max_age_s(stream_name: str) -> float | None:
-    """Return staleness threshold (seconds) for a signal stream, or None for non-signal streams."""
-    if "signals:" not in stream_name:
-        return None
-    parts = stream_name.split(":")
-    try:
-        agg_idx = parts.index("aggregated")
-        tf = parts[agg_idx - 1]
-    except (ValueError, IndexError):
-        return None
-    tf_minutes = _TF_MINUTES.get(tf)
-    return None if tf_minutes is None else 2 * tf_minutes * 60
-
-
-def _signal_entry_stale(stream_name: str, entry_id: str | bytes) -> bool:
-    """Return True if this signal stream entry is older than 2×TF."""
-    max_age_s = _signal_max_age_s(stream_name)
-    if max_age_s is None:
-        return False
-    try:
-        id_str = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
-        entry_unix_ms = int(id_str.split("-")[0])
-    except (ValueError, IndexError):
-        return False
-    return (time.time() * 1000 - entry_unix_ms) / 1000 > max_age_s
 
 
 def _build_stream_list(symbols: list[str], timeframe: str) -> list[str]:

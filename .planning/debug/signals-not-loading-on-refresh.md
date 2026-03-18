@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: awaiting_human_verify
 trigger: "Diagnose why signals don't load from the DB when the dashboard is refreshed"
 created: 2026-03-12T00:00:00Z
 updated: 2026-03-12T00:00:00Z
@@ -10,7 +10,7 @@ updated: 2026-03-12T00:00:00Z
 hypothesis: Confirmed — two compounding gaps: SSE age filter is too aggressive for long-lived signals, AND the frontend has no REST call on mount to pre-populate signals from DB.
 test: Code inspection of sse.py snapshot loop, _signal_entry_stale, and use-market-stream.ts mount behavior.
 expecting: N/A — root cause confirmed.
-next_action: Deliver structured diagnosis to user.
+next_action: Implement fix — A) add /signals/active endpoint in signals.py; B) add fetchActiveSignals in use-market-stream.ts parallel to fetchSession; C) remove dead legacy stale-filter helpers from sse.py.
 
 ## Symptoms
 
@@ -105,5 +105,24 @@ fix: |
   The cleanest fix is (A) + (B-Option 1): remove the stale filter from snapshot, add REST seed.
   The REST seed is the authoritative source; SSE snapshot is a fast-path supplement.
 
-verification: Not yet applied.
-files_changed: []
+verification: |
+  Self-verified checks:
+  - ruff check: 0 new errors in changed Python files (pre-existing long line in sse.py excluded)
+  - tsc --noEmit: 0 TypeScript errors
+  - pytest tests/unit/api/ tests/unit/test_sse_snapshot_filter.py: 47 passed, 1 pre-existing failure
+    (test_get_signals_base_symbol_resolved — confirmed pre-existing via git stash check)
+  - Removed test_sse_routes.py tests for now-deleted legacy Redis helpers
+  - Updated test_sse_snapshot_filter.py: removed TestSnapshotLoopNoAgeFilter (imported deleted function),
+    kept TestSseSnapshotFilter (uses local _is_signal_entry_stale helper) and TestIntelligenceI7Routing
+  - Verified DB columns: query uses only existing signal_ledger columns
+    (stop_basis for stop_type, no entry_type/framing_method/calibration cols — not in DB yet)
+  - /signals/active route confirmed to filter is_shadow=false (shadow signals excluded from seed)
+
+  Awaiting user confirmation that signals appear on dashboard page refresh.
+
+files_changed:
+  - src/api/routes/signals.py: added GET /signals/active endpoint returning all pending/active signals
+  - src/api/routes/sse.py: removed legacy _signal_entry_stale, _signal_max_age_s, _TF_MINUTES (no longer used; SSE is Kafka-based)
+  - dashboard/src/hooks/use-market-stream.ts: added fetchActiveSignals() parallel to fetchSession on SSE connect
+  - tests/unit/api/test_sse_routes.py: deleted (tested removed functions)
+  - tests/unit/test_sse_snapshot_filter.py: removed TestSnapshotLoopNoAgeFilter class, updated imports

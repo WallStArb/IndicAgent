@@ -139,6 +139,137 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
 _WIN_OUTCOMES = frozenset({"target_1", "target_1_2", "target_full"})
 
 
+def _f(v: Any) -> float | None:
+    return float(v) if v is not None else None
+
+
+def _s(v: Any) -> str | None:
+    return str(v) if v is not None else None
+
+
+@router.get("/signals/active")
+async def get_active_signals(
+    db_manager: DatabaseManager = Depends(get_db_manager),
+) -> dict[str, Any]:
+    """
+    All currently pending or active signals from signal_ledger.
+
+    Called by the dashboard on SSE connect to pre-populate signal state
+    before live SSE events arrive. Returns one row per (symbol, timeframe)
+    for signals with status in ('pending', 'active').
+    """
+    try:
+        query = """
+            SELECT
+                sl.signal_id,
+                sl.symbol,
+                sl.timeframe,
+                sl.setup_plugin,
+                sl.signal_type,
+                sl.direction,
+                sl.entry_price,
+                sl.stop_loss,
+                sl.confidence,
+                sl.status,
+                sl.was_selected,
+                sl.cis_score,
+                sl.targets,
+                sl.regime_context,
+                sl.stop_basis,
+                sl.market_price_at_signal,
+                sl.ask_at_signal,
+                sl.bid_at_signal,
+                sl.entry_zone_low,
+                sl.entry_zone_high,
+                sl.zone_valid_at_signal,
+                sl.signal_computed_at,
+                sl.feature_ts AS bar_close_ts,
+                sl.timestamp,
+                sp.win_rate   AS setup_win_rate,
+                sp.avg_pnl_r  AS setup_avg_pnl_r
+            FROM signal_ledger sl
+            LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
+            WHERE sl.status IN ('pending', 'active')
+              AND sl.is_shadow = false
+              AND COALESCE(sl.signal_computed_at, sl.timestamp) >= NOW() - INTERVAL '7 days'
+            ORDER BY sl.symbol, sl.timeframe, COALESCE(sl.signal_computed_at, sl.timestamp) DESC
+            LIMIT 500
+        """
+        rows = await db_manager.fetch(query)
+
+        signals = []
+        for row in rows:
+            targets = _parse_jsonb(row["targets"], default=[])
+            t1 = float(targets[0]) if len(targets) > 0 else None
+            t2 = float(targets[1]) if len(targets) > 1 else None
+            t3 = float(targets[2]) if len(targets) > 2 else None
+            entry = _f(row["entry_price"])
+            stop = _f(row["stop_loss"])
+            rr = (
+                round(abs(t1 - entry) / abs(entry - stop), 2)
+                if (t1 is not None and entry and stop and entry != stop)
+                else None
+            )
+            signals.append(
+                {
+                    "signal_id": str(row["signal_id"]),
+                    "symbol": row["symbol"],
+                    "timeframe": row["timeframe"],
+                    "setup_plugin": row["setup_plugin"],
+                    "signal_type": row["signal_type"],
+                    "direction": row["direction"],
+                    "entry_price": entry,
+                    "stop_loss": stop,
+                    "confidence": _f(row["confidence"]),
+                    "status": row["status"],
+                    "was_selected": row["was_selected"],
+                    "cis_score": _f(row["cis_score"]),
+                    "profit_target": t1,
+                    "profit_target_2": t2,
+                    "profit_target_3": t3,
+                    "risk_reward_ratio": rr,
+                    "stop_type": _s(row["stop_basis"]),
+                    "regime_context": _s(row["regime_context"]),
+                    "market_price_at_signal": _f(row["market_price_at_signal"]),
+                    "ask_at_signal": _f(row["ask_at_signal"]),
+                    "bid_at_signal": _f(row["bid_at_signal"]),
+                    "entry_zone_low": _f(row["entry_zone_low"]),
+                    "entry_zone_high": _f(row["entry_zone_high"]),
+                    "zone_valid_at_signal": row["zone_valid_at_signal"],
+                    "signal_computed_at": (
+                        row["signal_computed_at"].isoformat()
+                        if row["signal_computed_at"] is not None
+                        else None
+                    ),
+                    "bar_close_ts": (
+                        row["bar_close_ts"].isoformat()
+                        if row["bar_close_ts"] is not None
+                        else None
+                    ),
+                    "timestamp": (
+                        row["timestamp"].isoformat()
+                        if row["timestamp"] is not None
+                        else None
+                    ),
+                    "setup_win_rate": _f(row["setup_win_rate"]),
+                    "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
+                    "signal_tier": _compute_signal_tier(
+                        row["was_selected"],
+                        _f(row["confidence"]),
+                        _f(row["cis_score"]),
+                    ),
+                }
+            )
+
+        return {"signals": signals, "count": len(signals)}
+
+    except Exception as e:
+        logger.error("Error fetching active signals", error=str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching active signals: {str(e)}"
+        ) from e
+
+
 @router.get("/signals/recent")
 async def get_recent_signals(
     symbol: str | None = Query(None, description="Symbol, e.g. ESH6 or ES. Omit for all symbols."),
@@ -217,9 +348,6 @@ async def get_recent_signals(
             db_manager.fetch(main_query, resolved_symbol, timeframe, limit),
             db_manager.fetchrow(summary_query, resolved_symbol, timeframe),
         )
-
-        def _f(v: Any) -> float | None:
-            return float(v) if v is not None else None
 
         signals = [
             {
@@ -357,9 +485,6 @@ async def get_signals_stats(
             FROM signal_ledger
         """
         row = await db_manager.fetchrow(query)
-
-        def _f(v: Any) -> float | None:
-            return float(v) if v is not None else None
 
         signals_today = int(row["signals_today"] or 0)
         signals_prev = int(row["signals_prev_session"] or 0)
@@ -522,10 +647,6 @@ async def get_signals_attribution(
                     }
                 )
         else:
-
-            def _f(v: Any) -> float | None:
-                return float(v) if v is not None else None
-
             groups = []
             for row in rows:
                 avg_r = _f(row["avg_pnl_r"])
@@ -590,9 +711,6 @@ async def get_signal_detail(
         row = await db_manager.fetchrow(query, signal_id)
         if row is None:
             raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
-
-        def _f(v: Any) -> float | None:
-            return float(v) if v is not None else None
 
         return {
             "signal_id": str(row["signal_id"]),
