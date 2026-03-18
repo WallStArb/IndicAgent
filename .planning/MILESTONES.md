@@ -1,5 +1,25 @@
 # Milestones
 
+## v1.9 I7 Alpha Engine (Shipped: 2026-03-18)
+
+**Phases completed:** 8 phases (31-38), 23 plans
+**Timeline:** 2026-03-16 → 2026-03-18 (2 days)
+**Plugins:** 121 + 2 aggregation (was 103) · **Requirements:** 47/47 ✓
+**Files changed:** 104 · **LOC delta:** +15,446 / -1,934
+
+**Key accomplishments:**
+
+- CIS self-improving learning loop: binary win/loss labels, asset-cluster logistic regression (5 clusters), `signal_features` hypertable for mid-bar ML snapshots; `is_shadow` column + A/B promotion gate (Phase 31)
+- Structure-first stop architecture centralized in `trade_framer.py`: FVG-priority stop, GARCH-adaptive ATR (0.8×/1.0×/1.35×), `stop_basis` logging; Chandelier trailing stop + staleness decay + shadow tracking (Phase 32)
+- 5 new I7 setups (FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP) + 5-input divergence stack (RSI 0.30/MACD 0.25/vol 0.20/OBV 0.15/CMF 0.10) (Phase 32-33)
+- I4 AnchoredVWAP + VolumeProfile infrastructure: 93-field I4Context; 5 new I7 VWAP/VP plugins (Phase 34)
+- Full confidence pipeline: isotonic regression calibration + TOD Bayesian multiplier (120 cells) + CIS Kalman filter (per (symbol, tf), dual fire gate); dashboard shows raw/filtered/calibrated trio (Phase 35)
+- OFI + CVD I1 indicators with tick/proxy dual-path; 7 I7 microstructure plugins; IS_SHADOW plugin flag pattern established (Phase 36)
+- `cross_asset_service` microservice: ES/NQ/RTY/YM spread z-scores + correlation break; CrossAssetDivergencePlugin I7; shadow mode default (Phase 37)
+- Automated futures roll detection: volume z-score + 3-bar confirmation + TOD adjustment; full pipeline propagation; `seed_roll_chain` backfill script (Phase 38)
+
+---
+
 ## v1.8 Signal Intelligence (Shipped: 2026-03-13)
 
 **Phases completed:** 2 phases (28-29), 15 plans
@@ -8,6 +28,7 @@
 **LOC:** ~69,326 Python · ~8,654 TypeScript · **Files changed:** 147
 
 **Key accomplishments:**
+
 - Signal Scorecard panel: full I7 signal competition in dashboard — all ranked signals with confidence, direction, composite rank, suppression labels, and regime eligibility via SSE `signal_scorecard` event (Phase 28)
 - DB signal history in drill panel: `signal_ledger` history loaded on mount, merged with live SSE, deduplicated by `signal_id`; `GET /api/signals/recent` endpoint (Phase 28)
 - GARCH/Kalman I4 fields + SMC detail surfaced: volatility regime context + BSL/SSL dist_atr/touches/significance + premium/discount in drill panel (Phase 28)
@@ -27,6 +48,7 @@
 **Plugins:** 91 + 2 aggregation · **LOC:** ~62,600 Python · **Files changed:** 134
 
 **Key accomplishments:**
+
 - Epsilon tolerance (1e-9) for all floating-point comparisons in trade_framer + CIS scorer; all ATR multipliers, regime thresholds, and magic numbers documented as named constants (Phase 18)
 - Configurable IBKR/LLM timeouts in Settings; per-key asyncio.Lock() concurrency protection across market_analysis_service, indicator_service, and ai_narrative_service (Phase 18)
 - Characterization tests pinning RSI zero-loss behavior (100.0), zero-ATR emergency fallback, and concurrent lock isolation (Phase 19)
@@ -44,6 +66,7 @@
 **Plugins:** 91 + 2 aggregation · **LOC:** ~59,000 Python
 
 **Key accomplishments:**
+
 - Regime-aware gating on all 17 I7 plugins (hmm_regime + prob≥0.60 + duration≥5 gates); shadow signals track counterfactual MAE/MFE/outcome for empirical gate tuning
 - `intelligence_features` enriched with `i7 JSONB` (all_ranked signals per bar), `i8 JSONB` (narrative metadata), `days_to_expiry` — complete, permanent ML training dataset with no missing samples
 - `setup_performance` table + daily weight-update job + adaptive aggregator `perf_multiplier` — outperforming setups rank higher automatically; Renaissance promotion gate (n≥30) prevents overfitting
@@ -58,6 +81,7 @@
 **Phases completed:** 9 phases, 29 plans, 4 tasks
 
 **Key accomplishments:**
+
 - 62 plugins + 4 aggregation components + feature store + typed intelligence bus
 - 796 tests passing
 - 22 contracts active across equity index, energy, metals, rates, volatility, agriculture, FX, crypto
@@ -71,12 +95,14 @@
 **Phases completed:** 1 phase, 1 plan
 
 **Key accomplishments:**
+
 - Ruff errors: 206 → 0 (entire codebase)
 - Tests: 787 → 803 passing
 - Service startup: 9.2s → 1-2s (parallel warmup reads)
 - 3 pattern files O(N²) → O(N)
 - All 6 services use `ensure_consumer_group_with_reset`
 - VX contract rolled to VXM6
+
 ---
 
 ## v1.2 Intelligence Palette Expansion (Shipped: 2026-03-02)
@@ -84,6 +110,7 @@
 **Phases completed:** 4 phases, 8 tasks
 
 **Key accomplishments:**
+
 - 84 plugins + 2 aggregation components total (I2, I5, I6 expanded within this milestone)
 - Tests: 803 → 965 passing (+162 tests)
 - I2 composite events: 5 plugins running on I1 features
@@ -101,6 +128,7 @@
 **Phases completed:** 4 phases + Signal Lifecycle redesign
 
 **Key accomplishments:**
+
 - 88 plugins + 2 aggregation components (I2: +1 MomentumAcceleration; I7: +3 new setups)
 - Tests: 965 → 1083 passing (+118 tests)
 - Phase 08: MomentumAcceleration (I2) — RSI/MACD/ROC 2nd-derivative + inflection detection

@@ -160,6 +160,55 @@
 
 ---
 
+## Milestone: v1.9 — I7 Alpha Engine
+
+**Shipped:** 2026-03-18
+**Phases:** 8 (31-38) | **Plans:** 23 | **Timeline:** 2 days (2026-03-16 → 2026-03-18)
+
+### What Was Built
+
+- CIS self-improving learning loop: binary win/loss labels + asset-cluster segmented logistic regression (5 clusters); `signal_features` hypertable for mid-bar ML snapshots
+- Structure-first stop architecture centralized in `trade_framer.py`: FVG-priority stop, GARCH-adaptive ATR multipliers (0.8×/1.0×/1.35×), `stop_basis` classification — all 36 I7 plugins inherit automatically
+- 10 new I7 setups from Phase 33/34: FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP, AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection
+- I4 AnchoredVWAP + VolumeProfile: session/rolling dual-track POC/VAH/VAL, AVWAP deviation bands, 93-field I4Context
+- Isotonic regression confidence calibration + TOD Bayesian multiplier (120 cells) + CIS Kalman filter — full confidence pipeline
+- OFI + CVD I1 indicators with tick/proxy dual-path; 7 new I7 microstructure plugins; IS_SHADOW pattern for unproven plugins
+- `cross_asset_service` microservice: ES/NQ/RTY/YM spread z-scores, correlation break; CrossAssetDivergencePlugin I7
+- Automated futures roll detection: volume z-score + 3-bar confirmation + TOD adjustment; full pipeline propagation (indicator/market-analysis/signal-generator/feature-writer), plugin state migration, `seed_roll_chain` backfill
+
+### What Worked
+
+- **Centralized stop architecture** — putting `trade_framer.py` as the single stop source before adding plugins meant every new plugin got correct stops for free; zero per-plugin stop logic needed
+- **Shadow mode as standard pattern** — both ROLL_MONITOR_ENABLED=false and CROSS_ASSET_ENABLED=false allow safe deployment without live risk; IS_SHADOW plugin-level flag extends this to individual signals
+- **Kalman filter reuse** — KalmanTrendPlugin at `src/intelligence/context/kalman_trend.py` provided a tested local-level implementation that was directly adapted for CIS smoothing; no new filter math needed
+- **Phase interleaving (38 before 36/37)** — executing roll detection (38) before microstructure/cross-asset worked because roll detection is infrastructure (DB, topic, Settings) with no plugin dependencies; phases composed cleanly
+
+### What Was Inefficient
+
+- **Phase numbering confusion** — phases were executed out of order (38 before 36/37) due to parallel sessions, causing STATE.md and ROADMAP to get out of sync; ROADMAP had 36/37 as `[ ]` after 38 was already `[x]`
+- **Parallel session coordination** — when two sessions work simultaneously (one on 038, one on 036/037), the shared STATE.md becomes inconsistent; requires explicit sync step at merge
+- **MACD extension for roll analysis** — added macd_div and macd_hist_contracting fields to support roll analysis, but this coupling between I5 divergence patterns and roll detection feels fragile; proper approach would be roll-specific I1 features
+
+### Patterns Established
+
+- **IS_SHADOW plugin flag** — `getattr(plugin_instance, 'IS_SHADOW', False)` in signal_generator_service extends Phase 35 Kalman shadow pattern to plugin-level; use for unproven setups that need live data before promotion
+- **Shadow mode feature flags** — any new microservice or detection system defaults `ENABLED=false`; validate via shadow period before enabling
+- **`all_ranked` as source of `active`** — winner selection must always derive from `all_ranked` list after perf_weights applied, never from raw `signals`
+
+### Key Lessons
+
+- **Phase order needs explicit tracking when executing in parallel** — use a shared session state or always update STATE.md immediately after each plan completes
+- **All new microservices need a shadow period** — don't enable CROSS_ASSET_ENABLED or ROLL_MONITOR_ENABLED on live without at least 1 week of shadow monitoring
+- **CIS Kalman parameters are TF-dependent** — R values {1m:0.08, 5m:0.06, 15m:0.04, 1h:0.02} reflect noise levels at each granularity; document this whenever adding new Kalman applications
+
+### Cost Observations
+
+- 8 phases completed in 2 days — highest velocity milestone to date
+- Sessions: ~6-8 intensive sessions across 2026-03-16 to 2026-03-18
+- Parallel execution (038 + 036/037 in separate sessions) contributed to velocity but caused sync debt
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -175,6 +224,7 @@
 | v1.6 | 2 | 10 | Signal quality: onset detection, flip suppression, HMA, 2nd-derivative I2/I3 |
 | v1.7 | 3 | 13 | Data integrity: CIS repair, warmup seed, lifecycle stream events + dashboard outcomes |
 | v1.8 | 2 | 15 | Signal intelligence: dashboard completion + Renaissance quality gates + drift detection |
+| v1.9 | 8 | 23 | I7 Alpha Engine: learning loop, stop architecture, 18 new plugins, microstructure, cross-asset, roll detection |
 
 ### Cumulative Quality
 
@@ -189,6 +239,7 @@
 | v1.6 | ~1400 | 74 | 93 + 2 agg |
 | v1.7 | ~1550 | 167 | 101 + 2 agg |
 | v1.8 | 1659 | 167 | 103 + 2 agg |
+| v1.9 | ~1800+ | ~0 (E501 only) | 121 + 2 agg |
 
 ### Top Lessons (Verified Across Milestones)
 

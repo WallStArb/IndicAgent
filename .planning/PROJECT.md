@@ -2,7 +2,7 @@
 
 ## What This Is
 
-IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live IBKR tick data, runs a 7-tier plugin pipeline (I1–I8) producing 103 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store with complete i7/i8/days_to_expiry enrichment. Signal integrity is enforced via regime-aware gating, Hurst/Shannon entropy quality gates, and freshness decay; setup performance feeds back adaptively into aggregator rankings. A live React dashboard displays all tiers in real time via SSE including Signal Scorecard, signal history, GARCH/Kalman context, and SMC detail fields. A drift detection service monitors feature distribution health and per-setup win rate degradation.
+IndicAgent is a real-time market intelligence platform covering 23 instruments across equity index, energy, metals, rates, volatility, agriculture, FX, and crypto. It ingests live tick data, runs a 7-tier plugin pipeline (I1–I8) producing 121 plugins of technical indicators, market structure analysis, pattern detection, smart money concepts, CIS composite scoring, and AI-generated signal narratives. Every intelligence output flows through a canonical typed `IntelligenceEvent` bus persisted to a TimescaleDB feature store with complete i7/i8/days_to_expiry enrichment. Signal integrity is enforced via regime-aware gating, Hurst/Shannon entropy quality gates, Kalman-smoothed CIS, isotonic calibration, and time-of-day Bayesian multipliers. OFI and CVD microstructure features provide order-flow intelligence at I1. A dedicated cross-asset service monitors equity index spread dynamics. Automated futures roll detection propagates contract transitions through the pipeline without restarts.
 
 ## Core Value
 
@@ -13,6 +13,20 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 ### Validated
 
 (Shipped and verified in production)
+
+**v1.9 I7 Alpha Engine (2026-03-18):**
+- ✓ CIS self-improving learning loop: DB weight loading, binary win labels, asset-cluster segmented logistic regression (5 clusters) — v1.9
+- ✓ Structure-first stop architecture in `trade_framer.py`: FVG-priority stops, GARCH-adaptive ATR (0.8×/1.0×/1.35×), stop_basis classification — v1.9
+- ✓ Extended divergence stack: 5-input weighted convergence (RSI 0.30, MACD 0.25, vol 0.20, OBV 0.15, CMF 0.10) — v1.9
+- ✓ Chandelier trailing stop + staleness decay + shadow tracking for condition_expired signals — v1.9
+- ✓ 10 new I7 plugins: FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP, AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout (18 total in this milestone including microstructure + cross-asset) — v1.9
+- ✓ I4 AnchoredVWAP + VolumeProfile infrastructure: session/rolling POC/VAH/VAL, AVWAP deviation bands — v1.9
+- ✓ Isotonic regression confidence calibration per (plugin, tf); sorted by calibrated_confidence when available — v1.9
+- ✓ TOD Bayesian multiplier ∈ [0.7, 1.3] per (regime_type, tf, hour_et), 120 cells — v1.9
+- ✓ CIS Kalman filter per (symbol, tf): Q=0.01, R=TF-adaptive; dual fire gate filtered_cis>0.35 AND raw_cis>0.28 AND buckets≥3 — v1.9
+- ✓ OFI + CVD I1 indicators: tick/proxy dual-path, EWMA-5/20, spike_z, divergence scores; 7 new I7 microstructure plugins — v1.9
+- ✓ CrossAssetService microservice: ES/NQ/RTY/YM spread z-scores, correlation break features; CrossAssetDivergencePlugin I7 — v1.9
+- ✓ Automated futures roll detection: volume z-score > 2.0, 3-bar confirmation, TOD adjustment, full pipeline propagation, plugin state migration — v1.9
 
 **v1.8 Signal Intelligence (2026-03-13):**
 - ✓ Signal Scorecard panel: I7 all-ranked signals with confidence, direction, composite rank, suppression labels via SSE `signal_scorecard` event — v1.8
@@ -133,30 +147,30 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v1.8 shipped 2026-03-13)
+### Current State (v1.9 shipped 2026-03-18)
 
-- 103 plugins + 2 aggregation components (I1: 24, I2: 8, I3: 3, I4: 7, I5: 24, SMC: 11+1 confluence, I7: 17 setups + 2 agg); +2 I4 plugins: HurstExponentPlugin, ShannonEntropyPlugin
-- 1,659 unit tests passing · Ruff: 167 errors (E501 line-too-long, non-blocking)
-- 11 active systemd services + weight-updater timer (new: `indicagent-drift-monitor`)
-- `intelligence_features`: complete feature vectors per bar — i7/i8 JSONB + days_to_expiry live
-- `signal_ledger`: labeled outcome data accumulating (8-class, MAE/MFE, regime status); constituent_contributions JSONB in CIS
-- `setup_performance`: rolling 30-day setup analytics feeding adaptive aggregator weights
-- `llm_calls`: full LLM audit log — narrative_short + narrative_deep paths captured, outcome back-fill live
-- `llm_model_scores`: per-model win rate/avg_pnl_r/p-value refreshed every 15 min
-- `drift_monitor` hypertable: KS p-values per feature tracked over time; CUSUM alerting for win rate drift
-- Dashboard: Signal Scorecard (I7 all-ranked), signal history from DB + SSE, GARCH/Kalman/SMC fields, tier tooltips, resolved outcome badges
-- Signal quality layer: alpha decay, freshness decay, per-setup cooldown, vol/killzone CIS gates, Hurst/Shannon I4 gates
+- 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
+- 12 active systemd services + weight-updater timer: added `indicagent-cross-asset`
+- Signal pipeline: CIS → Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`
+- `signal_ledger` extended to 58 fields: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire
+- `confidence_calibration` table: isotonic regression curves per (plugin, tf), trained alongside CIS weights
+- `signal_features` hypertable: mid-bar feature snapshots at signal fire time (ML training dataset)
+- `contract_metadata`: is_front_month, roll_detected_at, confirmation_count — roll detection ready
+- `system_events` table: Kafka-routed roll events with full audit trail
+- Dashboard: calibrated confidence headline + raw/filtered/calibrated trio in drill panel
+- OFI/CVD tick buffers in indicator_service; `market.ticks` Kafka topic wired
+- Cross-asset service: ES/NQ/RTY/YM spread z-scores live on `development.cross_asset`; CROSS_ASSET_ENABLED=false (shadow mode)
+- Roll monitor: ROLL_MONITOR_ENABLED=false (shadow mode); validated via unit tests; ready to enable
 
-**Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), DragonflyDB (:6379), IBKR TWS at 10.0.0.33:7497
+**Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at 192.168.1.157:7497
 
 **Known issues / tech debt:**
-- indicagent-timeframes.service — legacy, import bug (src.data → src.core), non-blocking
-- feature_writer_service base loop still uses sequential stream polling (enrich loop is concurrent); pre-existing todo
-- CIS NULL repair: `repair_cis_nulls.py` code complete + tested; blocked by PostgreSQL shared memory error on 1.8M row JOIN; batch-by-symbol workaround not yet attempted
-- SIG requirements (SIG-01 to SIG-05): delivered in v1.7 but never checked off in REQUIREMENTS.md (now archived)
-- 24 systemd service contracts registered (CLAUDE.md)
+- CIS NULL repair: `repair_cis_nulls.py` code complete; blocked by PostgreSQL shared memory on 1.8M row JOIN
+- indicagent-timeframes.service — legacy, non-blocking
+- validate_alpha.py re-runs needed for bootstrap plugins once 30+ signals accumulate
+- trad_DualDivergence IS_SHADOW=True (awaiting live confirmation before promotion)
 
-**Next milestone candidates:** LLM call tracking improvements, candlestick pattern expansion (18 patterns), ML scoring model (needs ~90 days labeled outcomes), Auth + External Access
+**Next milestone candidates:** v2.0 — ML scoring model (XGBoost on intelligence_features + signal_ledger; needs ~90 days), candlestick pattern expansion, Auth + External Access, I6 Confluence Expansion (cross-TF + cross-asset)
 
 ## Key Decisions
 
@@ -190,6 +204,11 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 | CIS bucket methods return (float, dict) tuple | Constituent contributions needed without changing public score() signature; tuple return unpacks cleanly | ✓ Good — zero consumer breakage; contribution keys use feature names for direct attribution |
 | KS drift in "warming up" state until baseline fills | Cannot compute meaningful KS p-values without a reference window; warming-up state is explicit vs silent wrong results | ✓ Good — service self-reports warming_up=True until baseline_size bars accumulated |
 | CUSUM integrated into weight_updater (not separate service) | Weight update job already reads setup_performance; CUSUM requires the same data; single process avoids scheduling drift | ✓ Good — CUSUM runs at same 15-min cadence as weight updates |
+| TOD grouping by (regime_type, tf, hour_et) not per-plugin | 120 cells vs 2,688 per-plugin; faster prior convergence; regimes already capture plugin-level behavior | ✓ Good — fast cold-start with meaningful priors; will revisit per-plugin after 90d data |
+| `active` derived from `all_ranked` not raw `signals` | Raw signals never get `adjusted_rank` set; perf_weights have zero effect on winner selection unless derived from all_ranked | ✓ Good — caught during v1.9 and corrected; all callers use all_ranked path |
+| trad_DualDivergence IS_SHADOW=True | Requires both OFI + CVD divergence simultaneously — fires rarely; accumulate live data before promoting | — Pending — shadow tracking live |
+| CrossAssetService default CROSS_ASSET_ENABLED=false | New microservice with equity-group-only scope; shadow mode validates data quality before enabling | — Pending — enable after 1 week of shadow monitoring |
+| ROLL_MONITOR_ENABLED=false default | Roll detection via volume z-score is a new signal path; shadow mode ensures no unintended service restarts | — Pending — enable after paper account validation |
 
 ## Constraints
 
@@ -198,20 +217,5 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v1.9 I7 Alpha Engine
-
-**Goal:** Transform I7 from a static threshold system into a self-improving alpha factory — wired learning loop, structure-aware stops, 10 new signal plugins covering uncaptured market conditions, and microstructure intelligence.
-
-**Target features:**
-- CIS runtime learning loop (DB weight loading + binary win labels + asset-cluster segmentation)
-- Signal feature snapshots for ML training dataset foundation
-- Structure-first + GARCH-adaptive stop architecture via `trade_framer.py`
-- Extended divergence stack (5 inputs), staleness decay, CIS Kalman filter
-- 5 new I7 plugins: FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP
-- Anchored VWAP + Volume Profile I4 infrastructure + 2 new I7 plugins
-- Confidence calibration + time-of-day multiplier
-- OFI + CVD microstructure plugins (Phase D)
-- Cross-asset intelligence service + plugin (Phase E)
-
 ---
-*Last updated: 2026-03-16 after v1.9 milestone start*
+*Last updated: 2026-03-18 after v1.9 I7 Alpha Engine milestone*
