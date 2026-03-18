@@ -304,6 +304,127 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     es.onopen = () => setConnectionStatus("connected");
     es.onerror = () => setConnectionStatus("disconnected");
 
+    // Seed active signal state from REST API on SSE connect.
+    // Runs in parallel with fetchSession. Populates signalsByTf / signal / tfSignals
+    // so signals are visible immediately on page load rather than waiting for the
+    // next live SSE signal event. SSE live events will overwrite these values as
+    // new signals arrive.
+    const fetchActiveSignals = async () => {
+      try {
+        const res = await fetch(`${base}/api/signals/active`);
+        if (!res.ok) return;
+        const body = await res.json() as {
+          signals: Array<{
+            signal_id: string;
+            symbol: string;
+            timeframe: string;
+            setup_plugin: string;
+            signal_type: string;
+            direction: number;
+            entry_price: number | null;
+            stop_loss: number | null;
+            confidence: number | null;
+            status: string;
+            was_selected: boolean;
+            cis_score: number | null;
+            profit_target: number | null;
+            profit_target_2: number | null;
+            profit_target_3: number | null;
+            risk_reward_ratio: number | null;
+            stop_type: string | null;
+            regime_context: string | null;
+            market_price_at_signal: number | null;
+            ask_at_signal: number | null;
+            bid_at_signal: number | null;
+            entry_zone_low: number | null;
+            entry_zone_high: number | null;
+            zone_valid_at_signal: boolean | null;
+            signal_computed_at: string | null;
+            bar_close_ts: string | null;
+            timestamp: string | null;
+            setup_win_rate: number | null;
+            setup_avg_pnl_r: number | null;
+            signal_tier: string | null;
+          }>
+        };
+        // Build signal objects once from API response; reuse in both setState calls below.
+        type ActiveSignalRow = typeof body.signals[number];
+        const buildSignal = (row: ActiveSignalRow, sym: string): SignalData => ({
+          symbol: sym,
+          direction: row.direction > 0 ? "long" : "short",
+          signal_type: row.signal_type,
+          setup_plugin: row.setup_plugin,
+          confidence: row.confidence ?? 0,
+          entry_price: row.entry_price ?? 0,
+          entry_type: "at_close",
+          stop_loss: row.stop_loss ?? 0,
+          stop_type: row.stop_type ?? undefined,
+          profit_target: row.profit_target,
+          profit_target_2: row.profit_target_2,
+          profit_target_3: row.profit_target_3,
+          risk_reward_ratio: row.risk_reward_ratio ?? 0,
+          regime_context: row.regime_context ?? "",
+          timeframe: row.timeframe,
+          timestamp: row.timestamp ?? "",
+          signal_computed_at: row.signal_computed_at ?? undefined,
+          bar_close_ts: row.bar_close_ts ?? undefined,
+          pipeline_lag_s: pipelineLagS(row.signal_computed_at ?? null, row.bar_close_ts ?? null) ?? undefined,
+          market_price_at_signal: row.market_price_at_signal ?? undefined,
+          ask_at_signal: row.ask_at_signal ?? undefined,
+          bid_at_signal: row.bid_at_signal ?? undefined,
+          entry_zone_low: row.entry_zone_low ?? undefined,
+          entry_zone_high: row.entry_zone_high ?? undefined,
+          zone_valid_at_signal: row.zone_valid_at_signal ?? undefined,
+          signal_id: row.signal_id,
+          cis_score: row.cis_score,
+          was_selected: row.was_selected,
+          setup_win_rate: row.setup_win_rate ?? undefined,
+          setup_avg_pnl_r: row.setup_avg_pnl_r ?? undefined,
+        });
+        setSymbolData((prev) => {
+          const next = { ...prev };
+          for (const row of body.signals) {
+            const sym = contractToBase(row.symbol);
+            if (!next[sym] || row.direction === 0) continue;
+            const tf = row.timeframe;
+            const signal = buildSignal(row, sym);
+            const tfSignal = {
+              direction: row.direction > 0 ? "long" as const : "short" as const,
+              confidence: row.confidence ?? 0,
+              updatedAt: Date.now(),
+            };
+            const old = next[sym];
+            next[sym] = {
+              ...old,
+              signal: tf === timeframe ? signal : old.signal,
+              tfSignals: { ...old.tfSignals, [tf]: tfSignal },
+              signalsByTf: { ...old.signalsByTf, [tf]: signal },
+              lastUpdate: Date.now(),
+            };
+          }
+          return next;
+        });
+        // Also seed signalsHistory so RecentSignalCard shows DB signals before live events arrive
+        setSignalsHistory((prev) => {
+          const next = { ...prev };
+          for (const row of body.signals) {
+            if (row.direction === 0) continue;
+            const sym = contractToBase(row.symbol);
+            const signal = buildSignal(row, sym);
+            const existing = next[sym] ?? [];
+            // Only add if signal_id not already present in history
+            if (!existing.some((e) => e.signal_id === signal.signal_id)) {
+              next[sym] = [signal, ...existing].slice(0, HISTORY_LIMIT);
+            }
+          }
+          return next;
+        });
+      } catch {
+        // non-fatal — live SSE signals will populate state when they arrive
+      }
+    };
+    void fetchActiveSignals();
+
     // Seed session state from REST API (session data since 6pm ET boundary).
     // This runs in parallel with the SSE snapshot; the setState call will overwrite
     // any incomplete session values the SSE snapshot may have set first.
