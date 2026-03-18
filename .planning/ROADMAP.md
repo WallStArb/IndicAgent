@@ -360,7 +360,12 @@ Plans:
   2. `es_nq_spread_z`, `es_rty_spread_z`, and `eq_corr_break` appear as fields in the cross-asset topic payload — verifiable by consuming one message and inspecting the JSON keys.
   3. `trad_CrossAssetDivergence` fires in `signal_generator_service` when `|spread_z| > 2.0` — at least one fire is observable in a replay run with an injected spread event; the signal's direction reflects regime bias (reversion in ranging, continuation in trending).
   4. The new service is registered in `CLAUDE.md` service table with its metrics port and in the systemd unit file inventory.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 037-01-PLAN.md — Core service + spread feature computation + stream key + Settings + systemd unit
+- [ ] 037-02-PLAN.md — CrossAssetDivergence I7 plugin (stateless, regime-biased direction)
+- [ ] 037-03-PLAN.md — Pipeline wiring: TIER_I7 registration + signal_generator frame injection + feature_writer persistence
 
 ### Phase 38: Automated Futures Roll Detection
 **Goal**: The TWS daemon automatically detects futures roll events using volume-based statistical analysis and propagates roll events through the pipeline without service restarts, ensuring continuous data capture across contract transitions.
@@ -475,5 +480,5 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | 3/3 | Complete    | 2026-03-17 | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | 3/3 | Complete    | 2026-03-18 | - |
 | 36. Microstructure Plugins | v1.9 | 0/2 | Not started | - |
-| 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
+| 37. Cross-Asset Intelligence Service | v1.9 | 0/3 | Not started | - |
 | 38. Automated Futures Roll Detection | v1.9 | 0/3 | Not started | - |
