@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: unknown
-stopped_at: Completed 037-01-PLAN.md (CrossAssetService + spread features)
-last_updated: "2026-03-18T18:17:02.104Z"
+stopped_at: Completed 037-02-PLAN.md (CrossAssetDivergencePlugin + tests)
+last_updated: "2026-03-18T20:06:00.753Z"
 progress:
   total_phases: 14
   completed_phases: 7
   total_plans: 23
-  completed_plans: 21
+  completed_plans: 22
 ---
 
 # Project State
@@ -115,6 +115,8 @@ Plan: 2 of 3
 - **topic_cross_asset() added**: src/core/stream_keys.py; returns "{env}.cross_asset"
 - **Settings: 3 cross_asset fields**: cross_asset_enabled (False), cross_asset_window_bars (20), cross_asset_metrics_port (9118)
 - **Redpanda topic development.cross_asset**: created with retention.ms=604800000 (7 days) per CLAUDE.md requirement
+- **trad_CrossAssetDivergence (037-02)**: stateless I7 plugin; EQ_INDEX guard (ES/NQ/RTY/YM); gate abs(spread_z)>2.0 on active_pair; low_vol_flag suppression; regime-biased direction (hmm_regime=0→reversion, 1/2→continuation, None→reversion); confidence=0.55+(|z|-2)*0.05 * optional_pair_mult(1.2) * optional_tf_mult(1.2) + optional_vol(+0.05) + optional_regime_prob(+0.10); supporting_factors as dict; frame_trade for stop/targets
+- **TIER_I7 = 36, total registered plugins = 121 (27 indicators + 94 patterns)** — after Phase 037-02; CrossAssetDivergencePlugin added
 
 ### v1.9 Phase Ordering Rationale
 
@@ -132,7 +134,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T18:17:02.102Z
-Stopped at: Completed 037-01-PLAN.md (CrossAssetService + spread features)
+Last session: 2026-03-18T20:06:00.751Z
+Stopped at: Completed 037-02-PLAN.md (CrossAssetDivergencePlugin + tests)
 Resume file: None
 Next action: Execute Phase 036 Plan 02 (I7 OFI/CVD setup plugins)

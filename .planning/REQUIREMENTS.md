@@ -91,9 +91,9 @@
 
 ### XA — Cross-Asset Intelligence
 
-- [ ] **XA-01**: New `services/cross_asset_service.py` subscribes to `intelligence:SYMBOL:TF` Redpanda topics for equity index group (ES, NQ, RTY, YM); maintains per-symbol rolling bar window; computes spread features; publishes to `cross_asset:EQ_INDEX:TF` topic; metrics on dedicated port
-- [ ] **XA-02**: Equity index spread features: `es_nq_spread_z` (z-scored 5-bar return spread), `es_rty_spread_z`, `eq_corr_break` (abs diff between 5-bar and 20-bar rolling correlation)
-- [ ] **XA-03**: New I7 plugin `trad_CrossAssetDivergence` — fires when `|spread_z| > 2.0`; regime-biased direction (reversion in ranging, continuation in trending); confidence scales with spread magnitude and regime clarity; registered in `TIER_I7`
+- [x] **XA-01**: New `services/cross_asset_service.py` subscribes to `intelligence:SYMBOL:TF` Redpanda topics for equity index group (ES, NQ, RTY, YM); maintains per-symbol rolling bar window; computes spread features; publishes to `cross_asset:EQ_INDEX:TF` topic; metrics on dedicated port
+- [x] **XA-02**: Equity index spread features: `es_nq_spread_z` (z-scored 5-bar return spread), `es_rty_spread_z`, `eq_corr_break` (abs diff between 5-bar and 20-bar rolling correlation)
+- [x] **XA-03**: New I7 plugin `trad_CrossAssetDivergence` — fires when `|spread_z| > 2.0`; regime-biased direction (reversion in ranging, continuation in trending); confidence scales with spread magnitude and regime clarity; registered in `TIER_I7`
 
 ### ROLL — Automated Futures Roll Detection
 
@@ -178,9 +178,9 @@
 | OFI-03 | Phase 36 | Complete |
 | CVD-01 | Phase 36 | Complete |
 | CVD-02 | Phase 36 | Complete |
-| XA-01 | Phase 37 | Pending |
-| XA-02 | Phase 37 | Pending |
-| XA-03 | Phase 37 | Pending |
+| XA-01 | Phase 37 | Complete |
+| XA-02 | Phase 37 | Complete |
+| XA-03 | Phase 37 | Complete |
 | ROLL-01 | Phase 38 | Complete |
 | ROLL-02 | Phase 38 | Complete |
 | ROLL-03 | Phase 38 | Complete |
