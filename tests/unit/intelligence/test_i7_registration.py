@@ -16,7 +16,7 @@ class TestI7Registration:
         register_all_plugins()
 
     def test_i7_plugins_registered(self):
-        """All 28 I7 plugins should be in the registry."""
+        """All 35 I7 plugins should be in the registry."""
         expected_i7 = {
             "trad_TrendFollowing",
             "trad_MeanReversion",
@@ -47,16 +47,24 @@ class TestI7Registration:
             "trad_POCRejection",
             "trad_HVNRejection",
             "trad_LVNBreakout",
+            # Phase 036-02: OFI + CVD microstructure I7 plugins
+            "trad_OFIContinuation",
+            "trad_OFIDivergence",
+            "trad_OFISpike",
+            "trad_CVDDivergence",
+            "trad_CVDSpike",
+            "trad_DeltaExhaustion",
+            "trad_DualDivergence",
         }
         registered = set(registry.patterns.keys())
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 27 indicators + 86 patterns = 113 total (036-01 adds OFI + CVD to I1)."""
+        """Should have 27 indicators + 93 patterns = 120 total (036-02 adds 7 OFI+CVD I7 plugins)."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 113, f"Expected 113, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 120, f"Expected 120, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):
@@ -96,5 +104,5 @@ class TestI7Registration:
             assert name not in TREND_SETUPS, f"{name} should NOT be in TREND_SETUPS"
 
     def test_tier_i7_count(self):
-        """TIER_I7 should contain exactly 28 plugins (23 + 5 new)."""
-        assert len(TIER_I7) == 28, f"Expected 28 TIER_I7 plugins, got {len(TIER_I7)}"
+        """TIER_I7 should contain exactly 35 plugins (28 + 7 new OFI/CVD microstructure)."""
+        assert len(TIER_I7) == 35, f"Expected 35 TIER_I7 plugins, got {len(TIER_I7)}"

@@ -1,0 +1,132 @@
+"""Unit tests for trad_DualDivergence I7 shadow plugin."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from tests.unit.intelligence.helpers import make_ohlcv
+
+
+def _make_frames(close_arr, features=None, symbol="ES", tf="1m"):
+    df = make_ohlcv(np.array(close_arr, dtype=float))
+    return {
+        "main": df,
+        "features": features or {},
+        "__symbol__": symbol,
+        "__timeframe__": tf,
+    }
+
+
+class TestDualDivergence:
+    def _make_plugin(self):
+        from src.intelligence.trading.dual_divergence import DualDivergencePlugin
+        return DualDivergencePlugin()
+
+    def test_fires_when_both_diverge(self):
+        """ofi_divergence >= 1.5 AND cvd_divergence nonzero AND both persist N bars → fires."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        # Both OFI and CVD diverging (bullish pressure vs price neutral/falling)
+        features = {
+            "ofi_divergence": 1.8,
+            "cvd_divergence": 1.2,
+            "cvd_slope_5bar": 200.0,
+        }
+        # Build up N=3 confirmation bars
+        for _ in range(2):
+            plugin.compute_full(_make_frames(close, features))
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
+        assert result.get("confidence", 0) > 0
+
+    def test_fires_when_both_diverge_bearish(self):
+        """Both OFI and CVD bearish divergence → fires short."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "ofi_divergence": -1.8,
+            "cvd_divergence": -1.2,
+            "cvd_slope_5bar": -200.0,
+        }
+        for _ in range(2):
+            plugin.compute_full(_make_frames(close, features))
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}: {result}"
+
+    def test_no_signal_only_ofi_diverges(self):
+        """ofi_divergence high but cvd_divergence near 0 → no signal."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "ofi_divergence": 1.8,
+            "cvd_divergence": 0.3,  # below 1.0 threshold
+            "cvd_slope_5bar": 50.0,
+        }
+        for _ in range(3):
+            plugin.compute_full(_make_frames(close, features))
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == 0, f"Expected 0, got {result.get('direction')}: {result}"
+
+    def test_no_signal_only_cvd_diverges(self):
+        """cvd_divergence high but ofi_divergence near 0 → no signal."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "ofi_divergence": 0.3,  # below 1.0 threshold
+            "cvd_divergence": 1.5,
+            "cvd_slope_5bar": 200.0,
+        }
+        for _ in range(3):
+            plugin.compute_full(_make_frames(close, features))
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == 0, f"Expected 0, got {result.get('direction')}: {result}"
+
+    def test_no_signal_insufficient_confirmation(self):
+        """Only 1 bar of dual divergence → insufficient confirmation."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "ofi_divergence": 1.8,
+            "cvd_divergence": 1.2,
+            "cvd_slope_5bar": 200.0,
+        }
+        result = plugin.compute_full(_make_frames(close, features))
+        assert result.get("direction") == 0
+
+    def test_has_is_shadow_true(self):
+        """plugin.IS_SHADOW must be True."""
+        plugin = self._make_plugin()
+        assert getattr(plugin, "IS_SHADOW", False) is True
+
+    def test_regime_type_is_mean_reversion(self):
+        """plugin.regime_type must be 'mean_reversion'."""
+        plugin = self._make_plugin()
+        assert plugin.regime_type == "mean_reversion"
+
+    def test_supporting_factors_include_both_divergences(self):
+        """Signal output should include ofi_divergence and cvd_divergence in supporting factors."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        features = {
+            "ofi_divergence": 1.8,
+            "cvd_divergence": 1.2,
+            "cvd_slope_5bar": 200.0,
+        }
+        for _ in range(2):
+            plugin.compute_full(_make_frames(close, features))
+        result = plugin.compute_full(_make_frames(close, features))
+        if result.get("direction") != 0:
+            supporting = result.get("supporting_factors", [])
+            assert any("ofi" in str(s).lower() for s in supporting), f"Expected ofi in supporting: {supporting}"
+            assert any("cvd" in str(s).lower() for s in supporting), f"Expected cvd in supporting: {supporting}"
+
+    def test_module_level_plugin_instance(self):
+        from src.intelligence.trading.dual_divergence import plugin
+        assert plugin.name == "trad_DualDivergence"
+
+    def test_plugin_has_no_signal_method(self):
+        """Plugin must have _no_signal method."""
+        plugin = self._make_plugin()
+        assert hasattr(plugin, "_no_signal")
+        result = plugin._no_signal()
+        assert result.get("direction") == 0

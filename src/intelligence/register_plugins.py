@@ -90,7 +90,11 @@ from .structure.trend_structure import plugin as trend_plugin
 from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
+from .trading.cvd_divergence import plugin as cvd_divergence_plugin
+from .trading.cvd_spike import plugin as cvd_spike_plugin
+from .trading.delta_exhaustion import plugin as delta_exhaustion_plugin
 from .trading.divergence_stack import plugin as divergence_stack_plugin
+from .trading.dual_divergence import plugin as dual_divergence_plugin
 from .trading.failed_breakout import plugin as failed_breakout_plugin
 from .trading.fvg_fill import plugin as fvg_fill_plugin
 from .trading.gap_analysis_setup import plugin as gap_analysis_setup_plugin
@@ -101,6 +105,9 @@ from .trading.lvn_breakout import plugin as lvn_breakout_plugin
 from .trading.mean_reversion import plugin as mean_revert_plugin
 from .trading.momentum_breakout import plugin as momentum_breakout_plugin
 from .trading.mtf_alignment import plugin as mtf_align_plugin
+from .trading.ofi_continuation import plugin as ofi_continuation_plugin
+from .trading.ofi_divergence import plugin as ofi_divergence_plugin
+from .trading.ofi_spike import plugin as ofi_spike_plugin
 from .trading.orb15 import plugin as orb15_plugin
 from .trading.orb30 import plugin as orb30_plugin
 from .trading.pattern_completion import plugin as pattern_completion_plugin
@@ -290,6 +297,13 @@ def register_all_plugins() -> None:
     registry.register_pattern(poc_rejection_plugin)
     registry.register_pattern(hvn_rejection_plugin)
     registry.register_pattern(lvn_breakout_plugin)
+    registry.register_pattern(ofi_continuation_plugin)
+    registry.register_pattern(ofi_divergence_plugin)
+    registry.register_pattern(ofi_spike_plugin)
+    registry.register_pattern(cvd_divergence_plugin)
+    registry.register_pattern(cvd_spike_plugin)
+    registry.register_pattern(delta_exhaustion_plugin)
+    registry.register_pattern(dual_divergence_plugin)
 
     validate_schema_coverage()
 
@@ -435,4 +449,11 @@ TIER_I7: list[str] = [
     poc_rejection_plugin.name,           # "trad_POCRejection"
     hvn_rejection_plugin.name,           # "trad_HVNRejection"
     lvn_breakout_plugin.name,            # "trad_LVNBreakout"
+    ofi_continuation_plugin.name,        # "trad_OFIContinuation"
+    ofi_divergence_plugin.name,          # "trad_OFIDivergence"
+    ofi_spike_plugin.name,               # "trad_OFISpike"
+    cvd_divergence_plugin.name,          # "trad_CVDDivergence"
+    cvd_spike_plugin.name,               # "trad_CVDSpike"
+    delta_exhaustion_plugin.name,        # "trad_DeltaExhaustion"
+    dual_divergence_plugin.name,         # "trad_DualDivergence"
 ]
