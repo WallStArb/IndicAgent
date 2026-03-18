@@ -37,6 +37,7 @@ from src.core.stream_keys import (
     topic_intelligence_i8,
     topic_system_events,
 )
+from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.metrics import counter, gauge, start_metrics_server
 
@@ -75,6 +76,14 @@ ON CONFLICT (ts, symbol, tf) DO UPDATE SET i8 = EXCLUDED.i8
 """
 
 _UPSERT_ROLL_BOUNDARY_SQL = """
+INSERT INTO intelligence_features (ts, symbol, tf, i7)
+VALUES ($1::timestamptz, $2, $3, $4::jsonb)
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = intelligence_features.i7 || EXCLUDED.i7
+"""
+
+# Separate constant for cross-asset persistence — same JSONB merge semantics as roll
+# boundary, but a distinct name so the two code paths can evolve independently.
+_UPSERT_CROSS_ASSET_SQL = """
 INSERT INTO intelligence_features (ts, symbol, tf, i7)
 VALUES ($1::timestamptz, $2, $3, $4::jsonb)
 ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = intelligence_features.i7 || EXCLUDED.i7
@@ -586,14 +595,13 @@ class FeatureWriterService:
                 }
             )
             # Persist cross-asset snapshot for each EQ_INDEX group member symbol
-            _eq_index_bases = ("ES", "NQ", "RTY", "YM")
-            params = [(ts, sym, tf, cross_asset_data) for sym in _eq_index_bases]
-            await self.db_manager.execute_batch(_UPSERT_ROLL_BOUNDARY_SQL, params)
+            params = [(ts, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
+            await self.db_manager.execute_batch(_UPSERT_CROSS_ASSET_SQL, params)
             self.logger.debug(
                 "cross_asset_persisted",
                 tf=tf,
                 ts=ts,
-                symbols=list(_eq_index_bases),
+                symbols=sorted(_EQ_INDEX_BASES),
             )
         except Exception as e:
             self.logger.warning("cross_asset_persist_failed", error=str(e))

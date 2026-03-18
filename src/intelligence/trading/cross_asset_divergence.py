@@ -26,11 +26,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
 from .trade_framer import frame_trade
-
-# EQ_INDEX base symbols — only these fire cross-asset divergence setups.
-_EQ_INDEX_BASES: frozenset[str] = frozenset({"ES", "NQ", "RTY", "YM"})
 
 # Spread z-score threshold for signal to fire.
 _FIRE_THRESHOLD: float = 2.0
@@ -95,7 +93,7 @@ class CrossAssetDivergencePlugin:
 
         # Guard: symbol must be in EQ_INDEX group
         symbol = str(features.get("symbol", ""))
-        base = _resolve_base(symbol)
+        base = resolve_eq_index_base(symbol)
         if base is None:
             return self._no_signal()
 
@@ -228,19 +226,6 @@ class CrossAssetDivergencePlugin:
     @staticmethod
     def _no_signal() -> dict[str, Any]:
         return {"signal_type": "none", "direction": 0, "confidence": 0.0}
-
-
-def _resolve_base(symbol: str) -> str | None:
-    """Return the EQ_INDEX base for symbol, or None if not in the group.
-
-    Matches symbols like "ESM6", "NQZ5", "RTYU6", "YMH6" to their base.
-    The base is the shortest prefix in _EQ_INDEX_BASES that the symbol starts with,
-    provided the symbol is longer than the base (to avoid matching "ES" == "ES").
-    """
-    for base in _EQ_INDEX_BASES:
-        if symbol.startswith(base) and len(symbol) > len(base):
-            return base
-    return None
 
 
 plugin = CrossAssetDivergencePlugin()

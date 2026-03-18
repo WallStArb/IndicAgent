@@ -57,6 +57,7 @@ from src.core.stream_keys import (
     topic_signals_aggregated,
     topic_system_events,
 )
+from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import IntelligenceEvent
@@ -195,6 +196,9 @@ MARKET_CONTEXT_KEYS: tuple[str, ...] = (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Valid timeframes published by cross_asset_service — bounds _cross_asset_cache keys
+_CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 
 
 def _apply_alpha_decay(
@@ -585,7 +589,7 @@ class SignalGeneratorService:
         self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
         self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
 
-        # Phase 37: Cross-asset intelligence cache (keyed by tf)
+        # Phase 037: Cross-asset intelligence cache (keyed by tf)
         self._cross_asset_enabled: bool = getattr(settings, "cross_asset_enabled", False)
         self._cross_asset_cache: dict[str, dict] = {}  # tf -> latest cross_asset payload
 
@@ -1464,21 +1468,14 @@ class SignalGeneratorService:
                 "features": features,
             }
 
-            # Phase 37: Inject cross-asset frames for EQ_INDEX symbols when enabled
-            if self._cross_asset_enabled:
-                _eq_bases = frozenset({"ES", "NQ", "RTY", "YM"})
-                _base_sym = None
-                for _b in _eq_bases:
-                    if symbol.startswith(_b) and len(symbol) > len(_b):
-                        _base_sym = _b
-                        break
-                if _base_sym is not None:
-                    frames["cross_asset"] = self._cross_asset_cache.get(
-                        timeframe, {"ready": False}
-                    )
-                    frames["cross_asset_5m"] = self._cross_asset_cache.get(
-                        "5m", {"ready": False}
-                    )
+            # Phase 037: Inject cross-asset frames for EQ_INDEX symbols when enabled
+            if self._cross_asset_enabled and resolve_eq_index_base(symbol) is not None:
+                frames["cross_asset"] = self._cross_asset_cache.get(
+                    timeframe, {"ready": False}
+                )
+                frames["cross_asset_5m"] = self._cross_asset_cache.get(
+                    "5m", {"ready": False}
+                )
 
             await self._process_bar(
                 symbol,
@@ -1522,7 +1519,7 @@ class SignalGeneratorService:
                         # Cache latest cross-asset snapshot by timeframe
                         try:
                             tf = payload.get("tf", "")
-                            if tf and payload.get("ready"):
+                            if tf in _CROSS_ASSET_VALID_TFS and payload.get("ready"):
                                 self._cross_asset_cache[tf] = payload
                         except Exception as _xa_err:
                             self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
