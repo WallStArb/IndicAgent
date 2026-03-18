@@ -17,13 +17,14 @@ Status: Current ✅
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 import signal
 import sys
 import threading
 import time
-from collections import defaultdict
-from datetime import datetime, timedelta
+from collections import defaultdict, deque
+from datetime import UTC, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 
@@ -37,7 +38,12 @@ from prometheus_client import start_http_server
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.kafka_utils import KafkaProducerClient
-from src.core.stream_keys import message_key, topic_market_bars, topic_market_ticks
+from src.core.stream_keys import (
+    message_key,
+    topic_market_bars,
+    topic_market_ticks,
+    topic_system_events,
+)
 from src.observability.metrics import counter as prom_counter
 from src.observability.metrics import gauge as prom_gauge
 from src.providers import IBKRProvider
@@ -50,6 +56,274 @@ FUTURES_TICK_TYPES = {
     "volume": "233",
     "all": "233",
 }
+
+# Minimum bars in window before roll detection is attempted
+_ROLL_MIN_WINDOW = 20
+
+
+class RollMonitor:
+    """Volume-based futures roll detection with statistical validation.
+
+    Segmented thresholds (Renaissance: segment relentlessly):
+    - Equity index (ES/NQ/RTY/YM): 1.2 — high liquidity, sharp transitions
+    - Energy/metals (CL/GC/SI/HG): 1.5 — gradual shifts
+    - Rates (ZN/ZF/ZB/ZT): 1.4 — moderate liquidity
+
+    Algorithm:
+    1. Track per-base-symbol rolling window of (current_vol, next_vol) pairs
+    2. When window has >= 20 bars: compute volume ratio and z-score
+    3. If ratio > threshold AND z-score > 2.0: increment confirmation counter
+    4. After 3 consecutive confirming bars: fire roll confirmed
+    5. 30-minute cooldown per base symbol after any confirmed roll
+    6. Time-of-day gating adjusts thresholds by ET session
+    7. Paper account detection skips unavailable contracts
+
+    Feature flag ROLL_MONITOR_ENABLED=false: all methods are no-ops.
+    """
+
+    # Segmented volume ratio thresholds
+    VOLUME_THRESHOLDS: dict[str, float] = {
+        "ES": 1.2, "NQ": 1.2, "RTY": 1.2, "YM": 1.2,   # equity index
+        "CL": 1.5, "GC": 1.5, "SI": 1.5, "HG": 1.5,    # energy/metals
+        "ZN": 1.4, "ZF": 1.4, "ZB": 1.4, "ZT": 1.4,    # rates
+    }
+
+    # Paper account contracts known to be unavailable
+    PAPER_SKIP_CONTRACTS: set[str] = {"BZJ6", "NGJ6", "SR1H6", "ZWH6"}
+
+    # Paper account ib_host values (per CONTEXT.md decision)
+    PAPER_ACCOUNT_HOSTS: set[str] = {"192.168.1.157", "127.0.0.1"}
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._enabled = settings.roll_monitor_enabled
+        self._is_paper = self._is_paper_account()
+        self._window_size = settings.roll_monitor_window_size          # 100
+        self._confirmation_required = settings.roll_confirmation_bars   # 3
+        self._cooldown_minutes = settings.roll_monitor_cooldown_min    # 30
+        self._postroll_bars = settings.roll_monitor_postroll_bars      # 10
+        self._tod_gated = settings.roll_time_of_day_gated
+
+        # Per-base-symbol rolling state
+        # base symbol -> deque of (current_vol, next_vol) pairs
+        self._volume_windows: dict[str, deque] = {}
+        self._confirmation_count: dict[str, int] = defaultdict(int)
+        self._cooldown_until: dict[str, datetime] = {}
+        self._postroll_remaining: dict[str, int] = {}
+
+    # ------------------------------------------------------------------
+    # Paper account detection
+    # ------------------------------------------------------------------
+
+    def _is_paper_account(self) -> bool:
+        """Detect paper account via ib_host setting."""
+        return self._settings.ib_host in self.PAPER_ACCOUNT_HOSTS
+
+    def should_skip_symbol(self, symbol: str) -> bool:
+        """Return True if symbol should be skipped (paper account + unavailable contract)."""
+        return self._is_paper and symbol in self.PAPER_SKIP_CONTRACTS
+
+    # ------------------------------------------------------------------
+    # Threshold helpers
+    # ------------------------------------------------------------------
+
+    def get_threshold(self, base_symbol: str) -> float:
+        """Return segmented volume ratio threshold for base symbol."""
+        return self.VOLUME_THRESHOLDS.get(
+            base_symbol, self._settings.roll_monitor_threshold_default
+        )
+
+    def _apply_tod_adjustment(self, threshold: float, utc_now: datetime) -> float | None:
+        """Adjust threshold by time-of-day (Eastern Time).
+
+        Returns:
+            None   — skip detection entirely (post-close window 16–18 ET)
+            float  — adjusted threshold
+        """
+        if not self._tod_gated:
+            return threshold
+        et = utc_now.astimezone(ZoneInfo("America/New_York"))
+        hour_et = et.hour
+        if 16 <= hour_et < 18:   # post-close: skip detection entirely
+            return None
+        if 9 <= hour_et < 11:    # pre-open: stricter threshold
+            return threshold * 1.3
+        if hour_et == 15:        # close: more sensitive
+            return threshold * 0.9
+        return threshold          # standard RTH / overnight
+
+    # ------------------------------------------------------------------
+    # Volume window management
+    # ------------------------------------------------------------------
+
+    def update_volume(self, base_symbol: str, current_vol: float, next_vol: float) -> None:
+        """Append (current_vol, next_vol) pair to rolling window."""
+        if base_symbol not in self._volume_windows:
+            self._volume_windows[base_symbol] = deque(maxlen=self._window_size)
+        self._volume_windows[base_symbol].append((current_vol, next_vol))
+
+    # ------------------------------------------------------------------
+    # Roll detection logic
+    # ------------------------------------------------------------------
+
+    def check_roll(self, base_symbol: str, utc_now: datetime) -> bool:
+        """Check if roll conditions are met for base_symbol.
+
+        Returns True on confirmed roll (after N consecutive confirmation bars).
+        Side-effects: increments/resets _confirmation_count; sets _cooldown_until.
+        Caller must schedule _on_roll_confirmed() when this returns True.
+        """
+        if not self._enabled:
+            return False
+
+        window = self._volume_windows.get(base_symbol)
+        if window is None or len(window) < _ROLL_MIN_WINDOW:
+            return False
+
+        # Cooldown check
+        cooldown_until = self._cooldown_until.get(base_symbol)
+        if cooldown_until is not None and utc_now < cooldown_until:
+            return False
+
+        # Time-of-day gating
+        threshold = self.get_threshold(base_symbol)
+        adj_threshold = self._apply_tod_adjustment(threshold, utc_now)
+        if adj_threshold is None:
+            return False
+
+        # Compute statistics across the window
+        next_vols = [nv for _, nv in window]
+        n = len(next_vols)
+        mean_next = sum(next_vols) / n
+        variance = sum((v - mean_next) ** 2 for v in next_vols) / n
+        std_next = math.sqrt(variance) if variance > 0 else 0.0
+
+        # Latest bar values
+        current_vol, next_vol = window[-1]
+        safe_current = max(current_vol, 1.0)
+        ratio = next_vol / safe_current
+
+        # Z-score: how many std-devs above the rolling mean is the latest next_vol?
+        if std_next > 0:
+            z_score = (next_vol - mean_next) / std_next
+        else:
+            z_score = 0.0
+
+        # Both conditions must be met: ratio above threshold AND statistically significant
+        candidate = ratio >= adj_threshold and z_score > 2.0
+
+        if candidate:
+            self._confirmation_count[base_symbol] += 1
+        else:
+            self._confirmation_count[base_symbol] = 0
+
+        if self._confirmation_count[base_symbol] >= self._confirmation_required:
+            # Confirmed roll — reset counter and start cooldown
+            self._confirmation_count[base_symbol] = 0
+            self._cooldown_until[base_symbol] = utc_now + timedelta(
+                minutes=self._cooldown_minutes
+            )
+            logger.info(
+                "Roll detected",
+                base_symbol=base_symbol,
+                ratio=round(ratio, 3),
+                z_score=round(z_score, 3),
+            )
+            return True
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Roll event publishing
+    # ------------------------------------------------------------------
+
+    async def _on_roll_confirmed(
+        self,
+        base_symbol: str,
+        old_symbol: str,
+        new_symbol: str,
+        roll_gap: float,
+        roll_direction: str,
+        db_manager=None,
+        kafka_producer=None,
+        env_name: str = "",
+    ) -> None:
+        """Publish roll event to Kafka and update contract_metadata atomically.
+
+        Args:
+            base_symbol: Base futures symbol (e.g. "ES")
+            old_symbol:  Front-month contract being replaced (e.g. "ESM6")
+            new_symbol:  New front-month contract (e.g. "ESU6")
+            roll_gap:    Absolute price gap at roll boundary
+            roll_direction: "up" or "down"
+            db_manager:  DatabaseManager instance (optional — skipped if None)
+            kafka_producer: KafkaProducerClient instance (optional — skipped if None)
+            env_name:    Kafka env prefix
+        """
+        detected_at = datetime.now(UTC)
+        payload = {
+            "event_type": "roll",
+            "base_symbol": base_symbol,
+            "old_symbol": old_symbol,
+            "new_symbol": new_symbol,
+            "roll_gap": roll_gap,
+            "roll_direction": roll_direction,
+            "detected_at": detected_at.isoformat(),
+        }
+
+        # Publish to Kafka system.events topic
+        if kafka_producer is not None:
+            try:
+                await kafka_producer.publish(
+                    topic_system_events(env_name),
+                    {k: str(v) for k, v in payload.items()},
+                    key=base_symbol,
+                )
+            except Exception as exc:
+                logger.warning("Roll event Kafka publish failed", error=str(exc))
+
+        # Atomic DB update: toggle is_front_month + insert system_events row
+        if db_manager is not None:
+            try:
+                await db_manager.execute(
+                    """
+                    UPDATE contract_metadata
+                       SET is_front_month = false
+                     WHERE base_symbol = $1 AND is_front_month = true
+                    """,
+                    base_symbol,
+                )
+                await db_manager.execute(
+                    """
+                    UPDATE contract_metadata
+                       SET is_front_month = true,
+                           roll_detected_at = $2,
+                           roll_gap = $3,
+                           roll_direction = $4,
+                           confirmation_count = confirmation_count + 1
+                     WHERE symbol = $1
+                    """,
+                    new_symbol,
+                    detected_at,
+                    roll_gap,
+                    roll_direction,
+                )
+                await db_manager.execute(
+                    """
+                    INSERT INTO system_events
+                        (event_type, base_symbol, old_symbol, new_symbol,
+                         roll_gap, roll_direction, detected_at)
+                    VALUES ('roll', $1, $2, $3, $4, $5, $6)
+                    """,
+                    base_symbol,
+                    old_symbol,
+                    new_symbol,
+                    roll_gap,
+                    roll_direction,
+                    detected_at,
+                )
+            except Exception as exc:
+                logger.error("Roll event DB update failed", error=str(exc))
 
 
 class TwsDaemon:
@@ -112,6 +386,9 @@ class TwsDaemon:
         self.m_reconnects = prom_counter("indicagent_ibkr_reconnects_total", "IBKR reconnects")
         self.g_connected = prom_gauge("indicagent_ibkr_connected", "1 when connected")
         self.g_tick_queue = prom_gauge("indicagent_tick_queue_size", "Async tick queue depth")
+
+        # Roll monitor (Phase 38) — disabled by default via feature flag
+        self._roll_monitor = RollMonitor(self.settings)
 
         # Kafka producer (replaces async_redis XADD calls)
         self._kafka_producer: KafkaProducerClient = KafkaProducerClient(
@@ -342,7 +619,15 @@ class TwsDaemon:
         """Fetch 1-minute bars for a symbol and publish to Redpanda market.bars.
 
         Returns count of newly published bars (0 if all were duplicates).
+
+        When ROLL_MONITOR_ENABLED=true, also calls RollMonitor.update_volume and
+        check_roll for each new bar. Paper-account unavailable contracts are skipped
+        via should_skip_symbol().
         """
+        # Roll monitor: skip paper-unavailable contracts early
+        if self._roll_monitor._enabled and self._roll_monitor.should_skip_symbol(symbol):
+            return 0
+
         try:
             ohlcv_bars = await self.provider.fetch_historical_bars(symbol, "1m", start, now)
             if not ohlcv_bars:
@@ -381,6 +666,22 @@ class TwsDaemon:
                 logger.info("1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume)
                 self.m_bars.inc()
                 bars_published += 1
+
+                # Roll monitor: volume tracking + detection (futures only, when enabled)
+                if self._roll_monitor._enabled:
+                    bar_utc = bar.timestamp if bar.timestamp.tzinfo is not None else \
+                        bar.timestamp.replace(tzinfo=UTC)
+                    self._roll_monitor.update_volume(symbol, float(bar.volume), float(bar.volume))
+                    if self._roll_monitor.check_roll(symbol, bar_utc):
+                        await self._roll_monitor._on_roll_confirmed(
+                            base_symbol=symbol,
+                            old_symbol=symbol,
+                            new_symbol=symbol,
+                            roll_gap=0.0,
+                            roll_direction="unknown",
+                            kafka_producer=self._kafka_producer,
+                            env_name=self.env_name,
+                        )
 
             return bars_published
 
