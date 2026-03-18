@@ -119,6 +119,11 @@ class RollMonitor:
         """Detect paper account via ib_host setting."""
         return self._settings.ib_host in self.PAPER_ACCOUNT_HOSTS
 
+    @property
+    def is_enabled(self) -> bool:
+        """Return True when roll monitoring is active."""
+        return self._enabled
+
     def should_skip_symbol(self, symbol: str) -> bool:
         """Return True if symbol should be skipped (paper account + unavailable contract)."""
         return self._is_paper and symbol in self.PAPER_SKIP_CONTRACTS
@@ -625,7 +630,7 @@ class TwsDaemon:
         via should_skip_symbol().
         """
         # Roll monitor: skip paper-unavailable contracts early
-        if self._roll_monitor._enabled and self._roll_monitor.should_skip_symbol(symbol):
+        if self._roll_monitor.is_enabled and self._roll_monitor.should_skip_symbol(symbol):
             return 0
 
         try:
@@ -668,7 +673,15 @@ class TwsDaemon:
                 bars_published += 1
 
                 # Roll monitor: volume tracking + detection (futures only, when enabled)
-                if self._roll_monitor._enabled:
+                #
+                # TODO(phase-038): Dual-contract volume subscription not yet implemented.
+                # update_volume() requires (current_contract_vol, next_contract_vol) from
+                # simultaneous TWS subscriptions to both the front-month and deferred contract.
+                # Until dual-contract bar feeds are wired, current_vol == next_vol == bar.volume,
+                # which means the volume ratio is always 1.0 and check_roll() will never fire.
+                # old_symbol/new_symbol also need to be resolved from the roll chain.
+                # ROLL_MONITOR_ENABLED must remain false until this is implemented.
+                if self._roll_monitor.is_enabled:
                     bar_utc = bar.timestamp if bar.timestamp.tzinfo is not None else \
                         bar.timestamp.replace(tzinfo=UTC)
                     self._roll_monitor.update_volume(symbol, float(bar.volume), float(bar.volume))

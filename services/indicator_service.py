@@ -29,11 +29,13 @@ import structlog
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.plugin_validator import PluginValidator
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
     SEED_LOOKBACK_MULTIPLIER,
     TF_SECONDS,
     min_bars_for_tf,
+    parse_roll_event,
     setup_service_logging,
     should_skip_plugin,
 )
@@ -43,7 +45,6 @@ from src.core.stream_keys import (
     topic_market_bars,
     topic_system_events,
 )
-from src.core.plugin_validator import PluginValidator
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
 from src.observability.metrics import (
@@ -592,14 +593,10 @@ class IndicatorService:
 
         This method is a no-op when event_type != 'roll'.
         """
-        if event.get("event_type") != "roll":
+        result = parse_roll_event(event, self.logger)
+        if result is None:
             return
-        try:
-            old_symbol: str = event["old_symbol"]
-            new_symbol: str = event["new_symbol"]
-        except KeyError as exc:
-            self.logger.warning("roll_event_missing_fields", error=str(exc))
-            return
+        old_symbol, new_symbol = result
         roll_gap: float = float(event.get("roll_gap", 0.0))
 
         for tf in ["1m", "5m", "15m", "1h"]:
@@ -627,6 +624,7 @@ class IndicatorService:
 
             for key in keys_to_delete:
                 del self._i1_plugin_states[key]
+                self._i1_plugin_states_locks.pop(key, None)
 
             self.logger.info(
                 "roll_plugin_state_migrated",
@@ -664,7 +662,7 @@ class IndicatorService:
                 *topics,
                 bootstrap_servers=self.config.get(
                     "kafka_bootstrap_servers",
-                    Settings().kafka_bootstrap_servers,
+                    _settings.kafka_bootstrap_servers,
                 ),
                 group_id="indicator_service",
                 auto_offset_reset="latest",

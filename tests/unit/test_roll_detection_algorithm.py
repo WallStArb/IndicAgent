@@ -454,7 +454,7 @@ class TestBarLoopWiring:
         daemon._kafka_producer.publish = AsyncMock()
 
         mock_rm = MagicMock()
-        mock_rm._enabled = enabled
+        mock_rm.is_enabled = enabled
         mock_rm.should_skip_symbol = MagicMock(return_value=False)
         mock_rm.update_volume = MagicMock()
         mock_rm.check_roll = MagicMock(return_value=False)

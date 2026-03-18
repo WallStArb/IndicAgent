@@ -108,6 +108,21 @@ def should_skip_plugin(
     return False
 
 
+def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
+    """Validate and extract (old_symbol, new_symbol) from a roll event payload.
+
+    Returns None (and logs a warning) if the event is not a roll event or is missing fields.
+    Shared across all services that subscribe to system.events.
+    """
+    if event.get("event_type") != "roll":
+        return None
+    try:
+        return event["old_symbol"], event["new_symbol"]
+    except KeyError as exc:
+        logger.warning("roll_event_missing_fields", error=str(exc))
+        return None
+
+
 def setup_service_logging(log_file: str, level: str = "INFO", backup_count: int = 5) -> None:
     """Configure structlog and stdlib logging for a service.
 

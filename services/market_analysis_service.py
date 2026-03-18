@@ -40,6 +40,7 @@ from src.core.service_utils import (
     SEED_LOOKBACK_MULTIPLIER,
     TF_SECONDS,
     min_bars_for_tf,
+    parse_roll_event,
     setup_service_logging,
     should_skip_plugin,
 )
@@ -683,14 +684,10 @@ class MarketAnalysisService:
         Removes old_symbol and adds new_symbol to _active_symbols so subsequent
         bars for the new contract are processed correctly.
         """
-        if event.get("event_type") != "roll":
+        result = parse_roll_event(event, self.logger)
+        if result is None:
             return
-        try:
-            old_symbol: str = event["old_symbol"]
-            new_symbol: str = event["new_symbol"]
-        except KeyError as exc:
-            self.logger.warning("roll_event_missing_fields", error=str(exc))
-            return
+        old_symbol, new_symbol = result
         self._active_symbols.discard(old_symbol)
         self._active_symbols.add(new_symbol)
         self.logger.info("roll_symbol_updated", old=old_symbol, new=new_symbol)
@@ -768,7 +765,7 @@ class MarketAnalysisService:
                 *topics,
                 bootstrap_servers=self.config.get(
                     "kafka_bootstrap_servers",
-                    Settings().kafka_bootstrap_servers,
+                    _settings.kafka_bootstrap_servers,
                 ),
                 group_id="market_analysis",
                 auto_offset_reset="latest",

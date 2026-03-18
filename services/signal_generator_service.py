@@ -40,7 +40,13 @@ from src.config.settings import Settings, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
-from src.core.service_utils import TF_SECONDS, TF_TTL_BARS, min_bars_for_tf, setup_service_logging
+from src.core.service_utils import (
+    TF_SECONDS,
+    TF_TTL_BARS,
+    min_bars_for_tf,
+    parse_roll_event,
+    setup_service_logging,
+)
 from src.core.stream_keys import (
     message_key,
     topic_intelligence,
@@ -525,6 +531,7 @@ class SignalGeneratorService:
         self.env_name = settings.env_name or ""
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
         self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+        self._roll_monitor_enabled = getattr(settings, "roll_monitor_enabled", False)
 
         # In-process live quotes dict: symbol → {"bid": float, "ask": float}
         # Populated by ticks topic handler. Replaces Redis HGETALL for price:SYMBOL:latest.
@@ -903,14 +910,10 @@ class SignalGeneratorService:
         Moves deque contents for all {old_symbol}:{tf} keys to {new_symbol}:{tf}.
         Also invalidates the df_cache for both keys so the next bar triggers a rebuild.
         """
-        if event.get("event_type") != "roll":
+        result = parse_roll_event(event, self.logger)
+        if result is None:
             return
-        try:
-            old_symbol: str = event["old_symbol"]
-            new_symbol: str = event["new_symbol"]
-        except KeyError as exc:
-            self.logger.warning("roll_event_missing_fields", error=str(exc))
-            return
+        old_symbol, new_symbol = result
 
         for tf in ["1m", "5m", "15m", "1h"]:
             old_key = f"{old_symbol}:{tf}"
@@ -932,12 +935,11 @@ class SignalGeneratorService:
 
     async def _setup_kafka_clients(self) -> None:
         """Initialize Kafka consumer (intelligence + ticks) and producer (signals)."""
-        _settings = Settings()
         topics: list[str] = [
             topic_intelligence(self.env_name),
             topic_market_ticks(self.env_name),
         ]
-        if _settings.roll_monitor_enabled:
+        if self._roll_monitor_enabled:
             topics.append(topic_system_events(self.env_name))
 
         self._kafka_consumer = KafkaConsumerClient(
