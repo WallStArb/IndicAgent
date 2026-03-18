@@ -136,7 +136,7 @@ Full details: `.planning/milestones/v1.8-ROADMAP.md`
 - [x] **Phase 32: Stop Architecture + Extended Divergence Stack** - Structure-first stop placement centralized in trade_framer.py (all 17 plugins inherit), Chandelier trailing stop, staleness score, and 5-input divergence convergence scoring (completed 2026-03-17)
 - [x] **Phase 33: Five New I7 Signal Plugins** - FailedBreakout, ORB, PrevDayLevel, SecondLeg, VCP — covering reversal, session, level-test, and contraction setups (completed 2026-03-17)
 - [x] **Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile** - Two new I4 computation plugins plus two I7 setups consuming them (completed 2026-03-17)
-- [ ] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score
+- [x] **Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter** - Isotonic regression confidence calibration, time-of-day win rate multiplier, and Kalman-smoothed CIS score (completed 2026-03-18)
 - [ ] **Phase 36: Microstructure Plugins** - OFI and CVD as I1 features plus two new I7 plugins consuming order-flow signals
 - [ ] **Phase 37: Cross-Asset Intelligence Service** - New cross_asset_service microservice, equity spread features, and CrossAssetDivergence I7 plugin
 - [ ] **Phase 38: Automated Futures Roll Detection** - Volume-based roll detection in TWS daemon, DB-backed active contracts, plugin state migration, roll boundary markers
@@ -469,7 +469,7 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 32. Stop Architecture + Extended Divergence Stack | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | 3/3 | Complete    | 2026-03-17 | - |
-| 35. Calibration + TOD Multiplier + CIS Kalman Filter | 2/3 | In Progress|  | - |
+| 35. Calibration + TOD Multiplier + CIS Kalman Filter | 3/3 | Complete   | 2026-03-18 | - |
 | 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
 | 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
 | 38. Automated Futures Roll Detection | v1.9 | 0/3 | Not started | - |

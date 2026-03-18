@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: Plan 35-02 shipped — TOD multiplier pre-CIS + calibrated_confidence sort key + refresh loops wired into aggregator and service
-stopped_at: Completed 35-02-PLAN.md
-last_updated: "2026-03-18T04:36:57.906Z"
-last_activity: 2026-03-18 — Phase 35 Plan 02 executed (TOD multiplier, calibrated_confidence sort key, refresh loops)
+status: Plan 35-03 shipped — CIS Kalman filter, shadow fire condition, dashboard confidence trio
+stopped_at: Completed 35-03-PLAN.md (Phase 35 complete)
+last_updated: "2026-03-18T05:05:00.000Z"
+last_activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
 progress:
   total_phases: 14
-  completed_phases: 5
+  completed_phases: 7
   total_plans: 18
-  completed_plans: 17
-  percent: 94
+  completed_plans: 18
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 35-calibration-tod-multiplier-cis-kalman-filter (plan 02 complete — plan 03 next)
-Plan: 35-03 (CIS Kalman filter)
-Status: Plan 35-02 shipped — TOD Bayesian multiplier pre-CIS, calibrated_confidence sort key, calibration curve + TOD refresh loops
-Last activity: 2026-03-18 — Phase 35 Plan 02 executed (TOD multiplier, calibrated_confidence sort key, refresh loops)
+Phase: 35-calibration-tod-multiplier-cis-kalman-filter (ALL PLANS COMPLETE)
+Plan: 35-03 (CIS Kalman filter) — COMPLETE
+Status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
+Last activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
 
 Progress: [█████████░] 94%
 
@@ -99,6 +99,8 @@ Progress: [█████████░] 94%
 - **confidence_calibration table + 35-01 fields** — 038_calibration_fields.sql; isotonic regression curves per (plugin_name, timeframe); run_calibration_update() in src/intelligence/ml/confidence_calibrator.py; wired into weight_updater.run_weight_update() after cluster training; LedgerEntry.to_insert_params() now 58 elements ($55-$58: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire)
 - **35-02: calibrated_confidence sort key** — _build_all_ranked() step 1d: np.interp maps raw_conf via isotonic curve; calibrated_confidence is new field never mutating confidence; primary sort key when non-None; aggregate() passes calibration_curves + timeframe through
 - **35-02: TOD multiplier pre-CIS** — _TOD_SESSION_PRIORS + _TOD_ALPHA=20.0 + _TOD_CLAMP=(0.7,1.3); Bayesian formula; COALESCE(regime_type_at_fire,'any'); applied in _process_bar() after _filter_setup_cooldown() before alpha decay; _load_calibration_curves_from_db (30min), _load_tod_multipliers_from_db (4h); _cis_kalman_state stub added
+- **35-03: CIS Kalman filter** — _cis_kalman_update() pure function; _CIS_KALMAN_DEFAULTS+_CIS_KALMAN_PARAMS+_load_cis_kalman_params() at module level; state per (symbol,tf) initialized on first bar with x_est=raw_cis, P_est=R; new fire condition: filtered_cis>0.35 AND raw_cis>0.28 AND buckets_agreeing>=3; old-pass/new-fail sets _kalman_shadow=True with suppression_reason (kalman_filtered_cis_low|raw_cis_low|buckets_agreeing_low); raw_cis_score+filtered_cis_score threaded to all LedgerEntry rows; calibrated_confidence+regime_type_at_fire set on winner-only
+- **35-03: dashboard confidence trio** — drill-panel.tsx compact row + expanded header use calibrated_confidence when non-null (fallback to confidence); expanded view Phase 35 trio section shows raw_cis_score/filtered_cis_score/calibrated_confidence side-by-side; types.ts adds 3 optional fields to SignalData; signal-card.tsx does not exist (marketing page only)
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -114,7 +116,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T04:36:57.903Z
-Stopped at: Completed 35-02-PLAN.md
+Last session: 2026-03-18T04:51:47.152Z
+Stopped at: Completed 35-03-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 35` (Phase 35 Plan 03: CIS Kalman filter)
