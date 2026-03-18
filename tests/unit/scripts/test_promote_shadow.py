@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from production.scripts.promote_shadow import run_promotion_test, MIN_SAMPLES, WIN_OUTCOMES
+from production.scripts.promote_shadow import run_promotion_test
 
 
 def _make_signals(n: int, win_rate: float) -> list[dict]:

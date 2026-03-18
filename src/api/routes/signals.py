@@ -5,13 +5,12 @@ Provides access to signal_ledger with optional JOIN to intelligence_features
 for full feature context at signal time.
 """
 
+import asyncio
 import math
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
-
-import asyncio
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query

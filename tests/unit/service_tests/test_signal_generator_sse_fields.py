@@ -1,6 +1,6 @@
 """Verify cis_score + was_selected are injected into the SSE signal message."""
+
 import pytest
-from unittest.mock import MagicMock
 
 
 @pytest.mark.unit

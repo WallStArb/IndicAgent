@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 
@@ -263,6 +262,7 @@ class TestDivergenceStackLOCKEDDESIGN:
     def test_no_locked_design_comment(self):
         """The 'LOCKED DESIGN' comment must be removed in the rewrite."""
         import inspect
+
         from src.intelligence.trading import divergence_stack
 
         source = inspect.getsource(divergence_stack)

@@ -74,7 +74,6 @@ class OFIDivergencePlugin:
         confidence = round(min(0.80, 0.45 + abs(ofi_div) * 0.15), 4)
 
         signal_type = "ofi_divergence_long" if direction == 1 else "ofi_divergence_short"
-        regime_ctx = "ofi_divergence"
 
         hmm_regime = features.get("hmm_regime")
         supporting: list[str] = [

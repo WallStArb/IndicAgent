@@ -4,10 +4,8 @@ Covers: TOD-01, TOD-02, CAL-03.
 from __future__ import annotations
 
 import pytest
-import zoneinfo
 
 from src.intelligence.trading.aggregator import _build_all_ranked
-
 
 # ---------------------------------------------------------------------------
 # TOD helper tests (exercising the Bayesian formula directly)
@@ -117,7 +115,7 @@ def test_raw_confidence_fallback_when_no_calibration():
 # CIS Kalman filter tests (KAL-01, KAL-02)
 # ---------------------------------------------------------------------------
 
-from services.signal_generator_service import _cis_kalman_update, _CIS_KALMAN_DEFAULTS  # noqa: E402
+from services.signal_generator_service import _CIS_KALMAN_DEFAULTS, _cis_kalman_update  # noqa: E402
 
 
 def test_cis_kalman_update_convergence():

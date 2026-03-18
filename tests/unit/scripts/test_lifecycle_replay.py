@@ -3,7 +3,6 @@
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -216,6 +215,7 @@ class TestTTLConstants:
     def test_replay_imports_from_service_utils(self):
         """Replay must not define its own TF_TTL_BARS — must import from service_utils."""
         import inspect
+
         from production.scripts import lifecycle_replay
         source = inspect.getsource(lifecycle_replay)
         assert "TF_TTL_BARS: dict" not in source  # no local definition

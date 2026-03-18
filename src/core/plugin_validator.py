@@ -4,19 +4,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+
+from prometheus_client import Counter as PrometheusCounter
+from prometheus_client import Gauge as PrometheusGauge
+
+from src.core.service_utils import setup_service_logging
 
 # Deferred import to avoid circular import with plugins/__init__.py
 # Registry imported in __init__() when needed
 from src.intelligence.register_plugins import (
-    TIER_I1, TIER_I2, TIER_I3, TIER_I4,
-    TIER_I5, TIER_SMC, TIER_I6, TIER_I7,
+    TIER_I1,
+    TIER_I2,
+    TIER_I3,
+    TIER_I4,
+    TIER_I5,
+    TIER_I6,
+    TIER_I7,
+    TIER_SMC,
     validate_schema_coverage,
 )
 from src.intelligence.trading.aggregator import TREND_SETUPS
-from src.observability.metrics import counter, gauge
-from src.core.service_utils import setup_service_logging
-from prometheus_client import Gauge as PrometheusGauge, Counter as PrometheusCounter
 
 
 @dataclass
@@ -182,7 +189,7 @@ class PluginValidator:
                         ValidationError(
                             tier=tier_name,
                             plugin=plugin_name,
-                            message=f"Plugin not registered in registry"
+                            message="Plugin not registered in registry"
                         )
                     )
 
@@ -224,7 +231,7 @@ class PluginValidator:
                     ValidationError(
                         tier="I7",
                         plugin=plugin_name,
-                        message=f"Missing required attribute: regime_type"
+                        message="Missing required attribute: regime_type"
                     )
                 )
             elif plugin.regime_type not in ("trend", "mean_reversion", "any"):
@@ -285,7 +292,6 @@ class PluginValidator:
     def _detect_orphaned_plugins(self) -> ValidationResult:
         """Verify all imported plugin modules have corresponding files."""
 
-        from pathlib import Path
         import re
 
         plugin_dir = Path(__file__).parent.parent / "intelligence"
@@ -320,7 +326,6 @@ class PluginValidator:
     def _validate_trend_sets_sync(self) -> ValidationResult:
         """Ensure TREND_SETUPS in aggregator matches TIER_I7."""
 
-        from src.intelligence.trading.aggregator import TREND_SETUPS
 
         # Derive expected trend setups from TIER_I7
         expected_trends = frozenset()

@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root))
 
 import structlog
 
-from src.config.settings import Settings, get_active_contracts, get_active_symbols, get_point_value
+from src.config.settings import Settings, get_active_symbols, get_point_value
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_SECONDS, setup_service_logging
