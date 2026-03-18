@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
-stopped_at: Phase 36 context gathered
-last_updated: "2026-03-18T15:17:51.219Z"
+stopped_at: Completed 036-02-PLAN.md (OFI+CVD I7 plugins)
+last_updated: "2026-03-18T15:30:28.883Z"
 last_activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
 progress:
   total_phases: 14
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 23
-  completed_plans: 19
+  completed_plans: 20
   percent: 94
 ---
 
@@ -105,6 +105,15 @@ Progress: [█████████░] 94%
 - **OFIPlugin (ind_OFI)**: tick/proxy dual-path; tick rule via frames['tick_buffer']; proxy=(close-low)/(high-low)*vol; EWMA-5/20 with alpha=2/(n+1); spike_z from rolling 100-bar history; divergence = ofi_dir - price_dir (range -2..2); ofi_variant auditing
 - **CVDPlugin (ind_CVD)**: cumulative delta with ET session reset at 09:30 (zoneinfo America/New_York); tick rule same as OFI; proxy=(2c-h-l)/(h-l)*vol; 5-bar polyfit slope; divergence = slope_dir - price_dir_5bar; spike_z from 100-bar delta history
 - **indicator_service tick buffer**: _tick_buffers defaultdict(list) keyed by symbol; flushed via pop() at bar close; seed path uses tick_buffer=[]; separate KafkaConsumerClient group_id="indicator_service_ticks" subscribed to market.ticks topic
+- **TIER_I7 = 35, total registered plugins = 120 (27 indicators + 93 patterns)** — after Phase 036-02; 7 new OFI+CVD microstructure I7 plugins added
+- **trad_OFIContinuation**: _state per (symbol,tf) counts consecutive bars with same ofi_ewma_20 sign; fires at N=5; regime_type=trend; in TREND_SETUPS
+- **trad_OFIDivergence**: stateless; gate abs(ofi_divergence)>=1.5; direction=sign(ofi_divergence); regime_type=mean_reversion
+- **trad_OFISpike**: stateless; gate abs(ofi_spike_z)>2.0; direction=sign(ofi_spike_z); regime_type=any
+- **trad_CVDDivergence**: _state N=3 confirmation; dual_divergence flag logged when abs(ofi_div)>=1.0 AND abs(cvd_div)>=1.0; regime_type=mean_reversion
+- **trad_CVDSpike**: stateless; gate abs(cvd_spike_z)>2.0; symmetric with OFISpike; regime_type=any
+- **trad_DeltaExhaustion**: stateless; dual gate: abs(cvd_spike_z)>1.5 AND price_change<0.3*ATR; direction=opposite of CVD spike; regime_type=mean_reversion
+- **trad_DualDivergence**: IS_SHADOW=True; _state N=3 confirmation; both abs(ofi_div)>=1.0 AND abs(cvd_div)>=1.0 with same sign; regime_type=mean_reversion
+- **IS_SHADOW plugin-level shadow mechanism**: signal_generator_service.py checks getattr(plugin_instance, 'IS_SHADOW', False) for all entries; marks entry.is_shadow=True; extends Phase 35 Kalman shadow pattern to plugin-level declarations
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -120,7 +129,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T06:04:06Z
-Stopped at: Completed 036-01-PLAN.md (OFI + CVD I1 plugins)
-Resume file: .planning/phases/036-microstructure-plugins/036-01-SUMMARY.md
+Last session: 2026-03-18T15:30:28.881Z
+Stopped at: Completed 036-02-PLAN.md (OFI+CVD I7 plugins)
+Resume file: None
 Next action: Execute Phase 036 Plan 02 (I7 OFI/CVD setup plugins)
