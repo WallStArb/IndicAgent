@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pandas as pd
-import pytest
 
 
 def _make_df(n: int = 10, base_close: float = 100.0, start_hour: int = 14) -> pd.DataFrame:

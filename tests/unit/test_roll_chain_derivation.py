@@ -15,7 +15,6 @@ import pytest
 from src.config.contracts import FUTURES_ROLL_CYCLES, MONTH_CODE_TO_NUM, derive_roll_chain
 from src.core.stream_keys import topic_system_events
 
-
 # ---------------------------------------------------------------------------
 # derive_roll_chain — basic contract structure
 # ---------------------------------------------------------------------------

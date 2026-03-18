@@ -12,15 +12,11 @@ Tests:
 
 from __future__ import annotations
 
-import importlib
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.config.settings import get_active_contracts, get_active_symbols
 from src.core.models import AssetClass, Instrument
-
 
 # ---------------------------------------------------------------------------
 # Helpers

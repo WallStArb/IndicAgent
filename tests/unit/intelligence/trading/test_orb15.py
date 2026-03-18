@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import numpy as np
-import pytest
 
 from tests.unit.intelligence.helpers import make_ohlcv
 

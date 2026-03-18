@@ -12,12 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import defaultdict, deque
-from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
+from unittest.mock import AsyncMock, MagicMock
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -231,12 +227,12 @@ class TestRollMonitorDisabled:
 
     def test_indicator_service_no_system_events_consumer_when_disabled(self) -> None:
         """IndicatorService.start() should not subscribe to system.events when disabled."""
-        from services.indicator_service import IndicatorService
-
         # Verify the service reads roll_monitor_enabled from settings
         # and only adds the system.events subscription conditionally.
         # We do this by inspecting the start() or _setup_kafka method source.
         import inspect
+
+        from services.indicator_service import IndicatorService
         source = inspect.getsource(IndicatorService.start)
         # The topic_system_events subscription must be guarded by roll_monitor_enabled
         assert "roll_monitor_enabled" in source or "topic_system_events" in source, \

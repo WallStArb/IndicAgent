@@ -53,15 +53,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import concurrent.futures
-from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
-from typing import Any
-from uuid import uuid4
-
 import json
 import sys
 import time
 from collections import defaultdict, deque
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
 import psycopg2
 import psycopg2.extras
@@ -403,7 +402,7 @@ I5_PLUGINS = [
     "Confluence",
     "TrendConfluence",
 ]
-from src.intelligence.register_plugins import TIER_SMC, TIER_I6, TIER_I7
+from src.intelligence.register_plugins import TIER_I6, TIER_I7, TIER_SMC
 
 SMC_PLUGINS = TIER_SMC
 I6_PLUGINS = TIER_I6

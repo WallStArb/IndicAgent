@@ -1,10 +1,8 @@
 # tests/unit/test_plugin_validator.py
 
-import pytest
 
-from src.core.plugin_validator import PluginValidator, ValidationError
-from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import TIER_I7, register_all_plugins
+from src.core.plugin_validator import PluginValidator
+from src.intelligence.register_plugins import register_all_plugins
 
 
 def test_tier_list_validation_pass():
@@ -36,7 +34,6 @@ def test_invalid_regime_type_fails():
 
 def test_trend_sets_sync():
     """TREND_SETUPS derived from TIER_I7."""
-    from src.intelligence.trading.aggregator import TREND_SETUPS
     from src.intelligence.register_plugins import register_all_plugins
 
     register_all_plugins()  # Populate registry first
@@ -54,7 +51,6 @@ def test_trend_sets_sync():
 
 def test_tier_i2_validation():
     """TIER_I2 validation runs at indicator_service startup."""
-    from src.intelligence.register_plugins import TIER_I2
     register_all_plugins()  # Populate registry first
     validator = PluginValidator()
     report = validator.validate_all()

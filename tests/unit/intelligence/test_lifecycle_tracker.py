@@ -284,7 +284,6 @@ class TestPnLCalculation:
 
 from src.intelligence.trading.lifecycle_tracker import (  # noqa: E402
     MarketTransition,
-    _classify_stop_outcome,
     evaluate_market_entry,
 )
 
