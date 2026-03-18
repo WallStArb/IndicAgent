@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: plans_ready
-stopped_at: Phase 35 planned — ready to execute
-last_updated: "2026-03-17"
-last_activity: "2026-03-17 — Phase 35 planned (3 plans, 3 waves: calibration, TOD multiplier, CIS Kalman filter)"
+status: Phase 35 planned — calibration (CAL-01/02/03), TOD multiplier (TOD-01/02), CIS Kalman filter (KAL-01/02); migration 038 adds `regime_type_at_fire`, `raw_cis_score`, `filtered_cis_score`, `calibrated_confidence` to signal_ledger; LedgerEntry extends to 58 fields
+stopped_at: Completed 038-01-PLAN.md
+last_updated: "2026-03-18T04:07:40.194Z"
+last_activity: 2026-03-17 — Phase 35 planned (3 plans, 3 waves)
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 18
-  completed_plans: 12
+  completed_plans: 13
   percent: 80
 ---
 
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 35 (plans ready — 3 plans, 3 waves)
-Plan: ready to execute
-Status: Phase 35 planned — calibration (CAL-01/02/03), TOD multiplier (TOD-01/02), CIS Kalman filter (KAL-01/02); migration 038 adds `regime_type_at_fire`, `raw_cis_score`, `filtered_cis_score`, `calibrated_confidence` to signal_ledger; LedgerEntry extends to 58 fields
-Last activity: 2026-03-17 — Phase 35 planned (3 plans, 3 waves)
+Phase: 038-automated-futures-roll-detection (plan 01 complete — plan 02 next)
+Plan: 38-02 (roll detection engine)
+Status: Plan 38-01 shipped — DB foundation complete; migration 038 ready to apply; derive_roll_chain() and get_active_contracts() live
+Last activity: 2026-03-18 — Phase 38 Plan 01 executed (migration, roll chain utility, get_active_contracts refactor)
 
-Progress: [████████░░] 80%
+Progress: [███████░░░] 72%
 
 ## Performance Metrics
 
@@ -89,6 +89,10 @@ Progress: [████████░░] 80%
 - **Service __new__ pattern requires new attrs**: `_chandelier_state`, `_staleness_consecutive`, `_shadow_signals` must be set in all test helpers that use SignalLifecycleService.__new__ (032-02)
 - **DivergenceStack 5-input weights**: DIVERGENCE_WEIGHTS = {rsi:0.30, macd:0.25, vol:0.20, obv:0.15, cmf:0.10}; gate: score > 0.40 AND n_agreeing >= 3; always-log base_output pattern; divergence_scoring block in _build_i7_payload() routes to intelligence_features.i7 JSONB on every bar (032-03)
 - **I5Patterns has 79 fields** — +9 from 032-03 (macd_div_*, obv_div_*, cmf_div_*); extra=forbid enforced; validate_schema_coverage() passes
+- **get_active_contracts() returns list[Instrument]** — signature changed from list[str] in 038-01; get_active_symbols() is the new list[str] convenience wrapper; ROLL_MONITOR_ENABLED=false (default) returns config-file contracts unchanged; when true queries contract_metadata WHERE is_front_month=true with 60s cache + fallback
+- **derive_roll_chain(base) returns 3-contract list** — in src/config/contracts.py; covers quarterly (ES/NQ/RTY/YM/ZN/ZF/ZB/ZT/VIX), monthly (CL/GC/SI/HG), grain (ZC/ZS/ZW); symbols use 1-digit year suffix (IBKR format e.g. ESM6)
+- **Migration 038 ready to apply** — production/migrations/038_roll_monitor_integration.sql; extends contract_metadata (is_front_month, roll_direction, roll_detected_at, confirmation_count) + system_events table + 2 indexes
+- **topic_system_events() added** — src/core/stream_keys.py; returns "{env}.system.events"
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -104,7 +108,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-17T20:51:29.761Z
-Stopped at: Phase 35 context gathered
-Resume file: .planning/phases/35-calibration-tod-multiplier-cis-kalman-filter/35-CONTEXT.md
+Last session: 2026-03-18T04:07:40.192Z
+Stopped at: Completed 038-01-PLAN.md
+Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34 Plan 03: I7 POC/HVN/LVN plugins)
