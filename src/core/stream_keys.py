@@ -92,6 +92,11 @@ def topic_llm_outcomes(env_name: str) -> str:
     return f"{env_prefix(env_name)}llm.outcomes"
 
 
+def topic_system_events(env_name: str) -> str:
+    """Kafka topic for system-level events (roll detection, pipeline control)."""
+    return f"{env_prefix(env_name)}system.events"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
