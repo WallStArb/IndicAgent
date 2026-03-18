@@ -17,7 +17,7 @@ Renaissance principles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from ..plugins import InputSpec
 
@@ -43,8 +43,9 @@ class DualDivergencePlugin:
     Confidence: min(0.85, 0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
     """
 
+    # Plugin-level shadow flag — ClassVar so it's not an instance field
+    IS_SHADOW: ClassVar[bool] = True
     name: str = "trad_DualDivergence"
-    IS_SHADOW: bool = True  # Plugin-level shadow flag
     outputs: frozenset[str] = frozenset(
         {
             "signal_type",
@@ -89,6 +90,9 @@ class DualDivergencePlugin:
         ofi_sign = 1 if ofi_div > 0 else -1
         cvd_sign = 1 if cvd_div > 0 else -1
         if ofi_sign != cvd_sign:
+            # Disagreement invalidates accumulated confirmation count
+            state_key = f"{frames.get('__symbol__', '_')}_{frames.get('__timeframe__', '_')}"
+            self._state.pop(state_key, None)
             return self._no_signal()
 
         symbol = frames.get("__symbol__", "_")

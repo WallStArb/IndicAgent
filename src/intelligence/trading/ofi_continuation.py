@@ -50,7 +50,6 @@ class OFIContinuationPlugin:
     capability_tags: frozenset[str] = frozenset({"trading", "continuation", "ofi"})
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=100),)
     regime_type: str = "trend"
-    _consecutive_bars: int = _MIN_CONSECUTIVE_BARS
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
@@ -83,17 +82,16 @@ class OFIContinuationPlugin:
         self._state[state_key] = state
 
         # Gate: require N consecutive bars in same direction
-        if state["count"] < self._consecutive_bars:
+        if state["count"] < _MIN_CONSECUTIVE_BARS:
             return self._no_signal()
 
-        close = df["close"].to_numpy(dtype=float)
-        entry = float(close[-1])
+        entry = float(df["close"].iloc[-1])
 
         direction = current_dir
         confidence = round(min(0.85, 0.50 + abs(ofi_ewma) * 0.001), 4)
 
         signal_type = "ofi_continuation_long" if direction == 1 else "ofi_continuation_short"
-        regime_ctx = "ofi_trend_long" if direction == 1 else "ofi_trend_short"
+        hmm_regime = features.get("hmm_regime")
 
         supporting: list[str] = [
             f"ofi_ewma_20={ofi_ewma:.1f}",
@@ -107,7 +105,7 @@ class OFIContinuationPlugin:
             "stop_loss": None,
             "targets": None,
             "confidence": confidence,
-            "regime_context": regime_ctx,
+            "regime_context": {"hmm_regime": hmm_regime},
             "supporting_factors": supporting,
         }
 

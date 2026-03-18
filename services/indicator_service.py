@@ -225,7 +225,9 @@ class IndicatorService:
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._tick_consumer: KafkaConsumerClient | None = None
 
-        # Per-symbol tick buffer — flushed into frames at bar close
+        # Per-symbol tick buffer — flushed into frames at bar close; capped at 10k ticks
+        _TICK_BUFFER_MAX = 10_000
+        self._tick_buffer_max: int = _TICK_BUFFER_MAX
         self._tick_buffers: dict[str, list[dict]] = defaultdict(list)
 
         # DatabaseManager for DB warmup at startup (Phase 26 pattern)
@@ -438,9 +440,15 @@ class IndicatorService:
             self.error_count_total.inc()
             return False
 
-    async def _process_tick(self, symbol: str, payload: dict) -> None:
-        """Buffer incoming ticks per symbol — flushed at bar close."""
-        self._tick_buffers[symbol].append(payload)
+    def _process_tick(self, symbol: str, payload: dict) -> None:
+        """Buffer incoming ticks per symbol — flushed at bar close. Capped at tick_buffer_max."""
+        buf = self._tick_buffers[symbol]
+        if len(buf) >= self._tick_buffer_max:
+            # Drop oldest half to keep recent ticks; log once per overflow
+            del buf[: self._tick_buffer_max // 2]
+            dropped = self._tick_buffer_max // 2
+            self.logger.warning("tick_buffer_overflow", symbol=symbol, dropped=dropped)
+        buf.append(payload)
 
     async def _process_tick_data(self) -> None:
         """Consume ticks from market.ticks topic and buffer per symbol."""
@@ -450,7 +458,7 @@ class IndicatorService:
                 symbol = (payload.get("symbol") or "").strip()
                 if not symbol:
                     continue
-                await self._process_tick(symbol, payload)
+                self._process_tick(symbol, payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -725,7 +733,7 @@ class IndicatorService:
         self.shutdown_requested = True
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
-        if hasattr(self, "_tick_consumer") and self._tick_consumer:
+        if self._tick_consumer:
             await self._tick_consumer.stop()
         await self._kafka_producer.stop()
         self.logger.info("Indicator Service stopped")
