@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
+from .ml.confidence_calibrator import run_calibration_update
 from .trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES
 from .trading.signal_ledger import WIN_OUTCOMES
 
@@ -292,6 +293,13 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
             await _write_weights_to_db(
                 db_manager, cluster_result, asset_cluster=cluster, timeframe=tf
             )
+
+    # CAL-02: Run calibration update in independent failure domain.
+    # Failure here does not affect weight update completion.
+    try:
+        await run_calibration_update(db_manager)
+    except Exception as exc:
+        logger.error("run_calibration_update call failed", error=str(exc))
 
     return global_result
 
