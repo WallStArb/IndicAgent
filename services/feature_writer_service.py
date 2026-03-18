@@ -31,6 +31,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_roll_event, setup_service_logging
 from src.core.stream_keys import (
+    topic_cross_asset,
     topic_intelligence,
     topic_intelligence_i7,
     topic_intelligence_i8,
@@ -239,11 +240,13 @@ class FeatureWriterService:
             self._env_name: str = _s.env_name or ""
             self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
             self._roll_monitor_enabled: bool = getattr(_s, "roll_monitor_enabled", False)
+            self._cross_asset_enabled: bool = getattr(_s, "cross_asset_enabled", False)
         except Exception as e:
             self.logger.warning("Settings() failed — defaulting env/kafka to ''", error=str(e))
             self._env_name = ""
             self._kafka_bootstrap = "localhost:19092"
             self._roll_monitor_enabled = False
+            self._cross_asset_enabled = False
 
         # Prometheus metrics
         self.events_consumed_total = counter(
@@ -354,6 +357,8 @@ class FeatureWriterService:
         ]
         if self._roll_monitor_enabled:
             topics.append(topic_system_events(self._env_name))
+        if self._cross_asset_enabled:
+            topics.append(topic_cross_asset(self._env_name))
 
         # Single consumer subscribed to intelligence topics (and optionally system.events)
         self._kafka_consumer = KafkaConsumerClient(
@@ -551,6 +556,49 @@ class FeatureWriterService:
             self.error_count_total.inc()
             return False
 
+    async def _process_cross_asset_message(self, payload: dict) -> None:
+        """Persist cross-asset spread features to intelligence_features.
+
+        Cross-asset features are group-level snapshots (not symbol-specific).
+        They are persisted by merging into the i7 JSONB column for the most
+        recent intelligence_features row matching this tf + group timestamp.
+        Uses ON CONFLICT ... DO UPDATE to merge into any existing i7 data.
+        """
+        if not self.db_manager:
+            return
+        try:
+            tf = payload.get("tf", "")
+            ts = payload.get("ts", "")
+            if not tf or not ts or not payload.get("ready"):
+                return
+            cross_asset_data = json.dumps(
+                {
+                    "cross_asset": {
+                        "es_nq_spread_z": payload.get("es_nq_spread_z"),
+                        "es_rty_spread_z": payload.get("es_rty_spread_z"),
+                        "eq_corr_break": payload.get("eq_corr_break"),
+                        "eq_vol_imbalance": payload.get("eq_vol_imbalance"),
+                        "active_pair": payload.get("active_pair"),
+                        "pairs_confirming": payload.get("pairs_confirming"),
+                        "data_quality_score": payload.get("data_quality_score"),
+                        "low_vol_flag": payload.get("low_vol_flag"),
+                    }
+                }
+            )
+            # Persist cross-asset snapshot for each EQ_INDEX group member symbol
+            _eq_index_bases = ("ES", "NQ", "RTY", "YM")
+            params = [(ts, sym, tf, cross_asset_data) for sym in _eq_index_bases]
+            await self.db_manager.execute_batch(_UPSERT_ROLL_BOUNDARY_SQL, params)
+            self.logger.debug(
+                "cross_asset_persisted",
+                tf=tf,
+                ts=ts,
+                symbols=list(_eq_index_bases),
+            )
+        except Exception as e:
+            self.logger.warning("cross_asset_persist_failed", error=str(e))
+            self.error_count_total.inc()
+
     async def _process_loop(self) -> None:
         """Kafka consumer loop — reads intelligence topics and routes by topic."""
         if not self._kafka_consumer:
@@ -560,6 +608,7 @@ class FeatureWriterService:
         i7_topic = topic_intelligence_i7(self._env_name)
         i8_topic = topic_intelligence_i8(self._env_name)
         sys_events_topic = topic_system_events(self._env_name)
+        cross_asset_topic = topic_cross_asset(self._env_name) if self._cross_asset_enabled else ""
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
@@ -568,6 +617,11 @@ class FeatureWriterService:
                 # Route system.events to roll handler (no symbol/tf key required)
                 if kafka_topic == sys_events_topic:
                     await self._handle_roll_event(payload)
+                    continue
+
+                # Route cross_asset topic — group-level, no symbol/tf key
+                if self._cross_asset_enabled and kafka_topic == cross_asset_topic:
+                    await self._process_cross_asset_message(payload)
                     continue
 
                 # Extract symbol and timeframe from key (format "SYMBOL:TF")

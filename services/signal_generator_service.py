@@ -49,6 +49,7 @@ from src.core.service_utils import (
 )
 from src.core.stream_keys import (
     message_key,
+    topic_cross_asset,
     topic_intelligence,
     topic_intelligence_i7,
     topic_market_ticks,
@@ -584,6 +585,10 @@ class SignalGeneratorService:
         self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
         self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
 
+        # Phase 37: Cross-asset intelligence cache (keyed by tf)
+        self._cross_asset_enabled: bool = getattr(settings, "cross_asset_enabled", False)
+        self._cross_asset_cache: dict[str, dict] = {}  # tf -> latest cross_asset payload
+
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
             "Total intelligence events processed by signal generator",
@@ -948,6 +953,8 @@ class SignalGeneratorService:
         ]
         if self._roll_monitor_enabled:
             topics.append(topic_system_events(self.env_name))
+        if self._cross_asset_enabled:
+            topics.append(topic_cross_asset(self.env_name))
 
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
@@ -1457,6 +1464,22 @@ class SignalGeneratorService:
                 "features": features,
             }
 
+            # Phase 37: Inject cross-asset frames for EQ_INDEX symbols when enabled
+            if self._cross_asset_enabled:
+                _eq_bases = frozenset({"ES", "NQ", "RTY", "YM"})
+                _base_sym = None
+                for _b in _eq_bases:
+                    if symbol.startswith(_b) and len(symbol) > len(_b):
+                        _base_sym = _b
+                        break
+                if _base_sym is not None:
+                    frames["cross_asset"] = self._cross_asset_cache.get(
+                        timeframe, {"ready": False}
+                    )
+                    frames["cross_asset_5m"] = self._cross_asset_cache.get(
+                        "5m", {"ready": False}
+                    )
+
             await self._process_bar(
                 symbol,
                 timeframe,
@@ -1487,6 +1510,7 @@ class SignalGeneratorService:
         _intel_topic = topic_intelligence(self.env_name)
         _ticks_topic = topic_market_ticks(self.env_name)
         _sys_events_topic = topic_system_events(self.env_name)
+        _cross_asset_topic = topic_cross_asset(self.env_name) if self._cross_asset_enabled else ""
         try:
             async for topic, key, payload in self._kafka_consumer.messages():
                 if self.shutdown_requested:
@@ -1494,6 +1518,14 @@ class SignalGeneratorService:
                 try:
                     if topic == _sys_events_topic:
                         await self._handle_roll_event(payload)
+                    elif self._cross_asset_enabled and topic == _cross_asset_topic:
+                        # Cache latest cross-asset snapshot by timeframe
+                        try:
+                            tf = payload.get("tf", "")
+                            if tf and payload.get("ready"):
+                                self._cross_asset_cache[tf] = payload
+                        except Exception as _xa_err:
+                            self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
                     elif topic == _intel_topic:
                         # key = "SYMBOL:TF"
                         if key:

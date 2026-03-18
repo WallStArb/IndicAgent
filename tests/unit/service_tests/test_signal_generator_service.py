@@ -238,6 +238,7 @@ async def test_process_message_accesses_typed_attributes():
 
     svc._df_cache = {}
     svc._regime_cache = collections.defaultdict(dict)
+    svc._cross_asset_enabled = False
     svc._process_bar = mock_process_bar
 
     await svc._process_single_message("ESH6", "5m", fields, "intel:ESH6:5m", b"1-0")
