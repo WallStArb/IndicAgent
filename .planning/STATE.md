@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: unknown
-stopped_at: Completed 037-02-PLAN.md (CrossAssetDivergencePlugin + tests)
-last_updated: "2026-03-18T20:06:00.753Z"
+stopped_at: Completed 037-03-PLAN.md (cross-asset pipeline wiring)
+last_updated: "2026-03-18T20:15:31.973Z"
 progress:
   total_phases: 14
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 23
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 037 — cross-asset-intelligence-service
+**Current focus:** Phase 037 — cross-asset-intelligence-service COMPLETE
 
 ## Current Position
 
-Phase: 037 (cross-asset-intelligence-service) — EXECUTING
-Plan: 2 of 3
+Phase: 037 (cross-asset-intelligence-service) — COMPLETE
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -117,6 +117,7 @@ Plan: 2 of 3
 - **Redpanda topic development.cross_asset**: created with retention.ms=604800000 (7 days) per CLAUDE.md requirement
 - **trad_CrossAssetDivergence (037-02)**: stateless I7 plugin; EQ_INDEX guard (ES/NQ/RTY/YM); gate abs(spread_z)>2.0 on active_pair; low_vol_flag suppression; regime-biased direction (hmm_regime=0→reversion, 1/2→continuation, None→reversion); confidence=0.55+(|z|-2)*0.05 * optional_pair_mult(1.2) * optional_tf_mult(1.2) + optional_vol(+0.05) + optional_regime_prob(+0.10); supporting_factors as dict; frame_trade for stop/targets
 - **TIER_I7 = 36, total registered plugins = 121 (27 indicators + 94 patterns)** — after Phase 037-02; CrossAssetDivergencePlugin added
+- **037-03 pipeline wiring**: signal_generator_service subscribes to cross_asset topic when cross_asset_enabled=True; injects frames['cross_asset'] + frames['cross_asset_5m'] for EQ_INDEX symbols (startswith ES/NQ/RTY/YM + len>base); feature_writer_service subscribes + _process_cross_asset_message() persists spread features to intelligence_features.i7 JSONB via ON CONFLICT merge for all 4 EQ_INDEX members; cross_asset topic routed BEFORE symbol:tf key-split (group-level payload, no per-symbol key); Phase 037 COMPLETE
 
 ### v1.9 Phase Ordering Rationale
 
@@ -134,7 +135,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T20:06:00.751Z
-Stopped at: Completed 037-02-PLAN.md (CrossAssetDivergencePlugin + tests)
+Last session: 2026-03-18T20:15:31.970Z
+Stopped at: Completed 037-03-PLAN.md (cross-asset pipeline wiring)
 Resume file: None
 Next action: Execute Phase 036 Plan 02 (I7 OFI/CVD setup plugins)
