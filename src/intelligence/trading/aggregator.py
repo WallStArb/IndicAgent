@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from .cis_scorer import CISScorer
 
 # Regime type map: maps regime_type attribute value → allowed hmm_regime int values.
@@ -129,6 +131,8 @@ def aggregate(
     regime_data: dict[str, Any] | None = None,
     perf_weights: dict[str, float] | None = None,
     drift_penalty: float = 1.0,
+    calibration_curves: dict[tuple[str, str], tuple[list[float], list[float]]] | None = None,
+    timeframe: str = "",
 ) -> AggregatedResult:
     """Aggregate signals from trading setup plugins into a single result.
 
@@ -174,7 +178,12 @@ def aggregate(
     # active is derived from all_ranked so signals carry adjusted_rank for winner selection.
     all_fired = [s for s in signals if s.get("direction") != 0 and s.get("signal_type") != "none"]
     all_ranked = _build_all_ranked(
-        all_fired, perf_weights=perf_weights, features=features, drift_penalty=drift_penalty
+        all_fired,
+        perf_weights=perf_weights,
+        features=features,
+        drift_penalty=drift_penalty,
+        calibration_curves=calibration_curves,
+        timeframe=timeframe,
     )
     active = [s for s in all_ranked if s.get("regime_eligible", True)]
 
@@ -371,6 +380,8 @@ def _build_all_ranked(
     perf_weights: dict[str, float] | None = None,
     features: dict[str, Any] | None = None,
     drift_penalty: float = 1.0,
+    calibration_curves: dict[tuple[str, str], tuple[list[float], list[float]]] | None = None,
+    timeframe: str = "",
 ) -> list[dict]:
     """Build ranked list of all fired signals (eligible + suppressed).
 
@@ -429,6 +440,27 @@ def _build_all_ranked(
         for sig in with_ranks:
             sig["confidence"] = round(float(sig.get("confidence", 0.0)) * drift_penalty, 4)
 
+    # 1d. Apply calibrated_confidence as sort key when isotonic curve exists (CAL-03).
+    #     calibrated_confidence is added as a NEW field — confidence is NOT mutated.
+    #     Applied as FINAL step after all quality multipliers (Hurst, entropy, drift).
+    #     Only the winning signal's calibrated_confidence is stored in signal_ledger;
+    #     non-winner entries get NULL there. Here we set it for ranking purposes only.
+    if calibration_curves and timeframe:
+        for sig in with_ranks:
+            plugin_name = sig.get("setup_plugin", "")
+            curve = calibration_curves.get((plugin_name, timeframe))
+            if curve is not None:
+                breakpoints, values = curve
+                raw_conf = float(sig.get("confidence", 0.0))
+                sig["calibrated_confidence"] = round(
+                    float(np.interp(raw_conf, breakpoints, values)), 4
+                )
+            else:
+                sig["calibrated_confidence"] = None
+    else:
+        for sig in with_ranks:
+            sig["calibrated_confidence"] = None
+
     # 2. Assign adjusted_rank
     weights = perf_weights or {}
     for sig in with_ranks:
@@ -442,10 +474,16 @@ def _build_all_ranked(
             # Negate so ascending sort puts highest-priority first.
             sig["adjusted_rank"] = round(-SETUP_PRIORITY.get(plugin_name, 0), 4)
 
-    # 3. Sort ascending by (adjusted_rank, -priority) — tiebreak preserves SETUP_PRIORITY order.
+    # 3. Sort by calibrated_confidence (desc) when available, else by adjusted_rank (asc).
+    #    Tiebreak: adjusted_rank ascending, then SETUP_PRIORITY descending.
     return sorted(
         with_ranks,
         key=lambda s: (
+            # Primary: calibrated_confidence when available (invert: higher = better)
+            -(s.get("calibrated_confidence") or 0.0)
+            if s.get("calibrated_confidence") is not None
+            else -(s.get("confidence", 0.0)),
+            # Tiebreak: adjusted_rank ascending (lower = better), then priority desc
             s["adjusted_rank"],
             -SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0) if weights else 0,
         ),
