@@ -18,6 +18,7 @@ import json
 import signal
 import sys
 import time
+import zoneinfo
 from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,6 +103,28 @@ _REGIME_AUTHORITY_TF: dict[str, str] = {
     "4h": "1d",
     "1d": "1d",
 }
+
+# Phase 35 TOD: Eastern Time zone for hour extraction
+_ET = zoneinfo.ZoneInfo("America/New_York")
+
+# Phase 35 TOD: session priors per (regime_type, hour_et) — expanded to individual hour keys.
+# NY open (09:30-10:00): hour 9. Lunch chop (11:30-13:00): hours 11, 12.
+# London close (14:00-15:00): hour 14. MOC (15:30-16:00): hour 15.
+_TOD_SESSION_PRIORS: dict[tuple[str, int], float] = {
+    ("trend",           9): 1.10,
+    ("mean_reversion",  9): 1.00,
+    ("any",             9): 1.00,
+    ("trend",          11): 0.90,
+    ("mean_reversion", 11): 0.90,
+    ("any",            11): 0.90,
+    ("trend",          12): 0.90,
+    ("mean_reversion", 12): 0.90,
+    ("any",            12): 0.90,
+    ("mean_reversion", 14): 1.08,
+    ("any",            15): 1.10,
+}
+_TOD_ALPHA = 20.0    # prior weight in virtual observations
+_TOD_CLAMP = (0.7, 1.3)
 
 MARKET_CONTEXT_KEYS: tuple[str, ...] = (
     "trend_regime",
@@ -476,6 +499,11 @@ class SignalGeneratorService:
         # CIS weights cache: (asset_cluster, timeframe) -> (weights_dict, version)
         # Populated by _load_cis_weights_from_db(); used for per-cluster weight lookup.
         self._cis_weights_cache: dict[tuple[str, str], tuple[dict[str, float], int]] = {}
+
+        # Phase 35: Calibration + TOD multiplier + CIS Kalman state
+        self._calibration_curves: dict = {}   # (plugin_name, tf) -> (breakpoints, values)
+        self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
+        self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
@@ -956,6 +984,17 @@ class SignalGeneratorService:
         # Runs before aggregation so blocked signals never enter alpha decay path.
         raw_signals = self._filter_setup_cooldown(symbol, timeframe, raw_signals, timestamp)
 
+        # Phase 35 TOD-02: Apply Bayesian-smoothed TOD multiplier to each signal's confidence
+        # PRE-CIS: multiplier affects bucket contribution → signal selection, not just ranking.
+        # Lookup key: (regime_type, timeframe, hour_et); fallback to 1.0 (neutral).
+        _bar_hour_et = timestamp.astimezone(_ET).hour
+        for sig in raw_signals:
+            _regime_t = sig.get("regime_type", "any")
+            _tod_mult = self._tod_multipliers.get((_regime_t, timeframe, _bar_hour_et), 1.0)
+            if _tod_mult != 1.0:
+                sig["confidence"] = round(float(sig.get("confidence", 0.0)) * _tod_mult, 4)
+                sig["tod_multiplier"] = _tod_mult  # logged in signal dict for observability
+
         # QUAL-02: alpha decay — increment bars_since for all tracked (symbol, tf) entries,
         # then apply decay to each signal's confidence BEFORE calling aggregate().
         # This preserves original confidence in signal_ledger (ledger uses post-decay values
@@ -988,6 +1027,8 @@ class SignalGeneratorService:
             regime_data=regime_data,
             perf_weights=self._perf_weights,
             drift_penalty=drift_penalty,
+            calibration_curves=self._calibration_curves,
+            timeframe=timeframe,
         )
 
         # Apply structural trade framing to the winning signal
@@ -1534,6 +1575,113 @@ class SignalGeneratorService:
             except Exception as e:
                 self.logger.error("CIS weights refresh loop error", error=str(e))
 
+    async def _load_calibration_curves_from_db(self) -> None:
+        """Load isotonic calibration curves from confidence_calibration table every 30 min."""
+        if self.db_manager is None:
+            return
+        try:
+            rows = await self.db_manager.execute_query(
+                "SELECT plugin_name, timeframe, breakpoints, values "
+                "FROM confidence_calibration WHERE sample_size >= 100"
+            )
+            new_cache: dict = {}
+            for row in rows:
+                key = (row["plugin_name"], row["timeframe"])
+                new_cache[key] = (list(row["breakpoints"]), list(row["values"]))
+            self._calibration_curves = new_cache
+            self.logger.debug("calibration_curves_loaded", n_curves=len(new_cache))
+        except Exception as exc:
+            self.logger.warning("calibration_curves_refresh_error", error=str(exc))
+
+    async def _calibration_curves_refresh_loop(self) -> None:
+        """Refresh calibration curves from confidence_calibration every 30 min."""
+        _REFRESH_INTERVAL = 1800
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL
+                    )
+                    break
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._load_calibration_curves_from_db()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("calibration_curves_refresh_loop error", error=str(e))
+
+    async def _load_tod_multipliers_from_db(self) -> None:
+        """Load Bayesian-smoothed TOD multipliers per (regime_type, timeframe, hour_et).
+
+        Uses regime_type_at_fire column (added by migration 038). Pre-Phase-35 rows
+        have NULL and are bucketed as 'any' via COALESCE.
+        """
+        if self.db_manager is None:
+            return
+        try:
+            rows = await self.db_manager.execute_query(
+                """
+                SELECT
+                    COALESCE(regime_type_at_fire, 'any') AS regime_type,
+                    timeframe,
+                    EXTRACT(HOUR FROM timestamp AT TIME ZONE 'America/New_York')::int AS hour_et,
+                    COUNT(*)::float AS n,
+                    SUM(CASE WHEN outcome IN ('target_1','target_1_2','target_full')
+                             THEN 1 ELSE 0 END)::float AS wins
+                FROM signal_ledger
+                WHERE outcome IS NOT NULL AND is_shadow = FALSE
+                GROUP BY 1, 2, 3
+                """
+            )
+            # Compute overall win rate as baseline (prior denominator)
+            total_n = sum(r["n"] for r in rows) if rows else 0
+            total_wins = sum(r["wins"] for r in rows) if rows else 0
+            global_win_rate = (total_wins / total_n) if total_n > 0 else 0.5
+            global_win_rate = max(0.01, global_win_rate)  # avoid div-by-zero
+
+            new_multipliers: dict = {}
+            for row in rows:
+                regime_type = str(row["regime_type"])
+                timeframe = str(row["timeframe"])
+                hour_et = int(row["hour_et"])
+                n = float(row["n"])
+                wins = float(row["wins"])
+                empirical_wr = (wins / n) if n > 0 else global_win_rate
+                empirical_ratio = empirical_wr / global_win_rate
+
+                prior_ratio = _TOD_SESSION_PRIORS.get((regime_type, hour_et), 1.0)
+                raw_mult = (_TOD_ALPHA * prior_ratio + n * empirical_ratio) / (_TOD_ALPHA + n)
+                clamped = max(_TOD_CLAMP[0], min(_TOD_CLAMP[1], raw_mult))
+                new_multipliers[(regime_type, timeframe, hour_et)] = round(clamped, 4)
+
+            self._tod_multipliers = new_multipliers
+            self.logger.debug("tod_multipliers_loaded", n_cells=len(new_multipliers))
+        except Exception as exc:
+            self.logger.warning("tod_multipliers_refresh_error", error=str(exc))
+
+    async def _tod_multipliers_refresh_loop(self) -> None:
+        """Refresh TOD multipliers from signal_ledger every 4h."""
+        _REFRESH_INTERVAL = 14400  # 4 hours
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL
+                    )
+                    break
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._load_tod_multipliers_from_db()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("tod_multipliers_refresh_loop error", error=str(e))
+
     async def start(self) -> None:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
         try:
@@ -1548,6 +1696,9 @@ class SignalGeneratorService:
             await self._refresh_drift_penalties_from_db()
             # Load CIS weights at startup — first bar uses learned weights immediately
             await self._load_cis_weights_from_db()
+            # Phase 35: Load calibration curves and TOD multipliers at startup
+            await self._load_calibration_curves_from_db()
+            await self._load_tod_multipliers_from_db()
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
@@ -1555,6 +1706,8 @@ class SignalGeneratorService:
                 asyncio.create_task(self._drift_penalties_refresh_loop()),
                 asyncio.create_task(self._resolution_listener_loop()),
                 asyncio.create_task(self._cis_weights_refresh_loop()),
+                asyncio.create_task(self._calibration_curves_refresh_loop()),
+                asyncio.create_task(self._tod_multipliers_refresh_loop()),
             ]
             self.logger.info("Signal Generator Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
