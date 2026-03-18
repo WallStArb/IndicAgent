@@ -97,6 +97,11 @@ def topic_system_events(env_name: str) -> str:
     return f"{env_prefix(env_name)}system.events"
 
 
+def topic_cross_asset(env_name: str) -> str:
+    """Kafka topic for cross-asset spread features (group-level)."""
+    return f"{env_prefix(env_name)}cross_asset"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
