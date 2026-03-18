@@ -345,7 +345,11 @@ Plans:
   2. `trad_OrderFlowImbalance` and `trad_CVDDivergence` appear in `TIER_I7`; `registry.validate_tier()` passes; both plugins fire at least once in a one-week replay on ES 1m.
   3. `trad_CVDDivergence` logs a `dual_divergence=True` flag when both CVD and OFI diverge simultaneously — the highest-conviction variant is distinguishable in signal_ledger metadata.
   4. The bar-level OFI proxy formula `(close - low) / (high - low + ε) × volume` is used as fallback when tick data is unavailable, with the implementation variant documented in `OFI-01` audit output.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 036-01-PLAN.md — I1 OFI + CVD plugins, tick buffer wiring in indicator_service
+- [ ] 036-02-PLAN.md — 7 I7 microstructure trading plugins + TIER_I7 registration
 
 ### Phase 37: Cross-Asset Intelligence Service
 **Goal**: A new `cross_asset_service` microservice monitors equity index spread dynamics across ES, NQ, RTY, and YM and publishes cross-asset divergence signals when spread z-scores exceed meaningful thresholds.
@@ -470,6 +474,6 @@ Phases execute in numeric order. v1.0–v1.8 complete (Phases 0-29 shipped). Pha
 | 33. Five New I7 Signal Plugins | v1.9 | 3/3 | Complete | 2026-03-17 |
 | 34. I4 Infrastructure — Anchored VWAP + Volume Profile | 3/3 | Complete    | 2026-03-17 | - |
 | 35. Calibration + TOD Multiplier + CIS Kalman Filter | 3/3 | Complete    | 2026-03-18 | - |
-| 36. Microstructure Plugins | v1.9 | 0/TBD | Not started | - |
+| 36. Microstructure Plugins | v1.9 | 0/2 | Not started | - |
 | 37. Cross-Asset Intelligence Service | v1.9 | 0/TBD | Not started | - |
 | 38. Automated Futures Roll Detection | v1.9 | 0/3 | Not started | - |
