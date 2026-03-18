@@ -4,13 +4,13 @@ milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
 status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
 stopped_at: Phase 36 context gathered
-last_updated: "2026-03-18T05:51:37.744Z"
+last_updated: "2026-03-18T15:17:51.219Z"
 last_activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
 progress:
   total_phases: 14
   completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 23
+  completed_plans: 19
   percent: 94
 ---
 
@@ -101,6 +101,10 @@ Progress: [█████████░] 94%
 - **35-02: TOD multiplier pre-CIS** — _TOD_SESSION_PRIORS + _TOD_ALPHA=20.0 + _TOD_CLAMP=(0.7,1.3); Bayesian formula; COALESCE(regime_type_at_fire,'any'); applied in _process_bar() after _filter_setup_cooldown() before alpha decay; _load_calibration_curves_from_db (30min), _load_tod_multipliers_from_db (4h); _cis_kalman_state stub added
 - **35-03: CIS Kalman filter** — _cis_kalman_update() pure function; _CIS_KALMAN_DEFAULTS+_CIS_KALMAN_PARAMS+_load_cis_kalman_params() at module level; state per (symbol,tf) initialized on first bar with x_est=raw_cis, P_est=R; new fire condition: filtered_cis>0.35 AND raw_cis>0.28 AND buckets_agreeing>=3; old-pass/new-fail sets _kalman_shadow=True with suppression_reason (kalman_filtered_cis_low|raw_cis_low|buckets_agreeing_low); raw_cis_score+filtered_cis_score threaded to all LedgerEntry rows; calibrated_confidence+regime_type_at_fire set on winner-only
 - **35-03: dashboard confidence trio** — drill-panel.tsx compact row + expanded header use calibrated_confidence when non-null (fallback to confidence); expanded view Phase 35 trio section shows raw_cis_score/filtered_cis_score/calibrated_confidence side-by-side; types.ts adds 3 optional fields to SignalData; signal-card.tsx does not exist (marketing page only)
+- **TIER_I1 = 27, total registered plugins = 113** — after Phase 036-01; OFI (ind_OFI) and CVD (ind_CVD) added to I1
+- **OFIPlugin (ind_OFI)**: tick/proxy dual-path; tick rule via frames['tick_buffer']; proxy=(close-low)/(high-low)*vol; EWMA-5/20 with alpha=2/(n+1); spike_z from rolling 100-bar history; divergence = ofi_dir - price_dir (range -2..2); ofi_variant auditing
+- **CVDPlugin (ind_CVD)**: cumulative delta with ET session reset at 09:30 (zoneinfo America/New_York); tick rule same as OFI; proxy=(2c-h-l)/(h-l)*vol; 5-bar polyfit slope; divergence = slope_dir - price_dir_5bar; spike_z from 100-bar delta history
+- **indicator_service tick buffer**: _tick_buffers defaultdict(list) keyed by symbol; flushed via pop() at bar close; seed path uses tick_buffer=[]; separate KafkaConsumerClient group_id="indicator_service_ticks" subscribed to market.ticks topic
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -116,7 +120,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T05:51:37.741Z
-Stopped at: Phase 36 context gathered
-Resume file: .planning/phases/036-microstructure-plugins/036-CONTEXT.md
-Next action: `/gsd:execute-phase 35` (Phase 35 Plan 03: CIS Kalman filter)
+Last session: 2026-03-18T06:04:06Z
+Stopped at: Completed 036-01-PLAN.md (OFI + CVD I1 plugins)
+Resume file: .planning/phases/036-microstructure-plugins/036-01-SUMMARY.md
+Next action: Execute Phase 036 Plan 02 (I7 OFI/CVD setup plugins)
