@@ -1167,6 +1167,7 @@ def replay_symbol(
     db_conn: Any,
     timeframes: list[str] | None = None,
     since: datetime | None = None,
+    skip_signals: bool = False,
 ) -> dict[str, int]:
     """Replay bars for *symbol* through the I1→I7 pipeline.
 
@@ -1176,6 +1177,9 @@ def replay_symbol(
 
     Args:
         since: If provided, only replay bars on or after this timestamp.
+        skip_signals: If True, run I1→I6 and write intelligence_features but
+            skip I7 and signal_ledger writes. Use for seed/warmup runs where
+            you only want indicator history, not historical signals.
 
     Returns:
         dict mapping timeframe → number of ledger entries inserted.
@@ -1215,6 +1219,7 @@ def replay_symbol(
 
         bars = bars_by_tf[tf]
         total_signals = 0
+        total_features = 0
         print(f"  {symbol}/{tf}: replaying {len(bars):,} bars...")
 
         feature_buffer: list[tuple] = []
@@ -1259,32 +1264,40 @@ def replay_symbol(
             if event is not None:
                 feature_buffer.append(_event_to_sync_params(event))
                 written_feature_ts = ts
+                total_features += 1
                 if len(feature_buffer) >= _FEATURE_BATCH_SIZE:
                     _insert_features_sync(db_conn, feature_buffer)
                     feature_buffer.clear()
 
-            # I7 → signal_ledger (with feature_ts populated when features row was written)
-            n = run_i7_and_persist(
-                history,
-                all_features,
-                symbol,
-                tf,
-                ts,
-                db_conn,
-                feature_ts=written_feature_ts,
-                feature_tf=(tf if written_feature_ts is not None else None),
-            )
-            total_signals += n
+            # I7 → signal_ledger (skipped in seed/warmup mode)
+            if not skip_signals:
+                n = run_i7_and_persist(
+                    history,
+                    all_features,
+                    symbol,
+                    tf,
+                    ts,
+                    db_conn,
+                    feature_ts=written_feature_ts,
+                    feature_tf=(tf if written_feature_ts is not None else None),
+                )
+                total_signals += n
 
             if (i + 1) % 1000 == 0:
-                print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals")
+                if skip_signals:
+                    print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_features} features")  # noqa: E501
+                else:
+                    print(f"    {symbol}/{tf}: {i+1:,}/{len(bars):,} bars, {total_signals} signals")
 
         # Flush remaining buffered feature rows
         if feature_buffer:
             _insert_features_sync(db_conn, feature_buffer)
 
-        signal_counts[tf] = total_signals
-        print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
+        signal_counts[tf] = total_features if skip_signals else total_signals
+        if skip_signals:
+            print(f"  {symbol}/{tf}: done — {total_features} feature rows written")
+        else:
+            print(f"  {symbol}/{tf}: done — {total_signals} signals inserted")
 
     return signal_counts
 

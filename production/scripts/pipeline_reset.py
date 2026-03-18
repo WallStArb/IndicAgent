@@ -153,7 +153,7 @@ def build_preflight_summary(
     elif no_backfill:
         # --no-backfill wipes OHLCV too — no point keeping it if we won't replay
         tables.append(_OHLCV_TABLE)
-    if clear_llm:
+    if clear_llm or no_backfill:
         tables.extend(_LLM_TABLES)
     for table in tables:
         count = _row_count(conn, table)
@@ -246,7 +246,8 @@ def truncate_tables(
     # --no-backfill wipes OHLCV — no replay means keeping it would leave stale prices
     if not keep_ohlcv or no_backfill:
         tables.append(_OHLCV_TABLE)
-    if clear_llm:
+    # --no-backfill always clears LLM tables — narratives for non-existent signals are worthless
+    if clear_llm or no_backfill:
         tables.extend(_LLM_TABLES)
 
     cleared = []
@@ -275,39 +276,54 @@ def truncate_tables(
     return cleared
 
 
-def verify_dataset(conn: Any) -> tuple[bool, str]:
-    """Check that the reset produced non-empty tables.
+def verify_dataset(conn: Any, seed_mode: bool = False) -> tuple[bool, str]:
+    """Check that the reset produced the expected table state.
+
+    seed_mode=True: signal_ledger must be empty (I7 was skipped); intelligence_features
+    and market_data_ohlcv must be non-empty (warmup bars written).
 
     Returns (ok, report_string).
     """
     lines = ["Verification:"]
     ok = True
 
-    for table in ["signal_ledger", "intelligence_features", "market_data_ohlcv"]:
+    for table in ["market_data_ohlcv", "intelligence_features"]:
         count = _row_count(conn, table)
         status = "OK" if count > 0 else "EMPTY ⚠"
         if count == 0:
             ok = False
         lines.append(f"  {table:<35} {count:>10,} rows  [{status}]")
 
-    # Per-symbol/TF signal breakdown
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT symbol, timeframe, count(*) as n,
-                   min(timestamp)::date, max(timestamp)::date
-            FROM signal_ledger
-            GROUP BY symbol, timeframe
-            ORDER BY symbol, timeframe
-        """)
-        rows = cur.fetchall()
-
-    if rows:
-        lines.append("\n  Signals per symbol/TF:")
-        for sym, tf, n, min_dt, max_dt in rows:
-            lines.append(f"    {sym:<8} {tf:<4}  {n:>6,} signals  ({min_dt} → {max_dt})")
+    sl_count = _row_count(conn, "signal_ledger")
+    if seed_mode:
+        status = "CLEAN ✓" if sl_count == 0 else f"NOT EMPTY ⚠ ({sl_count:,} rows)"
+        if sl_count > 0:
+            ok = False
+        lines.append(f"  {'signal_ledger':<35} {status}")
+        lines.append("\n  Seed mode — signals will fire from live bars only")
     else:
-        lines.append("\n  No signals — check replay completed successfully")
-        ok = False
+        status = "OK" if sl_count > 0 else "EMPTY ⚠"
+        if sl_count == 0:
+            ok = False
+        lines.append(f"  {'signal_ledger':<35} {sl_count:>10,} rows  [{status}]")
+
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT symbol, timeframe, count(*) as n,
+                       min(timestamp)::date, max(timestamp)::date
+                FROM signal_ledger
+                GROUP BY symbol, timeframe
+                ORDER BY symbol, timeframe
+            """)
+            rows = cur.fetchall()
+
+        if rows:
+            lines.append("\n  Signals per symbol/TF:")
+            for sym, tf, n, min_dt, max_dt in rows:
+                lines.append(f"    {sym:<8} {tf:<4}  {n:>6,} signals  ({min_dt} → {max_dt})")
+        else:
+            lines.append("\n  No signals — check replay completed successfully")
+            ok = False
 
     return ok, "\n".join(lines)
 
@@ -505,19 +521,27 @@ def main() -> None:
         print("\n[3/5] Skipping IBKR fetch (--keep-ohlcv)")
 
     # --- Stage 5: Replay pipeline ---
-    print("\n[4/5] Replaying I1→I7 pipeline...")
+    if args.no_backfill:
+        print("\n[4/5] Replaying I1→I6 (seed mode — intelligence_features only, no signals)...")
+    else:
+        print("\n[4/5] Replaying I1→I7 pipeline...")
     for contract in contracts:
         counts = replay_symbol(
             symbol=contract.symbol,
             db_conn=db_conn,
             timeframes=DEFAULT_TIMEFRAMES,
+            skip_signals=args.no_backfill,
         )
-        for tf, n in counts.items():
-            print(f"  {contract.symbol}/{tf}: {n:,} signals")
+        if args.no_backfill:
+            for tf, n in counts.items():
+                print(f"  {contract.symbol}/{tf}: {n:,} feature rows")
+        else:
+            for tf, n in counts.items():
+                print(f"  {contract.symbol}/{tf}: {n:,} signals")
 
     # --- Stage 6: Verify ---
     print("\n[5/5] Verifying dataset...")
-    ok, report = verify_dataset(db_conn)
+    ok, report = verify_dataset(db_conn, seed_mode=args.no_backfill)
     print(report)
     if not ok:
         print("\n⚠  Verification failed — check above for empty tables")
