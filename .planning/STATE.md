@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: Plan 35-03 shipped — CIS Kalman filter, shadow fire condition, dashboard confidence trio
-stopped_at: Completed 35-03-PLAN.md (Phase 35 complete)
-last_updated: "2026-03-18T05:05:00.000Z"
+status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
+stopped_at: Completed 35-03-PLAN.md
+last_updated: "2026-03-18T04:58:19.200Z"
 last_activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
 progress:
   total_phases: 14
-  completed_phases: 7
+  completed_phases: 6
   total_plans: 18
   completed_plans: 18
-  percent: 100
+  percent: 94
 ---
 
 # Project State
