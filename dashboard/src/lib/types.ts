@@ -285,6 +285,10 @@ export interface SignalData {
   cis_score?: number | null;         // CIS composite score (null for pre-CIS signals and SSE before Task 6)
   was_selected?: boolean;            // Did this signal win aggregation? (always true in SSE stream)
   signal_tier?: SignalTier;          // Computed tier — present in API responses; derive client-side for SSE
+  // Phase 35: Confidence pipeline (raw → Kalman-filtered → isotonic-calibrated)
+  raw_cis_score?: number | null;           // Raw CIS score before Kalman filter
+  filtered_cis_score?: number | null;      // Kalman-filtered CIS score (used for fire condition)
+  calibrated_confidence?: number | null;   // Isotonic regression probability; NULL when N < 100 samples
 }
 
 // ── I7 Signal Scorecard (all_ranked from signal_generator_service) ──
