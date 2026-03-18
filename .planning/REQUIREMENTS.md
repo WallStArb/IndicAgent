@@ -64,8 +64,8 @@
 
 ### CAL — Confidence Calibration
 
-- [ ] **CAL-01**: `confidence_calibration` DB table stores isotonic regression calibration curves per `(plugin_name, timeframe)`; columns: `breakpoints DOUBLE PRECISION[]`, `values DOUBLE PRECISION[]`, `ece DOUBLE PRECISION`, `sample_size INT`, `updated_at TIMESTAMPTZ`
-- [ ] **CAL-02**: Calibration batch job `src/intelligence/ml/confidence_calibrator.py` trains isotonic regression when N ≥ 100 completed signals per `(plugin_name, timeframe)`; runs alongside weight updater systemd timer; `calibrated_confidence` stored in `signal_ledger`
+- [x] **CAL-01**: `confidence_calibration` DB table stores isotonic regression calibration curves per `(plugin_name, timeframe)`; columns: `breakpoints DOUBLE PRECISION[]`, `values DOUBLE PRECISION[]`, `ece DOUBLE PRECISION`, `sample_size INT`, `updated_at TIMESTAMPTZ`
+- [x] **CAL-02**: Calibration batch job `src/intelligence/ml/confidence_calibrator.py` trains isotonic regression when N ≥ 100 completed signals per `(plugin_name, timeframe)`; runs alongside weight updater systemd timer; `calibrated_confidence` stored in `signal_ledger`
 - [ ] **CAL-03**: Aggregator `_build_all_ranked()` applies calibrated confidence as final step after all quality multipliers (Hurst, KS drift, GARCH); `calibrated_confidence` used for winner ranking when available; raw confidence fallback when calibration curve absent
 
 ### TOD — Time-of-Day Multiplier
@@ -100,7 +100,7 @@
 - [x] **ROLL-01**: `src/config/contracts.py` new module with `derive_roll_chain(base_symbol)` — returns 3-contract roll chain using IBKR month codes (H/M/U/Z + F/G/J/K/N/Q/V/X); applies only to `AssetClass.FUTURES`; ETFs/FX/Crypto excluded
 - [x] **ROLL-02**: `contract_metadata` table extended via migration 037 with `is_front_month BOOLEAN`, `roll_gap DOUBLE PRECISION`, `roll_direction VARCHAR(10)`, `roll_detected_at TIMESTAMPTZ`, `confirmation_count INTEGER`; new `system_events` table with `event_type`, `base_symbol`, `old_symbol`, `new_symbol`, `roll_gap`, `roll_direction`, `detected_at`, `event_data JSONB`; `topic_system_events()` added to `stream_keys.py`
 - [x] **ROLL-03**: `Settings.get_active_contracts()` queries `contract_metadata` where `is_front_month=true`; caches result for 60 seconds; falls back to config-file contracts on DB error; replaces all service hardcoded `Settings().contracts` references
-- [ ] **ROLL-04**: `tws_daemon.py` extended with roll detection: 100-bar rolling volume window per base symbol; volume ratio threshold (segmented: ES/NQ/RTY/YM=1.2, CL/GC/SI/HG=1.5, ZN/ZF/ZB/ZT=1.4); z-score > 2.0 gate; 3-bar confirmation window before commit; 30-minute cooldown per base symbol; RTH-only time-of-day gating; publishes roll events to `system_events` Kafka topic; atomic `contract_metadata` update (toggle `is_front_month`); feature flag `ROLL_MONITOR_ENABLED=false` default (shadow mode)
+- [x] **ROLL-04**: `tws_daemon.py` extended with roll detection: 100-bar rolling volume window per base symbol; volume ratio threshold (segmented: ES/NQ/RTY/YM=1.2, CL/GC/SI/HG=1.5, ZN/ZF/ZB/ZT=1.4); z-score > 2.0 gate; 3-bar confirmation window before commit; 30-minute cooldown per base symbol; RTH-only time-of-day gating; publishes roll events to `system_events` Kafka topic; atomic `contract_metadata` update (toggle `is_front_month`); feature flag `ROLL_MONITOR_ENABLED=false` default (shadow mode)
 - [ ] **ROLL-05**: All downstream services (`indicator_service`, `market_analysis_service`, `signal_generator_service`, `feature_writer_service`) consume roll events from `system_events` Kafka topic and update their active symbol lists; `indicator_service` migrates plugin state (price-sensitive indicators adjusted by `roll_gap`, volume-neutral indicators copied verbatim); `feature_writer_service` writes roll boundary marker to `intelligence_features` i7 JSONB
 - [ ] **ROLL-06**: `historical_backfill.py` extended with `--seed-roll-chain` flag that populates `contract_metadata` with the 3-contract roll chain for each active futures base symbol; sets `is_front_month=true` for the current front-month contract
 
@@ -166,8 +166,8 @@
 | VWAP-02 | Phase 34 | Complete |
 | VOL-01 | Phase 34 | Complete |
 | VOL-02 | Phase 34 | Complete |
-| CAL-01 | Phase 35 | Pending |
-| CAL-02 | Phase 35 | Pending |
+| CAL-01 | Phase 35 | Complete |
+| CAL-02 | Phase 35 | Complete |
 | CAL-03 | Phase 35 | Pending |
 | TOD-01 | Phase 35 | Pending |
 | TOD-02 | Phase 35 | Pending |
@@ -184,7 +184,7 @@
 | ROLL-01 | Phase 38 | Complete |
 | ROLL-02 | Phase 38 | Complete |
 | ROLL-03 | Phase 38 | Complete |
-| ROLL-04 | Phase 38 | Pending |
+| ROLL-04 | Phase 38 | Complete |
 | ROLL-05 | Phase 38 | Pending |
 | ROLL-06 | Phase 38 | Pending |
 
