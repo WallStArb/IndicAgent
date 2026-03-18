@@ -90,6 +90,7 @@ from .structure.trend_structure import plugin as trend_plugin
 from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin
+from .trading.cross_asset_divergence import plugin as cross_asset_divergence_plugin
 from .trading.cvd_divergence import plugin as cvd_divergence_plugin
 from .trading.cvd_spike import plugin as cvd_spike_plugin
 from .trading.delta_exhaustion import plugin as delta_exhaustion_plugin
@@ -121,7 +122,6 @@ from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vcp import plugin as vcp_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
-from .trading.cross_asset_divergence import plugin as cross_asset_divergence_plugin
 from .trading.vwap_reclaim import plugin as vwap_reclaim_plugin
 
 
