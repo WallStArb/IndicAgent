@@ -7,6 +7,13 @@
 **Confirmed pre-existing:** Fails identically on HEAD before Phase 35 changes (verified with git stash)
 **Owner:** Phase 38 cleanup or standalone test fix
 
+## Pre-existing Ruff Issues in signal_generator_service.py (out of scope for 35-02)
+
+**F401:** `src.config.settings.get_active_contracts` imported but unused — present before Phase 35 changes
+**E501:** Line too long at line ~790 — present before Phase 35 changes
+**Confirmed pre-existing:** Both errors exist identically on HEAD before Phase 35-02 changes (verified with git stash)
+**Owner:** Standalone cleanup task
+
 ## Pre-existing Test Failure #2 (out of scope for 35-01)
 
 **File:** `tests/unit/config/test_settings.py::TestHelperFunctions::test_get_active_contracts`

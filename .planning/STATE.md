@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: Plan 35-01 shipped — confidence_calibration table, isotonic regression calibrator, LedgerEntry extended to 58 fields, wired into weight_updater
-stopped_at: Completed 038-03-PLAN.md
-last_updated: "2026-03-18T04:32:39.157Z"
-last_activity: 2026-03-17 — Phase 35 Plan 01 executed (migration, calibrator module, weight_updater wiring)
+status: Plan 35-02 shipped — TOD multiplier pre-CIS + calibrated_confidence sort key + refresh loops wired into aggregator and service
+stopped_at: Completed 35-02-PLAN.md
+last_updated: "2026-03-18T04:36:57.906Z"
+last_activity: 2026-03-18 — Phase 35 Plan 02 executed (TOD multiplier, calibrated_confidence sort key, refresh loops)
 progress:
   total_phases: 14
   completed_phases: 5
   total_plans: 18
-  completed_plans: 16
-  percent: 89
+  completed_plans: 17
+  percent: 94
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 35-calibration-tod-multiplier-cis-kalman-filter (plan 01 complete — plan 02 next)
-Plan: 35-02 (TOD multiplier)
-Status: Plan 35-01 shipped — confidence_calibration table, isotonic regression calibrator, LedgerEntry extended to 58 fields, wired into weight_updater
-Last activity: 2026-03-17 — Phase 35 Plan 01 executed (migration, calibrator module, weight_updater wiring)
+Phase: 35-calibration-tod-multiplier-cis-kalman-filter (plan 02 complete — plan 03 next)
+Plan: 35-03 (CIS Kalman filter)
+Status: Plan 35-02 shipped — TOD Bayesian multiplier pre-CIS, calibrated_confidence sort key, calibration curve + TOD refresh loops
+Last activity: 2026-03-18 — Phase 35 Plan 02 executed (TOD multiplier, calibrated_confidence sort key, refresh loops)
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -97,6 +97,8 @@ Progress: [█████████░] 89%
 - **Pipeline roll integration (038-03)**: indicator_service._handle_roll_event() migrates (plugin_name, symbol, tf) state keys; PRICE_SENSITIVE_PLUGINS={bollinger_bands, keltner_channel, donchian_channel} adjusted by roll_gap via _adjust_price_state(); volume-neutral copied verbatim; market_analysis_service updates _active_symbols; signal_generator migrates bar_history deques; feature_writer writes roll_boundary marker to i7 JSONB via ON CONFLICT ... || merge; all 4 services conditionally subscribe to topic_system_events() when roll_monitor_enabled=True
 - **seed_roll_chain() in production/scripts/historical_backfill.py** — --seed-roll-chain flag; UPSERTs 3-contract chain per futures base symbol with is_front_month=True for index 0; ON CONFLICT (symbol) DO UPDATE; deduplicates base symbols via dict.fromkeys(); per-base errors caught and logged
 - **confidence_calibration table + 35-01 fields** — 038_calibration_fields.sql; isotonic regression curves per (plugin_name, timeframe); run_calibration_update() in src/intelligence/ml/confidence_calibrator.py; wired into weight_updater.run_weight_update() after cluster training; LedgerEntry.to_insert_params() now 58 elements ($55-$58: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire)
+- **35-02: calibrated_confidence sort key** — _build_all_ranked() step 1d: np.interp maps raw_conf via isotonic curve; calibrated_confidence is new field never mutating confidence; primary sort key when non-None; aggregate() passes calibration_curves + timeframe through
+- **35-02: TOD multiplier pre-CIS** — _TOD_SESSION_PRIORS + _TOD_ALPHA=20.0 + _TOD_CLAMP=(0.7,1.3); Bayesian formula; COALESCE(regime_type_at_fire,'any'); applied in _process_bar() after _filter_setup_cooldown() before alpha decay; _load_calibration_curves_from_db (30min), _load_tod_multipliers_from_db (4h); _cis_kalman_state stub added
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -112,7 +114,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T04:28:17.598Z
-Stopped at: Completed 038-03-PLAN.md
+Last session: 2026-03-18T04:36:57.903Z
+Stopped at: Completed 35-02-PLAN.md
 Resume file: None
-Next action: `/gsd:execute-phase 34` (Phase 34 Plan 03: I7 POC/HVN/LVN plugins)
+Next action: `/gsd:execute-phase 35` (Phase 35 Plan 03: CIS Kalman filter)
