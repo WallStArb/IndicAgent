@@ -2,16 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
-stopped_at: Completed 036-02-PLAN.md (OFI+CVD I7 plugins)
-last_updated: "2026-03-18T15:35:22.676Z"
-last_activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
+status: unknown
+stopped_at: Completed 037-01-PLAN.md (CrossAssetService + spread features)
+last_updated: "2026-03-18T18:17:02.104Z"
 progress:
   total_phases: 14
   completed_phases: 7
   total_plans: 23
-  completed_plans: 20
-  percent: 94
+  completed_plans: 21
 ---
 
 # Project State
@@ -21,20 +19,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 I7 Alpha Engine — Phase 34 complete, Phase 35 planned and ready to execute
+**Current focus:** Phase 037 — cross-asset-intelligence-service
 
 ## Current Position
 
-Phase: 35-calibration-tod-multiplier-cis-kalman-filter (ALL PLANS COMPLETE)
-Plan: 35-03 (CIS Kalman filter) — COMPLETE
-Status: Phase 35 fully shipped — calibrated_confidence, TOD Bayesian multiplier, CIS Kalman filter + shadow fire condition
-Last activity: 2026-03-18 — Phase 35 Plan 03 executed (CIS Kalman filter, shadow fire condition, dashboard confidence pipeline)
-
-Progress: [█████████░] 94%
+Phase: 037 (cross-asset-intelligence-service) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
 **Velocity (cumulative):**
+
 - Total plans completed: 100 (v1.0–v1.8)
 - Average duration: ~30 min/plan
 - Total execution time: ~50 hours
@@ -42,6 +37,7 @@ Progress: [█████████░] 94%
 ## Accumulated Context
 
 ### Architecture Constraints (SoC / DAG / Microservices)
+
 - **Plugin tier purity**: I5 divergence plugins → `src/intelligence/patterns/`; I7 setups → `src/intelligence/trading/`; I4 context → `src/intelligence/context/`
 - **DAG ordering**: I1 → I2 → I3 → I4 → I5 → SMC → I6 → I7; new I4/I5 plugins computed before I7
 - **`indicator_service` is per-symbol isolated**: cross-asset features require `cross_asset_service.py` (new service in Phase 37)
@@ -51,6 +47,7 @@ Progress: [█████████░] 94%
 - **Plugin registry is source of truth**: all new plugins registered in `TIER_I4`, `TIER_I5`, or `TIER_I7`; `registry.validate_tier()` hard-crashes on missing names
 
 ### Key Verified Facts
+
 - `weight_updater.py` UPGRADED in 031-02 — trains LogisticRegression on binary WIN_OUTCOMES labels (target_1/target_1_2/target_full=win, rest=loss); ASSET_CLUSTER_MAP (21 symbols, 5 clusters); per-cluster training when N >= 100; is_shadow=FALSE filter; WeightUpdateResult has win_rate (not signal_quality_mean)
 - `cis_weights` table has `asset_cluster` column + unique index on (asset_cluster, timeframe, version) — DONE in 031-01
 - `signal_features` hypertable EXISTS — 7-day chunks, PK (signal_id, feature_name, computed_at) — DONE in 031-01
@@ -114,8 +111,13 @@ Progress: [█████████░] 94%
 - **trad_DeltaExhaustion**: stateless; dual gate: abs(cvd_spike_z)>1.5 AND price_change<0.3*ATR; direction=opposite of CVD spike; regime_type=mean_reversion
 - **trad_DualDivergence**: IS_SHADOW=True; _state N=3 confirmation; both abs(ofi_div)>=1.0 AND abs(cvd_div)>=1.0 with same sign; regime_type=mean_reversion
 - **IS_SHADOW plugin-level shadow mechanism**: signal_generator_service.py checks getattr(plugin_instance, 'IS_SHADOW', False) for all entries; marks entry.is_shadow=True; extends Phase 35 Kalman shadow pattern to plugin-level declarations
+- **cross_asset_service.py (037-01)**: subscribes to `development.intelligence` topic; CROSS_ASSET_GROUPS = {"EQ_INDEX": frozenset({"ES","NQ","RTY","YM"})}; rolling windows keyed "BASE:tf"; computes es_nq_spread_z + es_rty_spread_z (5-bar log return z-scores) + eq_corr_break (5-bar vs 20-bar Pearson) + eq_vol_imbalance via compute_eq_index_features(); group_id="cross_asset_group"; default CROSS_ASSET_ENABLED=false (shadow mode); publishes to development.cross_asset; seeds from intelligence_features on startup; staleness gate: >1 TF-interval gap suppresses publish; metrics port 9118
+- **topic_cross_asset() added**: src/core/stream_keys.py; returns "{env}.cross_asset"
+- **Settings: 3 cross_asset fields**: cross_asset_enabled (False), cross_asset_window_bars (20), cross_asset_metrics_port (9118)
+- **Redpanda topic development.cross_asset**: created with retention.ms=604800000 (7 days) per CLAUDE.md requirement
 
 ### v1.9 Phase Ordering Rationale
+
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
 - **Phase 32 second**: Stop architecture centralized in trade_framer.py before adding new plugins — all 17 existing + 10 new plugins inherit correct stops automatically
 - **Phase 33 third**: Five new I7 plugins added after stop architecture is stable; no per-plugin stop logic needed
@@ -125,11 +127,12 @@ Progress: [█████████░] 94%
 - **Phase 37 last**: New microservice with highest SoC complexity; all I7 plugins stable before adding cross-asset dependency
 
 ### Design Anchor
+
 Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-03-16)
 
 ## Session Continuity
 
-Last session: 2026-03-18T15:30:28.881Z
-Stopped at: Completed 036-02-PLAN.md (OFI+CVD I7 plugins)
+Last session: 2026-03-18T18:17:02.102Z
+Stopped at: Completed 037-01-PLAN.md (CrossAssetService + spread features)
 Resume file: None
 Next action: Execute Phase 036 Plan 02 (I7 OFI/CVD setup plugins)
