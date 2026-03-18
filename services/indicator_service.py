@@ -43,6 +43,7 @@ from src.core.stream_keys import (
     message_key,
     topic_indicators,
     topic_market_bars,
+    topic_market_ticks,
     topic_system_events,
 )
 from src.intelligence.plugins import registry
@@ -222,6 +223,10 @@ class IndicatorService:
             bootstrap_servers=settings.kafka_bootstrap_servers
         )
         self._kafka_consumer: KafkaConsumerClient | None = None
+        self._tick_consumer: KafkaConsumerClient | None = None
+
+        # Per-symbol tick buffer — flushed into frames at bar close
+        self._tick_buffers: dict[str, list[dict]] = defaultdict(list)
 
         # DatabaseManager for DB warmup at startup (Phase 26 pattern)
         self.db_manager: DatabaseManager | None = DatabaseManager(settings.database_url)
@@ -386,7 +391,8 @@ class IndicatorService:
             if len(self.bar_history[key]) < min_bars:
                 return True
 
-            frames = {"main": self._get_df(key)}
+            tick_buf = self._tick_buffers.pop(symbol, [])
+            frames = {"main": self._get_df(key), "tick_buffer": tick_buf}
 
             features = await self._run_i1_plugins(frames, symbol, timeframe)
 
@@ -431,6 +437,24 @@ class IndicatorService:
             )
             self.error_count_total.inc()
             return False
+
+    async def _process_tick(self, symbol: str, payload: dict) -> None:
+        """Buffer incoming ticks per symbol — flushed at bar close."""
+        self._tick_buffers[symbol].append(payload)
+
+    async def _process_tick_data(self) -> None:
+        """Consume ticks from market.ticks topic and buffer per symbol."""
+        assert self._tick_consumer is not None
+        async for _topic, _key, payload in self._tick_consumer.messages():
+            try:
+                symbol = (payload.get("symbol") or "").strip()
+                if not symbol:
+                    continue
+                await self._process_tick(symbol, payload)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("tick_process_error", error=str(e))
 
     async def _seed_bar_history_from_db(self) -> None:
         """Seed bar_history from market_data_ohlcv at startup (Phase 26 pattern).
@@ -525,7 +549,7 @@ class IndicatorService:
                     # Most recent bar is the last entry in the OrderedDict
                     bar_data = next(reversed(history.values()))
                     bar_ts = bar_data["timestamp"]
-                    frames = {"main": self._get_df(key)}
+                    frames = {"main": self._get_df(key), "tick_buffer": []}
                     features = await self._run_i1_plugins(frames, symbol, tf)
                     msg = build_i1_message(bar_data, features, bar_ts, symbol, tf, source="seed")
                     await self._kafka_producer.publish(
@@ -669,9 +693,22 @@ class IndicatorService:
             )
             await self._kafka_consumer.start()
 
+            # Start tick consumer — separate group_id to avoid offset conflicts
+            self._tick_consumer = KafkaConsumerClient(
+                topic_market_ticks(self.env_name),
+                bootstrap_servers=self.config.get(
+                    "kafka_bootstrap_servers",
+                    _settings.kafka_bootstrap_servers,
+                ),
+                group_id="indicator_service_ticks",
+                auto_offset_reset="latest",
+            )
+            await self._tick_consumer.start()
+
             self.running = True
             tasks = [
                 asyncio.create_task(self._process_market_data()),
+                asyncio.create_task(self._process_tick_data()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
             self.logger.info("Indicator Service started")
@@ -688,6 +725,8 @@ class IndicatorService:
         self.shutdown_requested = True
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
+        if hasattr(self, "_tick_consumer") and self._tick_consumer:
+            await self._tick_consumer.stop()
         await self._kafka_producer.stop()
         self.logger.info("Indicator Service stopped")
 

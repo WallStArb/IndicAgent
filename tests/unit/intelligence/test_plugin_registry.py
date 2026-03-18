@@ -112,10 +112,10 @@ def test_tier_constants_match_registry():
         rp_module.registry = original_rp
 
 
-def test_tier_i1_has_25_plugins():
+def test_tier_i1_has_27_plugins():
     from src.intelligence.register_plugins import TIER_I1
 
-    assert len(TIER_I1) == 25, f"Expected 25 I1 plugins, got {len(TIER_I1)}: {TIER_I1}"
+    assert len(TIER_I1) == 27, f"Expected 27 I1 plugins, got {len(TIER_I1)}: {TIER_I1}"
 
 
 def test_tier_smc_has_13_plugins():
