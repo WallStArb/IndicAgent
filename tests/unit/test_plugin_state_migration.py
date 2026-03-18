@@ -1,0 +1,209 @@
+"""Unit tests for indicator_service plugin state migration on futures roll.
+
+Tests _adjust_price_state() and _handle_roll_event() behavior:
+- Price-sensitive plugins have roll_gap added to price levels
+- Volume-neutral plugins are copied verbatim
+- Old key is removed, new key is created
+- Malformed events are skipped, not crashed
+"""
+from __future__ import annotations
+
+import asyncio
+from collections import defaultdict
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+# ── _adjust_price_state helper ────────────────────────────────────────────────
+
+
+def _make_service() -> Any:
+    """Construct a bare IndicatorService with just the attrs needed for migration tests."""
+    from services.indicator_service import IndicatorService
+
+    svc = IndicatorService.__new__(IndicatorService)
+    svc._i1_plugin_states = {}
+    svc._i1_plugin_states_locks = {}
+    svc.logger = MagicMock()
+    return svc
+
+
+class TestAdjustPriceState:
+    """Tests for the _adjust_price_state helper."""
+
+    def test_adjusts_float_values(self) -> None:
+        from services.indicator_service import _adjust_price_state
+
+        state = {"upper": 4200.0, "lower": 4150.0, "middle": 4175.0}
+        result = _adjust_price_state(state, 2.5)
+        assert result["upper"] == pytest.approx(4202.5)
+        assert result["lower"] == pytest.approx(4152.5)
+        assert result["middle"] == pytest.approx(4177.5)
+
+    def test_adjusts_int_values(self) -> None:
+        from services.indicator_service import _adjust_price_state
+
+        state = {"level": 4200}
+        result = _adjust_price_state(state, 1.0)
+        assert result["level"] == pytest.approx(4201.0)
+
+    def test_adjusts_list_of_floats(self) -> None:
+        from services.indicator_service import _adjust_price_state
+
+        state = {"levels": [4100.0, 4200.0, 4300.0]}
+        result = _adjust_price_state(state, 5.0)
+        assert result["levels"] == pytest.approx([4105.0, 4205.0, 4305.0])
+
+    def test_recurses_into_nested_dict(self) -> None:
+        from services.indicator_service import _adjust_price_state
+
+        state = {"bands": {"upper": 4200.0, "lower": 4100.0}}
+        result = _adjust_price_state(state, 10.0)
+        assert result["bands"]["upper"] == pytest.approx(4210.0)
+        assert result["bands"]["lower"] == pytest.approx(4110.0)
+
+    def test_leaves_non_numeric_unchanged(self) -> None:
+        from services.indicator_service import _adjust_price_state
+
+        state = {"label": "trend_up", "direction": 1, "upper": 4200.0}
+        result = _adjust_price_state(state, 2.0)
+        assert result["label"] == "trend_up"
+        assert result["upper"] == pytest.approx(4202.0)
+
+    def test_does_not_mutate_original(self) -> None:
+        from services.indicator_service import _adjust_price_state
+
+        state = {"upper": 4200.0}
+        _adjust_price_state(state, 10.0)
+        assert state["upper"] == 4200.0  # original unchanged
+
+
+class TestHandleRollEvent:
+    """Tests for IndicatorService._handle_roll_event()."""
+
+    def _populate_states(self, svc: Any) -> None:
+        """Seed _i1_plugin_states with bollinger and rsi states for old symbol."""
+        svc._i1_plugin_states = {
+            ("bollinger_bands", "ESM6", "1m"): {"upper": 5200.0, "lower": 5100.0, "middle": 5150.0},
+            ("rsi", "ESM6", "1m"): {"prev_gain": 1.5, "prev_loss": 0.8, "count": 14},
+            ("macd", "ESM6", "1m"): {"fast_ema": 5150.0, "slow_ema": 5140.0},
+            ("bollinger_bands", "ESM6", "5m"): {"upper": 5210.0, "lower": 5090.0, "middle": 5150.0},
+        }
+
+    def test_price_sensitive_plugin_adjusted(self) -> None:
+        svc = _make_service()
+        self._populate_states(svc)
+        event = {
+            "event_type": "roll",
+            "base_symbol": "ES",
+            "old_symbol": "ESM6",
+            "new_symbol": "ESU6",
+            "roll_gap": 2.5,
+            "roll_direction": "up",
+        }
+        asyncio.run(svc._handle_roll_event(event))
+        new_bb = svc._i1_plugin_states.get(("bollinger_bands", "ESU6", "1m"))
+        assert new_bb is not None
+        assert new_bb["upper"] == pytest.approx(5202.5)
+        assert new_bb["lower"] == pytest.approx(5102.5)
+        assert new_bb["middle"] == pytest.approx(5152.5)
+
+    def test_volume_neutral_plugin_copied_verbatim(self) -> None:
+        svc = _make_service()
+        self._populate_states(svc)
+        event = {
+            "event_type": "roll",
+            "base_symbol": "ES",
+            "old_symbol": "ESM6",
+            "new_symbol": "ESU6",
+            "roll_gap": 2.5,
+            "roll_direction": "up",
+        }
+        asyncio.run(svc._handle_roll_event(event))
+        new_rsi = svc._i1_plugin_states.get(("rsi", "ESU6", "1m"))
+        assert new_rsi is not None
+        assert new_rsi["prev_gain"] == 1.5
+        assert new_rsi["prev_loss"] == 0.8
+        assert new_rsi["count"] == 14
+
+    def test_old_key_deleted(self) -> None:
+        svc = _make_service()
+        self._populate_states(svc)
+        event = {
+            "event_type": "roll",
+            "base_symbol": "ES",
+            "old_symbol": "ESM6",
+            "new_symbol": "ESU6",
+            "roll_gap": 2.5,
+            "roll_direction": "up",
+        }
+        asyncio.run(svc._handle_roll_event(event))
+        old_keys = [k for k in svc._i1_plugin_states if "ESM6" in k]
+        assert len(old_keys) == 0
+
+    def test_new_key_created_for_all_timeframes(self) -> None:
+        svc = _make_service()
+        self._populate_states(svc)
+        event = {
+            "event_type": "roll",
+            "base_symbol": "ES",
+            "old_symbol": "ESM6",
+            "new_symbol": "ESU6",
+            "roll_gap": 1.0,
+            "roll_direction": "up",
+        }
+        asyncio.run(svc._handle_roll_event(event))
+        # Both 1m and 5m should be migrated
+        new_keys = [k for k in svc._i1_plugin_states if "ESU6" in k]
+        tfs = {k[2] for k in new_keys}
+        assert "1m" in tfs
+        assert "5m" in tfs
+
+    def test_ignores_non_roll_event_type(self) -> None:
+        svc = _make_service()
+        svc._i1_plugin_states = {
+            ("bollinger_bands", "ESM6", "1m"): {"upper": 5200.0},
+        }
+        event = {"event_type": "other", "old_symbol": "ESM6", "new_symbol": "ESU6"}
+        asyncio.run(svc._handle_roll_event(event))
+        # State should be unchanged
+        assert ("bollinger_bands", "ESM6", "1m") in svc._i1_plugin_states
+
+    def test_malformed_event_missing_fields_logged_not_crashed(self) -> None:
+        svc = _make_service()
+        svc._i1_plugin_states = {}
+        event = {"event_type": "roll"}  # Missing old_symbol, new_symbol
+        # Should not raise
+        asyncio.run(svc._handle_roll_event(event))
+
+    def test_no_old_key_gracefully_skipped(self) -> None:
+        svc = _make_service()
+        svc._i1_plugin_states = {}
+        event = {
+            "event_type": "roll",
+            "base_symbol": "NQ",
+            "old_symbol": "NQM6",
+            "new_symbol": "NQU6",
+            "roll_gap": 5.0,
+            "roll_direction": "up",
+        }
+        asyncio.run(svc._handle_roll_event(event))  # No state to migrate — should not crash
+
+    def test_default_roll_gap_zero(self) -> None:
+        svc = _make_service()
+        svc._i1_plugin_states = {
+            ("bollinger_bands", "ESM6", "1m"): {"upper": 5200.0, "lower": 5100.0},
+        }
+        event = {
+            "event_type": "roll",
+            "base_symbol": "ES",
+            "old_symbol": "ESM6",
+            "new_symbol": "ESU6",
+            # roll_gap deliberately omitted — should default to 0.0
+            "roll_direction": "up",
+        }
+        asyncio.run(svc._handle_roll_event(event))
+        new_bb = svc._i1_plugin_states.get(("bollinger_bands", "ESU6", "1m"))
+        assert new_bb is not None
+        assert new_bb["upper"] == pytest.approx(5200.0)

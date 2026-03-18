@@ -47,6 +47,7 @@ from src.core.stream_keys import (
     topic_market_ticks,
     topic_signals,
     topic_signals_aggregated,
+    topic_system_events,
 )
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
@@ -803,11 +804,51 @@ class SignalGeneratorService:
         """
         self._live_quotes[symbol] = payload
 
+    async def _handle_roll_event(self, event: dict) -> None:
+        """Migrate bar_history keys from old_symbol to new_symbol on futures roll.
+
+        Moves deque contents for all {old_symbol}:{tf} keys to {new_symbol}:{tf}.
+        Also invalidates the df_cache for both keys so the next bar triggers a rebuild.
+        """
+        if event.get("event_type") != "roll":
+            return
+        try:
+            old_symbol: str = event["old_symbol"]
+            new_symbol: str = event["new_symbol"]
+        except KeyError as exc:
+            self.logger.warning("roll_event_missing_fields", error=str(exc))
+            return
+
+        for tf in ["1m", "5m", "15m", "1h"]:
+            old_key = f"{old_symbol}:{tf}"
+            new_key = f"{new_symbol}:{tf}"
+            old_history = self.bar_history.get(old_key)
+            if old_history is None or len(old_history) == 0:
+                continue
+            # Transfer bars to new key
+            self.bar_history[new_key].extend(old_history)
+            self.bar_history[old_key].clear()
+            # Invalidate df_cache
+            self._df_cache.pop(old_key, None)
+            self._df_cache.pop(new_key, None)
+        self.logger.info(
+            "roll_bar_history_migrated",
+            old=old_symbol,
+            new=new_symbol,
+        )
+
     async def _setup_kafka_clients(self) -> None:
         """Initialize Kafka consumer (intelligence + ticks) and producer (signals)."""
-        self._kafka_consumer = KafkaConsumerClient(
+        _settings = Settings()
+        topics: list[str] = [
             topic_intelligence(self.env_name),
             topic_market_ticks(self.env_name),
+        ]
+        if _settings.roll_monitor_enabled:
+            topics.append(topic_system_events(self.env_name))
+
+        self._kafka_consumer = KafkaConsumerClient(
+            *topics,
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_generator_group",
             auto_offset_reset="latest",
@@ -815,10 +856,7 @@ class SignalGeneratorService:
         await self._kafka_consumer.start()
         self.logger.info(
             "Kafka consumer started",
-            topics=[
-                topic_intelligence(self.env_name),
-                topic_market_ticks(self.env_name),
-            ],
+            topics=topics,
         )
 
         self._kafka_producer = KafkaProducerClient(self._kafka_bootstrap)
@@ -1249,17 +1287,20 @@ class SignalGeneratorService:
             return False
 
     async def _process_loop(self) -> None:
-        """Consume from intelligence and market.ticks topics via Kafka."""
+        """Consume from intelligence, market.ticks, and optionally system.events topics."""
         if not self._kafka_consumer:
             return
         _intel_topic = topic_intelligence(self.env_name)
         _ticks_topic = topic_market_ticks(self.env_name)
+        _sys_events_topic = topic_system_events(self.env_name)
         try:
             async for topic, key, payload in self._kafka_consumer.messages():
                 if self.shutdown_requested:
                     break
                 try:
-                    if topic == _intel_topic:
+                    if topic == _sys_events_topic:
+                        await self._handle_roll_event(payload)
+                    elif topic == _intel_topic:
                         # key = "SYMBOL:TF"
                         if key:
                             parts = key.split(":", 1)

@@ -43,7 +43,12 @@ from src.core.service_utils import (
     setup_service_logging,
     should_skip_plugin,
 )
-from src.core.stream_keys import message_key, topic_indicators, topic_intelligence
+from src.core.stream_keys import (
+    message_key,
+    topic_indicators,
+    topic_intelligence,
+    topic_system_events,
+)
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
     TIER_I2,
@@ -672,13 +677,37 @@ class MarketAnalysisService:
             published_events=published_events,
         )
 
+    async def _handle_roll_event(self, event: dict) -> None:
+        """Update active symbol set on futures roll.
+
+        Removes old_symbol and adds new_symbol to _active_symbols so subsequent
+        bars for the new contract are processed correctly.
+        """
+        if event.get("event_type") != "roll":
+            return
+        try:
+            old_symbol: str = event["old_symbol"]
+            new_symbol: str = event["new_symbol"]
+        except KeyError as exc:
+            self.logger.warning("roll_event_missing_fields", error=str(exc))
+            return
+        self._active_symbols.discard(old_symbol)
+        self._active_symbols.add(new_symbol)
+        self.logger.info("roll_symbol_updated", old=old_symbol, new=new_symbol)
+
     async def _process_market_data(self) -> None:
-        """Consume indicator messages from Kafka and run analysis pipeline."""
+        """Consume indicator messages (and optionally system events) from Kafka."""
         assert self._kafka_consumer is not None
+        _sys_events_topic = topic_system_events(self.env_name)
         async for topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
             try:
+                # Route system.events to roll handler
+                if topic == _sys_events_topic:
+                    await self._handle_roll_event(payload)
+                    continue
+
                 # Extract symbol and timeframe from message key (e.g., "ES:1m")
                 if key:
                     parts = key.split(":", 1)
@@ -728,9 +757,15 @@ class MarketAnalysisService:
             await self._kafka_producer.start()
             await self._warmup_bar_history()
 
-            # Start Kafka consumer subscribed to indicators topic
+            # Build topics list — conditionally add system.events when roll_monitor_enabled
+            _settings = Settings()
+            topics: list[str] = [topic_indicators(self.env_name)]
+            if _settings.roll_monitor_enabled:
+                topics.append(topic_system_events(self.env_name))
+
+            # Start Kafka consumer subscribed to indicators topic (and optionally system.events)
             self._kafka_consumer = KafkaConsumerClient(
-                topic_indicators(self.env_name),
+                *topics,
                 bootstrap_servers=self.config.get(
                     "kafka_bootstrap_servers",
                     Settings().kafka_bootstrap_servers,

@@ -37,7 +37,12 @@ from src.core.service_utils import (
     setup_service_logging,
     should_skip_plugin,
 )
-from src.core.stream_keys import message_key, topic_indicators, topic_market_bars
+from src.core.stream_keys import (
+    message_key,
+    topic_indicators,
+    topic_market_bars,
+    topic_system_events,
+)
 from src.core.plugin_validator import PluginValidator
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
@@ -69,6 +74,46 @@ _OHLCV_FIELDS = frozenset(
         "i1_computed_at",
     }
 )
+
+
+# I1 plugins that track absolute price levels — must be adjusted by roll_gap on roll.
+PRICE_SENSITIVE_PLUGINS: frozenset[str] = frozenset(
+    {"bollinger_bands", "keltner_channel", "donchian_channel"}
+)
+
+
+def _adjust_price_state(state: dict, roll_gap: float) -> dict:
+    """Return a deep copy of *state* with all numeric values shifted by *roll_gap*.
+
+    Rules:
+    - float/int scalar → add roll_gap
+    - list of float/int → add roll_gap to each element
+    - nested dict → recurse
+    - other types (str, bool, None) → copy unchanged
+
+    The original *state* dict is never mutated.
+    """
+    result: dict = {}
+    for k, v in state.items():
+        if isinstance(v, float):
+            result[k] = v + roll_gap
+        elif isinstance(v, int) and not isinstance(v, bool):
+            result[k] = v + roll_gap
+        elif isinstance(v, list):
+            adjusted_list = []
+            for item in v:
+                if isinstance(item, float):
+                    adjusted_list.append(item + roll_gap)
+                elif isinstance(item, int) and not isinstance(item, bool):
+                    adjusted_list.append(item + roll_gap)
+                else:
+                    adjusted_list.append(item)
+            result[k] = adjusted_list
+        elif isinstance(v, dict):
+            result[k] = _adjust_price_state(v, roll_gap)
+        else:
+            result[k] = v
+    return result
 
 
 def build_i1_message(
@@ -495,12 +540,18 @@ class IndicatorService:
         self.logger.info("Published seeded I1 state", published=published)
 
     async def _process_market_data(self) -> None:
-        """Consume market bars from Kafka and process each bar."""
+        """Consume market bars (and optionally system events) from Kafka."""
         assert self._kafka_consumer is not None
+        _sys_events_topic = topic_system_events(self.env_name)
         async for topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
             try:
+                # Route system.events to roll handler
+                if topic == _sys_events_topic:
+                    await self._handle_roll_event(payload)
+                    continue
+
                 # Extract symbol and timeframe from message key (e.g., "ES:1m")
                 if key:
                     parts = key.split(":", 1)
@@ -532,6 +583,59 @@ class IndicatorService:
             except asyncio.CancelledError:
                 break
 
+    async def _handle_roll_event(self, event: dict) -> None:
+        """Migrate I1 plugin state from old_symbol to new_symbol on futures roll.
+
+        Price-sensitive plugins (bollinger, keltner, donchian) have all numeric
+        price levels adjusted by roll_gap. Volume-neutral plugins are copied verbatim.
+        Old-symbol state keys are deleted after migration.
+
+        This method is a no-op when event_type != 'roll'.
+        """
+        if event.get("event_type") != "roll":
+            return
+        try:
+            old_symbol: str = event["old_symbol"]
+            new_symbol: str = event["new_symbol"]
+        except KeyError as exc:
+            self.logger.warning("roll_event_missing_fields", error=str(exc))
+            return
+        roll_gap: float = float(event.get("roll_gap", 0.0))
+
+        for tf in ["1m", "5m", "15m", "1h"]:
+            # _i1_plugin_states keys: (plugin_name, symbol, timeframe)
+            old_plugin_keys = [
+                k for k in self._i1_plugin_states
+                if k[1] == old_symbol and k[2] == tf
+            ]
+            if not old_plugin_keys:
+                continue
+
+            migrated_count = 0
+            keys_to_delete = []
+            for key in old_plugin_keys:
+                plugin_name = key[0]
+                old_state = self._i1_plugin_states[key]
+                new_key = (plugin_name, new_symbol, tf)
+                if plugin_name in PRICE_SENSITIVE_PLUGINS:
+                    new_state = _adjust_price_state(old_state, roll_gap)
+                else:
+                    new_state = old_state.copy() if isinstance(old_state, dict) else old_state
+                self._i1_plugin_states[new_key] = new_state
+                keys_to_delete.append(key)
+                migrated_count += 1
+
+            for key in keys_to_delete:
+                del self._i1_plugin_states[key]
+
+            self.logger.info(
+                "roll_plugin_state_migrated",
+                old=f"{old_symbol}:{tf}",
+                new=f"{new_symbol}:{tf}",
+                gap=roll_gap,
+                plugins=migrated_count,
+            )
+
     async def start(self) -> None:
         self.logger.info("Starting Indicator Service", config=self.config["service"])
         try:
@@ -549,9 +653,15 @@ class IndicatorService:
             # populated immediately without waiting for the first live bar.
             await self._publish_seeded_state()
 
-            # Start Kafka consumer subscribed to market.bars topic
+            # Build topics list — conditionally add system.events when roll_monitor_enabled
+            _settings = Settings()
+            topics: list[str] = [topic_market_bars(self.env_name)]
+            if _settings.roll_monitor_enabled:
+                topics.append(topic_system_events(self.env_name))
+
+            # Start Kafka consumer subscribed to market.bars topic (and optionally system.events)
             self._kafka_consumer = KafkaConsumerClient(
-                topic_market_bars(self.env_name),
+                *topics,
                 bootstrap_servers=self.config.get(
                     "kafka_bootstrap_servers",
                     Settings().kafka_bootstrap_servers,

@@ -30,7 +30,12 @@ from src.config.settings import Settings, get_active_contracts, get_active_symbo
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import topic_intelligence, topic_intelligence_i7, topic_intelligence_i8
+from src.core.stream_keys import (
+    topic_intelligence,
+    topic_intelligence_i7,
+    topic_intelligence_i8,
+    topic_system_events,
+)
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.metrics import counter, gauge, start_metrics_server
 
@@ -66,6 +71,12 @@ _UPSERT_I8_SQL = """
 INSERT INTO intelligence_features (ts, symbol, tf, i8)
 VALUES ($1::timestamptz, $2, $3, $4::jsonb)
 ON CONFLICT (ts, symbol, tf) DO UPDATE SET i8 = EXCLUDED.i8
+"""
+
+_UPSERT_ROLL_BOUNDARY_SQL = """
+INSERT INTO intelligence_features (ts, symbol, tf, i7)
+VALUES ($1::timestamptz, $2, $3, $4::jsonb)
+ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = intelligence_features.i7 || EXCLUDED.i7
 """
 
 logger = structlog.get_logger(__name__)
@@ -330,11 +341,19 @@ class FeatureWriterService:
             self.logger.warning("Failed to build expiry map", error=str(e))
             self._expiry_map = {}
 
-        # Single consumer subscribed to all three intelligence topics
-        self._kafka_consumer = KafkaConsumerClient(
+        # Build topics list — conditionally add system.events when roll_monitor_enabled
+        _roll_enabled = getattr(_s, "roll_monitor_enabled", False)
+        topics = [
             topic_intelligence(self._env_name),
             topic_intelligence_i7(self._env_name),
             topic_intelligence_i8(self._env_name),
+        ]
+        if _roll_enabled:
+            topics.append(topic_system_events(self._env_name))
+
+        # Single consumer subscribed to intelligence topics (and optionally system.events)
+        self._kafka_consumer = KafkaConsumerClient(
+            *topics,
             bootstrap_servers=self._kafka_bootstrap,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="latest",
@@ -342,11 +361,7 @@ class FeatureWriterService:
         await self._kafka_consumer.start()
         self.logger.info(
             "Kafka consumer started",
-            topics=[
-                topic_intelligence(self._env_name),
-                topic_intelligence_i7(self._env_name),
-                topic_intelligence_i8(self._env_name),
-            ],
+            topics=topics,
             group=CONSUMER_GROUP,
         )
 
@@ -463,6 +478,47 @@ class FeatureWriterService:
             self.error_count_total.inc()
             return False
 
+    async def _handle_roll_event(self, event: dict) -> None:
+        """Write roll boundary marker to intelligence_features on futures roll.
+
+        Writes {"roll_boundary": "ESM6->ESU6"} into the i7 JSONB column at the
+        roll detection timestamp. Uses ON CONFLICT ... DO UPDATE to merge into any
+        existing i7 data for that (ts, symbol, tf) row.
+        """
+        if event.get("event_type") != "roll":
+            return
+        try:
+            old_symbol: str = event["old_symbol"]
+            new_symbol: str = event["new_symbol"]
+            detected_at: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
+        except KeyError as exc:
+            self.logger.warning("roll_event_missing_fields", error=str(exc))
+            return
+
+        if not self.db_manager:
+            self.logger.warning(
+                "roll_boundary_skipped_no_db",
+                old=old_symbol,
+                new=new_symbol,
+            )
+            return
+
+        marker = json.dumps({"roll_boundary": f"{old_symbol}->{new_symbol}"})
+        try:
+            await self.db_manager.execute_batch(
+                _UPSERT_ROLL_BOUNDARY_SQL,
+                [(detected_at, new_symbol, "1m", marker)],
+            )
+            self.logger.info(
+                "roll_boundary_written",
+                old=old_symbol,
+                new=new_symbol,
+                detected_at=detected_at,
+            )
+        except Exception as e:
+            self.logger.error("roll_boundary_write_failed", error=str(e))
+            self.error_count_total.inc()
+
     async def _process_i8_message(
         self,
         symbol: str,
@@ -503,11 +559,17 @@ class FeatureWriterService:
         intelligence_topic = topic_intelligence(self._env_name)
         i7_topic = topic_intelligence_i7(self._env_name)
         i8_topic = topic_intelligence_i8(self._env_name)
+        sys_events_topic = topic_system_events(self._env_name)
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
             try:
+                # Route system.events to roll handler (no symbol/tf key required)
+                if kafka_topic == sys_events_topic:
+                    await self._handle_roll_event(payload)
+                    continue
+
                 # Extract symbol and timeframe from key (format "SYMBOL:TF")
                 key_str = key if isinstance(key, str) else (key.decode() if key else "")
                 parts = key_str.split(":")
