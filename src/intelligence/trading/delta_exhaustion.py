@@ -97,12 +97,6 @@ class DeltaExhaustionPlugin:
         if price_follow_ratio >= _PRICE_FOLLOW_THRESHOLD:
             return self._no_signal()
 
-        # Also check: price moved in CVD direction (if it moved away from CVD, not exhaustion)
-        price_dir = 1 if (entry - prev_close) > 0 else -1 if (entry - prev_close) < 0 else 0
-        if price_dir == cvd_direction and price_follow_ratio >= 0.5:
-            # Price moved significantly with CVD — not exhaustion
-            return self._no_signal()
-
         # Exhaustion: opposite of CVD direction
         direction = -cvd_direction
 

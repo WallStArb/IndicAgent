@@ -28,8 +28,8 @@ class CVDDivergencePlugin:
 
     Gates:
     - cvd_divergence != 0 (CVD direction disagrees with price direction)
-    - cvd_slope_5bar opposes price direction
     - N=3 consecutive bars of confirmation
+    (cvd_slope_5bar is logged in supporting_factors but not used as a gate)
 
     Additional metadata (always logged when signal fires):
     - dual_divergence = (abs(ofi_divergence) >= 1.0 AND abs(cvd_divergence) >= 1.0)
@@ -73,6 +73,9 @@ class CVDDivergencePlugin:
 
         cvd_div = float(cvd_div)
         if cvd_div == 0.0:
+            # Zero CVD divergence invalidates any accumulated confirmation count
+            state_key = f"{frames.get('__symbol__', '_')}_{frames.get('__timeframe__', '_')}"
+            self._state.pop(state_key, None)
             return self._no_signal()
 
         symbol = frames.get("__symbol__", "_")
@@ -105,7 +108,9 @@ class CVDDivergencePlugin:
         # Check dual divergence
         ofi_div = features.get("ofi_divergence")
         ofi_div_f = float(ofi_div) if ofi_div is not None else 0.0
-        dual_divergence = abs(ofi_div_f) >= _OFI_DUAL_THRESHOLD and abs(cvd_div) >= _OFI_DUAL_THRESHOLD
+        dual_divergence = (
+            abs(ofi_div_f) >= _OFI_DUAL_THRESHOLD and abs(cvd_div) >= _OFI_DUAL_THRESHOLD
+        )
 
         # Confidence
         extra_bars = max(0, state["count"] - _CONFIRMATION_BARS)
