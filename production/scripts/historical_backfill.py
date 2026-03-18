@@ -71,7 +71,9 @@ sys.path.insert(0, str(project_root))
 
 import pandas as pd
 
+from src.config.contracts import derive_roll_chain
 from src.config.settings import Settings
+from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
@@ -916,6 +918,90 @@ def run_i7_and_persist(
 
 
 # ---------------------------------------------------------------------------
+# Seed roll chain — populate contract_metadata with 3-contract chains
+# ---------------------------------------------------------------------------
+
+_SEED_ROLL_CHAIN_SQL = """
+INSERT INTO contract_metadata (symbol, base_symbol, asset_class, roll_from, roll_to, is_front_month)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (symbol) DO UPDATE SET
+    roll_from = EXCLUDED.roll_from,
+    roll_to = EXCLUDED.roll_to,
+    is_front_month = EXCLUDED.is_front_month,
+    updated_at = NOW()
+"""
+
+
+async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
+    """Populate contract_metadata with 3-contract roll chains for all futures instruments.
+
+    For each unique futures base symbol in settings.contracts:
+    1. Derives a 3-contract chronological chain via derive_roll_chain()
+    2. UPSERTs each contract row with is_front_month=True for the first,
+       False for the subsequent two
+    3. ON CONFLICT (symbol) DO UPDATE ensures idempotent runs
+
+    Non-futures instruments (equity, FX, crypto) are skipped.
+    DB errors per base symbol are caught and logged — other symbols continue.
+
+    Usage:
+        python production/scripts/historical_backfill.py --seed-roll-chain
+    """
+    import structlog
+    log = structlog.get_logger(__name__)
+
+    # Collect unique futures base symbols (order-preserving via dict.fromkeys)
+    futures_bases: list[str] = list(
+        dict.fromkeys(
+            inst.base
+            for inst in settings.contracts
+            if inst.asset_class == AssetClass.FUTURES and inst.base
+        )
+    )
+
+    if not futures_bases:
+        print("No futures base symbols found in settings — nothing to seed.")
+        return
+
+    total_contracts = 0
+    for base_symbol in futures_bases:
+        try:
+            chain = derive_roll_chain(base_symbol)
+            params: list[tuple] = []
+            for i, contract in enumerate(chain):
+                is_front_month = i == 0
+                params.append((
+                    contract["symbol"],
+                    contract["base_symbol"],
+                    "futures",
+                    contract.get("roll_from"),
+                    contract.get("roll_to"),
+                    is_front_month,
+                ))
+            await db.execute_batch(_SEED_ROLL_CHAIN_SQL, params)
+            total_contracts += len(params)
+            log.debug(
+                "roll_chain_seeded",
+                base=base_symbol,
+                contracts=[c["symbol"] for c in chain],
+                front_month=chain[0]["symbol"] if chain else None,
+            )
+        except Exception as exc:
+            log.error("seed_roll_chain_error", base=base_symbol, error=str(exc))
+            print(f"  [ERROR] seed_roll_chain: {base_symbol} — {exc}")
+
+    print(
+        f"Roll chain seeded: {len(futures_bases)} base symbols, "
+        f"{total_contracts} contracts total"
+    )
+    log.info(
+        "seed_roll_chain_complete",
+        base_count=len(futures_bases),
+        contract_count=total_contracts,
+    )
+
+
+# ---------------------------------------------------------------------------
 # DB fetch/store layer
 # ---------------------------------------------------------------------------
 
@@ -1256,9 +1342,30 @@ def main() -> None:
         help="Fetch per-contract raw data (Renaissance style) instead of back-adjusted continuous. "
              "Requires reseed after. Disabled by default for backward compatibility.",
     )
+    parser.add_argument(
+        "--seed-roll-chain",
+        action="store_true",
+        help="Populate contract_metadata with 3-contract roll chain per active futures base "
+             "symbol. Sets is_front_month=True for the current front-month contract. "
+             "Idempotent — safe to run multiple times.",
+    )
     args = parser.parse_args()
 
     settings = Settings()
+
+    # --seed-roll-chain: populate contract_metadata roll chains and exit
+    if args.seed_roll_chain:
+        from src.core.database_manager import DatabaseManager as _DM
+
+        async def _seed() -> None:
+            db = _DM(settings.database_url)
+            await db.initialize()
+            await seed_roll_chain(settings, db)
+            await db.close()
+
+        asyncio.run(_seed())
+        return
+
     timeframes = [t.strip() for t in args.timeframes.split(",") if t.strip()]
 
     # Filter contracts
@@ -1292,8 +1399,6 @@ def main() -> None:
 
     # --------------- Stage 1: IBKR Fetch ---------------
     if not args.replay_only:
-        import asyncio
-
         print("=== Stage 1: IBKR Fetch ===")
         provider = IBKRProvider(
             host=settings.ib_host,
