@@ -82,8 +82,8 @@ def test_ledger_entry_has_15_new_fields():
     assert hasattr(entry, "shadow_outcome")
 
 
-def test_ledger_entry_to_insert_params_returns_54_elements():
-    """to_insert_params() must return a 54-element tuple (39 original + 15 new)."""
+def test_ledger_entry_to_insert_params_returns_58_elements():
+    """to_insert_params() must return a 58-element tuple (39 original + 15 Phase 32 + 4 Phase 35)."""
     from src.intelligence.trading.signal_ledger import LedgerEntry
 
     entry = LedgerEntry(
@@ -109,7 +109,7 @@ def test_ledger_entry_to_insert_params_returns_54_elements():
         composite_rank=1,
     )
     params = entry.to_insert_params()
-    assert len(params) == 54, f"Expected 54 params, got {len(params)}"
+    assert len(params) == 58, f"Expected 58 params, got {len(params)}"
 
 
 def test_ledger_entry_to_insert_params_with_all_new_fields():
@@ -155,7 +155,7 @@ def test_ledger_entry_to_insert_params_with_all_new_fields():
         shadow_outcome="target_1",
     )
     params = entry.to_insert_params()
-    assert len(params) == 54
+    assert len(params) == 58  # 39 original + 15 Phase 32 + 4 Phase 35 calibration fields
     # Check that stop_basis is at position 39 (0-indexed)
     assert params[39] == "structure_snap"
     assert params[40] == "ob_bottom"
@@ -209,18 +209,27 @@ def test_ledger_entry_trailing_stop_none_serializes_to_none():
     assert params[46] is None  # trailing_stop_price = None
 
 
-def test_insert_sql_has_54_columns():
-    """_INSERT_SQL must have 54 column names and $1 through $54."""
+def test_insert_sql_has_58_columns():
+    """_INSERT_SQL must have 58 column names and $1 through $58."""
     from src.intelligence.trading.signal_ledger import _INSERT_SQL
 
-    # Count $N placeholders — ensure $54 exists
+    # Count $N placeholders — ensure $54-$58 all exist
     assert "$54" in _INSERT_SQL, "_INSERT_SQL must contain $54"
+    assert "$55" in _INSERT_SQL, "_INSERT_SQL must contain $55"
+    assert "$56" in _INSERT_SQL, "_INSERT_SQL must contain $56"
+    assert "$57" in _INSERT_SQL, "_INSERT_SQL must contain $57"
+    assert "$58" in _INSERT_SQL, "_INSERT_SQL must contain $58"
     assert "$53" in _INSERT_SQL
     assert "$40" in _INSERT_SQL
-    # Check new column names present
+    # Check Phase 32 column names present
     assert "stop_basis" in _INSERT_SQL
     assert "chandelier_vol_source" in _INSERT_SQL
     assert "shadow_outcome" in _INSERT_SQL
+    # Check Phase 35 calibration column names present
+    assert "raw_cis_score" in _INSERT_SQL
+    assert "filtered_cis_score" in _INSERT_SQL
+    assert "calibrated_confidence" in _INSERT_SQL
+    assert "regime_type_at_fire" in _INSERT_SQL
 
 
 # ---------------------------------------------------------------------------
