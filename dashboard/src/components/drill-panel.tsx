@@ -161,7 +161,9 @@ function RecentSignalCard({ signal, isSelected, onClick }: { signal: SignalData;
           {isLong ? "LONG" : "SHORT"}
         </span>
         <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>
-          {fmtNum(signal.confidence * 100, 0)}%
+          {signal.calibrated_confidence != null
+            ? `${(signal.calibrated_confidence * 100).toFixed(0)}%`
+            : `${fmtNum(signal.confidence * 100, 0)}%`}
         </span>
         <span className="text-[0.55rem] text-[var(--text-muted)]">{pluginShort}</span>
         {signal.resolved && <OutcomeBadge outcome={signal.outcome} />}
@@ -921,7 +923,11 @@ function SignalDetail({ signal }: { signal: SignalData }) {
           {isLong ? "LONG" : "SHORT"}
         </span>
         <span className="text-[0.6rem] text-[var(--text-secondary)]">{signal.signal_type.replace(/_/g, " ")}</span>
-        <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>{(signal.confidence * 100).toFixed(0)}%</span>
+        <span className="text-[0.6rem] font-bold font-data" style={{ color: dirColor }}>
+          {signal.calibrated_confidence != null
+            ? `${(signal.calibrated_confidence * 100).toFixed(0)}%`
+            : `${(signal.confidence * 100).toFixed(0)}%`}
+        </span>
         <span className="text-[0.55rem] text-[var(--text-muted)]">
           <Tooltip tooltip={timestampTooltip()}>
             <span>{signal.timeframe} · {timeStr}</span>
@@ -1008,6 +1014,30 @@ function SignalDetail({ signal }: { signal: SignalData }) {
               />
             )}
           </Grid>
+        </div>
+      )}
+
+      {/* Phase 35: Confidence pipeline — raw CIS → Kalman-filtered → isotonic-calibrated */}
+      {(signal.raw_cis_score != null || signal.filtered_cis_score != null || signal.calibrated_confidence != null) && (
+        <div className="flex gap-4 text-xs text-[var(--text-muted)]">
+          <span>
+            <span className="font-medium text-[var(--text-primary)]">Raw CIS:</span>{" "}
+            {signal.raw_cis_score != null
+              ? signal.raw_cis_score.toFixed(3)
+              : "—"}
+          </span>
+          <span>
+            <span className="font-medium text-[var(--text-primary)]">Filtered:</span>{" "}
+            {signal.filtered_cis_score != null
+              ? signal.filtered_cis_score.toFixed(3)
+              : "—"}
+          </span>
+          <span>
+            <span className="font-medium text-[var(--text-primary)]">Calibrated:</span>{" "}
+            {signal.calibrated_confidence != null
+              ? `${(signal.calibrated_confidence * 100).toFixed(1)}%`
+              : "—"}
+          </span>
         </div>
       )}
 
