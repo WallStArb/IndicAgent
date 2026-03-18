@@ -42,6 +42,7 @@ from src.intelligence.cross_asset_features import (
     _EQ_INDEX_BASES,
     _SHORT_WINDOW,
     compute_eq_index_features,
+    resolve_eq_index_base,
 )
 from src.observability.metrics import counter, gauge, start_metrics_server
 
@@ -62,22 +63,14 @@ _TF_INTERVAL_SECONDS: dict[str, int] = {
     "1h": 3600,
 }
 
-# All known EQ_INDEX base symbols (for fast lookup)
-_ALL_EQ_BASES: frozenset[str] = _EQ_INDEX_BASES
-
-
 def _extract_base_symbol(symbol: str) -> str | None:
     """Extract EQ_INDEX base symbol from a full contract symbol.
 
-    Uses prefix matching against known EQ_INDEX bases — the simplest
-    and most robust approach for IBKR futures symbols (e.g. ESM6 -> ES).
-
+    Delegates to resolve_eq_index_base — requires len(symbol) > len(base)
+    so bare base strings like "ES" are not treated as valid contracts.
     Returns None for non-EQ_INDEX symbols (e.g. CLM6, GCJ6).
     """
-    for base in _ALL_EQ_BASES:
-        if symbol.startswith(base):
-            return base
-    return None
+    return resolve_eq_index_base(symbol)
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import math
 from collections import deque
 from datetime import datetime
 
-_EQ_INDEX_BASES = frozenset({"ES", "NQ", "RTY", "YM"})
+_EQ_INDEX_BASES: frozenset[str] = frozenset({"ES", "NQ", "RTY", "YM"})
 
 # Number of bars used in the 5-bar log-return window
 _SHORT_WINDOW: int = 5
@@ -26,6 +26,18 @@ _Z_CLAMP: float = 10.0
 _LOW_VOL_THRESHOLD: float = 1e-8
 # Threshold for a pair to be considered "confirming" a spread divergence
 _CONFIRMING_Z_THRESHOLD: float = 2.0
+
+
+def resolve_eq_index_base(symbol: str) -> str | None:
+    """Return the EQ_INDEX base for a full contract symbol, or None if not in the group.
+
+    Matches contract symbols like "ESM6", "NQZ5", "RTYU6", "YMH6" to their base.
+    Requires len(symbol) > len(base) to reject bare base strings like "ES".
+    """
+    for base in _EQ_INDEX_BASES:
+        if symbol.startswith(base) and len(symbol) > len(base):
+            return base
+    return None
 
 
 def _safe_log_return(prices: list[float], short_window: int) -> float | None:
@@ -164,7 +176,7 @@ def compute_eq_index_features(
     vols: dict[str, list[float]] = {}
     for sym in _EQ_INDEX_BASES:
         closes[sym] = list(close_windows[sym])[-min_needed:]
-        vols[sym] = list(vol_windows[sym])
+        vols[sym] = vol_windows[sym]  # deque — no copy needed; _vol_ratio only uses [-1] and sum
 
     # --- Spread z-scores ---
     es_nq_spread = _compute_spread_series(closes["ES"], closes["NQ"], _SHORT_WINDOW)
