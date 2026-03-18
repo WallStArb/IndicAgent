@@ -69,7 +69,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
+        assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -105,7 +105,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
+        assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -181,7 +181,7 @@ class TestLedgerEntryNewFields:
             composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
+        assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
 
 
 def test_ledger_entry_has_cis_attribution_field():
@@ -236,7 +236,7 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 54  # 39 original + 15 Phase 32 stop/lifecycle fields
+    assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
     assert '"psar_direction"' in params[36]  # $37 = cis_attribution JSON string
 
 
@@ -672,9 +672,9 @@ class TestIsShadowField:
         entry = _make_entry()
         assert entry.is_shadow is False
 
-    def test_to_insert_params_length_54(self):
+    def test_to_insert_params_length_58(self):
         entry = _make_entry()
-        assert len(entry.to_insert_params()) == 54  # 39 original + 15 Phase 32 fields
+        assert len(entry.to_insert_params()) == 58  # 39 original + 15 Phase 32 + 4 Phase 35 calibration fields
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)
@@ -744,3 +744,76 @@ class TestBuildFeatureRows:
         from src.intelligence.trading.signal_ledger import _INSERT_FEATURES_SQL
         assert "ON CONFLICT" in _INSERT_FEATURES_SQL
         assert "DO NOTHING" in _INSERT_FEATURES_SQL
+
+
+@pytest.mark.unit
+class TestLedgerEntryPhase35CalibrationFields:
+    """Phase 35: LedgerEntry must carry calibration fields for isotonic regression pipeline."""
+
+    def test_has_raw_cis_score_field(self):
+        """raw_cis_score field must exist on LedgerEntry."""
+        assert "raw_cis_score" in LedgerEntry.__dataclass_fields__
+
+    def test_has_filtered_cis_score_field(self):
+        """filtered_cis_score field must exist on LedgerEntry."""
+        assert "filtered_cis_score" in LedgerEntry.__dataclass_fields__
+
+    def test_has_calibrated_confidence_field(self):
+        """calibrated_confidence field must exist on LedgerEntry."""
+        assert "calibrated_confidence" in LedgerEntry.__dataclass_fields__
+
+    def test_has_regime_type_at_fire_field(self):
+        """regime_type_at_fire field must exist on LedgerEntry."""
+        assert "regime_type_at_fire" in LedgerEntry.__dataclass_fields__
+
+    def test_calibration_fields_default_none(self):
+        """All Phase 35 calibration fields must default to None."""
+        entry = _make_entry()
+        assert entry.raw_cis_score is None
+        assert entry.filtered_cis_score is None
+        assert entry.calibrated_confidence is None
+        assert entry.regime_type_at_fire is None
+
+    def test_to_insert_params_returns_58_elements(self):
+        """to_insert_params() must return 58 elements after Phase 35 extension (was 54)."""
+        entry = _make_entry()
+        params = entry.to_insert_params()
+        assert len(params) == 58, (
+            f"Expected 58 elements (54 original + 4 Phase 35 calibration fields), got {len(params)}"
+        )
+
+    def test_to_insert_params_calibration_fields_at_positions_55_to_58(self):
+        """Phase 35 fields are at $55-$58 (0-indexed: 54-57)."""
+        entry = _make_entry(
+            raw_cis_score=0.72,
+            filtered_cis_score=0.68,
+            calibrated_confidence=0.61,
+            regime_type_at_fire="trend",
+        )
+        params = entry.to_insert_params()
+        assert len(params) == 58
+        assert params[54] == pytest.approx(0.72)   # $55 raw_cis_score
+        assert params[55] == pytest.approx(0.68)   # $56 filtered_cis_score
+        assert params[56] == pytest.approx(0.61)   # $57 calibrated_confidence
+        assert params[57] == "trend"               # $58 regime_type_at_fire
+
+    def test_to_insert_params_calibration_fields_nullable(self):
+        """Calibration fields must be NULL-able (None passes through unchanged)."""
+        entry = _make_entry()
+        params = entry.to_insert_params()
+        assert params[54] is None  # raw_cis_score
+        assert params[55] is None  # filtered_cis_score
+        assert params[56] is None  # calibrated_confidence
+        assert params[57] is None  # regime_type_at_fire
+
+    def test_insert_sql_contains_calibration_columns(self):
+        """_INSERT_SQL must reference all four Phase 35 calibration columns."""
+        from src.intelligence.trading.signal_ledger import _INSERT_SQL
+        assert "raw_cis_score" in _INSERT_SQL
+        assert "filtered_cis_score" in _INSERT_SQL
+        assert "calibrated_confidence" in _INSERT_SQL
+        assert "regime_type_at_fire" in _INSERT_SQL
+        assert "$55" in _INSERT_SQL
+        assert "$56" in _INSERT_SQL
+        assert "$57" in _INSERT_SQL
+        assert "$58" in _INSERT_SQL
