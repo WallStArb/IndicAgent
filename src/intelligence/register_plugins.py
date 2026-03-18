@@ -121,6 +121,7 @@ from .trading.supply_demand_setup import plugin as supply_demand_setup_plugin
 from .trading.trend_following import plugin as trend_follow_plugin
 from .trading.vcp import plugin as vcp_plugin
 from .trading.vwap_deviation import plugin as vwap_deviation_plugin
+from .trading.cross_asset_divergence import plugin as cross_asset_divergence_plugin
 from .trading.vwap_reclaim import plugin as vwap_reclaim_plugin
 
 
@@ -304,6 +305,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(cvd_spike_plugin)
     registry.register_pattern(delta_exhaustion_plugin)
     registry.register_pattern(dual_divergence_plugin)
+    registry.register_pattern(cross_asset_divergence_plugin)
 
     validate_schema_coverage()
 
@@ -455,5 +457,6 @@ TIER_I7: list[str] = [
     cvd_divergence_plugin.name,          # "trad_CVDDivergence"
     cvd_spike_plugin.name,               # "trad_CVDSpike"
     delta_exhaustion_plugin.name,        # "trad_DeltaExhaustion"
-    dual_divergence_plugin.name,         # "trad_DualDivergence"
+    dual_divergence_plugin.name,          # "trad_DualDivergence"
+    cross_asset_divergence_plugin.name,  # "trad_CrossAssetDivergence"
 ]

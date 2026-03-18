@@ -16,7 +16,7 @@ class TestI7Registration:
         register_all_plugins()
 
     def test_i7_plugins_registered(self):
-        """All 35 I7 plugins should be in the registry."""
+        """All 36 I7 plugins should be in the registry."""
         expected_i7 = {
             "trad_TrendFollowing",
             "trad_MeanReversion",
@@ -55,16 +55,18 @@ class TestI7Registration:
             "trad_CVDSpike",
             "trad_DeltaExhaustion",
             "trad_DualDivergence",
+            # Phase 037-02: Cross-asset divergence I7 plugin
+            "trad_CrossAssetDivergence",
         }
         registered = set(registry.patterns.keys())
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 27 indicators + 93 patterns = 120 total (036-02 adds 7 OFI+CVD I7 plugins)."""
+        """Should have 27 indicators + 94 patterns = 121 total (037-02 adds CrossAssetDivergence)."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 120, f"Expected 120, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 121, f"Expected 121, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):
@@ -104,5 +106,5 @@ class TestI7Registration:
             assert name not in TREND_SETUPS, f"{name} should NOT be in TREND_SETUPS"
 
     def test_tier_i7_count(self):
-        """TIER_I7 should contain exactly 35 plugins (28 + 7 new OFI/CVD microstructure)."""
-        assert len(TIER_I7) == 35, f"Expected 35 TIER_I7 plugins, got {len(TIER_I7)}"
+        """TIER_I7 should contain exactly 36 plugins (35 + 1 CrossAssetDivergence from 037-02)."""
+        assert len(TIER_I7) == 36, f"Expected 36 TIER_I7 plugins, got {len(TIER_I7)}"
