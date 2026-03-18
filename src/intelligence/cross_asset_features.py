@@ -238,7 +238,7 @@ def compute_eq_index_features(
 
     return {
         "ready": True,
-        "ts": ts.isoformat() + "Z",
+        "ts": ts.isoformat().replace("+00:00", "Z"),
         "tf": tf,
         "group": "EQ_INDEX",
         "es_nq_spread_z": float(es_nq_z),
