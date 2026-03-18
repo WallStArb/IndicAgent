@@ -36,7 +36,7 @@ import structlog
 from pydantic import ValidationError
 
 from src.api.utils import parse_jsonb
-from src.config.settings import Settings, get_active_contracts, get_active_symbols
+from src.config.settings import Settings, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
@@ -125,6 +125,56 @@ _TOD_SESSION_PRIORS: dict[tuple[str, int], float] = {
 }
 _TOD_ALPHA = 20.0    # prior weight in virtual observations
 _TOD_CLAMP = (0.7, 1.3)
+
+# ---------------------------------------------------------------------------
+# Phase 35: CIS Kalman filter — local-level 1D model (KAL-01 / KAL-02)
+# ---------------------------------------------------------------------------
+_CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
+    "1m":  {"Q": 0.01, "R": 0.08},
+    "5m":  {"Q": 0.01, "R": 0.06},
+    "15m": {"Q": 0.01, "R": 0.04},
+    "1h":  {"Q": 0.01, "R": 0.02},
+}
+
+
+def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
+    """Load per-TF CIS Kalman Q/R from config/kalman_parameters.json.
+
+    Falls back to _CIS_KALMAN_DEFAULTS if file missing or 'cis_kalman' key absent.
+    Degrades gracefully — service never crashes on missing config file.
+    """
+    config_path = Path("config/kalman_parameters.json")
+    if not config_path.exists():
+        return dict(_CIS_KALMAN_DEFAULTS)
+    try:
+        data = json.loads(config_path.read_text())
+        params = data.get("cis_kalman", _CIS_KALMAN_DEFAULTS)
+        return {tf: dict(v) for tf, v in params.items()}
+    except Exception:
+        return dict(_CIS_KALMAN_DEFAULTS)
+
+
+_CIS_KALMAN_PARAMS: dict[str, dict[str, float]] = _load_cis_kalman_params()
+
+
+def _cis_kalman_update(
+    raw_cis: float,
+    x_est: float,
+    P_est: float,
+    Q: float,
+    R: float,
+) -> tuple[float, float]:
+    """One predict+update step of the local-level 1D Kalman filter on CIS score.
+
+    Exact recursion from KalmanTrendPlugin — applied to CIS in [-1, 1] space.
+    Returns (new_x_est, new_P_est).
+    """
+    P_pred = P_est + Q
+    K = P_pred / (P_pred + R)
+    x_new = x_est + K * (raw_cis - x_est)
+    P_new = (1.0 - K) * P_pred
+    return x_new, P_new
+
 
 MARKET_CONTEXT_KEYS: tuple[str, ...] = (
     "trend_regime",
@@ -292,6 +342,8 @@ def build_ledger_entries(
     signal_computed_at: datetime | None = None,
     quote: dict[str, float | None] | None = None,
     determined_at: datetime | None = None,
+    raw_cis_score: float | None = None,       # Phase 35: KAL-02
+    filtered_cis_score: float | None = None,  # Phase 35: KAL-02
 ) -> list[LedgerEntry]:
     """Build LedgerEntry list from an AggregatedResult."""
     if not result.all_ranked:
@@ -317,6 +369,14 @@ def build_ledger_entries(
         ask = _quote.get("ask")
         bid = _quote.get("bid")
         market_price = ask if direction == 1 else bid
+        # Phase 35 KAL-02: calibrated_confidence and regime_type_at_fire only on winner
+        _calibrated_conf: float | None = None
+        _regime_at_fire: str | None = None
+        if was_selected:
+            _cc = sig.get("calibrated_confidence")
+            _calibrated_conf = float(_cc) if _cc is not None else None
+            _rt = sig.get("regime_type")
+            _regime_at_fire = str(_rt) if _rt else None
         entries.append(
             LedgerEntry(
                 signal_id=str(uuid4()),
@@ -364,6 +424,11 @@ def build_ledger_entries(
                 structural_stop_distance_atr=sig.get("structural_stop_distance_atr"),
                 hmm_regime_at_fire=sig.get("hmm_regime_at_fire"),
                 garch_sigma_at_fire=sig.get("garch_sigma_at_fire"),
+                # Phase 35 KAL-02: Kalman CIS fields (all entries) + winner-only fields
+                raw_cis_score=raw_cis_score,
+                filtered_cis_score=filtered_cis_score,
+                calibrated_confidence=_calibrated_conf,
+                regime_type_at_fire=_regime_at_fire,
             )
         )
     return entries
@@ -1031,6 +1096,66 @@ class SignalGeneratorService:
             timeframe=timeframe,
         )
 
+        # Phase 35 KAL-01/KAL-02: Kalman filter on CIS score — runs every bar
+        raw_cis = float(result.cis_score) if result.cis_score is not None else 0.0
+        _tf_params = _CIS_KALMAN_PARAMS.get(
+            timeframe, _CIS_KALMAN_DEFAULTS.get(timeframe, {"Q": 0.01, "R": 0.05})
+        )
+        _Q = float(_tf_params["Q"])
+        _R = float(_tf_params["R"])
+        _kal_key = (symbol, timeframe)
+        if _kal_key not in self._cis_kalman_state:
+            # First bar: initialize to raw CIS; uncertainty = R (same as KalmanTrendPlugin)
+            self._cis_kalman_state[_kal_key] = {"x_est": raw_cis, "P_est": _R}
+        _kal_state = self._cis_kalman_state[_kal_key]
+        _x_new, _P_new = _cis_kalman_update(
+            raw_cis, _kal_state["x_est"], _kal_state["P_est"], _Q, _R
+        )
+        self._cis_kalman_state[_kal_key] = {"x_est": _x_new, "P_est": _P_new}
+        filtered_cis = round(_x_new, 4)
+
+        # KAL-02: New fire condition check
+        # Old condition: signal selected by aggregate() (abs(cis_score) > threshold in aggregate)
+        # New condition: filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing >= 3
+        _buckets_agreeing = result.num_agreeing
+        _new_condition = (
+            filtered_cis > 0.35
+            and raw_cis > 0.28
+            and _buckets_agreeing >= 3
+        )
+        _old_condition = result.selected_signal is not None
+
+        if _old_condition and not _new_condition:
+            # Signal passes old condition but fails new — tag for shadow write
+            if filtered_cis <= 0.35:
+                _suppression_reason = "kalman_filtered_cis_low"
+            elif raw_cis <= 0.28:
+                _suppression_reason = "raw_cis_low"
+            else:
+                _suppression_reason = "buckets_agreeing_low"
+            self.logger.info(
+                "new_fire_condition_shadow",
+                symbol=symbol,
+                timeframe=timeframe,
+                raw_cis=raw_cis,
+                filtered_cis=filtered_cis,
+                buckets_agreeing=_buckets_agreeing,
+                suppression_reason=_suppression_reason,
+            )
+            if result.selected_signal:
+                result.selected_signal["_kalman_shadow"] = True
+                result.selected_signal["_kalman_suppression_reason"] = _suppression_reason
+            # Shadow signals are DB-only — do not publish to Kafka
+
+        self.logger.debug(
+            "cis_kalman",
+            symbol=symbol,
+            timeframe=timeframe,
+            raw_cis=raw_cis,
+            filtered_cis=filtered_cis,
+            tod_multiplier=raw_signals[0].get("tod_multiplier") if raw_signals else None,
+        )
+
         # Apply structural trade framing to the winning signal
         if result.selected_signal:
             atr = float(features.get("atr_14") or 0.0)
@@ -1108,7 +1233,18 @@ class SignalGeneratorService:
             signal_computed_at=signal_computed_at,
             quote=live_quote,
             determined_at=determined_at,
+            raw_cis_score=raw_cis,
+            filtered_cis_score=filtered_cis,
         )
+
+        # Phase 35 KAL-02: Override is_shadow for Kalman shadow signals
+        if result.selected_signal and result.selected_signal.get("_kalman_shadow"):
+            for entry in entries:
+                if entry.was_selected:
+                    entry.is_shadow = True
+                    entry.staleness_trigger_reason = result.selected_signal.get(
+                        "_kalman_suppression_reason", "kalman_suppressed"
+                    )
 
         # ── Signal gate: suppress condition re-fires and direction flips ─────────────
         # Prevents same setup re-publishing every bar the condition persists (onset-only).

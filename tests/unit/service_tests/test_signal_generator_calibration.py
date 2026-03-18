@@ -111,3 +111,51 @@ def test_raw_confidence_fallback_when_no_calibration():
     ranked = _build_all_ranked(signals)
     # Higher raw confidence should rank first (MomentumBreakout has SETUP_PRIORITY advantage too)
     assert ranked[0]["confidence"] >= ranked[-1]["confidence"]
+
+
+# ---------------------------------------------------------------------------
+# CIS Kalman filter tests (KAL-01, KAL-02)
+# ---------------------------------------------------------------------------
+
+from services.signal_generator_service import _cis_kalman_update, _CIS_KALMAN_DEFAULTS  # noqa: E402
+
+
+def test_cis_kalman_update_convergence():
+    """Repeatedly feeding same CIS value causes filter to converge to it."""
+    Q = _CIS_KALMAN_DEFAULTS["1m"]["Q"]
+    R = _CIS_KALMAN_DEFAULTS["1m"]["R"]
+    x_est, P_est = 0.0, R  # initial state
+    target = 0.7
+    for _ in range(200):
+        x_est, P_est = _cis_kalman_update(target, x_est, P_est, Q, R)
+    assert abs(x_est - target) < 0.01
+
+
+def test_cis_kalman_update_state_updates():
+    """State values change after each call."""
+    Q, R = 0.01, 0.05
+    x0, P0 = 0.5, 0.05
+    x1, P1 = _cis_kalman_update(0.8, x0, P0, Q, R)
+    assert x1 != x0
+    assert P1 != P0
+
+
+def test_cis_kalman_update_moves_toward_observation():
+    """Filtered value moves toward the observation on each step."""
+    Q, R = 0.01, 0.05
+    x_est, P_est = 0.0, R
+    new_x, _ = _cis_kalman_update(1.0, x_est, P_est, Q, R)
+    assert new_x > x_est  # moved toward 1.0
+
+
+def test_cis_kalman_params_loaded():
+    """_CIS_KALMAN_DEFAULTS has all four timeframes."""
+    for tf in ("1m", "5m", "15m", "1h"):
+        assert tf in _CIS_KALMAN_DEFAULTS
+        assert "Q" in _CIS_KALMAN_DEFAULTS[tf]
+        assert "R" in _CIS_KALMAN_DEFAULTS[tf]
+
+
+def test_cis_kalman_1m_r_higher_than_1h():
+    """1m has higher R (more noise) than 1h (smoother)."""
+    assert _CIS_KALMAN_DEFAULTS["1m"]["R"] > _CIS_KALMAN_DEFAULTS["1h"]["R"]
