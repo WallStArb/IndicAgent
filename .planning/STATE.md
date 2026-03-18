@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: Plan 38-03 shipped — Pipeline integration: 4 services consume roll events, indicator_service migrates plugin state, feature_writer writes roll boundary markers, backfill seeds roll chains
+status: Plan 35-01 shipped — confidence_calibration table, isotonic regression calibrator, LedgerEntry extended to 58 fields, wired into weight_updater
 stopped_at: Completed 038-03-PLAN.md
-last_updated: "2026-03-18T04:28:17.600Z"
-last_activity: 2026-03-18 — Phase 38 Plan 02 executed (RollMonitor + 52 unit tests)
+last_updated: "2026-03-18T04:32:39.157Z"
+last_activity: 2026-03-17 — Phase 35 Plan 01 executed (migration, calibrator module, weight_updater wiring)
 progress:
   total_phases: 14
   completed_phases: 5
   total_plans: 18
   completed_plans: 16
-  percent: 78
+  percent: 89
 ---
 
 # Project State
