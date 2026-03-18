@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.9
 milestone_name: I7 Alpha Engine — In Progress
-status: Phase 35 planned — calibration (CAL-01/02/03), TOD multiplier (TOD-01/02), CIS Kalman filter (KAL-01/02); migration 038 adds `regime_type_at_fire`, `raw_cis_score`, `filtered_cis_score`, `calibrated_confidence` to signal_ledger; LedgerEntry extends to 58 fields
-stopped_at: Completed 038-01-PLAN.md
-last_updated: "2026-03-18T04:07:40.194Z"
-last_activity: 2026-03-17 — Phase 35 planned (3 plans, 3 waves)
+status: completed
+stopped_at: Completed 038-02-PLAN.md
+last_updated: "2026-03-18T04:15:32.244Z"
+last_activity: 2026-03-18 — Phase 38 Plan 01 executed (migration, roll chain utility, get_active_contracts refactor)
 progress:
   total_phases: 14
   completed_phases: 4
   total_plans: 18
-  completed_plans: 13
-  percent: 80
+  completed_plans: 14
+  percent: 72
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 ## Current Position
 
-Phase: 038-automated-futures-roll-detection (plan 01 complete — plan 02 next)
-Plan: 38-02 (roll detection engine)
-Status: Plan 38-01 shipped — DB foundation complete; migration 038 ready to apply; derive_roll_chain() and get_active_contracts() live
-Last activity: 2026-03-18 — Phase 38 Plan 01 executed (migration, roll chain utility, get_active_contracts refactor)
+Phase: 038-automated-futures-roll-detection (plan 02 complete — plan 03 next)
+Plan: 38-03 (pipeline integration)
+Status: Plan 38-02 shipped — RollMonitor class with volume-based detection, segmented thresholds, z-score gate, 3-bar confirmation, 30-min cooldown, TOD gating, paper account detection, Kafka/DB publishing
+Last activity: 2026-03-18 — Phase 38 Plan 02 executed (RollMonitor + 52 unit tests)
 
-Progress: [███████░░░] 72%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -93,6 +93,7 @@ Progress: [███████░░░] 72%
 - **derive_roll_chain(base) returns 3-contract list** — in src/config/contracts.py; covers quarterly (ES/NQ/RTY/YM/ZN/ZF/ZB/ZT/VIX), monthly (CL/GC/SI/HG), grain (ZC/ZS/ZW); symbols use 1-digit year suffix (IBKR format e.g. ESM6)
 - **Migration 038 ready to apply** — production/migrations/038_roll_monitor_integration.sql; extends contract_metadata (is_front_month, roll_direction, roll_detected_at, confirmation_count) + system_events table + 2 indexes
 - **topic_system_events() added** — src/core/stream_keys.py; returns "{env}.system.events"
+- **RollMonitor class in services/tws_daemon.py** — 038-02; VOLUME_THRESHOLDS = {ES/NQ/RTY/YM:1.2, CL/GC/SI/HG:1.5, ZN/ZF/ZB/ZT:1.4}; dual gate: ratio >= threshold AND z_score > 2.0; 3-bar confirmation; 30-min cooldown; _apply_tod_adjustment() ET-aware (pre-open 1.3x, close 0.9x, post-close None); PAPER_ACCOUNT_HOSTS = {"192.168.1.157", "127.0.0.1"}; PAPER_SKIP_CONTRACTS = {"BZJ6", "NGJ6", "SR1H6", "ZWH6"}; _on_roll_confirmed() publishes Kafka + atomic DB update; wired into _fetch_bars_for_symbol when ROLL_MONITOR_ENABLED=true
 
 ### v1.9 Phase Ordering Rationale
 - **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
@@ -108,7 +109,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T04:07:40.192Z
-Stopped at: Completed 038-01-PLAN.md
+Last session: 2026-03-18T04:15:32.242Z
+Stopped at: Completed 038-02-PLAN.md
 Resume file: None
 Next action: `/gsd:execute-phase 34` (Phase 34 Plan 03: I7 POC/HVN/LVN plugins)
