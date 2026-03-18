@@ -149,9 +149,7 @@ def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
     Falls back to _CIS_KALMAN_DEFAULTS if file missing or 'cis_kalman' key absent.
     Degrades gracefully — service never crashes on missing config file.
     """
-    config_path = Path("config/kalman_parameters.json")
-    if not config_path.exists():
-        return dict(_CIS_KALMAN_DEFAULTS)
+    config_path = Path(__file__).parent.parent / "config" / "kalman_parameters.json"
     try:
         data = json.loads(config_path.read_text())
         params = data.get("cis_kalman", _CIS_KALMAN_DEFAULTS)
@@ -366,7 +364,16 @@ def build_ledger_entries(
         is_regime_eligible = sig.get("regime_eligible", True)
         # Regime-suppressed signals persist to ledger for observability, not selection.
         # was_selected is always False for regime-suppressed signals.
-        was_selected = rank == 1 and result.selected_signal is not None and is_regime_eligible
+        # Identify winner by setup_plugin match — composite_rank==1 is SETUP_PRIORITY-based
+        # (observability order) and does not change after calibration re-sort in aggregator.
+        _winner_plugin = (
+            result.selected_signal.get("setup_plugin") if result.selected_signal else None
+        )
+        was_selected = (
+            is_regime_eligible
+            and _winner_plugin is not None
+            and sig.get("setup_plugin") == _winner_plugin
+        )
         # Determine status based on regime eligibility
         entry_status = "pending" if is_regime_eligible else "regime_suppressed"
         direction = int(sig.get("direction", 0))
@@ -1113,7 +1120,8 @@ class SignalGeneratorService:
         _x_new, _P_new = _cis_kalman_update(
             raw_cis, _kal_state["x_est"], _kal_state["P_est"], _Q, _R
         )
-        self._cis_kalman_state[_kal_key] = {"x_est": _x_new, "P_est": _P_new}
+        _kal_state["x_est"] = _x_new
+        _kal_state["P_est"] = _P_new
         filtered_cis = round(_x_new, 4)
 
         # KAL-02: New fire condition check
@@ -1774,9 +1782,11 @@ class SignalGeneratorService:
                 GROUP BY 1, 2, 3
                 """
             )
-            # Compute overall win rate as baseline (prior denominator)
-            total_n = sum(r["n"] for r in rows) if rows else 0
-            total_wins = sum(r["wins"] for r in rows) if rows else 0
+            # Compute overall win rate as baseline (prior denominator) — single pass
+            total_n = total_wins = 0.0
+            for r in rows:
+                total_n += r["n"]
+                total_wins += r["wins"]
             global_win_rate = (total_wins / total_n) if total_n > 0 else 0.5
             global_win_rate = max(0.01, global_win_rate)  # avoid div-by-zero
 
@@ -1795,6 +1805,13 @@ class SignalGeneratorService:
                 clamped = max(_TOD_CLAMP[0], min(_TOD_CLAMP[1], raw_mult))
                 new_multipliers[(regime_type, timeframe, hour_et)] = round(clamped, 4)
 
+            # Cold-start: if no DB data yet, seed from session priors so warm-start
+            # intent of _TOD_SESSION_PRIORS is fulfilled before signals accumulate.
+            if not new_multipliers:
+                for (regime_t, hour_et), prior_ratio in _TOD_SESSION_PRIORS.items():
+                    clamped = max(_TOD_CLAMP[0], min(_TOD_CLAMP[1], prior_ratio))
+                    for tf in ("1m", "5m", "15m", "1h"):
+                        new_multipliers[(regime_t, tf, hour_et)] = round(clamped, 4)
             self._tod_multipliers = new_multipliers
             self.logger.debug("tod_multipliers_loaded", n_cells=len(new_multipliers))
         except Exception as exc:
