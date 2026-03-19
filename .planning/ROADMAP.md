@@ -408,6 +408,16 @@ Plans:
 - [x] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
 - [x] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
+### Phase 47: Signal Pipeline DAG Refactor: monolithic→DAG microservices + Renaissance observability (attribution, A/B testing, causal inference, data quality, fault tolerance)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 46
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 47 to break down)
+
 ---
 
 ### Phase 39: Data Quality + DB Health
