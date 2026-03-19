@@ -80,7 +80,7 @@
 ### CODE-Q — Code Quality Enforcement
 
 - [x] **CODE-Q-01**: `PatternPlugin` Protocol declares `regime_type: ClassVar[str]`; `validate_tier()` hard-crashes at startup on invalid values (`"trend"`, `"mean_reversion"`, `"any"` only)
-- [ ] **CODE-Q-02**: `SignalStatus` enum (`PENDING`, `ACTIVE`, `REGIME_SUPPRESSED`) replaces raw status string literals across 4 services; no raw strings in grep
+- [x] **CODE-Q-02**: `SignalStatus` enum (`PENDING`, `ACTIVE`, `REGIME_SUPPRESSED`) replaces raw status string literals across 4 services; no raw strings in grep
 - [x] **CODE-Q-03**: Pre-commit hooks enforce plugin class naming (`PascalCasePlugin`), file naming (`snake_case.py`), regime_type ClassVar on I7 plugins, and no dead imports (ruff F401)
 - [ ] **CODE-Q-04**: `SignalOutcome` enum (8-class taxonomy) replaces raw outcome strings in lifecycle_tracker and signal_lifecycle_service; `signal_outcome.py` is single source of truth for WIN/STOP/TTL sets; DB CHECK constraint enforces valid values
 - [ ] **CODE-Q-05**: `/signals/recent` tier filtering rewritten as parameterized SQL (no f-string interpolation); single stable query string for all 3 tier values
