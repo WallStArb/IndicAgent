@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 39.1-04-PLAN.md — VWAP/Shannon/SQL bug fixes
-last_updated: "2026-03-19T16:40:11.236Z"
+stopped_at: Completed 39.1-05-PLAN.md — SignalOutcome enum + DB CHECK constraint
+last_updated: "2026-03-19T22:22:47.807Z"
 progress:
-  total_phases: 23
-  completed_phases: 0
-  total_plans: 12
-  completed_plans: 5
+  total_phases: 24
+  completed_phases: 1
+  total_plans: 16
+  completed_plans: 6
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 ## Current Position
 
 Phase: 39.1 (intelligence-layer-enforcement) — EXECUTING
-Plan: 2 of 6
+Plan: 5 of 6
 
 ## Performance Metrics
 
