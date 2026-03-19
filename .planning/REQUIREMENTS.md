@@ -11,7 +11,7 @@
 - [ ] **DATA-02**: `validate_alpha.py --promote` re-run for bootstrap-promoted plugins (DerivOsc, AC Osc) once N >= 30 signals accumulated
 - [x] **DATA-03**: `market_data_ohlcv` rebuilt without space partitioning — chunk count < 200 (from 15,740), aggregate queries < 500ms
 - [x] **DATA-04**: `signal_ledger` composite index for lifecycle UPDATEs — UPDATE latency < 5ms (from 34ms average)
-- [ ] **DATA-05**: Gap-fill service detects missing 1m bars in `market_data_ohlcv` during RTH windows and fetches only missing windows from IBKR
+- [x] **DATA-05**: Gap-fill service detects missing 1m bars in `market_data_ohlcv` during RTH windows and fetches only missing windows from IBKR
 - [ ] **DATA-06**: `SignalStatus` enum replaces raw string literals (`"pending"`, `"active"`, `"regime_suppressed"`) across all 5 files
 - [ ] **DATA-07**: `SignalOutcome` enum replaces raw outcome string literals across lifecycle_tracker, signal_lifecycle_service, and API routes; DB CHECK constraint enforces valid values
 - [ ] **DATA-08**: `signal_ledger.effective_ts` generated column — `COALESCE(signal_computed_at, feature_ts) STORED`; replaces ad-hoc COALESCE in all queries; enables index-based ordering
