@@ -417,7 +417,13 @@ Plans:
   4. `validate_alpha.py --promote` passes for DerivOsc and AC Osc once N >= 30 signals are accumulated — exit code 0 with "PROMOTED" output or explicit "insufficient data" message.
   5. Gap-fill service detects and fetches only missing 1m RTH windows — running it twice on the same symbol produces no duplicate rows (ON CONFLICT DO NOTHING is safe).
   6. `grep -r '"pending"\|"active"\|"regime_suppressed"' services/` returns zero results — all signal status comparisons use `SignalStatus` enum members.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 40: Machine Hardening
 **Goal**: The pipeline sustains production data rates without lag accumulation — feature_writer consolidates its polling loop, the aggregator skips unnecessary rebuilds, DB seed is bounded, calibration pre-allocates arrays, refresh loops handle shutdown cleanly, lifecycle lookup is O(1), and Chandelier writes only on meaningful change.
@@ -431,7 +437,13 @@ Plans:
   5. All 5 refresh loops in `signal_generator_service` use the shared `_run_refresh_loop` coroutine — no loop has its own ad-hoc shutdown or backoff logic.
   6. Shadow signal lookup in `signal_lifecycle_service` uses an `(symbol, tf)` dict key — no O(N) scan of the full shadow signals collection on each bar.
   7. Chandelier trailing stop DB write executes only when `new_stop > current_stop` (long) or `new_stop < current_stop` (short) — a bar with no stop tightening produces no DB write.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 41: Intelligence Gap Fill
 **Goal**: Intelligence fields that were stubs or missing are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, and higher-TF S/R context reaches I7 plugins.
@@ -443,7 +455,13 @@ Plans:
   3. When price is near a value area boundary, `trade_framer.py` sets `target_1` to POC and `target_2` to VAH or VAL — verifiable in `signal_ledger` rows where `distance_to_vah_atr < 0.5` or `distance_to_val_atr < 0.5`.
   4. For futures symbols within 5 days of roll, `intelligence_features` rows contain a non-NULL `roll_premium_pct` field equal to `(front_price - back_price) / back_price` — verifiable by querying near a known roll date.
   5. I7 plugins receive 1h POC/VAH/VAL and I6 CTF data via `trade_framer` context — stop and target fields in `signal_ledger` reflect higher-TF levels when they are closer than the bar-level levels.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 42: Candlestick Pattern Expansion
 **Goal**: The I5 candlestick pattern library grows from 10 to 28 patterns, and the I7 CandlestickPatternSetup plugin applies calibrated confidence weights so higher-reliability patterns generate higher-conviction signals.
@@ -454,7 +472,13 @@ Plans:
   2. Each of the 18 new patterns fires at least once in a one-week historical replay on ES 1m — verifiable via `SELECT pattern_name, COUNT(*) FROM signal_ledger WHERE setup_plugin = 'trad_CandlestickPatternSetup'` showing new pattern labels.
   3. Tier 1 patterns (Three White/Black Soldiers, Morning/Evening Star, Abandoned Baby) fire with base confidence >= 0.70; Tier 2 patterns fire with base confidence >= 0.60 — the calibration weight table is a named constant in the plugin, not magic numbers.
   4. All new patterns have unit tests verifying the minimum candle structure (e.g., Three White Soldiers requires 3 consecutive bullish bars with higher closes) — adding a malformed fixture returns `False` from the detection function.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 43: I6 Confluence Expansion
 **Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — `market_analysis_service` injects cross-asset features into frames before I6 execution, and `CrossTimeframeConfluencePlugin` scores VIX suppression and equity sector rotation alongside existing TF alignment.
@@ -465,7 +489,13 @@ Plans:
   2. When VIX spread z-score is high (simulated injection), mean-reversion setups show reduced `ctf_score` and volatility/breakout setups show increased `ctf_score` — the VIX suppression multiplier is logged per bar.
   3. When ES/NQ/RTY/YM spread z-scores are all aligned (same direction), `ctf_score` gets a sector rotation boost — the contributing fields are logged in `intelligence_features.i6` JSONB.
   4. `i6_fvg_tf_alignment` and `i6_ob_tf_alignment` have non-zero weights in the `CrossTimeframeConfluencePlugin` scoring formula — querying `intelligence_features.i6` for ES 1m bars shows non-zero `ctf_score` contributions from these fields.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 44: Shadow Mode Graduation
 **Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds are adjusted if data supports it, cross-asset and roll monitor are enabled, and trad_DualDivergence is promoted once it passes the statistical gate.
@@ -476,7 +506,13 @@ Plans:
   2. `CROSS_ASSET_ENABLED=true` is set in the production environment; `indicagent-cross-asset` publishes live data and `signal_generator_service` injects cross-asset frames for EQ_INDEX symbols — verifiable by querying `signal_ledger` for `trad_CrossAssetDivergence` signals after enablement.
   3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
   4. `trad_DualDivergence` `IS_SHADOW` flag is removed; the plugin fires live signals that appear in `signal_ledger` with `is_shadow = FALSE` — N >= 50 resolved signals with win rate > 50% is confirmed before flag removal.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 45: Auth + External Access
 **Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, and SSE works correctly through the auth layer with `withCredentials`.
@@ -489,7 +525,13 @@ Plans:
   4. Login, logout, token refresh, and authentication failure events are logged as structured records — `grep "auth_event" logs/api.log` shows timestamped entries for each event type.
   5. The Next.js dashboard runs as a standalone production build managed by a systemd unit — `systemctl status indicagent-dashboard` shows `active (running)` and the build serves from the compiled output directory.
   6. Auth endpoints (login, refresh) enforce rate limiting — more than 10 failed login attempts within 60 seconds returns HTTP 429 for subsequent attempts.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 46: ML Scoring Model
 **Goal**: A LightGBM model scores every new signal at fire time — trained without lookahead bias on fire-time features, validated via walk-forward, stored in shadow mode, and promoted to an aggregator multiplier after an 8-week gate passes.
@@ -503,7 +545,13 @@ Plans:
   5. Walk-forward retraining runs on schedule (every 7 days via systemd timer) with 60-day expanding window and 14-day hold-out — the timer completion and AUC/Brier metrics are logged to `logs/ml_trainer.log`.
   6. After 8-week shadow gate passes (AUC >= 0.56, Brier < 0.25, Pearson r > 0.20 p < 0.05, win rate lift > +3% at ml_score > 0.6), ML blend is enabled in the aggregator with α=0.20 — `_build_all_ranked()` uses `calibrated_confidence * (1 - α) + ml_score * α` as the sort key.
   7. Global LightGBM model and 3 regime-specific models (ranging/trending/volatile) are trained independently — the regime-specific model is used when `N >= 500` for that regime; otherwise falls back to global model with a logged reason.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ## Backlog
 
@@ -595,7 +643,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 36. Microstructure Plugins | v1.9 | 2/2 | Complete | 2026-03-18 |
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
-| 39. Data Quality + DB Health | v2.0 | 0/TBD | Not started | — |
+| 39. Data Quality + DB Health | v2.0 | 0/4 | Planning complete | — |
 | 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
