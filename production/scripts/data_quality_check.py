@@ -325,7 +325,7 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
         row = cur.fetchone()
         chunk_count = int(row[0]) if row else 0
 
-    DQ_OHLCV_CHUNK_COUNT.labels().set(chunk_count)
+    DQ_OHLCV_CHUNK_COUNT.set(chunk_count)
     return missing, chunk_count
 
 
@@ -374,7 +374,7 @@ def check_ic_health(conn: Any) -> tuple[dict[tuple[str, str], float], float]:
                 total_significant += 1
 
     frac = (total_significant / total_eligible) if total_eligible > 0 else 0.0
-    DQ_IC_SIGNIFICANT_FRACTION.labels().set(frac)
+    DQ_IC_SIGNIFICANT_FRACTION.set(frac)
 
     return ic_scores, frac
 
