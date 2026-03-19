@@ -760,7 +760,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 39. Data Quality + DB Health | v2.0 | 0/6 | Planning complete | — |
-| 39.1. Intelligence Layer Enforcement | 6/6 | Complete   | 2026-03-19 | — |
+| 39.1. Intelligence Layer Enforcement | 6/6 | Complete    | 2026-03-19 | — |
 | 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
