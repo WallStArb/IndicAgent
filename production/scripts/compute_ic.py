@@ -283,7 +283,7 @@ _GRADE_SYMBOLS = {
 def _print_table(results: list[ICResult], min_ic: float) -> None:
     """Print IC results table to stdout."""
     if not results:
-        print("No results with sample_size >= 30.")
+        print(f"No results with sample_size >= {IC_MIN_SAMPLE_SIZE}.")
         return
 
     header = f"{'Plugin':<35} {'TF':<5} {'Symbol':<8} {'N':>6} {'IC':>8} {'p-val':>8} Grade"

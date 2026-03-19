@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-_TERMINAL_STATUSES: frozenset[SignalStatus] = frozenset({SignalStatus.PENDING, SignalStatus.ACTIVE})
+_TERMINAL_STATUSES: frozenset[str] = frozenset({SignalStatus.PENDING.value, SignalStatus.ACTIVE.value})
 
 
 @lru_cache(maxsize=1)
