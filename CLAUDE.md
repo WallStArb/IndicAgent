@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.24.0
-Last Updated: 2026-03-17
-Status: v1.9 IN PROGRESS — Phases 31-34 complete, Phase 38 next
+Version: 5.25.0
+Last Updated: 2026-03-19
+Status: v2.0 IN PROGRESS — Phase 39.1 complete, Phase 40 next
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -190,6 +190,9 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ## Development Standards
 
 **Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
+- **Enum migrations:** When replacing raw strings with enums, update function signatures to return the enum type (not `str`). Extend enum from `str` (e.g., `class SignalOutcome(str, Enum)`) for DB compatibility without migrations.
+- **Hot-path optimization:** Extract repeated list/struct construction to module-level constant tuples to avoid allocation in loops. Use tuples for immutability.
+- **Re-exports:** Use explicit `__all__` export list instead of `# noqa` comments for backward compatibility re-exports.
 - **CodeRabbit limits**: 150 files max per review. Use `--base HEAD~N` to review recent commits. Process can get killed (exit code 137/OOM) on large diffs — review smaller chunks.
 - **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
 - **Simplify workflow**: Launches 3 parallel agents (reuse, quality, efficiency) — finds duplication, missing utilities, inefficient patterns. Real issues found in this session (provider list duplication, datetime parsing reuse).
