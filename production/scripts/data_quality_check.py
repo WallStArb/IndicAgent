@@ -83,18 +83,7 @@ PROM_OUTPUT = "/tmp/data_quality_metrics.prom"
 
 def connect_db(settings: Settings) -> Any:
     """Create a synchronous psycopg2 connection from Settings."""
-    url = settings.database_url
-    url = url.replace("postgresql://", "").replace("postgres://", "")
-    userpass, rest = url.split("@", 1)
-    user, password = userpass.split(":", 1)
-    hostport_db = rest.split("/", 1)
-    hostport = hostport_db[0]
-    dbname = hostport_db[1] if len(hostport_db) > 1 else "indicagent"
-    host, port = hostport.split(":", 1) if ":" in hostport else (hostport, "5432")
-
-    return psycopg2.connect(
-        host=host, port=int(port), database=dbname, user=user, password=password
-    )
+    return psycopg2.connect(settings.database_url)
 
 
 # ---------------------------------------------------------------------------
@@ -116,36 +105,39 @@ def check_null_rates(
     critical_syms: list[str] = []
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        for symbol in symbols:
-            cur.execute(
-                """
-                SELECT
-                    COUNT(*) AS total,
-                    SUM(CASE WHEN cis_score IS NULL THEN 1 ELSE 0 END) AS null_cis,
-                    SUM(CASE WHEN confidence IS NULL THEN 1 ELSE 0 END) AS null_confidence
-                FROM signal_ledger
-                WHERE symbol = %s
-                """,
-                (symbol,),
-            )
-            row = cur.fetchone()
-            if row and row["total"] > 0:
-                total = row["total"]
-                cis_rate = float(row["null_cis"]) / total
-                conf_rate = float(row["null_confidence"]) / total
-            else:
-                cis_rate = 0.0
-                conf_rate = 0.0
+        cur.execute(
+            """
+            SELECT
+                symbol,
+                COUNT(*) AS total,
+                SUM(CASE WHEN cis_score IS NULL THEN 1 ELSE 0 END) AS null_cis,
+                SUM(CASE WHEN confidence IS NULL THEN 1 ELSE 0 END) AS null_confidence
+            FROM signal_ledger
+            WHERE symbol = ANY(%s)
+            GROUP BY symbol
+            """,
+            (symbols,),
+        )
+        rows = cur.fetchall()
 
-            cis_rates[symbol] = cis_rate
-            confidence_rates[symbol] = conf_rate
+    seen: set[str] = {row["symbol"] for row in rows}
+    for row in rows:
+        symbol = row["symbol"]
+        total = row["total"]
+        cis_rate = float(row["null_cis"]) / total if total > 0 else 0.0
+        conf_rate = float(row["null_confidence"]) / total if total > 0 else 0.0
+        cis_rates[symbol] = cis_rate
+        confidence_rates[symbol] = conf_rate
+        DQ_NULL_CIS_RATE.labels(symbol=symbol).set(cis_rate)
+        DQ_NULL_CONFIDENCE_RATE.labels(symbol=symbol).set(conf_rate)
+        if cis_rate > CRITICAL_NULL_CIS_RATE:
+            critical_syms.append(symbol)
 
-            # Update Prometheus gauges
-            DQ_NULL_CIS_RATE.labels(symbol=symbol).set(cis_rate)
-            DQ_NULL_CONFIDENCE_RATE.labels(symbol=symbol).set(conf_rate)
-
-            if cis_rate > CRITICAL_NULL_CIS_RATE:
-                critical_syms.append(symbol)
+    # Symbols with no rows in signal_ledger — treat as 0% null
+    for symbol in symbols:
+        if symbol not in seen:
+            cis_rates[symbol] = 0.0
+            confidence_rates[symbol] = 0.0
 
     return cis_rates, confidence_rates, critical_syms
 
@@ -294,23 +286,26 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
         expected_bars = RTH_BARS_EXPECTED
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        for symbol in symbols:
-            cur.execute(
-                """
-                SELECT COUNT(*) AS bar_count
-                FROM market_data_ohlcv
-                WHERE symbol = %s
-                  AND timeframe = '1m'
-                  AND timestamp >= %s
-                  AND timestamp < %s
-                """,
-                (symbol, today_start, today_end),
-            )
-            row = cur.fetchone()
-            actual = int(row["bar_count"]) if row else 0
-            missing_bars = max(0, expected_bars - actual)
-            missing[symbol] = missing_bars
-            DQ_OHLCV_MISSING_BARS_DAILY.labels(symbol=symbol).set(missing_bars)
+        cur.execute(
+            """
+            SELECT symbol, COUNT(*) AS bar_count
+            FROM market_data_ohlcv
+            WHERE symbol = ANY(%s)
+              AND timeframe = '1m'
+              AND timestamp >= %s
+              AND timestamp < %s
+            GROUP BY symbol
+            """,
+            (symbols, today_start, today_end),
+        )
+        rows = cur.fetchall()
+
+    bar_counts = {row["symbol"]: int(row["bar_count"]) for row in rows}
+    for symbol in symbols:
+        actual = bar_counts.get(symbol, 0)
+        missing_bars = max(0, expected_bars - actual)
+        missing[symbol] = missing_bars
+        DQ_OHLCV_MISSING_BARS_DAILY.labels(symbol=symbol).set(missing_bars)
 
     # Hypertable chunk count
     with conn.cursor() as cur:
