@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
-status: planning
-stopped_at: Phase 39 context gathered
-last_updated: "2026-03-19T06:21:40.377Z"
-last_activity: 2026-03-19 — v2.0 roadmap created (Phases 39-46)
+status: Roadmap updated — Phase 39.1 inserted for enforcement work
+stopped_at: Phase 39.1 context gathered
+last_updated: "2026-03-19T15:19:29.832Z"
+last_activity: 2026-03-19 — Phase 39.1 inserted (regime_type Protocol, SignalStatus enum, pre-commit hooks)
 progress:
-  total_phases: 22
+  total_phases: 23
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
 ---
 
@@ -25,13 +25,14 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 ## Current Position
 
 Phase: 39 (Data Quality + DB Health) — not started
+Phase: 39.1 (Intelligence Layer Enforcement) — INSERTED (urgent)
 Plan: —
-Status: Roadmap complete — ready to plan Phase 39
-Last activity: 2026-03-19 — v2.0 roadmap created (Phases 39-46)
+Status: Roadmap updated — Phase 39.1 inserted for enforcement work
+Last activity: 2026-03-19 — Phase 39.1 inserted (regime_type Protocol, SignalStatus enum, pre-commit hooks)
 
 ```
-v2.0 Progress: [ . . . . . . . . ] 0/8 phases
-                 39 40 41 42 43 44 45 46
+v2.0 Progress: [ . . . . . . . . . ] 0/9 phases
+                 39 39.1 40 41 42 43 44 45 46
 ```
 
 ## Performance Metrics
@@ -43,6 +44,14 @@ v2.0 Progress: [ . . . . . . . . ] 0/8 phases
 - Total execution time: ~62 hours
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- **Phase 39.1 inserted after Phase 39**: Intelligence Layer Enforcement (URGENT) — 2026-03-19
+  - Found: `regime_type` not validated by PatternPlugin Protocol (silent misfire risk)
+  - Found: Signal status strings scattered across 4 files (typo risk)
+  - Action: Add Protocol enforcement, SignalStatus enum, pre-commit hooks
+  - Scope: 4-5 hours focused work; separate from Phase 39 DB rebuild
 
 ### Architecture Constraints (SoC / DAG / Microservices)
 
@@ -143,7 +152,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-19T06:21:40.375Z
-Stopped at: Phase 39 context gathered
-Resume file: .planning/phases/039-data-quality-db-health/039-CONTEXT.md
+Last session: 2026-03-19T15:19:29.830Z
+Stopped at: Phase 39.1 context gathered
+Resume file: .planning/phases/39.1-intelligence-layer-enforcement/39.1-CONTEXT.md
 Next action: Run `/gsd:plan-phase 39` to plan Phase 39 (Data Quality + DB Health)
