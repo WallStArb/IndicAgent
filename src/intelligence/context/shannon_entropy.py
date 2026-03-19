@@ -38,7 +38,10 @@ def _shannon_entropy(close: np.ndarray, n_bins: int = 10) -> float:
     log_returns = np.diff(np.log(close))
     if len(log_returns) < 10:
         return 1.0
-    counts, _ = np.histogram(log_returns, bins=n_bins)
+    valid_returns = log_returns[np.isfinite(log_returns)]
+    if len(valid_returns) < 10:
+        return 1.0
+    counts, _ = np.histogram(valid_returns, bins=n_bins)
     probs = counts / counts.sum()
     probs = probs[probs > 0]
     if len(probs) == 0:
