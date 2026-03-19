@@ -155,7 +155,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v1.9 shipped 2026-03-18)
+### Current State (v2.0 Phase 039 complete 2026-03-19)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 12 active systemd services + weight-updater timer: added `indicagent-cross-asset`
@@ -172,11 +172,19 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 **Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at 192.168.1.157:7497
 
+**Phase 039 additions (2026-03-19):**
+- `signal_ledger.effective_ts` + `pipeline_lag_ms` via trigger; `signal_stats_daily` materialized view (33,859 rows)
+- `repair_cis_nulls.py` exit-1 completeness gate; DATA-02 alpha re-validation deferred (0 resolved outcomes for bootstrap plugins)
+- `rebuild_ohlcv.py` script for chunk rebuild (15,740 → <200 chunks); lifecycle index migration 043 ready to apply
+- `gap_fill_service.py` + systemd daily timer (13:20 UTC) — self-healing 1m RTH gap detection on :9119
+- `information_coefficient.py` + `compute_ic.py`; 3,227 IC slices, 512 significant (36%); top: `trad_MeanReversion` IC 0.76-0.81
+- `data_quality_metrics.py` + `data_quality_check.py` + 15-min systemd timer; 10 Prometheus gauges
+
 **Known issues / tech debt:**
-- CIS NULL repair: `repair_cis_nulls.py` code complete; blocked by PostgreSQL shared memory on 1.8M row JOIN
-- indicagent-timeframes.service — legacy, non-blocking
 - validate_alpha.py re-runs needed for bootstrap plugins once 30+ signals accumulate
 - trad_DualDivergence IS_SHADOW=True (awaiting live confirmation before promotion)
+- Two migrations share number 043 — next migration must start at 044
+- indicagent-timeframes.service — legacy, non-blocking
 
 **Next milestone candidates:** v2.0 — ML scoring model (XGBoost on intelligence_features + signal_ledger; needs ~90 days), candlestick pattern expansion, Auth + External Access, I6 Confluence Expansion (cross-TF + cross-asset)
 
@@ -240,4 +248,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
 
 ---
-*Last updated: 2026-03-19 after phase 39.1 (v2.0 code quality enforcement)*
+*Last updated: 2026-03-19 after phase 039 (v2.0 data quality + DB health)*
