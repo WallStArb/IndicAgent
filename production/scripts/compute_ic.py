@@ -317,9 +317,9 @@ def _print_table(results: list[ICResult], min_ic: float) -> None:
     if noise_plugins:
         print("\nNoise candidates flagged for Phase 44 shadow review:")
         for r in noise_plugins:
+            ic_fmt = f"{r.ic_score:.4f}" if r.ic_score is not None else "None"
             print(f"  - {r.setup_plugin} [{r.timeframe}] {r.symbol or 'ALL'}: "
-                  f"IC={r.ic_score:.4f if r.ic_score else 'None'}, "
-                  f"N={r.ic_n}, grade={r.grade}")
+                  f"IC={ic_fmt}, N={r.ic_n}, grade={r.grade}")
 
 
 # ---------------------------------------------------------------------------
