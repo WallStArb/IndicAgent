@@ -31,7 +31,7 @@ tech-stack:
 
 key-files:
   created:
-    - production/migrations/043_signal_performance_segmented.sql
+    - production/migrations/044_signal_performance_segmented.sql
     - src/intelligence/ml/information_coefficient.py
     - production/scripts/compute_ic.py
     - tests/unit/ml/__init__.py
@@ -122,7 +122,7 @@ scipy 1.17.1 already installed in .venv. No installation needed.
 
 ## Files Created
 
-- `production/migrations/043_signal_performance_segmented.sql` - Table DDL with IC columns, indexes, CHECK constraint
+- `production/migrations/044_signal_performance_segmented.sql` - Table DDL with IC columns, indexes, CHECK constraint
 - `src/intelligence/ml/information_coefficient.py` - compute_ic(), is_ic_significant(), ICResult dataclass
 - `production/scripts/compute_ic.py` - CLI runner with --window-days, --symbols, --regime, --write, --min-ic flags
 - `tests/unit/ml/__init__.py` - Package marker
@@ -150,7 +150,7 @@ scipy 1.17.1 already installed in .venv. No installation needed.
 **2. [Rule 3 - Adaptation] Migration 042 renamed to 043**
 - **Found during:** Task 1 (creating migration)
 - **Issue:** Plan specified `042_signal_performance_segmented.sql` but `042_signal_stats_daily.sql` already existed from Plan 01
-- **Fix:** Used `043_signal_performance_segmented.sql` instead
+- **Fix:** Used `044_signal_performance_segmented.sql` instead
 - **Impact:** Table still created correctly; no schema changes needed
 
 ---
@@ -174,7 +174,7 @@ scipy 1.17.1 already installed in .venv. No installation needed.
 
 ## Self-Check: PASSED
 
-- FOUND: production/migrations/043_signal_performance_segmented.sql
+- FOUND: production/migrations/044_signal_performance_segmented.sql
 - FOUND: src/intelligence/ml/information_coefficient.py
 - FOUND: production/scripts/compute_ic.py
 - FOUND: tests/unit/ml/test_information_coefficient.py

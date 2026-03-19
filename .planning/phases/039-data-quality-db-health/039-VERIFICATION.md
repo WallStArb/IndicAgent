@@ -56,7 +56,7 @@ re_verification: false
 | `production/migrations/041_signal_ledger_schema_hardening.sql` | effective_ts/pipeline_lag_ms columns + CHECK constraints | VERIFIED | Trigger-based (not GENERATED ALWAYS AS — incompatible with TimescaleDB compression) |
 | `production/migrations/042_signal_stats_daily.sql` | CREATE MATERIALIZED VIEW signal_stats_daily | VERIFIED | 33,859 rows; uses feature_ts for date grouping |
 | `production/migrations/043_signal_ledger_lifecycle_index.sql` | CONCURRENTLY composite index | VERIFIED | idx_signal_ledger_lifecycle on (symbol, timeframe, status, computed_at DESC) |
-| `production/migrations/043_signal_performance_segmented.sql` | signal_performance_segmented table | VERIFIED | Naming collision: two files share number 043 (see Notes) |
+| `production/migrations/044_signal_performance_segmented.sql` | signal_performance_segmented table | VERIFIED | Naming collision: two files share number 043 (see Notes) |
 | `production/scripts/repair_cis_nulls.py` | Exit-1 completeness gate | VERIFIED | sys.exit(1) at line 348; [FAIL]/[PASS] gate messages |
 | `tests/unit/scripts/test_repair_cis_nulls.py` | TestCompletenessGate class | VERIFIED | Lines 309-385; both exit-1 and exit-0 paths covered |
 | `production/scripts/rebuild_ohlcv.py` | OHLCV rebuild with verify_v2_ready | VERIFIED | verify_v2_ready() pure function; ON CONFLICT DO NOTHING; atomic rename |
