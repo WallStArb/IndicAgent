@@ -11,6 +11,8 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from src.intelligence.trading.signal_outcome import SignalOutcome
+
 OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2  # bars_in_trade <= this → stopped_at_entry
 
 # Staleness score constants — tune after 90 days of outcome data
@@ -191,11 +193,11 @@ def evaluate_signal(
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
         pnl_dollars = round(pnl_ticks * point_value, 2)
         if status == "pending":
-            outcome = "never_activated"
+            outcome = SignalOutcome.NEVER_ACTIVATED
         elif current_mfe > 0:
-            outcome = "ttl_expired_ahead"
+            outcome = SignalOutcome.TTL_EXPIRED_AHEAD
         else:
-            outcome = "ttl_expired_behind"
+            outcome = SignalOutcome.TTL_EXPIRED_BEHIND
         return Transition(
             signal_id=sid,
             new_status="expired",
@@ -233,7 +235,7 @@ def evaluate_signal(
                         pnl_dollars=pnl_dollars,
                         mae=round(final_mae, 4),
                         mfe=round(final_mfe, 4),
-                        outcome="stopped_in_trade",
+                        outcome=SignalOutcome.STOPPED_IN_TRADE,
                     )
                 elif direction == -1 and high >= trailing_stop:
                     pnl_ticks = (trailing_stop - entry) * direction
@@ -251,7 +253,7 @@ def evaluate_signal(
                         pnl_dollars=pnl_dollars,
                         mae=round(final_mae, 4),
                         mfe=round(final_mfe, 4),
-                        outcome="stopped_in_trade",
+                        outcome=SignalOutcome.STOPPED_IN_TRADE,
                     )
 
         # --- Staleness condition_expired check (3-bar confirmation) ---
@@ -423,7 +425,11 @@ def _check_active_exit(
 
 def _determine_target_outcome(target_index: int) -> str:
     """Map target index (0-based) to outcome label."""
-    return ["target_1", "target_1_2", "target_full"][min(target_index, 2)]
+    return [
+        SignalOutcome.TARGET_1,
+        SignalOutcome.TARGET_1_2,
+        SignalOutcome.TARGET_FULL,
+    ][min(target_index, 2)]
 
 
 def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> str:
@@ -433,8 +439,8 @@ def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) 
         or bars_in_trade_count <= OUTCOME_THRESHOLD_QUICK_STOP_BARS
         or current_mfe <= 0.05
     ):
-        return "stopped_at_entry"
-    return "stopped_in_trade"
+        return SignalOutcome.STOPPED_AT_ENTRY
+    return SignalOutcome.STOPPED_IN_TRADE
 
 
 @dataclass
@@ -480,7 +486,11 @@ def evaluate_market_entry(
     if bars >= ttl:
         pnl_ticks = (close - market_entry_price) * direction
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
-        outcome = "ttl_expired_ahead" if current_mfe > 0 else "ttl_expired_behind"
+        outcome = (
+            SignalOutcome.TTL_EXPIRED_AHEAD
+            if current_mfe > 0
+            else SignalOutcome.TTL_EXPIRED_BEHIND
+        )
         final_mae = min(current_mae, pnl_r)
         final_mfe = max(current_mfe, pnl_r)
         return MarketTransition(
