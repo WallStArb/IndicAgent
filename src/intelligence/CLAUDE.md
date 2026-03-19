@@ -91,3 +91,15 @@ Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lif
 - **Local Ollama models**: qwen3.5:9b (per-signal), phi4-mini:3.8b (group synthesis) (Docker `:11434`).
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
+
+## Troubleshooting
+
+### Plugin Not Firing?
+- **Check `regime_type` declaration**: All I7 plugins must declare `regime_type: "trend" | "mean_reversion" | "any"` as a class attribute. If missing, the aggregator regime gate will silently misfire (trend plugins suppressed in ranging, mean-reversion suppressed in trending).
+- **Verify plugin in tier list**: `registry.validate_tier()` hard-crashes at startup on any missing name from `TIER_I1`…`TIER_I7` constants in `register_plugins.py`. If service won't start, check for typos in plugin names.
+- **State write-back**: GARCH/HMM plugins fully reassign `_state` — if plugin returns stale results, check that `_state` is being written back after `compute_full()`.
+
+### LLM/Signal Issues
+- **Qwen3 empty responses**: Caused by `num_predict < 500` — thinking tokens consume budget before response. Increase to 500+ or use `/no_think` prefix.
+- **Aggregator ignoring performance**: `active` must be derived from `all_ranked`, not raw `signals` list. If `perf_weights` have no effect, check aggregator logic.
+- **Signal activation failures**: Check zone bounds in `trade_framer._resolve_zone_bounds()` — supply_demand, fvg, ob, and sweep setups have different zone calculation logic.

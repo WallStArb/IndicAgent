@@ -179,7 +179,7 @@ class Settings(BaseSettings):
                 tick_size=1.0,
                 sector="equity_index",
             ),
-            # Energy Futures — May 2026 (CL K6); rolled from J6 on 2026-03-16 (expires 2026-03-20)
+            # Energy Futures — May 2026 (CL K6, NG K6); rolled from J6 on 2026-03-16 (expires 2026-03-20)
             Instrument(
                 symbol="CLK6",
                 base="CL",
@@ -188,6 +188,16 @@ class Settings(BaseSettings):
                 name="Crude Oil WTI",
                 point_value=1000,
                 tick_size=0.01,
+                sector="energy",
+            ),
+            Instrument(
+                symbol="NGK6",
+                base="NG",
+                exchange="NYMEX",
+                expiry="20260527",
+                name="Natural Gas",
+                point_value=10000,
+                tick_size=0.001,
                 sector="energy",
             ),
             # Precious & Industrial Metals — April 2026

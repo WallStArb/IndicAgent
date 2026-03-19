@@ -91,6 +91,8 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 **Dashboard dev:** `cd dashboard && npm run dev`
 **Services** (systemd-managed, `Restart=always`):
 - Config changes require restart: `sudo systemctl restart indicagent-<name>` to pick up `_load_config()` changes
+- Services require restart after adding new contracts to `instruments` table — config loads once at startup
+- New contracts require: (1) INSERT to `instruments` table, (2) restart services that consume symbols (indicator, market_analysis, feature_writer), (3) historical backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
 - `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-lifecycle,ai-narrative,feature-writer,llm-writer,cross-asset,api}`
 - `journalctl -u indicagent-<name> -f` — live logs
 - Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117, cross-asset :9118
@@ -157,8 +159,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 **Real-time pipeline never touches the database directly.**
 
 ### TimescaleDB Tables
-- `market_data_ohlcv` — raw OHLCV (backfill only; keep forever — ground truth)
-- `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever)
+- `market_data_ohlcv` — raw OHLCV (backfill only; keep forever — ground truth). Live data flows through Redpanda topics only.
+- `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever). Column name is `ts` not `feature_ts`.
 - `signal_ledger` — I7 signals + lifecycle outcomes; JOIN via `(symbol, feature_ts, feature_tf)` (keep forever)
 - `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer_service` (keep forever)
 - `llm_model_scores` — per-model win rate / avg pnl_r / p-value; refreshed every 15 min
@@ -279,6 +281,15 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 - **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
 - **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
+
+## Data Pipeline Debugging
+
+When investigating "service not writing to database":
+1. **Check service health metrics first** — `events_consumed` and `batches_written` in logs. If increasing, service is working.
+2. **Check which symbols ARE in target table** — `SELECT DISTINCT symbol FROM intelligence_features WHERE ts > NOW() - INTERVAL '2 hours';`
+3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
+4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
+5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
 
 ## Environment Variables
 
