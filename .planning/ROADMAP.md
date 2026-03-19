@@ -408,17 +408,44 @@ Plans:
 - [x] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
 - [x] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
-### Phase 47: Signal Pipeline DAG Refactor: monolithic→DAG microservices + Renaissance observability (attribution, A/B testing, causal inference, data quality, fault tolerance)
+### Phase 47: Signal Pipeline DAG Refactor: monolithic→DAG microservices + Renaissance observability
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 46
-**Plans:** 0 plans
+**Goal**: Refactor the signal pipeline from a monolithic aggregator to a clean DAG of independent microservices, then add Renaissance-grade observability: performance attribution, live A/B experimentation, causal inference, data quality monitoring, and fault tolerance.
+**Requirements**: None (architectural refactor)
+**Depends on**: Phase 46
+**Success Criteria** (what must be TRUE):
+  1. Pipeline is clean DAG of 6 independent stages (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector)
+  2. Each stage is separate microservice with systemd unit
+  3. Stages communicate via Redpanda streams only (no direct coupling)
+  4. Each stage has single responsibility (quality gating, regime filtering, TOD adjustment, calibration, ranking, winner selection)
+  5. Fault tolerance: bypass on stage failure with circuit breaker
+  6. Data quality: validation at each stage drops invalid signals
+  7. < 10ms latency per stage
+  8. Monolithic aggregator removed from signal_generator_service.py
+  9. All stages emit attribution to side channel
+**Plans**: 4 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 47 to break down)
+- [ ] 47-01-PLAN.md — DAG infrastructure: Stage base class, CircuitBreaker, DataQualityMonitor [wave 1]
+- [ ] 47-02-PLAN.md — 6 stage implementations: QualityGate, RegimeGate, TODAdjuster, Calibrator, Ranker, WinnerSelector [wave 2]
+- [ ] 47-03-PLAN.md — Redpanda topics + systemd services: 8 topics (7-day retention), 6 services (:9119-:9124) [wave 2]
+- [ ] 47-04-PLAN.md — Integration: refactor signal_generator_service, E2E test, verify fault tolerance [wave 3]
 
----
+**Renaissance Principles (LOCKED):**
+1. **Instrument everything** — Every decision, transformation, attribution tracked
+2. **Let the system run** — Fully automated feedback loops, no manual reviews
+3. **Earn the right** — Statistical proof (p < 0.05) before any change
+4. **Segment relentlessly** — Regime/context-specific analysis, never global
+5. **Degrade gracefully** — Fault tolerance with circuit breakers and bypass modes
+6. **Data quality over model complexity** — Validate at each stage, drop invalid signals
+7. **Never drop data** — Full retention of all intermediate outputs (7-day topic retention)
+
+**Out of scope for Phase 0 (DAG Refactor):**
+- Performance Attribution Service (Phase 1)
+- Counterfactual Analysis (Phase 2)
+- A/B Test Framework (Phase 3)
+- Causal Inference (Phase 4)
+- Dashboard & Monitoring (Phase 5)
 
 ### Phase 39: Data Quality + DB Health
 **Goal**: The ML training dataset is clean and self-monitoring — CIS nulls repaired, market_data_ohlcv rebuilt for fast queries, signal_ledger hardened with generated columns and CHECK constraints, missing RTH bars auto-fetched, signal performance quantified via Information Coefficient per regime, and data quality monitored continuously via Prometheus.
