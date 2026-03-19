@@ -28,6 +28,14 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ CrossAssetService microservice: ES/NQ/RTY/YM spread z-scores, correlation break features; CrossAssetDivergencePlugin I7 — v1.9
 - ✓ Automated futures roll detection: volume z-score > 2.0, 3-bar confirmation, TOD adjustment, full pipeline propagation, plugin state migration — v1.9
 
+**v2.0 Code Quality Enforcement (2026-03-19):**
+- ✓ PatternPlugin `regime_type` enforcement: ClassVar field + runtime validation in `validate_tier()` — v2.0
+- ✓ SignalStatus enum: type-safe status literals across 4 files, eliminated typo risk — v2.0
+- ✓ SignalOutcome enum: 8-class ML taxonomy with DB CHECK constraint, WIN/STOP/TTL sets consolidated — v2.0
+- ✓ Pre-commit hooks: plugin naming, file naming, regime_type validation, dead import detection — v2.0
+- ✓ Production bug fixes: VWAP timezone crash, ShannonEntropy NaN/Inf guards, /signals/recent SQL injection hardening — v2.0
+- ✓ Dual topic namespace cleanup: 11 orphaned dev.* topics deleted, all services use `stream_keys.py` exclusively — v2.0
+
 **v1.8 Signal Intelligence (2026-03-13):**
 - ✓ Signal Scorecard panel: I7 all-ranked signals with confidence, direction, composite rank, suppression labels via SSE `signal_scorecard` event — v1.8
 - ✓ Drill panel DB signal history: `signal_ledger` loaded on mount, merged with SSE, deduplicated by `signal_id`; `GET /api/signals/recent` — v1.8
@@ -232,4 +240,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
 
 ---
-*Last updated: 2026-03-19 after v1.9 I7 Alpha Engine milestone — v2.0 started*
+*Last updated: 2026-03-19 after phase 39.1 (v2.0 code quality enforcement)*
