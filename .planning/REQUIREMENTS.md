@@ -92,7 +92,7 @@
 
 ### INFRA — Infrastructure Cleanup
 
-- [ ] **INFRA-01**: Orphaned `dev.*` Redpanda topics deleted; all services exclusively use `topic_*()` helpers from `stream_keys.py`; only `development.*` topics remain
+- [x] **INFRA-01**: Orphaned `dev.*` Redpanda topics deleted; all services exclusively use `topic_*()` helpers from `stream_keys.py`; only `development.*` topics remain
 
 ## v2.1 Requirements (Deferred)
 
