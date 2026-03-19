@@ -9,11 +9,28 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Signal lifecycle status enum — type-safe replacement for raw string literals
+# ---------------------------------------------------------------------------
+
+
+class SignalStatus(str, Enum):
+    """Signal lifecycle status — matches database values for zero-migration compatibility.
+
+    Extends str so .value matches existing DB string values. No migration needed.
+    """
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    REGIME_SUPPRESSED = "regime_suppressed"
+
 
 # ---------------------------------------------------------------------------
 # Signal outcome constants — 8-class taxonomy (authoritative source)
@@ -51,7 +68,7 @@ class LedgerEntry:
     resolution_method: str
     composite_rank: int
     market_context: dict = field(default_factory=dict)
-    status: str = "pending"
+    status: SignalStatus = SignalStatus.PENDING
     feature_ts: datetime | None = None
     feature_tf: str | None = None
     # CIS fields — populated by CIS aggregator at signal fire time (Phase 7)
