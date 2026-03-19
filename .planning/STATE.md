@@ -38,6 +38,12 @@ Plan: 2 of 6
 
 ### Roadmap Evolution
 
+- **Phase 47 added**: Signal Pipeline DAG Refactor (Option B: clean architecture first) — 2026-03-19
+  - Current: Monolithic signal_generator_service.py + aggregator.py do everything
+  - Target: Clean DAG of 6 microservices (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector)
+  - Renaissance-grade additions: Performance attribution, live A/B experimentation, causal inference, data quality monitoring, fault tolerance
+  - Design spec: docs/plans/2026-03-19-signal-pipeline-dag-refactor-and-renaissance-observability.md
+
 - **Phase 39.1 inserted after Phase 39**: Intelligence Layer Enforcement (URGENT) — 2026-03-19
   - Found: `regime_type` not validated by PatternPlugin Protocol (silent misfire risk)
   - Found: Signal status strings scattered across 4 files (typo risk)
