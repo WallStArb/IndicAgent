@@ -191,6 +191,7 @@ async def get_active_signals(
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
             WHERE sl.status IN ('pending', 'active')
               AND sl.is_shadow = false
+              AND sl.timestamp >= NOW() - INTERVAL '8 days'  -- buffer for chunk exclusion
               AND COALESCE(sl.signal_computed_at, sl.timestamp) >= NOW() - INTERVAL '7 days'
             ORDER BY sl.symbol, sl.timeframe, COALESCE(sl.signal_computed_at, sl.timestamp) DESC
             LIMIT 500
@@ -328,7 +329,7 @@ async def get_recent_signals(
             ORDER BY COALESCE(sl.signal_computed_at, sl.feature_ts) DESC
             LIMIT $3
         """
-        summary_query = """
+        summary_query = f"""
             SELECT
                 COUNT(*)                                                          AS n_total,
                 COUNT(*) FILTER (WHERE status NOT IN ('pending', 'active'))       AS n_resolved,
@@ -340,9 +341,10 @@ async def get_recent_signals(
                              ELSE NULL END)::numeric, 3
                 )                                                                 AS win_rate,
                 ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 3)   AS avg_pnl_r
-            FROM signal_ledger
-            WHERE ($1::text IS NULL OR symbol = $1)
-              AND ($2::text IS NULL OR timeframe = $2)
+            FROM signal_ledger sl
+            WHERE ($1::text IS NULL OR sl.symbol = $1)
+              AND ($2::text IS NULL OR sl.timeframe = $2)
+              {tier_clause}
         """
         rows, summary_row = await asyncio.gather(
             db_manager.fetch(main_query, resolved_symbol, timeframe, limit),
@@ -483,6 +485,7 @@ async def get_signals_stats(
                     )::numeric, 4
                 ) AS avg_pnl_r_30d
             FROM signal_ledger
+            WHERE timestamp >= NOW() - INTERVAL '30 days'
         """
         row = await db_manager.fetchrow(query)
 

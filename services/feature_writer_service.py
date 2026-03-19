@@ -484,11 +484,11 @@ class FeatureWriterService:
                 data_raw = data_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
+            ts_dt = datetime.fromisoformat(ts_raw).astimezone(UTC)
             if isinstance(data_raw, list):
                 data_raw = json.dumps(data_raw)
-            json.loads(data_raw)  # validate — raises ValueError if malformed
             await self.db_manager.execute_batch(
-                _UPSERT_I7_SQL, [(ts_raw, symbol, timeframe, data_raw)]
+                _UPSERT_I7_SQL, [(ts_dt, symbol, timeframe, data_raw)]
             )
             return True
         except Exception as e:
@@ -546,6 +546,7 @@ class FeatureWriterService:
                 ts_raw = ts_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
+            ts_dt = datetime.fromisoformat(ts_raw).astimezone(UTC)
             i8_payload = {
                 "model": _decode_field(payload.get("model") or payload.get(b"model"), "unknown"),
                 "confidence": _decode_field(
@@ -557,7 +558,7 @@ class FeatureWriterService:
                 ),
             }
             await self.db_manager.execute_batch(
-                _UPSERT_I8_SQL, [(ts_raw, symbol, timeframe, json.dumps(i8_payload))]
+                _UPSERT_I8_SQL, [(ts_dt, symbol, timeframe, json.dumps(i8_payload))]
             )
             return True
         except Exception as e:

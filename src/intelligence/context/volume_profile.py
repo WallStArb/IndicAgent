@@ -228,11 +228,14 @@ class VolumeProfilePlugin:
         directional = self._compute_directional_nodes(s_vol_hist, s_bucket_prices, close)
 
         # in_lvn (legacy): current bucket is a low-volume node
-        vol_threshold_low = np.quantile(nonzero, _LVN_THRESHOLD)
-        cur_bucket = int(
-            np.clip((close - s_price_min) / s_bucket_size, 0, _N_BUCKETS - 1)
-        )
-        in_lvn_flag = 1.0 if s_vol_hist[cur_bucket] <= vol_threshold_low else 0.0
+        if len(nonzero) == 0:
+            in_lvn_flag = 0.0
+        else:
+            vol_threshold_low = np.quantile(nonzero, _LVN_THRESHOLD)
+            cur_bucket = int(
+                np.clip((close - s_price_min) / s_bucket_size, 0, _N_BUCKETS - 1)
+            )
+            in_lvn_flag = 1.0 if s_vol_hist[cur_bucket] <= vol_threshold_low else 0.0
 
         # nearest_hvn_dist_atr (legacy)
         nearest_hvn_level = directional.get("nearest_hvn_level")
