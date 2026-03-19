@@ -62,6 +62,7 @@ Full details: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] Phase 11: SessionExtremesSetup (I7) — Asian session H/L fade during London/NY — completed 2026-03-04
 
 Full details: `.planning/milestones/v1.3-phases/`
+
 </details>
 
 <details>
@@ -75,6 +76,7 @@ Full details: `.planning/milestones/v1.3-phases/`
 - [x] Phase 17: LLM Wiring Fix — signal_id UUID through pipeline + regime vocabulary fix — completed 2026-03-06
 
 Full details: `.planning/milestones/v1.4-ROADMAP.md`
+
 </details>
 
 <details>
@@ -97,6 +99,7 @@ Full details: `.planning/milestones/v1.5-ROADMAP.md`
 - [x] Phase 24: Second-Derivative Acceleration — HMA + 4 I2/I3 plugins + exhaustion wiring — completed 2026-03-10
 
 Full details: `.planning/milestones/v1.6-ROADMAP.md`
+
 </details>
 
 <details>
@@ -115,7 +118,7 @@ Full details: `.planning/milestones/v1.6-ROADMAP.md`
 
 **Milestone Goal:** Complete the dashboard intelligence surface and close Renaissance signal quality gaps — constituent contributions, alpha decay, freshness decay, Hurst/entropy gates, and distribution drift detection.
 
-- [x] **Phase 28: Dashboard Completion** — Signal Scorecard panel, drill panel history from DB, GARCH/Kalman I4 fields, SMC detail fields, tier tooltips (7/7 plans) — completed 2026-03-12
+- [x] **Phase 28: Dashboard Completion** — Signal Scorecard panel, drill panel signal history from DB, GARCH/Kalman I4 fields, SMC detail fields, tier tooltips (7/7 plans) — completed 2026-03-12
 - [x] **Phase 29: Renaissance Signal Quality** — constituent_contributions, alpha decay, signal freshness decay, volume/killzone CIS gates, Hurst/entropy I4 plugins, KS + CUSUM drift detection (8/8 plans) — completed 2026-03-13
 
 Full details: `.planning/milestones/v1.8-ROADMAP.md`
@@ -149,6 +152,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 <summary>🔄 v2.0 Signal Integrity & ML Foundation (Phases 39-46) — IN PROGRESS</summary>
 
 - [ ] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, continuous aggregate (signal_stats_hourly + Information Coefficient), data quality monitoring infrastructure, SignalStatus/SignalOutcome enums
+- [ ] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus enum, pre-commit hooks, documentation consolidation (3/3 plans)
 - [ ] **Phase 40: Machine Hardening** — feature_writer lag fix, aggregator dirty-flag cache, semaphore-bounded DB seed, calibration ndarray pre-alloc, refresh loop standardisation, lifecycle index, Chandelier write guard
 - [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
@@ -175,8 +179,8 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 **Plans**: 2 plans
 
 Plans:
-- [ ] 25-01: Fix `historical_backfill.py` — pass `features=` kwarg to `aggregate()` and add tests
-- [ ] 25-02: Audit and repair script — NULL count query, UPDATE recoverable rows, log orphans
+- [x] 25-01: Fix `historical_backfill.py` — pass `features=` kwarg to `aggregate()` and add tests
+- [x] 25-02: Audit and repair script — NULL count query, UPDATE recoverable rows, log orphans
 
 ### Phase 26: Signal Generator Warmup
 **Goal**: The signal generator fires on the first live bar after startup, with no manual wait and no data loss during service restarts.
@@ -190,7 +194,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 26-01: DB seed implementation — `_seed_bar_history_from_db()` method + startup integration + tests
+- [x] 26-01: DB seed implementation — `_seed_bar_history_from_db()` method + startup integration + tests
 
 ### Phase 27: Signal Lifecycle Stream Events
 **Goal**: The dashboard shows signal outcomes (EXPIRED, STOPPED, T1 HIT, etc.) in real time as `signal_lifecycle_service` closes signals — and never replays a stale signal on SSE reconnect.
@@ -203,14 +207,14 @@ Plans:
   4. `GET /api/signals/{symbol}?timeframe=5m` returns only 5m signals (timeframe filter was previously accepted but silently ignored).
 
 Plans: 8 plans
-- [ ] 27-01: `_publish_terminal_event()` helper in signal_lifecycle_service + tests
-- [ ] 27-02: Wire terminal event into both exit paths (normal + shadow)
-- [ ] 27-03: SSE snapshot age filter — skip signal entries older than 2×TF on reconnect
-- [ ] 27-04: REST API timeframe filter — fix silently-ignored `?timeframe=` param
-- [ ] 27-05: Extend `SignalData` type with `resolved`, `outcome`, `exit_price`, `signal_id`
-- [ ] 27-06: Handle resolved events in `use-market-stream.ts` signal_data handler
-- [ ] 27-07: Render resolved state in `signal-panel.tsx` with outcome badge
-- [ ] 27-08: Wire OutcomeBadge into signal-banner.tsx + eliminate three-way resolved rendering drift (gap closure)
+- [x] 27-01: `_publish_terminal_event()` helper in signal_lifecycle_service + tests
+- [x] 27-02: Wire terminal event into both exit paths (normal + shadow)
+- [x] 27-03: SSE snapshot age filter — skip signal entries older than 2×TF on reconnect
+- [x] 27-04: REST API timeframe filter — fix silently-ignored `?timeframe=` param
+- [x] 27-05: Extend `SignalData` type with `resolved`, `outcome`, `exit_price`, `signal_id`
+- [x] 27-06: Handle resolved events in `use-market-stream.ts` signal_data handler
+- [x] 27-07: Render resolved state in `signal-panel.tsx` with outcome badge
+- [x] 27-08: Wire OutcomeBadge into signal-banner.tsx + eliminate three-way resolved rendering drift (gap closure)
 
 ### Phase 28: Dashboard Completion
 **Goal**: The dashboard fully surfaces the intelligence pipeline — Signal Scorecard with all ranked signals, drill panel signal history from DB, GARCH/Kalman I4 fields, SMC detail fields, and tier tooltips.
@@ -225,13 +229,13 @@ Plans: 8 plans
 **Plans**: 7 plans
 
 Plans:
-- [ ] 28-01-PLAN.md — SSE: wire intelligence_i7 stream domain + signal_scorecard event name
-- [ ] 28-02-PLAN.md — Types + hook: RankedSignal, SignalScorecardData, scorecardByTf state
-- [ ] 28-03-PLAN.md — New component signal-scorecard.tsx + drill panel wiring
-- [ ] 28-04-PLAN.md — Backend: GET /api/signals/recent endpoint
-- [ ] 28-05-PLAN.md — Drill panel: DB signal history fetch + dedup merge with SSE history
-- [ ] 28-06-PLAN.md — Drill panel: GARCH/Kalman I4 fields + BSL/SSL detail + premium/discount
-- [ ] 28-07-PLAN.md — TierTooltip component + wire to all I1-I8 tier labels
+- [x] 28-01-PLAN.md — SSE: wire intelligence_i7 stream domain + signal_scorecard event name
+- [x] 28-02-PLAN.md — Types + hook: RankedSignal, SignalScorecardData, scorecardByTf state
+- [x] 28-03-PLAN.md — New component signal-scorecard.tsx + drill panel wiring
+- [x] 28-04-PLAN.md — Backend: GET /api/signals/recent endpoint
+- [x] 28-05-PLAN.md — Drill panel: DB signal history fetch + dedup merge with SSE history
+- [x] 28-06-PLAN.md — Drill panel: GARCH/Kalman I4 fields + BSL/SSL detail + premium/discount
+- [x] 28-07-PLAN.md — TierTooltip component + wire to all I1-I8 tier labels
 
 ### Phase 29: Renaissance Signal Quality
 **Goal**: Signal quality matches Renaissance-grade standards — constituent contributions populated, alpha decay applied, signal freshness decay active, volume/killzone CIS gates wired, Hurst/entropy I4 plugins gating setups, and KS + CUSUM drift detection monitoring.
@@ -250,13 +254,13 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
-- [ ] 29-01-PLAN.md — CIS scorer: refactor 6 bucket methods to return (float, dict); populate constituent_contributions
-- [ ] 29-02-PLAN.md — Per-setup cooldown + rel_volume CIS momentum + killzone CIS regime wire-ins
-- [ ] 29-03-PLAN.md — Alpha decay in signal_generator + freshness decay in signal_lifecycle
-- [ ] 29-04-PLAN.md — HurstExponentPlugin (I4) + TIER_I4 registration
-- [ ] 29-05-PLAN.md — ShannonEntropyPlugin (I4) + quality multiplier wiring in _build_all_ranked()
-- [ ] 29-06-PLAN.md — Migration 026 + stream_keys + KSDriftMonitor + drift_monitor_service skeleton
-- [ ] 29-07-PLAN.md — CUSUMMonitor + weight_updater CUSUM integration + GET /api/drift + service completion
+- [x] 29-01-PLAN.md — CIS scorer: refactor 6 bucket methods to return (float, dict); populate constituent_contributions
+- [x] 29-02-PLAN.md — Per-setup cooldown + rel_volume CIS momentum + killzone CIS regime wire-ins
+- [x] 29-03-PLAN.md — Alpha decay in signal_generator + freshness decay in signal_lifecycle
+- [x] 29-04-PLAN.md — HurstExponentPlugin (I4) + TIER_I4 registration
+- [x] 29-05-PLAN.md — ShannonEntropyPlugin (I4) + quality multiplier wiring in _build_all_ranked()
+- [x] 29-06-PLAN.md — Migration 026 + stream_keys + KSDriftMonitor + drift_monitor_service skeleton
+- [x] 29-07-PLAN.md — CUSUMMonitor + weight_updater CUSUM integration + GET /api/drift + service completion
 
 ### Phase 30: Redpanda Migration
 **Goal**: Replace DragonflyDB (Redis Streams) with Redpanda as the event bus across all 8 services, removing DragonflyDB from the stack entirely. Pure transport-layer migration — no business logic changes.
@@ -286,9 +290,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
-- [ ] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
-- [ ] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
+- [x] 031-01-PLAN.md — Migration 034 + CISScorer.update_weights() + 30-min refresh loop
+- [x] 031-02-PLAN.md — Binary win labels + asset-cluster segmented training
+- [x] 031-03-PLAN.md — signal_features atomic write + is_shadow LedgerEntry + CLI promotion gate
 
 ### Phase 32: Stop Architecture + Extended Divergence Stack
 **Goal**: Every signal carries a verifiable stop basis — structural snap, GARCH-adaptive, or ATR static — computed once in `trade_framer.py` so all 17 plugins inherit it without change, while the divergence stack expands from a hard AND-gate to a 5-input weighted convergence score.
@@ -320,9 +324,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 33-01-PLAN.md — FailedBreakout + ORB15 + ORB30 plugins with TDD tests
-- [ ] 33-02-PLAN.md — PrevDayLevelTest + SecondLegContinuation + VCP plugins with TDD tests
-- [ ] 33-03-PLAN.md — Register all 6 plugins in TIER_I7 + TREND_SETUPS wiring
+- [x] 33-01-PLAN.md — FailedBreakout + ORB15 + ORB30 plugins with TDD tests
+- [x] 33-02-PLAN.md — PrevDayLevelTest + SecondLegContinuation + VCP plugins with TDD tests
+- [x] 33-03-PLAN.md — Register all 6 plugins in TIER_I7 + TREND_SETUPS wiring
 
 ### Phase 34: I4 Infrastructure — Anchored VWAP + Volume Profile
 **Goal**: Anchored VWAP and Volume Profile are live I4 features in every `IntelligenceEvent`, enabling two new I7 plugins that trade VWAP extensions and volume-node reactions.
@@ -336,9 +340,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 34-01-PLAN.md — Migrate AnchoredVWAP to I4/context/ with std bands, sigma, velocity (VWAP-01)
-- [ ] 34-02-PLAN.md — Migrate VolumeProfile to I4/context/ with session-reset + rolling dual-track POC/VAH/VAL (VOL-01)
-- [ ] 34-03-PLAN.md — Five I7 plugins (VWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout) + registration (VWAP-02, VOL-02)
+- [x] 34-01-PLAN.md — Migrate AnchoredVWAP to I4/context/ with std bands, sigma, velocity (VWAP-01)
+- [x] 34-02-PLAN.md — Migrate VolumeProfile to I4/context/ with session-reset + rolling dual-track POC/VAH/VAL (VOL-01)
+- [x] 34-03-PLAN.md — Five I7 plugins (VWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout) + registration (VWAP-02, VOL-02)
 
 ### Phase 35: Calibration + TOD Multiplier + CIS Kalman Filter
 **Goal**: Signal confidence is calibrated against historical outcomes, adjusted by time-of-day win rates, and smoothed through a Kalman filter — making every confidence number a reliable probability estimate rather than a raw score.
@@ -352,9 +356,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 35-01-PLAN.md — DB migration 038 + LedgerEntry extension + confidence_calibrator module
-- [ ] 35-02-PLAN.md — TOD multiplier (pre-CIS Bayesian-smoothed) + calibrated_confidence sort key in aggregator
-- [ ] 35-03-PLAN.md — CIS Kalman filter + shadow fire condition + dashboard confidence fields
+- [x] 35-01-PLAN.md — DB migration 038 + LedgerEntry extension + confidence_calibrator module
+- [x] 35-02-PLAN.md — TOD multiplier (pre-CIS Bayesian-smoothed) + calibrated_confidence sort key in aggregator
+- [x] 35-03-PLAN.md — CIS Kalman filter + shadow fire condition + dashboard confidence fields
 
 ### Phase 36: Microstructure Plugins
 **Goal**: Order flow imbalance and cumulative volume delta are live I1 features and drive two new I7 plugins, giving the system its first microstructure signal layer.
@@ -368,8 +372,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 036-01-PLAN.md — I1 OFI + CVD plugins, tick buffer wiring in indicator_service
-- [ ] 036-02-PLAN.md — 7 I7 microstructure trading plugins + TIER_I7 registration
+- [x] 036-01-PLAN.md — I1 OFI + CVD plugins, tick buffer wiring in indicator_service
+- [x] 036-02-PLAN.md — 7 I7 microstructure trading plugins + TIER_I7 registration
 
 ### Phase 37: Cross-Asset Intelligence Service
 **Goal**: A new `cross_asset_service` microservice monitors equity index spread dynamics across ES, NQ, RTY, and YM and publishes cross-asset divergence signals when spread z-scores exceed meaningful thresholds.
@@ -383,9 +387,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 037-01-PLAN.md — Core service + spread feature computation + stream key + Settings + systemd unit
-- [ ] 037-02-PLAN.md — CrossAssetDivergence I7 plugin (stateless, regime-biased direction)
-- [ ] 037-03-PLAN.md — Pipeline wiring: TIER_I7 registration + signal_generator frame injection + feature_writer persistence
+- [x] 037-01-PLAN.md — Core service + spread feature computation + stream key + Settings + systemd unit
+- [x] 037-02-PLAN.md — CrossAssetDivergence I7 plugin (stateless, regime-biased direction)
+- [x] 037-03-PLAN.md — Pipeline wiring: TIER_I7 registration + signal_generator frame injection + feature_writer persistence
 
 ### Phase 38: Automated Futures Roll Detection
 **Goal**: The TWS daemon automatically detects futures roll events using volume-based statistical analysis and propagates roll events through the pipeline without service restarts, ensuring continuous data capture across contract transitions.
@@ -400,9 +404,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 38-01-PLAN.md — DB foundation: migration 037, roll chain utility, DB-backed get_active_contracts(), stream key (ROLL-01, ROLL-02, ROLL-03)
-- [ ] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
-- [ ] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
+- [x] 38-01-PLAN.md — DB foundation: migration 037, roll chain utility, DB-backed get_active_contracts(), stream key (ROLL-01, ROLL-02, ROLL-03)
+- [x] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
+- [x] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
 ---
 
@@ -424,6 +428,25 @@ Plans:
 - [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+
+### Phase 39.1: Intelligence Layer Enforcement (INSERTED)
+
+**Goal:** Code quality gaps are closed — `regime_type` is enforced by Protocol, signal status strings are replaced with `SignalStatus` enum, naming conventions are enforced by pre-commit hooks, and documentation is consolidated.
+**Why urgent:** `regime_type` silent misfire corrupts training data (wrong signals fire), raw status strings across 4 files risk typos, and these gaps block Phase 40+ work that assumes clean enforcement.
+**Depends on**: Nothing (independent enforcement work; can run in parallel with Phase 39)
+**Requirements**: CODE-Q-01, CODE-Q-02, CODE-Q-03
+**Success Criteria** (what must be TRUE):
+  1. `PatternPlugin` Protocol includes `regime_type: ClassVar[str]` field — any I7 plugin missing it fails at import time.
+  2. `validate_tier()` runtime check verifies `regime_type` value is `"trend"`, `"mean_reversion"`, or `"any"` — service startup crashes on invalid values.
+  3. `SignalStatus` enum exists and is used throughout codebase — `grep -r '"pending"\|"active"\|"regime_suppressed"' src/` returns zero results.
+  4. Pre-commit hook checks plugin class names end in `Plugin` and files use `snake_case.py` — new violations are caught before commit.
+  5. Documentation consolidated in `docs/analysis/intelligence-workflow-audit.md` — all gotchas, conventions, and enforcement gaps are recorded.
+**Plans**: 3 plans
+
+Plans:
+- [ ] 39.1-01-PLAN.md — PatternPlugin Protocol regime_type enforcement + validate_tier() runtime checks (CODE-Q-01)
+- [ ] 39.1-02-PLAN.md — SignalStatus enum migration across 4 files (signal_ledger.py, signal_generator_service.py, signal_lifecycle_service.py, signals.py) (CODE-Q-02)
+- [ ] 39.1-03-PLAN.md — Pre-commit hooks (plugin class/file naming, regime_type, dead imports) + intelligence-workflow-audit.md documentation (CODE-Q-03)
 
 ### Phase 40: Machine Hardening
 **Goal**: The pipeline sustains production data rates without lag accumulation — feature_writer consolidates its polling loop, the aggregator skips unnecessary rebuilds, DB seed is bounded, calibration pre-allocates arrays, refresh loops handle shutdown cleanly, lifecycle lookup is O(1), and Chandelier writes only on meaningful change.
@@ -644,6 +667,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 39. Data Quality + DB Health | v2.0 | 0/4 | Planning complete | — |
+| 39.1. Intelligence Layer Enforcement | v2.0 | 0/3 | Planning complete | — |
 | 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
