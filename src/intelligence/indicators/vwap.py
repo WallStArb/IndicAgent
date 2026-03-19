@@ -36,7 +36,7 @@ class VWAPPlugin:
         session_start = 0
         session_date = None
         if "timestamp" in df.columns:
-            ts = pd.to_datetime(df["timestamp"])
+            ts = pd.to_datetime(df["timestamp"], utc=True)
             last_date = ts.iloc[-1].date()
             session_date = last_date
             mask = ts.dt.date == last_date
@@ -83,7 +83,7 @@ class VWAPPlugin:
 
         # Reset on session boundary (new trading day)
         if "timestamp" in df.columns:
-            bar_date = pd.to_datetime(row["timestamp"]).date()
+            bar_date = pd.to_datetime(row["timestamp"], utc=True).date()
             if bar_date != self._state.get("session_date"):
                 return self.compute_full(windows)
 
