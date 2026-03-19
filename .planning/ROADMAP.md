@@ -152,7 +152,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 <summary>🔄 v2.0 Signal Integrity & ML Foundation (Phases 39-46) — IN PROGRESS</summary>
 
 - [ ] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, continuous aggregate (signal_stats_hourly + Information Coefficient), data quality monitoring infrastructure, SignalStatus/SignalOutcome enums
-- [ ] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus enum, pre-commit hooks, documentation consolidation (3/3 plans)
+- [ ] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans)
 - [ ] **Phase 40: Machine Hardening** — feature_writer lag fix, aggregator dirty-flag cache, semaphore-bounded DB seed, calibration ndarray pre-alloc, refresh loop standardisation, lifecycle index, Chandelier write guard
 - [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
@@ -441,12 +441,15 @@ Plans:
   3. `SignalStatus` enum exists and is used throughout codebase — `grep -r '"pending"\|"active"\|"regime_suppressed"' src/` returns zero results.
   4. Pre-commit hook checks plugin class names end in `Plugin` and files use `snake_case.py` — new violations are caught before commit.
   5. Documentation consolidated in `docs/analysis/intelligence-workflow-audit.md` — all gotchas, conventions, and enforcement gaps are recorded.
-**Plans**: 3 plans
+**Plans**: 6 plans
 
 Plans:
-- [ ] 39.1-01-PLAN.md — PatternPlugin Protocol regime_type enforcement + validate_tier() runtime checks (CODE-Q-01)
-- [ ] 39.1-02-PLAN.md — SignalStatus enum migration across 4 files (signal_ledger.py, signal_generator_service.py, signal_lifecycle_service.py, signals.py) (CODE-Q-02)
-- [ ] 39.1-03-PLAN.md — Pre-commit hooks (plugin class/file naming, regime_type, dead imports) + intelligence-workflow-audit.md documentation (CODE-Q-03)
+- [ ] 39.1-01-PLAN.md — PatternPlugin Protocol regime_type enforcement + validate_tier() runtime checks (CODE-Q-01) [wave 1]
+- [ ] 39.1-02-PLAN.md — SignalStatus enum migration across 4 files (signal_ledger.py, signal_generator_service.py, signal_lifecycle_service.py, signals.py) (CODE-Q-02) [wave 1]
+- [ ] 39.1-03-PLAN.md — Pre-commit hooks (plugin class/file naming, regime_type, dead imports) + intelligence-workflow-audit.md documentation (CODE-Q-03) [wave 1]
+- [ ] 39.1-04-PLAN.md — Bug fixes: VWAP utc=True (BUG-01), ShannonEntropy NaN guard (BUG-02); SQL hardening: /signals/recent parameterized query (CODE-Q-05) [wave 1]
+- [ ] 39.1-05-PLAN.md — SignalOutcome enum (8-class taxonomy) + DB CHECK constraint + WIN/STOP/TTL sets in signal_outcome.py (CODE-Q-04) [wave 2, depends on 02]
+- [ ] 39.1-06-PLAN.md — Topic namespace cleanup: audit dev.* references, fix any hardcoded strings, delete orphaned dev.* topics (INFRA-01) [wave 1]
 
 ### Phase 40: Machine Hardening
 **Goal**: The pipeline sustains production data rates without lag accumulation — feature_writer consolidates its polling loop, the aggregator skips unnecessary rebuilds, DB seed is bounded, calibration pre-allocates arrays, refresh loops handle shutdown cleanly, lifecycle lookup is O(1), and Chandelier writes only on meaningful change.
@@ -667,7 +670,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 39. Data Quality + DB Health | v2.0 | 0/4 | Planning complete | — |
-| 39.1. Intelligence Layer Enforcement | v2.0 | 0/3 | Planning complete | — |
+| 39.1. Intelligence Layer Enforcement | v2.0 | 0/6 | Planning complete | — |
 | 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |

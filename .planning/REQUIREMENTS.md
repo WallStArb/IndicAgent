@@ -13,6 +13,7 @@
 - [ ] **DATA-04**: `signal_ledger` composite index for lifecycle UPDATEs — UPDATE latency < 5ms (from 34ms average)
 - [ ] **DATA-05**: Gap-fill service detects missing 1m bars in `market_data_ohlcv` during RTH windows and fetches only missing windows from IBKR
 - [ ] **DATA-06**: `SignalStatus` enum replaces raw string literals (`"pending"`, `"active"`, `"regime_suppressed"`) across all 5 files
+- [ ] **DATA-07**: `SignalOutcome` enum replaces raw outcome string literals across lifecycle_tracker, signal_lifecycle_service, and API routes; DB CHECK constraint enforces valid values
 
 ### PERF — Machine Hardening
 
@@ -69,6 +70,23 @@
 - [ ] **ML-05**: `ml_score` written to `signal_ledger` in shadow mode — no influence on pipeline, displayed in dashboard drill panel
 - [ ] **ML-06**: ML blend promoted to aggregator multiplier (α=0.20 starting value) after 8-week shadow gate: AUC >= 0.56, Brier < 0.25, Pearson r > 0.20 (p < 0.05), win rate lift > +3% at ml_score > 0.6
 - [ ] **ML-07**: SHAP attribution stored per signal in `signal_features` — explains which features drove the ML score
+
+### CODE-Q — Code Quality Enforcement
+
+- [ ] **CODE-Q-01**: `PatternPlugin` Protocol declares `regime_type: ClassVar[str]`; `validate_tier()` hard-crashes at startup on invalid values (`"trend"`, `"mean_reversion"`, `"any"` only)
+- [ ] **CODE-Q-02**: `SignalStatus` enum (`PENDING`, `ACTIVE`, `REGIME_SUPPRESSED`) replaces raw status string literals across 4 services; no raw strings in grep
+- [ ] **CODE-Q-03**: Pre-commit hooks enforce plugin class naming (`PascalCasePlugin`), file naming (`snake_case.py`), regime_type ClassVar on I7 plugins, and no dead imports (ruff F401)
+- [ ] **CODE-Q-04**: `SignalOutcome` enum (8-class taxonomy) replaces raw outcome strings in lifecycle_tracker and signal_lifecycle_service; `signal_outcome.py` is single source of truth for WIN/STOP/TTL sets; DB CHECK constraint enforces valid values
+- [ ] **CODE-Q-05**: `/signals/recent` tier filtering rewritten as parameterized SQL (no f-string interpolation); single stable query string for all 3 tier values
+
+### BUG — Active Production Bugs
+
+- [ ] **BUG-01**: VWAP plugin `utc=True` fix — eliminates `Tz-aware datetime.datetime cannot be converted to datetime64` warnings on every bar for all 61 symbols
+- [ ] **BUG-02**: ShannonEntropy plugin NaN/Inf guard — eliminates `autodetected range of [nan, nan] is not finite` warnings for symbols with degenerate data sequences
+
+### INFRA — Infrastructure Cleanup
+
+- [ ] **INFRA-01**: Orphaned `dev.*` Redpanda topics deleted; all services exclusively use `topic_*()` helpers from `stream_keys.py`; only `development.*` topics remain
 
 ## v2.1 Requirements (Deferred)
 
