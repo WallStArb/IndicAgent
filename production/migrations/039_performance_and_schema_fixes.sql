@@ -108,6 +108,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_trigger
         WHERE tgname = 'trg_contract_metadata_updated_at'
+          AND tgrelid = 'public.contract_metadata'::regclass
     ) THEN
         CREATE TRIGGER trg_contract_metadata_updated_at
             BEFORE UPDATE ON contract_metadata
