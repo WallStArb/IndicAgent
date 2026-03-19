@@ -36,7 +36,12 @@ class SignalStatus(str, Enum):
 # Signal outcome constants — 8-class taxonomy (authoritative source)
 # ---------------------------------------------------------------------------
 
-WIN_OUTCOMES: frozenset[str] = frozenset({"target_1", "target_1_2", "target_full"})
+from src.intelligence.trading.signal_outcome import (
+    SignalOutcome,  # noqa: F401 (re-exported for backward compatibility)
+    STOP_OUTCOMES,  # noqa: F401 (re-exported for backward compatibility)
+    TTL_OUTCOMES,  # noqa: F401 (re-exported for backward compatibility)
+    WIN_OUTCOMES,  # noqa: F401 (re-exported for backward compatibility)
+)
 
 # ---------------------------------------------------------------------------
 # Data model
