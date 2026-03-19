@@ -7,7 +7,7 @@
 
 ### DATA — Data Quality + DB Health
 
-- [ ] **DATA-01**: CIS null fields (`cis_score`, `cis_attribution`) repaired in `signal_ledger` for all historical rows recoverable from `intelligence_features`
+- [x] **DATA-01**: CIS null fields (`cis_score`, `cis_attribution`) repaired in `signal_ledger` for all historical rows recoverable from `intelligence_features`
 - [ ] **DATA-02**: `validate_alpha.py --promote` re-run for bootstrap-promoted plugins (DerivOsc, AC Osc) once N >= 30 signals accumulated
 - [ ] **DATA-03**: `market_data_ohlcv` rebuilt without space partitioning — chunk count < 200 (from 15,740), aggregate queries < 500ms
 - [ ] **DATA-04**: `signal_ledger` composite index for lifecycle UPDATEs — UPDATE latency < 5ms (from 34ms average)
