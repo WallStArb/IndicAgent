@@ -103,7 +103,10 @@ def _parse_ts(ts_raw: str | bytes) -> datetime:
     """
     if isinstance(ts_raw, bytes):
         ts_raw = ts_raw.decode()
-    return datetime.fromisoformat(ts_raw).astimezone(UTC)
+    dt = datetime.fromisoformat(ts_raw)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 # ── Module-level pure functions (testable without class instantiation) ─────────

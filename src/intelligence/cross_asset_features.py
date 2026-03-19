@@ -230,12 +230,6 @@ def compute_eq_index_features(
         1 for z in [es_nq_z, es_rty_z] if abs(z) > _CONFIRMING_Z_THRESHOLD
     )
 
-    # --- Data quality score: fraction of symbols with data above threshold ---
-    fresh_count = sum(
-        1 for sym in _EQ_INDEX_BASES if len(close_windows[sym]) >= min_needed
-    )
-    data_quality_score = float(fresh_count) / len(_EQ_INDEX_BASES)
-
     return {
         "ready": True,
         "ts": ts.isoformat().replace("+00:00", "Z"),
@@ -247,6 +241,6 @@ def compute_eq_index_features(
         "eq_vol_imbalance": float(eq_vol_imbalance),
         "active_pair": active_pair,
         "pairs_confirming": int(pairs_confirming),
-        "data_quality_score": data_quality_score,
+        "data_quality_score": 1.0,  # all symbols verified above by guard
         "low_vol_flag": bool(low_vol_flag),
     }

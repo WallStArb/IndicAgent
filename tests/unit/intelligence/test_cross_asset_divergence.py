@@ -9,13 +9,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from src.intelligence.trading.cross_asset_divergence import (
     CrossAssetDivergencePlugin,
     plugin,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -357,7 +355,7 @@ class TestLowVolFlagSuppression:
 class TestDirectionLogic:
     """Test all regime × spread_z sign combinations."""
 
-    def _fire(self, hmm_regime, spread_z, spread_positive=True) -> dict:
+    def _fire(self, hmm_regime, spread_z) -> dict:
         p = CrossAssetDivergencePlugin()
         features = _base_features()
         features["hmm_regime"] = hmm_regime
