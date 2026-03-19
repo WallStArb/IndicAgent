@@ -151,8 +151,8 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 <details open>
 <summary>🔄 v2.0 Signal Integrity & ML Foundation (Phases 39-46) — IN PROGRESS</summary>
 
-- [ ] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, continuous aggregate (signal_stats_hourly + Information Coefficient), data quality monitoring infrastructure, SignalStatus/SignalOutcome enums
-- [ ] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans)
+- [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, IC computation, data quality monitoring infrastructure (completed 2026-03-19)
+- [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
 - [ ] **Phase 40: Machine Hardening** — feature_writer lag fix, aggregator dirty-flag cache, semaphore-bounded DB seed, calibration ndarray pre-alloc, refresh loop standardisation, lifecycle index, Chandelier write guard
 - [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
@@ -465,12 +465,12 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 039-01-PLAN.md — DB schema hardening: effective_ts + pipeline_lag_ms generated columns, status/direction CHECK constraints, signal_stats_daily view (DATA-08, DATA-09, DATA-10) [wave 1]
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02) [wave 1]
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04) [wave 1]
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05) [wave 1]
-- [ ] 039-05-PLAN.md — signal_performance_segmented table + Information Coefficient computation (DATA-11, DATA-12) [wave 1]
-- [ ] 039-06-PLAN.md — Data quality monitoring: Prometheus metrics + data_quality_check.py + 15-min timer (DATA-13) [wave 2, after 01-04]
+- [x] 039-01-PLAN.md — DB schema hardening: effective_ts + pipeline_lag_ms generated columns, status/direction CHECK constraints, signal_stats_daily view (DATA-08, DATA-09, DATA-10) [wave 1]
+- [x] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02) [wave 1]
+- [x] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04) [wave 1]
+- [x] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05) [wave 1]
+- [x] 039-05-PLAN.md — signal_performance_segmented table + Information Coefficient computation (DATA-11, DATA-12) [wave 1]
+- [x] 039-06-PLAN.md — Data quality monitoring: Prometheus metrics + data_quality_check.py + 15-min timer (DATA-13) [wave 2, after 01-04]
 
 ### Phase 39.1: Intelligence Layer Enforcement (INSERTED)
 
@@ -487,12 +487,12 @@ Plans:
 **Plans**: 6 plans
 
 Plans:
-- [ ] 39.1-01-PLAN.md — PatternPlugin Protocol regime_type enforcement + validate_tier() runtime checks (CODE-Q-01) [wave 1]
-- [ ] 39.1-02-PLAN.md — SignalStatus enum migration across 4 files (signal_ledger.py, signal_generator_service.py, signal_lifecycle_service.py, signals.py) (CODE-Q-02) [wave 1]
-- [ ] 39.1-03-PLAN.md — Pre-commit hooks (plugin class/file naming, regime_type, dead imports) + intelligence-workflow-audit.md documentation (CODE-Q-03) [wave 1]
-- [ ] 39.1-04-PLAN.md — Bug fixes: VWAP utc=True (BUG-01), ShannonEntropy NaN guard (BUG-02); SQL hardening: /signals/recent parameterized query (CODE-Q-05) [wave 1]
-- [ ] 39.1-05-PLAN.md — SignalOutcome enum (8-class taxonomy) + DB CHECK constraint + WIN/STOP/TTL sets in signal_outcome.py (CODE-Q-04) [wave 2, depends on 02]
-- [ ] 39.1-06-PLAN.md — Topic namespace cleanup: audit dev.* references, fix any hardcoded strings, delete orphaned dev.* topics (INFRA-01) [wave 1]
+- [x] 39.1-01-PLAN.md — PatternPlugin Protocol regime_type enforcement + validate_tier() runtime checks (CODE-Q-01) [wave 1]
+- [x] 39.1-02-PLAN.md — SignalStatus enum migration across 4 files (signal_ledger.py, signal_generator_service.py, signal_lifecycle_service.py, signals.py) (CODE-Q-02) [wave 1]
+- [x] 39.1-03-PLAN.md — Pre-commit hooks (plugin class/file naming, regime_type, dead imports) + intelligence-workflow-audit.md documentation (CODE-Q-03) [wave 1]
+- [x] 39.1-04-PLAN.md — Bug fixes: VWAP utc=True (BUG-01), ShannonEntropy NaN guard (BUG-02); SQL hardening: /signals/recent parameterized query (CODE-Q-05) [wave 1]
+- [x] 39.1-05-PLAN.md — SignalOutcome enum (8-class taxonomy) + DB CHECK constraint + WIN/STOP/TTL sets in signal_outcome.py (CODE-Q-04) [wave 2, depends on 02]
+- [x] 39.1-06-PLAN.md — Topic namespace cleanup: audit dev.* references, fix any hardcoded strings, delete orphaned dev.* topics (INFRA-01) [wave 1]
 
 ### Phase 40: DAG Refactor (Clean Foundation)
 **Goal**: Refactor the monolithic signal pipeline into a clean DAG of independent microservices — 6 stages (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector) communicate via Redpanda streams, each with circuit breakers and basic attribution tracking.
@@ -759,8 +759,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 36. Microstructure Plugins | v1.9 | 2/2 | Complete | 2026-03-18 |
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
-| 39. Data Quality + DB Health | 6/6 | Complete   | 2026-03-19 | — |
-| 39.1. Intelligence Layer Enforcement | 6/6 | Complete    | 2026-03-19 | — |
+| 39. Data Quality + DB Health | v2.0 | 6/6 | Complete | 2026-03-19 |
+| 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
