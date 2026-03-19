@@ -283,23 +283,16 @@ async def get_recent_signals(
     Annotated with 30d setup performance from setup_performance table.
     Includes aggregate summary over the returned window.
     """
-    # Build tier WHERE clause
-    if tier == "hero":
-        tier_clause = """
-        AND sl.was_selected = true
-        AND sl.confidence >= 0.40
-        AND sl.cis_score IS NOT NULL
-        AND abs(sl.cis_score) > 0.35
-    """
-    elif tier == "monitored":
-        tier_clause = "AND sl.was_selected = true"
-    else:  # all
-        tier_clause = ""
+    # Map tier to boolean filter flags for parameterized query.
+    # require_selected: hero + monitored only show was_selected=true signals
+    # require_hero_gate: hero additionally gates on confidence >= 0.40 AND abs(cis_score) > 0.35
+    require_selected = tier in ("hero", "monitored")
+    require_hero_gate = tier == "hero"
 
     resolved_symbol = _resolve_contract(symbol) if symbol else None
 
     try:
-        main_query = f"""
+        main_query = """
             SELECT
                 sl.signal_id,
                 sl.setup_plugin,
@@ -323,11 +316,19 @@ async def get_recent_signals(
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
             WHERE ($1::text IS NULL OR sl.symbol = $1)
               AND ($2::text IS NULL OR sl.timeframe = $2)
-              {tier_clause}
+              AND (NOT $4::boolean OR sl.was_selected = true)
+              AND (NOT $5::boolean OR (sl.confidence >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
             ORDER BY COALESCE(sl.signal_computed_at, sl.feature_ts) DESC
             LIMIT $3
         """
-        rows = await db_manager.fetch(main_query, resolved_symbol, timeframe, limit)
+        rows = await db_manager.fetch(
+            main_query,
+            resolved_symbol,   # $1
+            timeframe,         # $2
+            limit,             # $3
+            require_selected,  # $4
+            require_hero_gate, # $5
+        )
 
         signals = [
             {

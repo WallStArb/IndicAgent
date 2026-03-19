@@ -65,6 +65,7 @@ from src.intelligence.trading.aggregator import AggregatedResult, aggregate
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_ledger import (
     LedgerEntry,
+    SignalStatus,
     insert_signals_with_features,
 )
 from src.intelligence.trading.trade_framer import frame_trade
@@ -380,7 +381,7 @@ def build_ledger_entries(
             and sig.get("setup_plugin") == _winner_plugin
         )
         # Determine status based on regime eligibility
-        entry_status = "pending" if is_regime_eligible else "regime_suppressed"
+        entry_status = SignalStatus.PENDING if is_regime_eligible else SignalStatus.REGIME_SUPPRESSED
         direction = int(sig.get("direction", 0))
         zone_low = sig.get("entry_zone_low") or None
         zone_high = sig.get("entry_zone_high") or None
