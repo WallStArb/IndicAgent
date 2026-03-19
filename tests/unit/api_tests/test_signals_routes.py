@@ -339,12 +339,35 @@ class TestGetRecentSignals:
 
     @pytest.mark.unit
     def test_summary_block_fields(self):
-        """Summary block has n_total, n_resolved, n_suppressed, win_rate, avg_pnl_r."""
-        mock_db = _make_recent_mock_db(
-            summary_row=_make_summary_row(
-                n_total=10, n_resolved=7, n_suppressed=2, win_rate=0.571, avg_pnl_r=0.31
-            ),
-        )
+        """Summary block is computed inline from signal rows (not a separate fetchrow).
+
+        Summary computation:
+        - n_total = len(signals)
+        - n_resolved = count(status NOT IN {'pending', 'active'})
+        - n_suppressed = count(status == 'regime_suppressed')
+        - win_rate = n_wins / n_with_outcome (where outcome IS NOT NULL)
+        - avg_pnl_r from pnl_r non-None values
+        """
+        # Build 10 rows: 5 expired + 2 regime_suppressed (=7 resolved) + 3 pending
+        # Wins: 4 out of 7 resolved have a win outcome → win_rate = 4/7 ≈ 0.571
+        # pnl_r: 7 resolved rows each with pnl_r=0.31 → avg_pnl_r = 0.31
+        win_outcomes = ["target_1", "target_1_2", "target_full", "target_1"]
+        loss_outcomes = ["ttl_expired_ahead", "stopped_in_trade", "stopped_at_entry"]
+
+        rows = []
+        # 4 winning expired signals
+        for outcome in win_outcomes:
+            rows.append(_make_recent_signal_row(status="expired", outcome=outcome, pnl_r=0.31))
+        # 3 losing expired signals
+        for outcome in loss_outcomes:
+            rows.append(_make_recent_signal_row(status="expired", outcome=outcome, pnl_r=0.31))
+        # 2 regime_suppressed (also resolved; no outcome, no pnl_r counted)
+        rows.append(_make_recent_signal_row(status="regime_suppressed", outcome=None, pnl_r=None))
+        rows.append(_make_recent_signal_row(status="regime_suppressed", outcome=None, pnl_r=None))
+        # 1 pending (not resolved)
+        rows.append(_make_recent_signal_row(status="pending", outcome=None, pnl_r=None))
+
+        mock_db = _make_recent_mock_db(signal_rows=rows)
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)
 
@@ -353,19 +376,21 @@ class TestGetRecentSignals:
         assert response.status_code == 200
         summary = response.json()["summary"]
         assert summary["n_total"] == 10
-        assert summary["n_resolved"] == 7
+        assert summary["n_resolved"] == 9  # 7 expired + 2 regime_suppressed
         assert summary["n_suppressed"] == 2
-        assert summary["win_rate"] == pytest.approx(0.571)
-        assert summary["avg_pnl_r"] == pytest.approx(0.31)
+        assert summary["win_rate"] == pytest.approx(4 / 7, rel=1e-3)
+        assert summary["avg_pnl_r"] == pytest.approx(0.31, rel=1e-3)
 
     @pytest.mark.unit
     def test_summary_win_rate_and_avg_pnl_r_null_when_no_data(self):
-        """Summary win_rate and avg_pnl_r are None when no resolved signals."""
-        mock_db = _make_recent_mock_db(
-            summary_row=_make_summary_row(
-                n_total=3, n_resolved=0, n_suppressed=0, win_rate=None, avg_pnl_r=None
-            ),
-        )
+        """Summary win_rate and avg_pnl_r are None when no signals with outcome/pnl_r."""
+        # 3 pending signals with no outcome and no pnl_r
+        rows = [
+            _make_recent_signal_row(status="pending", outcome=None, pnl_r=None),
+            _make_recent_signal_row(status="pending", outcome=None, pnl_r=None),
+            _make_recent_signal_row(status="active", outcome=None, pnl_r=None),
+        ]
+        mock_db = _make_recent_mock_db(signal_rows=rows)
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)
 
@@ -400,7 +425,7 @@ class TestSignalTimestampFallback:
 
     @pytest.mark.unit
     def test_sql_uses_coalesce_for_signal_computed_at(self):
-        """The SQL query passed to db.fetch must use COALESCE for timestamp."""
+        """The SQL query passed to db.fetch must use effective_ts for timestamp (Phase 39)."""
         mock_db = _make_recent_mock_db()
         test_app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
         client = TestClient(test_app)
@@ -408,8 +433,8 @@ class TestSignalTimestampFallback:
         client.get("/api/signals/recent?limit=5")
 
         sql = mock_db.fetch.call_args.args[0]
-        assert "COALESCE(sl.signal_computed_at, sl.feature_ts)" in sql, (
-            f"Expected COALESCE in SQL, got: {sql[:300]}"
+        assert "sl.effective_ts AS signal_computed_at" in sql, (
+            f"Expected effective_ts in SQL, got: {sql[:300]}"
         )
 
     @pytest.mark.unit
