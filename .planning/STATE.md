@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 39.1-05-PLAN.md — SignalOutcome enum + DB CHECK constraint
-last_updated: "2026-03-19T22:22:47.807Z"
+stopped_at: Completed 39.1-04-PLAN.md — VWAP/Shannon/SQL bug fixes
+last_updated: "2026-03-19T22:25:12.042Z"
 progress:
   total_phases: 24
   completed_phases: 1
