@@ -150,6 +150,15 @@ v2.0 Progress: [ . . . . . . . . . ] 0/9 phases
 
 Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-03-16)
 
+### Pending Todos
+
+**34 pending todos** accumulated across development sessions — use `/gsd:check-todos` to select and work through them.
+
+Recent additions (2026-03-19):
+- Clean up dual topic namespaces (infrastructure)
+- Fix VWAP plugin timezone error (intelligence)
+- Fix ShannonEntropy plugin NaN range handling (intelligence)
+
 ## Session Continuity
 
 Last session: 2026-03-19T15:19:29.830Z
