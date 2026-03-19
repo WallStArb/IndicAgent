@@ -635,6 +635,11 @@ class AINarrativeService:
                     # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
                     # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "google/gemma-3-27b-it:free"},
+                    {"type": "openrouter", "model": "microsoft/phi-3-medium-128k-instruct:free"},
+                    {"type": "openrouter", "model": "minimax/minimax-m2.5:free"},
+                    {"type": "openrouter", "model": "nvidia/nemotron-3-super-120b-a12b:free"},
+                    {"type": "openrouter", "model": "cognitionai/internlm2_5-20b-chat:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama", "model": "qwen3.5:9b"},
@@ -644,6 +649,11 @@ class AINarrativeService:
                     # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
                     # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "google/gemma-3-27b-it:free"},
+                    {"type": "openrouter", "model": "microsoft/phi-3-medium-128k-instruct:free"},
+                    {"type": "openrouter", "model": "minimax/minimax-m2.5:free"},
+                    {"type": "openrouter", "model": "nvidia/nemotron-3-super-120b-a12b:free"},
+                    {"type": "openrouter", "model": "cognitionai/internlm2_5-20b-chat:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama", "model": "phi4-mini:3.8b"},
                 ],
@@ -651,6 +661,11 @@ class AINarrativeService:
                     # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
                     # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "google/gemma-3-27b-it:free"},
+                    {"type": "openrouter", "model": "microsoft/phi-3-medium-128k-instruct:free"},
+                    {"type": "openrouter", "model": "minimax/minimax-m2.5:free"},
+                    {"type": "openrouter", "model": "nvidia/nemotron-3-super-120b-a12b:free"},
+                    {"type": "openrouter", "model": "cognitionai/internlm2_5-20b-chat:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama", "model": "qwen3.5:9b"},
@@ -659,6 +674,11 @@ class AINarrativeService:
                     # {"type": "openrouter", "model": "z-ai/glm-4.7-flash"},  # paid
                     # {"type": "openrouter", "model": "qwen/qwen3.5-flash-02-23"},  # paid
                     {"type": "openrouter", "model": "stepfun/step-3.5-flash:free"},
+                    {"type": "openrouter", "model": "google/gemma-3-27b-it:free"},
+                    {"type": "openrouter", "model": "microsoft/phi-3-medium-128k-instruct:free"},
+                    {"type": "openrouter", "model": "minimax/minimax-m2.5:free"},
+                    {"type": "openrouter", "model": "nvidia/nemotron-3-super-120b-a12b:free"},
+                    {"type": "openrouter", "model": "cognitionai/internlm2_5-20b-chat:free"},
                     {"type": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free"},
                     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
                     {"type": "ollama", "model": "qwen3.5:9b"},
