@@ -2,6 +2,7 @@
 
 import type { StructureData } from "@/lib/types";
 import { fmtPrice, fmtNum } from "@/lib/format";
+import { ZoneLabel, MiniBar, Metric } from "./ui/metric-components";
 
 interface StructurePanelProps {
   structure: StructureData | null;
@@ -27,7 +28,7 @@ export function StructurePanel({ structure }: StructurePanelProps) {
   return (
     <div className="px-2 py-1">
       <div className="flex items-start gap-2">
-        <span className="zone-label shrink-0 pt-px w-10">I3</span>
+        <ZoneLabel tier="I3" />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
           {/* Trend */}
           <span className="inline-flex items-center gap-1 whitespace-nowrap">
@@ -46,23 +47,13 @@ export function StructurePanel({ structure }: StructurePanelProps) {
 
           {/* Swings */}
           {s?.swing_sequence && (
-            <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
-              <span className="text-[0.55rem] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                Swings
-              </span>
-              <span className="font-data text-[0.7rem] text-[var(--text-accent)]">
-                {s.swing_sequence}
-              </span>
-            </span>
+            <Metric label="Swings" value={s.swing_sequence} valueClassName="text-[var(--text-accent)]" />
           )}
 
           {/* Integrity bar */}
           {s?.trend_integrity !== undefined && (
             <span className="inline-flex items-center gap-1 whitespace-nowrap">
-              <span className="text-[0.55rem] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                Int
-              </span>
-              <IntegrityBar value={s.trend_integrity} />
+              <Metric label="Int" value={<MiniBar value={s.trend_integrity} color={s.trend_integrity >= 0.7 ? "var(--green)" : s.trend_integrity >= 0.4 ? "var(--amber)" : "var(--red)"} />} />
             </span>
           )}
 
@@ -94,29 +85,5 @@ export function StructurePanel({ structure }: StructurePanelProps) {
         </div>
       </div>
     </div>
-  );
-}
-
-function IntegrityBar({ value }: { value: number }) {
-  const pct = Math.round(value * 100);
-  const color =
-    value >= 0.7
-      ? "var(--green)"
-      : value >= 0.4
-        ? "var(--amber)"
-        : "var(--red)";
-
-  return (
-    <>
-      <div className="w-8 h-1.5 rounded-full bg-[var(--bg-base)] overflow-hidden">
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${pct}%`, backgroundColor: color }}
-        />
-      </div>
-      <span className="font-data text-[0.55rem] text-[var(--text-muted)]">
-        {pct}%
-      </span>
-    </>
   );
 }
