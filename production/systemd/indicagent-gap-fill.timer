@@ -1,0 +1,29 @@
+# Install:
+#   sudo cp production/systemd/indicagent-gap-fill.service /etc/systemd/system/
+#   sudo cp production/systemd/indicagent-gap-fill.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now indicagent-gap-fill.timer
+#
+# Check status:
+#   systemctl list-timers | grep gap-fill
+#   journalctl -u indicagent-gap-fill.service -f
+#
+# Manual run:
+#   sudo systemctl start indicagent-gap-fill.service
+#   sudo systemctl start indicagent-gap-fill.service --dry-run  # env override not supported;
+#     use: .venv/bin/python services/gap_fill_service.py --dry-run
+
+[Unit]
+Description=Daily gap-fill for missing 1m RTH bars
+After=network-online.target
+
+[Timer]
+# 09:20 ET = 13:20 UTC (EDT, summer) or 14:20 UTC (EST, winter).
+# Using fixed 13:20 UTC — fires at 09:20 ET during EDT, 08:20 ET during EST.
+# Both times are before the 09:30 ET market open so gaps are repaired pre-market.
+# Persistent=true ensures the timer fires on next boot if the machine was off at schedule time.
+OnCalendar=*-*-* 13:20:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
