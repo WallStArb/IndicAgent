@@ -25,6 +25,31 @@ Refactor the signal pipeline from a monolithic aggregator to a clean DAG of inde
 
 ---
 
+### Phase Dependencies
+
+**This phase depends on artifacts from Phases 39 and 39.1:**
+
+| Artifact | Source Phase | Used By |
+|----------|--------------|---------|
+| `SignalStatus` enum | 39.1-02 | All stage services when referencing signal status |
+| `SignalOutcome` enum | 39.1-05 | All stage services when referencing signal outcomes |
+| `signal_ledger.effective_ts` | 39-01 | SignalLedger Service for timestamp ordering |
+| `signal_ledger.pipeline_lag_ms` | 39-01 | Attribution tracking for lag measurement |
+| `signal_ledger` CHECK constraints | 39-01 | SignalLedger Service must respect status/outcome/direction constraints |
+| `data_quality_log` table | 39-01 | DataQualityMonitor Service writes violations here |
+| `signal_performance_segmented` table | 39-01 | TODAdjuster Service populates (setup_plugin, regime_type, tf, hour_et) rows |
+| Pre-commit hooks | 39.1-03 | Enforce naming conventions for new stage service files |
+
+**Integration requirements:**
+- All new stage services must import and use `SignalStatus` and `SignalOutcome` enums — not raw string literals like `"pending"` or `"target_1"`
+- `SignalLedger` Service writes to `signal_ledger` must respect CHECK constraints (status in 'pending','active','regime_suppressed','expired','resolved'; outcome in 8-class taxonomy)
+- `DataQualityMonitor` Service must write violations to `data_quality_log` table with correct schema
+- `TODAdjuster` Service must write to `signal_performance_segmented` with correct composite primary key
+
+**Verification:** During Phase 40 planning, add a gate: grep all stage service code for raw status/outcome strings — must return zero.
+
+---
+
 ## Implementation Decisions
 
 ### Renaissance Principles (NON-NEGOTIABLE)
@@ -304,6 +329,13 @@ Note: Database tables for attribution aggregation and counterfactual analysis ar
 - [ ] Fault tolerance automated (circuit breakers)
 - [ ] Data quality validated at each stage
 - [ ] Note: Business questions ("Which stages add most value?", "Does X cause Y?") deferred to Phase 47 when attribution is aggregated into DB
+
+#### Code Quality (Phase 39/39.1 Integration)
+- [ ] **Enum usage:** All stage services use `SignalStatus` enum (not `"pending"`, `"active"`, `"regime_suppressed"` strings)
+- [ ] **Enum usage:** All stage services use `SignalOutcome` enum (not `"target_1"`, `"stopped_in_trade"`, etc.)
+- [ ] **Verification:** `grep -r '"pending"\|"active"\|"regime_suppressed"\|"target_1"\|"stopped_in_trade"' services/<stage>_service.py` returns zero
+- [ ] **Schema compliance:** `SignalLedger` Service writes respect Phase 39 CHECK constraints (status/outcome/direction)
+- [ ] **Naming conventions:** New service files follow `snake_case_service.py` pattern (enforced by 39.1-03 pre-commit hooks)
 
 ---
 
