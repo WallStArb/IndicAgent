@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.9
-milestone_name: I7 Alpha Engine — SHIPPED
-status: milestone_complete
-stopped_at: v1.9 milestone complete — all 8 phases shipped (31-38)
-last_updated: "2026-03-18T21:30:00.000Z"
+milestone: v2.0
+milestone_name: Signal Integrity & ML Foundation
+status: defining_requirements
+stopped_at: ~
+last_updated: "2026-03-19T00:00:00.000Z"
 progress:
   total_phases: 8
-  completed_phases: 8
-  total_plans: 23
-  completed_plans: 23
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
@@ -23,8 +23,10 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 
 ## Current Position
 
-Milestone v1.9 I7 Alpha Engine — COMPLETE (2026-03-18)
-All 8 phases shipped: 31, 32, 33, 34, 35, 036, 037, 038
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-19 — Milestone v2.0 started
 
 ## Performance Metrics
 

@@ -217,5 +217,19 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
+## Current Milestone: v2.0 — Signal Integrity & ML Foundation
+
+**Goal:** Eliminate data quality debt, fix machine performance, fill intelligence gaps, widen signal net, and lay the ML scoring foundation — so that by end of v2.0 we have 90+ days of clean labeled data ready for a regime-specific XGBoost model.
+
+**Target features:**
+- Data quality + DB health (CIS null repair, market_data_ohlcv rebuild, signal_ledger indexes, gap-fill)
+- Machine hardening (feature writer lag fix, aggregator cache, calibration perf, refresh loop consistency, lifecycle perf)
+- Intelligence gap fill (i6 FVG/OB alignment stubs → real computation, POC/VAH/VAL as T1/T2 anchors, roll premium/discount, multi-TF S/R awareness)
+- Candlestick pattern expansion (18 new I5 patterns + I7 setup wiring)
+- I6 confluence expansion (cross-TF + cross-asset + VIX regime)
+- Shadow mode graduation (empirical gate tuning, enable cross-asset + roll monitor)
+- Auth + external access (JWT, Cloudflare Tunnel, SSE fan-out)
+- ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
+
 ---
-*Last updated: 2026-03-18 after v1.9 I7 Alpha Engine milestone*
+*Last updated: 2026-03-19 after v1.9 I7 Alpha Engine milestone — v2.0 started*
