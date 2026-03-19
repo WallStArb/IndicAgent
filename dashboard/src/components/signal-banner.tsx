@@ -8,14 +8,11 @@ import { useMemo } from "react";
 import { deriveBarCloseIso } from "@/lib/timeframe-utils";
 import { OutcomeBadge } from "@/components/outcome-badge";
 import { isHeroTier } from "@/lib/signal-tier";
+import { formatSignalType } from "@/lib/plugin-utils";
 
 interface SignalBannerProps {
   signal: SignalData | null;
   onDrillDown?: () => void;
-}
-
-function fmtSignalType(raw: string): string {
-  return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
@@ -64,7 +61,7 @@ export function SignalBanner({ signal, onDrillDown }: SignalBannerProps) {
             @ {fmtPrice(signal.entry_price)}
           </span>
           <span className="text-[0.6rem] font-data text-[var(--text-secondary)]">
-            ({fmtNum(signal.confidence * 100, 0)}% {fmtSignalType(signal.signal_type)})
+            ({fmtNum(signal.confidence * 100, 0)}% {formatSignalType(signal.signal_type)})
           </span>
           <span className="text-[0.6rem] font-data text-[var(--text-secondary)]">
             | SL: {fmtPrice(signal.stop_loss)}

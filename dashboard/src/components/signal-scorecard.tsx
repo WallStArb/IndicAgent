@@ -2,21 +2,7 @@
 "use client";
 
 import type { SignalScorecardData } from "@/lib/types";
-
-const SUPPRESSION_LABELS: Record<string, string> = {
-  regime_prob: "< 60% conf",
-  regime_duration: "< 5 bars",
-  regime_type: "wrong regime",
-};
-
-function suppressionLabel(reason: string | null): string {
-  if (!reason) return "";
-  return SUPPRESSION_LABELS[reason] ?? reason;
-}
-
-function stripPrefix(name: string): string {
-  return name.replace(/^(trad_|ind_|smc_)/, "");
-}
+import { stripPluginPrefix, suppressionLabel } from "@/lib/plugin-utils";
 
 export function SignalScorecard({ data }: { data: SignalScorecardData | undefined }) {
   if (!data || data.ranked.length === 0) {
@@ -39,7 +25,7 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
       <div className="text-[0.55rem] text-[var(--text-muted)]">
         {firedCount} fired · {suppressedCount} regime-gated · winner:{" "}
         <span className="text-[var(--text-secondary)]">
-          {winner ? stripPrefix(winner.setup_type) : "none"}
+          {winner ? stripPluginPrefix(winner.setup_type) : "none"}
         </span>
       </div>
 
