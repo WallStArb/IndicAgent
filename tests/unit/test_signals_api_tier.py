@@ -83,14 +83,22 @@ class TestSignalsApiTier:
         assert "confidence" in call_args[0]
         assert "cis_score" in call_args[0]
 
-    def test_tier_all_no_extra_filter(self):
-        """tier=all must NOT add tier-based WHERE conditions."""
+    def test_tier_all_passes_false_filter_params(self):
+        """tier=all must pass require_selected=False and require_hero_gate=False.
+
+        With parameterized SQL, the query text is stable across all tier values.
+        The boolean parameters control which filters are applied at execution time.
+        tier=all → $4=False (no selected filter) and $5=False (no hero gate).
+        """
         client, mock_db = self._setup([])
         client.get("/api/signals/recent?symbol=ESH6&tier=all")
         call_args = mock_db.fetch.call_args[0]
-        # tier=all query must not reference cis_score tier conditions
-        query = call_args[0]
-        assert "abs(sl.cis_score)" not in query
+        # $4 = require_selected, $5 = require_hero_gate — both must be False for tier=all
+        # call_args: (query, resolved_symbol, timeframe, limit, require_selected, require_hero_gate)
+        require_selected = call_args[4]   # 5th positional arg
+        require_hero_gate = call_args[5]  # 6th positional arg
+        assert require_selected is False, f"tier=all should have require_selected=False, got {require_selected}"
+        assert require_hero_gate is False, f"tier=all should have require_hero_gate=False, got {require_hero_gate}"
 
     def test_symbol_optional_omitted(self):
         """Omitting symbol (tier=all, no symbol) must return 200."""

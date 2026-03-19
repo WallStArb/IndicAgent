@@ -149,3 +149,88 @@ class TestEntropyQualityFunction:
 
         q = _entropy_quality(0.75)
         assert q > 0.8, f"Expected mild penalty for typical 5m entropy 0.75, got {q}"
+
+
+class TestShannonEntropyNaNInfGuard:
+    """Regression tests for BUG-02: NaN/Inf log-return guard in ShannonEntropyPlugin."""
+
+    @pytest.mark.unit
+    def test_all_nan_close_does_not_crash(self):
+        """ShannonEntropyPlugin does not raise when all close prices are NaN.
+
+        Regression for: 'autodetected range of [nan, nan] is not finite'.
+        The fix filters NaN log-returns before np.histogram(), returning
+        max entropy (1.0) instead of crashing. Result must be a dict (not an exception).
+        """
+        from src.intelligence.context.shannon_entropy import ShannonEntropyPlugin
+
+        plugin = ShannonEntropyPlugin()
+        close = np.full(30, np.nan)
+        frames = {"main": pd.DataFrame({"close": close})}
+        # Must not raise — _shannon_entropy returns 1.0 (max noise) on all-NaN input
+        result = plugin.compute_full(frames)
+        assert isinstance(result, dict)
+
+    @pytest.mark.unit
+    def test_close_with_zeros_returns_empty_or_valid(self):
+        """ShannonEntropyPlugin does not raise when close contains zeros.
+
+        np.log(0) = -inf → log-return becomes -inf or nan.
+        Plugin must either return {} or a valid result — never raise.
+        """
+        from src.intelligence.context.shannon_entropy import ShannonEntropyPlugin
+
+        plugin = ShannonEntropyPlugin()
+        close = np.array([0.0] * 5 + [100.0] * 25, dtype=float)
+        frames = {"main": pd.DataFrame({"close": close})}
+        # Must not raise — result may be {} or valid dict
+        result = plugin.compute_full(frames)
+        assert isinstance(result, dict)
+
+    @pytest.mark.unit
+    def test_close_with_inf_returns_empty_or_valid(self):
+        """ShannonEntropyPlugin does not raise when close contains Inf.
+
+        Regression for 'autodetected range of [X, inf] is not finite'.
+        """
+        from src.intelligence.context.shannon_entropy import ShannonEntropyPlugin
+
+        plugin = ShannonEntropyPlugin()
+        close = np.array([100.0] * 25 + [np.inf] * 5, dtype=float)
+        frames = {"main": pd.DataFrame({"close": close})}
+        result = plugin.compute_full(frames)
+        assert isinstance(result, dict)
+
+    @pytest.mark.unit
+    def test_mostly_nan_with_few_valid_does_not_crash(self):
+        """ShannonEntropyPlugin does not raise when < 10 finite log-returns remain after filtering.
+
+        With < 10 valid returns, _shannon_entropy returns 1.0 (insufficient data fallback).
+        The plugin then computes entropy_quality(1.0) = 0.5 and returns that.
+        Result must be a dict — not raised exception.
+        """
+        from src.intelligence.context.shannon_entropy import ShannonEntropyPlugin
+
+        plugin = ShannonEntropyPlugin()
+        # 8 valid values → 7 log-returns < threshold of 10
+        close = np.array([100.0 + i for i in range(8)] + [np.nan] * 22, dtype=float)
+        frames = {"main": pd.DataFrame({"close": close})}
+        result = plugin.compute_full(frames)
+        assert isinstance(result, dict)
+
+    @pytest.mark.unit
+    def test_normal_data_still_computes_after_guard(self):
+        """ShannonEntropyPlugin still computes normally on valid finite data after the guard.
+
+        Regression guard: the NaN filter must not break the happy path.
+        """
+        from src.intelligence.context.shannon_entropy import ShannonEntropyPlugin
+
+        plugin = ShannonEntropyPlugin()
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(rng.normal(0, 5, 50))
+        frames = {"main": pd.DataFrame({"close": close})}
+        result = plugin.compute_full(frames)
+        assert "shannon_entropy" in result, "Expected shannon_entropy key for valid data"
+        assert "entropy_quality" in result, "Expected entropy_quality key for valid data"
+        assert 0.0 <= result["shannon_entropy"] <= 1.0
