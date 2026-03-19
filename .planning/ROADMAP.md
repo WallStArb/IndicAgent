@@ -411,23 +411,29 @@ Plans:
 ---
 
 ### Phase 39: Data Quality + DB Health
-**Goal**: The ML training dataset is clean — CIS nulls repaired, market_data_ohlcv rebuilt for fast aggregate queries, signal_ledger lifecycle updates run at target latency, missing RTH bars auto-fetched, and signal status is typed throughout the codebase.
-**Depends on**: Nothing (independent foundation work; unblocks phases that rely on clean data)
-**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, DATA-06
+**Goal**: The ML training dataset is clean and self-monitoring — CIS nulls repaired, market_data_ohlcv rebuilt for fast queries, signal_ledger hardened with generated columns and CHECK constraints, missing RTH bars auto-fetched, signal performance quantified via Information Coefficient per regime, and data quality monitored continuously via Prometheus.
+**Depends on**: Nothing (independent foundation work; unblocks Phase 40+)
+**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, DATA-08, DATA-09, DATA-10, DATA-11, DATA-12, DATA-13
+**Note**: DATA-06 (SignalStatus enum) and DATA-07 (SignalOutcome enum) moved to Phase 39.1 — code-level enum work lives there; DB-level CHECK constraints for status/direction live here (DATA-10).
 **Success Criteria** (what must be TRUE):
-  1. `market_data_ohlcv` chunk count is < 200 (from 15,740) after rebuild without space partitioning; aggregate queries that previously timed out complete in < 500ms.
-  2. `signal_ledger` composite index is in place; UPDATE latency for lifecycle events is < 5ms (from 34ms average) — verifiable via `EXPLAIN ANALYZE` on a lifecycle UPDATE statement.
-  3. `cis_score` and `cis_attribution` are non-NULL for all recoverable `signal_ledger` rows that have a matching `intelligence_features` row — verifiable by a count query returning 0 repairable NULLs.
-  4. `validate_alpha.py --promote` passes for DerivOsc and AC Osc once N >= 30 signals are accumulated — exit code 0 with "PROMOTED" output or explicit "insufficient data" message.
-  5. Gap-fill service detects and fetches only missing 1m RTH windows — running it twice on the same symbol produces no duplicate rows (ON CONFLICT DO NOTHING is safe).
-  6. `grep -r '"pending"\|"active"\|"regime_suppressed"' services/` returns zero results — all signal status comparisons use `SignalStatus` enum members.
-**Plans**: 4 plans
+  1. `market_data_ohlcv` chunk count < 200 (from 15,740); aggregate queries < 500ms.
+  2. `signal_ledger` composite index in place; lifecycle UPDATE latency < 5ms (from 34ms).
+  3. `cis_score` non-NULL for all recoverable rows — repair_cis_nulls.py exits 0 with 0 repairable NULLs.
+  4. `validate_alpha.py --promote` exits 0 for DerivOsc and AC Osc (or explicit "insufficient data" if N < 30).
+  5. Gap-fill service running — running twice on same symbol produces no duplicates.
+  6. `signal_ledger.effective_ts` and `pipeline_lag_ms` generated columns exist.
+  7. CHECK constraints on status and direction block invalid writes at DB level.
+  8. IC computed for all plugins with N >= 30; results in `signal_performance_segmented`.
+  9. `data_quality_check.py` scheduled every 15 min; Prometheus gauges active.
+**Plans**: 6 plans
 
 Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+- [ ] 039-01-PLAN.md — DB schema hardening: effective_ts + pipeline_lag_ms generated columns, status/direction CHECK constraints, signal_stats_daily view (DATA-08, DATA-09, DATA-10) [wave 1]
+- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02) [wave 1]
+- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04) [wave 1]
+- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05) [wave 1]
+- [ ] 039-05-PLAN.md — signal_performance_segmented table + Information Coefficient computation (DATA-11, DATA-12) [wave 1]
+- [ ] 039-06-PLAN.md — Data quality monitoring: Prometheus metrics + data_quality_check.py + 15-min timer (DATA-13) [wave 2, after 01-04]
 
 ### Phase 39.1: Intelligence Layer Enforcement (INSERTED)
 
@@ -669,7 +675,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 36. Microstructure Plugins | v1.9 | 2/2 | Complete | 2026-03-18 |
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
-| 39. Data Quality + DB Health | v2.0 | 0/4 | Planning complete | — |
+| 39. Data Quality + DB Health | v2.0 | 0/6 | Planning complete | — |
 | 39.1. Intelligence Layer Enforcement | v2.0 | 0/6 | Planning complete | — |
 | 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |

@@ -14,6 +14,12 @@
 - [ ] **DATA-05**: Gap-fill service detects missing 1m bars in `market_data_ohlcv` during RTH windows and fetches only missing windows from IBKR
 - [ ] **DATA-06**: `SignalStatus` enum replaces raw string literals (`"pending"`, `"active"`, `"regime_suppressed"`) across all 5 files
 - [ ] **DATA-07**: `SignalOutcome` enum replaces raw outcome string literals across lifecycle_tracker, signal_lifecycle_service, and API routes; DB CHECK constraint enforces valid values
+- [ ] **DATA-08**: `signal_ledger.effective_ts` generated column — `COALESCE(signal_computed_at, feature_ts) STORED`; replaces ad-hoc COALESCE in all queries; enables index-based ordering
+- [ ] **DATA-09**: `signal_ledger.pipeline_lag_ms` generated column — epoch milliseconds between feature_ts and signal_computed_at; NULL for unprocessed signals; P95 tracked by data quality monitoring
+- [ ] **DATA-10**: DB CHECK constraints on `signal_ledger.status` (pending/active/regime_suppressed only) and `signal_ledger.direction` (LONG/SHORT/NULL only); complements code-level enums
+- [ ] **DATA-11**: `signal_performance_segmented` table stores per-(plugin, timeframe, regime_type, symbol) rolling 30d win rates and IC scores; only rows with sample_size >= 30 written (FEED-02 gate)
+- [ ] **DATA-12**: Information Coefficient computed via `compute_ic.py` — Pearson r(calibrated_confidence, binary_outcome) per plugin; plugins with IC < 0.05 or p > 0.05 flagged; results written to `signal_performance_segmented`
+- [ ] **DATA-13**: `data_quality_check.py` scheduled every 15 min via systemd timer; exits 1 on critical violations (null_cis_rate > 1%, staleness > 15 min, P95 lag > 500ms); Prometheus gauges exported for all quality dimensions
 
 ### PERF — Machine Hardening
 
