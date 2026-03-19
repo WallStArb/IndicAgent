@@ -37,6 +37,7 @@ from src.core.stream_keys import (
 from src.intelligence.trading.lifecycle_tracker import (
     STALENESS_SCORE_THRESHOLD,
     _classify_stop_outcome,
+    _determine_target_outcome,
     compute_chandelier_stop,  # noqa: F401 — imported for service-level usage
     compute_staleness_score,
     evaluate_market_entry,
@@ -864,11 +865,7 @@ class SignalLifecycleService:
                             direction_s == -1 and bar_low <= tgt
                         )
                         if hit:
-                            s_outcome = [
-                                SignalOutcome.TARGET_1,
-                                SignalOutcome.TARGET_1_2,
-                                SignalOutcome.TARGET_FULL,
-                            ][min(i, 2)]
+                            s_outcome = _determine_target_outcome(i)
                             break
                     else:
                         s_outcome = SignalOutcome.TTL_EXPIRED_AHEAD

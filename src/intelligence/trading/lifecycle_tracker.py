@@ -13,7 +13,17 @@ from typing import Any
 
 from src.intelligence.trading.signal_outcome import SignalOutcome
 
-OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2  # bars_in_trade <= this → stopped_at_entry
+# Quick-stop threshold: signals stopped within 2 bars classified as stopped_at_entry
+# Rationale: entry slippage + 1 confirmation bar = false positive if stopped here
+OUTCOME_THRESHOLD_QUICK_STOP_BARS = 2
+
+# Target outcome lookup table (index 0→target_1, 1→target_1_2, 2+→target_full)
+# Module-level tuple avoids reconstruction on every call
+_TARGET_OUTCOME_LOOKUP = (
+    SignalOutcome.TARGET_1,
+    SignalOutcome.TARGET_1_2,
+    SignalOutcome.TARGET_FULL,
+)
 
 # Staleness score constants — tune after 90 days of outcome data
 STALENESS_REGIME_WEIGHT = 0.6  # weight of HMM regime drift component
@@ -423,16 +433,12 @@ def _check_active_exit(
     return None
 
 
-def _determine_target_outcome(target_index: int) -> str:
+def _determine_target_outcome(target_index: int) -> SignalOutcome:
     """Map target index (0-based) to outcome label."""
-    return [
-        SignalOutcome.TARGET_1,
-        SignalOutcome.TARGET_1_2,
-        SignalOutcome.TARGET_FULL,
-    ][min(target_index, 2)]
+    return _TARGET_OUTCOME_LOOKUP[min(target_index, 2)]
 
 
-def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> str:
+def _classify_stop_outcome(current_mfe: float, bars_in_trade_count: int | None) -> SignalOutcome:
     """Resolve fine-grained outcome for a stopped-out signal."""
     if (
         bars_in_trade_count is None
