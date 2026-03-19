@@ -32,7 +32,6 @@ from src.config.settings import Settings, get_active_symbols  # noqa: E402
 from src.core.database_manager import DatabaseManager  # noqa: E402
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
-from src.core.stream_keys import intelligence_i8 as sk_intelligence_i8  # noqa: E402
 from src.core.stream_keys import (  # noqa: E402
     message_key,
     topic_intelligence_i8,
@@ -139,15 +138,17 @@ def extract_group_fingerprint(
 # ---------------------------------------------------------------------------
 
 
-def parse_aggregated_signal(fields: dict[bytes, bytes]) -> dict[str, Any] | None:
-    """Parse a signals:aggregated stream message into a typed signal dict.
+def parse_aggregated_signal(fields: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse a signals:aggregated Kafka message payload into a typed signal dict.
 
     Returns None if direction is 0 (no actionable signal to narrate).
     """
 
     def _get(key: str, default: str = "") -> str:
-        raw = fields.get(key.encode(), b"")
-        return (raw.decode() if isinstance(raw, bytes) else str(raw)).strip() or default
+        raw = fields.get(key, "")
+        if raw is None:
+            return default
+        return str(raw).strip() or default
 
     direction = int(float(_get("direction", "0")))
     if direction == 0:
@@ -904,7 +905,6 @@ class AINarrativeService:
             # narrative_short: i8 enrichment stream + metrics
             if call_type == "narrative_short":
                 if self._kafka_producer:
-                    i8_stream = sk_intelligence_i8(self.env_prefix, symbol, timeframe)
                     i8_msg = {
                         "ts": signal_data["timestamp"],
                         "symbol": symbol,
@@ -1058,7 +1058,7 @@ class AINarrativeService:
         self.logger.info("Starting signal stream processing loop")
         if not self._kafka_consumer:
             return
-        async for topic, key, payload in self._kafka_consumer.messages():
+        async for _topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
             try:
