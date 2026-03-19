@@ -19,7 +19,7 @@
 - [x] **DATA-10**: DB CHECK constraints on `signal_ledger.status` (pending/active/regime_suppressed only) and `signal_ledger.direction` (LONG/SHORT/NULL only); complements code-level enums
 - [x] **DATA-11**: `signal_performance_segmented` table stores per-(plugin, timeframe, regime_type, symbol) rolling 30d win rates and IC scores; only rows with sample_size >= 30 written (FEED-02 gate)
 - [x] **DATA-12**: Information Coefficient computed via `compute_ic.py` — Pearson r(calibrated_confidence, binary_outcome) per plugin; plugins with IC < 0.05 or p > 0.05 flagged; results written to `signal_performance_segmented`
-- [ ] **DATA-13**: `data_quality_check.py` scheduled every 15 min via systemd timer; exits 1 on critical violations (null_cis_rate > 1%, staleness > 15 min, P95 lag > 500ms); Prometheus gauges exported for all quality dimensions
+- [x] **DATA-13**: `data_quality_check.py` scheduled every 15 min via systemd timer; exits 1 on critical violations (null_cis_rate > 1%, staleness > 15 min, P95 lag > 500ms); Prometheus gauges exported for all quality dimensions
 
 ### PERF — Machine Hardening
 
