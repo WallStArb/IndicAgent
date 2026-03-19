@@ -37,6 +37,7 @@ class PatternPlugin(Protocol):
     capability_tags: ClassVar[set[str]]
     inputs: ClassVar[list[InputSpec]]
     valid_asset_classes: ClassVar[frozenset[AssetClass]]
+    regime_type: ClassVar[str]  # Must be "trend", "mean_reversion", or "any"
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]: ...
 
