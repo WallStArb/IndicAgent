@@ -43,6 +43,7 @@ from src.intelligence.trading.lifecycle_tracker import (
     evaluate_signal,
 )
 from src.intelligence.trading.signal_ledger import (
+    SignalStatus,
     get_active_signals,
     record_activation,
     record_market_resolution,
@@ -375,7 +376,7 @@ class SignalLifecycleService:
             # --- Shadow signal virtual-activation path (SIGINT-05) ---
             # Regime-suppressed signals skip zone-activation. They are treated as
             # immediately active from signal bar close for MAE/MFE/outcome tracking.
-            if status == "regime_suppressed":
+            if status == SignalStatus.REGIME_SUPPRESSED:
                 # Ensure _mae/_mfe initialized (covers first-bar-after-startup case)
                 if sid not in self._mae:
                     self._mae[sid] = 0.0
@@ -402,7 +403,7 @@ class SignalLifecycleService:
                         continue
 
                 # Pass status='active' override so evaluate_signal() takes exit path
-                sig_for_eval = {**sig_with_extras, "status": "active"}
+                sig_for_eval = {**sig_with_extras, "status": SignalStatus.ACTIVE.value}
                 try:
                     transition = evaluate_signal(
                         sig_for_eval,
@@ -465,7 +466,7 @@ class SignalLifecycleService:
                     await update_signal_status(
                         self.db_manager,
                         sid,
-                        status="regime_suppressed",
+                        status=SignalStatus.REGIME_SUPPRESSED.value,
                         exit_at=exit_at,
                         exit_price=transition.exit_price,
                         exit_reason=transition.exit_reason,
@@ -580,7 +581,7 @@ class SignalLifecycleService:
             # ── Chandelier + Staleness state for active signals ───────────
             staleness_score_val = 0.0
             staleness_reason_val: str | None = None
-            if status == "active":
+            if status == SignalStatus.ACTIVE:
                 # Initialize Chandelier state on first active bar
                 if sid not in self._chandelier_state:
                     bar_high = float(bar["high"])
@@ -638,10 +639,10 @@ class SignalLifecycleService:
                     current_mae=current_mae,
                     current_mfe=current_mfe,
                     chandelier_state=(
-                        self._chandelier_state.get(sid) if status == "active" else None
+                        self._chandelier_state.get(sid) if status == SignalStatus.ACTIVE else None
                     ),
                     staleness_consecutive_bars=(
-                        self._staleness_consecutive.get(sid, 0) if status == "active" else 0
+                        self._staleness_consecutive.get(sid, 0) if status == SignalStatus.ACTIVE else 0
                     ),
                     staleness_score=staleness_score_val,
                 )
@@ -654,7 +655,7 @@ class SignalLifecycleService:
                 continue
 
             # ── Post-eval: write Chandelier + staleness to DB (active signals) ──
-            if status == "active" and self.db_manager:
+            if status == SignalStatus.ACTIVE and self.db_manager:
                 ch_state = self._chandelier_state.get(sid, {})
                 trailing_stop = ch_state.get("trailing_stop")
                 if trailing_stop is not None:
@@ -682,7 +683,7 @@ class SignalLifecycleService:
 
             if transition is None:
                 # Update in-memory MAE/MFE for active signals
-                if status == "active":
+                if status == SignalStatus.ACTIVE:
                     entry = float(sig.get("entry_price", 0))
                     stop = float(sig.get("stop_loss", 0))
                     risk = abs(entry - stop)
@@ -699,7 +700,7 @@ class SignalLifecycleService:
             bit = None  # bars_in_trade
             signal_quality = None
 
-            if transition.new_status == "active":
+            if transition.new_status == SignalStatus.ACTIVE:
                 # Pending → Active
                 self._activated_at[sid] = bar_time
                 self._mae[sid] = 0.0
@@ -793,7 +794,7 @@ class SignalLifecycleService:
                     )
                 )
 
-            if transition.new_status == "active":
+            if transition.new_status == SignalStatus.ACTIVE:
                 await record_activation(
                     self.db_manager,
                     sid,
@@ -979,7 +980,7 @@ class SignalLifecycleService:
                 active = await get_active_signals(self.db_manager, symbol=sym)
                 for sig in active:
                     sid = str(sig["signal_id"])
-                    if sig.get("status") != "active":
+                    if sig.get("status") != SignalStatus.ACTIVE:
                         continue
                     trailing_history = sig.get("trailing_stop_price")
                     garch_fire = float(sig.get("garch_sigma_at_fire") or 0.0)
