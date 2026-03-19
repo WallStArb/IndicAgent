@@ -471,9 +471,13 @@ class LLMWriterService:
 
     def _parsed_to_insert_tuple(self, parsed: dict) -> tuple:
         """Map parsed llm_call dict to a positional tuple for _INSERT_LLM_CALL_SQL."""
+        called_at = parsed["called_at"]
+        if isinstance(called_at, str):
+            called_at = datetime.fromisoformat(called_at)
+
         return (
             parsed["call_id"],  # $1  call_id
-            parsed["called_at"],  # $2  called_at
+            called_at,  # $2  called_at
             parsed["call_type"],  # $3  call_type
             parsed["signal_id"],  # $4  signal_id (uuid)
             parsed["group_name"],  # $5  group_name
@@ -537,6 +541,12 @@ class LLMWriterService:
                 return True
 
             if self.db_manager:
+                outcome_at = parsed["outcome_at"]
+                if isinstance(outcome_at, str):
+                    try:
+                        outcome_at = datetime.fromisoformat(outcome_at)
+                    except (ValueError, TypeError):
+                        outcome_at = None
                 params = (
                     parsed["signal_id"],  # $1
                     parsed["outcome"],  # $2
@@ -544,7 +554,7 @@ class LLMWriterService:
                     parsed["mae"],  # $4
                     parsed["mfe"],  # $5
                     parsed["bars_in_trade"],  # $6
-                    parsed["outcome_at"],  # $7
+                    outcome_at,  # $7
                 )
                 await self.db_manager.execute_batch(_UPDATE_OUTCOME_SQL, [params])
 
