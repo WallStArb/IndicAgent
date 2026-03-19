@@ -51,6 +51,7 @@ from src.intelligence.trading.signal_ledger import (
     record_zone_resolution_with_activation,  # noqa: F401 — used via mock.patch in tests
     update_signal_status,
 )
+from src.intelligence.trading.signal_outcome import SignalOutcome
 from src.observability.metrics import counter, gauge, start_metrics_server
 
 # ---------------------------------------------------------------------------
@@ -854,7 +855,7 @@ class SignalLifecycleService:
 
             if shadow["remaining_ttl"] <= 0:
                 # Determine shadow_outcome counterfactually
-                s_outcome = "ttl_expired_behind"
+                s_outcome = SignalOutcome.TTL_EXPIRED_BEHIND
                 if shadow["shadow_mfe"] > 0:
                     # Check if any target would have been hit
                     for i in range(len(targets_s) - 1, -1, -1):
@@ -863,12 +864,14 @@ class SignalLifecycleService:
                             direction_s == -1 and bar_low <= tgt
                         )
                         if hit:
-                            s_outcome = ["target_1", "target_1_2", "target_full"][
-                                min(i, 2)
-                            ]
+                            s_outcome = [
+                                SignalOutcome.TARGET_1,
+                                SignalOutcome.TARGET_1_2,
+                                SignalOutcome.TARGET_FULL,
+                            ][min(i, 2)]
                             break
                     else:
-                        s_outcome = "ttl_expired_ahead"
+                        s_outcome = SignalOutcome.TTL_EXPIRED_AHEAD
 
                 if self.db_manager:
                     try:
