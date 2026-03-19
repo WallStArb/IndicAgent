@@ -869,8 +869,8 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     // --- AI narrative data (I8) — per-symbol and group ---
     es.addEventListener("narrative_data", (evt) => {
       const { stream, payload } = JSON.parse(evt.data);
+      if (!stream) return;
       const streamStr = stream as string;
-      const narrativeType: string = payload.narrative_type ?? "short";
 
       if (streamStr.includes(":group:")) {
         // Group synthesis narrative: stream = "narratives:group:equity"
@@ -895,6 +895,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         const parts = streamStr.split(":");
         const tf = parts[parts.length - 1] || timeframe;
         const key = `${sym}:${tf}`;
+        const narrativeType: string = payload.narrative_type ?? "short";
         setNarratives((prev) => {
           const existing = prev[key] ?? {
             symbol: sym,
