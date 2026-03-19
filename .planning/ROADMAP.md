@@ -12,6 +12,7 @@
 - ✅ **v1.7 Data Integrity** — Phases 25-27 (shipped 2026-03-12)
 - ✅ **v1.8 Signal Intelligence** — Phases 28-29 (shipped 2026-03-13)
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
+- 🔄 **v2.0 Signal Integrity & ML Foundation** — Phases 39-46 (in progress)
 
 ## Phases
 
@@ -141,6 +142,20 @@ Full details: `.planning/milestones/v1.8-ROADMAP.md`
 - [x] **Phase 38: Automated Futures Roll Detection** - Volume-based roll detection in TWS daemon, DB-backed active contracts, plugin state migration, roll boundary markers (completed 2026-03-18)
 
 Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
+
+</details>
+
+<details open>
+<summary>🔄 v2.0 Signal Integrity & ML Foundation (Phases 39-46) — IN PROGRESS</summary>
+
+- [ ] **Phase 39: Data Quality + DB Health** — CIS null repair, ohlcv rebuild, signal_ledger indexes, gap-fill, SignalStatus enum
+- [ ] **Phase 40: Machine Hardening** — feature_writer lag fix, aggregator dirty-flag cache, semaphore-bounded DB seed, calibration ndarray pre-alloc, refresh loop standardisation, lifecycle index, Chandelier write guard
+- [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
+- [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
+- [ ] **Phase 43: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
+- [ ] **Phase 44: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
+- [ ] **Phase 45: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging
+- [ ] **Phase 46: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution
 
 </details>
 
@@ -389,40 +404,133 @@ Plans:
 - [ ] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
 - [ ] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
+---
+
+### Phase 39: Data Quality + DB Health
+**Goal**: The ML training dataset is clean — CIS nulls repaired, market_data_ohlcv rebuilt for fast aggregate queries, signal_ledger lifecycle updates run at target latency, missing RTH bars auto-fetched, and signal status is typed throughout the codebase.
+**Depends on**: Nothing (independent foundation work; unblocks phases that rely on clean data)
+**Requirements**: DATA-01, DATA-02, DATA-03, DATA-04, DATA-05, DATA-06
+**Success Criteria** (what must be TRUE):
+  1. `market_data_ohlcv` chunk count is < 200 (from 15,740) after rebuild without space partitioning; aggregate queries that previously timed out complete in < 500ms.
+  2. `signal_ledger` composite index is in place; UPDATE latency for lifecycle events is < 5ms (from 34ms average) — verifiable via `EXPLAIN ANALYZE` on a lifecycle UPDATE statement.
+  3. `cis_score` and `cis_attribution` are non-NULL for all recoverable `signal_ledger` rows that have a matching `intelligence_features` row — verifiable by a count query returning 0 repairable NULLs.
+  4. `validate_alpha.py --promote` passes for DerivOsc and AC Osc once N >= 30 signals are accumulated — exit code 0 with "PROMOTED" output or explicit "insufficient data" message.
+  5. Gap-fill service detects and fetches only missing 1m RTH windows — running it twice on the same symbol produces no duplicate rows (ON CONFLICT DO NOTHING is safe).
+  6. `grep -r '"pending"\|"active"\|"regime_suppressed"' services/` returns zero results — all signal status comparisons use `SignalStatus` enum members.
+**Plans**: TBD
+
+### Phase 40: Machine Hardening
+**Goal**: The pipeline sustains production data rates without lag accumulation — feature_writer consolidates its polling loop, the aggregator skips unnecessary rebuilds, DB seed is bounded, calibration pre-allocates arrays, refresh loops handle shutdown cleanly, lifecycle lookup is O(1), and Chandelier writes only on meaningful change.
+**Depends on**: Phase 39 (clean data and indexes in place before performance profiling)
+**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, PERF-07
+**Success Criteria** (what must be TRUE):
+  1. `feature_writer_service` worst-case per-loop lag is < 100ms — a single `xreadgroup` call drains all 92 streams; the previous 920ms multi-poll pattern is absent from the code.
+  2. Aggregator `_build_all_ranked()` is called only when `signals`, `perf_weights`, or `drift_penalties` change — a log counter or metric confirms rebuilds are skipped on clean bars.
+  3. `_seed_bar_history_from_db()` on restart issues at most `pool_max_size` concurrent DB queries — verifiable by inspecting the asyncio.Semaphore limit and confirming no `too many connections` errors in logs after restart.
+  4. Calibration curve breakpoints and values are stored as `np.ndarray` in the cache — per-signal `np.interp` calls allocate no new arrays (verifiable via memory profiler or by inspection of cache load code).
+  5. All 5 refresh loops in `signal_generator_service` use the shared `_run_refresh_loop` coroutine — no loop has its own ad-hoc shutdown or backoff logic.
+  6. Shadow signal lookup in `signal_lifecycle_service` uses an `(symbol, tf)` dict key — no O(N) scan of the full shadow signals collection on each bar.
+  7. Chandelier trailing stop DB write executes only when `new_stop > current_stop` (long) or `new_stop < current_stop` (short) — a bar with no stop tightening produces no DB write.
+**Plans**: TBD
+
+### Phase 41: Intelligence Gap Fill
+**Goal**: Intelligence fields that were stubs or missing are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, and higher-TF S/R context reaches I7 plugins.
+**Depends on**: Phase 39 (clean OHLCV data for cross-TF queries), Phase 40 (aggregator cache in place before adding new computation paths)
+**Requirements**: INTEL-01, INTEL-02, INTEL-03, INTEL-04, INTEL-05
+**Success Criteria** (what must be TRUE):
+  1. `i6_fvg_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where FVGs exist on multiple timeframes — the hardcoded `0.0` stub is absent from `cross_timeframe.py`.
+  2. `i6_ob_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where Order Blocks align across TFs — the hardcoded `0.0` stub is absent.
+  3. When price is near a value area boundary, `trade_framer.py` sets `target_1` to POC and `target_2` to VAH or VAL — verifiable in `signal_ledger` rows where `distance_to_vah_atr < 0.5` or `distance_to_val_atr < 0.5`.
+  4. For futures symbols within 5 days of roll, `intelligence_features` rows contain a non-NULL `roll_premium_pct` field equal to `(front_price - back_price) / back_price` — verifiable by querying near a known roll date.
+  5. I7 plugins receive 1h POC/VAH/VAL and I6 CTF data via `trade_framer` context — stop and target fields in `signal_ledger` reflect higher-TF levels when they are closer than the bar-level levels.
+**Plans**: TBD
+
+### Phase 42: Candlestick Pattern Expansion
+**Goal**: The I5 candlestick pattern library grows from 10 to 28 patterns, and the I7 CandlestickPatternSetup plugin applies calibrated confidence weights so higher-reliability patterns generate higher-conviction signals.
+**Depends on**: Phase 39 (data quality clean before expanding pattern coverage), Phase 41 (trade_framer context stable before adding new signal sources)
+**Requirements**: CANDLE-01, CANDLE-02
+**Success Criteria** (what must be TRUE):
+  1. `I5Patterns` schema contains 18 new candlestick pattern fields — `grep -c "pattern_" src/intelligence/schemas.py` shows the expected count increase; `extra=forbid` validation passes on all existing test fixtures.
+  2. Each of the 18 new patterns fires at least once in a one-week historical replay on ES 1m — verifiable via `SELECT pattern_name, COUNT(*) FROM signal_ledger WHERE setup_plugin = 'trad_CandlestickPatternSetup'` showing new pattern labels.
+  3. Tier 1 patterns (Three White/Black Soldiers, Morning/Evening Star, Abandoned Baby) fire with base confidence >= 0.70; Tier 2 patterns fire with base confidence >= 0.60 — the calibration weight table is a named constant in the plugin, not magic numbers.
+  4. All new patterns have unit tests verifying the minimum candle structure (e.g., Three White Soldiers requires 3 consecutive bullish bars with higher closes) — adding a malformed fixture returns `False` from the detection function.
+**Plans**: TBD
+
+### Phase 43: I6 Confluence Expansion
+**Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — `market_analysis_service` injects cross-asset features into frames before I6 execution, and `CrossTimeframeConfluencePlugin` scores VIX suppression and equity sector rotation alongside existing TF alignment.
+**Depends on**: Phase 41 (i6_fvg_tf_alignment and i6_ob_tf_alignment live), Phase 42 (candlestick patterns stable)
+**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04
+**Success Criteria** (what must be TRUE):
+  1. `market_analysis_service` consumes from `development.cross_asset` topic and injects cross-asset features into the frame dict before I6 plugin execution — verifiable by confirming `frames.get('cross_asset')` is non-None in a live `CrossTimeframeConfluencePlugin.compute()` call log.
+  2. When VIX spread z-score is high (simulated injection), mean-reversion setups show reduced `ctf_score` and volatility/breakout setups show increased `ctf_score` — the VIX suppression multiplier is logged per bar.
+  3. When ES/NQ/RTY/YM spread z-scores are all aligned (same direction), `ctf_score` gets a sector rotation boost — the contributing fields are logged in `intelligence_features.i6` JSONB.
+  4. `i6_fvg_tf_alignment` and `i6_ob_tf_alignment` have non-zero weights in the `CrossTimeframeConfluencePlugin` scoring formula — querying `intelligence_features.i6` for ES 1m bars shows non-zero `ctf_score` contributions from these fields.
+**Plans**: TBD
+
+### Phase 44: Shadow Mode Graduation
+**Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds are adjusted if data supports it, cross-asset and roll monitor are enabled, and trad_DualDivergence is promoted once it passes the statistical gate.
+**Depends on**: Phase 43 (I6 expansion complete; all shadow features have been accumulating data throughout v2.0 phases)
+**Requirements**: SHADOW-01, SHADOW-02, SHADOW-03, SHADOW-04
+**Success Criteria** (what must be TRUE):
+  1. A query of `signal_ledger WHERE is_shadow = TRUE` for regime_suppressed signals produces enough rows (N >= 200) to compute empirical win rates by threshold bucket — the analysis result (confirm or adjust thresholds) is documented in a decision log entry.
+  2. `CROSS_ASSET_ENABLED=true` is set in the production environment; `indicagent-cross-asset` publishes live data and `signal_generator_service` injects cross-asset frames for EQ_INDEX symbols — verifiable by querying `signal_ledger` for `trad_CrossAssetDivergence` signals after enablement.
+  3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
+  4. `trad_DualDivergence` `IS_SHADOW` flag is removed; the plugin fires live signals that appear in `signal_ledger` with `is_shadow = FALSE` — N >= 50 resolved signals with win rate > 50% is confirmed before flag removal.
+**Plans**: TBD
+
+### Phase 45: Auth + External Access
+**Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, and SSE works correctly through the auth layer with `withCredentials`.
+**Depends on**: Phase 44 (pipeline stable and shadow modes resolved before exposing external access)
+**Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06
+**Success Criteria** (what must be TRUE):
+  1. Every API endpoint (including SSE) returns HTTP 401 when called without a valid JWT cookie — `curl https://api.indicagent.com/api/signals/recent` without credentials returns `{"detail": "Not authenticated"}`.
+  2. The dashboard SSE connection works at `dash.indicagent.com` with `EventSource` using `withCredentials: true` — live signal updates appear in the browser with no auth errors in the console.
+  3. CORS configuration explicitly lists `dash.indicagent.com` and `192.168.1.158` as allowed origins — `OPTIONS /api/signals/recent` with `Origin: https://dash.indicagent.com` returns `Access-Control-Allow-Credentials: true`.
+  4. Login, logout, token refresh, and authentication failure events are logged as structured records — `grep "auth_event" logs/api.log` shows timestamped entries for each event type.
+  5. The Next.js dashboard runs as a standalone production build managed by a systemd unit — `systemctl status indicagent-dashboard` shows `active (running)` and the build serves from the compiled output directory.
+  6. Auth endpoints (login, refresh) enforce rate limiting — more than 10 failed login attempts within 60 seconds returns HTTP 429 for subsequent attempts.
+**Plans**: TBD
+
+### Phase 46: ML Scoring Model
+**Goal**: A LightGBM model scores every new signal at fire time — trained without lookahead bias on fire-time features, validated via walk-forward, stored in shadow mode, and promoted to an aggregator multiplier after an 8-week gate passes.
+**Depends on**: Phase 39 (clean feature data), Phase 40 (signal_features writes performant), Phase 45 (auth in place before exposing ML scores externally)
+**Requirements**: ML-01, ML-02, ML-03, ML-04, ML-05, ML-06, ML-07
+**Success Criteria** (what must be TRUE):
+  1. `feature_builder.py` produces a feature matrix using only columns from `signal_features` that existed at signal fire time — no `signal_ledger` outcome columns (outcome, pnl_r, mae, mfe) appear in the training feature set.
+  2. Non-stationary features (ATR, price levels) are differenced before training — ADF test on the differenced series returns p < 0.05; bounded oscillators (RSI, CIS score) are used as-is with a logged justification.
+  3. `ml_score` field is populated in `signal_ledger` for every new signal in shadow mode — `SELECT COUNT(*) FROM signal_ledger WHERE ml_score IS NULL AND computed_at > now() - interval '1 hour'` returns 0.
+  4. SHAP attribution values are stored per signal in `signal_features` — querying `signal_features WHERE feature_name LIKE 'shap_%'` returns rows for every signal that has an `ml_score`.
+  5. Walk-forward retraining runs on schedule (every 7 days via systemd timer) with 60-day expanding window and 14-day hold-out — the timer completion and AUC/Brier metrics are logged to `logs/ml_trainer.log`.
+  6. After 8-week shadow gate passes (AUC >= 0.56, Brier < 0.25, Pearson r > 0.20 p < 0.05, win rate lift > +3% at ml_score > 0.6), ML blend is enabled in the aggregator with α=0.20 — `_build_all_ranked()` uses `calibrated_confidence * (1 - α) + ml_score * α` as the sort key.
+  7. Global LightGBM model and 3 regime-specific models (ranging/trending/volatile) are trained independently — the regime-specific model is used when `N >= 500` for that regime; otherwise falls back to global model with a logged reason.
+**Plans**: TBD
+
 ## Backlog
 
 Items decided but not yet scheduled. Pull into a milestone when ready.
-Re-prioritized 2026-03-18 after v1.9 shipped.
+Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
-### Tier 1 — Ready now / v2.0 candidates (data exists, no blockers)
+### Tier 1 — v2.1 candidates
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| Expand I5 candlestick + I7 setup | 18 patterns spec'd (Tier 1: Harami, Dark Cloud, Three Soldiers/Crows, Morning/Evening Star). Research doc complete. | `docs/ideas/candlestick-pattern-expansion-research.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
-| CIS Null Repair Execution | Phase 25 repair script complete + tested (11 tests). Blocked by PostgreSQL shared memory error on 1.8M row JOIN. Investigate Docker cgroup limits, batch by symbol/TF, then run repair. Code: `production/scripts/repair_cis_nulls.py`. | memory: `Phase 25 Complete` |
-| validate_alpha.py re-runs | Re-run `validate_alpha.py --promote` for bootstrap-promoted plugins (DerivOsc, AC Osc) once 30+ bars accumulate. | — |
-| Auth and External Access | JWT + API key via single Depends(verify_auth); Cloudflare Tunnel; authenticated SSE. SSE fan-out: one Redpanda consumer → broadcast to N clients (not N independent pollers). `next build` + nginx for prod dashboard. | — |
+| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
 
-### Tier 2 — v1.9+ (moderate dependencies)
+### Tier 2 — Longer horizon
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| I6 Confluence Expansion | Cross-TF + cross-asset confluence (ES/NQ/RTY alignment, VIX regime, sector rotation). Design complete. Needs new IBKR subs. | `docs/ideas/i6-confluence-expansion.md` |
 | Intelligence Stack Latency | Parallel plugin workers within tiers (2-7× speedup potential). Thread-safety audit required. | `docs/ideas/intelligence-stack-latency-reduction.md` |
-| ML Scoring Model | XGBoost/LightGBM on intelligence_features + signal_ledger outcomes. Needs ~90 days signal history — not yet accumulated. | — |
-| Gap-fill service | Detect + backfill gaps in market_data_ohlcv from TWS downtime. Query gaps in 1m series, fetch only missing windows from IBKR, replay. | `.planning/todos/pending/2026-03-04-add-gap-fill-service.md` |
-| Roll premium/discount feature | Front/back month spread at roll = contango/backwardation signal. Needs back-month IBKR fetch. | `.planning/todos/pending/2026-03-04-add-roll-premium-discount-feature.md` |
-| Multi-TF S/R awareness for signal plugins | I7 plugins currently operate per-TF; expose higher-TF S/R levels as inputs for stop/target placement. | `.planning/todos/pending/2026-02-27-add-multi-timeframe-sr-awareness-to-signal-plugins.md` |
-| BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
-| Offload plugin pipeline to thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | `.planning/todos/pending/2026-02-28-offload-plugin-pipeline-to-thread-pool.md` |
-| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
-| API keyset pagination | Large features export endpoint has no pagination — blocks on full table scan. Keyset pagination on `intelligence_features`. | `.planning/todos/pending/2026-02-24-add-keyset-pagination-to-features-export-and-rest-endpoint.md` |
+| API keyset pagination | Large features export endpoint has no pagination — blocks on full table scan. | `.planning/todos/pending/2026-02-24-add-keyset-pagination-to-features-export-and-rest-endpoint.md` |
 | Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
-| Shadow signal gate tuning | Once sufficient regime_suppressed shadow data accumulates, analyze gate thresholds empirically. | — |
+| Plugin pipeline thread pool | CPU-bound plugin work starves event loop under load. Thread-safety audit required first. | `.planning/todos/pending/2026-02-28-offload-plugin-pipeline-to-thread-pool.md` |
+| Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
+| ML Mixture-of-Experts | Soft blending across regime-specific models (once hard routing proves stable). | — |
+| Online learning | Incremental model updates between weekly retraining cycles. | — |
 
-### Tier 3 — Longer horizon / separate products
+### Tier 3 — Separate products / long horizon
 
 | Item | Notes | Analysis |
 |------|-------|---------|
@@ -435,7 +543,7 @@ Re-prioritized 2026-03-18 after v1.9 shipped.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 next.
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 in progress (Phases 39-46).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -487,3 +595,11 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 36. Microstructure Plugins | v1.9 | 2/2 | Complete | 2026-03-18 |
 | 37. Cross-Asset Intelligence Service | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
+| 39. Data Quality + DB Health | v2.0 | 0/TBD | Not started | — |
+| 40. Machine Hardening | v2.0 | 0/TBD | Not started | — |
+| 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
+| 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
+| 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
+| 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
+| 45. Auth + External Access | v2.0 | 0/TBD | Not started | — |
+| 46. ML Scoring Model | v2.0 | 0/TBD | Not started | — |
