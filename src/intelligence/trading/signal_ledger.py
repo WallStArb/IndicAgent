@@ -37,11 +37,13 @@ class SignalStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 from src.intelligence.trading.signal_outcome import (
-    SignalOutcome,  # noqa: F401 (re-exported for backward compatibility)
-    STOP_OUTCOMES,  # noqa: F401 (re-exported for backward compatibility)
-    TTL_OUTCOMES,  # noqa: F401 (re-exported for backward compatibility)
-    WIN_OUTCOMES,  # noqa: F401 (re-exported for backward compatibility)
+    SignalOutcome,
+    STOP_OUTCOMES,
+    TTL_OUTCOMES,
+    WIN_OUTCOMES,
 )
+
+__all__ = ["SignalOutcome", "STOP_OUTCOMES", "TTL_OUTCOMES", "WIN_OUTCOMES"]
 
 # ---------------------------------------------------------------------------
 # Data model
