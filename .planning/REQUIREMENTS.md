@@ -83,12 +83,12 @@
 - [x] **CODE-Q-02**: `SignalStatus` enum (`PENDING`, `ACTIVE`, `REGIME_SUPPRESSED`) replaces raw status string literals across 4 services; no raw strings in grep
 - [x] **CODE-Q-03**: Pre-commit hooks enforce plugin class naming (`PascalCasePlugin`), file naming (`snake_case.py`), regime_type ClassVar on I7 plugins, and no dead imports (ruff F401)
 - [ ] **CODE-Q-04**: `SignalOutcome` enum (8-class taxonomy) replaces raw outcome strings in lifecycle_tracker and signal_lifecycle_service; `signal_outcome.py` is single source of truth for WIN/STOP/TTL sets; DB CHECK constraint enforces valid values
-- [ ] **CODE-Q-05**: `/signals/recent` tier filtering rewritten as parameterized SQL (no f-string interpolation); single stable query string for all 3 tier values
+- [x] **CODE-Q-05**: `/signals/recent` tier filtering rewritten as parameterized SQL (no f-string interpolation); single stable query string for all 3 tier values
 
 ### BUG — Active Production Bugs
 
-- [ ] **BUG-01**: VWAP plugin `utc=True` fix — eliminates `Tz-aware datetime.datetime cannot be converted to datetime64` warnings on every bar for all 61 symbols
-- [ ] **BUG-02**: ShannonEntropy plugin NaN/Inf guard — eliminates `autodetected range of [nan, nan] is not finite` warnings for symbols with degenerate data sequences
+- [x] **BUG-01**: VWAP plugin `utc=True` fix — eliminates `Tz-aware datetime.datetime cannot be converted to datetime64` warnings on every bar for all 61 symbols
+- [x] **BUG-02**: ShannonEntropy plugin NaN/Inf guard — eliminates `autodetected range of [nan, nan] is not finite` warnings for symbols with degenerate data sequences
 
 ### INFRA — Infrastructure Cleanup
 
