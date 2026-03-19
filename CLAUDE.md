@@ -300,6 +300,6 @@ When investigating "service not writing to database":
 
 ## Roadmap
 
-**v1.9 IN PROGRESS** — Phases 31-34 shipped (CIS learning loop, stop architecture, 5 new I7 plugins, AVWAP+Volume Profile). Phase 38 next: automated futures roll detection.
+**v2.0 IN PROGRESS** — Phase 39.1 complete (SignalStatus/SignalOutcome enums, pre-commit hooks, bug fixes, topic cleanup). Phase 40 next: Machine Hardening.
 
 Full history: `.planning/ROADMAP.md`
