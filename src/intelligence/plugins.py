@@ -72,6 +72,8 @@ class PluginRegistry:
 
         Checks both indicators and patterns so callers don't need to know
         which bucket a plugin lives in.
+
+        For I7 tier, also validates regime_type declaration and value.
         """
         all_known = set(self.indicators) | set(self.patterns)
         unknown = [n for n in names if n not in all_known]
@@ -80,6 +82,26 @@ class PluginRegistry:
                 f"Tier {tier} references unregistered plugin(s): {unknown}. "
                 f"Check register_plugins.py and the TIER_* constants."
             )
+
+        # I7 regime_type validation
+        if tier == "I7":
+            valid_regimes = {"trend", "mean_reversion", "any"}
+            for name in names:
+                plugin = self.patterns.get(name)
+                if plugin is None:
+                    continue  # Already caught by unknown check above
+                if not hasattr(plugin, "regime_type"):
+                    raise ValueError(
+                        f"I7 plugin '{name}' missing regime_type declaration. "
+                        f"Add: regime_type: ClassVar[str] = "
+                        f"\"trend\" | \"mean_reversion\" | \"any\""
+                    )
+                regime = plugin.regime_type
+                if regime not in valid_regimes:
+                    raise ValueError(
+                        f"I7 plugin '{name}' has invalid regime_type='{regime}'. "
+                        f"Must be one of: {valid_regimes}"
+                    )
 
 
 registry = PluginRegistry()
