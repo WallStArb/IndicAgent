@@ -18,6 +18,7 @@ from scipy import stats as _scipy_stats
 from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
 from ...intelligence.trading.signal_ledger import WIN_OUTCOMES as _WIN_OUTCOMES
+from ...intelligence.trading.signal_ledger import SignalStatus
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
 from ..utils import resolve_contract as _resolve_contract
@@ -26,7 +27,7 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-_TERMINAL_STATUSES: frozenset[str] = frozenset({"pending", "active"})
+_TERMINAL_STATUSES: frozenset[SignalStatus] = frozenset({SignalStatus.PENDING, SignalStatus.ACTIVE})
 
 
 @lru_cache(maxsize=1)
@@ -376,7 +377,7 @@ async def get_recent_signals(
                     n_with_outcome += 1
                     if s["outcome"] in _WIN_OUTCOMES:
                         n_wins += 1
-            if s["status"] == "regime_suppressed":
+            if s["status"] == SignalStatus.REGIME_SUPPRESSED.value:
                 n_suppressed += 1
             if s["pnl_r"] is not None:
                 pnl_sum += s["pnl_r"]
