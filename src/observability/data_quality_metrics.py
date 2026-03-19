@@ -19,7 +19,7 @@ DQ_NULL_CIS_RATE = Gauge(
 
 DQ_NULL_CONFIDENCE_RATE = Gauge(
     "dq_null_confidence_rate",
-    "Fraction of signal_ledger rows with NULL calibrated_confidence",
+    "Fraction of signal_ledger rows with NULL confidence",
     ["symbol"],
 )
 
