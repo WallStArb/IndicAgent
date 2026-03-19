@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
-status: defining_requirements
+status: roadmap_complete
 stopped_at: ~
 last_updated: "2026-03-19T00:00:00.000Z"
 progress:
@@ -19,22 +19,27 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** v1.9 SHIPPED — planning v2.0 next
+**Current focus:** v2.0 Signal Integrity & ML Foundation — roadmap defined, Phase 39 next
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 39 (Data Quality + DB Health) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-03-19 — Milestone v2.0 started
+Status: Roadmap complete — ready to plan Phase 39
+Last activity: 2026-03-19 — v2.0 roadmap created (Phases 39-46)
+
+```
+v2.0 Progress: [ . . . . . . . . ] 0/8 phases
+                 39 40 41 42 43 44 45 46
+```
 
 ## Performance Metrics
 
 **Velocity (cumulative):**
 
-- Total plans completed: 100 (v1.0–v1.8)
+- Total plans completed: 100 (v1.0–v1.8) + ~23 (v1.9) = ~123
 - Average duration: ~30 min/plan
-- Total execution time: ~50 hours
+- Total execution time: ~62 hours
 
 ## Accumulated Context
 
@@ -85,7 +90,6 @@ Last activity: 2026-03-19 — Milestone v2.0 started
 - **Chandelier trailing stop tightens monotonically** — long stop only moves up, short stop only moves down; state in `_chandelier_state[sid]` dict injected to evaluate_signal() (032-02)
 - **Staleness formula**: score = 0.6*regime_drift + 0.4*sigma_component; condition_expired fires after 3 consecutive bars with score > 0.5; staleness_consecutive reset to 0 on service restart (032-02)
 - **Shadow tracking**: condition_expired signals continue in `_shadow_signals` dict with remaining_ttl_bars = ttl_bars - bars_elapsed; shadow_mae/mfe/outcome written to DB on TTL expiry (032-02)
-- **Service __new__ pattern requires new attrs**: `_chandelier_state`, `_staleness_consecutive`, `_shadow_signals` must be set in all test helpers that use SignalLifecycleService.__new__ (032-02)
 - **DivergenceStack 5-input weights**: DIVERGENCE_WEIGHTS = {rsi:0.30, macd:0.25, vol:0.20, obv:0.15, cmf:0.10}; gate: score > 0.40 AND n_agreeing >= 3; always-log base_output pattern; divergence_scoring block in _build_i7_payload() routes to intelligence_features.i7 JSONB on every bar (032-03)
 - **I5Patterns has 79 fields** — +9 from 032-03 (macd_div_*, obv_div_*, cmf_div_*); extra=forbid enforced; validate_schema_coverage() passes
 - **get_active_contracts() returns list[Instrument]** — signature changed from list[str] in 038-01; get_active_symbols() is the new list[str] convenience wrapper; ROLL_MONITOR_ENABLED=false (default) returns config-file contracts unchanged; when true queries contract_metadata WHERE is_front_month=true with 60s cache + fallback
@@ -121,15 +125,16 @@ Last activity: 2026-03-19 — Milestone v2.0 started
 - **TIER_I7 = 36, total registered plugins = 121 (27 indicators + 94 patterns)** — after Phase 037-02; CrossAssetDivergencePlugin added
 - **037-03 pipeline wiring**: signal_generator_service subscribes to cross_asset topic when cross_asset_enabled=True; injects frames['cross_asset'] + frames['cross_asset_5m'] for EQ_INDEX symbols (startswith ES/NQ/RTY/YM + len>base); feature_writer_service subscribes + _process_cross_asset_message() persists spread features to intelligence_features.i7 JSONB via ON CONFLICT merge for all 4 EQ_INDEX members; cross_asset topic routed BEFORE symbol:tf key-split (group-level payload, no per-symbol key); Phase 037 COMPLETE
 
-### v1.9 Phase Ordering Rationale
+### v2.0 Phase Ordering Rationale
 
-- **Phase 31 first**: Learning loop + signal_features schema + shadow infrastructure must be in place before any new plugins fire — all downstream phases accumulate labeled training data from day one
-- **Phase 32 second**: Stop architecture centralized in trade_framer.py before adding new plugins — all 17 existing + 10 new plugins inherit correct stops automatically
-- **Phase 33 third**: Five new I7 plugins added after stop architecture is stable; no per-plugin stop logic needed
-- **Phase 34 fourth**: New I4 infrastructure (AVWAP, Volume Profile) before the two I7 plugins that consume them
-- **Phase 35 fifth**: Calibration, TOD, Kalman filter applied after full plugin set is stable — no moving target
-- **Phase 36 sixth**: Microstructure (OFI/CVD) placed last among plugin phases — tick data dependency requires audit before implementation variant is chosen
-- **Phase 37 last**: New microservice with highest SoC complexity; all I7 plugins stable before adding cross-asset dependency
+- **Phase 39 first**: Data quality and DB health is the foundation — clean OHLCV, repaired CIS nulls, and proper indexes unblock every downstream phase that relies on training data quality
+- **Phase 40 second**: Machine hardening after data is clean — profiling lag is meaningful only when the data flowing through the system is correct
+- **Phase 41 third**: Intelligence gap fill after performance is stable — new computation paths (cross-TF alignment, VP targets) run on a tuned system
+- **Phase 42 fourth**: Candlestick expansion after intelligence gaps are filled — new I5 patterns fire against enriched I6 context
+- **Phase 43 fifth**: I6 confluence expansion requires Phase 41 (alignment fields live) and a stable plugin set (Phase 42 complete)
+- **Phase 44 sixth**: Shadow graduation requires accumulated data from all prior phases — thresholds validated against real outcomes, not simulations
+- **Phase 45 seventh**: Auth before ML exposure — external access secured before ML scores are visible externally
+- **Phase 46 last**: ML model requires clean data (39), fast feature writes (40), and a stable auth layer (45) before shadow scores become externally visible
 
 ### Design Anchor
 
@@ -137,7 +142,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ## Session Continuity
 
-Last session: 2026-03-18T20:15:31.970Z
-Stopped at: Completed 037-03-PLAN.md (cross-asset pipeline wiring)
+Last session: 2026-03-19T00:00:00.000Z
+Stopped at: v2.0 roadmap created (Phases 39-46)
 Resume file: None
-Next action: Execute Phase 038 (automated-futures-roll-detection)
+Next action: Run `/gsd:plan-phase 39` to plan Phase 39 (Data Quality + DB Health)
