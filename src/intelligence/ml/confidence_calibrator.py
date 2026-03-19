@@ -20,10 +20,9 @@ import numpy as np
 import structlog
 from sklearn.isotonic import IsotonicRegression
 
-logger = structlog.get_logger(__name__)
+from ..trading.signal_ledger import WIN_OUTCOMES as _WIN_OUTCOMES
 
-# Win outcome taxonomy from signal_ledger (must stay in sync with WIN_OUTCOMES constant)
-_WIN_OUTCOMES = frozenset({"target_1", "target_1_2", "target_full"})
+logger = structlog.get_logger(__name__)
 
 # Minimum resolved signals required to fit a calibration curve
 _MIN_SAMPLE_SIZE = 100

@@ -137,10 +137,6 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     return signal
 
 
-# Signal statuses that have not yet reached a terminal outcome
-_TERMINAL_STATUSES = frozenset({"pending", "active"})
-
-
 def _f(v: Any) -> float | None:
     return float(v) if v is not None else None
 
