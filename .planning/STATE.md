@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 039-01-PLAN.md — signal_ledger schema hardening
-last_updated: "2026-03-19T23:08:06.290Z"
+stopped_at: Completed 039-05-PLAN.md — IC computation + signal_performance_segmented table
+last_updated: "2026-03-19T23:10:42.814Z"
 progress:
   total_phases: 24
   completed_phases: 1
   total_plans: 16
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -159,7 +159,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-19T23:08:06.289Z
-Stopped at: Completed 039-01-PLAN.md — signal_ledger schema hardening
+Last session: 2026-03-19T23:10:42.812Z
+Stopped at: Completed 039-05-PLAN.md — IC computation + signal_performance_segmented table
 Resume file: None
 Next action: Run `/gsd:plan-phase 39` to plan Phase 39 (Data Quality + DB Health)
