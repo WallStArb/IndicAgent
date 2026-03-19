@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -18,6 +20,7 @@ from production.scripts.repair_cis_nulls import (
     build_cis_update_params,
     classify_rows,
     log_orphans,
+    main,
     merge_feature_jsonb,
     repair_recoverable,
 )
@@ -301,3 +304,87 @@ class TestRepairRecoverable:
         assert updated == 0
         mock_execute_batch.assert_not_called()
         mock_cis_scorer_class.assert_not_called()
+
+
+class TestCompletenessGate:
+    """Tests for the exit-1 completeness gate in main()."""
+
+    def _make_mock_row(self, signal_id: str = "s1") -> dict:
+        return {
+            "signal_id": signal_id,
+            "symbol": "ES",
+            "feature_ts": "2026-01-01T12:00:00",
+            "feature_tf": "1m",
+            "i1": {"rsi_14": 50.0},
+            "i3": {},
+            "i4": {},
+            "i5": {},
+            "smc": {},
+            "i6": {},
+        }
+
+    @patch("production.scripts.repair_cis_nulls.connect_db")
+    @patch("production.scripts.repair_cis_nulls.Settings")
+    @patch("production.scripts.repair_cis_nulls.audit_null_cis")
+    @patch("production.scripts.repair_cis_nulls.repair_recoverable")
+    @patch("production.scripts.repair_cis_nulls.log_orphans")
+    def test_completeness_gate_exits_1_on_remaining_recoverable(
+        self,
+        mock_log_orphans,
+        mock_repair_recoverable,
+        mock_audit_null_cis,
+        mock_settings,
+        mock_connect_db,
+        monkeypatch,
+    ):
+        """repair_cis_nulls.py exits 1 when recoverable nulls remain after repair."""
+        mock_conn = MagicMock()
+        mock_connect_db.return_value = mock_conn
+
+        recoverable_row = self._make_mock_row("s1")
+        # First call (audit): 1 recoverable row
+        # Second call (verification): still 1 recoverable row remaining
+        mock_audit_null_cis.side_effect = [
+            (10, [recoverable_row], ["orphan1"]),
+            (2, [recoverable_row], ["orphan1"]),
+        ]
+        mock_repair_recoverable.return_value = 0
+
+        monkeypatch.setattr(sys, "argv", ["repair_cis_nulls.py"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+
+    @patch("production.scripts.repair_cis_nulls.connect_db")
+    @patch("production.scripts.repair_cis_nulls.Settings")
+    @patch("production.scripts.repair_cis_nulls.audit_null_cis")
+    @patch("production.scripts.repair_cis_nulls.repair_recoverable")
+    @patch("production.scripts.repair_cis_nulls.log_orphans")
+    def test_completeness_gate_exits_0_on_full_repair(
+        self,
+        mock_log_orphans,
+        mock_repair_recoverable,
+        mock_audit_null_cis,
+        mock_settings,
+        mock_connect_db,
+        monkeypatch,
+    ):
+        """repair_cis_nulls.py exits 0 (no SystemExit) when all recoverable nulls are repaired."""
+        mock_conn = MagicMock()
+        mock_connect_db.return_value = mock_conn
+
+        recoverable_row = self._make_mock_row("s1")
+        # First call (audit): 1 recoverable row
+        # Second call (verification): 0 recoverable rows — all repaired
+        mock_audit_null_cis.side_effect = [
+            (5, [recoverable_row], []),
+            (0, [], []),
+        ]
+        mock_repair_recoverable.return_value = 1
+
+        monkeypatch.setattr(sys, "argv", ["repair_cis_nulls.py"])
+
+        # Should complete without raising SystemExit
+        main()  # No exception == exit 0
