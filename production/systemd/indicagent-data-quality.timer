@@ -1,0 +1,11 @@
+[Unit]
+Description=IndicAgent Data Quality Audit — runs every 15 minutes
+Requires=indicagent-data-quality.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
