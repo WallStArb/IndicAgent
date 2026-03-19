@@ -148,7 +148,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 <details open>
 <summary>🔄 v2.0 Signal Integrity & ML Foundation (Phases 39-46) — IN PROGRESS</summary>
 
-- [ ] **Phase 39: Data Quality + DB Health** — CIS null repair, ohlcv rebuild, signal_ledger indexes, gap-fill, SignalStatus enum
+- [ ] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, continuous aggregate (signal_stats_hourly + Information Coefficient), data quality monitoring infrastructure, SignalStatus/SignalOutcome enums
 - [ ] **Phase 40: Machine Hardening** — feature_writer lag fix, aggregator dirty-flag cache, semaphore-bounded DB seed, calibration ndarray pre-alloc, refresh loop standardisation, lifecycle index, Chandelier write guard
 - [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
