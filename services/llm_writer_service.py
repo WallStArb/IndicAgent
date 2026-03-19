@@ -34,6 +34,9 @@ from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_llm_calls, topic_llm_outcomes
 from src.observability.metrics import counter, gauge, start_metrics_server
 
+# Reuse timestamp parsing utility from feature_writer_service
+from services.feature_writer_service import _parse_ts
+
 # ── Module-level constants ────────────────────────────────────────────────────
 
 BATCH_SIZE: int = 50
@@ -471,9 +474,11 @@ class LLMWriterService:
 
     def _parsed_to_insert_tuple(self, parsed: dict) -> tuple:
         """Map parsed llm_call dict to a positional tuple for _INSERT_LLM_CALL_SQL."""
-        called_at = parsed["called_at"]
-        if isinstance(called_at, str):
-            called_at = datetime.fromisoformat(called_at)
+        try:
+            called_at = _parse_ts(parsed["called_at"])
+        except (ValueError, TypeError) as e:
+            self.logger.warning("Failed to parse called_at timestamp", error=str(e), value=parsed["called_at"])
+            called_at = datetime.now(tz=UTC)
 
         return (
             parsed["call_id"],  # $1  call_id
@@ -541,12 +546,11 @@ class LLMWriterService:
                 return True
 
             if self.db_manager:
-                outcome_at = parsed["outcome_at"]
-                if isinstance(outcome_at, str):
-                    try:
-                        outcome_at = datetime.fromisoformat(outcome_at)
-                    except (ValueError, TypeError):
-                        outcome_at = None
+                try:
+                    outcome_at = _parse_ts(parsed["outcome_at"]) if parsed["outcome_at"] else None
+                except (ValueError, TypeError) as e:
+                    self.logger.warning("Failed to parse outcome_at timestamp", error=str(e), value=parsed["outcome_at"])
+                    outcome_at = None
                 params = (
                     parsed["signal_id"],  # $1
                     parsed["outcome"],  # $2
