@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS signal_performance_segmented (
     ic_score             DOUBLE PRECISION,       -- Pearson r(calibrated_confidence, binary_outcome)
     ic_p_value           DOUBLE PRECISION,       -- p-value from scipy.stats.pearsonr
     ic_n                 INTEGER,                -- sample size used for IC computation
-    ic_significant       BOOLEAN                 -- ic_p_value < 0.05 AND ic_score >= 0.05 AND ic_n >= 30
+    ic_significant       BOOLEAN,                -- ic_p_value < 0.05 AND ic_score >= 0.05 AND ic_n >= 30
+    -- Only rows with sample_size >= 30 are written (FEED-02 gate, per CLAUDE.md)
+    CONSTRAINT chk_sps_sample_size CHECK (sample_size >= 30)
 );
 
 -- Indexes
@@ -34,11 +36,6 @@ CREATE INDEX IF NOT EXISTS idx_sps_plugin_tf_regime
 
 CREATE INDEX IF NOT EXISTS idx_sps_latest
   ON signal_performance_segmented (computed_at DESC);
-
--- Only rows with sample_size >= 30 are written (FEED-02 gate, per CLAUDE.md)
--- Constraint enforces this invariant at DB level
-ALTER TABLE signal_performance_segmented
-  ADD CONSTRAINT chk_sps_sample_size CHECK (sample_size >= 30);
 
 COMMENT ON TABLE signal_performance_segmented IS
   'Per-regime segmented signal performance stats with Information Coefficient. '

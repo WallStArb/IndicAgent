@@ -107,11 +107,9 @@ def _fetch_signals(
     # Use calibrated_confidence if available (migration 038), fall back to confidence
     # We detect availability at query time using a safe COALESCE with sub-select
     symbol_filter = ""
-    params: list = [window_days]
     if symbols:
         placeholders = ", ".join(["%s"] * len(symbols))
         symbol_filter = f"AND symbol IN ({placeholders})"
-        params.extend(symbols)
 
     sql = f"""
         SELECT
@@ -342,8 +340,9 @@ def main() -> int:
     print(f"Symbols: {symbols or 'all'} | Regime: {args.regime} | Write: {args.write}")
     print()
 
-    conn = _get_conn(settings)
+    conn = None
     try:
+        conn = _get_conn(settings)
         print("Fetching resolved signals from signal_ledger...")
         rows = _fetch_signals(conn, args.window_days, symbols)
         print(f"  Fetched {len(rows):,} resolved signals")
@@ -382,7 +381,8 @@ def main() -> int:
         return 0
 
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 if __name__ == "__main__":

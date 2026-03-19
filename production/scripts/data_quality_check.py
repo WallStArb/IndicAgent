@@ -34,6 +34,9 @@ from __future__ import annotations
 import argparse
 import sys
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")
 from pathlib import Path
 from typing import Any
 
@@ -270,13 +273,16 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
     """
     missing: dict[str, int] = {}
 
-    # Today's date in ET (approximate: use UTC date, market open 13:30-20:00 UTC)
-    now_utc = datetime.now(UTC)
-    today_start = now_utc.replace(hour=13, minute=30, second=0, microsecond=0)
-    if now_utc.hour < 13 or (now_utc.hour == 13 and now_utc.minute < 30):
-        # Before RTH open — use yesterday
-        today_start -= timedelta(days=1)
-    today_end = today_start + timedelta(hours=6, minutes=30)  # 390 min = 09:30-16:00 ET
+    # Today's RTH session in ET (handles EST/EDT automatically via zoneinfo)
+    now_et = datetime.now(_ET)
+    rth_open_et = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    rth_close_et = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+    if now_et < rth_open_et:
+        # Before RTH open — use yesterday's session
+        rth_open_et -= timedelta(days=1)
+        rth_close_et -= timedelta(days=1)
+    today_start = rth_open_et.astimezone(UTC)
+    today_end = rth_close_et.astimezone(UTC)
 
     # Cap to current time if market hasn't closed yet
     if now_utc < today_end:
