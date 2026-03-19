@@ -24,9 +24,10 @@ Elevate the database layer from "works in production" to institutional-quality q
 ```sql
 SELECT compress_chunk(c)
 FROM   show_chunks('market_data_ohlcv', older_than => INTERVAL '7 days') c
-WHERE  NOT (
-  SELECT is_compressed FROM timescaledb_information.chunks
-  WHERE  chunk_name = c::regclass::text
+WHERE  NOT EXISTS (
+  SELECT 1 FROM timescaledb_information.chunks ch
+  WHERE  ch.chunk_schema || '.' || ch.chunk_name = c::regclass::text
+    AND  ch.is_compressed
 );
 ```
 
@@ -39,10 +40,14 @@ Run as a standalone script (not inside a migration transaction — `compress_chu
 **Fix:**
 
 ```sql
-SELECT alter_job(job_id, config => config || '{"compress_after": "14 days"}')
-FROM   timescaledb_information.jobs
-WHERE  application_name LIKE '%Compression%'
-  AND  hypertable_name = 'signal_ledger';
+WITH j AS (
+  SELECT job_id, config AS current_config
+  FROM   timescaledb_information.jobs
+  WHERE  application_name LIKE '%Compression%'
+    AND  hypertable_name = 'signal_ledger'
+)
+SELECT alter_job(job_id, config => current_config || '{"compress_after": "14 days"}')
+FROM   j;
 ```
 
 ### 1.3 Generated Column: `effective_ts`
@@ -93,14 +98,15 @@ ML model trained on outcome labels. A corrupted label in 1.8M rows biases the cl
 ```sql
 ALTER TABLE signal_ledger
   ADD CONSTRAINT chk_signal_ledger_status
-  CHECK (status IN ('pending','active','regime_suppressed','expired'));
+  CHECK (status IN ('pending','active','regime_suppressed','expired','resolved'));
 
 ALTER TABLE signal_ledger
   ADD CONSTRAINT chk_signal_ledger_outcome
   CHECK (outcome IS NULL OR outcome IN (
     'never_activated','stopped_at_entry','stopped_in_trade',
     'target_1','target_1_2','target_full',
-    'ttl_expired_ahead','ttl_expired_behind'
+    'ttl_expired_ahead','ttl_expired_behind',
+    'condition_expired'
   ));
 
 ALTER TABLE signal_ledger
@@ -157,8 +163,29 @@ ML training gate: `WHERE feature_completeness >= 80 AND is_shadow = false`.
 
 **Problem:** `signal_lifecycle_service` fires N individual `UPDATE signal_ledger SET trailing_stop_price=... WHERE signal_id=$1` calls per bar — up to 40 active signals × 4 TFs = 160 round-trips per bar cycle.
 
-**Fix:** Batch all chandelier updates for a given bar into one round-trip:
+**Fix:** Batch all chandelier updates for a given bar into one transaction using asyncpg `execute_batch()`:
 
+```python
+# In signal_lifecycle_service.py
+updates = [
+    (
+        signal_id,
+        json.dumps(trailing_stop_price),
+        rate,
+        staleness_score,
+        staleness_trigger_reason,
+        vol_source
+    )
+    for signal_id, ... in active_signals_this_bar
+]
+
+await db_manager.execute_batch(
+    _UPDATE_CHANDELIER_SQL,
+    updates
+)
+```
+
+SQL template (idempotent, executed once per batch):
 ```sql
 UPDATE signal_ledger sl
 SET    trailing_stop_price           = v.trailing_stop_price::jsonb,
@@ -167,13 +194,12 @@ SET    trailing_stop_price           = v.trailing_stop_price::jsonb,
        staleness_trigger_reason      = v.staleness_trigger_reason,
        chandelier_vol_source         = COALESCE(sl.chandelier_vol_source, v.vol_source)
 FROM   (VALUES
-  ($1::uuid, $2, $3::numeric, $4, $5),
-  ...
+  ($1::uuid, $2, $3::numeric, $4, $5, $6)
 ) AS v(signal_id, trailing_stop_price, rate, staleness_score, staleness_trigger_reason, vol_source)
 WHERE  sl.signal_id = v.signal_id;
 ```
 
-One DB round-trip per bar instead of N. `signal_lifecycle_service` accumulates updates within the bar processing loop and flushes as one batch.
+asyncpg `execute_batch()` calls `executemany()` behind the scenes, which runs the same query N times but within a single transaction. The key optimization is batching multiple updates into one transaction instead of N separate transactions.
 
 ---
 
@@ -188,15 +214,12 @@ CREATE OR REPLACE FUNCTION fn_set_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
 
-ALTER TABLE signal_ledger
-  ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
-
 CREATE TRIGGER trg_signal_ledger_updated_at
   BEFORE UPDATE ON signal_ledger
   FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 ```
 
-No extension dependency. Fires on every UPDATE automatically.
+Note: `updated_at` column already exists on `signal_ledger` (nullable). This trigger adds automatic update behavior. A separate migration with data validation may convert the column to `NOT NULL` if desired, but that requires a full table scan and is not required for the trigger to function.
 
 ### 3.2 `write_lag_ms` on `intelligence_features`
 
@@ -217,10 +240,18 @@ write_lag_ms = int((datetime.now(UTC) - computed_at).total_seconds() * 1000)
 Replaces the `/signals/stats` full 30-day scan. Adds Information Coefficient — the primary Renaissance signal quality metric.
 
 ```sql
+-- Verify timescaledb_toolkit is installed (required for percentile_agg)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb_toolkit') THEN
+    RAISE EXCEPTION 'timescaledb_toolkit extension required. Install with: CREATE EXTENSION timescaledb_toolkit;';
+  END IF;
+END $$;
+
 CREATE MATERIALIZED VIEW signal_stats_hourly
 WITH (timescaledb.continuous) AS
 SELECT
-  time_bucket('1 hour', effective_ts)   AS bucket,
+  time_bucket('1 hour', timestamp)        AS bucket,  -- Note: partitioning column, not effective_ts
   symbol,
   timeframe,
   regime_type_at_fire,
@@ -244,7 +275,7 @@ SELECT
   )                                      AS information_coefficient,
   percentile_agg(pipeline_lag_ms)        AS lag_pctile_agg  -- query: approx_percentile(0.5, lag_pctile_agg)
 FROM signal_ledger
-WHERE effective_ts IS NOT NULL
+WHERE timestamp IS NOT NULL
 GROUP BY 1, 2, 3, 4
 WITH NO DATA;
 
@@ -257,8 +288,6 @@ SELECT add_continuous_aggregate_policy('signal_stats_hourly',
   end_offset        => INTERVAL '1 hour',
   schedule_interval => INTERVAL '1 hour');
 ```
-
-**Prerequisite:** `timescaledb_toolkit` extension required for `percentile_agg`. Verify with `SELECT * FROM pg_extension WHERE extname = 'timescaledb_toolkit'` before migration.
 
 **API change:** `/signals/stats` query becomes:
 ```sql
@@ -286,10 +315,10 @@ CREATE INDEX idx_ledger_recent
 
 No `INCLUDE` — `/signals/recent` selects 30+ columns; a covering index for a `LIMIT 20` query adds write overhead without meaningful heap-fetch savings. The value is in the filter + sort efficiency.
 
-### 4.2 Drop `idx_ledger_shadow`
+### 4.2 Drop `idx_signal_ledger_shadow`
 
 ```sql
-DROP INDEX idx_ledger_shadow;
+DROP INDEX IF EXISTS idx_signal_ledger_shadow;
 ```
 
 Boolean single-column index. Never selectivity-useful alone. `idx_ledger_recent` bakes `is_shadow = false` into its predicate. Net-negative on write amplification.
@@ -316,16 +345,26 @@ Aggregator only reads statistically valid rows. Index is tiny — covers only th
 
 ### 4.5 Post-Migration Verification
 
-After every migration run:
+After every migration run, verify expected indexes are used via `EXPLAIN` on representative queries:
 
 ```sql
-SELECT indexrelname, idx_scan, idx_tup_read, idx_tup_fetch
-FROM   pg_stat_user_indexes
-WHERE  relname = 'signal_ledger'
-ORDER  BY idx_scan DESC;
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM signal_ledger
+WHERE status IN ('pending', 'active', 'regime_suppressed')
+  AND symbol = 'ES'
+  AND timestamp >= now() - interval '1 day'
+ORDER BY timestamp DESC
+LIMIT 50;
+
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT sl.signal_id, sl.setup_plugin, sl.calibrated_confidence, sl.cis_score, sl.status, sl.outcome
+FROM signal_ledger sl
+WHERE sl.symbol = 'ES' AND sl.timeframe = '5m' AND sl.is_shadow = false
+ORDER BY sl.effective_ts DESC
+LIMIT 20;
 ```
 
-Expected: `idx_ledger_open_signals`, `idx_ledger_effective_ts`, `idx_ledger_recent` in top 5 by `idx_scan`. Any expected index with zero scans after 1h of live traffic — investigate before declaring the migration complete.
+Expected: `Index Scan` using `idx_ledger_open_signals` for the first query, `Index Scan` using `idx_ledger_recent` for the second. `idx_scan` from `pg_stat_user_indexes` is unreliable for hypertable parent indexes (chunk-level indexes are tracked separately).
 
 ---
 
@@ -379,6 +418,9 @@ while cursor < now():
           AND  sl.timestamp >= $1 AND sl.timestamp < $2
     """, cursor, batch_end)
 
+    if coverage['total'] == 0:
+        cursor += BATCH_WINDOW
+        continue
     if coverage['matched'] / coverage['total'] < 0.80:
         log_audit(batch_start=cursor, batch_end=batch_end,
                   status='skipped', rows_examined=coverage['total'])
@@ -418,6 +460,12 @@ CREATE TABLE data_quality_log (
   status      TEXT        NOT NULL CHECK (status IN ('ok','warn','fail')),
   PRIMARY KEY (checked_at, metric)
 );
+
+-- Insert pattern with retry-safe upsert
+INSERT INTO data_quality_log (checked_at, metric, value, threshold, status)
+VALUES (now(), $1, $2, $3, $4)
+ON CONFLICT (checked_at, metric)
+DO UPDATE SET value = EXCLUDED.value, status = EXCLUDED.status;
 ```
 
 Metrics checked hourly by a new `data_quality_monitor` job (lightweight, runs in `weight_updater` timer loop):
@@ -446,16 +494,19 @@ Ordered by dependency and risk:
 6. **Migration 045** — continuous aggregate `signal_stats_hourly` (requires toolkit check first)
 7. **Script** — bulk compress `market_data_ohlcv` (outside migration, no transaction)
 8. **Script** — batch CIS null repair (temporal cursor, resumable)
-9. **App changes** — `signal_lifecycle_service` batch UPDATE, `feature_writer_service` `write_lag_ms`, `signal_generator_service` `feature_completeness`, `weight_updater` populate `signal_performance_segmented`, `/signals/stats` API query update, `data_quality_monitor` job
+9. **App changes** — `signal_lifecycle_service` batch UPDATE, `feature_writer_service` `write_lag_ms`, `signal_generator_service` `feature_completeness`, `weight_updater` populate `signal_performance_segmented`, `aggregator.py` segmented lookup, `/signals/stats` API query update, `data_quality_monitor` job
+10. **Post-migration**: Seed `signal_stats_hourly` continuous aggregate — `CALL refresh_continuous_aggregate('signal_stats_hourly', window_start => now() - interval '31 days', window_end => now());`
 
 ## App Code Changes Required
 
 | File | Change |
 |------|--------|
-| `services/signal_lifecycle_service.py` | Batch chandelier UPDATEs via `VALUES` |
+| `services/signal_lifecycle_service.py` | Batch chandelier UPDATEs via `execute_batch()` |
 | `services/feature_writer_service.py` | Set `write_lag_ms` at write time |
 | `services/signal_generator_service.py` | Compute + insert `feature_completeness` |
 | `src/intelligence/weight_updater.py` | Populate `signal_performance_segmented` every 15 min |
+| `src/intelligence/trading/aggregator.py` | Read `perf_multiplier` from `(setup_plugin, regime_type, tf, hour_et)` tuples |
+| `services/signal_generator_service.py` | Pass `regime_type_at_fire` and `hour_et` to `aggregate()` calls |
 | `src/api/routes/signals.py` | `/signals/stats` reads from `signal_stats_hourly`; ORDER BY `effective_ts` |
 | New: `src/core/data_quality_monitor.py` | Hourly metrics → `data_quality_log` |
 
