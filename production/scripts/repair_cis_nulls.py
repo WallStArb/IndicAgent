@@ -339,17 +339,18 @@ def main() -> None:
         print("\n=== Post-Repair Verification ===")
         total_null_after, recoverable_after, orphaned_after = audit_null_cis(conn, symbols)
 
-        # Verify: NULL count should equal orphaned count (all recoverable updated)
-        if total_null_after == len(orphaned_ids):
+        recoverable_remaining = len(recoverable_after)
+        if recoverable_remaining > 0:
             print(
-                f"\n✓ Verification passed: NULL count ({total_null_after}) "
-                f"equals orphaned count ({len(orphaned_ids)})"
+                f"\n[FAIL] Completeness gate: {recoverable_remaining} recoverable rows "
+                f"still have NULL cis_score. Exit 1."
             )
-        else:
-            print(
-                f"\n✗ Verification warning: NULL count ({total_null_after}) "
-                f"!= orphaned count ({len(orphaned_ids)})"
-            )
+            sys.exit(1)
+
+        print(
+            f"\n[PASS] Completeness gate: 0 recoverable nulls remain. "
+            f"Orphaned (unrecoverable): {len(orphaned_after)}"
+        )
 
         print("\n=== Repair Complete ===")
 
