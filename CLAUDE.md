@@ -90,6 +90,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
 **Services** (systemd-managed, `Restart=always`):
+- Config changes require restart: `sudo systemctl restart indicagent-<name>` to pick up `_load_config()` changes
 - `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-lifecycle,ai-narrative,feature-writer,llm-writer,cross-asset,api}`
 - `journalctl -u indicagent-<name> -f` — live logs
 - Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117, cross-asset :9118
@@ -182,11 +183,14 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
+- **LLM provider rotation**: `ai_narrative_service.py` uses `LLMChain` with ordered fallback. Multiple free OpenRouter models (`:free` suffix) prevent rate limit failures. Define shared provider lists as module-level constants to avoid duplication across chains.
 
 ## Development Standards
 
 **Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
+- **CodeRabbit limits**: 150 files max per review. Use `--base HEAD~N` to review recent commits. Process can get killed (exit code 137/OOM) on large diffs — review smaller chunks.
 - **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
+- **Simplify workflow**: Launches 3 parallel agents (reuse, quality, efficiency) — finds duplication, missing utilities, inefficient patterns. Real issues found in this session (provider list duplication, datetime parsing reuse).
 - **Documentation accuracy**: Docs may contain fabricated content (nonexistent classes, functions, DB tables) written as forward-looking specs never implemented. Always verify doc claims against actual code (`src/`) before trusting them — if a doc references a class or function, grep for it first.
 
 ### Naming Conventions
@@ -221,6 +225,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **Core Patterns**
 - **Timestamps: always UTC.** All datetimes must be timezone-aware UTC — `datetime.now(UTC)` or `datetime.now(tz=UTC)`. Never `datetime.now()` (naive) or `datetime.utcnow()` (naive despite the name). When labeling a naive timestamp from an external source (e.g. IBKR bars), use `replace(tzinfo=UTC)` only if you are certain the source is already UTC — otherwise `astimezone(UTC)`. All DB columns are `timestamp with time zone`; all stream timestamps are UTC ISO-8601 (`Z` suffix). This is the global standard for all financial data systems (Renaissance, CME, IBKR, all major funds).
+- **asyncpg batch inserts**: `execute_batch()` / `executemany()` requires Python `datetime` objects for `timestamptz` columns — ISO-8601 strings cause type mismatch. SQL `::timestamptz` casts work for single inserts but not batch mode. Use `_parse_ts()` from `feature_writer_service.py` or parse with `datetime.fromisoformat()` before inserting.
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **API route Settings cache**: `_resolve_contract()` in API routes must use `@lru_cache(maxsize=1)` on `_get_settings()` — not `Settings()` fresh per call. See `sse.py` for the canonical pattern.
