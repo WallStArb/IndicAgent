@@ -95,6 +95,17 @@ _ROLL_BOUNDARY_TF = "1m"
 logger = structlog.get_logger(__name__)
 
 
+def _parse_ts(ts_raw: str | bytes) -> datetime:
+    """Parse an ISO 8601 timestamp string (or bytes) to a UTC-aware datetime.
+
+    asyncpg requires a datetime object for timestamptz columns — raw strings
+    cause a type_mismatch error at execute time.
+    """
+    if isinstance(ts_raw, bytes):
+        ts_raw = ts_raw.decode()
+    return datetime.fromisoformat(ts_raw).astimezone(UTC)
+
+
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
 
@@ -477,14 +488,12 @@ class FeatureWriterService:
         """UPSERT i7 column from intelligence.i7 topic message."""
         try:
             ts_raw = payload.get("ts") or payload.get(b"ts", b"")
-            if isinstance(ts_raw, bytes):
-                ts_raw = ts_raw.decode()
             data_raw = payload.get("data") or payload.get(b"data", "[]")
             if isinstance(data_raw, bytes):
                 data_raw = data_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
-            ts_dt = datetime.fromisoformat(ts_raw).astimezone(UTC)
+            ts_dt = _parse_ts(ts_raw)
             if isinstance(data_raw, list):
                 data_raw = json.dumps(data_raw)
             await self.db_manager.execute_batch(
@@ -507,7 +516,8 @@ class FeatureWriterService:
         if result is None:
             return
         old_symbol, new_symbol = result
-        detected_at: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
+        detected_at_raw: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
+        detected_at = _parse_ts(detected_at_raw)
 
         if not self.db_manager:
             self.logger.warning(
@@ -542,11 +552,9 @@ class FeatureWriterService:
         """UPSERT i8 column from intelligence.i8 topic message."""
         try:
             ts_raw = payload.get("ts") or payload.get(b"ts", b"")
-            if isinstance(ts_raw, bytes):
-                ts_raw = ts_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
-            ts_dt = datetime.fromisoformat(ts_raw).astimezone(UTC)
+            ts_dt = _parse_ts(ts_raw)
             i8_payload = {
                 "model": _decode_field(payload.get("model") or payload.get(b"model"), "unknown"),
                 "confidence": _decode_field(
@@ -578,9 +586,10 @@ class FeatureWriterService:
             return
         try:
             tf = payload.get("tf", "")
-            ts = payload.get("ts", "")
-            if not tf or not ts or not payload.get("ready"):
+            ts_raw = payload.get("ts", "")
+            if not tf or not ts_raw or not payload.get("ready"):
                 return
+            ts_dt = _parse_ts(ts_raw)
             cross_asset_data = json.dumps(
                 {
                     "cross_asset": {
@@ -596,12 +605,12 @@ class FeatureWriterService:
                 }
             )
             # Persist cross-asset snapshot for each EQ_INDEX group member symbol
-            params = [(ts, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
+            params = [(ts_dt, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
             await self.db_manager.execute_batch(_UPSERT_CROSS_ASSET_SQL, params)
             self.logger.debug(
                 "cross_asset_persisted",
                 tf=tf,
-                ts=ts,
+                ts=ts_raw,
                 symbols=sorted(_EQ_INDEX_BASES),
             )
         except Exception as e:

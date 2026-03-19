@@ -5,7 +5,6 @@ Provides access to signal_ledger with optional JOIN to intelligence_features
 for full feature context at signal time.
 """
 
-import asyncio
 import math
 from collections import defaultdict
 from datetime import datetime
@@ -18,6 +17,7 @@ from scipy import stats as _scipy_stats
 
 from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
+from ...intelligence.trading.signal_ledger import WIN_OUTCOMES as _WIN_OUTCOMES
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
 from ..utils import resolve_contract as _resolve_contract
@@ -25,6 +25,8 @@ from ..utils import resolve_contract as _resolve_contract
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"pending", "active"})
 
 
 @lru_cache(maxsize=1)
@@ -135,8 +137,8 @@ def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
     return signal
 
 
-# Outcome classes considered wins for summary win_rate computation
-_WIN_OUTCOMES = frozenset({"target_1", "target_1_2", "target_full"})
+# Signal statuses that have not yet reached a terminal outcome
+_TERMINAL_STATUSES = frozenset({"pending", "active"})
 
 
 def _f(v: Any) -> float | None:
@@ -329,27 +331,7 @@ async def get_recent_signals(
             ORDER BY COALESCE(sl.signal_computed_at, sl.feature_ts) DESC
             LIMIT $3
         """
-        summary_query = f"""
-            SELECT
-                COUNT(*)                                                          AS n_total,
-                COUNT(*) FILTER (WHERE status NOT IN ('pending', 'active'))       AS n_resolved,
-                COUNT(*) FILTER (WHERE status = 'regime_suppressed')              AS n_suppressed,
-                ROUND(
-                    AVG(CASE WHEN outcome IN ('target_1','target_1_2','target_full') THEN 1.0
-                             WHEN outcome IS NOT NULL
-                              AND status NOT IN ('pending','active') THEN 0.0
-                             ELSE NULL END)::numeric, 3
-                )                                                                 AS win_rate,
-                ROUND(AVG(pnl_r) FILTER (WHERE pnl_r IS NOT NULL)::numeric, 3)   AS avg_pnl_r
-            FROM signal_ledger sl
-            WHERE ($1::text IS NULL OR sl.symbol = $1)
-              AND ($2::text IS NULL OR sl.timeframe = $2)
-              {tier_clause}
-        """
-        rows, summary_row = await asyncio.gather(
-            db_manager.fetch(main_query, resolved_symbol, timeframe, limit),
-            db_manager.fetchrow(summary_query, resolved_symbol, timeframe),
-        )
+        rows = await db_manager.fetch(main_query, resolved_symbol, timeframe, limit)
 
         signals = [
             {
@@ -385,12 +367,29 @@ async def get_recent_signals(
             for row in rows
         ]
 
+        # Compute summary from the returned rows so stats always match what's shown.
+        n_resolved = n_suppressed = n_wins = n_with_outcome = 0
+        pnl_sum = 0.0
+        pnl_count = 0
+        for s in signals:
+            resolved = s["status"] not in _TERMINAL_STATUSES
+            if resolved:
+                n_resolved += 1
+                if s["outcome"] is not None:
+                    n_with_outcome += 1
+                    if s["outcome"] in _WIN_OUTCOMES:
+                        n_wins += 1
+            if s["status"] == "regime_suppressed":
+                n_suppressed += 1
+            if s["pnl_r"] is not None:
+                pnl_sum += s["pnl_r"]
+                pnl_count += 1
         summary = {
-            "n_total": int(summary_row["n_total"]) if summary_row else 0,
-            "n_resolved": int(summary_row["n_resolved"]) if summary_row else 0,
-            "n_suppressed": int(summary_row["n_suppressed"]) if summary_row else 0,
-            "win_rate": _f(summary_row["win_rate"]) if summary_row else None,
-            "avg_pnl_r": _f(summary_row["avg_pnl_r"]) if summary_row else None,
+            "n_total": len(signals),
+            "n_resolved": n_resolved,
+            "n_suppressed": n_suppressed,
+            "win_rate": round(n_wins / n_with_outcome, 3) if n_with_outcome else None,
+            "avg_pnl_r": round(pnl_sum / pnl_count, 3) if pnl_count else None,
         }
 
         return {"signals": signals, "summary": summary}
