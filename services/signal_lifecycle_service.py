@@ -15,6 +15,7 @@ import json
 import math
 import signal
 import sys
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,13 @@ class SignalLifecycleService:
         # Shadow tracking state: signal_id → {start_ts, remaining_ttl, direction,
         #   entry, targets, stop, shadow_mae, shadow_mfe}
         self._shadow_signals: dict[str, dict] = {}
+
+        # PERF-04: In-memory active signal index — (symbol, timeframe) → [signal dicts]
+        # Eliminates O(N) DB query per bar. Seeded at startup; refreshed every 60s.
+        self._active_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
+
+        # Shutdown event for reseed loop coordination
+        self.shutdown_event: asyncio.Event = asyncio.Event()
 
         # Tracked background tasks (Kafka publish, terminal event).
         # Prevents silent exception swallowing and allows graceful drain on shutdown.
@@ -486,6 +494,8 @@ class SignalLifecycleService:
                     self._mae.pop(sid, None)
                     self._mfe.pop(sid, None)
                     self._activated_at.pop(sid, None)
+                    # Remove from active index immediately — don't wait for next reseed
+                    self._remove_from_index(sid, symbol, timeframe)
 
                     # Publish terminal event to signals stream for dashboard resolved state
                     self._spawn_task(
@@ -601,6 +611,7 @@ class SignalLifecycleService:
                         "vol": vol,
                         "vol_source": vol_source,
                         "history": [],
+                        "_last_written_stop": None,  # PERF-04b: write guard
                     }
                     # Write vol_source to DB at Chandelier initialization time
                     if self.db_manager and vol_source:
@@ -661,27 +672,38 @@ class SignalLifecycleService:
                 ch_state = self._chandelier_state.get(sid, {})
                 trailing_stop = ch_state.get("trailing_stop")
                 if trailing_stop is not None:
-                    history = ch_state.setdefault("history", [])
-                    history.append({"ts": bar_time.isoformat(), "price": trailing_stop})
-                    # Cap at 20 entries — tightening_rate only needs last 5
-                    if len(history) > 20:
-                        del history[:-20]
-                    tightening_rate = _compute_tightening_rate(history)
-                    try:
-                        await self.db_manager.execute_command(
-                            _UPDATE_CHANDELIER_SQL,
-                            sid,
-                            json.dumps(history),
-                            tightening_rate,
-                            staleness_score_val,
-                            staleness_reason_val,
-                            ch_state.get("vol_source"),
-                        )
-                    except Exception as e:
-                        self.logger.warning(
-                            "Failed to write chandelier state",
-                            signal_id=sid, error=str(e),
-                        )
+                    # PERF-04b: Only write to DB if stop price changed by >= 0.01%
+                    last_written = ch_state.get("_last_written_stop")
+                    skip_write = False
+                    if last_written is not None and last_written > 0:
+                        change_pct = abs(trailing_stop - last_written) / last_written
+                        if change_pct < 0.0001:  # 0.01% threshold
+                            skip_write = True  # Stop hasn't moved enough
+
+                    if not skip_write:
+                        history = ch_state.setdefault("history", [])
+                        history.append({"ts": bar_time.isoformat(), "price": trailing_stop})
+                        # Cap at 20 entries — tightening_rate only needs last 5
+                        if len(history) > 20:
+                            del history[:-20]
+                        tightening_rate = _compute_tightening_rate(history)
+                        try:
+                            await self.db_manager.execute_command(
+                                _UPDATE_CHANDELIER_SQL,
+                                sid,
+                                json.dumps(history),
+                                tightening_rate,
+                                staleness_score_val,
+                                staleness_reason_val,
+                                ch_state.get("vol_source"),
+                            )
+                            # Track last written stop for change guard
+                            ch_state["_last_written_stop"] = trailing_stop
+                        except Exception as e:
+                            self.logger.warning(
+                                "Failed to write chandelier state",
+                                signal_id=sid, error=str(e),
+                            )
 
             if transition is None:
                 # Update in-memory MAE/MFE for active signals
@@ -746,6 +768,8 @@ class SignalLifecycleService:
                 self._resolved_market.discard(sid)
                 self._chandelier_state.pop(sid, None)
                 self._staleness_consecutive.pop(sid, None)
+                # Remove from active index immediately — don't wait for next reseed
+                self._remove_from_index(sid, symbol, timeframe)
 
                 # Shadow tracking: condition_expired signals continue in shadow mode
                 if outcome == "condition_expired":
@@ -902,8 +926,12 @@ class SignalLifecycleService:
             }
             bar_time = datetime.now(tz=UTC)
 
-            # Fetch all active signals once per symbol per bar
-            active = await get_active_signals(self.db_manager, symbol=symbol)
+            # PERF-04: O(1) lookup from in-memory index — no DB query per bar.
+            # New signals are picked up every 60s via _active_index_reseed_loop.
+            active_index = getattr(self, "_active_index", {})
+            active = []
+            for tf in self.config["service"]["timeframes"]:
+                active.extend(active_index.get((symbol, tf), []))
 
             for tf in self.config["service"]["timeframes"]:
                 await self._evaluate_signals_against_bar(symbol, tf, bar, bar_time, active)
@@ -996,6 +1024,7 @@ class SignalLifecycleService:
                                 "vol": garch_fire,
                                 "vol_source": vol_source,
                                 "history": list(trailing_history),
+                                "_last_written_stop": last_stop,  # PERF-04b: write guard
                             }
                     # Always reset staleness consecutive counter on restart (conservative)
                     self._staleness_consecutive[sid] = 0
@@ -1004,14 +1033,91 @@ class SignalLifecycleService:
         except Exception as e:
             self.logger.warning("Failed to re-seed Chandelier state", error=str(e))
 
+    async def _seed_active_index(self) -> None:
+        """Build in-memory (symbol, timeframe) → [signals] index at startup from DB.
+
+        Called once before process_loop begins. Eliminates O(N) DB query per bar.
+        """
+        if not self.db_manager:
+            return
+        new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        symbols = self.config["service"]["symbols"]
+        for sym in symbols:
+            active = await get_active_signals(self.db_manager, symbol=sym)
+            for sig in active:
+                key = (str(sig["symbol"]), str(sig["timeframe"]))
+                new_index[key].append(sig)
+        self._active_index = new_index
+        total = sum(len(v) for v in self._active_index.values())
+        self.logger.info("active_index_seeded", total=total, keys=len(self._active_index))
+
+    async def _reseed_active_index(self) -> None:
+        """Periodically refresh the active index from DB to pick up new signals.
+
+        Called every 60s. Replaces the entire index to stay consistent with DB state.
+        This is necessary because lifecycle does NOT subscribe to a signal topic —
+        new signals arrive in signal_ledger via signal_generator_service.
+        """
+        if not self.db_manager:
+            return
+        new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        symbols = self.config["service"]["symbols"]
+        for sym in symbols:
+            active = await get_active_signals(self.db_manager, symbol=sym)
+            for sig in active:
+                key = (str(sig["symbol"]), str(sig["timeframe"]))
+                new_index[key].append(sig)
+        self._active_index = new_index
+        total = sum(len(v) for v in self._active_index.values())
+        self.logger.debug("active_index_reseeded", total=total, keys=len(self._active_index))
+
+    def _remove_from_index(self, signal_id: str, symbol: str, timeframe: str) -> None:
+        """Immediately remove a signal from the in-memory index on exit.
+
+        Prevents re-evaluation of exited signals before the next 60s reseed.
+        """
+        active_index = getattr(self, "_active_index", None)
+        if active_index is None:
+            return
+        key = (symbol, timeframe)
+        active_index[key] = [
+            s for s in active_index.get(key, [])
+            if str(s["signal_id"]) != signal_id
+        ]
+
+    async def _active_index_reseed_loop(self) -> None:
+        """Reseed active index every 60s to pick up new signals from DB."""
+        _RESEED_INTERVAL = 60
+        while self.running and not self.shutdown_requested:
+            try:
+                try:
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=_RESEED_INTERVAL
+                    )
+                    break  # shutdown_event set — exit loop
+                except TimeoutError:
+                    pass
+                if self.shutdown_requested:
+                    break
+                await self._reseed_active_index()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.logger.error("active_index_reseed_loop error", error=str(exc))
+                await asyncio.sleep(30)  # backoff on persistent errors
+
     async def start(self) -> None:
         self.logger.info("Starting Signal Lifecycle Service")
+        reseed_task: asyncio.Task | None = None
         try:
             await self._connect_database()
             start_metrics_server(port=self.config.get("metrics_port", 9115))
             await self._setup_kafka_clients()
             await self._reseed_chandelier_state()
+            await self._seed_active_index()
             self.running = True
+            # Start periodic reseed loop as background task
+            reseed_task = asyncio.create_task(self._active_index_reseed_loop())
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
@@ -1022,12 +1128,19 @@ class SignalLifecycleService:
             self.logger.error("Failed to start", error=str(e))
             raise
         finally:
+            if reseed_task and not reseed_task.done():
+                reseed_task.cancel()
+                try:
+                    await reseed_task
+                except (asyncio.CancelledError, Exception):
+                    pass
             await self.stop()
 
     async def stop(self) -> None:
         self.logger.info("Stopping Signal Lifecycle Service")
         self.running = False
         self.shutdown_requested = True
+        self.shutdown_event.set()  # Wake reseed loop so it exits immediately
         if self._pending_tasks:
             self.logger.info("Draining background tasks", count=len(self._pending_tasks))
             await asyncio.gather(*self._pending_tasks, return_exceptions=True)
