@@ -327,6 +327,8 @@ class IndicatorService:
                 async with self._get_state_lock(state_key):
                     p._state = self._i1_plugin_states.setdefault(state_key, {})
                     result = p.compute_full(frames)
+                    # CRITICAL: Write plugin _state back after compute_full().
+                    # GARCH/HMM fully reassign _state — failing to write back causes stale state.
                     self._i1_plugin_states[state_key] = p._state
                 features.update(result)
             except Exception as e:
