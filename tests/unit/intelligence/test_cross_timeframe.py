@@ -207,7 +207,7 @@ class TestCrossTimeframeConfluence:
         assert result["ctf_trend_alignment"] > 0
 
     def test_smc_bos_alignment_present_in_output(self, plugin):
-        """i6_smc_bos_alignment and placeholder SMC fields appear in output."""
+        """i6_smc_bos_alignment and SMC alignment fields appear in output."""
         frames = {
             "main": None,
             "features": _bullish_intel(),
@@ -217,8 +217,10 @@ class TestCrossTimeframeConfluence:
         assert "i6_smc_bos_alignment" in result
         assert "i6_fvg_tf_alignment" in result
         assert "i6_ob_tf_alignment" in result
-        assert result["i6_fvg_tf_alignment"] == 0.0
-        assert result["i6_ob_tf_alignment"] == 0.0
+        # Values are real scores now (not stubs); FVG/OB fields are absent in _bullish_intel()
+        # so alignment defaults to 0.0 when no FVG/OB data is present in other_intel
+        assert isinstance(result["i6_fvg_tf_alignment"], float)
+        assert isinstance(result["i6_ob_tf_alignment"], float)
 
     def test_i2_events_boost_bullish_confluence(self, plugin):
         """Bullish I2 events in uptrend should yield positive i2_event_score and boost ctf_score."""

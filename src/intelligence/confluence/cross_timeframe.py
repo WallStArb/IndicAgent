@@ -44,6 +44,19 @@ def _sign(x: float) -> int:
     return 0
 
 
+def _proximity_decay(price: float, level_top: float, level_bottom: float, atr: float) -> float:
+    """1.0 within 1 ATR of zone midpoint; linear decay to 0.0 at 3 ATR; 0.0 beyond."""
+    if atr <= 0 or level_top <= 0 or level_bottom <= 0:
+        return 0.0
+    midpoint = (level_top + level_bottom) / 2.0
+    dist_atr = abs(price - midpoint) / atr
+    if dist_atr <= 1.0:
+        return 1.0
+    if dist_atr >= 3.0:
+        return 0.0
+    return 1.0 - (dist_atr - 1.0) / 2.0
+
+
 @dataclass
 class CrossTimeframeConfluencePlugin:
     """I6 cross-timeframe confluence scoring.
@@ -83,6 +96,7 @@ class CrossTimeframeConfluencePlugin:
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         features = frames.get("features") or {}
+        current_tf = frames.get("timeframe", "")
 
         # Collect available cross-TF intelligence dicts
         other_intel: dict[str, dict[str, Any]] = {}
@@ -105,6 +119,8 @@ class CrossTimeframeConfluencePlugin:
         regime_agreement = self._score_regime_agreement(features, other_intel, weights)
         pattern_confirmation = self._score_pattern_confirmation(features, other_intel)
         bos_alignment = self._score_smc_bos_alignment(features, other_intel, weights)
+        fvg_score, fvg_tf_contribs = self._score_fvg_alignment(features, other_intel, current_tf)
+        ob_score, ob_tf_contribs = self._score_ob_alignment(features, other_intel, current_tf)
         i2_score = self._score_i2_events(features)
 
         # Weighted composite: positive = bullish confluence, negative = bearish
@@ -137,9 +153,12 @@ class CrossTimeframeConfluencePlugin:
             "ctf_timeframes_aligned": float(aligned_count),
             "ctf_highest_aligned_tf": highest_aligned_minutes,
             "i6_smc_bos_alignment": round(bos_alignment, 4),
-            "i6_fvg_tf_alignment": 0.0,  # TODO: FVG overlap across TFs — implement in next pass
-            "i6_ob_tf_alignment": 0.0,  # TODO: OB confluence across TFs — implement in next pass
+            "i6_fvg_tf_alignment": fvg_score,
+            "i6_ob_tf_alignment": ob_score,
             "i6_i2_event_score": round(i2_score, 4),
+            # Per-TF FVG and OB contributions — Renaissance standard: every score is decomposable
+            **{f"i6_fvg_tf_{tf}": v for tf, v in fvg_tf_contribs.items()},
+            **{f"i6_ob_tf_{tf}": v for tf, v in ob_tf_contribs.items()},
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
@@ -326,6 +345,98 @@ class CrossTimeframeConfluencePlugin:
         if total_weight == 0.0:
             return 0.0
         return clamp(bos_sign * (weighted_sum / total_weight))
+
+    def _score_fvg_alignment(
+        self,
+        features: dict[str, Any],
+        other_intel: dict[str, dict[str, Any]],
+        current_tf: str,
+    ) -> tuple[float, dict[str, float]]:
+        """Direction-weighted FVG proximity score across higher TFs.
+
+        Only higher TFs are used (lower TFs are too ephemeral).
+        TF authority weight = _TF_MINUTES value, normalized across contributing TFs.
+        Returns (aggregate_score, per_tf_contributions) for full auditability.
+        """
+        cur_price = features.get("close") or 0.0
+        atr = features.get("atr_14") or 0.0
+        cur_trend = self._extract_trend_sign(features)
+        if cur_trend == 0 or atr <= 0:
+            return 0.0, {}
+
+        cur_tf_min = _TF_MINUTES.get(current_tf, 0)
+        total_weight = 0.0
+        weighted_sum = 0.0
+        contributions: dict[str, float] = {}
+
+        for tf, intel in other_intel.items():
+            tf_min = _TF_MINUTES.get(tf, 0)
+            if tf_min <= cur_tf_min:
+                continue  # Only higher TFs
+            fvg_type = intel.get("fvg_type") or 0.0
+            fvg_top = intel.get("fvg_top") or 0.0
+            fvg_bottom = intel.get("fvg_bottom") or 0.0
+            if not is_num(fvg_type) or fvg_type == 0.0 or fvg_top <= 0 or fvg_bottom <= 0:
+                continue
+            direction_match = 1.0 if int(fvg_type) == cur_trend else -1.0
+            decay = _proximity_decay(cur_price, fvg_top, fvg_bottom, atr)
+            if decay <= 0:
+                continue
+            w = float(tf_min)
+            total_weight += w
+            contrib = direction_match * decay
+            weighted_sum += w * contrib
+            contributions[tf] = round(contrib, 4)
+
+        if total_weight == 0.0:
+            return 0.0, {}
+        return round(clamp(weighted_sum / total_weight), 4), contributions
+
+    def _score_ob_alignment(
+        self,
+        features: dict[str, Any],
+        other_intel: dict[str, dict[str, Any]],
+        current_tf: str,
+    ) -> tuple[float, dict[str, float]]:
+        """Direction-weighted Order Block proximity score across higher TFs.
+
+        OBs are already filtered to unmitigated-only by order_blocks.py.
+        Same formula as FVG — Phase 46 calibration may diverge weights if data supports it.
+        Returns (aggregate_score, per_tf_contributions) for full auditability.
+        """
+        cur_price = features.get("close") or 0.0
+        atr = features.get("atr_14") or 0.0
+        cur_trend = self._extract_trend_sign(features)
+        if cur_trend == 0 or atr <= 0:
+            return 0.0, {}
+
+        cur_tf_min = _TF_MINUTES.get(current_tf, 0)
+        total_weight = 0.0
+        weighted_sum = 0.0
+        contributions: dict[str, float] = {}
+
+        for tf, intel in other_intel.items():
+            tf_min = _TF_MINUTES.get(tf, 0)
+            if tf_min <= cur_tf_min:
+                continue  # Only higher TFs
+            ob_type = intel.get("ob_type") or 0.0
+            ob_top = intel.get("ob_top") or 0.0
+            ob_bottom = intel.get("ob_bottom") or 0.0
+            if not is_num(ob_type) or ob_type == 0.0 or ob_top <= 0 or ob_bottom <= 0:
+                continue
+            direction_match = 1.0 if int(ob_type) == cur_trend else -1.0
+            decay = _proximity_decay(cur_price, ob_top, ob_bottom, atr)
+            if decay <= 0:
+                continue
+            w = float(tf_min)
+            total_weight += w
+            contrib = direction_match * decay
+            weighted_sum += w * contrib
+            contributions[tf] = round(contrib, 4)
+
+        if total_weight == 0.0:
+            return 0.0, {}
+        return round(clamp(weighted_sum / total_weight), 4), contributions
 
     @staticmethod
     def _score_i2_events(features: dict[str, Any]) -> float:
