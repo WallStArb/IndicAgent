@@ -563,13 +563,12 @@ Plans:
   3. When price is near a value area boundary, `trade_framer.py` sets `target_1` to POC and `target_2` to VAH or VAL — verifiable in `signal_ledger` rows where `distance_to_vah_atr < 0.5` or `distance_to_val_atr < 0.5`.
   4. For futures symbols within 5 days of roll, `intelligence_features` rows contain a non-NULL `roll_premium_pct` field equal to `(front_price - back_price) / back_price` — verifiable by querying near a known roll date.
   5. I7 plugins receive 1h POC/VAH/VAL and I6 CTF data via `trade_framer` context — stop and target fields in `signal_ledger` reflect higher-TF levels when they are closer than the bar-level levels.
-**Plans**: 4 plans
+**Plans**: 3 plans
 
 Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+- [ ] 41-01-PLAN.md — FVG + OB cross-TF alignment scoring in cross_timeframe.py (INTEL-01, INTEL-02)
+- [ ] 41-02-PLAN.md — Volume Profile POC/VAH/VAL as T1/T2 targets in trade_framer.py (INTEL-03)
+- [ ] 41-03-PLAN.md — HTF context injection + VWAP/session TF guards + aggregator/write-back comments (INTEL-05)
 
 ### Phase 42: Candlestick Pattern Expansion
 **Goal**: The I5 candlestick pattern library grows from 10 to 28 patterns, and CandlestickPatternSetup applies calibrated confidence tier weights so higher-reliability patterns generate higher-conviction signals.
