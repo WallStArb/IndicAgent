@@ -401,6 +401,7 @@ I5_PLUGINS = [
     "VolumeDivergence",
     "Confluence",
     "TrendConfluence",
+    "patt_CandlestickPatterns",
 ]
 from src.intelligence.register_plugins import TIER_I6, TIER_I7, TIER_SMC
 
