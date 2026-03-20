@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 40.5-03-PLAN.md — i7/i8 batch buffering + O(1) lifecycle index + chandelier guard
-last_updated: "2026-03-20T09:45:00.000Z"
+stopped_at: Phase 41 context gathered
+last_updated: "2026-03-20T09:53:58.550Z"
 progress:
   total_phases: 25
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 19
   completed_plans: 19
 ---
@@ -167,7 +167,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-20T09:45:00.000Z
-Stopped at: Completed 40.5-03-PLAN.md — i7/i8 batch buffering + O(1) lifecycle index + chandelier guard
-Resume file: None
+Last session: 2026-03-20T09:53:58.548Z
+Stopped at: Phase 41 context gathered
+Resume file: .planning/phases/41-intelligence-gap-fill/41-CONTEXT.md
 Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (DAG Refactor — Clean Foundation)
