@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Phase 41 context gathered
-last_updated: "2026-03-20T09:53:58.550Z"
+stopped_at: Completed 41-01-PLAN.md
+last_updated: "2026-03-20T13:33:56.822Z"
 progress:
   total_phases: 25
   completed_phases: 4
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 22
+  completed_plans: 20
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 40.5 — performance-stability-emergency
+**Current focus:** Phase 41 — intelligence-gap-fill
 
 ## Current Position
 
-Phase: 40.5 (performance-stability-emergency) — EXECUTING
-Plan: 3 of 3 — COMPLETE
+Phase: 41 (intelligence-gap-fill) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -143,6 +143,12 @@ Plan: 3 of 3 — COMPLETE
 - **Phase 45 seventh**: Auth before ML exposure — external access secured before ML scores are visible externally
 - **Phase 46 last**: ML model requires clean data (39), fast feature writes (40), and a stable auth layer (45) before shadow scores become externally visible
 
+### Phase 41-01 Decisions (2026-03-20)
+
+- **FVG/OB cross-TF alignment scoring**: `_proximity_decay()` pure function (1.0 within 1 ATR, linear to 0 at 3 ATR); higher-TF-only filter (cur_tf excluded); TF authority = raw _TF_MINUTES minutes, normalized; per-TF contributions spread into i6 JSONB return dict as `i6_fvg_tf_{tf}` keys
+- **Identical formula for FVG and OB**: Phase 46 calibration may diverge weights if data supports it — premature optimization to differ now
+- **INTEL-01 + INTEL-02 requirements completed**: `i6_fvg_tf_alignment` and `i6_ob_tf_alignment` are now real non-zero signals
+
 ### Phase 40.5 Decisions (2026-03-20)
 
 - **feature_writer i7/i8 buffering**: `_i7_buffer`/`_i8_buffer` flushed in `_maybe_flush` finally block + explicit shutdown flush; no per-message UPSERT
@@ -167,7 +173,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-20T09:53:58.548Z
-Stopped at: Phase 41 context gathered
-Resume file: .planning/phases/41-intelligence-gap-fill/41-CONTEXT.md
+Last session: 2026-03-20T13:33:56.820Z
+Stopped at: Completed 41-01-PLAN.md
+Resume file: None
 Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (DAG Refactor — Clean Foundation)

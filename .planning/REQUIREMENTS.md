@@ -33,8 +33,8 @@
 
 ### INTEL — Intelligence Gap Fill
 
-- [ ] **INTEL-01**: `i6_fvg_tf_alignment` computed from real cross-TF FVG alignment data (replaces hardcoded `0.0` stub in `cross_timeframe.py`)
-- [ ] **INTEL-02**: `i6_ob_tf_alignment` computed from real cross-TF Order Block alignment data (replaces hardcoded `0.0` stub)
+- [x] **INTEL-01**: `i6_fvg_tf_alignment` computed from real cross-TF FVG alignment data (replaces hardcoded `0.0` stub in `cross_timeframe.py`)
+- [x] **INTEL-02**: `i6_ob_tf_alignment` computed from real cross-TF Order Block alignment data (replaces hardcoded `0.0` stub)
 - [ ] **INTEL-03**: `trade_framer.py` uses POC, VAH, VAL from I4 `ctx_VolumeProfile` as primary T1/T2 targets when price is near value area boundary
 - [ ] **INTEL-04**: Roll premium/discount (`roll_premium_pct = front_price - back_price`) stored in `intelligence_features` for futures symbols near roll dates
 - [ ] **INTEL-05**: Higher-timeframe S/R levels (1h POC/VAH/VAL + I6 CTF data) available to I7 plugins via `trade_framer` context for stop/target refinement

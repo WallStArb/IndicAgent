@@ -585,19 +585,23 @@ class TestResolveEntryNewCases:
 
 class TestVolumeProfileTargets:
     def test_vp_target_near_vah_boundary_long(self):
-        """Near VAH boundary: T1=POC, T2=VAH prepended as priority candidates."""
+        """Near VAH boundary from below: T1=POC, T2=VAH prepended as priority candidates.
+
+        Entry is below POC (outside VA, approaching from below). Price is near VAL
+        (distance_to_val_atr < 0.5), so VP regime is active. T1=POC, T2=VAH.
+        """
         features = {
             "poc_price": 4020.0,
             "vah": 4035.0,
             "val": 4005.0,
-            "distance_to_vah_atr": 0.3,
-            "distance_to_val_atr": 2.5,
+            "distance_to_vah_atr": 2.5,
+            "distance_to_val_atr": 0.3,  # near VAL boundary (entry just below val)
             "price_in_value_area": 0.0,
             "atr_14": 10.0,
             "timeframe": "1m",
         }
-        stop = 4015.0  # risk = 10.0
-        targets = _collect_targets_long(entry=4025.0, stop=stop, atr=10.0, features=features)
+        stop = 4000.0  # risk = 10.0 (entry=4010, stop=4000)
+        targets = _collect_targets_long(entry=4010.0, stop=stop, atr=10.0, features=features)
         assert any(t.level_type == "vp_poc" and abs(t.price - 4020.0) < 0.01 for t in targets)
         assert any(t.level_type == "vp_vah" and abs(t.price - 4035.0) < 0.01 for t in targets)
 
