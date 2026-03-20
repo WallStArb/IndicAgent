@@ -13,6 +13,8 @@ from src.intelligence.trading.trade_framer import (
     _resolve_entry,
     _resolve_stop_long,
     _resolve_stop_short,
+    _select_vp,
+    _vp_regime_active,
     frame_trade,
 )
 
@@ -574,3 +576,81 @@ class TestResolveEntryNewCases:
     def test_unknown_setup_type_still_falls_back(self):
         price, etype = _resolve_entry("unknown_setup_long", 1, 5000.0, {})
         assert etype == "at_close"
+
+
+# ---------------------------------------------------------------------------
+# Volume Profile target logic
+# ---------------------------------------------------------------------------
+
+
+class TestVolumeProfileTargets:
+    def test_vp_target_near_vah_boundary_long(self):
+        """Near VAH boundary: T1=POC, T2=VAH prepended as priority candidates."""
+        features = {
+            "poc_price": 4020.0,
+            "vah": 4035.0,
+            "val": 4005.0,
+            "distance_to_vah_atr": 0.3,
+            "distance_to_val_atr": 2.5,
+            "price_in_value_area": 0.0,
+            "atr_14": 10.0,
+            "timeframe": "1m",
+        }
+        stop = 4015.0  # risk = 10.0
+        targets = _collect_targets_long(entry=4025.0, stop=stop, atr=10.0, features=features)
+        assert any(t.level_type == "vp_poc" and abs(t.price - 4020.0) < 0.01 for t in targets)
+        assert any(t.level_type == "vp_vah" and abs(t.price - 4035.0) < 0.01 for t in targets)
+
+    def test_vp_target_inside_value_area_long(self):
+        """Inside VA: only VAH as target (far boundary), no POC (behind entry)."""
+        features = {
+            "poc_price": 4020.0,
+            "vah": 4035.0,
+            "val": 4005.0,
+            "distance_to_vah_atr": 0.3,
+            "distance_to_val_atr": 2.5,
+            "price_in_value_area": 1.0,
+            "atr_14": 10.0,
+            "timeframe": "1m",
+        }
+        stop = 4005.0  # risk = 10.0
+        targets = _collect_targets_long(entry=4015.0, stop=stop, atr=10.0, features=features)
+        assert any(t.level_type == "vp_vah" for t in targets)
+        # POC (4020) is above entry (4015) but inside VA — not added for inside-VA longs
+        assert not any(t.level_type == "vp_poc" for t in targets)
+
+    def test_select_vp_session_for_short_tf(self):
+        """1m and 5m return session VP (poc_price, vah, val)."""
+        features = {"poc_price": 4020.0, "vah": 4035.0, "val": 4005.0}
+        assert _select_vp(features, "1m") == (4020.0, 4035.0, 4005.0)
+        assert _select_vp(features, "5m") == (4020.0, 4035.0, 4005.0)
+
+    def test_select_vp_rolling_for_long_tf(self):
+        """15m and 1h return rolling VP (poc_price_rolling, vah_rolling, val_rolling)."""
+        features = {
+            "poc_price": 4020.0,
+            "vah": 4035.0,
+            "val": 4005.0,
+            "poc_price_rolling": 4022.0,
+            "vah_rolling": 4038.0,
+            "val_rolling": 4008.0,
+        }
+        assert _select_vp(features, "15m") == (4022.0, 4038.0, 4008.0)
+        assert _select_vp(features, "1h") == (4022.0, 4038.0, 4008.0)
+
+    def test_htf_vp_fallback_when_current_tf_absent(self):
+        """HTF-prefixed keys used when current TF has no VP data."""
+        features = {
+            "htf_1h_poc_price": 4050.0,
+            "htf_1h_vah": 4070.0,
+            "htf_1h_val": 4030.0,
+        }
+        result = _select_vp(features, "1m")
+        assert result == (4050.0, 4070.0, 4030.0)
+
+    def test_vp_regime_active_near_boundary(self):
+        """_vp_regime_active returns True when price is within 0.5 ATR of VAH or VAL."""
+        assert _vp_regime_active({"distance_to_vah_atr": 0.3, "distance_to_val_atr": 2.5})
+        assert _vp_regime_active({"distance_to_vah_atr": 2.5, "distance_to_val_atr": 0.4})
+        assert not _vp_regime_active({"distance_to_vah_atr": 1.0, "distance_to_val_atr": 1.0})
+        assert not _vp_regime_active({})
