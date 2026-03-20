@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from ..utils import guard_intraday_only
 from .trade_framer import frame_trade
 
 
@@ -57,8 +58,7 @@ class AnchoredVWAPReversionPlugin:
     regime_type: str = "mean_reversion"
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        timeframe = frames.get("timeframe", "")
-        if timeframe and timeframe not in ("1m", "5m", "15m"):
+        if not guard_intraday_only(frames):
             return self._no_signal()
 
         df = frames.get("main")

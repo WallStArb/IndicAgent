@@ -27,15 +27,14 @@ sys.path.insert(0, str(project_root))
 import structlog
 from scipy.stats import binomtest
 
+# Reuse timestamp parsing utility from feature_writer_service
+from services.feature_writer_service import _parse_ts
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_llm_calls, topic_llm_outcomes
 from src.observability.metrics import counter, gauge, start_metrics_server
-
-# Reuse timestamp parsing utility from feature_writer_service
-from services.feature_writer_service import _parse_ts
 
 # ── Module-level constants ────────────────────────────────────────────────────
 

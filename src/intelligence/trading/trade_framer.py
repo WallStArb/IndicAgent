@@ -67,6 +67,7 @@ ATR_ZONE_LOW_MULTIPLIER = 1.0  # Zone lower bound: entry - ATR×1.0
 ATR_ZONE_HIGH_MULTIPLIER = 0.5  # Zone upper bound: entry + ATR×0.5
 ATR_TARGET_MIN_MULTIPLIER = 0.5  # Minimum target distance: entry ± ATR×0.5
 ATR_TARGET_MAX_MULTIPLIER = 8.0  # Maximum target distance: entry ± ATR×8.0
+VP_PROXIMITY_THRESHOLD_ATR = 0.5  # Volume Profile: price within VAH/VAL ± ATR×0.5 activates regime
 
 # ATR target multipliers for fallback (RR-based)
 ATR_FALLBACK_T1_MULTIPLIER = 2.0  # T1: risk × 2.0
@@ -246,22 +247,22 @@ def _select_vp(features: dict[str, Any], tf: str) -> tuple[float, float, float] 
 
     if vah is None or val is None:
         return None
-    return float(poc), float(vah), float(val)
+    # _fval() already returns float, no conversion needed
+    return poc, vah, val
 
 
 def _vp_regime_active(features: dict[str, Any]) -> bool:
-    """True when price is near a value area boundary (within 0.5 ATR).
+    """True when price is near a value area boundary (within VP_PROXIMITY_THRESHOLD_ATR ATR).
 
     When True, VP candidates are elevated above standard ATR-range targets.
     Returns False if VP distance fields are absent (no VP data available).
     """
     d_vah = features.get("distance_to_vah_atr")
+    # Early exit: check VAH first (common case)
+    if d_vah is not None and float(d_vah) < VP_PROXIMITY_THRESHOLD_ATR:
+        return True
     d_val = features.get("distance_to_val_atr")
-    if d_vah is None and d_val is None:
-        return False
-    return (d_vah is not None and float(d_vah) < 0.5) or (
-        d_val is not None and float(d_val) < 0.5
-    )
+    return d_val is not None and float(d_val) < VP_PROXIMITY_THRESHOLD_ATR
 
 
 def _reject_frame(
