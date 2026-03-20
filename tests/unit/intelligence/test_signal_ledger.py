@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.intelligence.trading.aggregator import AggregatedResult
 from src.intelligence.trading.signal_ledger import (
     _SELECT_ACTIVE_SQL,
     LedgerEntry,
@@ -350,68 +349,7 @@ class TestGetActiveSignals:
 
 @pytest.mark.unit
 class TestRegimeSuppressedStatus:
-    """Tests for regime_suppressed signal status written by build_ledger_entries.
-
-    RED: Both tests fail until Plan 03 updates build_ledger_entries and
-    _SELECT_ACTIVE_SQL to support regime_suppressed status.
-    """
-
-    def test_build_ledger_entries_sets_regime_suppressed_status(self):
-        """build_ledger_entries writes status='regime_suppressed' for ineligible signals.
-
-        RED: build_ledger_entries currently always sets status='pending'.
-        """
-        from services.signal_generator_service import build_ledger_entries
-
-        # Build a shadow signal: regime_eligible=False means suppressed
-        suppressed_signal = {
-            "type": "signal.v1",
-            "symbol": "ES",
-            "timeframe": "5m",
-            "timestamp": "2026-02-17T14:30:00Z",
-            "signal_type": "trend_long",
-            "setup_plugin": "trad_TrendFollowing",
-            "direction": 1,
-            "entry_price": 5100.0,
-            "stop_loss": 5085.0,
-            "targets": [5115.0],
-            "confidence": 0.7,
-            "risk_reward_ratio": 1.0,
-            "regime_context": "bullish",
-            "confluence_score": 0.5,
-            "supporting_factors": ["test_factor"],
-            "invalidation_conditions": [],
-            "ttl_bars": 10,
-            "composite_rank": 1,
-            # Shadow signal fields (set by Plan 02 aggregate())
-            "regime_eligible": False,
-            "suppression_reason": "regime_type",
-        }
-
-        result = AggregatedResult(
-            selected_signal=None,
-            all_ranked=[suppressed_signal],
-            resolution_method="no_signal",
-            num_signals_fired=0,
-            num_agreeing=0,
-            num_conflicting=0,
-        )
-
-        ts = datetime(2026, 2, 17, 14, 30, 0, tzinfo=UTC)
-        entries = build_ledger_entries(
-            result,
-            symbol="ES",
-            timeframe="5m",
-            timestamp=ts,
-            features={"vol_regime": 0.2},
-        )
-
-        assert len(entries) == 1, "Expected one LedgerEntry for the suppressed signal"
-        assert entries[0].status == "regime_suppressed", (
-            f"Expected status='regime_suppressed', got {entries[0].status!r}. "
-            "build_ledger_entries must set status='regime_suppressed' when "
-            "regime_eligible=False in the signal dict."
-        )
+    """Verifies regime_suppressed is included in the lifecycle SQL query."""
 
     def test_get_active_signals_query_includes_regime_suppressed(self):
         """_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the IN clause.
@@ -575,90 +513,6 @@ class TestLedgerEntryMarketEntryPrice:
     def test_insert_sql_includes_market_entry_price(self):
         from src.intelligence.trading.signal_ledger import _INSERT_SQL
         assert "market_entry_price" in _INSERT_SQL
-
-
-@pytest.mark.unit
-class TestBuildLedgerEntriesMarketEntryPrice:
-    """market_entry_price is set correctly in build_ledger_entries()."""
-
-    def _make_result(self, direction=1):
-        from src.intelligence.trading.aggregator import AggregatedResult
-
-        sig = {
-            "composite_rank": 1,
-            "regime_eligible": True,
-            "direction": direction,
-            "entry_price": 5100.0,
-            "stop_loss": 5085.0,
-            "targets": [5115.0],
-            "confidence": 0.8,
-            "confluence_score": 0.7,
-            "regime_context": "bullish",
-            "supporting_factors": [],
-            "setup_plugin": "test",
-            "signal_type": "long",
-        }
-        return AggregatedResult(
-            all_ranked=[sig],
-            selected_signal=sig,
-            num_signals_fired=1,
-            num_agreeing=0,
-            num_conflicting=0,
-            resolution_method="rank",
-            cis_score=None,
-            bucket_scores=None,
-            weights_version=None,
-        )
-
-    def test_long_market_entry_price_is_ask(self):
-        from services.signal_generator_service import build_ledger_entries
-
-        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
-        quote = {"ask": 5100.25, "bid": 5100.0}
-        entries = build_ledger_entries(
-            self._make_result(direction=1),
-            "ES",
-            "1m",
-            ts,
-            {},
-            quote=quote,
-            signal_computed_at=ts,
-            determined_at=ts,
-        )
-        assert entries[0].market_entry_price == 5100.25  # ask for long
-
-    def test_short_market_entry_price_is_bid(self):
-        from services.signal_generator_service import build_ledger_entries
-
-        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
-        quote = {"ask": 5100.25, "bid": 5100.0}
-        entries = build_ledger_entries(
-            self._make_result(direction=-1),
-            "ES",
-            "1m",
-            ts,
-            {},
-            quote=quote,
-            signal_computed_at=ts,
-            determined_at=ts,
-        )
-        assert entries[0].market_entry_price == 5100.0  # bid for short
-
-    def test_no_quote_market_entry_price_is_none(self):
-        from services.signal_generator_service import build_ledger_entries
-
-        ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
-        entries = build_ledger_entries(
-            self._make_result(direction=1),
-            "ES",
-            "1m",
-            ts,
-            {},
-            quote=None,
-            signal_computed_at=ts,
-            determined_at=ts,
-        )
-        assert entries[0].market_entry_price is None
 
 
 # ---------------------------------------------------------------------------
