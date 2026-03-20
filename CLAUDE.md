@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.26.0
+Version: 5.27.0
 Last Updated: 2026-03-20
 Status: v2.0 IN PROGRESS — Phases 40-42 complete, Phase 43 (Performance Emergency) next
 
@@ -190,6 +190,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`order_blocks.py` pre-filters to unmitigated OBs**: `_check_mitigated()` runs before output — `ob_type/top/bottom` always represents an unmitigated block. Downstream scoring (I6, trade_framer) does not need to re-check mitigation status.
 - **`cross_timeframe.py` already has multi-TF data**: `compute_full(frames)` iterates `intel_<tf>` keys (lines 89-92) — FVG/OB/VP outputs from all active TFs flow through automatically. Cross-TF scoring only needs the scoring function, no new data routing.
 - **HTF frame injection pattern**: `signal_generator_service._cross_asset_cache: dict[str, dict]` (tf → payload) is the canonical pattern for injecting per-TF external data into plugin frames before `compute_full()`. Replicate for any new per-TF source (e.g., `_htf_intel_cache`). Zero new subscriptions — populate cache from existing stream, inject into `frames` dict.
+- **Existing I7 utilities (check before creating new)**: `exhaustion_utils.py` (`apply_exhaustion_boost`, `apply_exhaustion_guard`) used by only 3/28 I7 plugins; `signal_schema.py` (`make_signal`, `validate_signal`) used by aggregator only. Phase 44 should wire these to all applicable plugins rather than create new ones.
+- **`composites/common.py` is I2-only today**: `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago` are wired to I2 composites but not imported by any I7 plugin. Phase 44 should evaluate which are useful in I7 before building equivalents from scratch.
 
 ### Signal Identity Preservation (Renaissance Principle)
 
@@ -290,6 +292,7 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **TWS `bars_processed` freeze**: `seen_bar_timestamps` dedup caches all timestamps from initial poll — subsequent polls return 0 new bars. Symptom: counter stuck at N×60 forever. Fix: restart TWS service.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
+- **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
 
 **Dashboard**
 - **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
