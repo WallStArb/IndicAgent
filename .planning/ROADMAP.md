@@ -571,21 +571,22 @@ Plans:
 - [ ] 41-03-PLAN.md — HTF context injection + VWAP/session TF guards + aggregator/write-back comments (INTEL-05)
 
 ### Phase 42: Candlestick Pattern Expansion
-**Goal**: The I5 candlestick pattern library grows from 10 to 28 patterns, and CandlestickPatternSetup applies calibrated confidence tier weights so higher-reliability patterns generate higher-conviction signals.
+**Goal**: The I5 candlestick pattern library grows from 19 to 29 patterns, and CandlestickPatternSetup applies database-driven confidence weights that self-calibrate from live outcomes.
 **Depends on**: Phase 41 (trade_framer context stable before adding new signal sources)
 **Requirements**: CANDLE-01, CANDLE-02
 **Success Criteria** (what must be TRUE):
-  1. `I5Patterns` schema contains 18 new candlestick pattern fields — `grep -c "pattern_" src/intelligence/schemas.py` shows the expected count increase; `extra=forbid` validation passes on all existing test fixtures.
-  2. Each of the 18 new patterns fires at least once in a one-week historical replay on ES 1m — verifiable via `SELECT pattern_name, COUNT(*) FROM signal_ledger WHERE setup_plugin = 'trad_CandlestickPatternSetup'` showing new pattern labels.
-  3. Tier 1 patterns (Three White/Black Soldiers, Morning/Evening Star, Abandoned Baby) fire with base confidence >= 0.70; Tier 2 patterns fire with base confidence >= 0.60 — the calibration weight table is a named constant in the plugin, not magic numbers.
-  4. All new patterns have unit tests verifying the minimum candle structure (e.g., Three White Soldiers requires 3 consecutive bullish bars with higher closes) — adding a malformed fixture returns `False` from the detection function.
+  1. `I5Patterns` schema contains 10 new candlestick pattern fields — `grep -E "harami_bull|abandoned_baby|tweezer_top|belt_hold|kicker" src/intelligence/schemas.py` shows all 10 patterns declared; `extra=forbid` validation passes.
+  2. Each of the 10 new patterns fires at least once in a one-week historical replay on ES 1m — verifiable via `SELECT SPLIT_PART(signal_type, '_', 2) AS pattern_name, COUNT(*) FROM signal_ledger WHERE setup_plugin = 'trad_CandlestickPatternSetup' AND computed_at > NOW() - INTERVAL '7 days' GROUP BY pattern_name` showing new pattern labels.
+  3. `pattern_reliability` table exists with PRIMARY KEY (pattern_name, timeframe) and 10 bootstrap priors seeded (Tier 1: 0.70 for abandoned_baby/kicker; Tier 2: 0.55-0.60 for harami/tweezer/belt_hold).
+  4. All new patterns have unit tests — `.venv/bin/pytest tests/unit/test_candlestick_patterns.py -xvs` passes with valid pattern detection and malformed fixture rejection.
+  5. `weight_updater.py` extends to calibrate pattern_reliability from signal_ledger outcomes — patterns with sample_size >= 30 and p < 0.05 promoted to data-driven weights (is_bootstrap=false).
 **Plans**: 4 plans
 
 Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+- [ ] 42-01-PLAN.md — 10 new I5 candlestick patterns + schema extension + unit tests (CANDLE-01) [wave 1]
+- [ ] 42-02-PLAN.md — pattern_reliability table + bootstrap priors migration (CANDLE-02) [wave 1]
+- [ ] 42-03-PLAN.md — CandlestickPatternSetup I7 extended with DB-driven weights (CANDLE-02) [wave 2]
+- [ ] 42-04-PLAN.md — weight_updater pattern calibration + 7-day backtest validation (CANDLE-01, CANDLE-02) [wave 2]
 
 ### Phase 43: I6 Confluence Expansion
 **Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — market_analysis_service injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment.
@@ -784,7 +785,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 40. Machine Hardening | 4/4 | Complete    | 2026-03-20 | — |
 | 41. Intelligence Gap Fill | 2/3 | Complete    | 2026-03-20 | — |
-| 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
+| 42. Candlestick Pattern Expansion | v2.0 | 0/4 | Not started | — |
 | 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 45. Auth + External Access | v2.0 | 0/TBD | Not started | — |
