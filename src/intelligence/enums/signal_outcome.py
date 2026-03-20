@@ -9,10 +9,10 @@ rather than reaching into the trading module directly.
 from __future__ import annotations
 
 from src.intelligence.trading.signal_outcome import (
-    SignalOutcome,
-    WIN_OUTCOMES,
     STOP_OUTCOMES,
     TTL_OUTCOMES,
+    WIN_OUTCOMES,
+    SignalOutcome,
 )
 
 __all__ = ["SignalOutcome", "WIN_OUTCOMES", "STOP_OUTCOMES", "TTL_OUTCOMES"]

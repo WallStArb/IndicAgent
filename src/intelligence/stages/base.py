@@ -20,12 +20,16 @@ from abc import ABC, abstractmethod
 
 import structlog
 from prometheus_client import Counter, Gauge
-from pydantic import ValidationError
+from pydantic import ValidationError  # noqa: I001
 
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_attribution
-from src.intelligence.enums.signal_outcome import SignalOutcome  # noqa: F401 — re-exported for subclasses
-from src.intelligence.enums.signal_status import SignalStatus  # noqa: F401 — re-exported for subclasses
+from src.intelligence.enums.signal_outcome import (
+    SignalOutcome,  # noqa: F401 — re-exported for subclasses
+)
+from src.intelligence.enums.signal_status import (
+    SignalStatus,  # noqa: F401 — re-exported for subclasses
+)
 from src.intelligence.monitoring.data_quality_monitor import DataQualityMonitor
 from src.intelligence.schemas import IntelligenceEvent
 from src.observability.circuit_breaker import CircuitBreaker, CircuitOpenError
@@ -190,7 +194,7 @@ class Stage(ABC):
         """
         logger.info("Starting stage run loop", stage=self.stage_name)
 
-        async for topic, key, raw_payload in self.consumer.messages():
+        async for _topic, _key, raw_payload in self.consumer.messages():
             try:
                 # Parse IntelligenceEvent
                 try:
