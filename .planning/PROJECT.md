@@ -164,7 +164,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.0 Phase 039 complete 2026-03-19)
+### Current State (v2.0 Phase 42 complete 2026-03-20)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 12 active systemd services + weight-updater timer: added `indicagent-cross-asset`
@@ -257,4 +257,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
 
 ---
-*Last updated: 2026-03-20 after phase 41 (v2.0 intelligence gap fill)*
+*Last updated: 2026-03-20 after phase 42 (v2.0 candlestick pattern expansion)*
