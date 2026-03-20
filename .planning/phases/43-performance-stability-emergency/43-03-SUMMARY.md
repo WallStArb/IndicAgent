@@ -1,13 +1,13 @@
 ---
-phase: 40.5-performance-stability-emergency
+phase: 43-performance-stability-emergency
 plan: 03
 subsystem: services
 tags: [feature-writer, signal-lifecycle, performance, buffering, in-memory-index, timescaledb]
 
 requires:
-  - phase: 40.5-01
+  - phase: 43-01
     provides: OHLCV rebuild, instrumentation baseline
-  - phase: 40.5-02
+  - phase: 43-02
     provides: thread pool, ndarray pre-alloc, shared refresh loop
 
 provides:
@@ -55,7 +55,7 @@ duration: 35min
 completed: 2026-03-20
 ---
 
-# Phase 40.5 Plan 03: Feature Writer i7/i8 Batching + Lifecycle O(1) Index Summary
+# Phase 43 Plan 03: Feature Writer i7/i8 Batching + Lifecycle O(1) Index Summary
 
 **Feature writer i7/i8 messages now batch-flushed (PERF-02); lifecycle active-signal lookup is O(1) via in-memory index with 60s reseed (PERF-04); 328K stale pending signals expired**
 
@@ -130,5 +130,5 @@ completed: 2026-03-20
 - Ready for Phase 40 (DAG Refactor) once 40.5 plans complete
 
 ---
-*Phase: 40.5-performance-stability-emergency*
+*Phase: 43-performance-stability-emergency*
 *Completed: 2026-03-20*

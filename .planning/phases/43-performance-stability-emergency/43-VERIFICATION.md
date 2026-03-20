@@ -1,5 +1,5 @@
 ---
-phase: 40.5-performance-stability-emergency
+phase: 43-performance-stability-emergency
 verified: 2026-03-20T12:00:00Z
 status: gaps_found
 score: 5/7 must-haves verified
@@ -7,10 +7,10 @@ re_verification: false
 gaps:
   - truth: "Plugin compute_full() runs in a thread pool via asyncio.to_thread(), not blocking the event loop"
     status: partial
-    reason: "Implementation is correct and functional, but it broke the existing characterization test test_held_lock_blocks_concurrent_waiter — Phase 40.5 changed asyncio.Lock to threading.Lock in market_analysis_service but did not update the Phase 18 contract test that uses 'async with lock' on the returned lock object."
+    reason: "Implementation is correct and functional, but it broke the existing characterization test test_held_lock_blocks_concurrent_waiter — Phase 43 changed asyncio.Lock to threading.Lock in market_analysis_service but did not update the Phase 18 contract test that uses 'async with lock' on the returned lock object."
     artifacts:
       - path: "tests/unit/service_tests/test_concurrent_lock_behavior.py"
-        issue: "test_held_lock_blocks_concurrent_waiter fails: TypeError: '_thread.lock' object does not support the asynchronous context manager protocol. The test was written for asyncio.Lock; Phase 40.5 changed to threading.Lock without updating this test."
+        issue: "test_held_lock_blocks_concurrent_waiter fails: TypeError: '_thread.lock' object does not support the asynchronous context manager protocol. The test was written for asyncio.Lock; Phase 43 changed to threading.Lock without updating this test."
     missing:
       - "Update test_held_lock_blocks_concurrent_waiter to use threading.Lock semantics (acquire/release in threads, not async with) OR add a note documenting the contract change from asyncio to threading lock"
   - truth: "Requirement IDs in plans map correctly to REQUIREMENTS.md definitions"
@@ -18,7 +18,7 @@ gaps:
     reason: "Plans claim PERF-01 through PERF-06, but REQUIREMENTS.md defines those IDs with different descriptions. The implementations are real and valuable but are labelled with wrong requirement IDs. PERF-01 in REQUIREMENTS.md is 'feature_writer xreadgroup consolidation'; in the plan it means 'OHLCV rebuild'. PERF-02 in REQUIREMENTS.md is 'aggregator dirty flag cache'; in the plan it means 'i7/i8 buffering'. PERF-03 in REQUIREMENTS.md is 'semaphore bound'; in the plan it means 'asyncio.to_thread'. The thread pool offload (what the plan calls PERF-03) is explicitly listed as v2.1 deferred scope in REQUIREMENTS.md (PERF-V2)."
     artifacts:
       - path: ".planning/REQUIREMENTS.md"
-        issue: "PERF-01 through PERF-06 definitions do not match what Phase 40.5 plans implemented. The OHLCV rebuild maps to DATA-03 (marked [x] already). The i7/i8 buffering has no REQUIREMENTS.md ID. asyncio.to_thread is explicitly PERF-V2 (v2.1 deferred)."
+        issue: "PERF-01 through PERF-06 definitions do not match what Phase 43 plans implemented. The OHLCV rebuild maps to DATA-03 (marked [x] already). The i7/i8 buffering has no REQUIREMENTS.md ID. asyncio.to_thread is explicitly PERF-V2 (v2.1 deferred)."
     missing:
       - "Reconcile REQUIREMENTS.md: update PERF-01 through PERF-06 to reflect what was actually built, or add new IDs for the implemented features. Mark the implemented features as [x] against correct IDs."
 human_verification:
@@ -30,7 +30,7 @@ human_verification:
     why_human: "Requires live DB access to confirm migration 046 ran and expired the 328K rows"
 ---
 
-# Phase 40.5: Performance & Stability Emergency Verification Report
+# Phase 43: Performance & Stability Emergency Verification Report
 
 **Phase Goal:** Fix the most critical production bottlenecks before Phase 40 DAG refactor: rebuild OHLCV hypertable, fix feature_writer i7/i8 per-message UPSERTs, offload plugin compute to thread pool, replace signal_lifecycle O(N) DB query with O(1) index, pre-convert calibration curves to np.ndarray, extract shared refresh loop helper.
 **Verified:** 2026-03-20T12:00:00Z
@@ -110,17 +110,17 @@ The plans claim requirement IDs PERF-01 through PERF-06. These IDs exist in REQU
 - PERF-07 (chandelier write guard): SATISFIED — implemented as part of Plan 03 PERF-04 scope
 - PERF-V2 (asyncio.to_thread): DELIVERED EARLY — this was marked v2.1 deferred
 - i7/i8 buffering: DELIVERED — no REQUIREMENTS.md ID exists for this (new discovery)
-- PERF-01, PERF-02, PERF-03 (as defined in REQUIREMENTS.md): NOT ADDRESSED in Phase 40.5
+- PERF-01, PERF-02, PERF-03 (as defined in REQUIREMENTS.md): NOT ADDRESSED in Phase 43
 
 **REQUIREMENTS.md items marked [x] as of this phase that the plans claim credit for:**
-- PERF-01 [x]: "feature_writer_service polling consolidated to single xreadgroup" — this is pre-existing (marked complete before Phase 40.5)
+- PERF-01 [x]: "feature_writer_service polling consolidated to single xreadgroup" — this is pre-existing (marked complete before Phase 43)
 - PERF-02 [x]: "Aggregator dirty flag cache" — pre-existing
 - PERF-03 [x]: "Semaphore bounded" — pre-existing
 - PERF-04 [x]: "Calibration ndarray" — SATISFIED by this phase
 - PERF-05 [x]: "Refresh loop helper" — SATISFIED by this phase
 - PERF-06 [x]: "Lifecycle O(1) index" — SATISFIED by this phase
 
-**Conclusion:** REQUIREMENTS.md PERF-04, PERF-05, PERF-06, and PERF-07 (chandelier guard) are satisfied by Phase 40.5. DATA-03 is satisfied. The ID labeling in plans is off by 3 positions from REQUIREMENTS.md (plans numbered from a different baseline), but the actual work was done for real IDs.
+**Conclusion:** REQUIREMENTS.md PERF-04, PERF-05, PERF-06, and PERF-07 (chandelier guard) are satisfied by Phase 43. DATA-03 is satisfied. The ID labeling in plans is off by 3 positions from REQUIREMENTS.md (plans numbered from a different baseline), but the actual work was done for real IDs.
 
 ---
 
@@ -128,7 +128,7 @@ The plans claim requirement IDs PERF-01 through PERF-06. These IDs exist in REQU
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `tests/unit/service_tests/test_concurrent_lock_behavior.py` | 49, 56 | `async with lock` on `threading.Lock` — fails at runtime | Blocker | Breaks CI test suite; introduced by Phase 40.5 asyncio.Lock → threading.Lock migration in market_analysis_service |
+| `tests/unit/service_tests/test_concurrent_lock_behavior.py` | 49, 56 | `async with lock` on `threading.Lock` — fails at runtime | Blocker | Breaks CI test suite; introduced by Phase 43 asyncio.Lock → threading.Lock migration in market_analysis_service |
 | `services/signal_lifecycle_service.py` | 931 | `getattr(self, '_active_index', {})` | Warning | Defensive guard is good for `__new__` test compatibility, but masks potential init bugs in production; acceptable tradeoff per summary decision |
 
 ---
@@ -153,9 +153,9 @@ The plans claim requirement IDs PERF-01 through PERF-06. These IDs exist in REQU
 | Failed | 38 |
 | Warnings | 333 |
 
-**Failures attributable to Phase 40.5:** 1 (`test_held_lock_blocks_concurrent_waiter` — pre-existing in test suite, newly broken by asyncio.Lock → threading.Lock change)
+**Failures attributable to Phase 43:** 1 (`test_held_lock_blocks_concurrent_waiter` — pre-existing in test suite, newly broken by asyncio.Lock → threading.Lock change)
 
-**Pre-existing failures (confirmed by git history):** All remaining 37 failures are in `test_ai_narrative_service.py`, `test_ai_narrative_helpers.py`, `test_settings.py`, `test_settings_equity.py`, `test_tws_daemon.py`, `test_plugin_registry.py`, `test_setup_performance_updater.py`, `test_pipeline_reset.py`, `test_feature_writer_config.py`, `test_historical_backfill.py` — none of these files were modified by Phase 40.5 commits (confirmed via `git diff f8c26ba HEAD`).
+**Pre-existing failures (confirmed by git history):** All remaining 37 failures are in `test_ai_narrative_service.py`, `test_ai_narrative_helpers.py`, `test_settings.py`, `test_settings_equity.py`, `test_tws_daemon.py`, `test_plugin_registry.py`, `test_setup_performance_updater.py`, `test_pipeline_reset.py`, `test_feature_writer_config.py`, `test_historical_backfill.py` — none of these files were modified by Phase 43 commits (confirmed via `git diff f8c26ba HEAD`).
 
 ---
 
@@ -185,7 +185,7 @@ The plans claim requirement IDs PERF-01 through PERF-06. These IDs exist in REQU
 
 **1 functional gap — broken characterization test:**
 
-Phase 40.5 Plan 02 changed `market_analysis_service` from `asyncio.Lock` to `threading.Lock` for plugin state isolation. This is correct and necessary for `asyncio.to_thread` compatibility. However, the existing Phase 18 characterization test `test_held_lock_blocks_concurrent_waiter` in `test_concurrent_lock_behavior.py` tests `async with lock` on the lock returned by `_get_state_lock()`. `threading.Lock` does not support the async context manager protocol, causing a `TypeError` at test time. The Phase 40.5 test for `market_analysis_service` was updated and passes, but the older characterization test was not updated to reflect the contract change from asyncio to threading locking semantics.
+Phase 43 Plan 02 changed `market_analysis_service` from `asyncio.Lock` to `threading.Lock` for plugin state isolation. This is correct and necessary for `asyncio.to_thread` compatibility. However, the existing Phase 18 characterization test `test_held_lock_blocks_concurrent_waiter` in `test_concurrent_lock_behavior.py` tests `async with lock` on the lock returned by `_get_state_lock()`. `threading.Lock` does not support the async context manager protocol, causing a `TypeError` at test time. The Phase 43 test for `market_analysis_service` was updated and passes, but the older characterization test was not updated to reflect the contract change from asyncio to threading locking semantics.
 
 **1 traceability gap — requirement ID mismatch:**
 

@@ -1,5 +1,5 @@
 ---
-phase: 40.5-performance-stability-emergency
+phase: 43-performance-stability-emergency
 plan: 01
 subsystem: database
 tags: [timescaledb, hypertable, partitioning, performance, migration]
@@ -43,7 +43,7 @@ duration: 3min
 completed: 2026-03-20
 ---
 
-# Phase 40.5 Plan 01: OHLCV Hypertable Rebuild Summary
+# Phase 43 Plan 01: OHLCV Hypertable Rebuild Summary
 
 **market_data_ohlcv rebuilt as time-only hypertable with 7-day chunks: 831 chunks reduced to 21, query time from 4-5s to 0.45ms, all 334,805 rows preserved**
 
@@ -109,9 +109,9 @@ None - migration was applied directly to the production TimescaleDB container.
 ## Next Phase Readiness
 
 - `market_data_ohlcv` is now a time-only hypertable — historical backfill scripts can continue using `ON CONFLICT DO NOTHING` without changes
-- Phase 40.5-02 (PERF-02 through PERF-06) can proceed without any OHLCV rebuild dependency
+- Phase 43-02 (PERF-02 through PERF-06) can proceed without any OHLCV rebuild dependency
 - Pre-existing test failure (`test_get_signals_base_symbol_resolved`) should be fixed in a separate todo (contract roll ESH6 → ESM6)
 
 ---
-*Phase: 40.5-performance-stability-emergency*
+*Phase: 43-performance-stability-emergency*
 *Completed: 2026-03-20*

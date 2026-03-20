@@ -154,16 +154,16 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, IC computation, data quality monitoring infrastructure (completed 2026-03-19)
 - [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
 - [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (completed 2026-03-19)
-- [ ] **Phase 40.5: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
-- [ ] **Phase 41.1: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils from plugin bodies; BaseI7Plugin mixin eliminating boilerplate across all 28 plugins; validate_tier() regime_type + required field checks; split cross_timeframe.py into 3 focused modules (pure structural refactor, zero signal behavior change)
-- [ ] **Phase 41.2: I6 → I7 Confluence Wiring** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family (trend/mean-reversion/SMC/microstructure); ships in shadow mode (logs old vs new confidence, no live score change); prerequisite for Phase 43 amplification
 - [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments (completed 2026-03-20)
 - [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
-- [ ] **Phase 43: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
-- [ ] **Phase 44: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
-- [ ] **Phase 45: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
-- [ ] **Phase 46: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution; LLM call audit trail complete (token counts, retry chain, outcome back-fill) as ML training data feed
-- [ ] **Phase 47: Renaissance Observability** — performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface (all I3/I4/I5/I6 fields inspectable in dashboard), staleness as first-class quality signal (confidence penalty + signal_ledger flag + display)
+- [ ] **Phase 43: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
+- [ ] **Phase 44: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils from plugin bodies; BaseI7Plugin mixin eliminating boilerplate across all 28 plugins; validate_tier() regime_type + required field checks; split cross_timeframe.py into 3 focused modules (pure structural refactor, zero signal behavior change)
+- [ ] **Phase 45: I6 → I7 Confluence Wiring** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family (trend/mean-reversion/SMC/microstructure); ships in shadow mode (logs old vs new confidence, no live score change); prerequisite for Phase 46 amplification
+- [ ] **Phase 46: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
+- [ ] **Phase 47: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
+- [ ] **Phase 48: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
+- [ ] **Phase 49: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution; LLM call audit trail complete (token counts, retry chain, outcome back-fill) as ML training data feed
+- [ ] **Phase 50: Renaissance Observability** — performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface (all I3/I4/I5/I6 fields inspectable in dashboard), staleness as first-class quality signal (confidence penalty + signal_ledger flag + display)
 
 </details>
 
@@ -251,7 +251,7 @@ Plans:
   3. Signal lifecycle applies freshness decay: active signal confidence decays as `exp(-λ × bars_since_fire)`.
   4. Per-setup cooldown prevents same setup firing in same direction within `_SIGNAL_COOLDOWN_BARS` (3 bars 1m, 2 bars 5m+).
   5. `rel_volume` wired into CIS momentum bucket; killzone context gates CIS time-of-day confidence.
-  6. `HurstExponentPlugin` (I4) suppresses mean-reversion setups when H > 0.65 and trend setups when H < 0.45.
+  6. `HurstExponentPlugin` (I4) suppresses mean-reversion setups when H > 0.65 and trend setups when H < 0.48.
   7. `ShannonEntropyPlugin` (I4) reduces all signal confidence 30–50% when return entropy is high.
   8. KS drift detection background job emits monitoring flag when feature distributions deviate (p < 0.05).
   9. CUSUM performance drift detection alerts when per-setup win rates degrade relative to baseline.
@@ -412,11 +412,11 @@ Plans:
 - [x] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
 - [x] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
-### Phase 47: Signal Pipeline DAG Refactor: monolithic→DAG microservices + Renaissance observability
+### Phase 50: Signal Pipeline DAG Refactor: monolithic→DAG microservices + Renaissance observability
 
 **Goal**: Refactor the signal pipeline from a monolithic aggregator to a clean DAG of independent microservices, then add Renaissance-grade observability: performance attribution, live A/B experimentation, causal inference, data quality monitoring, and fault tolerance.
 **Requirements**: None (architectural refactor)
-**Depends on**: Phase 46
+**Depends on**: Phase 49
 **Success Criteria** (what must be TRUE):
   1. Pipeline is clean DAG of 6 independent stages (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector)
   2. Each stage is separate microservice with systemd unit
@@ -529,7 +529,7 @@ Plans:
 6. **Data quality over model complexity** — Validate at each stage, drop invalid signals
 7. **Never drop data** — Full retention of all intermediate outputs (7-day topic retention)
 
-**Out of scope (deferred to Phase 47):**
+**Out of scope (deferred to Phase 50):**
 - Performance Attribution Service (aggregates attribution into DB)
 - A/B Test Framework (continuous experimentation)
 - Causal Inference Engine (prove causality vs correlation)
@@ -537,7 +537,7 @@ Plans:
 - LLM Gate Optimizer (automated config tuning)
 - Dashboard DAG Visualization
 
-### Phase 40.5: Performance & Stability Emergency
+### Phase 43: Performance & Stability Emergency
 **Goal**: Eliminate the two production bottlenecks causing active pain (OHLCV 4-5s query timeouts, feature_writer 920ms lag) and harden the runtime before Phase 41 cross-timeframe work adds more load.
 **Depends on**: Phase 40 (DAG refactor in place; aggregator eliminated before these optimizations land)
 **Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06
@@ -555,7 +555,7 @@ Plans:
 - [ ] 40.5-02-PLAN.md — Plugin thread pool + calibration ndarray pre-alloc + refresh loop helper (PERF-03, PERF-05, PERF-06)
 - [ ] 40.5-03-PLAN.md — Feature writer i7/i8 batch buffering + lifecycle O(1) index + chandelier write guard + stale signal cleanup (PERF-02, PERF-04)
 
-### Phase 41.1: I7 DAG Refactor
+### Phase 44: I7 DAG Refactor
 **Goal**: The I7 trading layer has clean DAG structure — computation utilities extracted from plugin bodies into shared modules, boilerplate eliminated via BaseI7Plugin mixin, Protocol enforcement tightened, and I6 cross_timeframe.py decomposed into 3 focused modules. Zero signal behavior change — pure structural refactor.
 **Depends on**: Phase 40 (DAG foundation complete)
 **Requirements**: DAG-01, DAG-02, DAG-03, DAG-04
@@ -564,24 +564,24 @@ Plans:
   2. `BaseI7Plugin` mixin provides `_no_signal()` and default `compute_next()` — all 28 I7 plugins inherit from it; no plugin declares its own `_no_signal()`
   3. `validate_tier()` hard-crashes on any I7 plugin missing `regime_type` or declaring a required I4 field that isn't in the features schema — verified by a unit test
   4. `cross_timeframe.py` split into `confluence_weights.py`, `confluence_alignment.py`, `confluence_smc.py` — all existing I6 tests pass unchanged
-- [ ] 41.1-01-PLAN.md — Extract atr_utils, position_utils, confidence_utils + BaseI7Plugin mixin (DAG-01, DAG-02)
-- [ ] 41.1-02-PLAN.md — validate_tier() field enforcement + cross_timeframe.py decomposition (DAG-03, DAG-04)
+- [ ] 44-01-PLAN.md — Extract atr_utils, position_utils, confidence_utils + BaseI7Plugin mixin (DAG-01, DAG-02)
+- [ ] 44-02-PLAN.md — validate_tier() field enforcement + cross_timeframe.py decomposition (DAG-03, DAG-04)
 
-### Phase 41.2: I6 → I7 Confluence Wiring
-**Goal**: All 28 I7 plugins incorporate I6 confluence scores into confidence calculations, weighted by setup family. Ships in shadow mode — old and new confidence logged side-by-side with no live score change until Phase 43 graduation.
-**Depends on**: Phase 41.1 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract)
+### Phase 45: I6 → I7 Confluence Wiring
+**Goal**: All 28 I7 plugins incorporate I6 confluence scores into confidence calculations, weighted by setup family. Ships in shadow mode — old and new confidence logged side-by-side with no live score change until Phase 46 graduation.
+**Depends on**: Phase 44 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract)
 **Requirements**: CONF-01, CONF-02, CONF-03
 **Success Criteria** (what must be TRUE):
   1. Every I7 plugin reads `ctf_score` (and ≥1 relevant sub-score) from `frames["features"]` — grep confirms no plugin body ignores all `ctf_*` fields
   2. Shadow logging in each plugin emits `{"old_confidence": X, "new_confidence": Y, "ctf_contribution": Z}` per fired signal — visible in `intelligence_features.i7` JSONB
   3. Live `calibrated_confidence` in `signal_ledger` is unchanged (shadow mode confirmed by querying a 24h window and verifying zero change in score distribution)
   4. Each plugin family uses the correct I6 sub-score weight: trend-following → `ctf_trend_alignment`; mean-reversion → `ctf_regime_agreement`; SMC → `ctf_fvg_alignment` + `ctf_ob_alignment`; microstructure (OFI/CVD) → `ctf_score` as gate
-- [ ] 41.2-01-PLAN.md — ctf_* wiring for trend/mean-reversion plugin families (CONF-01)
-- [ ] 41.2-02-PLAN.md — ctf_* wiring for SMC + microstructure plugin families + shadow logging (CONF-02, CONF-03)
+- [ ] 45-01-PLAN.md — ctf_* wiring for trend/mean-reversion plugin families (CONF-01)
+- [ ] 45-02-PLAN.md — ctf_* wiring for SMC + microstructure plugin families + shadow logging (CONF-02, CONF-03)
 
 ### Phase 41: Intelligence Gap Fill
 **Goal**: Intelligence fields that were stubs are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, higher-TF S/R context reaches I7 plugins, VWAP/session guards prevent intraday-only plugins firing on wrong TFs.
-**Depends on**: Phase 41.2 (confluence wiring complete; I6 data quality now matters for I7 confidence)
+**Depends on**: Phase 45 (confluence wiring complete; I6 data quality now matters for I7 confidence)
 **Requirements**: INTEL-01, INTEL-02, INTEL-03, INTEL-04, INTEL-05
 **Success Criteria** (what must be TRUE):
   1. `i6_fvg_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where FVGs exist on multiple timeframes — the hardcoded `0.0` stub is absent from `cross_timeframe.py`.
@@ -614,7 +614,7 @@ Plans:
 - [x] 42-03-PLAN.md — CandlestickPatternSetup I7 extended with DB-driven weights (CANDLE-02) [wave 2]
 - [x] 42-04-PLAN.md — weight_updater pattern calibration + 7-day backtest validation (CANDLE-01, CANDLE-02) [wave 2]
 
-### Phase 43: I6 Confluence Expansion
+### Phase 46: I6 Confluence Expansion
 **Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — market_analysis_service injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment.
 **Depends on**: Phase 41 (i6_fvg_tf_alignment and i6_ob_tf_alignment live), Phase 42 (candlestick patterns stable)
 **Requirements**: CONF-01, CONF-02, CONF-03, CONF-04
@@ -631,9 +631,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 44: Shadow Mode Graduation
+### Phase 47: Shadow Mode Graduation
 **Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds adjusted if data supports it, cross-asset and roll monitor enabled, trad_DualDivergence promoted once it passes the statistical gate.
-**Depends on**: Phase 43 (I6 expansion complete; all shadow features accumulating data throughout v2.0 phases)
+**Depends on**: Phase 46 (I6 expansion complete; all shadow features accumulating data throughout v2.0 phases)
 **Requirements**: SHADOW-01, SHADOW-02, SHADOW-03, SHADOW-04
 **Success Criteria** (what must be TRUE):
   1. A query of `signal_ledger WHERE is_shadow = TRUE` for regime_suppressed signals produces enough rows (N >= 200) to compute empirical win rates by threshold bucket — the analysis result (confirm or adjust thresholds) is documented in a decision log entry.
@@ -648,9 +648,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 45: Auth + External Access
+### Phase 48: Auth + External Access
 **Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer, and keyset pagination enables efficient large features export.
-**Depends on**: Phase 44 (pipeline stable and shadow modes resolved before exposing external access)
+**Depends on**: Phase 47 (pipeline stable and shadow modes resolved before exposing external access)
 **Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06
 **Success Criteria** (what must be TRUE):
   1. Every API endpoint (including SSE) returns HTTP 401 when called without a valid JWT cookie — `curl https://api.indicagent.com/api/signals/recent` without credentials returns `{"detail": "Not authenticated"}`.
@@ -667,9 +667,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 46: ML Scoring Model
+### Phase 49: ML Scoring Model
 **Goal**: A LightGBM model scores every new signal in shadow mode, trained on signal_features with stationarity gates and regime segmentation, with walk-forward retraining and SHAP attribution. LLM call audit trail completes the training data feed (token counts, retry chain, outcome back-fill).
-**Depends on**: Phase 45 (auth + external access in place before exposing ML endpoints)
+**Depends on**: Phase 48 (auth + external access in place before exposing ML endpoints)
 **Requirements**: ML-01, ML-02, ML-03, ML-04, ML-05, ML-06, ML-07
 **Success Criteria** (what must be TRUE):
   1. `feature_builder.py` produces a feature matrix using only columns from `signal_features` that existed at signal fire time — no `signal_ledger` outcome columns (outcome, pnl_r, mae, mfe) appear in the training feature set.
@@ -687,9 +687,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 47: Renaissance Observability (Attribution, A/B Testing, Causal Inference)
+### Phase 50: Renaissance Observability (Attribution, A/B Testing, Causal Inference)
 **Goal**: The DAG pipeline has Renaissance-grade observability — performance attribution tracks value added by each stage, live A/B experimentation tests configuration changes, causal inference proves improvements are not just correlation, counterfactual analysis quantifies missed opportunities, LLM analyzes attribution to recommend optimizations. Intelligence tier audit surface makes every feature vector inspectable (I3/I4/I5/I6 fields visible in dashboard). Staleness is a first-class quality signal: stale intelligence reduces confidence in signal_ledger so ML training can exclude unreliable rows; dashboard badge is a side effect of the data-quality fix, not the primary deliverable.
-**Depends on**: Phase 40 (DAG foundation with basic attribution in place), Phase 46 (ML model provides additional signal features for causal analysis)
+**Depends on**: Phase 40 (DAG foundation with basic attribution in place), Phase 49 (ML model provides additional signal features for causal analysis)
 **Requirements**: None (observability infrastructure)
 **Success Criteria** (what must be TRUE):
   1. Every signal has full attribution chain in `performance_attribution` table — can query value added by each stage
@@ -715,7 +715,7 @@ Plans:
 - Stage splitting (if attribution shows stages do too much)
 - Full trade simulation for counterfactuals (currently MFE/MAE only)
 - ML-based stage optimization (use ML to predict optimal configs)
-- Cross-asset DAG extension (Phase 43 addresses cross-asset features)
+- Cross-asset DAG extension (Phase 46 addresses cross-asset features)
 
 ## Backlog
 
@@ -810,13 +810,13 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 39. Data Quality + DB Health | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 40. DAG Refactor — Clean Foundation | v2.0 | 4/4 | Complete | 2026-03-19 |
-| 40.5. Performance & Stability Emergency | v2.0 | 0/TBD | Not started | — |
-| 41.1. I7 DAG Refactor | v2.0 | 0/2 | Not started | — |
-| 41.2. I6 → I7 Confluence Wiring | v2.0 | 0/2 | Not started | — |
 | 41. Intelligence Gap Fill | v2.0 | 3/3 | Complete | 2026-03-20 |
 | 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
-| 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
-| 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
-| 45. Auth + External Access | v2.0 | 0/TBD | Not started | — |
-| 46. ML Scoring Model | v2.0 | 0/TBD | Not started | — |
-| 47. Renaissance Observability | v2.0 | 0/TBD | Not started | — |
+| 43. Performance & Stability Emergency | v2.0 | 2/3 | In Progress | — |
+| 44. I7 DAG Refactor | v2.0 | 0/2 | Not started | — |
+| 45. I6 → I7 Confluence Wiring | v2.0 | 0/2 | Not started | — |
+| 46. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
+| 47. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
+| 48. Auth + External Access | v2.0 | 0/TBD | Not started | — |
+| 49. ML Scoring Model | v2.0 | 0/TBD | Not started | — |
+| 50. Renaissance Observability | v2.0 | 0/TBD | Not started | — |

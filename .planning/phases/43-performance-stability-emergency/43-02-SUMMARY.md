@@ -1,5 +1,5 @@
 ---
-phase: 40.5-performance-stability-emergency
+phase: 43-performance-stability-emergency
 plan: "02"
 subsystem: services
 tags: [performance, thread-pool, calibration, refactor]
@@ -28,7 +28,7 @@ metrics:
   files_modified: 4
 ---
 
-# Phase 40.5 Plan 02: Thread Pool, ndarray Pre-alloc, Shared Refresh Loop Summary
+# Phase 43 Plan 02: Thread Pool, ndarray Pre-alloc, Shared Refresh Loop Summary
 
 Three independent Python-only performance fixes: plugin CPU work offloaded to thread pool, calibration curves stored as np.ndarray at load time, and 5 identical refresh loops replaced by a shared helper.
 
