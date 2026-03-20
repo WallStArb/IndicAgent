@@ -28,6 +28,15 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ CrossAssetService microservice: ES/NQ/RTY/YM spread z-scores, correlation break features; CrossAssetDivergencePlugin I7 — v1.9
 - ✓ Automated futures roll detection: volume z-score > 2.0, 3-bar confirmation, TOD adjustment, full pipeline propagation, plugin state migration — v1.9
 
+**v2.0 Intelligence Gap Fill (2026-03-20):**
+- ✓ Cross-TF FVG/OB alignment scores in `CrossTimeframeConfluencePlugin` — `_proximity_decay()` weighted direction-match scores — v2.0
+- ✓ Volume Profile as T1/T2 targets in `trade_framer.py` — `_select_vp()` + `_vp_regime_active()` with ATR bypass — v2.0
+- ✓ TF guards in 6 VWAP/session plugins — block 1h bars from intraday-only setups (AnchoredVWAPReversion, VWAPReclaim, POCRejection, ORB15, ORB30, PrevDayLevelTest) — v2.0
+- ✓ HTF 1h intel cache in `signal_generator_service` — `_htf_intel_cache` + `frames["htf_1h"]` injection (zero new subscriptions) — v2.0
+- ✓ `htf_1h_poc_price/vah/val` merged into features before I7 plugin execution — v2.0
+- ✓ CRITICAL INVARIANT comment at aggregator `active` derivation — prevents perf_weights bypass — v2.0
+- ✓ CRITICAL write-back comments at plugin state loops in market_analysis and indicator services — v2.0
+
 **v2.0 Code Quality Enforcement (2026-03-19):**
 - ✓ PatternPlugin `regime_type` enforcement: ClassVar field + runtime validation in `validate_tier()` — v2.0
 - ✓ SignalStatus enum: type-safe status literals across 4 files, eliminated typo risk — v2.0
@@ -248,4 +257,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
 
 ---
-*Last updated: 2026-03-19 after phase 039 (v2.0 data quality + DB health)*
+*Last updated: 2026-03-20 after phase 41 (v2.0 intelligence gap fill)*
