@@ -26,7 +26,7 @@ METRICS_PORT = 9119
 
 async def main() -> None:
     """Main service entry point."""
-    setup_service_logging("quality_gate")
+    setup_service_logging("logs/quality_gate_service.log")
 
     settings = Settings()
 

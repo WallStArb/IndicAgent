@@ -24,7 +24,7 @@ METRICS_PORT = 9120
 
 async def main() -> None:
     """Main service entry point."""
-    setup_service_logging("regime_gate")
+    setup_service_logging("logs/regime_gate_service.log")
     settings = Settings()
     logger.info("Starting Regime Gate Service", port=METRICS_PORT)
     start_metrics_server(METRICS_PORT)

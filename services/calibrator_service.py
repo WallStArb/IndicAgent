@@ -24,7 +24,7 @@ METRICS_PORT = 9122
 
 async def main() -> None:
     """Main service entry point."""
-    setup_service_logging("calibrator")
+    setup_service_logging("logs/calibrator_service.log")
     settings = Settings()
     logger.info("Starting Calibrator Service", port=METRICS_PORT)
     start_metrics_server(METRICS_PORT)
