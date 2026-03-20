@@ -63,6 +63,10 @@ class VWAPReclaimPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        timeframe = frames.get("timeframe", "")
+        if timeframe and timeframe not in ("1m", "5m", "15m"):
+            return self._no_signal()
+
         df = frames.get("main")
         features = frames.get("features") or {}
         symbol = frames.get("__symbol__", "")
