@@ -107,6 +107,41 @@ def topic_attribution(env_name: str) -> str:
     return f"{env_prefix(env_name)}pipeline.attribution"
 
 
+def topic_quality_gated(env_name: str) -> str:
+    """Kafka topic for QualityGate stage output."""
+    return f"{env_prefix(env_name)}pipeline.quality_gated"
+
+
+def topic_regime_gated(env_name: str) -> str:
+    """Kafka topic for RegimeGate stage output."""
+    return f"{env_prefix(env_name)}pipeline.regime_gated"
+
+
+def topic_tod_adjusted(env_name: str) -> str:
+    """Kafka topic for TODAdjuster stage output."""
+    return f"{env_prefix(env_name)}pipeline.tod_adjusted"
+
+
+def topic_calibrated(env_name: str) -> str:
+    """Kafka topic for Calibrator stage output."""
+    return f"{env_prefix(env_name)}pipeline.calibrated"
+
+
+def topic_ranked(env_name: str) -> str:
+    """Kafka topic for Ranker stage output."""
+    return f"{env_prefix(env_name)}pipeline.ranked"
+
+
+def topic_winner(env_name: str) -> str:
+    """Kafka topic for WinnerSelector stage output."""
+    return f"{env_prefix(env_name)}pipeline.winner"
+
+
+def topic_data_quality(env_name: str) -> str:
+    """Kafka topic for data quality monitoring side channel."""
+    return f"{env_prefix(env_name)}pipeline.data_quality"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
