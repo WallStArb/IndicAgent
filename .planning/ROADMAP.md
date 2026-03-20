@@ -157,8 +157,8 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [ ] **Phase 40.5: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
 - [ ] **Phase 41.1: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils from plugin bodies; BaseI7Plugin mixin eliminating boilerplate across all 28 plugins; validate_tier() regime_type + required field checks; split cross_timeframe.py into 3 focused modules (pure structural refactor, zero signal behavior change)
 - [ ] **Phase 41.2: I6 → I7 Confluence Wiring** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family (trend/mean-reversion/SMC/microstructure); ships in shadow mode (logs old vs new confidence, no live score change); prerequisite for Phase 43 amplification
-- [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments
-- [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
+- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments (completed 2026-03-20)
+- [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
 - [ ] **Phase 43: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
 - [ ] **Phase 44: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
 - [ ] **Phase 45: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
@@ -813,8 +813,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 40.5. Performance & Stability Emergency | v2.0 | 0/TBD | Not started | — |
 | 41.1. I7 DAG Refactor | v2.0 | 0/2 | Not started | — |
 | 41.2. I6 → I7 Confluence Wiring | v2.0 | 0/2 | Not started | — |
-| 41. Intelligence Gap Fill | v2.0 | 0/3 | Not started | — |
-| 42. Candlestick Pattern Expansion | v2.0 | 4/4 | Planned | — |
+| 41. Intelligence Gap Fill | v2.0 | 3/3 | Complete | 2026-03-20 |
+| 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
 | 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 45. Auth + External Access | v2.0 | 0/TBD | Not started | — |
