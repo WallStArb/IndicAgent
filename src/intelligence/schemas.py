@@ -402,12 +402,12 @@ class I5Patterns(BaseModel):
     - patt_HeadShoulders (5 fields)
     - TrendConfluence (4 fields)
     - patt_TriangleWedge (6 fields)
-    - patt_CandlestickPatterns (19 fields)
+    - patt_CandlestickPatterns (29 fields)
     - patt_FlagPennant (4 fields)
     - patt_CupHandle (3 fields)
     - patt_MeasuredMove (4 fields)
     - patt_KeyLevelReaction (2 fields)
-    Total: 75 fields
+    Total: 85 fields
 
     NOTE: VolumeProfile (18 fields) migrated to I4Context in Phase 34-02.
 
@@ -486,7 +486,7 @@ class I5Patterns(BaseModel):
     tri_breakout_bias: float | None = None  # -1/0/1
     tri_confidence: float | None = None
 
-    # CandlestickPatternsPlugin outputs (19 total fields)
+    # CandlestickPatternsPlugin outputs (29 total fields)
     engulfing_bull: float | None = None
     engulfing_bear: float | None = None
     pin_bar_bull: float | None = None
@@ -506,6 +506,17 @@ class I5Patterns(BaseModel):
     harami_cross: float | None = None
     dark_cloud_cover: float | None = None
     piercing_line: float | None = None
+    # 10 new candlestick patterns (Phase 42)
+    harami_bull: float | None = None
+    harami_bear: float | None = None
+    abandoned_baby_bull: float | None = None
+    abandoned_baby_bear: float | None = None
+    tweezer_top: float | None = None
+    tweezer_bottom: float | None = None
+    belt_hold_bull: float | None = None
+    belt_hold_bear: float | None = None
+    kicker_bull: float | None = None
+    kicker_bear: float | None = None
 
     # FlagPennantPlugin outputs
     flag_pattern: float | None = None
