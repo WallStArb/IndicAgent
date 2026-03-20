@@ -138,3 +138,16 @@ def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
     from src.intelligence.trading.poc_rejection import plugin
     assert plugin.name == "trad_POCRejection"
+
+
+# ─── Test 9: TF guard returns no_signal on 1h bars ───────────────────────────
+
+def test_tf_guard_returns_no_signal_on_1h():
+    """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
+    from src.intelligence.trading.poc_rejection import POCRejectionPlugin
+    plugin = POCRejectionPlugin()
+    close = np.linspace(4997.0, 4999.0, 25)
+    frames = _make_frames(close, {"poc_price": 5000.0, "atr_14": 10.0})
+    frames["timeframe"] = "1h"
+    result = plugin.compute_full(frames)
+    assert result == {"signal_type": "none", "direction": 0, "confidence": 0.0}

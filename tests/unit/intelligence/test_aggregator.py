@@ -678,3 +678,34 @@ class TestQualityMultiplierWiring:
     def test_trend_setups_is_frozenset(self):
         """TREND_SETUPS is a frozenset."""
         assert isinstance(TREND_SETUPS, frozenset)
+
+
+# ---------------------------------------------------------------------------
+# Phase 41 Plan 03 — Aggregator invariant: active must come from all_ranked
+# ---------------------------------------------------------------------------
+
+
+class TestActiveSignalsHaveAdjustedRankFromAllRanked:
+    """Documents the CRITICAL INVARIANT: active signals must always be derived from
+    all_ranked (never from raw signals). _build_all_ranked() copies signal dicts and
+    sets adjusted_rank; raw signals never get adjusted_rank set.
+
+    This test passes without any implementation change — the invariant is already
+    satisfied. It exists to document the contract and prevent future regressions.
+    """
+
+    @pytest.mark.unit
+    def test_active_signals_have_adjusted_rank_from_all_ranked(self):
+        """All active signals in aggregate() result must have 'adjusted_rank' key.
+
+        adjusted_rank is only set by _build_all_ranked(). If active were derived
+        from raw signals, adjusted_rank would be absent, breaking perf_weights.
+        """
+        sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
+        result = aggregate([sig], trend_regime=0.6)
+        assert result.selected_signal is not None
+        # selected_signal is drawn from the active pool which comes from all_ranked
+        assert "adjusted_rank" in result.selected_signal, (
+            "selected_signal must have 'adjusted_rank' key — it must come from all_ranked, "
+            "not from the raw signals list"
+        )
