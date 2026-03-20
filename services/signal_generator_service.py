@@ -20,9 +20,10 @@ import sys
 import time
 import zoneinfo
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 from uuid import uuid4
 
 # Lookback multiplier: 3x minimum bars needed to ensure warmup buffer
@@ -600,6 +601,9 @@ class SignalGeneratorService:
         self._cross_asset_enabled: bool = getattr(settings, "cross_asset_enabled", False)
         self._cross_asset_cache: dict[str, dict] = {}  # tf -> latest cross_asset payload
 
+        # Phase 041: Higher-timeframe intelligence cache for HTF context injection
+        self._htf_intel_cache: dict[str, dict] = {}  # "{symbol}:1h" -> latest 1h intel features
+
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
             "Total intelligence events processed by signal generator",
@@ -1082,6 +1086,20 @@ class SignalGeneratorService:
 
         calc_start = time.time()
 
+        # Phase 041: Merge HTF VP levels into features with htf_1h_ prefix
+        # _select_vp() in trade_framer reads these keys in its fallback branch
+        htf_frame = frames.get("htf_1h", {})
+        if htf_frame:
+            htf_poc = htf_frame.get("poc_price") or htf_frame.get("poc_price_rolling")
+            htf_vah = htf_frame.get("vah") or htf_frame.get("vah_rolling")
+            htf_val = htf_frame.get("val") or htf_frame.get("val_rolling")
+            if htf_poc is not None:
+                features["htf_1h_poc_price"] = float(htf_poc)
+            if htf_vah is not None:
+                features["htf_1h_vah"] = float(htf_vah)
+            if htf_val is not None:
+                features["htf_1h_val"] = float(htf_val)
+
         raw_signals, _plugin_metadata = self._run_setup_plugins(frames)
 
         # Apply per-TF TTL — overrides the hardcoded default of 10 in make_signal().
@@ -1452,6 +1470,10 @@ class SignalGeneratorService:
             }
             features = _build_features_from_event(event)
 
+            # Phase 041: Cache 1h intel for HTF injection into short-TF frames
+            if timeframe == "1h":
+                self._htf_intel_cache[f"{symbol}:1h"] = features
+
             key = f"{symbol}:{timeframe}"
             bar_with_ts = {**bar, "timestamp": timestamp}
             self.bar_history[key].append(bar_with_ts)
@@ -1460,6 +1482,7 @@ class SignalGeneratorService:
             frames = {
                 "main": self._get_df(key),
                 "features": features,
+                "timeframe": timeframe,  # Phase 041: enables TF guard in VWAP/session plugins
             }
 
             # Phase 037: Inject cross-asset frames for EQ_INDEX symbols when enabled
@@ -1470,6 +1493,10 @@ class SignalGeneratorService:
                 frames["cross_asset_5m"] = self._cross_asset_cache.get(
                     "5m", {"ready": False}
                 )
+
+            # Phase 041: Inject HTF 1h context for short-TF bars
+            if timeframe in ("1m", "5m", "15m"):
+                frames["htf_1h"] = self._htf_intel_cache.get(f"{symbol}:1h", {})
 
             await self._process_bar(
                 symbol,
