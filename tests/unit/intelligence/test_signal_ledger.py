@@ -343,20 +343,17 @@ class TestGetActiveSignals:
 
 
 # ---------------------------------------------------------------------------
-# Phase 12 — Signal Integrity: regime_suppressed status
+# regime_suppressed status SQL coverage
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestRegimeSuppressedStatus:
-    """Verifies regime_suppressed is included in the lifecycle SQL query."""
+    """Verifies _SELECT_ACTIVE_SQL includes regime_suppressed so the lifecycle
+    service tracks shadow/suppressed signals alongside pending and active."""
 
     def test_get_active_signals_query_includes_regime_suppressed(self):
-        """_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the IN clause.
-
-        RED: Current SQL only has ('pending', 'active').
-        Phase 12 requires the lifecycle service to also track shadow signals.
-        """
+        """_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the status IN clause."""
         assert "regime_suppressed" in _SELECT_ACTIVE_SQL, (
             "_SELECT_ACTIVE_SQL must include 'regime_suppressed' in the status IN clause "
             "so that shadow signals are loaded by the lifecycle service. "

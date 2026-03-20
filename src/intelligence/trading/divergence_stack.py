@@ -7,7 +7,7 @@ Gate: score > DIVERGENCE_SCORE_THRESHOLD AND n_agreeing >= DIVERGENCE_MIN_AGREEI
 
 Always-log: div_weighted_score, div_n_agreeing, per-input scores, age_bars, magnitudes
 are returned on EVERY bar regardless of whether a signal fires. These flow to
-intelligence_features.i7 JSONB via _build_i7_payload() in signal_generator_service.
+intelligence_features.i7 JSONB via the DAG winner pipeline in signal_generator_service.
 """
 
 from __future__ import annotations
