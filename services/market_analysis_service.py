@@ -16,6 +16,7 @@ import asyncio
 import json
 import signal
 import sys
+import threading
 import time
 from collections import defaultdict, deque
 from datetime import UTC, datetime
@@ -112,8 +113,8 @@ class MarketAnalysisService:
 
         # Per-(plugin, symbol, timeframe) state namespace — prevents cross-symbol state bleed
         self._plugin_states: dict[tuple[str, str, str], dict] = {}
-        # Per-key locks for concurrent access protection
-        self._plugin_states_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
+        # Per-key threading locks for thread-pool plugin execution (asyncio.to_thread)
+        self._plugin_states_locks: dict[tuple[str, str, str], threading.Lock] = {}
         self._plugin_call_counts: dict[tuple[str, str], int] = defaultdict(int)
 
         self.env_name = settings.env_name.strip()
@@ -172,9 +173,9 @@ class MarketAnalysisService:
         signal.signal(signal.SIGTERM, self._signal_handler)
         self.logger = structlog.get_logger(__name__)
 
-    def _get_state_lock(self, key: tuple[str, str, str]) -> asyncio.Lock:
-        """Get or create a lock for given state key."""
-        return self._plugin_states_locks.setdefault(key, asyncio.Lock())
+    def _get_state_lock(self, key: tuple[str, str, str]) -> threading.Lock:
+        """Get or create a threading lock for given state key."""
+        return self._plugin_states_locks.setdefault(key, threading.Lock())
 
     def _load_config(self, config_file: str | None, settings: Settings) -> dict[str, Any]:
         default_config: dict[str, Any] = {
@@ -243,10 +244,18 @@ class MarketAnalysisService:
                     if should_skip_plugin(p, instrument, self.plugin_skipped_total, pname):
                         continue
                     state_key = (pname, symbol, timeframe)
-                    async with self._get_state_lock(state_key):
-                        p._state = self._plugin_states.setdefault(state_key, {})
-                        out = p.compute_full(frames)
-                        self._plugin_states[state_key] = p._state  # capture full reassignments
+                    lock = self._get_state_lock(state_key)
+
+                    def _sync_compute(
+                        _p=p, _lock=lock, _key=state_key, _frames=frames
+                    ):
+                        with _lock:
+                            _p._state = self._plugin_states.setdefault(_key, {})
+                            _out = _p.compute_full(_frames)
+                            self._plugin_states[_key] = _p._state
+                            return _out
+
+                    out = await asyncio.to_thread(_sync_compute)
                     results.update(out)
                 except Exception as exc:
                     self.logger.warning(f"{tier} plugin failed", plugin=pname, error=str(exc))
