@@ -24,7 +24,7 @@ METRICS_PORT = 9124
 
 async def main() -> None:
     """Main service entry point."""
-    setup_service_logging("winner_selector")
+    setup_service_logging("logs/winner_selector_service.log")
     settings = Settings()
     logger.info("Starting Winner Selector Service", port=METRICS_PORT)
     start_metrics_server(METRICS_PORT)

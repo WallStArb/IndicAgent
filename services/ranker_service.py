@@ -24,7 +24,7 @@ METRICS_PORT = 9123
 
 async def main() -> None:
     """Main service entry point."""
-    setup_service_logging("ranker")
+    setup_service_logging("logs/ranker_service.log")
     settings = Settings()
     logger.info("Starting Ranker Service", port=METRICS_PORT)
     start_metrics_server(METRICS_PORT)

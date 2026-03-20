@@ -24,7 +24,7 @@ METRICS_PORT = 9121
 
 async def main() -> None:
     """Main service entry point."""
-    setup_service_logging("tod_adjuster")
+    setup_service_logging("logs/tod_adjuster_service.log")
     settings = Settings()
     logger.info("Starting TOD Adjuster Service", port=METRICS_PORT)
     start_metrics_server(METRICS_PORT)
