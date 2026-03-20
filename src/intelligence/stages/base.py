@@ -194,6 +194,11 @@ class Stage(ABC):
         """
         logger.info("Starting stage run loop", stage=self.stage_name)
 
+        # Start Kafka clients before entering message loop
+        await self.consumer.start()
+        await self.producer.start()
+        await self.attribution_producer.start()
+
         async for _topic, _key, raw_payload in self.consumer.messages():
             try:
                 # Parse IntelligenceEvent
@@ -325,5 +330,10 @@ class Stage(ABC):
                     stage=self.stage_name,
                     error_type="unexpected",
                 ).inc()
+
+        # Graceful shutdown: stop Kafka clients
+        await self.consumer.stop()
+        await self.producer.stop()
+        await self.attribution_producer.stop()
 
         logger.info("Stage run loop stopped", stage=self.stage_name)
