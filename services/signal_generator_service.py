@@ -1147,6 +1147,7 @@ class SignalGeneratorService:
                 "hmm_regime_prob": features.get("hmm_regime_prob"),
                 "hmm_regime_duration": features.get("hmm_regime_duration"),
             }
+            _quality_gated_topic = topic_quality_gated(self.env_name)
             for sig in raw_signals:
                 dag_msg = {**sig, **_dag_meta}
                 # Ensure direction and numeric fields are serializable
@@ -1154,7 +1155,7 @@ class SignalGeneratorService:
                 dag_msg["confidence"] = float(sig.get("confidence", 0.0))
                 try:
                     await self._kafka_producer.publish(
-                        topic_quality_gated(self.env_name),
+                        _quality_gated_topic,
                         dag_msg,
                         key=message_key(symbol, timeframe),
                     )

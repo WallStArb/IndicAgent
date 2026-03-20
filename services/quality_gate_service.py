@@ -23,9 +23,12 @@ logger = structlog.get_logger(__name__)
 # Metrics port — increments from :9118 (cross-asset)
 METRICS_PORT = 9119
 
+_main_task: asyncio.Task | None = None
+
 
 async def main() -> None:
     """Main service entry point."""
+    global _main_task
     setup_service_logging("logs/quality_gate_service.log")
 
     settings = Settings()
@@ -41,13 +44,15 @@ async def main() -> None:
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(stage)))
 
     logger.info("Quality Gate Service running")
+    _main_task = asyncio.current_task()
     await stage.run()
 
 
 async def shutdown(stage: QualityGateService) -> None:
     """Graceful shutdown."""
     logger.info("Shutting down Quality Gate Service")
-    sys.exit(0)
+    if _main_task:
+        _main_task.cancel()
 
 
 if __name__ == "__main__":

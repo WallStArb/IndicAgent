@@ -42,8 +42,8 @@ class WinnerSelectorService(Stage):
     """
 
     def __init__(self, settings: Settings) -> None:
-        bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
-        env = getattr(settings, "env_name", "development")
+        bootstrap = settings.kafka_bootstrap_servers
+        env = settings.env_name
 
         input_topic = topic_ranked(env)
         output_topic = topic_winner(env)
@@ -63,10 +63,12 @@ class WinnerSelectorService(Stage):
             consumer=consumer,
             producer=producer,
             attribution_producer=attribution_producer,
+            env=env,
         )
 
         # Buffer: {(symbol, tf): [signal_dicts]} — cleared after each bar
         self._bar_buffer: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        self._cis_scorer = CISScorer()
 
     async def process(self, event) -> dict:
         """Buffer signal for current bar. Returns buffered status.
@@ -122,9 +124,8 @@ class WinnerSelectorService(Stage):
         cis_result = None
         if features:
             try:
-                scorer = CISScorer()
                 plugin_outputs = {s["setup_plugin"]: s for s in signals if "setup_plugin" in s}
-                cis_result = scorer.score(features, plugin_outputs)
+                cis_result = self._cis_scorer.score(features, plugin_outputs)
             except Exception:
                 cis_result = None
 

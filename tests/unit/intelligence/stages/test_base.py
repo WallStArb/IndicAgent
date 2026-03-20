@@ -76,6 +76,8 @@ def make_stage() -> ConcreteStage:
     stage.events_produced = MagicMock()
     stage.processing_errors = MagicMock()
     stage.circuit_state = MagicMock()
+    stage._attribution_topic = "development.pipeline.attribution"
+    stage._last_circuit_state = "closed"
     return stage
 
 

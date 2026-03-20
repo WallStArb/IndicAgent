@@ -19,11 +19,14 @@ from src.observability.metrics import start_metrics_server
 
 logger = structlog.get_logger(__name__)
 
+_main_task: asyncio.Task | None = None
+
 METRICS_PORT = 9123
 
 
 async def main() -> None:
     """Main service entry point."""
+    global _main_task
     setup_service_logging("logs/ranker_service.log")
     settings = Settings()
     logger.info("Starting Ranker Service", port=METRICS_PORT)
@@ -35,13 +38,15 @@ async def main() -> None:
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(stage)))
 
     logger.info("Ranker Service running")
+    _main_task = asyncio.current_task()
     await stage.run()
 
 
 async def shutdown(stage: RankerService) -> None:
     """Graceful shutdown."""
     logger.info("Shutting down Ranker Service")
-    sys.exit(0)
+    if _main_task:
+        _main_task.cancel()
 
 
 if __name__ == "__main__":
