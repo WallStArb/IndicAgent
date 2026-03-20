@@ -585,3 +585,51 @@ def test_bar_append_invalidates_cache():
     svc.bar_history[key].append({"timestamp": datetime(2026, 2, 28, 10, 1), "close": 5310.0})
     svc._df_cache[key] = None
     assert svc._df_cache[key] is None
+
+
+# ── Thread pool plugin execution (PERF-03) ─────────────────────────────────────
+
+
+def test_plugin_state_locks_use_threading_lock():
+    """_plugin_states_locks must be threading.Lock for to_thread compatibility."""
+    import threading
+
+    from services.market_analysis_service import MarketAnalysisService
+
+    svc = MarketAnalysisService()
+    key = ("test_plugin", "ES", "1m")
+    lock = svc._get_state_lock(key)
+    assert isinstance(lock, threading.Lock), (
+        "_get_state_lock must return threading.Lock for thread-pool compatibility"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_analysis_pipeline_uses_asyncio_to_thread():
+    """_run_analysis_pipeline must call asyncio.to_thread for plugin compute_full."""
+    from unittest.mock import patch
+
+    import pandas as pd
+
+    from services.market_analysis_service import MarketAnalysisService
+
+    svc = MarketAnalysisService()
+    frames = {
+        "main": pd.DataFrame(
+            [{"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 500}] * 30
+        ),
+        "features": {},
+    }
+
+    to_thread_calls = []
+
+    async def _mock_to_thread(fn, *args, **kwargs):
+        to_thread_calls.append(fn)
+        # Execute the sync function so pipeline completes normally
+        return fn(*args, **kwargs)
+
+    with patch("asyncio.to_thread", side_effect=_mock_to_thread):
+        result = await svc._run_analysis_pipeline("ES", "1m", frames)
+
+    assert isinstance(result, dict)
+    assert len(to_thread_calls) > 0, "asyncio.to_thread must be called for plugin compute_full"
