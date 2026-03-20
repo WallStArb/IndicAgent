@@ -252,6 +252,8 @@ class MarketAnalysisService:
                         with _lock:
                             _p._state = self._plugin_states.setdefault(_key, {})
                             _out = _p.compute_full(_frames)
+                            # CRITICAL: Write plugin _state back after compute_full().
+                            # GARCH/HMM fully reassign _state — omitting this causes stale state.
                             self._plugin_states[_key] = _p._state
                             return _out
 

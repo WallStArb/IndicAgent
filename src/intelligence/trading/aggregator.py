@@ -186,6 +186,10 @@ def aggregate(
         calibration_curves=calibration_curves,
         timeframe=timeframe,
     )
+    # CRITICAL INVARIANT: active must ALWAYS be derived from all_ranked, never from raw signals.
+    # _build_all_ranked() copies signal dicts and sets adjusted_rank — raw signals never have
+    # adjusted_rank set. Deriving active from raw signals silently makes perf_weights have zero
+    # effect on winner selection. See: CLAUDE.md "Aggregator active must come from all_ranked"
     active = [s for s in all_ranked if s.get("regime_eligible", True)]
 
     # Attach CIS metadata to result (even if no signal)
