@@ -19,11 +19,14 @@ from src.observability.metrics import start_metrics_server
 
 logger = structlog.get_logger(__name__)
 
+_main_task: asyncio.Task | None = None
+
 METRICS_PORT = 9122
 
 
 async def main() -> None:
     """Main service entry point."""
+    global _main_task
     setup_service_logging("logs/calibrator_service.log")
     settings = Settings()
     logger.info("Starting Calibrator Service", port=METRICS_PORT)
@@ -35,13 +38,15 @@ async def main() -> None:
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(stage)))
 
     logger.info("Calibrator Service running")
+    _main_task = asyncio.current_task()
     await stage.run()
 
 
 async def shutdown(stage: CalibratorService) -> None:
     """Graceful shutdown."""
     logger.info("Shutting down Calibrator Service")
-    sys.exit(0)
+    if _main_task:
+        _main_task.cancel()
 
 
 if __name__ == "__main__":

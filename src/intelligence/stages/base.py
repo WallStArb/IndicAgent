@@ -78,9 +78,11 @@ class Stage(ABC):
         consumer: KafkaConsumerClient,
         producer: KafkaProducerClient,
         attribution_producer: KafkaProducerClient,
+        env: str = "development",
     ) -> None:
         self.stage_name = stage_name
         self._output_topic = output_topic
+        self._attribution_topic = topic_attribution(env)
 
         # Kafka clients
         self.consumer = consumer
@@ -90,6 +92,7 @@ class Stage(ABC):
         # Fault tolerance and data quality
         self.circuit_breaker = CircuitBreaker(failure_threshold=5, timeout_sec=60)
         self.data_quality_monitor = DataQualityMonitor(stage_name)
+        self._last_circuit_state: str = "closed"
 
         # Prometheus labeled counters/gauges
         # Use prometheus_client directly (not metrics.counter/gauge) to support labels.
@@ -171,7 +174,7 @@ class Stage(ABC):
         }
 
         await self.attribution_producer.publish(
-            topic=topic_attribution(""),
+            topic=self._attribution_topic,
             msg=attribution_payload,
             key=f"{event.symbol}:{event.tf}",
         )
@@ -314,11 +317,13 @@ class Stage(ABC):
                     timeframe=timeframe,
                 ).inc()
 
-                # Update circuit state gauge
-                state_val = _CIRCUIT_STATE_GAUGE_VALUES.get(
-                    self.circuit_breaker.state.value, 0.0
-                )
-                self.circuit_state.labels(stage=self.stage_name).set(state_val)
+                # Update circuit state gauge only on state change (avoids lock per message)
+                current_state = self.circuit_breaker.state.value
+                if current_state != self._last_circuit_state:
+                    self._last_circuit_state = current_state
+                    self.circuit_state.labels(stage=self.stage_name).set(
+                        _CIRCUIT_STATE_GAUGE_VALUES.get(current_state, 0.0)
+                    )
 
             except Exception as exc:
                 logger.exception(

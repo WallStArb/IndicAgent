@@ -8,17 +8,9 @@ from src.config.settings import Settings
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import topic_calibrated, topic_ranked
 from src.intelligence.stages.base import Stage
+from src.intelligence.trading.aggregator import SETUP_PRIORITY
 
 logger = structlog.get_logger(__name__)
-
-# Setup priority from aggregator.py — lower value = higher priority when sorted ascending
-SETUP_PRIORITY: dict[str, int] = {
-    "trad_MeanReversion": 1,
-    "trad_SqueezeExpansion": 2,
-    "trad_TrendFollowing": 3,
-    "trad_MTFAlignment": 4,
-    "trad_LiquiditySweepReclaim": 5,
-}
 
 
 class RankerService(Stage):
@@ -37,8 +29,8 @@ class RankerService(Stage):
     """
 
     def __init__(self, settings: Settings) -> None:
-        bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
-        env = getattr(settings, "env_name", "development")
+        bootstrap = settings.kafka_bootstrap_servers
+        env = settings.env_name
 
         input_topic = topic_calibrated(env)
         output_topic = topic_ranked(env)
@@ -58,6 +50,7 @@ class RankerService(Stage):
             consumer=consumer,
             producer=producer,
             attribution_producer=attribution_producer,
+            env=env,
         )
 
         # {(plugin_name, tf): perf_multiplier} — loaded from setup_performance table

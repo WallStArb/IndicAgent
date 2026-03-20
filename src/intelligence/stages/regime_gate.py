@@ -40,8 +40,8 @@ class RegimeGateService(Stage):
     """
 
     def __init__(self, settings: Settings) -> None:
-        bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
-        env = getattr(settings, "env_name", "development")
+        bootstrap = settings.kafka_bootstrap_servers
+        env = settings.env_name
 
         input_topic = topic_quality_gated(env)
         output_topic = topic_regime_gated(env)
@@ -61,6 +61,7 @@ class RegimeGateService(Stage):
             consumer=consumer,
             producer=producer,
             attribution_producer=attribution_producer,
+            env=env,
         )
 
     async def process(self, event) -> dict:
