@@ -603,7 +603,7 @@ def _collect_targets_long(
             # Near VA boundary: T1=POC, T2=VAH
             if poc > entry:
                 priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
-            if vah > poc:
+            if vah > entry:
                 priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
 
     # Standard candidates filtered to ATR range
@@ -699,7 +699,7 @@ def _collect_targets_short(
             # Near VA boundary: T1=POC, T2=VAL
             if poc < entry:
                 priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
-            if val < poc:
+            if val < entry:
                 priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
 
     # Standard candidates filtered to ATR range

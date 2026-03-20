@@ -602,9 +602,8 @@ class SignalGeneratorService:
         self._cross_asset_cache: dict[str, dict] = {}  # tf -> latest cross_asset payload
 
         # Phase 041: Higher-timeframe intelligence cache for HTF context injection
-        # LRU cache with max size prevents unbounded memory growth in long-running service
-        from collections import OrderedDict
-        self._htf_intel_cache: OrderedDict[str, dict] = OrderedDict(maxlen=100)  # "{symbol}:1h" -> latest 1h intel features
+        # Plain dict - bounded by active symbol set in practice (~50 symbols)
+        self._htf_intel_cache: dict[str, dict] = {}  # "{symbol}:1h" -> latest 1h intel features
 
         self.bars_processed_total = counter(
             "generator_bars_processed_total",
