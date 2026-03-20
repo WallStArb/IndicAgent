@@ -713,7 +713,7 @@ async def test_seed_bar_history_from_db_success():
 
     # Mock min_bars_for_tf to return 2 for 1m
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=2):
-        with patch("services.signal_generator_service.get_active_contracts", return_value=["ES"]):
+        with patch("services.signal_generator_service.get_active_symbols", return_value=["ES"]):
             await svc._seed_bar_history_from_db()
 
     # Verify bar_history was populated
@@ -752,7 +752,7 @@ async def test_seed_bar_history_from_db_multiple_symbols():
 
     # Mock different results per symbol/TF combination
     # execute_query is called as execute_query(query, symbol, tf) → *args style
-    def mock_execute_query_side_effect(query, symbol, tf):
+    def mock_execute_query_side_effect(query, symbol, tf, *args):
         if symbol == "ES" and tf == "1m":
             return [
                 {
@@ -792,7 +792,7 @@ async def test_seed_bar_history_from_db_multiple_symbols():
 
     with patch("services.signal_generator_service.min_bars_for_tf", side_effect=mock_min_bars):
         with patch(
-            "services.signal_generator_service.get_active_contracts", return_value=["ES", "NQ"]
+            "services.signal_generator_service.get_active_symbols", return_value=["ES", "NQ"]
         ):
             await svc._seed_bar_history_from_db()
 
@@ -833,7 +833,7 @@ async def test_seed_bar_history_from_db_partial_data():
     ]
 
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=120):
-        with patch("services.signal_generator_service.get_active_contracts", return_value=["ES"]):
+        with patch("services.signal_generator_service.get_active_symbols", return_value=["ES"]):
             await svc._seed_bar_history_from_db()
 
     # Verify bar_history contains whatever DB returned (doesn't enforce min_bars)
@@ -865,7 +865,7 @@ async def test_seed_bar_history_from_db_unavailable():
     mock_db.execute_query.side_effect = psycopg2.OperationalError("connection timeout")
 
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=120):
-        with patch("services.signal_generator_service.get_active_contracts", return_value=["ES"]):
+        with patch("services.signal_generator_service.get_active_symbols", return_value=["ES"]):
             await svc._seed_bar_history_from_db()
 
     # Verify WARNING log was emitted
@@ -893,7 +893,7 @@ async def test_seed_bar_history_from_db_no_db_manager():
     svc.db_manager = None  # No DB manager
 
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=120):
-        with patch("services.signal_generator_service.get_active_contracts", return_value=["ES"]):
+        with patch("services.signal_generator_service.get_active_symbols", return_value=["ES"]):
             await svc._seed_bar_history_from_db()
 
     # Verify WARNING log was emitted
@@ -924,7 +924,7 @@ async def test_seed_bar_history_from_db_empty_result():
     mock_db.execute_query.return_value = []
 
     with patch("services.signal_generator_service.min_bars_for_tf", return_value=120):
-        with patch("services.signal_generator_service.get_active_contracts", return_value=["ES"]):
+        with patch("services.signal_generator_service.get_active_symbols", return_value=["ES"]):
             await svc._seed_bar_history_from_db()
 
     # Verify bar_history remains empty
