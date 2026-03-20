@@ -31,6 +31,7 @@ from typing import Any
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+from statsmodels.stats.proportion import proportions_ztest
 
 from .ml.confidence_calibrator import run_calibration_update
 from .trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES
@@ -101,6 +102,137 @@ def _clip_and_renormalize(weights: np.ndarray, min_w: float = MIN_WEIGHT) -> np.
     """Enforce minimum weight per bucket and renormalize to sum=1.0."""
     clipped = np.maximum(weights, min_w)
     return clipped / clipped.sum()
+
+
+async def _calibrate_pattern_reliability(
+    db_manager: Any,
+) -> dict[str, Any] | None:
+    """Calibrate pattern_reliability table from signal_ledger outcomes.
+
+    Queries resolved CandlestickPatternSetup signals, computes win_rate and
+    p_value per (pattern_name, timeframe), updates pattern_reliability when
+    sample_size >= 30 and p < 0.05. Sets is_bootstrap=false on promotion.
+
+    Returns:
+        Dict with calibration stats or None if no patterns eligible.
+    """
+    # Query resolved candlestick signals with pattern name extracted.
+    # signal_type format: "candlestick_{pattern_name}_{long|short}"
+    # e.g. "candlestick_abandoned_baby_long" → pattern_name "abandoned_baby"
+    # regexp_replace strips the prefix and suffix to recover multi-word pattern_name.
+    rows = await db_manager.execute_query("""
+        SELECT
+            regexp_replace(
+                regexp_replace(signal_type, '^candlestick_', ''),
+                '_(long|short)$', ''
+            ) AS pattern_name,
+            timeframe,
+            COUNT(*) AS sample_size,
+            AVG(
+                CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
+                THEN 1.0 ELSE 0.0 END
+            ) AS win_rate,
+            STDDEV(
+                CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
+                THEN 1.0 ELSE 0.0 END
+            ) AS win_rate_std
+        FROM signal_ledger
+        WHERE setup_plugin = 'trad_CandlestickPatternSetup'
+          AND outcome IS NOT NULL
+          AND is_shadow = FALSE
+        GROUP BY pattern_name, timeframe
+        HAVING COUNT(*) >= 30
+    """)
+
+    if not rows:
+        logger.info("Pattern calibration: no patterns with sample_size >= 30")
+        return None
+
+    calibration_stats: dict[str, Any] = {}
+    for row in rows:
+        pattern_name = row["pattern_name"]
+        timeframe = row["timeframe"]
+        n = int(row["sample_size"])
+        win_rate = float(row["win_rate"])
+
+        # Proportions z-test for statistical significance
+        wins = int(round(win_rate * n))
+        losses = n - wins
+        if wins == 0 or losses == 0:
+            p_value = 1.0  # No variance, not significant
+        else:
+            try:
+                _stat, p_value = proportions_ztest(
+                    count=np.array([wins, losses]),
+                    nobs=np.array([n, n]),
+                )
+                p_value = float(p_value)
+            except Exception:
+                p_value = 1.0
+
+        # Only update if statistically significant (p < 0.05)
+        if p_value < 0.05:
+            # ic_score placeholder — Phase 46 ML analysis will populate
+            ic_score = None  # TODO: Phase 46 ML analysis
+
+            await db_manager.execute_command(
+                """
+                UPDATE pattern_reliability
+                SET
+                    base_confidence = $1,
+                    sample_size = $2,
+                    win_rate = $3,
+                    p_value = $4,
+                    ic_score = $5,
+                    is_bootstrap = false,
+                    last_updated = NOW()
+                WHERE pattern_name = $6 AND timeframe = $7
+                """,
+                win_rate,
+                n,
+                win_rate,
+                p_value,
+                ic_score,
+                pattern_name,
+                timeframe,
+            )
+
+            calibration_stats[f"{pattern_name}:{timeframe}"] = {
+                "pattern_name": pattern_name,
+                "timeframe": timeframe,
+                "sample_size": n,
+                "win_rate": win_rate,
+                "p_value": p_value,
+                "promoted": True,
+            }
+            logger.info(
+                "Pattern calibration: %s (%s) promoted to data-driven weight: "
+                "win_rate=%.3f, n=%d, p=%.3f",
+                pattern_name,
+                timeframe,
+                win_rate,
+                n,
+                p_value,
+            )
+        else:
+            calibration_stats[f"{pattern_name}:{timeframe}"] = {
+                "pattern_name": pattern_name,
+                "timeframe": timeframe,
+                "sample_size": n,
+                "win_rate": win_rate,
+                "p_value": p_value,
+                "promoted": False,
+            }
+            logger.info(
+                "Pattern calibration: %s (%s) not significant (p=%.3f, n=%d), "
+                "keeping bootstrap weight",
+                pattern_name,
+                timeframe,
+                p_value,
+                n,
+            )
+
+    return calibration_stats if calibration_stats else None
 
 
 def compute_new_weights(
@@ -300,6 +432,23 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
         await run_calibration_update(db_manager)
     except Exception as exc:
         logger.error("run_calibration_update call failed", error=str(exc))
+
+    # Phase 42: Run pattern reliability calibration in independent failure domain.
+    # Failure here does not affect CIS weight update completion.
+    try:
+        pattern_stats = await _calibrate_pattern_reliability(db_manager)
+        if pattern_stats:
+            promoted_count = sum(
+                1 for s in pattern_stats.values() if s.get("promoted", False)
+            )
+            logger.info(
+                "Pattern calibration complete: %d patterns analyzed, %d promoted to "
+                "data-driven weights",
+                len(pattern_stats),
+                promoted_count,
+            )
+    except Exception as exc:
+        logger.error("Pattern calibration failed", error=str(exc))
 
     return global_result
 
