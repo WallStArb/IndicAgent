@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.25.0
-Last Updated: 2026-03-19
-Status: v2.0 IN PROGRESS — Phase 39.1 complete, Phase 40 next
+Version: 5.26.0
+Last Updated: 2026-03-20
+Status: v2.0 IN PROGRESS — Phases 40-42 complete, Phase 43 (Performance Emergency) next
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -190,6 +190,28 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`order_blocks.py` pre-filters to unmitigated OBs**: `_check_mitigated()` runs before output — `ob_type/top/bottom` always represents an unmitigated block. Downstream scoring (I6, trade_framer) does not need to re-check mitigation status.
 - **`cross_timeframe.py` already has multi-TF data**: `compute_full(frames)` iterates `intel_<tf>` keys (lines 89-92) — FVG/OB/VP outputs from all active TFs flow through automatically. Cross-TF scoring only needs the scoring function, no new data routing.
 - **HTF frame injection pattern**: `signal_generator_service._cross_asset_cache: dict[str, dict]` (tf → payload) is the canonical pattern for injecting per-TF external data into plugin frames before `compute_full()`. Replicate for any new per-TF source (e.g., `_htf_intel_cache`). Zero new subscriptions — populate cache from existing stream, inject into `frames` dict.
+
+### Signal Identity Preservation (Renaissance Principle)
+
+**Never merge informationally distinct signals into a parameterized class.** OFI and CVD are separate explanatory variables in the model:
+- **OFI** (Order Flow Imbalance) = directional pressure from the limit order book — *intent*
+- **CVD** (Cumulative Volume Delta) = signed aggressive volume — *execution*
+
+Merging them into `OFIDivergencePlugin(mode="ofi"|"cvd")` destroys separability. When the ML scoring layer (Phase 49) builds the training matrix, `trad_OFIDivergence` and `trad_CVDDivergence` must appear as independent feature columns — collapsing them makes it impossible to measure which signal type contributes alpha independently.
+
+**Rule:** Extract shared *computation* utilities (normalization, threshold logic) without collapsing signal identities. This applies to all signal families: OFI/CVD, VWAP (3 plugins), liquidity (3 plugins). Shared utilities — yes. Shared identity — never.
+
+### I6 → I7 Confluence Obligation (Renaissance Principle)
+
+**Every I7 plugin must consume relevant I6 `ctf_*` sub-scores in its confidence calculation.** Computing I6 cross-timeframe alignment and ignoring it downstream is a Renaissance violation — compute budget is spent, signal quality is not captured.
+
+Weight by setup family:
+- **Trend-following** setups → `ctf_trend_alignment`, `ctf_score` (heavy weight)
+- **Mean-reversion** setups → `ctf_regime_agreement`, `ctf_structure_alignment`
+- **SMC/FVG** setups → `ctf_fvg_alignment`, `ctf_ob_alignment`
+- **Microstructure** (OFI/CVD) → `ctf_score` as a *gate* (suppress signal if CTF disagrees)
+
+New I7 plugins that do not incorporate `ctf_*` scores must document explicitly why they are exempt. No exemption without justification.
 
 ## Development Standards
 
