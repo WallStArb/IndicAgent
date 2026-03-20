@@ -153,8 +153,10 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 
 - [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, IC computation, data quality monitoring infrastructure (completed 2026-03-19)
 - [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
-- [ ] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (IN PROGRESS)
+- [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (completed 2026-03-19)
 - [ ] **Phase 40.5: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
+- [ ] **Phase 41.1: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils from plugin bodies; BaseI7Plugin mixin eliminating boilerplate across all 28 plugins; validate_tier() regime_type + required field checks; split cross_timeframe.py into 3 focused modules (pure structural refactor, zero signal behavior change)
+- [ ] **Phase 41.2: I6 → I7 Confluence Wiring** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family (trend/mean-reversion/SMC/microstructure); ships in shadow mode (logs old vs new confidence, no live score change); prerequisite for Phase 43 amplification
 - [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
 - [ ] **Phase 43: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
@@ -553,9 +555,33 @@ Plans:
 - [ ] 40.5-02-PLAN.md — Plugin thread pool + calibration ndarray pre-alloc + refresh loop helper (PERF-03, PERF-05, PERF-06)
 - [ ] 40.5-03-PLAN.md — Feature writer i7/i8 batch buffering + lifecycle O(1) index + chandelier write guard + stale signal cleanup (PERF-02, PERF-04)
 
+### Phase 41.1: I7 DAG Refactor
+**Goal**: The I7 trading layer has clean DAG structure — computation utilities extracted from plugin bodies into shared modules, boilerplate eliminated via BaseI7Plugin mixin, Protocol enforcement tightened, and I6 cross_timeframe.py decomposed into 3 focused modules. Zero signal behavior change — pure structural refactor.
+**Depends on**: Phase 40 (DAG foundation complete)
+**Requirements**: DAG-01, DAG-02, DAG-03, DAG-04
+**Success Criteria** (what must be TRUE):
+  1. `atr_utils.py`, `position_utils.py`, `confidence_utils.py` exist in `src/intelligence/trading/` and are imported by ≥10 plugins each — grep confirms no inline ATR fallback or stop/target placement in plugin bodies
+  2. `BaseI7Plugin` mixin provides `_no_signal()` and default `compute_next()` — all 28 I7 plugins inherit from it; no plugin declares its own `_no_signal()`
+  3. `validate_tier()` hard-crashes on any I7 plugin missing `regime_type` or declaring a required I4 field that isn't in the features schema — verified by a unit test
+  4. `cross_timeframe.py` split into `confluence_weights.py`, `confluence_alignment.py`, `confluence_smc.py` — all existing I6 tests pass unchanged
+- [ ] 41.1-01-PLAN.md — Extract atr_utils, position_utils, confidence_utils + BaseI7Plugin mixin (DAG-01, DAG-02)
+- [ ] 41.1-02-PLAN.md — validate_tier() field enforcement + cross_timeframe.py decomposition (DAG-03, DAG-04)
+
+### Phase 41.2: I6 → I7 Confluence Wiring
+**Goal**: All 28 I7 plugins incorporate I6 confluence scores into confidence calculations, weighted by setup family. Ships in shadow mode — old and new confidence logged side-by-side with no live score change until Phase 43 graduation.
+**Depends on**: Phase 41.1 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract)
+**Requirements**: CONF-01, CONF-02, CONF-03
+**Success Criteria** (what must be TRUE):
+  1. Every I7 plugin reads `ctf_score` (and ≥1 relevant sub-score) from `frames["features"]` — grep confirms no plugin body ignores all `ctf_*` fields
+  2. Shadow logging in each plugin emits `{"old_confidence": X, "new_confidence": Y, "ctf_contribution": Z}` per fired signal — visible in `intelligence_features.i7` JSONB
+  3. Live `calibrated_confidence` in `signal_ledger` is unchanged (shadow mode confirmed by querying a 24h window and verifying zero change in score distribution)
+  4. Each plugin family uses the correct I6 sub-score weight: trend-following → `ctf_trend_alignment`; mean-reversion → `ctf_regime_agreement`; SMC → `ctf_fvg_alignment` + `ctf_ob_alignment`; microstructure (OFI/CVD) → `ctf_score` as gate
+- [ ] 41.2-01-PLAN.md — ctf_* wiring for trend/mean-reversion plugin families (CONF-01)
+- [ ] 41.2-02-PLAN.md — ctf_* wiring for SMC + microstructure plugin families + shadow logging (CONF-02, CONF-03)
+
 ### Phase 41: Intelligence Gap Fill
 **Goal**: Intelligence fields that were stubs are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, higher-TF S/R context reaches I7 plugins, VWAP/session guards prevent intraday-only plugins firing on wrong TFs.
-**Depends on**: Phase 40.5 (performance stable before adding cross-TF query load)
+**Depends on**: Phase 41.2 (confluence wiring complete; I6 data quality now matters for I7 confidence)
 **Requirements**: INTEL-01, INTEL-02, INTEL-03, INTEL-04, INTEL-05
 **Success Criteria** (what must be TRUE):
   1. `i6_fvg_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where FVGs exist on multiple timeframes — the hardcoded `0.0` stub is absent from `cross_timeframe.py`.
@@ -783,10 +809,14 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 39. Data Quality + DB Health | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
-| 40. Machine Hardening | 4/4 | Complete    | 2026-03-20 | — |
-| 41. Intelligence Gap Fill | 2/3 | Complete    | 2026-03-20 | — |
-| 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete    | 2026-03-20 |
+| 40. DAG Refactor — Clean Foundation | v2.0 | 4/4 | Complete | 2026-03-19 |
+| 40.5. Performance & Stability Emergency | v2.0 | 0/TBD | Not started | — |
+| 41.1. I7 DAG Refactor | v2.0 | 0/2 | Not started | — |
+| 41.2. I6 → I7 Confluence Wiring | v2.0 | 0/2 | Not started | — |
+| 41. Intelligence Gap Fill | v2.0 | 0/3 | Not started | — |
+| 42. Candlestick Pattern Expansion | v2.0 | 4/4 | Planned | — |
 | 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 45. Auth + External Access | v2.0 | 0/TBD | Not started | — |
 | 46. ML Scoring Model | v2.0 | 0/TBD | Not started | — |
+| 47. Renaissance Observability | v2.0 | 0/TBD | Not started | — |
