@@ -1,4 +1,4 @@
-# Phase 40.5: Performance & Stability Emergency - Research
+# Phase 43: Performance & Stability Emergency - Research
 
 **Researched:** 2026-03-20
 **Domain:** Python asyncio performance, TimescaleDB hypertable partitioning, signal lifecycle indexing
@@ -8,7 +8,7 @@
 
 ## Summary
 
-Phase 40.5 targets six concrete production bottlenecks. Two are causing active pain (OHLCV 4-5s
+Phase 43 targets six concrete production bottlenecks. Two are causing active pain (OHLCV 4-5s
 query timeouts, 328K stale pending signals creating O(N) per-bar scans). The other four are
 structural hazards that will compound when Phase 41 adds more computation load. All six
 have clear, verified fix patterns with no exploratory work required.
@@ -463,7 +463,7 @@ async def _seed_active_index(self) -> None:
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
 | Redis streams (xreadgroup) | Kafka consumer (messages() async gen) | Phase 40 | feature_writer already uses single consumer; "3 xreadgroup calls" was Redis-era description |
-| Space+time partitioned OHLCV | Time-only target | Phase 40.5 | 831 chunks → ~48 at 7-day intervals for 334K rows (less than 2 years data) |
+| Space+time partitioned OHLCV | Time-only target | Phase 43 | 831 chunks → ~48 at 7-day intervals for 334K rows (less than 2 years data) |
 
 **Deprecated/outdated:**
 - The ROADMAP description of "3 separate xreadgroup calls" for PERF-02 is outdated — this was the Redis era. The current feature_writer_service uses a single Kafka consumer. The actual lag (if it still exists) needs fresh measurement.
@@ -535,7 +535,7 @@ async def _seed_active_index(self) -> None:
 - CLAUDE.md: `market_data_ohlcv` is backfill-only confirmed
 
 ### Secondary (MEDIUM confidence)
-- ROADMAP.md Phase 40.5 success criteria — authoritative spec for what "done" means
+- ROADMAP.md Phase 43 success criteria — authoritative spec for what "done" means
 - Production migrations directory — confirmed existing schema evolution patterns
 
 ### Tertiary (LOW confidence)
