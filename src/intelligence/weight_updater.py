@@ -120,7 +120,8 @@ async def _calibrate_pattern_reliability(
     # signal_type format: "candlestick_{pattern_name}_{long|short}"
     # e.g. "candlestick_abandoned_baby_long" → pattern_name "abandoned_baby"
     # regexp_replace strips the prefix and suffix to recover multi-word pattern_name.
-    rows = await db_manager.execute_query("""
+    win_outcomes_sql = ", ".join(f"'{o}'" for o in sorted(WIN_OUTCOMES))
+    rows = await db_manager.execute_query(f"""
         SELECT
             regexp_replace(
                 regexp_replace(signal_type, '^candlestick_', ''),
@@ -129,13 +130,9 @@ async def _calibrate_pattern_reliability(
             timeframe,
             COUNT(*) AS sample_size,
             AVG(
-                CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
+                CASE WHEN outcome IN ({win_outcomes_sql})
                 THEN 1.0 ELSE 0.0 END
-            ) AS win_rate,
-            STDDEV(
-                CASE WHEN outcome IN ('target_1', 'target_1_2', 'target_full')
-                THEN 1.0 ELSE 0.0 END
-            ) AS win_rate_std
+            ) AS win_rate
         FROM signal_ledger
         WHERE setup_plugin = 'trad_CandlestickPatternSetup'
           AND outcome IS NOT NULL
@@ -155,17 +152,13 @@ async def _calibrate_pattern_reliability(
         n = int(row["sample_size"])
         win_rate = float(row["win_rate"])
 
-        # Proportions z-test for statistical significance
+        # One-proportion z-test: is win_rate significantly different from 50% (chance)?
         wins = int(round(win_rate * n))
-        losses = n - wins
-        if wins == 0 or losses == 0:
+        if wins == 0 or wins == n:
             p_value = 1.0  # No variance, not significant
         else:
             try:
-                _stat, p_value = proportions_ztest(
-                    count=np.array([wins, losses]),
-                    nobs=np.array([n, n]),
-                )
+                _stat, p_value = proportions_ztest(count=wins, nobs=n, value=0.5)
                 p_value = float(p_value)
             except Exception:
                 p_value = 1.0
