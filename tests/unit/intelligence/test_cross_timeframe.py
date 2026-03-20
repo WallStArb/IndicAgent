@@ -244,3 +244,63 @@ class TestCrossTimeframeConfluence:
         }
         result = plugin.compute_full(frames)
         assert result["i6_i2_event_score"] == 0.0
+
+    def test_fvg_alignment_nonzero_when_fvg_present(self, plugin):
+        """FVG on higher TF matching current bar direction → non-zero positive alignment."""
+        frames = {
+            "timeframe": "1m",
+            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "intel_5m": {
+                "fvg_type": 1.0,
+                "fvg_top": 105.0,
+                "fvg_bottom": 103.0,
+                "trend_direction": 1.0,
+            },
+        }
+        result = plugin.compute_full(frames)
+        assert result["i6_fvg_tf_alignment"] != 0.0
+        assert result["i6_fvg_tf_alignment"] > 0.0
+
+    def test_fvg_alignment_zero_no_fvg(self, plugin):
+        """No FVG on higher TF (fvg_type=0.0) → alignment score is 0.0."""
+        frames = {
+            "timeframe": "1m",
+            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "intel_5m": {
+                "fvg_type": 0.0,
+                "trend_direction": 1.0,
+            },
+        }
+        result = plugin.compute_full(frames)
+        assert result["i6_fvg_tf_alignment"] == 0.0
+
+    def test_ob_alignment_nonzero_when_ob_present(self, plugin):
+        """OB on higher TF matching current bar direction → non-zero positive alignment."""
+        frames = {
+            "timeframe": "1m",
+            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "intel_5m": {
+                "ob_type": 1.0,
+                "ob_top": 105.0,
+                "ob_bottom": 103.0,
+                "trend_direction": 1.0,
+            },
+        }
+        result = plugin.compute_full(frames)
+        assert result["i6_ob_tf_alignment"] != 0.0
+        assert result["i6_ob_tf_alignment"] > 0.0
+
+    def test_fvg_alignment_direction_mismatch_reduces_score(self, plugin):
+        """Bearish FVG on higher TF but bullish current bar → negative or zero score."""
+        frames = {
+            "timeframe": "1m",
+            "features": {"atr_14": 2.0, "close": 101.0, "trend_direction": 1.0},
+            "intel_5m": {
+                "fvg_type": -1.0,
+                "fvg_top": 105.0,
+                "fvg_bottom": 103.0,
+                "trend_direction": -1.0,
+            },
+        }
+        result = plugin.compute_full(frames)
+        assert result["i6_fvg_tf_alignment"] <= 0.0
