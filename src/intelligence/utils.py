@@ -8,6 +8,9 @@ from typing import Any
 
 import numpy as np
 
+# Timeframe constants for TF guards
+INTRADAY_ONLY_TFS = ("1m", "5m", "15m")
+
 
 def find_peaks(data: np.ndarray, n: int) -> list[int]:
     """Find local maxima using N-neighbor comparison.
@@ -121,3 +124,24 @@ def utc_datetime_from_df(df: Any) -> datetime | None:
         return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts.astimezone(UTC)
     except Exception:
         return None
+
+
+def guard_intraday_only(frames: dict[str, Any]) -> bool:
+    """Return False if timeframe is not intraday-only (1h+ bars blocked).
+
+    This prevents intraday-only setups from firing on hourly or higher timeframes
+    where the session-based logic doesn't apply. Empty string (not yet injected)
+    passes through for backward compatibility with tests.
+
+    Parameters
+    ----------
+    frames : dict[str, Any]
+        Frame dict containing optional "timeframe" key
+
+    Returns
+    -------
+    bool
+        True if timeframe is intraday-only or unset, False if 1h/4h/1d/etc.
+    """
+    tf = frames.get("timeframe", "")
+    return not tf or tf in INTRADAY_ONLY_TFS
