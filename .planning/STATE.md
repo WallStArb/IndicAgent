@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 40-04-PLAN.md — DAG service integration complete
-last_updated: "2026-03-20T03:45:07.864Z"
+stopped_at: Completed 40.5-01-PLAN.md — OHLCV hypertable rebuild complete
+last_updated: "2026-03-20T08:56:45.605Z"
 progress:
-  total_phases: 24
+  total_phases: 25
   completed_phases: 3
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 19
+  completed_plans: 17
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 40 — dag-refactor-clean-foundation
+**Current focus:** Phase 40.5 — performance-stability-emergency
 
 ## Current Position
 
-Phase: 40 (dag-refactor-clean-foundation) — COMPLETE
-Plan: 4 of 4
+Phase: 40.5 (performance-stability-emergency) — EXECUTING
+Plan: 1 of 3
 
 ## Performance Metrics
 
@@ -159,7 +159,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-20T03:36:31.867Z
-Stopped at: Completed 40-04-PLAN.md — DAG service integration complete
+Last session: 2026-03-20T08:56:45.602Z
+Stopped at: Completed 40.5-01-PLAN.md — OHLCV hypertable rebuild complete
 Resume file: None
 Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (Machine Hardening)
