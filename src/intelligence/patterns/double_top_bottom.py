@@ -41,6 +41,9 @@ class DoubleTBPlugin:
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
 
+        if np.any(high <= 0) or np.any(low <= 0):
+            return {}
+
         default = {
             "dt_db_pattern": 0.0,
             "dt_db_neckline": 0.0,
