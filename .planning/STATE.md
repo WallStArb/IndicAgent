@@ -176,4 +176,4 @@ Recent additions (2026-03-19):
 Last session: 2026-03-20T21:19:52.183Z
 Stopped at: Completed 42-05-PLAN.md — weight updater calibration and 7-day backtest validation
 Resume file: None
-Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (DAG Refactor — Clean Foundation)
+Next action: Run `/gsd:plan-phase 47` to plan Phase 47 (Signal Pipeline DAG Refactor)

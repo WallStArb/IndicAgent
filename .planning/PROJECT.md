@@ -195,7 +195,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Two migrations share number 043 — next migration must start at 044
 - indicagent-timeframes.service — legacy, non-blocking
 
-**Next milestone candidates:** v2.0 — ML scoring model (XGBoost on intelligence_features + signal_ledger; needs ~90 days), candlestick pattern expansion, Auth + External Access, I6 Confluence Expansion (cross-TF + cross-asset)
+**Next milestone candidates:** v2.0 — ML scoring model (XGBoost on intelligence_features + signal_ledger; needs ~90 days), Auth + External Access, I6 Confluence Expansion (cross-TF + cross-asset)
 
 ## Key Decisions
 
