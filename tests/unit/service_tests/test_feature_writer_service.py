@@ -458,3 +458,157 @@ def test_event_to_insert_params_days_zero_for_non_futures():
     params = _event_to_insert_params(event, expiry_map)
 
     assert params[17] == 0
+
+
+# ── PERF-02: i7/i8 batch buffering ───────────────────────────────────────────
+
+
+def _make_svc_with_mocks():
+    """Build a FeatureWriterService with mocked DB and metrics for i7/i8 tests."""
+    from services.feature_writer_service import FeatureWriterService
+
+    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc.logger = MagicMock()
+    svc._i7_buffer = []
+    svc._i8_buffer = []
+    svc._buffer = []
+    svc._last_flush = 0.0
+    svc._error_count = 0
+    svc._total_batches = 0
+    svc.batch_writes_total = MagicMock()
+    svc.events_buffered_gauge = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc.i7_i8_batch_writes_total = MagicMock()
+
+    mock_db = MagicMock()
+    mock_db.execute_batch = AsyncMock()
+    svc.db_manager = mock_db
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_process_i7_message_buffers_not_writes():
+    """_process_i7_message appends to _i7_buffer and does NOT call execute_batch."""
+    svc = _make_svc_with_mocks()
+
+    payload = {"ts": "2026-03-20T10:00:00Z", "data": '[{"signal_id": "abc"}]'}
+    result = await svc._process_i7_message("ES", "1m", payload)
+
+    assert result is True
+    assert len(svc._i7_buffer) == 1
+    svc.db_manager.execute_batch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_process_i8_message_buffers_not_writes():
+    """_process_i8_message appends to _i8_buffer and does NOT call execute_batch."""
+    svc = _make_svc_with_mocks()
+
+    payload = {
+        "ts": "2026-03-20T10:00:00Z",
+        "model": "qwen3.5:9b",
+        "confidence": "0.75",
+        "summary": "Bullish setup",
+        "generated_at": "2026-03-20T10:00:01Z",
+    }
+    result = await svc._process_i8_message("ES", "1m", payload)
+
+    assert result is True
+    assert len(svc._i8_buffer) == 1
+    svc.db_manager.execute_batch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_flush_i7_i8_writes_accumulated_params():
+    """_flush_i7_i8 calls execute_batch with all buffered i7 and i8 rows."""
+    from datetime import UTC, datetime
+
+    svc = _make_svc_with_mocks()
+
+    # Seed buffers directly
+    ts = datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC)
+    svc._i7_buffer = [(ts, "ES", "1m", '[{"sig": "a"}]'), (ts, "NQ", "5m", '[{"sig": "b"}]')]
+    svc._i8_buffer = [(ts, "ES", "1m", '{"model":"x","confidence":"0.7","summary":"s","generated_at":"t"}')]
+
+    await svc._flush_i7_i8()
+
+    # execute_batch called twice: once for i7, once for i8
+    assert svc.db_manager.execute_batch.call_count == 2
+    # Buffers cleared after flush
+    assert svc._i7_buffer == []
+    assert svc._i8_buffer == []
+    # Counter incremented twice (once per buffer)
+    assert svc.i7_i8_batch_writes_total.inc.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_flush_i7_i8_skips_empty_buffers():
+    """_flush_i7_i8 does not call execute_batch when both buffers are empty."""
+    svc = _make_svc_with_mocks()
+
+    await svc._flush_i7_i8()
+
+    svc.db_manager.execute_batch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_maybe_flush_triggers_i7_i8_on_size_threshold():
+    """When i7+i8 buffer total >= BATCH_SIZE, _maybe_flush triggers i7/i8 flush."""
+    import time
+
+    from services.feature_writer_service import BATCH_SIZE
+
+    svc = _make_svc_with_mocks()
+    # Make last_flush recent so main buffer won't time-trigger
+    svc._last_flush = time.monotonic()
+
+    from datetime import UTC, datetime
+
+    ts = datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC)
+    # Fill i7_buffer to BATCH_SIZE threshold
+    svc._i7_buffer = [(ts, "ES", "1m", "[]")] * BATCH_SIZE
+
+    await svc._maybe_flush(force=False)
+
+    # i7 batch should have been flushed even though main buffer wasn't
+    svc.db_manager.execute_batch.assert_called()
+    assert svc._i7_buffer == []
+
+
+@pytest.mark.asyncio
+async def test_shutdown_flushes_i7_i8_when_main_buffer_empty():
+    """_shutdown flushes i7/i8 buffers even when the main _buffer is empty."""
+    from datetime import UTC, datetime
+
+    from services.feature_writer_service import FeatureWriterService
+
+    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc.logger = MagicMock()
+    svc._buffer = []  # main buffer empty
+    svc._i7_buffer = [(datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC), "ES", "1m", "[]")]
+    svc._i8_buffer = []
+    svc._last_flush = 0.0
+    svc._error_count = 0
+    svc._total_batches = 0
+    svc._total_events = 0
+    svc.running = True
+    svc.shutdown_requested = False
+    svc.batch_writes_total = MagicMock()
+    svc.events_buffered_gauge = MagicMock()
+    svc.error_count_total = MagicMock()
+    svc.i7_i8_batch_writes_total = MagicMock()
+
+    mock_db = MagicMock()
+    mock_db.execute_batch = AsyncMock()
+    mock_db.close = AsyncMock()
+    svc.db_manager = mock_db
+
+    mock_kafka = MagicMock()
+    mock_kafka.stop = AsyncMock()
+    svc._kafka_consumer = mock_kafka
+
+    await svc._shutdown()
+
+    # i7 buffer must have been flushed
+    mock_db.execute_batch.assert_called()
+    assert svc._i7_buffer == []

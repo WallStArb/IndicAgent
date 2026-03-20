@@ -256,6 +256,8 @@ class FeatureWriterService:
         self.db_manager: DatabaseManager | None = None
 
         self._buffer: list[tuple] = []
+        self._i7_buffer: list[tuple] = []  # (ts_dt, symbol, timeframe, data_json)
+        self._i8_buffer: list[tuple] = []  # (ts_dt, symbol, timeframe, data_json)
         self._last_flush: float = time.monotonic()
 
         try:
@@ -291,6 +293,10 @@ class FeatureWriterService:
         self.error_count_total = counter(
             "feature_writer_errors_total",
             "Total errors encountered by feature writer",
+        )
+        self.i7_i8_batch_writes_total = counter(
+            "feature_writer_i7_i8_batch_writes_total",
+            "Total i7/i8 batch writes to intelligence_features",
         )
 
         self._total_events = 0
@@ -446,12 +452,19 @@ class FeatureWriterService:
         - force=True (explicit flush, e.g. on BATCH_SIZE reached or shutdown)
         - time since last flush >= FLUSH_INTERVAL_SECS (time-based flush)
 
-        Does NOT flush if buffer is empty or db_manager is unavailable.
+        i7/i8 buffers are also flushed whenever the main flush fires (or when
+        their combined size reaches BATCH_SIZE).
         """
+        should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
+
+        # Also flush i7/i8 on their own size threshold, even if main buffer not ready
+        i7_i8_count = len(getattr(self, "_i7_buffer", ())) + len(getattr(self, "_i8_buffer", ()))
+        if i7_i8_count >= BATCH_SIZE and self.db_manager:
+            await self._flush_i7_i8()
+
         if not self._buffer:
             return
 
-        should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
         if not should_flush:
             return
 
@@ -481,6 +494,35 @@ class FeatureWriterService:
             self.error_count_total.inc()
             self._error_count += 1
             self.events_buffered_gauge.set(len(self._buffer))
+        finally:
+            await self._flush_i7_i8()
+
+    async def _flush_i7_i8(self) -> None:
+        """Flush i7 and i8 buffers to DB via batch UPSERT."""
+        if not self.db_manager:
+            return
+        if getattr(self, "_i7_buffer", None):
+            try:
+                await self.db_manager.execute_batch(_UPSERT_I7_SQL, list(self._i7_buffer))
+                self._i7_buffer.clear()
+                self.i7_i8_batch_writes_total.inc()
+            except Exception as e:
+                self.logger.error(
+                    "i7 batch write failed", error=str(e), rows=len(self._i7_buffer)
+                )
+                self.error_count_total.inc()
+                self._error_count += 1
+        if getattr(self, "_i8_buffer", None):
+            try:
+                await self.db_manager.execute_batch(_UPSERT_I8_SQL, list(self._i8_buffer))
+                self._i8_buffer.clear()
+                self.i7_i8_batch_writes_total.inc()
+            except Exception as e:
+                self.logger.error(
+                    "i8 batch write failed", error=str(e), rows=len(self._i8_buffer)
+                )
+                self.error_count_total.inc()
+                self._error_count += 1
 
     async def _process_i7_message(
         self,
@@ -488,23 +530,21 @@ class FeatureWriterService:
         timeframe: str,
         payload: dict,
     ) -> bool:
-        """UPSERT i7 column from intelligence.i7 topic message."""
+        """Buffer i7 column from intelligence.i7 topic message for batch flush."""
         try:
             ts_raw = payload.get("ts") or payload.get(b"ts", b"")
-            data_raw = payload.get("data") or payload.get(b"data", "[]")
-            if isinstance(data_raw, bytes):
-                data_raw = data_raw.decode()
             if not ts_raw:
                 return True  # no ts — skip silently
             ts_dt = _parse_ts(ts_raw)
+            data_raw = payload.get("data") or payload.get(b"data", "[]")
+            if isinstance(data_raw, bytes):
+                data_raw = data_raw.decode("utf-8", errors="replace")
             if isinstance(data_raw, list):
                 data_raw = json.dumps(data_raw)
-            await self.db_manager.execute_batch(
-                _UPSERT_I7_SQL, [(ts_dt, symbol, timeframe, data_raw)]
-            )
+            self._i7_buffer.append((ts_dt, symbol, timeframe, data_raw))
             return True
         except Exception as e:
-            self.logger.error("i7 UPSERT failed", symbol=symbol, tf=timeframe, error=str(e))
+            self.logger.error("i7 buffer append failed", symbol=symbol, tf=timeframe, error=str(e))
             self.error_count_total.inc()
             return False
 
@@ -552,7 +592,7 @@ class FeatureWriterService:
         timeframe: str,
         payload: dict,
     ) -> bool:
-        """UPSERT i8 column from intelligence.i8 topic message."""
+        """Buffer i8 column from intelligence.i8 topic message for batch flush."""
         try:
             ts_raw = payload.get("ts") or payload.get(b"ts", b"")
             if not ts_raw:
@@ -568,12 +608,10 @@ class FeatureWriterService:
                     payload.get("generated_at") or payload.get(b"generated_at"), ""
                 ),
             }
-            await self.db_manager.execute_batch(
-                _UPSERT_I8_SQL, [(ts_dt, symbol, timeframe, json.dumps(i8_payload))]
-            )
+            self._i8_buffer.append((ts_dt, symbol, timeframe, json.dumps(i8_payload)))
             return True
         except Exception as e:
-            self.logger.error("i8 UPSERT failed", symbol=symbol, tf=timeframe, error=str(e))
+            self.logger.error("i8 buffer append failed", symbol=symbol, tf=timeframe, error=str(e))
             self.error_count_total.inc()
             return False
 
@@ -657,11 +695,11 @@ class FeatureWriterService:
                     await self._process_single_message(symbol, timeframe, payload)
                     await self._maybe_flush(force=False)
                 elif kafka_topic == i7_topic:
-                    if self.db_manager:
-                        await self._process_i7_message(symbol, timeframe, payload)
+                    await self._process_i7_message(symbol, timeframe, payload)
+                    await self._maybe_flush(force=False)
                 elif kafka_topic == i8_topic:
-                    if self.db_manager:
-                        await self._process_i8_message(symbol, timeframe, payload)
+                    await self._process_i8_message(symbol, timeframe, payload)
+                    await self._maybe_flush(force=False)
 
             except asyncio.CancelledError:
                 break
@@ -699,6 +737,10 @@ class FeatureWriterService:
 
         # Flush remaining buffered events before closing
         await self._maybe_flush(force=True)
+        # Flush any remaining i7/i8 that weren't flushed via _maybe_flush
+        # (e.g. if main buffer was empty on shutdown)
+        if self.db_manager:
+            await self._flush_i7_i8()
 
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
