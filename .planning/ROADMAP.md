@@ -155,12 +155,13 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
 - [ ] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (IN PROGRESS)
 - [ ] **Phase 40.5: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
-- [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
+- [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
 - [ ] **Phase 43: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
 - [ ] **Phase 44: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
-- [ ] **Phase 45: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging
-- [ ] **Phase 46: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution
+- [ ] **Phase 45: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
+- [ ] **Phase 46: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution; LLM call audit trail complete (token counts, retry chain, outcome back-fill) as ML training data feed
+- [ ] **Phase 47: Renaissance Observability** — performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface (all I3/I4/I5/I6 fields inspectable in dashboard), staleness as first-class quality signal (confidence penalty + signal_ledger flag + display)
 
 </details>
 
@@ -534,9 +535,27 @@ Plans:
 - LLM Gate Optimizer (automated config tuning)
 - Dashboard DAG Visualization
 
-### Phase 41: Machine Hardening
-**Goal**: The pipeline sustains production data rates without lag accumulation — feature_writer consolidates its polling loop, stages skip unnecessary recomputation, DB seed is bounded, calibration pre-allocates arrays, refresh loops handle shutdown cleanly, lifecycle lookup is O(1), and Chandelier writes only on meaningful change.
-**Depends on**: Phase 40 (DAG architecture in place before performance optimization)
+### Phase 40.5: Performance & Stability Emergency
+**Goal**: Eliminate the two production bottlenecks causing active pain (OHLCV 4-5s query timeouts, feature_writer 920ms lag) and harden the runtime before Phase 41 cross-timeframe work adds more load.
+**Depends on**: Phase 40 (DAG refactor in place; aggregator eliminated before these optimizations land)
+**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06
+**Success Criteria** (what must be TRUE):
+  1. `market_data_ohlcv` chunk count drops from 15,721 to ~365 (time-only partitioning, no space partitioning) — `SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = 'market_data_ohlcv'` returns ≤ 400.
+  2. Feature writer p99 ingestion lag < 50ms — achievable by consolidating 3 sequential `xreadgroup` calls into a single batch poll matching the pattern in `market_analysis_service`.
+  3. Plugin pipeline CPU work is dispatched to a thread pool via `asyncio.to_thread()` — event loop is unblocked during minute-boundary bursts; a threading.Lock guards shared plugin state.
+  4. Signal lifecycle service active-signal lookup is O(1) via index dict `{(symbol, tf): [sids]}` — shadow loop and chandelier are indexed the same way; chandelier state is written to DB only when the stop price changes by ≥ 0.01%.
+  5. Calibration curves pre-converted to numpy arrays at cache load time (not per-bar in `_build_all_ranked()`).
+  6. All 5 service refresh loops (perf weights, drift penalties, calibration, etc.) use a shared `_run_refresh_loop(name, interval_s, fn)` coroutine — behavioral divergence between loops eliminated.
+**Plans**: 3 plans
+
+Plans:
+- [ ] 40.5-01-PLAN.md — OHLCV hypertable rebuild: time-only partitioning, 7-day intervals (PERF-01)
+- [ ] 40.5-02-PLAN.md — Plugin thread pool + calibration ndarray pre-alloc + refresh loop helper (PERF-03, PERF-05, PERF-06)
+- [ ] 40.5-03-PLAN.md — Feature writer i7/i8 batch buffering + lifecycle O(1) index + chandelier write guard + stale signal cleanup (PERF-02, PERF-04)
+
+### Phase 41: Intelligence Gap Fill
+**Goal**: Intelligence fields that were stubs are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, higher-TF S/R context reaches I7 plugins, VWAP/session guards prevent intraday-only plugins firing on wrong TFs.
+**Depends on**: Phase 40.5 (performance stable before adding cross-TF query load)
 **Requirements**: INTEL-01, INTEL-02, INTEL-03, INTEL-04, INTEL-05
 **Success Criteria** (what must be TRUE):
   1. `i6_fvg_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where FVGs exist on multiple timeframes — the hardcoded `0.0` stub is absent from `cross_timeframe.py`.
@@ -552,9 +571,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 42: Intelligence Gap Fill
-**Goal**: Intelligence fields that were stubs or missing are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, and higher-TF S/R context reaches I7 plugins.
-**Depends on**: Phase 39 (clean OHLCV data for cross-TF queries), Phase 40 (DAG stages can ingest new intelligence fields)
+### Phase 42: Candlestick Pattern Expansion
+**Goal**: The I5 candlestick pattern library grows from 10 to 28 patterns, and CandlestickPatternSetup applies calibrated confidence tier weights so higher-reliability patterns generate higher-conviction signals.
+**Depends on**: Phase 41 (trade_framer context stable before adding new signal sources)
 **Requirements**: CANDLE-01, CANDLE-02
 **Success Criteria** (what must be TRUE):
   1. `I5Patterns` schema contains 18 new candlestick pattern fields — `grep -c "pattern_" src/intelligence/schemas.py` shows the expected count increase; `extra=forbid` validation passes on all existing test fixtures.
@@ -569,9 +588,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 43: Candlestick Pattern Expansion
-**Goal**: The I5 candlestick pattern library grows from 10 to 28 patterns, and the I7 CandlestickPatternSetup plugin applies calibrated confidence weights so higher-reliability patterns generate higher-conviction signals.
-**Depends on**: Phase 39 (data quality clean before expanding pattern coverage), Phase 42 (trade_framer context stable before adding new signal sources)
+### Phase 43: I6 Confluence Expansion
+**Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — market_analysis_service injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment.
+**Depends on**: Phase 41 (i6_fvg_tf_alignment and i6_ob_tf_alignment live), Phase 42 (candlestick patterns stable)
 **Requirements**: CONF-01, CONF-02, CONF-03, CONF-04
 **Success Criteria** (what must be TRUE):
   1. `market_analysis_service` consumes from `development.cross_asset` topic and injects cross-asset features into the frame dict before I6 plugin execution — verifiable by confirming `frames.get('cross_asset')` is non-None in a live `CrossTimeframeConfluencePlugin.compute()` call log.
@@ -586,9 +605,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 44: I6 Confluence Expansion
-**Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — `market_analysis_service` injects cross-asset features into frames before I6 execution, and `CrossTimeframeConfluencePlugin` scores VIX suppression and equity sector rotation alongside existing TF alignment.
-**Depends on**: Phase 42 (i6_fvg_tf_alignment and i6_ob_tf_alignment live), Phase 43 (candlestick patterns stable)
+### Phase 44: Shadow Mode Graduation
+**Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds adjusted if data supports it, cross-asset and roll monitor enabled, trad_DualDivergence promoted once it passes the statistical gate.
+**Depends on**: Phase 43 (I6 expansion complete; all shadow features accumulating data throughout v2.0 phases)
 **Requirements**: SHADOW-01, SHADOW-02, SHADOW-03, SHADOW-04
 **Success Criteria** (what must be TRUE):
   1. A query of `signal_ledger WHERE is_shadow = TRUE` for regime_suppressed signals produces enough rows (N >= 200) to compute empirical win rates by threshold bucket — the analysis result (confirm or adjust thresholds) is documented in a decision log entry.
@@ -603,9 +622,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 45: Shadow Mode Graduation
-**Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds are adjusted if data supports it, cross-asset and roll monitor are enabled, and trad_DualDivergence is promoted once it passes the statistical gate.
-**Depends on**: Phase 44 (I6 expansion complete; all shadow features have been accumulating data throughout v2.0 phases)
+### Phase 45: Auth + External Access
+**Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer, and keyset pagination enables efficient large features export.
+**Depends on**: Phase 44 (pipeline stable and shadow modes resolved before exposing external access)
 **Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06
 **Success Criteria** (what must be TRUE):
   1. Every API endpoint (including SSE) returns HTTP 401 when called without a valid JWT cookie — `curl https://api.indicagent.com/api/signals/recent` without credentials returns `{"detail": "Not authenticated"}`.
@@ -622,9 +641,9 @@ Plans:
 - [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
-### Phase 46: Auth + External Access
-**Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, and SSE works correctly through the auth layer with `withCredentials`.
-**Depends on**: Phase 45 (pipeline stable and shadow modes resolved before exposing external access)
+### Phase 46: ML Scoring Model
+**Goal**: A LightGBM model scores every new signal in shadow mode, trained on signal_features with stationarity gates and regime segmentation, with walk-forward retraining and SHAP attribution. LLM call audit trail completes the training data feed (token counts, retry chain, outcome back-fill).
+**Depends on**: Phase 45 (auth + external access in place before exposing ML endpoints)
 **Requirements**: ML-01, ML-02, ML-03, ML-04, ML-05, ML-06, ML-07
 **Success Criteria** (what must be TRUE):
   1. `feature_builder.py` produces a feature matrix using only columns from `signal_features` that existed at signal fire time — no `signal_ledger` outcome columns (outcome, pnl_r, mae, mfe) appear in the training feature set.
@@ -643,7 +662,7 @@ Plans:
 - [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
 
 ### Phase 47: Renaissance Observability (Attribution, A/B Testing, Causal Inference)
-**Goal**: The DAG pipeline has Renaissance-grade observability — performance attribution tracks value added by each stage, live A/B experimentation tests configuration changes, causal inference proves improvements are not just correlation, counterfactual analysis quantifies missed opportunities, and LLM analyzes attribution to recommend optimizations.
+**Goal**: The DAG pipeline has Renaissance-grade observability — performance attribution tracks value added by each stage, live A/B experimentation tests configuration changes, causal inference proves improvements are not just correlation, counterfactual analysis quantifies missed opportunities, LLM analyzes attribution to recommend optimizations. Intelligence tier audit surface makes every feature vector inspectable (I3/I4/I5/I6 fields visible in dashboard). Staleness is a first-class quality signal: stale intelligence reduces confidence in signal_ledger so ML training can exclude unreliable rows; dashboard badge is a side effect of the data-quality fix, not the primary deliverable.
 **Depends on**: Phase 40 (DAG foundation with basic attribution in place), Phase 46 (ML model provides additional signal features for causal analysis)
 **Requirements**: None (observability infrastructure)
 **Success Criteria** (what must be TRUE):
@@ -654,7 +673,9 @@ Plans:
   5. Every stage change proven causal — randomized trials with control/treatment branches
   6. LLM generates nightly recommendations — analyzes attribution + counterfactuals, creates experiments
   7. Full DAG observability in dashboard — real-time latency, error rates, attribution metrics, circuit breaker status
-**Plans**: TBD (5-6 plans)
+  8. Every intelligence tier field (I3/I4/I5/I6) is inspectable in the drill panel — when a signal fires, the contributing feature values from all tiers are visible and auditable.
+  9. `signal_ledger.data_age_ms` is populated at signal fire time; signals with `data_age_ms > 900000` (15 min) are flagged in dashboard with a staleness badge and excluded from ML training sets by default.
+**Plans**: TBD (6-7 plans)
 
 Plans:
 - [ ] 47-01-PLAN.md — Performance Attribution Service: subscribe to attribution stream, aggregate, write to DB (Phase 1)
