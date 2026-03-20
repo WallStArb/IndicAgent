@@ -222,6 +222,9 @@ async def _load_pattern_reliability_weights(
     """
     global _pattern_reliability_cache, _pattern_reliability_cache_ts
 
+    if db_manager is None:
+        return _pattern_reliability_cache if _pattern_reliability_cache is not None else {}
+
     now = datetime.now(UTC)
     if (
         _pattern_reliability_cache is not None

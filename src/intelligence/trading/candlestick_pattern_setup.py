@@ -156,7 +156,7 @@ class CandlestickPatternSetupPlugin:
         kicker_bull = float(features.get("kicker_bull", 0.0))
         kicker_bear = float(features.get("kicker_bear", 0.0))
 
-        # Map (pattern_name, direction) → flag value for all 29 patterns.
+        # Map (pattern_name, direction) → flag value for all 24 directional patterns.
         # Direction: 1=bullish, -1=bearish, 0=neutral (direction assigned dynamically).
         # harami_cross direction follows trend — resolved after trend gate below.
         pattern_flags: dict[tuple[str, int], float] = {
