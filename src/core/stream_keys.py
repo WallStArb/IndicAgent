@@ -102,6 +102,11 @@ def topic_cross_asset(env_name: str) -> str:
     return f"{env_prefix(env_name)}cross_asset"
 
 
+def topic_attribution(env_name: str) -> str:
+    """Kafka topic for stage attribution metadata (side channel for observability)."""
+    return f"{env_prefix(env_name)}pipeline.attribution"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
