@@ -41,7 +41,7 @@
 
 ### CANDLE — Candlestick Pattern Expansion
 
-- [ ] **CANDLE-01**: 18 new I5 candlestick patterns implemented in `candlestick_patterns.py`: Harami Bull/Bear, Harami Cross Bull/Bear, Dark Cloud Cover, Piercing Line, Three White Soldiers, Three Black Crows, Morning Star, Evening Star, Three Inside Up, Three Inside Down, Bullish/Bearish Abandoned Baby, Tweezer Top/Bottom, Belt Hold Bull/Bear, Kicker Bull/Bear
+- [x] **CANDLE-01**: 18 new I5 candlestick patterns implemented in `candlestick_patterns.py`: Harami Bull/Bear, Harami Cross Bull/Bear, Dark Cloud Cover, Piercing Line, Three White Soldiers, Three Black Crows, Morning Star, Evening Star, Three Inside Up, Three Inside Down, Bullish/Bearish Abandoned Baby, Tweezer Top/Bottom, Belt Hold Bull/Bear, Kicker Bull/Bear
 - [x] **CANDLE-02**: `CandlestickPatternSetup` I7 plugin extended to consume new high-reliability patterns with confidence weights calibrated per pattern reliability tier
 
 ### CONF — I6 Confluence Expansion
