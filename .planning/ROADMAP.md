@@ -586,7 +586,7 @@ Plans:
 - [x] 42-01-PLAN.md — 10 new I5 candlestick patterns + schema extension + unit tests (CANDLE-01) [wave 1]
 - [x] 42-02-PLAN.md — pattern_reliability table + bootstrap priors migration (CANDLE-02) [wave 1]
 - [x] 42-03-PLAN.md — CandlestickPatternSetup I7 extended with DB-driven weights (CANDLE-02) [wave 2]
-- [ ] 42-04-PLAN.md — weight_updater pattern calibration + 7-day backtest validation (CANDLE-01, CANDLE-02) [wave 2]
+- [x] 42-04-PLAN.md — weight_updater pattern calibration + 7-day backtest validation (CANDLE-01, CANDLE-02) [wave 2]
 
 ### Phase 43: I6 Confluence Expansion
 **Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — market_analysis_service injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment.
@@ -785,7 +785,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 40. Machine Hardening | 4/4 | Complete    | 2026-03-20 | — |
 | 41. Intelligence Gap Fill | 2/3 | Complete    | 2026-03-20 | — |
-| 42. Candlestick Pattern Expansion | v2.0 | 3/5 | In Progress|  |
+| 42. Candlestick Pattern Expansion | v2.0 | 4/5 | In Progress|  |
 | 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 45. Auth + External Access | v2.0 | 0/TBD | Not started | — |
