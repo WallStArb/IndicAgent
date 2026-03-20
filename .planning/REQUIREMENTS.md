@@ -24,9 +24,9 @@
 ### PERF — Machine Hardening
 
 - [x] **PERF-01**: `feature_writer_service` polling consolidated to single `xreadgroup` per loop — worst-case lag < 100ms (from 920ms across 92 streams)
-- [ ] **PERF-02**: Aggregator `_build_all_ranked()` dirty flag cache — rankings only rebuilt when signals, `perf_weights`, or `drift_penalties` change
+- [x] **PERF-02**: Aggregator `_build_all_ranked()` dirty flag cache — rankings only rebuilt when signals, `perf_weights`, or `drift_penalties` change
 - [x] **PERF-03**: `_seed_bar_history_from_db()` asyncio.Semaphore bounded to pool max_size — eliminates 240 uncapped concurrent DB queries on restart
-- [ ] **PERF-04**: Calibration curve breakpoints/values pre-converted to `np.ndarray` at cache load — eliminates per-signal-per-bar numpy allocation
+- [x] **PERF-04**: Calibration curve breakpoints/values pre-converted to `np.ndarray` at cache load — eliminates per-signal-per-bar numpy allocation
 - [x] **PERF-05**: Refresh loop helper coroutine (`_run_refresh_loop`) standardises shutdown/backoff across all 5 loops in `signal_generator_service`
 - [x] **PERF-06**: Signal lifecycle shadow signals indexed by `(symbol, tf)` key — O(1) per-bar lookup (from O(N) full scan)
 - [ ] **PERF-07**: Chandelier trailing stop DB write only fires when stop value actually tightens (not every bar)

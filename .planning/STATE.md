@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 40.5-02-PLAN.md — thread pool, ndarray pre-alloc, shared refresh loop
-last_updated: "2026-03-20T09:05:08.682Z"
+stopped_at: Completed 40.5-03-PLAN.md — i7/i8 batch buffering + O(1) lifecycle index + chandelier guard
+last_updated: "2026-03-20T09:45:00.000Z"
 progress:
   total_phases: 25
   completed_phases: 3
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 ## Current Position
 
 Phase: 40.5 (performance-stability-emergency) — EXECUTING
-Plan: 1 of 3
+Plan: 3 of 3 — COMPLETE
 
 ## Performance Metrics
 
@@ -143,6 +143,14 @@ Plan: 1 of 3
 - **Phase 45 seventh**: Auth before ML exposure — external access secured before ML scores are visible externally
 - **Phase 46 last**: ML model requires clean data (39), fast feature writes (40), and a stable auth layer (45) before shadow scores become externally visible
 
+### Phase 40.5 Decisions (2026-03-20)
+
+- **feature_writer i7/i8 buffering**: `_i7_buffer`/`_i8_buffer` flushed in `_maybe_flush` finally block + explicit shutdown flush; no per-message UPSERT
+- **lifecycle O(1) index**: `_active_index[(symbol, tf)]` replaces `get_active_signals()` per bar; entire-replacement reseed every 60s via `_active_index_reseed_loop`
+- **lifecycle index reseed**: full replacement (not incremental) for DB consistency; 60s interval acceptable
+- **chandelier write guard**: `_last_written_stop` in state dict; skip DB when change < 0.01%
+- **migration 046 status constraint**: `status='expired'` (not 'ttl_expired_pending') per `chk_signal_ledger_status`; 328K rows cleaned
+
 ### Design Anchor
 
 Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-03-16)
@@ -159,7 +167,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-20T09:05:08.680Z
-Stopped at: Completed 40.5-02-PLAN.md — thread pool, ndarray pre-alloc, shared refresh loop
+Last session: 2026-03-20T09:45:00.000Z
+Stopped at: Completed 40.5-03-PLAN.md — i7/i8 batch buffering + O(1) lifecycle index + chandelier guard
 Resume file: None
-Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (Machine Hardening)
+Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (DAG Refactor — Clean Foundation)
