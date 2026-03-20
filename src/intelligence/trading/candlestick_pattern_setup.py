@@ -9,6 +9,54 @@ import numpy as np
 
 from ..plugins import InputSpec
 
+# Module-level constants — static across all bars, extracted from hot path.
+_FALLBACK_WEIGHTS: dict[str, float] = {
+    "hammer": 0.65,
+    "shooting_star": 0.65,
+    "engulfing": 0.55,
+    "three_white_soldiers": 0.75,
+    "three_black_crows": 0.75,
+    "pin_bar": 0.45,
+    "morning_star": 0.80,
+    "evening_star": 0.80,
+    "three_inside_up": 0.65,
+    "three_inside_down": 0.65,
+    "dark_cloud_cover": 0.70,
+    "piercing_line": 0.70,
+    "harami_cross": 0.60,
+    # Phase 42 bootstrap priors
+    "abandoned_baby": 0.70,
+    "kicker": 0.70,
+    "harami": 0.60,
+    "tweezer": 0.60,
+    "belt_hold": 0.55,
+}
+
+_PRIORITY_RANKS: dict[str, int] = {
+    "hammer": 0,
+    "shooting_star": 0,
+    "engulfing": 1,
+    "three_white_soldiers": 1,
+    "three_black_crows": 1,
+    # Phase 42 Tier 1 reliability (abandoned_baby, kicker high win rate)
+    "abandoned_baby": 1,
+    "kicker": 1,
+    "pin_bar": 2,
+    "morning_star": 2,
+    "evening_star": 2,
+    # Phase 42 Tier 2 reliability
+    "harami": 2,
+    "three_inside_up": 3,
+    "three_inside_down": 3,
+    "dark_cloud_cover": 3,
+    "piercing_line": 3,
+    "tweezer": 3,
+    "belt_hold": 3,
+    "harami_cross": 4,
+}
+
+_SR_AUTO_PATTERNS: frozenset[str] = frozenset({"hammer", "shooting_star"})
+
 
 @dataclass
 class CandlestickPatternSetupPlugin:
@@ -91,30 +139,9 @@ class CandlestickPatternSetupPlugin:
         dark_cloud_cover = float(features.get("dark_cloud_cover", 0.0))
         piercing_line = float(features.get("piercing_line", 0.0))
 
-        # Get pattern weights injected by service (15-min DB cache), or use fallback.
-        # fallback_weights match bootstrap priors from 42-02; used when service cache not yet warm.
-        fallback_weights: dict[str, float] = {
-            "hammer": 0.65,
-            "shooting_star": 0.65,
-            "engulfing": 0.55,
-            "three_white_soldiers": 0.75,
-            "three_black_crows": 0.75,
-            "pin_bar": 0.45,
-            "morning_star": 0.80,
-            "evening_star": 0.80,
-            "three_inside_up": 0.65,
-            "three_inside_down": 0.65,
-            "dark_cloud_cover": 0.70,
-            "piercing_line": 0.70,
-            "harami_cross": 0.60,
-            # Phase 42 bootstrap priors
-            "abandoned_baby": 0.70,
-            "kicker": 0.70,
-            "harami": 0.60,
-            "tweezer": 0.60,
-            "belt_hold": 0.55,
-        }
-        pattern_weights: dict[str, float] = frames.get("pattern_weights") or fallback_weights
+        # Get pattern weights injected by service (15-min DB cache), or use fallback priors.
+        # _FALLBACK_WEIGHTS match bootstrap priors from 42-02; active when cache not yet warm.
+        pattern_weights: dict[str, float] = frames.get("pattern_weights") or _FALLBACK_WEIGHTS
 
         # Phase 42: 10 new candlestick patterns (harami directional, abandoned baby, tweezer,
         # belt hold, kicker) — read from I5 features dict (CNDL-01: no raw price re-detection)
@@ -160,47 +187,23 @@ class CandlestickPatternSetupPlugin:
             ("kicker", -1): kicker_bear,
         }
 
-        # Priority rank mapping (lower = higher priority).
-        # sr_auto_satisfied: hammer/shooting_star satisfy S/R requirement automatically.
-        priority_ranks: dict[str, int] = {
-            "hammer": 0,
-            "shooting_star": 0,
-            "engulfing": 1,
-            "three_white_soldiers": 1,
-            "three_black_crows": 1,
-            # Phase 42 Tier 1 reliability (abandoned_baby, kicker high win rate)
-            "abandoned_baby": 1,
-            "kicker": 1,
-            "pin_bar": 2,
-            "morning_star": 2,
-            "evening_star": 2,
-            # Phase 42 Tier 2 reliability
-            "harami": 2,
-            "three_inside_up": 3,
-            "three_inside_down": 3,
-            "dark_cloud_cover": 3,
-            "piercing_line": 3,
-            "tweezer": 3,
-            "belt_hold": 3,
-            "harami_cross": 4,
-        }
-        sr_auto_patterns: frozenset[str] = frozenset({"hammer", "shooting_star"})
-
         # Build candidates list using pattern_weights (injected by service or fallback priors).
         # Candidate: (priority_rank, direction, pattern_name, base_confidence, sr_auto_satisfied)
         candidates = []
         for (pattern_name, direction), flag_value in pattern_flags.items():
             if flag_value <= 0.0:
                 continue
-            priority = priority_ranks.get(pattern_name, 3)
-            base_conf = pattern_weights.get(pattern_name, fallback_weights.get(pattern_name, 0.55))
-            sr_auto = pattern_name in sr_auto_patterns
+            priority = _PRIORITY_RANKS.get(pattern_name, 3)
+            base_conf = pattern_weights.get(pattern_name, _FALLBACK_WEIGHTS.get(pattern_name, 0.55))
+            sr_auto = pattern_name in _SR_AUTO_PATTERNS
             candidates.append((priority, direction, pattern_name, base_conf, sr_auto))
 
         # harami_cross has no intrinsic direction — align with trend (resolved after trend gate)
         if harami_cross > 0.0:
             trend_dir_local = 1 if float(features.get("trend_regime", 0.0)) > 0 else -1
-            base_conf = pattern_weights.get("harami_cross", fallback_weights.get("harami_cross", 0.60))  # noqa: E501
+            base_conf = pattern_weights.get(
+                "harami_cross", _FALLBACK_WEIGHTS.get("harami_cross", 0.60)
+            )
             candidates.append((4, trend_dir_local, "harami_cross", base_conf, False))
 
         if not candidates:
