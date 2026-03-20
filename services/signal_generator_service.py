@@ -184,18 +184,6 @@ def _cis_kalman_update(
     return x_new, P_new
 
 
-MARKET_CONTEXT_KEYS: tuple[str, ...] = (
-    "trend_regime",
-    "volatility_regime",
-    "trend_confidence",
-    "atr_14",
-    "rsi_14",
-    "ctf_score",
-    "swing_pattern",
-    "trend_strength",
-    "volatility_percentile",
-    "hmm_regime_state",
-)
 
 logger = structlog.get_logger(__name__)
 
