@@ -297,3 +297,14 @@ def test_plugin_instance_exists():
     assert isinstance(plugin, PrevDayLevelTestPlugin)
     assert plugin.name == "trad_PrevDayLevelTest"
     assert plugin.regime_type == "any"
+
+
+def test_tf_guard_returns_no_signal_on_1h():
+    """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
+    from src.intelligence.trading.prev_day_level_test import PrevDayLevelTestPlugin
+    plugin = PrevDayLevelTestPlugin()
+    close = np.linspace(5000.0, 5010.0, 25)
+    frames = _make_frames(close, _base_features())
+    frames["timeframe"] = "1h"
+    result = plugin.compute_full(frames)
+    assert result == {"signal_type": "none", "direction": 0, "confidence": 0.0}

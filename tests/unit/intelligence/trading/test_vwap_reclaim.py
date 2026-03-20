@@ -208,3 +208,16 @@ def test_plugin_module_instance():
     """Module-level `plugin` instance must have correct name."""
     from src.intelligence.trading.vwap_reclaim import plugin
     assert plugin.name == "trad_VWAPReclaim"
+
+
+# ─── Test 10: TF guard returns no_signal on 1h bars ─────────────────────────
+
+def test_tf_guard_returns_no_signal_on_1h():
+    """frames['timeframe']='1h' must return no_signal immediately (before any other logic)."""
+    from src.intelligence.trading.vwap_reclaim import VWAPReclaimPlugin
+    plugin = VWAPReclaimPlugin()
+    close = np.linspace(5000.0, 5010.0, 25)
+    frames = _make_frames(close, {"session_vwap": 5005.0})
+    frames["timeframe"] = "1h"
+    result = plugin.compute_full(frames)
+    assert result == {"signal_type": "none", "direction": 0, "confidence": 0.0}
