@@ -1,0 +1,23 @@
+[Unit]
+Description=IndicAgent Regime Gate Service — DAG stage 2: HMM regime suppression
+After=network-online.target indicagent-quality-gate.service
+Wants=indicagent-quality-gate.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/regime_gate_service.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-regime-gate
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
