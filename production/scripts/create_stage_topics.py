@@ -105,7 +105,7 @@ def main() -> None:
     print()
 
     success_count = 0
-    for name, topic_builder in STAGE_TOPICS:
+    for _name, topic_builder in STAGE_TOPICS:
         topic_name = topic_builder(settings.env_name)
         if create_topic(topic_name):
             # Ensure retention is applied even if topic already existed
