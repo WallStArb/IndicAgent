@@ -22,7 +22,7 @@ import zoneinfo
 from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 # Lookback multiplier: 3x minimum bars needed to ensure warmup buffer
@@ -31,6 +31,7 @@ _LOOKBACK_MULTIPLIER = 3
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import numpy as np
 import pandas as pd
 import structlog
 from pydantic import ValidationError
@@ -566,7 +567,7 @@ class SignalGeneratorService:
         self._regime_cache: dict[str, dict[str, dict]] = defaultdict(dict)
         # Performance weights cache: setup_plugin → perf_multiplier [0.5, 1.5].
         # Loaded from Redis at startup and refreshed every 60 min by
-        # _perf_weights_refresh_loop(). Empty dict = neutral (all multipliers=1.0).
+        # _run_refresh_loop("perf_weights",...). Empty dict = neutral (all multipliers=1.0).
         self._perf_weights: dict[str, float] = {}
         # QUAL-09: KS drift penalty cache — (symbol, tf) → float penalty [0.70, 1.0].
         # Read from Redis per bar evaluation. Absent key → penalty=1.0 (no drift).
@@ -584,14 +585,14 @@ class SignalGeneratorService:
         # Reset to {"bars_since": 0} after each fire. Separate from _setup_cooldown.
         self._setup_last_fire: dict[tuple[str, str, str, int], dict] = {}
         # CIS scorer instance — loaded with bootstrap weights at startup, updated
-        # every 30 minutes from the cis_weights table by _cis_weights_refresh_loop().
+        # every 30 minutes from the cis_weights table by _run_refresh_loop("cis_weights",...).
         self._cis_scorer: CISScorer = CISScorer()
         # CIS weights cache: (asset_cluster, timeframe) -> (weights_dict, version)
         # Populated by _load_cis_weights_from_db(); used for per-cluster weight lookup.
         self._cis_weights_cache: dict[tuple[str, str], tuple[dict[str, float], int]] = {}
 
         # Phase 35: Calibration + TOD multiplier + CIS Kalman state
-        self._calibration_curves: dict = {}   # (plugin_name, tf) -> (breakpoints, values)
+        self._calibration_curves: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}   # (plugin_name, tf) -> (breakpoints, values)
         self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
         self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
 
@@ -1604,7 +1605,7 @@ class SignalGeneratorService:
         """QUAL-09: Load KS drift penalties from drift_state DB table into _drift_penalties dict.
 
         Phase 30: Replaces per-bar Redis GET with a 4h batch refresh from DB.
-        Called at startup and every 4h by _drift_penalties_refresh_loop().
+        Called at startup and every 4h by _run_refresh_loop("drift_penalties",...).
 
         Only reads KS rows (tf != '_cusum'). CUSUM rows are for setup_performance_updater.
         """
@@ -1628,24 +1629,34 @@ class SignalGeneratorService:
         except Exception as exc:
             self.logger.warning("Failed to refresh drift_penalties from DB", error=str(exc))
 
-    async def _drift_penalties_refresh_loop(self) -> None:
-        """Refresh _drift_penalties from drift_state DB every 4h."""
-        _REFRESH_INTERVAL = 4 * 3600
+    async def _run_refresh_loop(
+        self,
+        name: str,
+        interval_s: int | float,
+        fn: Callable[[], Awaitable[None]],
+        backoff_s: int = 30,
+    ) -> None:
+        """Shared refresh loop: sleep interval_s, call fn, repeat until shutdown.
+
+        On exception, sleeps backoff_s before retrying to prevent spin on persistent errors.
+        """
         while self.running and not self.shutdown_requested:
             try:
                 try:
-                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL)
-                    break
+                    await asyncio.wait_for(
+                        self.shutdown_event.wait(), timeout=interval_s
+                    )
+                    break  # shutdown_event was set
                 except TimeoutError:
                     pass
                 if self.shutdown_requested:
                     break
-                await self._refresh_drift_penalties_from_db()
+                await fn()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                self.logger.warning("Drift penalties refresh error", error=str(exc))
-                await asyncio.sleep(30)
+                self.logger.error(f"{name} refresh loop error", error=str(exc))
+                await asyncio.sleep(backoff_s)
 
     async def _read_drift_penalty(self, symbol: str, timeframe: str) -> float:
         """QUAL-09: Read KS drift penalty from in-process _drift_penalties dict.
@@ -1654,25 +1665,6 @@ class SignalGeneratorService:
         Falls back to 1.0 (no penalty) when no entry exists for this symbol/TF.
         """
         return self._drift_penalties.get((symbol, timeframe), 1.0)
-
-    async def _perf_weights_refresh_loop(self) -> None:
-        """Refresh perf weights from Redis every 60 minutes."""
-        _REFRESH_INTERVAL = 3600
-        while self.running and not self.shutdown_requested:
-            try:
-                try:
-                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL)
-                    break
-                except TimeoutError:
-                    pass
-                if self.shutdown_requested:
-                    break
-                await self._load_perf_weights()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.warning("Perf weights refresh error", error=str(e))
-                await asyncio.sleep(30)
 
     async def _load_cis_weights_from_db(self) -> None:
         """Load per-cluster learned weights from cis_weights table.
@@ -1730,26 +1722,6 @@ class SignalGeneratorService:
                 "CIS weights refresh error — keeping current weights", error=str(exc)
             )
 
-    async def _cis_weights_refresh_loop(self) -> None:
-        """Refresh CIS weights from cis_weights DB table every 30 minutes."""
-        _REFRESH_INTERVAL = 1800  # 30 minutes
-        while self.running and not self.shutdown_requested:
-            try:
-                try:
-                    await asyncio.wait_for(
-                        self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL
-                    )
-                    break
-                except TimeoutError:
-                    pass
-                if self.shutdown_requested:
-                    break
-                await self._load_cis_weights_from_db()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("CIS weights refresh loop error", error=str(e))
-
     async def _load_calibration_curves_from_db(self) -> None:
         """Load isotonic calibration curves from confidence_calibration table every 30 min."""
         if self.db_manager is None:
@@ -1759,34 +1731,17 @@ class SignalGeneratorService:
                 "SELECT plugin_name, timeframe, breakpoints, values "
                 "FROM confidence_calibration WHERE sample_size >= 100"
             )
-            new_cache: dict = {}
+            new_cache: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
             for row in rows:
                 key = (row["plugin_name"], row["timeframe"])
-                new_cache[key] = (list(row["breakpoints"]), list(row["values"]))
+                new_cache[key] = (
+                    np.array(row["breakpoints"], dtype=np.float64),
+                    np.array(row["values"], dtype=np.float64),
+                )
             self._calibration_curves = new_cache
             self.logger.debug("calibration_curves_loaded", n_curves=len(new_cache))
         except Exception as exc:
             self.logger.warning("calibration_curves_refresh_error", error=str(exc))
-
-    async def _calibration_curves_refresh_loop(self) -> None:
-        """Refresh calibration curves from confidence_calibration every 30 min."""
-        _REFRESH_INTERVAL = 1800
-        while self.running and not self.shutdown_requested:
-            try:
-                try:
-                    await asyncio.wait_for(
-                        self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL
-                    )
-                    break
-                except TimeoutError:
-                    pass
-                if self.shutdown_requested:
-                    break
-                await self._load_calibration_curves_from_db()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("calibration_curves_refresh_loop error", error=str(e))
 
     async def _load_tod_multipliers_from_db(self) -> None:
         """Load Bayesian-smoothed TOD multipliers per (regime_type, timeframe, hour_et).
@@ -1846,26 +1801,6 @@ class SignalGeneratorService:
         except Exception as exc:
             self.logger.warning("tod_multipliers_refresh_error", error=str(exc))
 
-    async def _tod_multipliers_refresh_loop(self) -> None:
-        """Refresh TOD multipliers from signal_ledger every 4h."""
-        _REFRESH_INTERVAL = 14400  # 4 hours
-        while self.running and not self.shutdown_requested:
-            try:
-                try:
-                    await asyncio.wait_for(
-                        self.shutdown_event.wait(), timeout=_REFRESH_INTERVAL
-                    )
-                    break
-                except TimeoutError:
-                    pass
-                if self.shutdown_requested:
-                    break
-                await self._load_tod_multipliers_from_db()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error("tod_multipliers_refresh_loop error", error=str(e))
-
     async def start(self) -> None:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
         try:
@@ -1886,12 +1821,12 @@ class SignalGeneratorService:
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
-                asyncio.create_task(self._perf_weights_refresh_loop()),
-                asyncio.create_task(self._drift_penalties_refresh_loop()),
+                asyncio.create_task(self._run_refresh_loop("perf_weights", 3600, self._load_perf_weights)),
+                asyncio.create_task(self._run_refresh_loop("drift_penalties", 14400, self._refresh_drift_penalties_from_db)),
                 asyncio.create_task(self._resolution_listener_loop()),
-                asyncio.create_task(self._cis_weights_refresh_loop()),
-                asyncio.create_task(self._calibration_curves_refresh_loop()),
-                asyncio.create_task(self._tod_multipliers_refresh_loop()),
+                asyncio.create_task(self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)),
+                asyncio.create_task(self._run_refresh_loop("calibration_curves", 1800, self._load_calibration_curves_from_db)),
+                asyncio.create_task(self._run_refresh_loop("tod_multipliers", 14400, self._load_tod_multipliers_from_db)),
                 # DAG pipeline: consume winners from WinnerSelector stage for DB writes
                 asyncio.create_task(self._consume_winner_signals()),
             ]

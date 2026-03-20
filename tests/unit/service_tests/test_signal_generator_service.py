@@ -1168,3 +1168,143 @@ def test_signal_generator_no_redis_xadd_signals():
         "redis_client.xadd must be removed from signal_generator_service; "
         "use KafkaProducerClient.publish instead"
     )
+
+
+# ── _run_refresh_loop ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_loop_calls_fn_after_interval():
+    """_run_refresh_loop calls fn after interval_s timeout and then shuts down."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.running = True
+    svc.shutdown_requested = False
+    svc.shutdown_event = asyncio.Event()
+    svc.logger = MagicMock()
+    svc.logger.error = MagicMock()
+
+    call_count = 0
+
+    async def _mock_fn():
+        nonlocal call_count
+        call_count += 1
+        # After fn is called once, signal shutdown so loop terminates
+        svc.shutdown_requested = True
+        svc.running = False
+
+    # Use very small interval so test completes quickly
+    await svc._run_refresh_loop("test", 0.01, _mock_fn)
+    assert call_count >= 1, "fn must be called at least once"
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_loop_stops_on_shutdown_event():
+    """_run_refresh_loop exits when shutdown_event is set without calling fn."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.running = True
+    svc.shutdown_requested = False
+    svc.shutdown_event = asyncio.Event()
+    svc.logger = MagicMock()
+
+    fn_called = False
+
+    async def _mock_fn():
+        nonlocal fn_called
+        fn_called = True
+
+    # Set shutdown_event before loop starts — should exit on first wait_for
+    svc.shutdown_event.set()
+    await svc._run_refresh_loop("test", 3600, _mock_fn)
+    assert not fn_called, "fn must not be called when shutdown_event is already set"
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_loop_catches_exceptions_and_sleeps_backoff():
+    """_run_refresh_loop catches exceptions from fn, sleeps backoff_s, then exits on shutdown."""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.running = True
+    svc.shutdown_requested = False
+    svc.shutdown_event = asyncio.Event()
+    svc.logger = MagicMock()
+    svc.logger.error = MagicMock()
+
+    call_count = 0
+
+    async def _failing_fn():
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("simulated DB error")
+
+    sleep_calls = []
+
+    async def _mock_sleep(s):
+        sleep_calls.append(s)
+        # After sleeping, stop the loop
+        svc.shutdown_requested = True
+        svc.running = False
+
+    with patch("asyncio.sleep", side_effect=_mock_sleep):
+        await svc._run_refresh_loop("test", 0.01, _failing_fn, backoff_s=30)
+
+    assert call_count >= 1, "fn must have been called before raising"
+    assert 30 in sleep_calls, "asyncio.sleep(30) must be called after exception"
+    svc.logger.error.assert_called()
+
+
+# ── calibration ndarray pre-alloc ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_load_calibration_curves_stores_ndarray():
+    """_load_calibration_curves_from_db stores np.ndarray with dtype=float64."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import numpy as np
+
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.logger = MagicMock()
+    svc.logger.debug = MagicMock()
+    svc.logger.warning = MagicMock()
+    svc._calibration_curves = {}
+
+    mock_db = MagicMock()
+    mock_db.execute_query = AsyncMock(
+        return_value=[
+            {
+                "plugin_name": "trad_CHoCHReversal",
+                "timeframe": "5m",
+                "breakpoints": [0.0, 0.3, 0.6, 1.0],
+                "values": [0.1, 0.4, 0.7, 0.9],
+            }
+        ]
+    )
+    svc.db_manager = mock_db
+
+    await svc._load_calibration_curves_from_db()
+
+    key = ("trad_CHoCHReversal", "5m")
+    assert key in svc._calibration_curves, "Key must be present in _calibration_curves"
+    bp, vals = svc._calibration_curves[key]
+    assert isinstance(bp, np.ndarray), "breakpoints must be np.ndarray"
+    assert isinstance(vals, np.ndarray), "values must be np.ndarray"
+    assert bp.dtype == np.float64, "breakpoints dtype must be float64"
+    assert vals.dtype == np.float64, "values dtype must be float64"
+    np.testing.assert_array_equal(bp, [0.0, 0.3, 0.6, 1.0])
+    np.testing.assert_array_equal(vals, [0.1, 0.4, 0.7, 0.9])
