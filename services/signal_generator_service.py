@@ -203,6 +203,49 @@ logger = structlog.get_logger(__name__)
 # Valid timeframes published by cross_asset_service — bounds _cross_asset_cache keys
 _CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 
+# ---------------------------------------------------------------------------
+# Phase 42: pattern_reliability weight cache (15-min TTL)
+# ---------------------------------------------------------------------------
+_pattern_reliability_cache: dict[str, float] | None = None
+_pattern_reliability_cache_ts: datetime | None = None
+_pattern_reliability_cache_ttl_sec: int = 900  # 15 minutes
+
+
+async def _load_pattern_reliability_weights(
+    db_manager: DatabaseManager,
+) -> dict[str, float]:
+    """Load pattern confidence weights from pattern_reliability table with 15-min cache.
+
+    Returns preloaded dict for injection into frames["pattern_weights"].
+    Bootstrap priors (is_bootstrap=true) always included; calibrated weights
+    (sample_size >= 30) override bootstrap when available.
+    """
+    global _pattern_reliability_cache, _pattern_reliability_cache_ts
+
+    now = datetime.now(UTC)
+    if (
+        _pattern_reliability_cache is not None
+        and _pattern_reliability_cache_ts is not None
+        and (now - _pattern_reliability_cache_ts).total_seconds()
+        < _pattern_reliability_cache_ttl_sec
+    ):
+        return _pattern_reliability_cache
+
+    try:
+        rows = await db_manager.execute_query("""
+            SELECT pattern_name, base_confidence
+            FROM pattern_reliability
+            WHERE is_bootstrap = true OR sample_size >= 30
+        """)
+        weights = {r["pattern_name"]: float(r["base_confidence"]) for r in rows}
+        _pattern_reliability_cache = weights
+        _pattern_reliability_cache_ts = now
+        logger.info(f"Pattern reliability weights loaded from DB: {len(weights)} patterns")
+        return weights
+    except Exception as exc:
+        logger.warning(f"Pattern reliability load failed, using fallback: {exc}")
+        return {}  # Plugin will use its own fallback_weights
+
 
 def _apply_alpha_decay(
     sig: dict,
@@ -1498,6 +1541,9 @@ class SignalGeneratorService:
             # Phase 041: Inject HTF 1h context for short-TF bars
             if timeframe in ("1m", "5m", "15m"):
                 frames["htf_1h"] = self._htf_intel_cache.get(f"{symbol}:1h", {})
+
+            # Phase 42: inject pattern_reliability weights for CandlestickPatternSetup
+            frames["pattern_weights"] = await _load_pattern_reliability_weights(self.db_manager)
 
             await self._process_bar(
                 symbol,
