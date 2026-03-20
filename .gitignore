@@ -286,3 +286,12 @@ dashboard/dist/
 !/dashboard-readme.png
 .worktrees/
 plugin_validator
+plugin_validator.*
+calibrator
+quality_gate
+ranker
+regime_gate
+tod_adjuster
+winner_selector
+test_ng_contracts.py
+test_ng_quote.py
