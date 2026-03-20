@@ -51,24 +51,24 @@ from src.core.stream_keys import (
     message_key,
     topic_cross_asset,
     topic_intelligence,
-    topic_intelligence_i7,
     topic_market_ticks,
+    topic_quality_gated,
     topic_signals,
     topic_signals_aggregated,
     topic_system_events,
+    topic_winner,
 )
 from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import IntelligenceEvent
-from src.intelligence.trading.aggregator import AggregatedResult, aggregate
+from src.intelligence.trading.aggregator import AggregatedResult
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_ledger import (
     LedgerEntry,
     SignalStatus,
     insert_signals_with_features,
 )
-from src.intelligence.trading.trade_framer import frame_trade
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     BAR_TO_SIGNAL_LATENCY,
@@ -381,7 +381,9 @@ def build_ledger_entries(
             and sig.get("setup_plugin") == _winner_plugin
         )
         # Determine status based on regime eligibility
-        entry_status = SignalStatus.PENDING if is_regime_eligible else SignalStatus.REGIME_SUPPRESSED
+        entry_status = (
+            SignalStatus.PENDING if is_regime_eligible else SignalStatus.REGIME_SUPPRESSED
+        )
         direction = int(sig.get("direction", 0))
         zone_low = sig.get("entry_zone_low") or None
         zone_high = sig.get("entry_zone_high") or None
@@ -539,6 +541,9 @@ class SignalGeneratorService:
         self.db_manager: DatabaseManager | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
+        # DAG pipeline: producer publishes I7 signals to QualityGate stage entry point.
+        # Winner consumer receives selected signals from WinnerSelector stage for DB writes.
+        self._dag_winner_consumer: KafkaConsumerClient | None = None
 
         settings = Settings()
         self.env_name = settings.env_name or ""
@@ -876,7 +881,9 @@ class SignalGeneratorService:
                 ORDER BY f.ts DESC
                 LIMIT $4
             """
-            result = await self.db_manager.execute_query(query, symbol, tf, str(lookback_secs), min_bars)
+            result = await self.db_manager.execute_query(
+                query, symbol, tf, str(lookback_secs), min_bars
+            )
             return symbol, tf, result or []
 
         try:
@@ -977,6 +984,20 @@ class SignalGeneratorService:
         await self._kafka_producer.start()
         self.logger.info("Kafka producer started")
 
+        # DAG pipeline: winner consumer — receives selected signals from WinnerSelector stage.
+        # Separate consumer group so it doesn't interfere with the main intelligence consumer.
+        self._dag_winner_consumer = KafkaConsumerClient(
+            topic_winner(self.env_name),
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id="signal_generator_winner_group",
+            auto_offset_reset="latest",
+        )
+        await self._dag_winner_consumer.start()
+        self.logger.info(
+            "DAG winner consumer started",
+            topic=topic_winner(self.env_name),
+        )
+
     async def stop(self) -> None:
         self.logger.info("Stopping Signal Generator Service")
         self.running = False
@@ -986,6 +1007,8 @@ class SignalGeneratorService:
             await self._kafka_consumer.stop()
         if self._kafka_producer:
             await self._kafka_producer.stop()
+        if self._dag_winner_consumer:
+            await self._dag_winner_consumer.stop()
         if self.db_manager:
             await self.db_manager.close()
         self.logger.info("Signal Generator Service stopped")
@@ -1098,317 +1121,64 @@ class SignalGeneratorService:
 
         trend_regime = float(features.get("trend_regime", 0.0))
         # Look up authority TF regime data for slow-clock gating (SIGINT-04).
-        # regime_data is None if authority TF not yet seen → aggregate() skips gate.
         authority_tf = _REGIME_AUTHORITY_TF.get(timeframe, timeframe)
         regime_data = self._regime_cache.get(symbol, {}).get(authority_tf)
 
-        # QUAL-09: Read KS drift penalty from Redis for this symbol/TF.
-        # One Redis GET per bar evaluation — negligible overhead.
+        # QUAL-09: Read KS drift penalty from in-process dict for this symbol/TF.
         drift_penalty = await self._read_drift_penalty(symbol, timeframe)
 
-        result = aggregate(
-            raw_signals,
-            trend_regime=trend_regime,
-            features=features,
-            regime_data=regime_data,
-            perf_weights=self._perf_weights,
-            drift_penalty=drift_penalty,
-            calibration_curves=self._calibration_curves,
-            timeframe=timeframe,
-        )
-
-        # Phase 35 KAL-01/KAL-02: Kalman filter on CIS score — runs every bar
-        raw_cis = float(result.cis_score) if result.cis_score is not None else 0.0
-        _tf_params = _CIS_KALMAN_PARAMS.get(
-            timeframe, _CIS_KALMAN_DEFAULTS.get(timeframe, {"Q": 0.01, "R": 0.05})
-        )
-        _Q = float(_tf_params["Q"])
-        _R = float(_tf_params["R"])
-        _kal_key = (symbol, timeframe)
-        if _kal_key not in self._cis_kalman_state:
-            # First bar: initialize to raw CIS; uncertainty = R (same as KalmanTrendPlugin)
-            self._cis_kalman_state[_kal_key] = {"x_est": raw_cis, "P_est": _R}
-        _kal_state = self._cis_kalman_state[_kal_key]
-        _x_new, _P_new = _cis_kalman_update(
-            raw_cis, _kal_state["x_est"], _kal_state["P_est"], _Q, _R
-        )
-        _kal_state["x_est"] = _x_new
-        _kal_state["P_est"] = _P_new
-        filtered_cis = round(_x_new, 4)
-
-        # KAL-02: New fire condition check
-        # Old condition: signal selected by aggregate() (abs(cis_score) > threshold in aggregate)
-        # New condition: filtered_cis > 0.35 AND raw_cis > 0.28 AND buckets_agreeing >= 3
-        _buckets_agreeing = result.num_agreeing
-        _new_condition = (
-            filtered_cis > 0.35
-            and raw_cis > 0.28
-            and _buckets_agreeing >= 3
-        )
-        _old_condition = result.selected_signal is not None
-
-        if _old_condition and not _new_condition:
-            # Signal passes old condition but fails new — tag for shadow write
-            if filtered_cis <= 0.35:
-                _suppression_reason = "kalman_filtered_cis_low"
-            elif raw_cis <= 0.28:
-                _suppression_reason = "raw_cis_low"
-            else:
-                _suppression_reason = "buckets_agreeing_low"
-            self.logger.info(
-                "new_fire_condition_shadow",
+        # DAG pipeline: publish each signal to quality_gated topic (QualityGate stage entry).
+        # The 6-stage DAG (QualityGate→RegimeGate→TODAdjuster→Calibrator→Ranker→WinnerSelector)
+        # processes signals and emits the winner back on the winner topic.
+        # _consume_winner_signals() receives winners and handles DB writes + downstream publish.
+        if raw_signals and self._kafka_producer:
+            _dag_meta = {
+                "trend_regime": trend_regime,
+                "regime_data": regime_data,
+                "perf_weights": self._perf_weights,
+                "drift_penalty": drift_penalty,
+                "timeframe": timeframe,
+                "symbol": symbol,
+                "timestamp": timestamp.isoformat(),
+                "bar_close_ts": bar_close_ts.isoformat() if bar_close_ts else None,
+                "source": source,
+                # Include features subset for DAG context
+                "hmm_regime": features.get("hmm_regime"),
+                "hmm_regime_prob": features.get("hmm_regime_prob"),
+                "hmm_regime_duration": features.get("hmm_regime_duration"),
+            }
+            for sig in raw_signals:
+                dag_msg = {**sig, **_dag_meta}
+                # Ensure direction and numeric fields are serializable
+                dag_msg["direction"] = int(sig.get("direction", 0))
+                dag_msg["confidence"] = float(sig.get("confidence", 0.0))
+                try:
+                    await self._kafka_producer.publish(
+                        topic_quality_gated(self.env_name),
+                        dag_msg,
+                        key=message_key(symbol, timeframe),
+                    )
+                except Exception as _dag_err:
+                    self.logger.warning(
+                        "DAG publish failed",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        setup_plugin=sig.get("setup_plugin"),
+                        error=str(_dag_err),
+                    )
+            self.logger.debug(
+                "dag_signals_published",
                 symbol=symbol,
                 timeframe=timeframe,
-                raw_cis=raw_cis,
-                filtered_cis=filtered_cis,
-                buckets_agreeing=_buckets_agreeing,
-                suppression_reason=_suppression_reason,
+                signal_count=len(raw_signals),
             )
-            if result.selected_signal:
-                result.selected_signal["_kalman_shadow"] = True
-                result.selected_signal["_kalman_suppression_reason"] = _suppression_reason
-            # Shadow signals are DB-only — do not publish to Kafka
 
-        self.logger.debug(
-            "cis_kalman",
-            symbol=symbol,
-            timeframe=timeframe,
-            raw_cis=raw_cis,
-            filtered_cis=filtered_cis,
-            tod_multiplier=raw_signals[0].get("tod_multiplier") if raw_signals else None,
-        )
-
-        # Apply structural trade framing to the winning signal
-        if result.selected_signal:
-            atr = float(features.get("atr_14") or 0.0)
-            sig = result.selected_signal
-            frame = frame_trade(
-                setup_type=sig.get("signal_type", ""),
-                direction=int(sig.get("direction", 1)),
-                entry=float(sig.get("entry_price", 0.0)),
-                features=features,
-                atr=atr,
-            )
-            if not frame.viable:
-                self.logger.info(
-                    "Signal filtered: RR gate",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    signal_type=sig.get("signal_type"),
-                    reason=frame.rejection_reason,
-                )
-                result = AggregatedResult(
-                    selected_signal=None,
-                    all_ranked=result.all_ranked,
-                    resolution_method="rr_filtered",
-                    num_signals_fired=result.num_signals_fired,
-                    num_agreeing=result.num_agreeing,
-                    num_conflicting=result.num_conflicting,
-                )
-            else:
-                result.selected_signal.update(
-                    {
-                        "entry_price": frame.entry,
-                        "entry_type": frame.entry_type,
-                        "stop_loss": frame.stop,
-                        "stop_type": frame.stop_type,
-                        "targets": [t.price for t in frame.targets],
-                        "target_labels": [t.label for t in frame.targets],
-                        "target_types": [t.level_type for t in frame.targets],
-                        "rr_t1": frame.rr_t1,
-                        "rr_t2": frame.rr_t2,
-                        "rr_t3": frame.rr_t3,
-                        "framing_method": frame.method,
-                        "entry_zone_low": frame.zone_low,
-                        "entry_zone_high": frame.zone_high,
-                        # Phase 32: stop basis fields — flow into LedgerEntry AND i7 payload
-                        "stop_basis": frame.stop_basis,
-                        "stop_structure_type": frame.stop_structure_type,
-                        "stop_structure_age_bars": frame.stop_structure_age_bars,
-                        "structural_stop_distance_atr": frame.structural_stop_distance_atr,
-                        # Fire-time snapshots for ML segmentation
-                        "hmm_regime_at_fire": features.get("hmm_regime"),
-                        "garch_sigma_at_fire": features.get("garch_sigma"),
-                    }
-                )
-
+        # Emit bar-to-signal latency metric even for DAG path
         signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
-        determined_at = signal_computed_at  # same wall-clock snapshot
-
-        # Fetch live quote for institutional fields from in-process dict (KAFKA-06)
-        live_quote: dict[str, float | None] = {"bid": None, "ask": None}
-        if source == "live":
-            live_quote = _extract_live_quote(self._live_quotes, symbol)
-
-        # Emit bar-to-signal latency for live events with known close time
         if source == "live" and bar_close_ts is not None and signal_computed_at is not None:
             BAR_TO_SIGNAL_LATENCY.labels(symbol=symbol, tf=timeframe).observe(
                 (signal_computed_at - bar_close_ts).total_seconds()
             )
-
-        entries = build_ledger_entries(
-            result,
-            symbol,
-            timeframe,
-            timestamp,
-            features,
-            signal_computed_at=signal_computed_at,
-            quote=live_quote,
-            determined_at=determined_at,
-            raw_cis_score=raw_cis,
-            filtered_cis_score=filtered_cis,
-        )
-
-        # Phase 35 KAL-02: Override is_shadow for Kalman shadow signals
-        if result.selected_signal and result.selected_signal.get("_kalman_shadow"):
-            for entry in entries:
-                if entry.was_selected:
-                    entry.is_shadow = True
-                    entry.staleness_trigger_reason = result.selected_signal.get(
-                        "_kalman_suppression_reason", "kalman_suppressed"
-                    )
-
-        # Phase 036-02: Plugin-level shadow mode (e.g., trad_DualDivergence IS_SHADOW=True)
-        # Mark all entries from shadow plugins as is_shadow=True regardless of selection.
-        for entry in entries:
-            plugin_instance = registry.patterns.get(entry.setup_plugin)
-            if plugin_instance is not None and getattr(plugin_instance, "IS_SHADOW", False):
-                entry.is_shadow = True
-
-        # ── Signal gate: suppress condition re-fires and direction flips ─────────────
-        # Prevents same setup re-publishing every bar the condition persists (onset-only).
-        # Also blocks direction flip until prior signal resolves (direction=0 exit event).
-        if result.selected_signal:
-            _direction = int(result.selected_signal.get("direction", 0))
-            if self._check_gate(symbol, timeframe, _direction, timestamp):
-                self.logger.debug(
-                    "Signal gated",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    direction=_direction,
-                    gate=self._signal_gate.get((symbol, timeframe)),
-                )
-                result = AggregatedResult(
-                    selected_signal=None,
-                    all_ranked=result.all_ranked,
-                    resolution_method="gate_suppressed",
-                    num_signals_fired=result.num_signals_fired,
-                    num_agreeing=result.num_agreeing,
-                    num_conflicting=result.num_conflicting,
-                    cis_score=result.cis_score,
-                    bucket_scores=result.bucket_scores,
-                    weights_version=result.weights_version,
-                )
-
-        # STREAM PUBLISH FIRST (hot tier — consistent with platform architecture)
-        published_signal = False
-        if result.selected_signal and self._kafka_producer:
-            sig = result.selected_signal
-            message = {k: str(v) for k, v in sig.items() if isinstance(v, (str, int, float, bool))}
-            # Promote individual targets as scalar fields
-            targets = sig.get("targets") or []
-            target_labels = sig.get("target_labels") or []
-            if targets:
-                message["profit_target"] = str(float(targets[0]))
-                if len(targets) > 1:
-                    message["profit_target_2"] = str(float(targets[1]))
-                if len(targets) > 2:
-                    message["profit_target_3"] = str(float(targets[2]))
-            # Serialise list fields as JSON strings
-            message["target_labels"] = json.dumps(target_labels)
-            message["target_types"] = json.dumps(sig.get("target_types") or [])
-            # RR fields
-            entry_p = float(sig.get("entry_price", 0))
-            stop_p = float(sig.get("stop_loss", 0))
-            risk = abs(entry_p - stop_p)
-            if risk > 0 and targets:
-                message["risk_reward_ratio"] = str(
-                    round(abs(float(targets[0]) - entry_p) / risk, 2)
-                )
-            message["timestamp"] = timestamp.isoformat()
-            message["symbol"] = symbol
-            message["timeframe"] = timeframe
-            # Thread timing + price-at-creation fields
-            if signal_computed_at:
-                message["signal_computed_at"] = signal_computed_at.isoformat()
-            if bar_close_ts:
-                message["bar_close_ts"] = bar_close_ts.isoformat()
-            # Bar close price — the price at which the triggering bar closed
-            message["bar_close_price"] = str(float(bar.get("close", 0)))
-            # Live quote snapshot at signal creation — enables entry distance calculation
-            direction = int(sig.get("direction", 0))
-            ask = live_quote.get("ask")
-            bid = live_quote.get("bid")
-            if ask is not None:
-                message["ask_at_signal"] = str(ask)
-            if bid is not None:
-                message["bid_at_signal"] = str(bid)
-            market_price = ask if direction == 1 else bid
-            if market_price is not None:
-                message["market_price_at_signal"] = str(market_price)
-            # Inject signal_id from winning LedgerEntry (UUID assigned in build_ledger_entries)
-            selected_entry = next((e for e in entries if e.was_selected), None)
-            message["signal_id"] = selected_entry.signal_id if selected_entry else ""
-            if selected_entry and selected_entry.zone_valid_at_signal is not None:
-                message["zone_valid_at_signal"] = (
-                    "1" if selected_entry.zone_valid_at_signal else "0"
-                )
-            # Tier data — required by frontend Hero tier gate
-            # cis_score is on result (AggregatedResult), not on result.selected_signal
-            if result.cis_score is not None:
-                message["cis_score"] = str(result.cis_score)
-            # was_selected is always True for the published signal
-            message["was_selected"] = "1"
-            msg_key = message_key(symbol, timeframe)
-            # Publish to both signals and signals.aggregated topics
-            try:
-                await self._kafka_producer.publish(
-                    topic_signals(self.env_name), message, key=msg_key
-                )
-                await self._kafka_producer.publish(
-                    topic_signals_aggregated(self.env_name), message, key=msg_key
-                )
-                published_signal = True
-            except Exception as e:
-                self.logger.warning("Kafka publish failed for signal", error=str(e))
-                published_signal = False
-
-            if published_signal and result.selected_signal:
-                _sig_id = message.get("signal_id", "")
-                _pub_direction = int(result.selected_signal.get("direction", 0))
-                self._update_gate(symbol, timeframe, _pub_direction, timestamp, _sig_id)
-                # QUAL-02: record alpha decay fire state for the published setup.
-                # Reset bars_since=0 so the next fire for this setup starts fresh decay.
-                _pub_plugin = result.selected_signal.get("setup_plugin", "")
-                if _pub_plugin:
-                    _decay_key = (symbol, timeframe, _pub_plugin, _pub_direction)
-                    self._setup_last_fire[_decay_key] = {"bars_since": 0}
-
-        # DB INSERT SECOND (cold tier) — atomic signal_ledger + signal_features write
-        if entries and self.db_manager:
-            try:
-                await insert_signals_with_features(self.db_manager.pool, entries, features)
-            except Exception:
-                raise
-            selected_count = sum(1 for e in entries if e.was_selected)
-            self.signals_generated_total.inc(len(entries))
-            self.signals_selected_total.inc(selected_count)
-            self._total_signals += len(entries)
-
-        # Publish all_ranked to intelligence.i7 Kafka topic (DATA-01)
-        if self._kafka_producer:
-            i7_msg = _build_i7_payload(
-                result, timestamp, symbol, timeframe,
-                divergence_scoring=_plugin_metadata.get("divergence_scoring"),
-            )
-            try:
-                await self._kafka_producer.publish(
-                    topic_intelligence_i7(self.env_name),
-                    i7_msg,
-                    key=message_key(symbol, timeframe),
-                )
-            except Exception as e:
-                self.logger.warning("Kafka publish failed for i7", error=str(e))
 
         elapsed_ms = (time.time() - calc_start) * 1000
         self.bars_processed_total.inc()
@@ -1416,14 +1186,231 @@ class SignalGeneratorService:
         self._total_bars += 1
 
         self.logger.debug(
-            "Bar processed",
+            "Bar processed (DAG path)",
             symbol=symbol,
             timeframe=timeframe,
-            signals_fired=result.num_signals_fired,
-            selected=result.selected_signal is not None,
-            resolution=result.resolution_method,
+            signals_fired=len(raw_signals),
             calc_ms=round(elapsed_ms, 2),
         )
+
+
+    async def _consume_winner_signals(self) -> None:
+        """Consume winner signals from DAG pipeline and write to DB + publish downstream.
+
+        Runs as a parallel async task alongside _process_loop(). Receives signals from
+        WinnerSelector stage (pipeline.winner topic), creates LedgerEntry, writes to
+        signal_ledger, and publishes to signals.aggregated for signal_lifecycle_service.
+
+        Uses SignalStatus.PENDING (enum) not the raw string "pending" — CHECK constraint safe.
+        """
+        if not self._dag_winner_consumer:
+            return
+        try:
+            async for _topic, _key, payload in self._dag_winner_consumer.messages():
+                if self.shutdown_requested:
+                    break
+                try:
+                    # WinnerSelector stage produces: {selected_signal, all_ranked,
+                    # resolution_method, symbol, timeframe, timestamp, ...}
+                    selected_signal = payload.get("selected_signal")
+                    if not selected_signal:
+                        # No winner this bar (no signals fired or all suppressed)
+                        continue
+
+                    symbol = str(payload.get("symbol", ""))
+                    timeframe = str(payload.get("timeframe", ""))
+                    if not symbol or not timeframe:
+                        self.logger.warning(
+                            "winner_missing_symbol_tf", payload_keys=list(payload.keys())
+                        )
+                        continue
+
+                    # Parse timestamp
+                    ts_raw = payload.get("timestamp", "")
+                    try:
+                        timestamp = datetime.fromisoformat(str(ts_raw))
+                    except (ValueError, TypeError):
+                        timestamp = datetime.now(tz=UTC)
+
+                    signal_computed_at = datetime.now(tz=UTC)
+
+                    # Build message for signals + signals.aggregated topics
+                    sig = selected_signal
+                    message: dict = {
+                        k: str(v)
+                        for k, v in sig.items()
+                        if isinstance(v, (str, int, float, bool))
+                    }
+                    targets = sig.get("targets") or []
+                    target_labels = sig.get("target_labels") or []
+                    if targets:
+                        message["profit_target"] = str(float(targets[0]))
+                        if len(targets) > 1:
+                            message["profit_target_2"] = str(float(targets[1]))
+                        if len(targets) > 2:
+                            message["profit_target_3"] = str(float(targets[2]))
+                    message["target_labels"] = json.dumps(target_labels)
+                    message["target_types"] = json.dumps(sig.get("target_types") or [])
+                    # RR fields
+                    entry_p = float(sig.get("entry_price", 0))
+                    stop_p = float(sig.get("stop_loss", 0))
+                    risk = abs(entry_p - stop_p)
+                    if risk > 0 and targets:
+                        message["risk_reward_ratio"] = str(
+                            round(abs(float(targets[0]) - entry_p) / risk, 2)
+                        )
+                    message["timestamp"] = timestamp.isoformat()
+                    message["symbol"] = symbol
+                    message["timeframe"] = timeframe
+                    message["signal_computed_at"] = signal_computed_at.isoformat()
+                    message["signal_id"] = str(sig.get("signal_id", "") or uuid4())
+                    message["was_selected"] = "1"
+                    # Propagate cis_score if present from WinnerSelector stage
+                    if payload.get("cis_score") is not None:
+                        message["cis_score"] = str(payload["cis_score"])
+                    msg_key = message_key(symbol, timeframe)
+
+                    # Build LedgerEntry from winner signal for DB write
+                    # Uses SignalStatus enum — respects Phase 39 CHECK constraints
+                    direction = int(sig.get("direction", 0))
+                    all_ranked = payload.get("all_ranked", [selected_signal])
+                    entries: list[LedgerEntry] = []
+                    for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
+                        _is_winner = (
+                            ranked_sig.get("setup_plugin") == sig.get("setup_plugin")
+                            and ranked_sig.get("regime_eligible", True)
+                        )
+                        _status = (
+                            SignalStatus.PENDING
+                            if ranked_sig.get("regime_eligible", True)
+                            else SignalStatus.REGIME_SUPPRESSED
+                        )
+                        _direction = int(ranked_sig.get("direction", 0))
+                        entries.append(
+                            LedgerEntry(
+                                signal_id=str(ranked_sig.get("signal_id") or uuid4()),
+                                timestamp=timestamp,
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                setup_plugin=str(ranked_sig.get("setup_plugin", "unknown")),
+                                signal_type=str(ranked_sig.get("signal_type", "unknown")),
+                                direction=_direction,
+                                entry_price=float(ranked_sig.get("entry_price", 0.0)),
+                                stop_loss=float(ranked_sig.get("stop_loss", 0.0)),
+                                targets=[
+                                    float(t) for t in (ranked_sig.get("targets") or [])
+                                ],
+                                confidence=float(ranked_sig.get("confidence", 0.0)),
+                                confluence_score=float(
+                                    ranked_sig.get("confluence_score", 0.0)
+                                ),
+                                regime_context=str(ranked_sig.get("regime_context", "")),
+                                supporting_factors=list(
+                                    ranked_sig.get("supporting_factors", [])
+                                ),
+                                was_selected=_is_winner,
+                                num_signals_bar=len(all_ranked),
+                                num_agreeing=int(payload.get("num_agreeing", 0)),
+                                num_conflicting=int(payload.get("num_conflicting", 0)),
+                                resolution_method=str(
+                                    payload.get("resolution_method", "dag_winner")
+                                ),
+                                composite_rank=rank_idx,
+                                status=_status,
+                                feature_ts=timestamp,
+                                feature_tf=timeframe,
+                                signal_computed_at=signal_computed_at,
+                            )
+                        )
+
+                    # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
+                    for entry in entries:
+                        plugin_instance = registry.patterns.get(entry.setup_plugin)
+                        if plugin_instance is not None and getattr(
+                            plugin_instance, "IS_SHADOW", False
+                        ):
+                            entry.is_shadow = True
+
+                    # Gate check: suppress re-fires and direction flips
+                    _winner_direction = direction
+                    if self._check_gate(symbol, timeframe, _winner_direction, timestamp):
+                        self.logger.debug(
+                            "winner_signal_gated",
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            direction=_winner_direction,
+                        )
+                        continue
+
+                    # STREAM PUBLISH FIRST (hot tier)
+                    published_signal = False
+                    if self._kafka_producer:
+                        try:
+                            await self._kafka_producer.publish(
+                                topic_signals(self.env_name), message, key=msg_key
+                            )
+                            await self._kafka_producer.publish(
+                                topic_signals_aggregated(self.env_name), message, key=msg_key
+                            )
+                            published_signal = True
+                        except Exception as _pub_err:
+                            self.logger.warning(
+                                "winner_kafka_publish_failed",
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                error=str(_pub_err),
+                            )
+
+                    if published_signal:
+                        self._update_gate(
+                            symbol, timeframe, _winner_direction, timestamp,
+                            message["signal_id"]
+                        )
+                        _pub_plugin = sig.get("setup_plugin", "")
+                        if _pub_plugin:
+                            _decay_key = (symbol, timeframe, _pub_plugin, _winner_direction)
+                            self._setup_last_fire[_decay_key] = {"bars_since": 0}
+
+                    # DB INSERT (cold tier) — atomic signal_ledger + signal_features write
+                    if entries and self.db_manager:
+                        try:
+                            # Pass empty features dict — winner carries its own data
+                            await insert_signals_with_features(
+                                self.db_manager.pool, entries, {}
+                            )
+                            selected_count = sum(1 for e in entries if e.was_selected)
+                            self.signals_generated_total.inc(len(entries))
+                            self.signals_selected_total.inc(selected_count)
+                            self._total_signals += len(entries)
+                        except Exception as _db_err:
+                            self.logger.error(
+                                "winner_db_write_failed",
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                error=str(_db_err),
+                            )
+
+                    self.logger.debug(
+                        "winner_signal_processed",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        setup_plugin=sig.get("setup_plugin"),
+                        published=published_signal,
+                        entries_count=len(entries),
+                    )
+
+                except asyncio.CancelledError:
+                    break
+                except Exception as _e:
+                    self.logger.exception(
+                        "winner_consumer_message_error", error=str(_e)
+                    )
+        except asyncio.CancelledError:
+            pass
+        except Exception as _outer_err:
+            self.logger.warning(
+                "winner_consumer_loop_failed", error=str(_outer_err)
+            )
 
     async def _process_single_message(
         self,
@@ -1900,6 +1887,8 @@ class SignalGeneratorService:
                 asyncio.create_task(self._cis_weights_refresh_loop()),
                 asyncio.create_task(self._calibration_curves_refresh_loop()),
                 asyncio.create_task(self._tod_multipliers_refresh_loop()),
+                # DAG pipeline: consume winners from WinnerSelector stage for DB writes
+                asyncio.create_task(self._consume_winner_signals()),
             ]
             self.logger.info("Signal Generator Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
