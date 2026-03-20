@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: candidates
 status: unknown
-stopped_at: Completed 40.5-01-PLAN.md — OHLCV hypertable rebuild complete
-last_updated: "2026-03-20T08:56:45.605Z"
+stopped_at: Completed 40.5-02-PLAN.md — thread pool, ndarray pre-alloc, shared refresh loop
+last_updated: "2026-03-20T09:05:08.682Z"
 progress:
   total_phases: 25
   completed_phases: 3
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -159,7 +159,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:56:45.602Z
-Stopped at: Completed 40.5-01-PLAN.md — OHLCV hypertable rebuild complete
+Last session: 2026-03-20T09:05:08.680Z
+Stopped at: Completed 40.5-02-PLAN.md — thread pool, ndarray pre-alloc, shared refresh loop
 Resume file: None
 Next action: Run `/gsd:plan-phase 40` to plan Phase 40 (Machine Hardening)
