@@ -218,6 +218,52 @@ def _fval(features: dict[str, Any], key: str, default: float = 0.0) -> float:
         return default
 
 
+def _select_vp(features: dict[str, Any], tf: str) -> tuple[float, float, float] | None:
+    """Return (poc, vah, val) for the VP track appropriate to the timeframe.
+
+    1m/5m  -> session VP (poc_price, vah, val) — intraday volume most relevant.
+    15m/1h -> rolling VP (poc_price_rolling, vah_rolling, val_rolling) — structural.
+    Falls back to htf_1h_* prefixed fields injected by signal_generator_service.
+    Returns None if any required field is missing or zero.
+    """
+    if tf in ("1m", "5m"):
+        poc = _fval(features, "poc_price") or None
+        vah = _fval(features, "vah") or None
+        val = _fval(features, "val") or None
+    else:
+        poc = _fval(features, "poc_price_rolling") or None
+        vah = _fval(features, "vah_rolling") or None
+        val = _fval(features, "val_rolling") or None
+
+    # HTF fallback: signal_generator_service injects htf_1h_* prefixed keys
+    if poc is None:
+        poc_htf = features.get("htf_1h_poc_price")
+        vah_htf = features.get("htf_1h_vah")
+        val_htf = features.get("htf_1h_val")
+        if poc_htf is not None and vah_htf is not None and val_htf is not None:
+            return float(poc_htf), float(vah_htf), float(val_htf)
+        return None
+
+    if vah is None or val is None:
+        return None
+    return float(poc), float(vah), float(val)
+
+
+def _vp_regime_active(features: dict[str, Any]) -> bool:
+    """True when price is near a value area boundary (within 0.5 ATR).
+
+    When True, VP candidates are elevated above standard ATR-range targets.
+    Returns False if VP distance fields are absent (no VP data available).
+    """
+    d_vah = features.get("distance_to_vah_atr")
+    d_val = features.get("distance_to_val_atr")
+    if d_vah is None and d_val is None:
+        return False
+    return (d_vah is not None and float(d_vah) < 0.5) or (
+        d_val is not None and float(d_val) < 0.5
+    )
+
+
 def _reject_frame(
     reason: str,
     entry: float,
@@ -539,17 +585,40 @@ def _collect_targets_long(
             )
         )
 
-    # Filter to valid range
+    # Volume Profile priority candidates — bypass standard ATR range filter
+    # (VP levels are meaningful even when < 0.5 ATR from entry because
+    #  _vp_regime_active() guarantees the VA boundary is institutionally significant)
+    priority_candidates: list[tuple[float, str, str]] = []
+    tf = features.get("timeframe", "")
+    vp = _select_vp(features, tf)
+    if vp is not None and _vp_regime_active(features):
+        poc, vah, val = vp
+        price_in_va = _fval(features, "price_in_value_area")
+        if price_in_va == 1.0:
+            # Inside value area: target the far boundary (VAH for longs)
+            if vah > entry:
+                priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
+        else:
+            # Near VA boundary: T1=POC, T2=VAH
+            if poc > entry:
+                priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
+            if vah > poc:
+                priority_candidates.append((vah, f"VP VAH {vah:.2f}", "vp_vah"))
+
+    # Standard candidates filtered to ATR range
     valid = [
         (price, label, ltype) for price, label, ltype in candidates if min_level < price < max_level
     ]
     # Sort by distance ascending
     valid.sort(key=lambda x: x[0])
 
+    # Prepend VP priority candidates (they bypass the range filter)
+    all_candidates = priority_candidates + valid
+
     # Convert to TradeTarget with RR
     return [
         TradeTarget(price=price, label=label, level_type=ltype, rr=round((price - entry) / risk, 2))
-        for price, label, ltype in valid
+        for price, label, ltype in all_candidates
     ]
 
 
@@ -614,16 +683,37 @@ def _collect_targets_short(
             )
         )
 
-    # Filter to valid range
+    # Volume Profile priority candidates for shorts — bypass standard ATR range filter
+    priority_candidates: list[tuple[float, str, str]] = []
+    tf = features.get("timeframe", "")
+    vp = _select_vp(features, tf)
+    if vp is not None and _vp_regime_active(features):
+        poc, vah, val = vp
+        price_in_va = _fval(features, "price_in_value_area")
+        if price_in_va == 1.0:
+            # Inside value area: target the far boundary (VAL for shorts)
+            if val < entry:
+                priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
+        else:
+            # Near VA boundary: T1=POC, T2=VAL
+            if poc < entry:
+                priority_candidates.append((poc, f"VP POC {poc:.2f}", "vp_poc"))
+            if val < poc:
+                priority_candidates.append((val, f"VP VAL {val:.2f}", "vp_val"))
+
+    # Standard candidates filtered to ATR range
     valid = [
         (price, label, ltype) for price, label, ltype in candidates if min_level < price < max_level
     ]
     # Sort by distance ascending (closest first = largest price value for shorts)
     valid.sort(key=lambda x: x[0], reverse=True)
 
+    # Prepend VP priority candidates (they bypass the range filter)
+    all_candidates = priority_candidates + valid
+
     return [
         TradeTarget(price=price, label=label, level_type=ltype, rr=round((entry - price) / risk, 2))
-        for price, label, ltype in valid
+        for price, label, ltype in all_candidates
     ]
 
 
