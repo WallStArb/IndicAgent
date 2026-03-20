@@ -33,6 +33,17 @@ class CandlestickPatternsPlugin:
             "harami_cross",
             "dark_cloud_cover",
             "piercing_line",
+            # --- 10 new Phase 42 patterns ---
+            "harami_bull",
+            "harami_bear",
+            "abandoned_baby_bull",
+            "abandoned_baby_bear",
+            "tweezer_top",
+            "tweezer_bottom",
+            "belt_hold_bull",
+            "belt_hold_bear",
+            "kicker_bull",
+            "kicker_bear",
         }
     )
     min_lookback: int = 3
@@ -297,6 +308,123 @@ class CandlestickPatternsPlugin:
         if pp_bearish and c_o < pp_l and c_c > (pp_o + pp_c) / 2.0 and c_c < pp_o:
             piercing_line = 1.0
 
+        # ------------------------------------------------------------------ #
+        # 10 new Phase 42 patterns
+        # ------------------------------------------------------------------ #
+
+        # --- Harami Bull (directional variant - p is bullish harami inside pp) ---
+        harami_bull = 0.0
+        if (
+            pp_range > 0
+            and pp_body > 0.5 * pp_range
+            and p_range > 0
+            and p_body < 0.3 * p_range
+            and p_h <= pp_body_high
+            and p_l >= pp_body_low
+            and p_bullish
+        ):
+            harami_bull = 1.0
+
+        # --- Harami Bear (directional variant - p is bearish harami inside pp) ---
+        harami_bear = 0.0
+        if (
+            pp_range > 0
+            and pp_body > 0.5 * pp_range
+            and p_range > 0
+            and p_body < 0.3 * p_range
+            and p_h <= pp_body_high
+            and p_l >= pp_body_low
+            and p_bearish
+        ):
+            harami_bear = 1.0
+
+        # --- Abandoned Baby Bull (gap up doji + bullish reversal) ---
+        abandoned_baby_bull = 0.0
+        gap_up = p_l > pp_h  # gap up: p low above pp high
+        if (
+            pp_bearish
+            and pp_range > 0
+            and pp_body > 0.6 * pp_range
+            and gap_up
+            and p_range > 0
+            and p_body / p_range < 0.10  # doji
+            and c_bullish
+            and c_range > 0
+            and c_body > 0.6 * c_range
+        ):
+            abandoned_baby_bull = 1.0
+
+        # --- Abandoned Baby Bear (gap down doji + bearish reversal) ---
+        abandoned_baby_bear = 0.0
+        gap_down = p_h < pp_l  # gap down: p high below pp low
+        if (
+            pp_bullish
+            and pp_range > 0
+            and pp_body > 0.6 * pp_range
+            and gap_down
+            and p_range > 0
+            and p_body / p_range < 0.10
+            and c_bearish
+            and c_range > 0
+            and c_body > 0.6 * c_range
+        ):
+            abandoned_baby_bear = 1.0
+
+        # --- Tweezer Top (near-identical highs between p and c) ---
+        tweezer_top = 0.0
+        atr_val = float(features.get("atr_14") or 0.0)
+        if atr_val > 0 and abs(p_h - c_h) <= 0.1 * atr_val:
+            tweezer_top = 1.0
+
+        # --- Tweezer Bottom (near-identical lows between p and c) ---
+        tweezer_bottom = 0.0
+        if atr_val > 0 and abs(p_l - c_l) <= 0.1 * atr_val:
+            tweezer_bottom = 1.0
+
+        # --- Belt Hold Bull (long white candle, no upper wick) ---
+        belt_hold_bull = 0.0
+        if (
+            c_bullish
+            and c_range > 0
+            and c_body > 0.70 * c_range
+            and c_upper_wick < 0.10 * c_range
+        ):
+            belt_hold_bull = 1.0
+
+        # --- Belt Hold Bear (long black candle, no lower wick) ---
+        belt_hold_bear = 0.0
+        if (
+            c_bearish
+            and c_range > 0
+            and c_body > 0.70 * c_range
+            and c_lower_wick < 0.10 * c_range
+        ):
+            belt_hold_bear = 1.0
+
+        # --- Kicker Bull (3-bar: pp bearish, c gaps above pp_h, c bullish large body) ---
+        kicker_bull = 0.0
+        gap_up_clean = pp_bearish and c_o > pp_h
+        if (
+            gap_up_clean
+            and c_bullish
+            and c_range > 0
+            and c_body > 0.6 * c_range
+            and c_upper_wick < 0.15 * c_range
+        ):
+            kicker_bull = 1.0
+
+        # --- Kicker Bear (3-bar: pp bullish, c gaps below pp_l, c bearish large body) ---
+        kicker_bear = 0.0
+        gap_down_clean = pp_bullish and c_o < pp_l
+        if (
+            gap_down_clean
+            and c_bearish
+            and c_range > 0
+            and c_body > 0.6 * c_range
+            and c_lower_wick < 0.15 * c_range
+        ):
+            kicker_bear = 1.0
+
         return {
             # Existing 9
             "engulfing_bull": engulfing_bull,
@@ -318,6 +446,17 @@ class CandlestickPatternsPlugin:
             "harami_cross": harami_cross,
             "dark_cloud_cover": dark_cloud_cover,
             "piercing_line": piercing_line,
+            # 10 new Phase 42 patterns
+            "harami_bull": harami_bull,
+            "harami_bear": harami_bear,
+            "abandoned_baby_bull": abandoned_baby_bull,
+            "abandoned_baby_bear": abandoned_baby_bear,
+            "tweezer_top": tweezer_top,
+            "tweezer_bottom": tweezer_bottom,
+            "belt_hold_bull": belt_hold_bull,
+            "belt_hold_bear": belt_hold_bear,
+            "kicker_bull": kicker_bull,
+            "kicker_bear": kicker_bear,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
