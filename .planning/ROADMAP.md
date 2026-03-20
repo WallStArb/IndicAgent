@@ -153,7 +153,8 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 
 - [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, IC computation, data quality monitoring infrastructure (completed 2026-03-19)
 - [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
-- [ ] **Phase 40: Machine Hardening** — feature_writer lag fix, aggregator dirty-flag cache, semaphore-bounded DB seed, calibration ndarray pre-alloc, refresh loop standardisation, lifecycle index, Chandelier write guard
+- [ ] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (IN PROGRESS)
+- [ ] **Phase 40.5: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
 - [ ] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context
 - [ ] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights
 - [ ] **Phase 43: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
@@ -761,7 +762,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 38. Automated Futures Roll Detection | v1.9 | 3/3 | Complete | 2026-03-18 |
 | 39. Data Quality + DB Health | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
-| 40. Machine Hardening | 4/4 | Complete   | 2026-03-20 | — |
+| 40. Machine Hardening | 4/4 | Complete    | 2026-03-20 | — |
 | 41. Intelligence Gap Fill | v2.0 | 0/TBD | Not started | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
 | 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
