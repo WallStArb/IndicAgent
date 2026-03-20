@@ -4,7 +4,7 @@ milestone: v2.1
 milestone_name: candidates
 status: unknown
 stopped_at: Completed 42-05-PLAN.md — weight updater calibration and 7-day backtest validation
-last_updated: "2026-03-20T21:19:52.186Z"
+last_updated: "2026-03-20T21:25:25.337Z"
 progress:
   total_phases: 25
   completed_phases: 6
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 
 ## Current Position
 
-Phase: 42 (candlestick-pattern-expansion) — EXECUTING
-Plan: 5 of 5
+Phase: 47
+Plan: Not started
 
 ## Performance Metrics
 
