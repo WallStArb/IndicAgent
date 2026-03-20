@@ -1264,7 +1264,9 @@ class SignalGeneratorService:
                     message["symbol"] = symbol
                     message["timeframe"] = timeframe
                     message["signal_computed_at"] = signal_computed_at.isoformat()
-                    message["signal_id"] = str(sig.get("signal_id", "") or uuid4())
+                    # Generate once; reuse in message and LedgerEntry to avoid ID mismatch
+                    _winner_signal_id = str(sig.get("signal_id", "") or uuid4())
+                    message["signal_id"] = _winner_signal_id
                     message["was_selected"] = "1"
                     # Propagate cis_score if present from WinnerSelector stage
                     if payload.get("cis_score") is not None:
@@ -1277,8 +1279,10 @@ class SignalGeneratorService:
                     all_ranked = payload.get("all_ranked", [selected_signal])
                     entries: list[LedgerEntry] = []
                     for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
-                        _is_winner = (
-                            ranked_sig.get("setup_plugin") == sig.get("setup_plugin")
+                        _ranked_id = str(ranked_sig.get("signal_id") or "")
+                        _is_winner = _ranked_id == _winner_signal_id or (
+                            not _ranked_id
+                            and ranked_sig.get("setup_plugin") == sig.get("setup_plugin")
                             and ranked_sig.get("regime_eligible", True)
                         )
                         _status = (
@@ -1289,7 +1293,7 @@ class SignalGeneratorService:
                         _direction = int(ranked_sig.get("direction", 0))
                         entries.append(
                             LedgerEntry(
-                                signal_id=str(ranked_sig.get("signal_id") or uuid4()),
+                                signal_id=_ranked_id or str(uuid4()),
                                 timestamp=timestamp,
                                 symbol=symbol,
                                 timeframe=timeframe,

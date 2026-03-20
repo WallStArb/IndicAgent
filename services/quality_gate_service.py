@@ -39,12 +39,12 @@ async def main() -> None:
 
     stage = QualityGateService(settings)
 
+    _main_task = asyncio.current_task()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(stage)))
 
     logger.info("Quality Gate Service running")
-    _main_task = asyncio.current_task()
     await stage.run()
 
 
