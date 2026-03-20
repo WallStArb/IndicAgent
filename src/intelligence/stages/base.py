@@ -199,146 +199,152 @@ class Stage(ABC):
 
         # Start Kafka clients before entering message loop
         await self.consumer.start()
-        await self.producer.start()
-        await self.attribution_producer.start()
+        try:
+            await self.producer.start()
+            await self.attribution_producer.start()
+        except Exception:
+            await self.consumer.stop()
+            raise
 
-        async for _topic, _key, raw_payload in self.consumer.messages():
-            try:
-                # Parse IntelligenceEvent
+        try:
+            async for _topic, _key, raw_payload in self.consumer.messages():
                 try:
-                    event = IntelligenceEvent.model_validate(raw_payload)
-                except (ValidationError, TypeError) as exc:
-                    logger.error(
-                        "Failed to parse IntelligenceEvent",
-                        stage=self.stage_name,
-                        error=str(exc),
-                    )
-                    self.processing_errors.labels(
-                        stage=self.stage_name,
-                        error_type="parse_error",
-                    ).inc()
-                    continue
+                    # Parse IntelligenceEvent
+                    try:
+                        event = IntelligenceEvent.model_validate(raw_payload)
+                    except (ValidationError, TypeError) as exc:
+                        logger.error(
+                            "Failed to parse IntelligenceEvent",
+                            stage=self.stage_name,
+                            error=str(exc),
+                        )
+                        self.processing_errors.labels(
+                            stage=self.stage_name,
+                            error_type="parse_error",
+                        ).inc()
+                        continue
 
-                symbol = event.symbol
-                timeframe = event.tf
+                    symbol = event.symbol
+                    timeframe = event.tf
 
-                self.events_consumed.labels(
-                    stage=self.stage_name,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                ).inc()
-
-                # Data quality check (input)
-                if not await self.data_quality_monitor.validate_input(raw_payload):
-                    logger.warning(
-                        "Input validation failed — dropping message",
+                    self.events_consumed.labels(
                         stage=self.stage_name,
                         symbol=symbol,
                         timeframe=timeframe,
-                    )
-                    self.processing_errors.labels(
-                        stage=self.stage_name,
-                        error_type="input_validation",
                     ).inc()
-                    continue
 
-                # Process through circuit breaker
-                try:
-                    result = await self.circuit_breaker.call(self.process, event)
+                    # Data quality check (input)
+                    if not await self.data_quality_monitor.validate_input(raw_payload):
+                        logger.warning(
+                            "Input validation failed — dropping message",
+                            stage=self.stage_name,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                        )
+                        self.processing_errors.labels(
+                            stage=self.stage_name,
+                            error_type="input_validation",
+                        ).inc()
+                        continue
 
-                except CircuitOpenError:
-                    logger.warning(
-                        "Circuit OPEN — bypassing stage",
+                    # Process through circuit breaker
+                    try:
+                        result = await self.circuit_breaker.call(self.process, event)
+
+                    except CircuitOpenError:
+                        logger.warning(
+                            "Circuit OPEN — bypassing stage",
+                            stage=self.stage_name,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                        )
+                        result = raw_payload.copy()
+                        result["bypassed"] = True
+                        result["bypass_reason"] = "circuit_open"
+                        self.processing_errors.labels(
+                            stage=self.stage_name,
+                            error_type="circuit_open",
+                        ).inc()
+
+                    except Exception as exc:
+                        logger.error(
+                            "Process failed — bypassing stage",
+                            stage=self.stage_name,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            error=str(exc),
+                        )
+                        result = raw_payload.copy()
+                        result["bypassed"] = True
+                        result["bypass_reason"] = "process_error"
+                        result["error"] = str(exc)
+                        self.circuit_breaker.record_failure()
+                        self.processing_errors.labels(
+                            stage=self.stage_name,
+                            error_type="process_error",
+                        ).inc()
+
+                    # Data quality check (output)
+                    if not await self.data_quality_monitor.validate_output(result):
+                        logger.error(
+                            "Output validation failed — dropping message",
+                            stage=self.stage_name,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                        )
+                        self.processing_errors.labels(
+                            stage=self.stage_name,
+                            error_type="output_validation",
+                        ).inc()
+                        continue
+
+                    # Emit attribution (only for non-bypassed events)
+                    if not result.get("bypassed", False):
+                        after_conf = result.get("confidence", 0.0)
+                        reason = result.pop("attribution_reason", "")
+                        await self.emit_attribution(
+                            event,
+                            result,
+                            value_added=after_conf,
+                            reason=reason,
+                        )
+
+                    # Publish to next stage
+                    await self.producer.publish(
+                        topic=self._output_topic,
+                        msg=result,
+                        key=f"{symbol}:{timeframe}",
+                    )
+
+                    self.events_produced.labels(
                         stage=self.stage_name,
                         symbol=symbol,
                         timeframe=timeframe,
-                    )
-                    result = raw_payload.copy()
-                    result["bypassed"] = True
-                    result["bypass_reason"] = "circuit_open"
-                    self.processing_errors.labels(
-                        stage=self.stage_name,
-                        error_type="circuit_open",
                     ).inc()
+
+                    # Update circuit state gauge only on state change (avoids lock per message)
+                    current_state = self.circuit_breaker.state.value
+                    if current_state != self._last_circuit_state:
+                        self._last_circuit_state = current_state
+                        self.circuit_state.labels(stage=self.stage_name).set(
+                            _CIRCUIT_STATE_GAUGE_VALUES.get(current_state, 0.0)
+                        )
 
                 except Exception as exc:
-                    logger.error(
-                        "Process failed — bypassing stage",
+                    logger.exception(
+                        "Unexpected error in run loop — continuing",
                         stage=self.stage_name,
-                        symbol=symbol,
-                        timeframe=timeframe,
                         error=str(exc),
                     )
-                    result = raw_payload.copy()
-                    result["bypassed"] = True
-                    result["bypass_reason"] = "process_error"
-                    result["error"] = str(exc)
-                    self.circuit_breaker.record_failure()
                     self.processing_errors.labels(
                         stage=self.stage_name,
-                        error_type="process_error",
+                        error_type="unexpected",
                     ).inc()
 
-                # Data quality check (output)
-                if not await self.data_quality_monitor.validate_output(result):
-                    logger.error(
-                        "Output validation failed — dropping message",
-                        stage=self.stage_name,
-                        symbol=symbol,
-                        timeframe=timeframe,
-                    )
-                    self.processing_errors.labels(
-                        stage=self.stage_name,
-                        error_type="output_validation",
-                    ).inc()
-                    continue
-
-                # Emit attribution (only for non-bypassed events)
-                if not result.get("bypassed", False):
-                    after_conf = result.get("confidence", 0.0)
-                    reason = result.pop("attribution_reason", "")
-                    await self.emit_attribution(
-                        event,
-                        result,
-                        value_added=after_conf,
-                        reason=reason,
-                    )
-
-                # Publish to next stage
-                await self.producer.publish(
-                    topic=self._output_topic,
-                    msg=result,
-                    key=f"{symbol}:{timeframe}",
-                )
-
-                self.events_produced.labels(
-                    stage=self.stage_name,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                ).inc()
-
-                # Update circuit state gauge only on state change (avoids lock per message)
-                current_state = self.circuit_breaker.state.value
-                if current_state != self._last_circuit_state:
-                    self._last_circuit_state = current_state
-                    self.circuit_state.labels(stage=self.stage_name).set(
-                        _CIRCUIT_STATE_GAUGE_VALUES.get(current_state, 0.0)
-                    )
-
-            except Exception as exc:
-                logger.exception(
-                    "Unexpected error in run loop — continuing",
-                    stage=self.stage_name,
-                    error=str(exc),
-                )
-                self.processing_errors.labels(
-                    stage=self.stage_name,
-                    error_type="unexpected",
-                ).inc()
-
-        # Graceful shutdown: stop Kafka clients
-        await self.consumer.stop()
-        await self.producer.stop()
-        await self.attribution_producer.stop()
+        finally:
+            # Graceful shutdown: stop Kafka clients (runs on normal exit and CancelledError)
+            await self.consumer.stop()
+            await self.producer.stop()
+            await self.attribution_producer.stop()
 
         logger.info("Stage run loop stopped", stage=self.stage_name)
