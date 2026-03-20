@@ -783,7 +783,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 39. Data Quality + DB Health | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 39.1. Intelligence Layer Enforcement | v2.0 | 6/6 | Complete | 2026-03-19 |
 | 40. Machine Hardening | 4/4 | Complete    | 2026-03-20 | — |
-| 41. Intelligence Gap Fill | 2/3 | In Progress|  | — |
+| 41. Intelligence Gap Fill | 2/3 | Complete    | 2026-03-20 | — |
 | 42. Candlestick Pattern Expansion | v2.0 | 0/TBD | Not started | — |
 | 43. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 44. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
