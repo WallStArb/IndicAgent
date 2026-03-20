@@ -91,6 +91,31 @@ class CandlestickPatternSetupPlugin:
         dark_cloud_cover = float(features.get("dark_cloud_cover", 0.0))
         piercing_line = float(features.get("piercing_line", 0.0))
 
+        # Get pattern weights injected by service (15-min DB cache), or use fallback.
+        # fallback_weights match bootstrap priors from 42-02; used when service cache not yet warm.
+        fallback_weights: dict[str, float] = {
+            "hammer": 0.65,
+            "shooting_star": 0.65,
+            "engulfing": 0.55,
+            "three_white_soldiers": 0.75,
+            "three_black_crows": 0.75,
+            "pin_bar": 0.45,
+            "morning_star": 0.80,
+            "evening_star": 0.80,
+            "three_inside_up": 0.65,
+            "three_inside_down": 0.65,
+            "dark_cloud_cover": 0.70,
+            "piercing_line": 0.70,
+            "harami_cross": 0.60,
+            # Phase 42 bootstrap priors
+            "abandoned_baby": 0.70,
+            "kicker": 0.70,
+            "harami": 0.60,
+            "tweezer": 0.60,
+            "belt_hold": 0.55,
+        }
+        pattern_weights: dict[str, float] = frames.get("pattern_weights") or fallback_weights
+
         # Collect directional candidates with priority (lower rank = higher priority)
         # Candidate: (priority_rank, direction, pattern_name, base_confidence, sr_auto_satisfied)
         candidates = []
