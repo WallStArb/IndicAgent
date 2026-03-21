@@ -72,6 +72,11 @@ from src.intelligence.pipeline import (
     rank_signals,
     select_winner,
 )
+from src.intelligence.pipeline.tod_adjuster import (
+    _TOD_ALPHA,
+    _TOD_CLAMP,
+    _TOD_SESSION_PRIORS,
+)
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
 from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent, RankedSignal
@@ -157,24 +162,7 @@ _REGIME_AUTHORITY_TF: dict[str, str] = {
 # Phase 35 TOD: Eastern Time zone for hour extraction
 _ET = zoneinfo.ZoneInfo("America/New_York")
 
-# Phase 35 TOD: session priors per (regime_type, hour_et) — expanded to individual hour keys.
-# NY open (09:30-10:00): hour 9. Lunch chop (11:30-13:00): hours 11, 12.
-# London close (14:00-15:00): hour 14. MOC (15:30-16:00): hour 15.
-_TOD_SESSION_PRIORS: dict[tuple[str, int], float] = {
-    ("trend",           9): 1.10,
-    ("mean_reversion",  9): 1.00,
-    ("any",             9): 1.00,
-    ("trend",          11): 0.90,
-    ("mean_reversion", 11): 0.90,
-    ("any",            11): 0.90,
-    ("trend",          12): 0.90,
-    ("mean_reversion", 12): 0.90,
-    ("any",            12): 0.90,
-    ("mean_reversion", 14): 1.08,
-    ("any",            15): 1.10,
-}
-_TOD_ALPHA = 20.0    # prior weight in virtual observations
-_TOD_CLAMP = (0.7, 1.3)
+# _TOD_SESSION_PRIORS, _TOD_ALPHA, _TOD_CLAMP imported from src.intelligence.pipeline.tod_adjuster
 
 # ---------------------------------------------------------------------------
 # Phase 35: CIS Kalman filter — local-level 1D model (KAL-01 / KAL-02)
@@ -1050,14 +1038,24 @@ class SignalGeneratorService:
 
         Runs alongside _process_loop(). Hot path uses put_nowait() which never
         blocks; this drain task handles the actual I/O off the critical path.
+
+        Pattern: block on queue.get() until an item arrives, then drain all
+        remaining items with get_nowait() before blocking again. Avoids the
+        asyncio.wait_for Task+TimerHandle allocation overhead per loop iteration.
         """
         while not self.shutdown_requested:
             try:
-                payload = await asyncio.wait_for(self._audit_queue.get(), timeout=1.0)
+                payload = await self._audit_queue.get()
                 if self._kafka_producer:
                     await self._kafka_producer.publish(payload["topic"], payload["data"])
-            except TimeoutError:
-                continue
+                # Drain any additional items queued since we unblocked
+                while True:
+                    try:
+                        payload = self._audit_queue.get_nowait()
+                        if self._kafka_producer:
+                            await self._kafka_producer.publish(payload["topic"], payload["data"])
+                    except asyncio.QueueEmpty:
+                        break
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1152,7 +1150,7 @@ class SignalGeneratorService:
         # Stage 2: Regime gate
         _PIPELINE_STAGE_INPUT.labels(stage="regime_gate").inc(len(quality_gated))
         regime_gated = apply_regime_gate(quality_gated, regime_data)
-        regime_eligible_count = len([s for s in regime_gated if s.get("regime_eligible", True)])
+        regime_eligible_count = sum(1 for s in regime_gated if s.get("regime_eligible", True))
         _PIPELINE_STAGE_OUTPUT.labels(stage="regime_gate").inc(regime_eligible_count)
 
         # Stage 3: TOD adjustment

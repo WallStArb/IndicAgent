@@ -6,16 +6,11 @@ No Kafka, no DB, no service dependencies.
 
 from __future__ import annotations
 
-# Allowed HMM regime values per plugin regime_type
-# 0 = ranging/mean-reversion, 1 = trending-up, 2 = trending-down
-_REGIME_MAP: dict[str, list[int]] = {
-    "trend": [1, 2],
-    "mean_reversion": [0],
-    "any": [0, 1, 2],
-}
-
-_REGIME_PROB_MIN = 0.55   # Minimum HMM regime probability to trust the regime label
-_REGIME_DUR_MIN = 3       # Minimum bars regime must have persisted
+from src.intelligence.trading.aggregator import (
+    _REGIME_DUR_MIN,
+    _REGIME_MAP,
+    _REGIME_PROB_MIN,
+)
 
 
 def apply_regime_gate(
