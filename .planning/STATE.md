@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
 status: unknown
-stopped_at: Completed 44-05-PLAN.md — divergence_stack utility wiring gap closure
-last_updated: "2026-03-21T08:17:15.423Z"
+stopped_at: Completed 44.1-01-PLAN.md — schema foundations and test stubs
+last_updated: "2026-03-21T18:59:06.217Z"
 progress:
-  total_phases: 13
+  total_phases: 16
   completed_phases: 7
-  total_plans: 32
-  completed_plans: 32
+  total_plans: 44
+  completed_plans: 33
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 44 — i7-dag-refactor
+**Current focus:** Phase 44.1 — feature-pipeline-renaissance
 
 ## Current Position
 
-Phase: 45
-Plan: Not started
+Phase: 44.1 (feature-pipeline-renaissance) — EXECUTING
+Plan: 2 of 5
 
 ## Performance Metrics
 
@@ -173,7 +173,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-21T08:10:47.821Z
-Stopped at: Completed 44-05-PLAN.md — divergence_stack utility wiring gap closure
+Last session: 2026-03-21T18:59:06.214Z
+Stopped at: Completed 44.1-01-PLAN.md — schema foundations and test stubs
 Resume file: None
 Next action: Run `/gsd:discuss-phase 44` to plan Phase 44 (I7 DAG Refactor)
