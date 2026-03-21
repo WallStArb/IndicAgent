@@ -586,13 +586,14 @@ Plans:
   5. `src/intelligence/utils/common.py` exists; all I2 composites import from new path; composites/common.py is re-export shim
   6. All 8 microstructure plugins return valid `stop_loss` (float), `targets` (non-empty list), `regime_context` (str)
   7. `make_signal()` is the only signal dict construction point in signal_generator_service; `validate_signal()` called pre-aggregation; failures log ERROR + increment Prometheus counter + drop
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
 - [x] 44-01-PLAN.md — Create utility modules (plugin_utils, atr_utils, confidence_utils) + promote utils/common.py + tests (DAG-01, DAG-03, DAG-04)
 - [x] 44-02-PLAN.md — Wire all 36 I7 plugins + I2 composite import migration (DAG-01, DAG-02, DAG-03)
 - [x] 44-03-PLAN.md — cross_timeframe.py decomposition into 3 focused modules (DAG-04)
 - [x] 44-04-PLAN.md — Microstructure type fixes + make_signal() factory + validate_signal() enforcement (DAG-01, DAG-02, DAG-03, DAG-04)
+- [ ] 44-05-PLAN.md — Gap closure: wire divergence_stack.py to shared utilities (DAG-01, DAG-02, DAG-03)
 
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
 **Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation.
