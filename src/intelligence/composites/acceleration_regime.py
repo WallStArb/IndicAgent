@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .common import is_num
+from ..utils.common import is_num
 
 
 @dataclass

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
-from .common import is_num
+from ..utils.common import is_num
 
 
 @dataclass
