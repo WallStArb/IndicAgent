@@ -1,0 +1,26 @@
+---
+created: 2026-03-21T00:00:00.000Z
+title: Implement plugin validation layer (PluginValidator)
+area: intelligence
+priority: 15
+plan: /home/bg/.claude/plans/parsed-wobbling-hanrahan.md
+---
+
+## Problem
+
+Plugin misconfiguration (missing `regime_type`, wrong tier registration, TREND_SETUPS drift) causes silent production failures. No startup enforcement catches these until a signal misfires.
+
+## Solution
+
+`PluginValidator` class that runs at service startup and hard-crashes on config errors:
+- Tier list integrity (all names resolve to registered classes)
+- Required attributes present (`regime_type`, `outputs`, `inputs`)
+- Schema coverage (all expected output keys present in plugin output)
+- `TREND_SETUPS` auto-sync validation
+- Prometheus metrics: `registered_plugins_total`, `plugin_validation_status`
+
+## Notes
+
+- Approved implementation plan at: `/home/bg/.claude/plans/parsed-wobbling-hanrahan.md`
+- Files: create `src/intelligence/plugins/validator.py`
+- Can be executed standalone — no phase dependency

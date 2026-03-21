@@ -32,5 +32,6 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 
 ### Troubleshooting
 - **TWS connection refused**: IBKR TWS at `192.168.1.157` — check trusted IPs in TWS API settings if connection fails.
+- **`bars_processed` freeze**: TWS daemon gets stuck during off-hours — `seen_bar_timestamps` dedup caches all timestamps from initial poll, so subsequent polls return 0 new bars. Symptom: counter stuck at N×60 forever. **Restart does NOT fix it** — root cause is `endDateTime` timezone handling. Workaround: restart after market open when live bars flow.
 - **Qualify errors**: Some futures need `tradingClass` in `provider_meta` — add if IBKR returns ambiguous contract details.
 - **LocalSymbol mismatches**: FX/crypto use dots (EUR.USD) vs codebase (EURUSD) — `_local_to_canonical` dict handles this automatically.
