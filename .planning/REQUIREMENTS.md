@@ -121,11 +121,12 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 through DATA-06 | Phase 39 | Pending |
-| PERF-01 through PERF-07 | Phase 40 | Pending |
-| INTEL-01 through INTEL-05 | Phase 41 | Pending |
-| CANDLE-01 through CANDLE-02 | Phase 42 | Pending |
-| CONF-01 through CONF-04 | Phase 43 | Pending |
+| DATA-01 through DATA-13 | Phase 39 / 39.1 | Complete |
+| PERF-01 through PERF-06 | Phase 43 | Complete |
+| PERF-07 | Phase 44+ | Pending |
+| INTEL-01 through INTEL-03 | Phase 41 | Complete |
+| INTEL-04 through INTEL-05 | Phase 44+ | Pending |
+| CANDLE-01 through CANDLE-02 | Phase 42 | Complete |
 | SHADOW-01 through SHADOW-04 | Phase 44 | Pending |
 | AUTH-01 through AUTH-06 | Phase 45 | Pending |
 | ML-01 through ML-07 | Phase 46 | Pending |
