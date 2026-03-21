@@ -43,6 +43,7 @@ from src.core.stream_keys import (
     message_key,
     topic_indicators,
     topic_market_bars,
+    topic_market_bars_htf,
     topic_market_ticks,
     topic_system_events,
 )
@@ -687,7 +688,10 @@ class IndicatorService:
 
             # Build topics list — conditionally add system.events when roll_monitor_enabled
             _settings = Settings()
-            topics: list[str] = [topic_market_bars(self.env_name)]
+            topics: list[str] = [
+                topic_market_bars(self.env_name),
+                topic_market_bars_htf(self.env_name),
+            ]
             if _settings.roll_monitor_enabled:
                 topics.append(topic_system_events(self.env_name))
 
