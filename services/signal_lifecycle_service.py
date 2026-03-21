@@ -33,6 +33,7 @@ from src.core.stream_keys import (
     message_key,
     topic_llm_outcomes,
     topic_market_bars,
+    topic_market_bars_htf,
     topic_signals_aggregated,
 )
 from src.intelligence.trading.lifecycle_tracker import (
@@ -951,9 +952,9 @@ class SignalLifecycleService:
             self.db_manager = None
 
     async def _setup_kafka_clients(self) -> None:
-        bars_topic = topic_market_bars(self.env_name)
         self._kafka_consumer = KafkaConsumerClient(
-            bars_topic,
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_lifecycle",
             auto_offset_reset="latest",
