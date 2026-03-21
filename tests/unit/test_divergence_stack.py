@@ -40,6 +40,11 @@ def _make_features_with_divergences(
         "cmf_div_bullish": cmf_bull,
         "cmf_div_bearish": cmf_bear,
         "atr_14": atr_14,
+        # Structural features needed by frame_trade for viable stop/targets
+        "swing_low": 4980.0,
+        "swing_high": 5020.0,
+        "sr_nearest_support": 4970.0,
+        "sr_nearest_resistance": 5030.0,
     }
 
 
@@ -280,3 +285,77 @@ class TestDivergenceStackComputeNext:
         result_full = plugin.compute_full(frames)
         result_next = plugin.compute_next(frames)
         assert result_full == result_next
+
+
+class TestDivergenceStackUtilityWiring:
+    def test_insufficient_data_returns_no_signal_dict(self):
+        """Insufficient data returns canonical no_signal() dict, not empty dict."""
+        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
+        plugin = DivergenceStackPlugin()
+        result = plugin.compute_full({"main": None, "features": {}})
+        assert result == {"signal_type": "none", "direction": 0, "confidence": 0.0}
+
+    def test_signal_has_nonempty_targets(self):
+        """When signal fires, targets list must be non-empty (validate_signal requirement)."""
+        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
+        plugin = DivergenceStackPlugin()
+        close = np.full(80, 5000.0) + np.arange(80) * 0.1
+        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
+        result = plugin.compute_full(_make_frames(close, features))
+        if result.get("direction", 0) != 0:
+            assert isinstance(result.get("targets"), list)
+            assert len(result["targets"]) > 0
+
+    def test_signal_has_float_stop_loss(self):
+        """When signal fires, stop_loss must be a float (validate_signal requirement)."""
+        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
+        plugin = DivergenceStackPlugin()
+        close = np.full(80, 5000.0) + np.arange(80) * 0.1
+        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
+        result = plugin.compute_full(_make_frames(close, features))
+        if result.get("direction", 0) != 0:
+            assert isinstance(result["stop_loss"], float)
+
+    def test_signal_has_regime_context_string(self):
+        """When signal fires, regime_context must be a string (validate_signal requirement)."""
+        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
+        plugin = DivergenceStackPlugin()
+        close = np.full(80, 5000.0) + np.arange(80) * 0.1
+        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
+        result = plugin.compute_full(_make_frames(close, features))
+        if result.get("direction", 0) != 0:
+            assert isinstance(result["regime_context"], str)
+
+    def test_confidence_within_system_contract(self):
+        """Confidence must be within [0.10, 0.95] system contract via compose_confidence."""
+        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
+        plugin = DivergenceStackPlugin()
+        close = np.full(80, 5000.0) + np.arange(80) * 0.1
+        # Very high divergence scores to push confidence toward upper bound
+        features = _make_features_with_divergences(
+            rsi_bull=1.0, macd_bull=1.0, vol_bull=1.0, obv_bull=1.0, cmf_bull=1.0
+        )
+        result = plugin.compute_full(_make_frames(close, features))
+        if result.get("direction", 0) != 0:
+            assert result["confidence"] >= 0.10
+            assert result["confidence"] <= 0.95
+
+    def test_no_signal_returns_base_output_with_scoring_fields(self):
+        """When ATR is missing, base_output scoring fields still returned."""
+        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
+
+        plugin = DivergenceStackPlugin()
+        close = np.full(80, 5000.0) + np.arange(80) * 0.1
+        # Divergences meet gate but no atr_14 in features
+        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
+        del features["atr_14"]
+        result = plugin.compute_full(_make_frames(close, features))
+        # Should have scoring fields even without signal
+        assert "div_weighted_score" in result
+        assert "div_n_agreeing" in result
+        assert result.get("direction", 0) == 0

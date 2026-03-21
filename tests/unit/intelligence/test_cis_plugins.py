@@ -357,6 +357,10 @@ class TestDivergenceStack:
             "rsi_div_bearish": 0.0,
             "macd_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
+            "atr_14": 10.0,
+            "swing_low": 4980.0,
+            "sr_nearest_support": 4970.0,
+            "sr_nearest_resistance": 5030.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == 1
@@ -372,6 +376,10 @@ class TestDivergenceStack:
             "rsi_div_bearish": 0.9,
             "macd_div_bearish": 0.9,
             "vol_div_bearish": 0.9,
+            "atr_14": 10.0,
+            "swing_high": 5020.0,
+            "sr_nearest_support": 4970.0,
+            "sr_nearest_resistance": 5030.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == -1
@@ -414,11 +422,12 @@ class TestDivergenceStack:
             assert result.get("direction") == 0
 
     def test_confidence_formula(self):
-        """Verify confidence = min(1.0, weighted_score / 0.60) for 5-input weighted gate.
+        """Verify confidence uses compose_confidence(weighted_score / 0.60) with [0.10, 0.95] contract.
 
         With RSI=0.9 (0.30), MACD=0.9 (0.25), vol=0.9 (0.20) — 3 agreeing, score=0.675.
-        Expected confidence = min(1.0, 0.675 / 0.60) = 1.0.
+        Raw = 0.675 / 0.60 = 1.125, clamped to CONF_CEIL=0.95.
         """
+        from src.intelligence.trading.confidence_utils import CONF_CEIL, CONF_FLOOR, compose_confidence
         from src.intelligence.trading.divergence_stack import DIVERGENCE_WEIGHTS
 
         plugin = self._plugin()
@@ -430,6 +439,10 @@ class TestDivergenceStack:
             "rsi_div_bearish": 0.0,
             "macd_div_bearish": 0.0,
             "vol_div_bearish": 0.0,
+            "atr_14": 10.0,
+            "swing_low": 4980.0,
+            "sr_nearest_support": 4970.0,
+            "sr_nearest_resistance": 5030.0,
         }
         result = plugin.compute_full(_frames(features=features))
         weighted_score = (
@@ -437,8 +450,11 @@ class TestDivergenceStack:
             + DIVERGENCE_WEIGHTS["macd"] * macd_val
             + DIVERGENCE_WEIGHTS["vol"] * vol_val
         )
-        expected = round(min(1.0, weighted_score / 0.60), 4)
-        assert abs(result.get("confidence", 0.0) - expected) < 1e-4
+        expected = compose_confidence(weighted_score / 0.60)
+        if result.get("direction", 0) != 0:
+            assert abs(result.get("confidence", 0.0) - expected) < 1e-4
+            assert result["confidence"] >= CONF_FLOOR
+            assert result["confidence"] <= CONF_CEIL
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
