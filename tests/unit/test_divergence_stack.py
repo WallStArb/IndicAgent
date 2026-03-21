@@ -307,11 +307,11 @@ class TestDivergenceStackUtilityWiring:
             rsi_bull=1.0, macd_bull=1.0, vol_bull=1.0, obv_bull=1.0, cmf_bull=1.0
         )
         result = plugin.compute_full(_make_frames(close, features))
-        if result.get("direction", 0) != 0:
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0
-            assert isinstance(result["stop_loss"], float)
-            assert isinstance(result["regime_context"], str)
-            assert 0.10 <= result["confidence"] <= 0.95
+        assert result.get("direction", 0) != 0, "expected signal to fire with all 5 inputs at max"
+        assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+        assert isinstance(result["stop_loss"], float)
+        assert isinstance(result["regime_context"], str)
+        assert 0.10 <= result["confidence"] <= 0.95
 
     def test_no_signal_returns_base_output_with_scoring_fields(self):
         """When ATR is missing, base_output scoring fields still returned."""

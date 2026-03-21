@@ -422,7 +422,7 @@ class TestDivergenceStack:
         Raw = 0.675 / 0.60 = 1.125, clamped to CONF_CEIL=0.95.
         """
         from src.intelligence.trading.confidence_utils import CONF_CEIL, CONF_FLOOR, compose_confidence
-        from src.intelligence.trading.divergence_stack import DIVERGENCE_WEIGHTS
+        from src.intelligence.trading.divergence_stack import DIVERGENCE_CONFIDENCE_NORM, DIVERGENCE_WEIGHTS
 
         plugin = self._plugin()
         rsi_val, macd_val, vol_val = 0.9, 0.9, 0.9
@@ -444,11 +444,11 @@ class TestDivergenceStack:
             + DIVERGENCE_WEIGHTS["macd"] * macd_val
             + DIVERGENCE_WEIGHTS["vol"] * vol_val
         )
-        expected = compose_confidence(weighted_score / 0.60)
-        if result.get("direction", 0) != 0:
-            assert abs(result.get("confidence", 0.0) - expected) < 1e-4
-            assert result["confidence"] >= CONF_FLOOR
-            assert result["confidence"] <= CONF_CEIL
+        expected = compose_confidence(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
+        assert result.get("direction", 0) == 1, "expected bullish signal to fire"
+        assert abs(result.get("confidence", 0.0) - expected) < 1e-4
+        assert result["confidence"] >= CONF_FLOOR
+        assert result["confidence"] <= CONF_CEIL
 
     def test_has_module_level_singleton(self):
         """Plugin module must export a module-level `plugin` singleton."""
