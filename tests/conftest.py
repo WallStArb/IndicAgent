@@ -5,7 +5,6 @@ pytest configuration and fixtures for IndicAgent tests.
 import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 # Ensure the project root is on sys.path so services/ is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -16,18 +15,6 @@ import pytest_asyncio
 # Set test environment
 os.environ["INDICAGENT_ENV"] = "test"
 os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
-os.environ["REDIS_URL"] = "redis://localhost:6379/1"
-
-
-@pytest_asyncio.fixture
-async def mock_redis():
-    """Mock Redis client for testing."""
-    redis_mock = AsyncMock()
-    redis_mock.ping = AsyncMock(return_value=b"PONG")
-    redis_mock.xadd = AsyncMock(return_value=b"1234567890-0")
-    redis_mock.xread = AsyncMock(return_value={})
-    redis_mock.aclose = AsyncMock()
-    return redis_mock
 
 
 @pytest_asyncio.fixture

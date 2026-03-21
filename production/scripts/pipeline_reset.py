@@ -31,14 +31,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import redis
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import UnknownTopicOrPartitionError
 
@@ -91,21 +89,18 @@ _TF_SEED_CONFIG: dict[str, int] = {
 # Cleared only with --clear-llm
 _LLM_TABLES = ["llm_calls", "llm_model_scores"]
 
-# Redis key patterns to clear (will be prefixed with env_prefix)
-_REDIS_PATTERNS = ["indicators", "intelligence", "signals", "narratives"]
-
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
 
 _STOP_SERVICES = [
     "indicagent-signal-generator",
     "indicagent-signal-lifecycle",
-    "indicagent-market-analysis",
+    "indicagent-feature-pipeline",
     "indicagent-feature-writer",
     "indicagent-ai-narrative",
 ]
 
 _START_SERVICES = [
-    "indicagent-market-analysis",
+    "indicagent-feature-pipeline",
     "indicagent-feature-writer",
     "indicagent-signal-generator",
     "indicagent-signal-lifecycle",
@@ -168,18 +163,6 @@ def build_preflight_summary(
     return "\n".join(lines)
 
 
-def clear_redis_streams(r: redis.Redis, env_prefix: str) -> int:
-    """Delete all pipeline stream keys for *env_prefix*. Returns key count deleted."""
-    deleted = 0
-    for pattern_name in _REDIS_PATTERNS:
-        pattern = f"{env_prefix}:{pattern_name}:*"
-        keys = list(r.scan_iter(pattern))
-        if keys:
-            r.delete(*keys)
-            deleted += len(keys)
-    return deleted
-
-
 async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
     """Delete and recreate all pipeline Kafka topics to flush all stream data.
 
@@ -216,22 +199,6 @@ async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
         await client.close()
 
     return len(topic_names)
-
-
-def publish_reset_sentinel(r: redis.Redis, env_prefix: str, symbols: list[str]) -> None:
-    """Publish a pipeline_reset event to system:events so SSE clients auto-clear state."""
-    from src.core.stream_keys import system_events as sk_system_events
-
-    key = sk_system_events(env_prefix)
-    r.xadd(
-        key,
-        {
-            "event": "pipeline_reset",
-            "ts": datetime.now(UTC).isoformat(),
-            "symbols": json.dumps(symbols),
-        },
-        maxlen=50,
-    )
 
 
 def truncate_tables(
