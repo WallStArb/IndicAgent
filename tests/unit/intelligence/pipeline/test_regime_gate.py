@@ -1,0 +1,75 @@
+"""Unit tests for apply_regime_gate pure function."""
+from __future__ import annotations
+
+
+from src.intelligence.pipeline.regime_gate import apply_regime_gate
+
+
+def make_signal(confidence=0.8, plugin="trad_TrendFollowing", direction=1, regime_type="trend"):
+    return {
+        "confidence": confidence,
+        "setup_plugin": plugin,
+        "direction": direction,
+        "regime_type": regime_type,
+        "regime_type_at_fire": regime_type,
+    }
+
+
+def test_none_regime_data_passes_all():
+    """No regime data → all regime_eligible=True."""
+    signals = [make_signal(), make_signal(regime_type="mean_reversion")]
+    result = apply_regime_gate(signals, None)
+    assert all(s["regime_eligible"] is True for s in result)
+    assert all(s["suppression_reason"] is None for s in result)
+
+
+def test_low_prob_suppresses():
+    """hmm_regime_prob < 0.55 → regime_eligible=False, reason='regime_prob'."""
+    sig = make_signal(regime_type="trend")
+    regime_data = {"hmm_regime": 1, "hmm_regime_prob": 0.4, "hmm_regime_duration": 5}
+    result = apply_regime_gate([sig], regime_data)
+    assert result[0]["regime_eligible"] is False
+    assert result[0]["suppression_reason"] == "regime_prob"
+
+
+def test_low_duration_suppresses():
+    """hmm_regime_duration < 3 → regime_eligible=False, reason='regime_duration'."""
+    sig = make_signal(regime_type="trend")
+    regime_data = {"hmm_regime": 1, "hmm_regime_prob": 0.7, "hmm_regime_duration": 1}
+    result = apply_regime_gate([sig], regime_data)
+    assert result[0]["regime_eligible"] is False
+    assert result[0]["suppression_reason"] == "regime_duration"
+
+
+def test_wrong_regime_suppresses():
+    """trend plugin + hmm_regime=0 (ranging) → suppress."""
+    sig = make_signal(regime_type="trend")
+    regime_data = {"hmm_regime": 0, "hmm_regime_prob": 0.7, "hmm_regime_duration": 5}
+    result = apply_regime_gate([sig], regime_data)
+    assert result[0]["regime_eligible"] is False
+    assert result[0]["suppression_reason"] == "regime_type"
+
+
+def test_matching_regime_passes():
+    """trend plugin + hmm_regime=1 (trending-up) → eligible."""
+    sig = make_signal(regime_type="trend")
+    regime_data = {"hmm_regime": 1, "hmm_regime_prob": 0.7, "hmm_regime_duration": 5}
+    result = apply_regime_gate([sig], regime_data)
+    assert result[0]["regime_eligible"] is True
+    assert result[0]["suppression_reason"] is None
+
+
+def test_any_regime_type_always_passes():
+    """regime_type='any' always passes the regime check."""
+    sig = make_signal(regime_type="any")
+    regime_data = {"hmm_regime": 2, "hmm_regime_prob": 0.8, "hmm_regime_duration": 10}
+    result = apply_regime_gate([sig], regime_data)
+    assert result[0]["regime_eligible"] is True
+
+
+def test_does_not_mutate_input():
+    """Input signal dicts are not mutated."""
+    sig = make_signal()
+    original = dict(sig)
+    apply_regime_gate([sig], None)
+    assert sig == original
