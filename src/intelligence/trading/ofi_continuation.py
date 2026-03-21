@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 _MIN_CONSECUTIVE_BARS: int = 5
 
@@ -29,7 +33,7 @@ class OFIContinuationPlugin:
     - State tracks consecutive directional bar count per (symbol, tf)
 
     Direction: sign of ofi_ewma_20
-    Confidence: min(0.85, 0.50 + abs(ofi_ewma_20) * 0.001)
+    Confidence: compose_confidence(0.50 + abs(ofi_ewma_20) * 0.001)
     """
 
     name: str = "trad_OFIContinuation"
@@ -56,15 +60,15 @@ class OFIContinuationPlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         ofi_ewma = features.get("ofi_ewma_20")
         if ofi_ewma is None:
-            return self._no_signal()
+            return no_signal()
 
         ofi_ewma = float(ofi_ewma)
         if ofi_ewma == 0.0:
-            return self._no_signal()
+            return no_signal()
 
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
@@ -83,15 +87,27 @@ class OFIContinuationPlugin:
 
         # Gate: require N consecutive bars in same direction
         if state["count"] < _MIN_CONSECUTIVE_BARS:
-            return self._no_signal()
+            return no_signal()
+
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         entry = float(df["close"].iloc[-1])
 
         direction = current_dir
-        confidence = round(min(0.85, 0.50 + abs(ofi_ewma) * 0.001), 4)
+        confidence = compose_confidence(0.50 + abs(ofi_ewma) * 0.001)
 
-        signal_type = "ofi_continuation_long" if direction == 1 else "ofi_continuation_short"
+        sig_type = signal_type_for_direction("ofi_continuation", direction)
+        tf_result = frame_trade(sig_type, direction, entry, features, atr)
+        if not tf_result.viable:
+            return no_signal()
+
+        stop_loss = tf_result.stop
+        targets = [t.price for t in tf_result.targets]
+
         hmm_regime = features.get("hmm_regime")
+        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
 
         supporting: list[str] = [
             f"ofi_ewma_20={ofi_ewma:.1f}",
@@ -99,22 +115,18 @@ class OFIContinuationPlugin:
         ]
 
         return {
-            "signal_type": signal_type,
+            "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
-            "stop_loss": None,
-            "targets": None,
+            "stop_loss": float(stop_loss),
+            "targets": [float(t) for t in targets],
             "confidence": confidence,
-            "regime_context": {"hmm_regime": hmm_regime},
+            "regime_context": regime_context,
             "supporting_factors": supporting,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = OFIContinuationPlugin()

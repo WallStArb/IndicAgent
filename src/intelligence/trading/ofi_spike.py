@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 _SPIKE_THRESHOLD: float = 2.0
 
@@ -26,7 +30,7 @@ class OFISpikePlugin:
     Stateless: reads pre-computed ofi_spike_z from I1.
     Gate: abs(ofi_spike_z) > 2.0
     Direction: sign of ofi_spike_z (positive = buy spike, negative = sell spike)
-    Confidence: min(0.80, 0.50 + abs(ofi_spike_z) * 0.05)
+    Confidence: compose_confidence(0.50 + abs(ofi_spike_z) * 0.05)
     """
 
     name: str = "trad_OFISpike"
@@ -52,46 +56,53 @@ class OFISpikePlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         ofi_spike_z = features.get("ofi_spike_z")
         if ofi_spike_z is None:
-            return self._no_signal()
+            return no_signal()
 
         ofi_spike_z = float(ofi_spike_z)
         if abs(ofi_spike_z) <= _SPIKE_THRESHOLD:
-            return self._no_signal()
+            return no_signal()
+
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         close = df["close"].to_numpy(dtype=float)
         entry = float(close[-1])
 
         direction = 1 if ofi_spike_z > 0 else -1
-        confidence = round(min(0.80, 0.50 + abs(ofi_spike_z) * 0.05), 4)
+        confidence = compose_confidence(0.50 + abs(ofi_spike_z) * 0.05)
 
-        signal_type = "ofi_spike_long" if direction == 1 else "ofi_spike_short"
+        sig_type = signal_type_for_direction("ofi_spike", direction)
+        tf = frame_trade(sig_type, direction, entry, features, atr)
+        if not tf.viable:
+            return no_signal()
+
+        stop_loss = tf.stop
+        targets = [t.price for t in tf.targets]
 
         hmm_regime = features.get("hmm_regime")
+        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
         supporting: list[str] = [
             f"ofi_spike_z={ofi_spike_z:.3f}",
         ]
 
         return {
-            "signal_type": signal_type,
+            "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
-            "stop_loss": None,
-            "targets": None,
+            "stop_loss": float(stop_loss),
+            "targets": [float(t) for t in targets],
             "confidence": confidence,
-            "regime_context": {"hmm_regime": hmm_regime},
+            "regime_context": regime_context,
             "supporting_factors": supporting,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = OFISpikePlugin()
