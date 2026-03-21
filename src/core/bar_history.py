@@ -105,8 +105,7 @@ class BarHistory:
         to the new front-month contract without dropping any bars.
         If old_symbol has no data, this method is a no-op (does not error).
         """
-        for tf in _STANDARD_TFS:
-            old_key = f"{old_symbol}:{tf}"
-            new_key = f"{new_symbol}:{tf}"
-            if old_key in self._data:
-                self._data[new_key] = self._data.pop(old_key)
+        prefix = f"{old_symbol}:"
+        for old_key in [k for k in self._data if k.startswith(prefix)]:
+            tf = old_key[len(prefix):]
+            self._data[f"{new_symbol}:{tf}"] = self._data.pop(old_key)

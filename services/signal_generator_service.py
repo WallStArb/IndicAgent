@@ -1320,8 +1320,8 @@ class SignalGeneratorService:
             if timeframe == "1h":
                 self._htf_intel_cache[f"{symbol}:1h"] = features
 
-            # Append typed BarMessage to BarHistory (D-43, D-45)
-            # OHLCVBar uses SHORT field names: o, h, l, c, v
+            # Map IntelligenceEvent source (live/backfill) → BarMessage source taxonomy
+            bar_source = "ibkr_named" if event.source == "live" else "ibkr_seed"
             bar_msg = BarMessage(
                 ts=event.ts,
                 symbol=symbol,
@@ -1331,7 +1331,7 @@ class SignalGeneratorService:
                 low=event.bar.l,
                 close=event.bar.c,
                 volume=event.bar.v,
-                source="ibkr_named",
+                source=bar_source,
                 session_type=event.session_type,
                 gap_preceding=False,
             )
