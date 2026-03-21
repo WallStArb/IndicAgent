@@ -1,18 +1,20 @@
-"""Winner Selector pipeline stage — pure function.
+"""Winner Selector pipeline stage.
 
 Selects winning signal using CIS override or priority/majority tiebreak.
-No Kafka, no DB, no service dependencies.
+No Kafka, no DB dependencies. Requires injected CISScorer (stateful service object).
 """
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any
 
 from src.intelligence.enums.signal_status import SignalStatus
+from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
 from src.intelligence.trading.cis_scorer import CISScorer
 
-_CONFIDENCE_BOOST_PER_AGREE = 0.05
+_log = logging.getLogger(__name__)
 
 
 def select_winner(
@@ -57,7 +59,8 @@ def select_winner(
     try:
         plugin_outputs = {s["setup_plugin"]: s for s in signals if "setup_plugin" in s}
         cis_result = cis_scorer.score(features, plugin_outputs)
-    except Exception:
+    except Exception as _e:
+        _log.warning("cis_score_error", exc_info=_e)
         cis_result = None
 
     if cis_result is not None and getattr(cis_result, "direction", 0) != 0:
@@ -107,6 +110,7 @@ def _aggregate_fallback(
     longs = len(by_direction.get(1, []))
     shorts = len(by_direction.get(-1, []))
 
+    # Tie (longs == shorts): deliberately bias toward long to avoid short-side noise.
     majority_group = by_direction[1] if longs >= shorts else by_direction[-1]
     if not majority_group:
         return None, "no_signal"

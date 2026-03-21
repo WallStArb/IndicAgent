@@ -91,7 +91,7 @@ def _regime_gate_signals(
 
     Gate priority order:
     1. prob check: if hmm_regime_prob < _REGIME_PROB_MIN → suppression_reason="regime_prob"
-    2. duration check: if hmm_regime_duration < _REGIME_DUR_MIN → suppression_reason="regime_dur"
+    2. duration check: hmm_regime_duration < _REGIME_DUR_MIN → suppression_reason="regime_duration"
     3. type check: if int(hmm_regime) not in allowed → suppression_reason="regime_type"
     4. else: eligible=True
     """
