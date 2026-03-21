@@ -151,6 +151,11 @@ def topic_data_quality(env_name: str) -> str:
     return f"{env_prefix(env_name)}pipeline.data_quality"
 
 
+def topic_intelligence_record(env_name: str) -> str:
+    """Complete BarIntelligenceRecord — single atomic persistence source."""
+    return f"{env_prefix(env_name)}intelligence.record"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 

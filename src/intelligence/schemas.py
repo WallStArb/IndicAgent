@@ -739,3 +739,52 @@ class IntelligenceEvent(BaseModel):
     # pipeline_latency_ms: wall-clock ms from bar_close_ts to IntelligenceEvent publish
     session_type: SessionType = SessionType.RTH
     pipeline_latency_ms: float = 0.0
+
+
+class RankedSignal(BaseModel):
+    """A single I7 signal after all 6 pipeline stages have been applied.
+
+    Produced by the in-process pipeline in SignalGeneratorService.
+    Consumed by BarIntelligenceRecord and the signal ledger writer.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    signal_id: str
+    plugin: str
+    direction: int
+    raw_confidence: float
+    calibrated_confidence: float
+    regime_eligible: bool
+    quality_score: float
+    tod_multiplier: float
+    adjusted_rank: float
+    is_winner: bool = False
+
+
+class BarIntelligenceRecord(BaseModel):
+    """Atomic record of a single bar's full intelligence pipeline output.
+
+    Contains the IntelligenceEvent plus all ranked signals, funnel counts,
+    and pipeline metadata. Published to topic_intelligence_record() after
+    winner selection. Single atomic persistence source for PIPE-06.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = "1.0"
+    intelligence: IntelligenceEvent
+    ranked_signals: list[RankedSignal]
+    winner_plugin: str | None = None
+    winner_confidence: float | None = None
+    winner_direction: int | None = None
+    signals_evaluated: int
+    signals_after_quality: int
+    signals_after_regime: int
+    signals_after_tod: int
+    signals_after_calibration: int
+    ledger_written: bool
+    session_type: str = "rth"
+    days_to_expiry: int | None = None
+    i7_computed_at: datetime
+    pipeline_latency_ms: float
