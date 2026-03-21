@@ -11,7 +11,7 @@ development.market.bars.htf.
 Key design decisions:
 - BarHistory replaces raw dict[str, deque] from both legacy services
 - BarAccumulator replaces TimeframeBuilderService — emits HTF bars in-process
-- pipeline_latency_ms published at :9119
+- pipeline_latency_ms published at :9125
 - GARCH/HMM plugin state persists across bars (asyncio.to_thread + threading.Lock)
 - smc_trend_direction renamed before features merge (I3 trend_direction preserved)
 - _prev_i1_features injected before I1, stored after I1 (I2 crossover works bar 2+)
@@ -998,7 +998,7 @@ class FeaturePipelineService:
         """Start the feature pipeline service."""
         self.logger.info("Starting FeaturePipelineService", symbols=self._symbols)
         try:
-            start_metrics_server(port=9119)
+            start_metrics_server(port=9125)
 
             # 1. DB connect before bar consumption (D-26)
             if self._db:
