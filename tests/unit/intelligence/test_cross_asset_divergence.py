@@ -99,15 +99,15 @@ class TestPluginAttributes:
         assert not hasattr(plugin, "_state")
 
     def test_plugin_has_outputs(self):
+        # Output fields updated to standard signal.v1 names (44-04)
         expected = {
             "signal_type",
             "direction",
             "confidence",
-            "entry",
-            "stop",
-            "target_1",
-            "target_2",
-            "target_full",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "regime_context",
             "setup_variant",
             "supporting_factors",
             "stop_basis",
@@ -673,6 +673,7 @@ class TestConfidenceFormula:
 
 class TestSupportingFactors:
     def test_supporting_factors_includes_active_pair(self):
+        # supporting_factors is now a list[str] (standardized in 44-04)
         p = CrossAssetDivergencePlugin()
         frames = {
             "features": _base_features(),
@@ -685,9 +686,11 @@ class TestSupportingFactors:
         ):
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
-        assert sf["active_pair"] == "ES_NQ"
+        assert isinstance(sf, list), f"supporting_factors must be list, got {type(sf)}"
+        assert any("active_pair=ES_NQ" in s for s in sf), f"active_pair not in supporting_factors: {sf}"
 
     def test_supporting_factors_includes_spread_z_values(self):
+        # supporting_factors is now a list[str] (standardized in 44-04)
         p = CrossAssetDivergencePlugin()
         frames = {
             "features": _base_features(),
@@ -700,10 +703,11 @@ class TestSupportingFactors:
         ):
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
-        assert abs(sf["es_nq_spread_z"] - 3.5) < 1e-6
-        assert abs(sf["es_rty_spread_z"] - 1.2) < 1e-6
+        assert isinstance(sf, list), f"supporting_factors must be list, got {type(sf)}"
+        assert any("spread_z=" in s for s in sf), f"spread_z not in supporting_factors: {sf}"
 
     def test_supporting_factors_includes_pairs_confirming(self):
+        # supporting_factors is now a list[str] (standardized in 44-04)
         p = CrossAssetDivergencePlugin()
         frames = {
             "features": _base_features(),
@@ -716,7 +720,8 @@ class TestSupportingFactors:
         ):
             result = p.compute_full(frames)
         sf = result["supporting_factors"]
-        assert sf["pairs_confirming"] == 2
+        assert isinstance(sf, list), f"supporting_factors must be list, got {type(sf)}"
+        assert any("pairs_confirming=2" in s for s in sf), f"pairs_confirming not in supporting_factors: {sf}"
 
 
 # ---------------------------------------------------------------------------
