@@ -164,11 +164,11 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.0 Phase 44 complete 2026-03-21)
+### Current State (v2.0 Phase 44.2 complete 2026-03-21)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
-- 12 active systemd services + weight-updater timer: added `indicagent-cross-asset`
-- Signal pipeline: CIS → Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`
+- 6 active systemd services (6 DAG stage microservices retired in Phase 44.2): feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api
+- Signal pipeline: in-process 6-stage pipeline in SignalGeneratorService (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar to `development.intelligence.record`; bounded async audit queue for stage snapshots
 - `signal_ledger` extended to 58 fields: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire
 - `confidence_calibration` table: isotonic regression curves per (plugin, tf), trained alongside CIS weights
 - `signal_features` hypertable: mid-bar feature snapshots at signal fire time (ML training dataset)
