@@ -14,7 +14,7 @@ from typing import Any
 from ..plugins import InputSpec
 from .atr_utils import get_atr
 from .confidence_utils import compose_confidence
-from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .plugin_utils import extract_ohlcv, no_signal
 from .trade_framer import frame_trade
 
 
