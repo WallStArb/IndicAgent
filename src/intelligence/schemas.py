@@ -24,6 +24,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from src.core.schemas.bar_message import SessionType
+
 
 class OHLCVBar(BaseModel):
     """OHLCV snapshot that triggered this intelligence computation.
@@ -731,3 +733,9 @@ class IntelligenceEvent(BaseModel):
     i5: I5Patterns
     smc: SMCContext
     i6: I6Confluence
+
+    # Feature pipeline enrichment fields (D-22, Phase 44.1)
+    # session_type: trading session at bar close, carried from BarMessage ingestion
+    # pipeline_latency_ms: wall-clock ms from bar_close_ts to IntelligenceEvent publish
+    session_type: SessionType = SessionType.RTH
+    pipeline_latency_ms: float = 0.0
