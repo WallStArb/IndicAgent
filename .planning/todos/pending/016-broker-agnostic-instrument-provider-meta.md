@@ -1,3 +1,15 @@
+---
+created: 2026-03-07T00:00:00.000Z
+title: Broker-agnostic instrument provider_meta
+area: general
+priority: 16
+tier: deferred
+phase: when-second-provider
+files:
+  - src/config/settings.py
+  - src/providers/ibkr.py
+---
+
 # Broker-Agnostic Instrument provider_meta
 
 **Created:** 2026-03-07

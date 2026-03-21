@@ -1,7 +1,19 @@
+---
+created: 2026-03-11T00:00:00.000Z
+title: Service __new__ test pattern — add sync safety
+area: testing
+priority: 2
+tier: immediate
+phase: unblocked
+files:
+  - services/indicator_service.py
+  - services/feature_writer_service.py
+  - services/market_analysis_service.py
+---
+
 # Service `__new__` Test Pattern — Add Sync Safety
 
 **Created:** 2026-03-11
-**Priority:** Medium
 **Effort:** Small (1–2h)
 **Source:** CONCERNS.md audit
 

@@ -2,6 +2,9 @@
 created: 2026-03-04T00:00:00.000Z
 title: Add trade journal auto-documentation (LLM daily summary)
 area: intelligence
+priority: 14
+tier: deferred
+phase: post-49
 files:
   - services/
   - src/config/settings.py

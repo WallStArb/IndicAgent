@@ -2,6 +2,9 @@
 created: 2026-03-14T15:43:32.346Z
 title: Rename tws daemon and service to provider-agnostic names
 area: general
+priority: 15
+tier: deferred
+phase: when-second-provider
 files:
   - services/tws_daemon.py
   - /etc/systemd/system/indicagent-tws.service

@@ -2,6 +2,9 @@
 created: 2026-03-04T00:00:00.000Z
 title: Add roll premium/discount feature to intelligence_features
 area: database
+priority: 6
+tier: phase-45-46
+phase: "46"
 files:
   - services/feature_writer_service.py
   - src/providers/ibkr.py

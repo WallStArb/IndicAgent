@@ -1,6 +1,17 @@
+---
+created: 2026-03-07T00:00:00.000Z
+title: Improve LLM call tracking — real token counts, error details, fill empty fields
+area: observability
+priority: 10
+tier: phase-49
+phase: "49"
+files:
+  - services/ai_narrative_service.py
+  - services/llm_writer_service.py
+---
+
 # Improve LLM Call Tracking — Real Token Counts, Error Details, Fill Empty Fields
 
-**Priority:** Medium (observability improvement, not blocking)
 **Created:** 2026-03-07
 
 ## Context

@@ -2,6 +2,9 @@
 created: 2026-02-27T15:38:24.811Z
 title: Support BSL/SSL level clusters, not just single levels
 area: general
+priority: 8
+tier: phase-45-46
+phase: "46"
 files:
   - src/intelligence/schemas.py
   - src/intelligence/plugins/
