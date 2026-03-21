@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec, PatternPlugin
-from .common import crossover_detect, is_num
+from ..utils.common import crossover_detect, is_num
 
 # EMA smoothing constants (Constance Brown formula)
 ALPHA_EMA5: float = 2 / (5 + 1)  # = 1/3
