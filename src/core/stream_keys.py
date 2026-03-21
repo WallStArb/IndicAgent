@@ -38,8 +38,17 @@ def topic_market_ticks(env_name: str) -> str:
 
 
 def topic_market_bars(env_name: str) -> str:
-    """Kafka topic for OHLCV bars (all timeframes)."""
+    """Kafka topic for 1m OHLCV bars from TWS daemon (raw, immutable ground truth)."""
     return f"{env_prefix(env_name)}market.bars"
+
+
+def topic_market_bars_htf(env_name: str) -> str:
+    """Kafka topic for aggregated higher-timeframe bars (5m–1d) from timeframe builder.
+
+    Separate from topic_market_bars (1m only from TWS) to make the DAG acyclic:
+    timeframe builder reads market.bars, writes market.bars.htf — no self-reference.
+    """
+    return f"{env_prefix(env_name)}market.bars.htf"
 
 
 def topic_indicators(env_name: str) -> str:
