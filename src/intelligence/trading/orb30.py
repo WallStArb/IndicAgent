@@ -22,9 +22,10 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 _ET_TZ = ZoneInfo("America/New_York")
@@ -82,7 +83,7 @@ class ORB30Plugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         timeframe = frames.get("timeframe", "")
         if timeframe and timeframe not in ("1m", "5m", "15m"):
-            return self._no_signal()
+            return no_signal()
 
         df = frames.get("main")
         features = frames.get("features") or {}
@@ -90,16 +91,16 @@ class ORB30Plugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         # ── Extract timestamp ────────────────────────────────────────────────
         if "timestamp" not in df.columns:
-            return self._no_signal()
+            return no_signal()
         ts_raw = df["timestamp"].iloc[-1]
         if hasattr(ts_raw, "to_pydatetime"):
             ts_raw = ts_raw.to_pydatetime()
         if not isinstance(ts_raw, datetime):
-            return self._no_signal()
+            return no_signal()
         if ts_raw.tzinfo is None:
             ts_raw = ts_raw.replace(tzinfo=UTC)
         et = ts_raw.astimezone(_ET_TZ)
@@ -114,7 +115,7 @@ class ORB30Plugin:
         # ── Session gate: 09:30-11:30 ET ────────────────────────────────────
         if not _in_window(et, _SESSION_START, _SESSION_END):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Range accumulation: 09:30-09:59 ET ──────────────────────────────
         if _in_window(et, _RANGE_START, _RANGE_END) and not state.get("range_complete"):
@@ -125,7 +126,7 @@ class ORB30Plugin:
             state["orb_high"] = max(state.get("orb_high", -math.inf), bar_high)
             state["orb_low"] = min(state.get("orb_low", math.inf), bar_low)
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Mark range complete once past accumulation window ─────────────────
         if not state.get("range_complete"):
@@ -138,24 +139,20 @@ class ORB30Plugin:
                 or orb_low_accum == math.inf
             ):
                 self._state[(symbol, tf)] = state
-                return self._no_signal()
+                return no_signal()
             state["range_complete"] = True
 
         orb_high = state.get("orb_high")
         orb_low = state.get("orb_low")
         if orb_high is None or orb_low is None:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── ATR ─────────────────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high_arr = df["high"].to_numpy(dtype=float)
-            low_arr = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high_arr[-14:] - low_arr[-14:]))
-        if atr <= 0:
+        atr = get_atr(features)
+        if atr is None:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         close_price = float(df["close"].iloc[-1])
 
@@ -168,7 +165,7 @@ class ORB30Plugin:
             signal_type = "orb30_breakout_short"
         else:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Volume gate ──────────────────────────────────────────────────────
         rel_volume = features.get("rel_volume")
@@ -181,15 +178,15 @@ class ORB30Plugin:
 
         if not vol_ok:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Fire-once gate ────────────────────────────────────────────────────
         if direction == 1 and state.get("fired_long"):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
         if direction == -1 and state.get("fired_short"):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Gap bias ─────────────────────────────────────────────────────────
         gap_boost = 0.0
@@ -209,7 +206,7 @@ class ORB30Plugin:
         if hmm_regime in (1.0, 2.0):
             confidence += 0.10
         confidence += gap_boost
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
         if hmm_regime == 0.0:
@@ -225,7 +222,7 @@ class ORB30Plugin:
         )
         if not frame.viable:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Mark fired ───────────────────────────────────────────────────────
         if direction == 1:
@@ -256,10 +253,6 @@ class ORB30Plugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = ORB30Plugin()

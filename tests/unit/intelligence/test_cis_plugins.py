@@ -217,6 +217,7 @@ class TestPatternCompletion:
             "hs_pattern": 0,
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == 1
@@ -232,6 +233,7 @@ class TestPatternCompletion:
             "hs_pattern": 0,
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == -1
@@ -246,6 +248,7 @@ class TestPatternCompletion:
             "hs_pattern": 1,  # hs_top
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == -1
@@ -260,6 +263,7 @@ class TestPatternCompletion:
             "hs_pattern": 2,  # hs_bottom (inverted)
             "tri_confidence": 0.0,
             "tri_breakout_bias": 0,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == 1
@@ -274,6 +278,7 @@ class TestPatternCompletion:
             "hs_pattern": 0,
             "tri_confidence": 0.68,
             "tri_breakout_bias": 1,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == 1
@@ -288,6 +293,7 @@ class TestPatternCompletion:
             "hs_pattern": 0,
             "tri_confidence": 0.70,
             "tri_breakout_bias": -1,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == -1
@@ -465,6 +471,7 @@ class TestRegimeTransition:
             "hmm_regime": 1.0,
             "hmm_prob_trending_up": 0.8,
             "hmm_prob_trending_down": 0.1,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == 1
@@ -480,6 +487,7 @@ class TestRegimeTransition:
             "hmm_regime": 2.0,
             "hmm_prob_trending_up": 0.1,
             "hmm_prob_trending_down": 0.8,
+            "atr_14": 10.0,
         }
         result = plugin.compute_full(_frames(features=features))
         assert result.get("direction") == -1

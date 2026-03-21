@@ -11,10 +11,11 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
+from .plugin_utils import extract_ohlcv, no_signal
 
 
 @dataclass
@@ -43,10 +44,12 @@ class LiquidityHuntPlugin:
     MIN_SIGNIFICANCE: float = 0.60
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
 
         bsl_sig = float(features.get("bsl_significance", 0.0))
         ssl_sig = float(features.get("ssl_significance", 0.0))
@@ -55,22 +58,16 @@ class LiquidityHuntPlugin:
         sweep_detected = float(features.get("sweep_detected", 0.0))
         sweep_reclaimed = float(features.get("sweep_reclaimed", 0.0))
         if sweep_detected != 1.0 or sweep_reclaimed != 1.0:
-            return self._no_signal()
+            return no_signal()
 
         sweep_type = float(features.get("sweep_type", 0.0))
         sweep_level = float(features.get("sweep_level", 0.0))
         bsl_level = float(features.get("bsl_level", 0.0))
         ssl_level = float(features.get("ssl_level", 0.0))
-        atr = float(features.get("atr_14", 0.0))
 
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
-        close = df["close"].to_numpy(dtype=float)
-
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # Gate 3: sweep was at the named level (within ATR*0.75)
         tol = atr * 0.75
@@ -86,11 +83,11 @@ class LiquidityHuntPlugin:
             significance = ssl_sig
             swept_level = ssl_level
         else:
-            return self._no_signal()
+            return no_signal()
 
         # Gate 3b: swept level must be a named institutional level
         if significance < self.MIN_SIGNIFICANCE:
-            return self._no_signal()
+            return no_signal()
 
         entry = float(close[-1])
         supporting: list[str] = ["named_pool_reclaimed"]
@@ -178,7 +175,7 @@ class LiquidityHuntPlugin:
             supporting.append("penalty_supply_zone_opposing")
 
         confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         sig_type = "liquidity_hunt_long" if direction == 1 else "liquidity_hunt_short"
         return {
@@ -193,10 +190,6 @@ class LiquidityHuntPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = LiquidityHuntPlugin()

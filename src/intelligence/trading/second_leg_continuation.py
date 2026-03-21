@@ -18,9 +18,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Fibonacci retracement levels for entry zone
@@ -77,20 +78,15 @@ class SecondLegContinuationPlugin:
 
         # ── Price arrays ────────────────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
 
-        # ── ATR with fallback ───────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Regime gate ─────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
         if hmm_regime not in (1.0, 2.0):
-            return self._no_signal()
+            return no_signal()
 
         hmm_regime_prob = float(features.get("hmm_regime_prob", 0.0))
 
@@ -102,7 +98,7 @@ class SecondLegContinuationPlugin:
             return isinstance(v, (int, float)) and float(v) > 0
 
         if not (_valid(swing_high_raw) and _valid(swing_low_raw)):
-            return self._no_signal()
+            return no_signal()
 
         swing_high = float(swing_high_raw)
         swing_low = float(swing_low_raw)
@@ -111,12 +107,12 @@ class SecondLegContinuationPlugin:
         swing_high_age = float(features.get("swing_high_age_bars", 999))
         swing_low_age = float(features.get("swing_low_age_bars", 999))
         if swing_high_age > _MAX_SWING_AGE_BARS and swing_low_age > _MAX_SWING_AGE_BARS:
-            return self._no_signal()
+            return no_signal()
 
         # ── Leg 1 amplitude ─────────────────────────────────────────────────
         amplitude = abs(swing_high - swing_low)
         if amplitude < 1.0 * atr:
-            return self._no_signal()
+            return no_signal()
 
         # ── Fibonacci zone for entry ─────────────────────────────────────────
         # Standard retracement: 38.2% retracement from high = swing_high - 0.382*amplitude
@@ -129,7 +125,7 @@ class SecondLegContinuationPlugin:
         close_price = float(close[-1])
 
         if not (fib_low <= close_price <= fib_high):
-            return self._no_signal()
+            return no_signal()
 
         # ── Direction ───────────────────────────────────────────────────────
         # hmm_regime=1.0 → bullish trend → long continuation after pullback
@@ -152,7 +148,7 @@ class SecondLegContinuationPlugin:
             atr=atr,
         )
         if not frame.viable:
-            return self._no_signal()
+            return no_signal()
 
         # ── Measured-move targets ────────────────────────────────────────────
         # Override frame targets with measured-move Fibonacci extensions
@@ -179,7 +175,7 @@ class SecondLegContinuationPlugin:
         if zone_width > 0 and dist_to_50 < 0.25 * zone_width:
             confidence += 0.05
 
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         # ── Regime context ───────────────────────────────────────────────────
         regime_ctx = "bullish" if direction == 1 else "bearish"
@@ -205,10 +201,6 @@ class SecondLegContinuationPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = SecondLegContinuationPlugin()

@@ -14,9 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Maximum ATR distance from POC to qualify as "testing" the level
@@ -65,29 +65,24 @@ class POCRejectionPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         timeframe = frames.get("timeframe", "")
         if timeframe and timeframe not in ("1m", "5m", "15m"):
-            return self._no_signal()
+            return no_signal()
 
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         # ── Required: POC price ───────────────────────────────────────────────
         poc_price = features.get("poc_price")
         if poc_price is None:
-            return self._no_signal()
+            return no_signal()
         poc_price = float(poc_price)
         if poc_price <= 0:
-            return self._no_signal()
+            return no_signal()
 
-        # ── ATR ───────────────────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Close price ───────────────────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
@@ -95,7 +90,7 @@ class POCRejectionPlugin:
 
         # ── Proximity gate ────────────────────────────────────────────────────
         if abs(entry - poc_price) / atr >= _POC_PROXIMITY_ATR:
-            return self._no_signal()
+            return no_signal()
 
         # ── Direction: long if below POC, short if above ──────────────────────
         direction = 1 if entry < poc_price else -1
@@ -121,7 +116,7 @@ class POCRejectionPlugin:
             )
 
         if not reversal_ok:
-            return self._no_signal()
+            return no_signal()
 
         # ── Trade frame ───────────────────────────────────────────────────────
         signal_type = "poc_rejection_long" if direction == 1 else "poc_rejection_short"
@@ -133,7 +128,7 @@ class POCRejectionPlugin:
             atr=atr,
         )
         if not frame.viable:
-            return self._no_signal()
+            return no_signal()
 
         # ── POC test volume ratio ─────────────────────────────────────────────
         bar_vol = float(df["volume"].iloc[-1])
@@ -191,10 +186,6 @@ class POCRejectionPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = POCRejectionPlugin()

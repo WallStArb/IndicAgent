@@ -15,9 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Maximum ATR distance from HVN to qualify as "testing" the level
@@ -68,16 +68,11 @@ class HVNRejectionPlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
-        # ── ATR ───────────────────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Close price ───────────────────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
@@ -103,7 +98,7 @@ class HVNRejectionPlugin:
             near_hvn_below = dist_below < _HVN_PROXIMITY_ATR
 
         if not near_hvn_above and not near_hvn_below:
-            return self._no_signal()
+            return no_signal()
 
         # ── Momentum reversal gate ────────────────────────────────────────────
         rsi_div_bullish = float(features.get("rsi_div_bullish", 0.0))
@@ -119,7 +114,7 @@ class HVNRejectionPlugin:
         )
 
         if not can_long and not can_short:
-            return self._no_signal()
+            return no_signal()
 
         # ── Pick direction (closer HVN wins if both qualify) ──────────────────
         if can_long and can_short:
@@ -155,7 +150,7 @@ class HVNRejectionPlugin:
             atr=atr,
         )
         if not frame.viable:
-            return self._no_signal()
+            return no_signal()
 
         # ── Confidence scoring ────────────────────────────────────────────────
         # Proximity to HVN: 0.3 weight
@@ -211,10 +206,6 @@ class HVNRejectionPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = HVNRejectionPlugin()

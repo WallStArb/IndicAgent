@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -39,48 +41,43 @@ class MTFAlignmentPlugin:
     regime_type: str = "trend"
     ctf_score_threshold: float = 0.7
     min_timeframes_aligned: int = 2
-    atr_stop_multiplier: float = 2.0
-    atr_target_multipliers: tuple = (2.0, 4.0, 6.0)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
 
         ctf_score = features.get("ctf_score", 0.0)
         ctf_timeframes_aligned = features.get("ctf_timeframes_aligned", 0.0)
-        atr = features.get("atr_14", 0.0)
 
         # Gate: score must exceed threshold AND multiple timeframes must agree
         if abs(ctf_score) <= self.ctf_score_threshold:
-            return self._no_signal()
+            return no_signal()
         if ctf_timeframes_aligned < self.min_timeframes_aligned:
-            return self._no_signal()
+            return no_signal()
 
         direction = 1 if ctf_score > 0 else -1
 
-        close = df["close"].to_numpy(dtype=float)
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
+
         price = float(close[-1])
-        low = df["low"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
-
         entry = price
-        if direction == 1:
-            stop = entry - atr * self.atr_stop_multiplier
-            targets = [round(entry + atr * m, 2) for m in self.atr_target_multipliers]
-        else:
-            stop = entry + atr * self.atr_stop_multiplier
-            targets = [round(entry - atr * m, 2) for m in self.atr_target_multipliers]
+
+        signal_type = signal_type_for_direction("mtf_alignment", direction)
+        tf = frame_trade(signal_type, direction, entry, features, atr)
+        if not tf.viable:
+            return no_signal()
+        stop = tf.stop
+        targets = [round(t.price, 2) for t in tf.targets]
 
         # Confidence directly from abs(ctf_score)
-        confidence = round(min(1.0, max(0.0, abs(ctf_score))), 4)
+        confidence = compose_confidence(abs(ctf_score))
 
         # Supporting factors
         supporting = [f"{int(ctf_timeframes_aligned)}_timeframes_aligned"]
@@ -101,7 +98,6 @@ class MTFAlignmentPlugin:
         if ctf_regime >= 0.5:
             supporting.append("regime_agreement_strong")
 
-        signal_type = "mtf_alignment_long" if direction == 1 else "mtf_alignment_short"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
         return {
@@ -117,10 +113,6 @@ class MTFAlignmentPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = MTFAlignmentPlugin()

@@ -19,9 +19,10 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 _ET_TZ = ZoneInfo("America/New_York")
@@ -76,7 +77,7 @@ class VCPPlugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         # ── State ───────────────────────────────────────────────────────────
         state = self._state.get((symbol, tf), {})
@@ -98,25 +99,22 @@ class VCPPlugin:
         hmm_regime = float(features.get("hmm_regime", 0.0))
         if hmm_regime not in (1.0, 2.0):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         hmm_regime_prob = float(features.get("hmm_regime_prob", 0.0))
         if hmm_regime_prob < _MIN_HMM_PROB:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Price and volume arrays ──────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
 
-        # ── ATR with fallback ────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
+        atr = get_atr(features)
+        if atr is None:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Current bar metrics ──────────────────────────────────────────────
         bar_range = float(high[-1] - low[-1])
@@ -133,7 +131,7 @@ class VCPPlugin:
             contractions.append((bar_range, bar_volume))
             state["contractions"] = contractions
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         last_range, last_vol = contractions[-1]
 
@@ -145,7 +143,7 @@ class VCPPlugin:
             contractions.append((bar_range, bar_volume))
             state["contractions"] = contractions
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         if is_expansion and len(contractions) >= _MIN_CONTRACTIONS:
             # Potential expansion bar — check all gates
@@ -156,7 +154,7 @@ class VCPPlugin:
                 contractions = [(bar_range, bar_volume)]
                 state["contractions"] = contractions
                 self._state[(symbol, tf)] = state
-                return self._no_signal()
+                return no_signal()
 
             # Direction from HMM
             direction = 1 if hmm_regime == 1.0 else -1
@@ -166,12 +164,12 @@ class VCPPlugin:
                 contractions = [(bar_range, bar_volume)]
                 state["contractions"] = contractions
                 self._state[(symbol, tf)] = state
-                return self._no_signal()
+                return no_signal()
             if direction == -1 and close_price >= prior_low:
                 contractions = [(bar_range, bar_volume)]
                 state["contractions"] = contractions
                 self._state[(symbol, tf)] = state
-                return self._no_signal()
+                return no_signal()
 
             contraction_count = len(contractions)
             signal_type = "vcp_breakout_long" if direction == 1 else "vcp_breakout_short"
@@ -189,7 +187,7 @@ class VCPPlugin:
                 contractions = [(bar_range, bar_volume)]
                 state["contractions"] = contractions
                 self._state[(symbol, tf)] = state
-                return self._no_signal()
+                return no_signal()
 
             # ── Confidence ─────────────────────────────────────────────────
             confidence = 0.50
@@ -197,7 +195,7 @@ class VCPPlugin:
                 confidence += 0.08
             if hmm_regime_prob > 0.75:
                 confidence += 0.07
-            confidence = round(min(0.95, max(0.10, confidence)), 4)
+            confidence = compose_confidence(confidence)
 
             # ── Regime context ─────────────────────────────────────────────
             regime_ctx = "bullish" if direction == 1 else "bearish"
@@ -231,14 +229,10 @@ class VCPPlugin:
             contractions = [(bar_range, bar_volume)]
             state["contractions"] = contractions
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = VCPPlugin()

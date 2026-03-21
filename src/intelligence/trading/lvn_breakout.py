@@ -15,9 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Volume expansion threshold for LVN breakout
@@ -60,31 +60,26 @@ class LVNBreakoutPlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: in_lvn required ─────────────────────────────────────────────
         in_lvn = features.get("in_lvn")
         if in_lvn is None:
-            return self._no_signal()
+            return no_signal()
         if float(in_lvn) != 1.0:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: trending regime ─────────────────────────────────────────────
         hmm = features.get("hmm_regime")
         if hmm is None:
-            return self._no_signal()
+            return no_signal()
         hmm = int(hmm)
         if hmm not in (1, 2):
-            return self._no_signal()
+            return no_signal()
 
-        # ── ATR ───────────────────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Volume gate (ORB15 fallback pattern) ─────────────────────────────
         rel_volume = features.get("rel_volume")
@@ -98,7 +93,7 @@ class LVNBreakoutPlugin:
             volume_ratio = (bar_vol / avg_vol) if avg_vol > 0 else 0.0
 
         if not vol_ok:
-            return self._no_signal()
+            return no_signal()
 
         # ── Direction from bar close strength ─────────────────────────────────
         close_arr = df["close"].to_numpy(dtype=float)
@@ -111,7 +106,7 @@ class LVNBreakoutPlugin:
         elif entry < bar_open:
             direction = -1  # down bar — short breakout
         else:
-            return self._no_signal()  # doji — no directional conviction
+            return no_signal()  # doji — no directional conviction
 
         # ── Trade frame ───────────────────────────────────────────────────────
         signal_type = "lvn_breakout_long" if direction == 1 else "lvn_breakout_short"
@@ -123,7 +118,7 @@ class LVNBreakoutPlugin:
             atr=atr,
         )
         if not frame.viable:
-            return self._no_signal()
+            return no_signal()
 
         # ── Override T1 with nearest HVN in breakout direction ────────────────
         hvn_above = features.get("nearest_hvn_above")
@@ -209,10 +204,6 @@ class LVNBreakoutPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = LVNBreakoutPlugin()

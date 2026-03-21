@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal
 
 # Module-level constants — static across all bars, extracted from hot path.
 _FALLBACK_WEIGHTS: dict[str, float] = {
@@ -104,22 +107,18 @@ class CandlestickPatternSetupPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
-        features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
 
-        close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
+        features = frames.get("features") or {}
+        df = frames.get("main")
         vol = df["volume"].to_numpy(dtype=float)
 
-        # ATR with fallback (same pattern as PatternCompletion and GapAnalysisSetup)
-        atr = float(features.get("atr_14") or 0.0)
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # CNDL-01: Read I5 pattern flags (no re-detection of raw price)
         engulfing_bull = float(features.get("engulfing_bull", 0.0))
@@ -207,18 +206,18 @@ class CandlestickPatternSetupPlugin:
             candidates.append((4, trend_dir_local, "harami_cross", base_conf, False))
 
         if not candidates:
-            return self._no_signal()
+            return no_signal()
 
         # CNDL-02: Trend regime gate (mandatory)
         trend_regime = float(features.get("trend_regime", 0.0))
         if abs(trend_regime) < self.regime_threshold:
-            return self._no_signal()
+            return no_signal()
 
         # Filter candidates to those agreeing with trend direction
         trend_dir = 1 if trend_regime > 0 else -1
         matching = [(r, d, n, bc, sr) for (r, d, n, bc, sr) in candidates if d == trend_dir]
         if not matching:
-            return self._no_signal()
+            return no_signal()
 
         # Select highest priority (lowest rank, then highest base_confidence)
         best = min(matching, key=lambda x: (x[0], -x[3]))
@@ -250,7 +249,7 @@ class CandlestickPatternSetupPlugin:
 
         # At least one optional factor must confirm (unless sr_auto)
         if not sr_auto and not volume_confirms and not sr_confirms:
-            return self._no_signal()
+            return no_signal()
 
         # CNDL-03: Signal fields
         entry = float(close[-1])
@@ -263,12 +262,12 @@ class CandlestickPatternSetupPlugin:
 
         # Confidence: +0.10 per confirming factor (volume, S/R).
         # sr_confirms is True for hammer/shooting_star (sr_auto) and for explicit proximity.
-        confidence = base_conf
+        raw_conf = base_conf
         if volume_confirms:
-            confidence += 0.10
+            raw_conf += 0.10
         if sr_confirms:
-            confidence += 0.10
-        confidence = round(min(0.90, max(0.10, confidence)), 4)
+            raw_conf += 0.10
+        confidence = compose_confidence(raw_conf)
 
         # confluence_score: mandatory trend factor + optional volume + optional S/R
         confluence_score = 1  # trend is mandatory
@@ -301,10 +300,6 @@ class CandlestickPatternSetupPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = CandlestickPatternSetupPlugin()

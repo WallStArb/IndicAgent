@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -42,20 +44,22 @@ class MeanReversionPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
 
         # ── Gate: must be ranging (not trending) ──
         trend_regime = features.get("trend_regime", 0.0)
         if abs(trend_regime) >= self.regime_threshold:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: price must be displaced from Kalman fair value ──
         kalman_pos = features.get("kalman_price_position")
         if kalman_pos is not None and abs(float(kalman_pos)) < 1.0:
-            return self._no_signal()
+            return no_signal()
 
         # ── Read features ──
         rsi = features.get("rsi_14", 50.0)
@@ -65,18 +69,12 @@ class MeanReversionPlugin:
         bb_middle = features.get("bb_20_2_mid", None)
         sr_support = features.get("sr_nearest_support", None)
         sr_resistance = features.get("sr_nearest_resistance", None)
-        atr = features.get("atr_14", 0.0)
 
-        close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
         price = float(close[-1])
 
-        # Fallback ATR
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Direction detection ──
         long_rsi = rsi < 35
@@ -89,37 +87,16 @@ class MeanReversionPlugin:
         elif short_rsi or short_div:
             direction = -1
         else:
-            return self._no_signal()
+            return no_signal()
 
         entry = price
+        signal_type = signal_type_for_direction("reversion", direction)
 
-        # ── Stop loss ──
-        if direction == 1:
-            if sr_support is not None and sr_support > 0:
-                stop = sr_support - atr * 0.5
-            else:
-                stop = entry - atr * 2.0
-        else:
-            if sr_resistance is not None and sr_resistance > 0:
-                stop = sr_resistance + atr * 0.5
-            else:
-                stop = entry + atr * 2.0
-
-        # ── Targets ──
-        t1 = (
-            bb_middle
-            if bb_middle is not None and bb_middle > 0
-            else (entry + atr if direction == 1 else entry - atr)
-        )
-        if direction == 1:
-            t2 = (
-                sr_resistance
-                if sr_resistance is not None and sr_resistance > 0
-                else entry + atr * 2.0
-            )
-        else:
-            t2 = sr_support if sr_support is not None and sr_support > 0 else entry - atr * 2.0
-        targets = [round(float(t1), 2), round(float(t2), 2)]
+        tf = frame_trade(signal_type, direction, entry, features, atr)
+        if not tf.viable:
+            return no_signal()
+        stop = tf.stop
+        targets = [round(t.price, 2) for t in tf.targets]
 
         # ── Confidence scoring ──
         # RSI extremeness (0.3 weight)
@@ -143,7 +120,7 @@ class MeanReversionPlugin:
             sr_prox = 0.0
 
         raw_conf = 0.3 * rsi_extreme + 0.3 * div_score + 0.2 * vol_stability + 0.2 * sr_prox
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
+        confidence = compose_confidence(raw_conf)
 
         # ── Supporting factors ──
         supporting = []
@@ -156,7 +133,6 @@ class MeanReversionPlugin:
         if vol_stability > 0.5:
             supporting.append("stable_vol_regime")
 
-        signal_type = "reversion_long" if direction == 1 else "reversion_short"
         regime_ctx = "ranging"
 
         return {
@@ -172,10 +148,6 @@ class MeanReversionPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = MeanReversionPlugin()
