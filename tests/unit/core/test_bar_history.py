@@ -7,9 +7,7 @@ These stubs define the behavioral contract that the implementation must satisfy.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Generator
 
-import pytest
 
 UTC = timezone.utc
 
@@ -178,7 +176,6 @@ def test_seed_chronological_order():
 
 def test_migrate_symbol():
     """bars move from old to new key for all TFs."""
-    from datetime import timedelta
 
     from src.core.bar_history import BarHistory
     from src.core.schemas.bar_message import BarMessage, SessionType
