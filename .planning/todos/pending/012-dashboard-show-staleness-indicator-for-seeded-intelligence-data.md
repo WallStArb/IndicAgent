@@ -2,6 +2,9 @@
 created: 2026-03-14T23:35:06.299Z
 title: Dashboard show staleness indicator for seeded intelligence data
 area: ui
+priority: 12
+tier: phase-50
+phase: "50"
 files:
   - dashboard/src/components/signal-card.tsx
   - dashboard/src/hooks/use-market-stream.ts

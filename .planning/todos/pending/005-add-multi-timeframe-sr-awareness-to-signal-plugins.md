@@ -2,6 +2,9 @@
 created: 2026-02-27T15:38:24.811Z
 title: Add multi-timeframe S/R awareness to signal plugins
 area: general
+priority: 5
+tier: phase-45-46
+phase: "45"
 files:
   - src/intelligence/plugins/
   - src/intelligence/schemas.py

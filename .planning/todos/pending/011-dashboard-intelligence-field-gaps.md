@@ -1,3 +1,14 @@
+---
+created: 2026-03-06T00:00:00.000Z
+title: Dashboard intelligence field gaps — I3/I5/I6 sections
+area: ui
+priority: 11
+tier: phase-50
+phase: "50"
+files:
+  - dashboard/src/components/
+---
+
 # Dashboard Intelligence Field Gaps
 
 **Filed:** 2026-03-06

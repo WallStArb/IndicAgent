@@ -2,6 +2,9 @@
 created: 2026-03-17T22:21:00.742Z
 title: Refactor signal_generator_service — extract DB seeding and regime gate modules
 area: general
+priority: 4
+tier: phase-44-adjacent
+phase: "44"
 files:
   - services/signal_generator_service.py
 ---

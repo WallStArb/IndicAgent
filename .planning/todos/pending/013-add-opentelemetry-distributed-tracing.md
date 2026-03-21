@@ -2,6 +2,9 @@
 created: 2026-03-20T22:37:58.697Z
 title: Add OpenTelemetry distributed tracing to microservices pipeline
 area: observability
+priority: 13
+tier: phase-50-plus
+phase: "50+"
 files: []
 ---
 

@@ -2,6 +2,9 @@
 created: 2026-02-27T15:38:24.811Z
 title: Add volume profile POC/VAH/VAL as S/R anchors
 area: general
+priority: 7
+tier: phase-45-46
+phase: "46"
 files:
   - src/intelligence/plugins/
 ---

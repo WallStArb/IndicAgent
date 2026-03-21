@@ -2,6 +2,9 @@
 created: 2026-03-04T00:00:00.000Z
 title: Add gap-fill service for market_data_ohlcv
 area: database
+priority: 3
+tier: immediate
+phase: unblocked
 files:
   - production/scripts/historical_backfill.py
   - src/providers/ibkr.py
