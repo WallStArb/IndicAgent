@@ -72,7 +72,7 @@ def _update_accumulator(
         period_ts: Period start timestamp in seconds.
 
     Returns:
-        Updated accumulator dict.
+        Updated accumulator dict with bar_count tracking how many 1m bars contributed.
     """
     if acc is None:
         return {
@@ -82,6 +82,7 @@ def _update_accumulator(
             "close": bar["close"],
             "volume": bar["volume"],
             "period_ts": period_ts,
+            "bar_count": 1,
         }
 
     return {
@@ -91,6 +92,7 @@ def _update_accumulator(
         "close": bar["close"],  # latest bar's close
         "volume": acc["volume"] + bar["volume"],
         "period_ts": period_ts,
+        "bar_count": acc["bar_count"] + 1,
     }
 
 
