@@ -22,6 +22,7 @@ Key design decisions:
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
 import signal
 import sys
@@ -240,8 +241,6 @@ class FeaturePipelineService:
         )
         self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
         self.logger = structlog.get_logger(__name__)
 
     # ---------------------------------------------------------------------------
@@ -767,11 +766,11 @@ class FeaturePipelineService:
                 ),
                 i1=I1Indicators(**{k: v for k, v in i1_features.items() if v is not None}),
                 i2=I2Events(**{k: v for k, v in tiered.get("i2", {}).items() if v is not None}),
-                i3=I3Structure(**tiered.get("i3", {})),
-                i4=I4Context(**tiered.get("i4", {})),
-                i5=I5Patterns(**tiered.get("i5", {})),
-                smc=SMCContext(**tiered.get("smc", {})),
-                i6=I6Confluence(**tiered.get("i6", {})),
+                i3=I3Structure(**{k: v for k, v in tiered.get("i3", {}).items() if v is not None}),
+                i4=I4Context(**{k: v for k, v in tiered.get("i4", {}).items() if v is not None}),
+                i5=I5Patterns(**{k: v for k, v in tiered.get("i5", {}).items() if v is not None}),
+                smc=SMCContext(**{k: v for k, v in tiered.get("smc", {}).items() if v is not None}),
+                i6=I6Confluence(**{k: v for k, v in tiered.get("i6", {}).items() if v is not None}),
                 source="live",
                 session_type=bar.session_type,
                 pipeline_latency_ms=pipeline_latency_ms,
@@ -836,7 +835,9 @@ class FeaturePipelineService:
                 if plugin_name in PRICE_SENSITIVE_PLUGINS:
                     new_state = _adjust_price_state(old_state, roll_gap)
                 else:
-                    new_state = old_state.copy() if isinstance(old_state, dict) else old_state
+                    new_state = (
+                        copy.deepcopy(old_state) if isinstance(old_state, dict) else old_state
+                    )
                 self._plugin_states[new_key] = new_state
                 del self._plugin_states[key]
                 self._plugin_states_locks.pop(key, None)
@@ -994,6 +995,10 @@ class FeaturePipelineService:
         """Start the feature pipeline service."""
         self.logger.info("Starting FeaturePipelineService", symbols=self._symbols)
         try:
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda s=sig: self._signal_handler(s, None))
+
             start_metrics_server(port=9125)
 
             # 1. DB connect before bar consumption

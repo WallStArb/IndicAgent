@@ -4,27 +4,26 @@ BarAccumulator receives 1m BarMessage objects and emits completed higher-timefra
 bars (5m, 15m, 1h) with source="htf_derived". It replaces the stateful aggregation
 logic currently embedded in TimeframeBuilder with a typed, testable module.
 
-Design decisions (D-12, D-13, D-14, D-15):
-- Input: 1m bars only; non-1m bars return [] without error (D-15)
+Design decisions:
+- Input: 1m bars only; non-1m bars return [] without error
 - Output: list[BarMessage] of completed HTF bars for each boundary crossed
 - OHLCV aggregation: open=first.open, high=max, low=min, close=last.close, volume=sum
-- source: all emitted bars have source="htf_derived" (D-13)
-- session parameter: TradingSession controls session-break behavior (D-14)
+- source: all emitted bars have source="htf_derived"
+- session parameter: TradingSession controls session-break behavior
 - Session break: partial accumulated bar is closed and emitted at session boundary;
   new accumulator state starts fresh for the next session
 
-TradingSession (D-14):
+TradingSession:
 - Holds session break schedule for the instrument's session type
 - is_session_break(prev_ts_seconds, curr_ts_seconds) returns True when a session
   boundary falls between the two timestamps
 - Prevents bar data from two different trading sessions being merged into one bar
-
-Implementation: Wave 1 (44.1-02).
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
+from zoneinfo import ZoneInfo
 
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.timeframe_builder import _floor_to_period
@@ -32,17 +31,19 @@ from src.core.timeframe_builder import _floor_to_period
 # Module-level constant: timeframe string → minutes
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
 
-# Session boundaries as UTC seconds-of-day
-# RTH: 09:30 ET = 13:30 UTC, 16:00 ET = 20:00 UTC
-_RTH_OPEN_UTC_SOD = 13 * 3600 + 30 * 60   # 48600
-_RTH_CLOSE_UTC_SOD = 20 * 3600             # 72000
-# ETH (pre-open) → RTH boundary: 09:30 ET = 13:30 UTC
-_ETH_TO_RTH_UTC_SOD = 13 * 3600 + 30 * 60  # 48600
+_ET = ZoneInfo("America/New_York")
+_RTH_OPEN_ET = time(9, 30)
+_RTH_CLOSE_ET = time(16, 0)
 
 
-def _utc_sod(ts: int) -> int:
-    """Return the seconds-of-day (0..86399) for a UTC Unix timestamp."""
-    return ts % 86400
+def _rth_boundaries_utc(day: date) -> tuple[int, int]:
+    """Return (rth_open_utc, rth_close_utc) Unix timestamps for the given calendar day.
+
+    Uses America/New_York so DST transitions are handled automatically.
+    """
+    open_dt = datetime.combine(day, _RTH_OPEN_ET, tzinfo=_ET).astimezone(UTC)
+    close_dt = datetime.combine(day, _RTH_CLOSE_ET, tzinfo=_ET).astimezone(UTC)
+    return int(open_dt.timestamp()), int(close_dt.timestamp())
 
 
 class TradingSession:
@@ -73,26 +74,18 @@ class TradingSession:
             # 24h/24-5 continuous sessions — no intraday breaks
             return False
 
-        # For RTH and ETH: check if any known session boundary falls between prev and curr.
-        # We check two boundaries per day:
-        #   1. RTH open: 09:30 ET = 13:30 UTC (sod=48600)
-        #   2. RTH close: 16:00 ET = 20:00 UTC (sod=72000)
-        # A boundary at absolute time B falls between prev_ts and curr_ts when
-        # prev_ts < B <= curr_ts (exclusive start, inclusive end).
-        boundaries = (_RTH_OPEN_UTC_SOD, _RTH_CLOSE_UTC_SOD)
+        # For RTH and ETH: check if any session boundary falls between prev_ts and curr_ts.
+        # Boundaries are computed per calendar day using America/New_York so DST is correct.
+        prev_date = datetime.fromtimestamp(prev_ts, tz=UTC).date()
+        curr_date = datetime.fromtimestamp(curr_ts, tz=UTC).date()
 
-        # Iterate over all days spanned by [prev_ts, curr_ts]
-        # For each day, check if any boundary timestamp falls in the interval.
-        prev_day_start = (prev_ts // 86400) * 86400
-        curr_day_start = (curr_ts // 86400) * 86400
-
-        day = prev_day_start
-        while day <= curr_day_start:
-            for boundary_sod in boundaries:
-                boundary_ts = day + boundary_sod
+        current = prev_date
+        while current <= curr_date:
+            rth_open, rth_close = _rth_boundaries_utc(current)
+            for boundary_ts in (rth_open, rth_close):
                 if prev_ts < boundary_ts <= curr_ts:
                     return True
-            day += 86400
+            current = date.fromordinal(current.toordinal() + 1)
 
         return False
 
