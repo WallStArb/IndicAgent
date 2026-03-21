@@ -385,10 +385,7 @@ class TestDivergenceStack:
         assert result.get("direction") == -1
 
     def test_single_rsi_only_no_signal(self):
-        """Only RSI bullish divergence (vol below threshold) → direction==0.
-
-        LOCKED design: dual-gate is non-negotiable.
-        """
+        """Only RSI bullish divergence (vol below threshold) → direction==0."""
         plugin = self._plugin()
         features = {
             "rsi_div_bullish": 0.7,
@@ -400,10 +397,7 @@ class TestDivergenceStack:
         assert result.get("direction") == 0
 
     def test_single_volume_only_no_signal(self):
-        """Only volume bullish divergence (RSI below threshold) → direction==0.
-
-        LOCKED design: dual-gate is non-negotiable.
-        """
+        """Only volume bullish divergence (RSI below threshold) → direction==0."""
         plugin = self._plugin()
         features = {
             "rsi_div_bullish": 0.1,  # below 0.3 threshold

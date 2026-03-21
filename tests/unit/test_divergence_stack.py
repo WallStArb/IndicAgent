@@ -296,54 +296,22 @@ class TestDivergenceStackUtilityWiring:
         result = plugin.compute_full({"main": None, "features": {}})
         assert result == {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
-    def test_signal_has_nonempty_targets(self):
-        """When signal fires, targets list must be non-empty (validate_signal requirement)."""
+    def test_signal_schema_contract(self):
+        """When signal fires, validate_signal requirements: non-empty targets, float stop_loss,
+        string regime_context, and confidence within [0.10, 0.95] system contract."""
         from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
 
         plugin = DivergenceStackPlugin()
         close = np.full(80, 5000.0) + np.arange(80) * 0.1
-        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
-        result = plugin.compute_full(_make_frames(close, features))
-        if result.get("direction", 0) != 0:
-            assert isinstance(result.get("targets"), list)
-            assert len(result["targets"]) > 0
-
-    def test_signal_has_float_stop_loss(self):
-        """When signal fires, stop_loss must be a float (validate_signal requirement)."""
-        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
-
-        plugin = DivergenceStackPlugin()
-        close = np.full(80, 5000.0) + np.arange(80) * 0.1
-        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
-        result = plugin.compute_full(_make_frames(close, features))
-        if result.get("direction", 0) != 0:
-            assert isinstance(result["stop_loss"], float)
-
-    def test_signal_has_regime_context_string(self):
-        """When signal fires, regime_context must be a string (validate_signal requirement)."""
-        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
-
-        plugin = DivergenceStackPlugin()
-        close = np.full(80, 5000.0) + np.arange(80) * 0.1
-        features = _make_features_with_divergences(rsi_bull=0.9, macd_bull=0.9, vol_bull=0.9)
-        result = plugin.compute_full(_make_frames(close, features))
-        if result.get("direction", 0) != 0:
-            assert isinstance(result["regime_context"], str)
-
-    def test_confidence_within_system_contract(self):
-        """Confidence must be within [0.10, 0.95] system contract via compose_confidence."""
-        from src.intelligence.trading.divergence_stack import DivergenceStackPlugin
-
-        plugin = DivergenceStackPlugin()
-        close = np.full(80, 5000.0) + np.arange(80) * 0.1
-        # Very high divergence scores to push confidence toward upper bound
         features = _make_features_with_divergences(
             rsi_bull=1.0, macd_bull=1.0, vol_bull=1.0, obv_bull=1.0, cmf_bull=1.0
         )
         result = plugin.compute_full(_make_frames(close, features))
         if result.get("direction", 0) != 0:
-            assert result["confidence"] >= 0.10
-            assert result["confidence"] <= 0.95
+            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            assert isinstance(result["stop_loss"], float)
+            assert isinstance(result["regime_context"], str)
+            assert 0.10 <= result["confidence"] <= 0.95
 
     def test_no_signal_returns_base_output_with_scoring_fields(self):
         """When ATR is missing, base_output scoring fields still returned."""
