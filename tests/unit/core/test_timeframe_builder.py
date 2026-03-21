@@ -435,3 +435,40 @@ async def test_zero_volume_zero_price_bar_skipped():
 
     # No xadd calls — bars were all skipped (volume==0 and close==0.0)
     assert mock_redis.xadd.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Test bar_count tracking
+# ---------------------------------------------------------------------------
+
+
+def test_update_accumulator_sets_bar_count_on_create():
+    from src.core.timeframe_builder import _update_accumulator
+
+    bar = {"open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0, "volume": 500}
+    acc = _update_accumulator(None, bar, period_ts=1000)
+    assert acc["bar_count"] == 1
+
+
+def test_update_accumulator_increments_bar_count():
+    from src.core.timeframe_builder import _update_accumulator
+
+    bar1 = {"open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0, "volume": 500}
+    bar2 = {"open": 103.0, "high": 107.0, "low": 102.0, "close": 106.0, "volume": 300}
+    acc = _update_accumulator(None, bar1, period_ts=1000)
+    acc = _update_accumulator(acc, bar2, period_ts=1000)
+    assert acc["bar_count"] == 2
+
+
+def test_update_accumulator_bar_count_does_not_affect_ohlcv():
+    from src.core.timeframe_builder import _update_accumulator
+
+    bar1 = {"open": 100.0, "high": 105.0, "low": 99.0, "close": 103.0, "volume": 500}
+    bar2 = {"open": 103.0, "high": 107.0, "low": 98.0, "close": 106.0, "volume": 300}
+    acc = _update_accumulator(None, bar1, period_ts=1000)
+    acc = _update_accumulator(acc, bar2, period_ts=1000)
+    assert acc["open"] == 100.0
+    assert acc["high"] == 107.0
+    assert acc["low"] == 98.0
+    assert acc["close"] == 106.0
+    assert acc["volume"] == 800
