@@ -93,12 +93,20 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 - Config changes require restart: `sudo systemctl restart indicagent-<name>` to pick up `_load_config()` changes
 - Services require restart after adding new contracts to `instruments` table — config loads once at startup
 - New contracts require: (1) INSERT to `instruments` table, (2) restart services that consume symbols (indicator, market_analysis, feature_writer), (3) historical backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
-- `sudo systemctl {status|restart|start} indicagent-{tws,indicator,market-analysis,signal-generator,signal-lifecycle,ai-narrative,feature-writer,llm-writer,cross-asset,api}`
+- `sudo systemctl {status|restart|start} indicagent-{tws,feature-pipeline,signal-generator,signal-lifecycle,ai-narrative,feature-writer,llm-writer,cross-asset,api}`
 - `journalctl -u indicagent-<name> -f` — live logs
-- Metrics ports: indicator :9109, signal-gen :9112, ai-narrative :9113, market-analysis :9114, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117, cross-asset :9118
+- Metrics ports: feature-pipeline :9125, signal-gen :9112, ai-narrative :9113, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117, cross-asset :9118, quality-gate :9119, regime-gate :9120, tod-adjuster :9121, calibrator :9122, ranker :9123, winner-selector :9124
 
 **Pipeline Reset** (housekeeping + fetch + replay — single entry point): `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv|--clear-llm] [--symbols SYM,SYM]`
 — TF depths: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous-adj. Pauses at stop/start boundaries and prints sudo commands to run.
+**`pipeline_reset.py` is interactive** — requires service stop + multiple Enter presses; fails when IBKR offline (historical data timeouts). For a DB-only clear (no backfill), use direct SQL:
+```bash
+# Stop pipeline services first, then:
+for t in signal_ledger intelligence_features setup_performance drift_state drift_monitor signal_features confidence_calibration cis_weights system_events market_data_ohlcv signal_performance_segmented llm_calls llm_model_scores; do
+  docker exec timescaledb psql -U postgres -d indicagent -c "TRUNCATE $t;" 2>&1
+done
+docker exec timescaledb psql -U postgres -d indicagent -c "REFRESH MATERIALIZED VIEW signal_stats_daily;"
+```
 **Gap-fill** (fetch + replay only missing days — no full reseed): `--days N` caps ALL TF fetch depths at N days and limits replay to the same window. Safe: `ON CONFLICT DO NOTHING` on both `intelligence_features` and `signal_ledger`.
 ```bash
 .venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM,SYM --days 2
@@ -117,7 +125,7 @@ Layer 1: Data Foundation                   -> HF collection, aggregation, typed 
 
 **Intelligence Pipeline:**
 ```
-IBKR TWS → indicator_service (I1) → market_analysis_service (I2→I6) →
+IBKR TWS → feature_pipeline_service (I1-I6 unified) →
   signal_generator_service (I7) → signal_ledger + intelligence_features →
   feature_writer_service → TimescaleDB → SSE → Dashboard
 ```
@@ -130,9 +138,8 @@ IBKR TWS → indicator_service (I1) → market_analysis_service (I2→I6) →
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
-| Indicator Service | `indicagent-indicator` | I1: 25 indicators → `indicators:SYMBOL:TF` | :9109 |
-| Market Analysis | `indicagent-market-analysis` | I3→I6 pipeline → `intelligence:SYMBOL:TF` | :9114 |
-| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; seeds `bar_history` from `intelligence_features` on startup — no warmup delay; falls back to ~50 live 1m bars (~50 min) if DB seed fails | :9112 |
+| Feature Pipeline | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline (replaces indicator + market-analysis) → `intelligence:SYMBOL:TF` | :9125 |
+| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream (no DB seed, no warmup delay) | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
@@ -171,7 +178,13 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ### TimescaleDB Gotchas
 - **DB shell:** `docker exec timescaledb psql -U postgres -d indicagent` — container is `timescaledb`
 - **VACUUM:** Cannot run inside a transaction block — use a standalone `psql -c "VACUUM ..."` command
+- **VACUUM loop pattern:** `for table in t1 t2 t3; do docker exec timescaledb psql -U postgres -d indicagent -c "VACUUM ANALYZE $table;"; done` — one psql call per table required
 - **Autovacuum on hypertables:** `ALTER TABLE hypertable SET (autovacuum_...)` only applies to new chunks. Cover existing chunks by iterating `timescaledb_information.chunks`: `FOR r IN SELECT chunk_schema, chunk_name FROM timescaledb_information.chunks WHERE hypertable_name = '...' AND hypertable_schema = 'public' LOOP EXECUTE format('ALTER TABLE %I.%I SET (...)', r.chunk_schema, r.chunk_name); END LOOP` — use `record` type (not `text`) to avoid ambiguous column name conflicts with `chunk_name`
+- **TRUNCATE removes all chunks** — after `TRUNCATE`, `timescaledb_information.chunks` returns 0 rows. Autovacuum settings on parent automatically apply to all future chunks; no need to iterate existing chunks.
+- **`set_chunk_time_interval()` applies to new chunks only** — best done while table is empty after TRUNCATE: `SELECT set_chunk_time_interval('table', INTERVAL '1 month');`
+- **`signal_stats_daily` is a materialized view** — appears in `pg_stat_user_tables` but cannot be TRUNCATEd; use `REFRESH MATERIALIZED VIEW signal_stats_daily;` to empty it after clearing `signal_ledger`.
+- **`signal_performance_segmented` not in `pipeline_reset.py`** — must TRUNCATE separately when doing a full clear.
+- **`compression_enabled=true` ≠ policy exists** — `timescaledb_information.hypertables` shows compression_enabled but doesn't tell you if a job is scheduled. Always verify: `SELECT hypertable_name, config FROM timescaledb_information.jobs WHERE application_name LIKE 'Columnstore%';`
 - **pg_stat_statements:** Enabled (2026-03-05). Slow query analysis: `SELECT calls, round(mean_exec_time::numeric,2) AS mean_ms, query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10`
 - **`pg_stat_user_indexes.idx_scan` is always 0 for hypertable parents** — chunk-level indexes are tracked separately. Never use idx_scan=0 to identify unused indexes on hypertables; use pg_stat_statements and EXPLAIN instead.
 - **`pg_class` shows near-zero size for hypertable parents** — use `hypertable_size('table')` for real sizes and `timescaledb_information.hypertables` for num_chunks.
@@ -182,7 +195,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ## Plugin System
 
-111 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
+121 plugins + 2 aggregation across tiers I1–I7. See `src/intelligence/CLAUDE.md` for tier details, plugin protocol, and LLM provider chain.
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
