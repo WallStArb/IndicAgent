@@ -19,15 +19,12 @@ import signal
 import sys
 import time
 import zoneinfo
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
-
-# Lookback multiplier: 3x minimum bars needed to ensure warmup buffer
-_LOOKBACK_MULTIPLIER = 3
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -35,17 +32,18 @@ sys.path.insert(0, str(project_root))
 import numpy as np
 import pandas as pd
 import structlog
+from prometheus_client import Counter as _PrometheusCounter
 from pydantic import ValidationError
 
-from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_symbols
+from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
+from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
     TF_SECONDS,
     TF_TTL_BARS,
-    min_bars_for_tf,
     parse_roll_event,
     setup_service_logging,
 )
@@ -70,10 +68,8 @@ from src.intelligence.trading.signal_ledger import (
     SignalStatus,
     insert_signals_with_features,
 )
-from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
-from prometheus_client import Counter as _PrometheusCounter
-
 from src.intelligence.trading.signal_schema import make_signal, validate_signal
+from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     BAR_TO_SIGNAL_LATENCY,
     counter,
@@ -428,7 +424,7 @@ class SignalGeneratorService:
         # Populated by ticks topic handler. Replaces Redis HGETALL for price:SYMBOL:latest.
         self._live_quotes: dict[str, dict] = {}
 
-        self.bar_history: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+        self._bar_history: BarHistory = BarHistory(maxlen=200)
         self._stream_map: dict[str, tuple[str, str]] = {}
         self._df_cache: dict[str, pd.DataFrame | None] = {}
         # Regime cache for slow-clock gating (SIGINT-04).
@@ -708,95 +704,6 @@ class SignalGeneratorService:
             self.logger.warning("Database unavailable, persistence disabled", error=str(e))
             self.db_manager = None
 
-    async def _seed_bar_history_from_db(self) -> None:
-        """Seed bar_history from intelligence_features to eliminate warmup delay on restart.
-
-        Queries min_bars_for_tf(tf) recent bars per (symbol, tf) from
-        intelligence_features table and populates bar_history dict.
-
-        Gracefully degrades if DB unavailable: logs WARNING and proceeds
-        with empty bar_history (live warmup fallback).
-        """
-        import asyncio
-
-        if not self.db_manager:
-            self.logger.warning(
-                "DB seed failed - falling back to live warmup", reason="no db_manager"
-            )
-            return
-
-        active_contracts = get_active_symbols()
-        timeframes = self.config["service"]["timeframes"]
-        # Pre-compute min_bars per TF (pure dict lookup, same for all symbols)
-        min_bars_per_tf = {tf: min_bars_for_tf(tf) for tf in timeframes}
-        seeded_count = 0
-
-        async def _fetch_one(symbol: str, tf: str) -> tuple[str, str, list]:
-            min_bars = min_bars_per_tf[tf]
-            # Lookback = 3× the data needed; lets TimescaleDB exclude most chunks
-            # at planning time (same pattern as market_data_ohlcv seed fix).
-            tf_secs = TF_SECONDS.get(tf, 60)
-            lookback_secs = min_bars * tf_secs * _LOOKBACK_MULTIPLIER
-
-            # Query filters by contract lifetime for futures using contract_metadata table.
-            # For non-futures symbols (ETF, FX, crypto), LEFT JOIN returns NULL
-            # rows which pass the IS NULL filter.
-            # For futures: only seed bars from the contract's active period.
-            # PostgreSQL doesn't support parameterized INTERVAL syntax directly.
-            # Use ($3 || ' seconds')::interval instead of INTERVAL $3 seconds
-            query = """
-                SELECT f.ts, f.bar
-                FROM intelligence_features f
-                LEFT JOIN contract_metadata m ON f.symbol = m.symbol
-                WHERE (m.symbol IS NULL                      -- non-futures: no filtering
-                       OR (m.roll_date <= f.ts
-                           AND (m.roll_to IS NULL
-                               OR (SELECT roll_date FROM contract_metadata
-                                    WHERE symbol = m.roll_to) > f.ts)))
-                  AND f.symbol = $1 AND f.tf = $2
-                  AND f.ts > NOW() - ($3 || ' seconds')::interval
-                ORDER BY f.ts DESC
-                LIMIT $4
-            """
-            result = await self.db_manager.execute_query(
-                query, symbol, tf, str(lookback_secs), min_bars
-            )
-            return symbol, tf, result or []
-
-        try:
-            tasks = [_fetch_one(symbol, tf) for symbol in active_contracts for tf in timeframes]
-            results = await asyncio.gather(*tasks)
-
-            for symbol, tf, rows in results:
-                if not rows:
-                    continue
-                key = f"{symbol}:{tf}"
-                # DB returns DESC (newest first); reverse to append oldest→newest
-                for row in reversed(rows):
-                    bar_json = parse_jsonb(row["bar"], default={})
-                    self.bar_history[key].append(
-                        {
-                            "open": bar_json.get("o"),
-                            "high": bar_json.get("h"),
-                            "low": bar_json.get("l"),
-                            "close": bar_json.get("c"),
-                            "volume": bar_json.get("v"),
-                            "timestamp": row["ts"],
-                        }
-                    )
-                    seeded_count += 1
-
-            self.logger.info(
-                "Seeded bar_history",
-                seeded_count=seeded_count,
-                symbols_count=len(active_contracts),
-                tfs_count=len(timeframes),
-            )
-
-        except Exception as e:
-            self.logger.warning("DB seed failed - falling back to live warmup", error=str(e))
-            # bar_history remains empty, service proceeds with live warmup
-
     async def _handle_ticks_message(self, symbol: str, payload: dict) -> None:
         """KAFKA-06: Update _live_quotes with latest tick for symbol.
 
@@ -808,26 +715,20 @@ class SignalGeneratorService:
     async def _handle_roll_event(self, event: dict) -> None:
         """Migrate bar_history keys from old_symbol to new_symbol on futures roll.
 
-        Moves deque contents for all {old_symbol}:{tf} keys to {new_symbol}:{tf}.
-        Also invalidates the df_cache for both keys so the next bar triggers a rebuild.
+        Delegates to BarHistory.migrate_symbol() which atomically renames all
+        (old_symbol, tf) keys to (new_symbol, tf) without dropping any buffered bars.
+        Also invalidates the df_cache for both symbols so the next bar triggers a rebuild.
         """
         result = parse_roll_event(event, self.logger)
         if result is None:
             return
         old_symbol, new_symbol = result
 
+        self._bar_history.migrate_symbol(old_symbol, new_symbol)
+        # Invalidate df_cache for both symbols across all TFs
         for tf in ["1m", "5m", "15m", "1h"]:
-            old_key = f"{old_symbol}:{tf}"
-            new_key = f"{new_symbol}:{tf}"
-            old_history = self.bar_history.get(old_key)
-            if old_history is None or len(old_history) == 0:
-                continue
-            # Transfer bars to new key
-            self.bar_history[new_key].extend(old_history)
-            self.bar_history[old_key].clear()
-            # Invalidate df_cache
-            self._df_cache.pop(old_key, None)
-            self._df_cache.pop(new_key, None)
+            self._df_cache.pop(f"{old_symbol}:{tf}", None)
+            self._df_cache.pop(f"{new_symbol}:{tf}", None)
         self.logger.info(
             "roll_bar_history_migrated",
             old=old_symbol,
@@ -890,9 +791,10 @@ class SignalGeneratorService:
             await self.db_manager.close()
         self.logger.info("Signal Generator Service stopped")
 
-    def _get_df(self, key: str) -> pd.DataFrame:
+    def _get_df(self, symbol: str, tf: str) -> pd.DataFrame:
+        key = f"{symbol}:{tf}"
         if self._df_cache.get(key) is None:
-            self._df_cache[key] = pd.DataFrame(list(self.bar_history[key]))
+            self._df_cache[key] = self._bar_history.to_dataframe(symbol, tf)
         return self._df_cache[key]
 
     def _run_setup_plugins(
@@ -1418,13 +1320,27 @@ class SignalGeneratorService:
             if timeframe == "1h":
                 self._htf_intel_cache[f"{symbol}:1h"] = features
 
+            # Append typed BarMessage to BarHistory (D-43, D-45)
+            # OHLCVBar uses SHORT field names: o, h, l, c, v
+            bar_msg = BarMessage(
+                ts=event.ts,
+                symbol=symbol,
+                tf=timeframe,
+                open=event.bar.o,
+                high=event.bar.h,
+                low=event.bar.l,
+                close=event.bar.c,
+                volume=event.bar.v,
+                source="ibkr_named",
+                session_type=event.session_type,
+                gap_preceding=False,
+            )
+            self._bar_history.append(bar_msg)
             key = f"{symbol}:{timeframe}"
-            bar_with_ts = {**bar, "timestamp": timestamp}
-            self.bar_history[key].append(bar_with_ts)
             self._df_cache[key] = None
 
             frames = {
-                "main": self._get_df(key),
+                "main": self._get_df(symbol, timeframe),
                 "features": features,
                 "timeframe": timeframe,  # Phase 041: enables TF guard in VWAP/session plugins
             }
@@ -1779,8 +1695,6 @@ class SignalGeneratorService:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
         try:
             await self._connect_database()
-            # Seed bar_history from intelligence_features (warmup logic)
-            await self._seed_bar_history_from_db()
             await self._setup_kafka_clients()
             self.running = True
             # Load perf weights at startup so first bar already has weights

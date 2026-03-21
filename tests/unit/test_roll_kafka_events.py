@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections import defaultdict, deque
+from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -29,9 +30,10 @@ def _make_market_analysis_service() -> Any:
 
 def _make_signal_generator_service() -> Any:
     from services.signal_generator_service import SignalGeneratorService
+    from src.core.bar_history import BarHistory
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
-    svc.bar_history = defaultdict(lambda: deque(maxlen=200))
+    svc._bar_history = BarHistory(maxlen=200)
     svc._df_cache = {}
     svc._stream_map = {}
     svc._regime_cache = defaultdict(dict)
@@ -40,6 +42,26 @@ def _make_signal_generator_service() -> Any:
     svc._cis_weights_cache = {}
     svc.logger = MagicMock()
     return svc
+
+
+def _append_bar(svc: Any, symbol: str, tf: str, close: float) -> None:
+    """Append a minimal BarMessage to svc._bar_history for testing."""
+    from src.core.schemas.bar_message import BarMessage
+    from src.intelligence.schemas import SessionType
+
+    bar = BarMessage(
+        ts=datetime(2026, 3, 10, 10, 0, 0, tzinfo=UTC),
+        symbol=symbol,
+        tf=tf,
+        open=close,
+        high=close + 1,
+        low=close - 1,
+        close=close,
+        volume=100,
+        source="ibkr_named",
+        session_type=SessionType.RTH,
+    )
+    svc._bar_history.append(bar)
 
 
 def _make_feature_writer_service() -> Any:
@@ -91,9 +113,9 @@ class TestMarketAnalysisRollEvent:
 class TestSignalGeneratorRollEvent:
     def test_migrates_bar_history_keys(self) -> None:
         svc = _make_signal_generator_service()
-        # Populate bar_history for old symbol
-        svc.bar_history["ESM6:1m"].append({"close": 5200.0})
-        svc.bar_history["ESM6:5m"].append({"close": 5200.0})
+        # Populate _bar_history for old symbol
+        _append_bar(svc, "ESM6", "1m", 5200.0)
+        _append_bar(svc, "ESM6", "5m", 5200.0)
         event = {
             "event_type": "roll",
             "base_symbol": "ES",
@@ -103,18 +125,18 @@ class TestSignalGeneratorRollEvent:
             "roll_direction": "up",
         }
         asyncio.run(svc._handle_roll_event(event))
-        assert len(svc.bar_history["ESU6:1m"]) == 1
-        assert len(svc.bar_history["ESU6:5m"]) == 1
-        # Old keys should be empty or removed
-        assert len(svc.bar_history["ESM6:1m"]) == 0
-        assert len(svc.bar_history["ESM6:5m"]) == 0
+        assert len(svc._bar_history.get("ESU6", "1m")) == 1
+        assert len(svc._bar_history.get("ESU6", "5m")) == 1
+        # Old keys should be empty after migration
+        assert len(svc._bar_history.get("ESM6", "1m")) == 0
+        assert len(svc._bar_history.get("ESM6", "5m")) == 0
 
     def test_ignores_non_roll_event(self) -> None:
         svc = _make_signal_generator_service()
-        svc.bar_history["ESM6:1m"].append({"close": 5200.0})
+        _append_bar(svc, "ESM6", "1m", 5200.0)
         event = {"event_type": "other", "old_symbol": "ESM6", "new_symbol": "ESU6"}
         asyncio.run(svc._handle_roll_event(event))
-        assert len(svc.bar_history["ESM6:1m"]) == 1
+        assert len(svc._bar_history.get("ESM6", "1m")) == 1
 
     def test_malformed_event_does_not_crash(self) -> None:
         svc = _make_signal_generator_service()
