@@ -23,6 +23,7 @@ from ...core.stream_keys import (
     topic_intelligence_i7,
     topic_intelligence_i8,
     topic_market_bars,
+    topic_market_bars_htf,
     topic_market_ticks,
     topic_narratives,
     topic_narratives_group,
@@ -111,6 +112,7 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
     # Market ticks + bars + indicators + intelligence (all symbols/TFs share one topic each)
     topics.append(topic_market_ticks(env_name))
     topics.append(topic_market_bars(env_name))
+    topics.append(topic_market_bars_htf(env_name))
     topics.append(topic_indicators(env_name))
     topics.append(topic_intelligence(env_name))
     topics.append(topic_intelligence_i7(env_name))
