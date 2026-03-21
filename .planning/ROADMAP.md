@@ -154,7 +154,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, IC computation, data quality monitoring infrastructure (completed 2026-03-19)
 - [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
 - [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (completed 2026-03-19)
-- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments (completed 2026-03-20)
+- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments (completed 2026-03-20) [INTEL-04 roll premium deferred to Phase 47]
 - [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
 - [x] **Phase 44: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils, BaseI7Plugin mixin (OHLCV extraction, _no_signal, compute_next), direction→signal_type helper, confidence system contract [0.10, 0.95]; validate_tier() enforcement; cross_timeframe.py → 3 focused modules; composites/common.py → utils/common.py (tier-agnostic); OFI type fixes + make_signal() factory + validate_signal() enforcement (~458 LOC duplication eliminated, zero signal behavior change) (completed 2026-03-21)
 - [ ] **Phase 44.1: Feature Pipeline Renaissance Refactor** — replace indicator_service + market_analysis_service + timeframes_builder_service with unified FeaturePipelineService; shared BarHistory + BarAccumulator modules; typed BarMessage schema; in-pipeline HTF derivation (no DB queries in hot path); 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99; SignalGeneratorService simplified (remove DB seed, wire BarHistory to IntelligenceEvent stream)
@@ -684,14 +684,15 @@ Plans:
 **Plans**: TBD (plan during Phase 45)
 
 ### Phase 47: Shadow Mode Graduation
-**Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds adjusted if data supports it, cross-asset and roll monitor enabled, trad_DualDivergence promoted once it passes the statistical gate.
+**Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds adjusted if data supports it, cross-asset and roll monitor enabled, trad_DualDivergence promoted once it passes the statistical gate. Roll premium/discount wired into intelligence pipeline alongside roll monitor enablement.
 **Depends on**: Phase 46 (I6 expansion complete; all shadow features accumulating data throughout v2.0 phases)
-**Requirements**: SHADOW-01, SHADOW-02, SHADOW-03, SHADOW-04
+**Requirements**: SHADOW-01, SHADOW-02, SHADOW-03, SHADOW-04, INTEL-04
 **Success Criteria** (what must be TRUE):
   1. A query of `signal_ledger WHERE is_shadow = TRUE` for regime_suppressed signals produces enough rows (N >= 200) to compute empirical win rates by threshold bucket — the analysis result (confirm or adjust thresholds) is documented in a decision log entry.
   2. `CROSS_ASSET_ENABLED=true` is set in the production environment; `indicagent-cross-asset` publishes live data and `signal_generator_service` injects cross-asset frames for EQ_INDEX symbols — verifiable by querying `signal_ledger` for `trad_CrossAssetDivergence` signals after enablement.
   3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
   4. `trad_DualDivergence` `IS_SHADOW` flag is removed; the plugin fires live signals that appear in `signal_ledger` with `is_shadow = FALSE` — N >= 50 resolved signals with win rate > 50% is confirmed before flag removal.
+  5. `roll_premium_pct` (INTEL-04) is populated in `intelligence_features` for futures symbols during roll windows — `SELECT count(*) FROM intelligence_features WHERE roll_premium_pct IS NOT NULL AND ts > now() - interval '7 days'` returns > 0 after a roll event.
 **Plans**: TBD (plan during Phase 46)
 
 ### Phase 48: Auth + External Access
