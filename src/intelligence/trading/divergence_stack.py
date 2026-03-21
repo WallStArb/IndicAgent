@@ -18,7 +18,7 @@ from typing import Any
 from ..plugins import InputSpec
 from .atr_utils import get_atr
 from .confidence_utils import compose_confidence
-from .plugin_utils import no_signal, signal_type_for_direction
+from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,9 @@ DIVERGENCE_WEIGHTS: dict[str, float] = {
 
 DIVERGENCE_SCORE_THRESHOLD: float = 0.40
 DIVERGENCE_MIN_AGREEING: int = 3
+# Normalization denominator: expected max score when top-3 inputs all fire at 1.0
+# (0.30 + 0.25 + 0.20 = 0.75 theoretical max, but 0.60 used as practical 3-signal max)
+DIVERGENCE_CONFIDENCE_NORM: float = 0.60
 
 
 @dataclass
@@ -97,8 +100,7 @@ class DivergenceStackPlugin:
         symbol = frames.get("symbol", "_")
         timeframe = frames.get("timeframe", "_")
         state_key = (symbol, timeframe)
-        if state_key not in self._state:
-            self._state[state_key] = {}
+        state = self._state.setdefault(state_key, {})
 
         # Read all 5 divergence input pairs from features dict (I5 outputs)
         inputs_map: dict[str, tuple[float, float]] = {
@@ -131,7 +133,6 @@ class DivergenceStackPlugin:
         )
 
         # Update divergence age tracking in state
-        state = self._state[state_key]
         for name, score in per_input_scores.items():
             age_key = f"{name}_age"
             if score > 0:
@@ -186,7 +187,7 @@ class DivergenceStackPlugin:
                 return {**base_output, "signal_type": "none", "direction": 0, "confidence": 0.0, "supporting_factors": []}
 
             entry = float(df["close"].iloc[-1])
-            signal_type = signal_type_for_direction("divergence", direction)
+            signal_type = signal_type_for_direction("divergence_stack", direction)
             tf = frame_trade(signal_type, direction, entry, features, atr)
             if not tf.viable:
                 return {**base_output, "signal_type": "none", "direction": 0, "confidence": 0.0, "supporting_factors": []}
@@ -194,7 +195,7 @@ class DivergenceStackPlugin:
             targets = [round(t.price, 2) for t in tf.targets]
 
             # Confidence proportional to weighted_score
-            confidence = compose_confidence(weighted_score / 0.60)
+            confidence = compose_confidence(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
 
             supporting = [
                 name
@@ -226,7 +227,7 @@ class DivergenceStackPlugin:
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
-        return self.compute_full(windows)
+        return default_compute_next(self, windows)
 
 
 plugin = DivergenceStackPlugin()
