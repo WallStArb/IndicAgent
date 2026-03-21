@@ -631,7 +631,7 @@ Plans:
 
 Plans:
 - [x] 44.1-01-PLAN.md — Test stubs + module shells (BarMessage, BarHistory, BarAccumulator, IntelligenceEvent extension) (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
-- [ ] 44.1-02-PLAN.md — Implement BarHistory + BarAccumulator (TDD) (PIPE-02, PIPE-03)
+- [x] 44.1-02-PLAN.md — Implement BarHistory + BarAccumulator (TDD) (PIPE-02, PIPE-03)
 - [ ] 44.1-03-PLAN.md — Build FeaturePipelineService + systemd unit + service tests (PIPE-01, PIPE-03)
 - [ ] 44.1-04-PLAN.md — Simplify SignalGeneratorService + live cutover (PIPE-01, PIPE-04)
 - [ ] 44.1-05-PLAN.md — Post-cutover cleanup: retire old units + topic + regression (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
