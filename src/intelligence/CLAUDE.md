@@ -1,8 +1,8 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (111 total + 2 aggregation)
+## Plugin Tiers (121 total + 2 aggregation)
 
-### I1 Technical Indicators (25) — incremental `compute_next()`
+### I1 Technical Indicators (27) — incremental `compute_next()`
 Trend, Momentum, Volatility, Volume. Full list: `TIER_I1` in `register_plugins.py`.
 
 ### I2 Composite Events (11) — on I1 features, before I3
@@ -18,8 +18,8 @@ Defined in `composites/`. Shared utilities in `composites/common.py`: `is_num`, 
 - **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
 - **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (10 output fields)
 
-### I7 Trading Setups (28) + Aggregation (2)
-TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup, CandlestickPatternSetup, SessionExtremesSetup, FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP, AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout.
+### I7 Trading Setups (36) + Aggregation (2)
+TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup, CandlestickPatternSetup, SessionExtremesSetup, FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP, AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout, OFIContinuation, OFIDivergence, OFISpike, CVDDivergence, CVDSpike, DeltaExhaustion, DualDivergence, CrossAssetDivergence.
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
