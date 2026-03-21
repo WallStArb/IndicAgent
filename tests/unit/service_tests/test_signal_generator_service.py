@@ -926,3 +926,473 @@ async def test_load_calibration_curves_stores_ndarray():
     assert vals.dtype == np.float64, "values dtype must be float64"
     np.testing.assert_array_equal(bp, [0.0, 0.3, 0.6, 1.0])
     np.testing.assert_array_equal(vals, [0.1, 0.4, 0.7, 0.9])
+
+
+# ---------------------------------------------------------------------------
+# Phase 44.2 Plan 02: In-process pipeline wiring tests
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_signal(
+    plugin: str = "trad_TrendFollowing",
+    direction: int = 1,
+    confidence: float = 0.75,
+) -> dict:
+    """Build a minimal signal dict resembling make_signal() output."""
+    from uuid import uuid4
+
+    return {
+        "signal_id": str(uuid4()),
+        "setup_plugin": plugin,
+        "direction": direction,
+        "confidence": confidence,
+        "signal_type": "trend_long",
+        "entry_price": 5100.0,
+        "stop_loss": 5080.0,
+        "targets": [5130.0, 5150.0],
+        "ttl_bars": 10,
+        "regime_type": "trend",
+        "regime_context": "bullish",
+        "confluence_score": 0.5,
+        "supporting_factors": [],
+        "invalidation_conditions": [],
+    }
+
+
+def _make_svc_for_pipeline(extra_attrs: dict | None = None):
+    """Build a minimal SignalGeneratorService with all attrs needed for _process_event."""
+    import asyncio
+    import collections
+
+    from services.signal_generator_service import SignalGeneratorService
+    from src.intelligence.trading.cis_scorer import CISScorer
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc.logger = MagicMock()
+    svc.env_name = "development"
+    svc.shutdown_requested = False
+    svc._signal_gate = {}
+    svc._setup_last_fire = {}
+    svc._setup_cooldown = {}
+    svc._perf_weights = {}
+    svc._drift_penalties = {}
+    svc._cis_weights_cache = {}
+    svc._calibration_curves = {}
+    svc._tod_multipliers = {}
+    svc._cis_kalman_state = {}
+    svc._audit_queue = asyncio.Queue(maxsize=1000)
+    svc._cis_scorer = CISScorer()
+    svc._kafka_producer = None
+    svc.db_manager = None
+    svc.signals_generated_total = MagicMock()
+    svc.signals_selected_total = MagicMock()
+    svc._total_signals = 0
+    svc._regime_cache = collections.defaultdict(dict)
+    if extra_attrs:
+        for k, v in extra_attrs.items():
+            setattr(svc, k, v)
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_process_event_calls_all_pipeline_stages():
+    """_process_event calls all 6 pipeline pure functions in-process per bar.
+
+    Each of the 6 stage functions should be called exactly once per _process_event
+    invocation. Mocking at the module-patch level ensures we can verify call counts
+    regardless of the internal implementation.
+    """
+    from unittest.mock import patch
+
+
+    svc = _make_svc_for_pipeline()
+    ts = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
+    raw_signals = [_make_minimal_signal()]
+
+    with (
+        patch("services.signal_generator_service.apply_quality_gate", return_value=raw_signals) as mock_qg,
+        patch("services.signal_generator_service.apply_regime_gate", return_value=raw_signals) as mock_rg,
+        patch("services.signal_generator_service.apply_tod_adjustment", return_value=raw_signals) as mock_tod,
+        patch("services.signal_generator_service.apply_calibration", return_value=raw_signals) as mock_cal,
+        patch("services.signal_generator_service.rank_signals", return_value=raw_signals) as mock_rank,
+        patch("services.signal_generator_service.select_winner", return_value=(None, raw_signals, "no_signals")) as mock_win,
+    ):
+        await svc._process_event(
+            event=None,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            bar_close_ts=None,
+            source="live",
+            raw_signals=raw_signals,
+            regime_data=None,
+            drift_penalty=1.0,
+            features={},
+        )
+
+    mock_qg.assert_called_once()
+    mock_rg.assert_called_once()
+    mock_tod.assert_called_once()
+    mock_cal.assert_called_once()
+    mock_rank.assert_called_once()
+    mock_win.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_audit_queue_overflow_increments_counter():
+    """_queue_stage_audits drops payloads when queue is full and increments _AUDIT_DROPS."""
+    import asyncio
+
+    import services.signal_generator_service as sgs_mod
+
+    svc = _make_svc_for_pipeline()
+    # Use a very small queue to trigger overflow
+    svc._audit_queue = asyncio.Queue(maxsize=2)
+    # Fill it to capacity
+    svc._audit_queue.put_nowait({"topic": "t1", "data": {}})
+    svc._audit_queue.put_nowait({"topic": "t2", "data": {}})
+
+    # Read counter before overflow attempts
+    drops_before = sgs_mod._AUDIT_DROPS._value.get()
+    # Try to add 3 more payloads — all should overflow (queue is full)
+    overflow_payloads = [
+        {"topic": "t3", "data": {}},
+        {"topic": "t4", "data": {}},
+        {"topic": "t5", "data": {}},
+    ]
+    await svc._queue_stage_audits(overflow_payloads)
+
+    drops_after = sgs_mod._AUDIT_DROPS._value.get()
+    assert drops_after - drops_before == 3, (
+        f"Expected 3 audit drops, got {drops_after - drops_before}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ledger_write_failure_still_publishes_record():
+    """When DB write fails, BarIntelligenceRecord is still published with ledger_written=False.
+
+    This is the critical resilience property: pipeline must never crash on DB errors.
+    """
+    import json
+    from unittest.mock import patch
+
+    from src.intelligence.schemas import (
+        I1Indicators,
+        I2Events,
+        I3Structure,
+        I4Context,
+        I5Patterns,
+        I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
+    )
+
+    ts = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
+    event = IntelligenceEvent(
+        ts=ts,
+        symbol="ES",
+        tf="5m",
+        bar=OHLCVBar(o=5100.0, h=5110.0, l=5095.0, c=5105.0, v=10000),
+        i1=I1Indicators(rsi_14=55.0, atr_14=10.0),
+        i2=I2Events(),
+        i3=I3Structure(),
+        i4=I4Context(),
+        i5=I5Patterns(),
+        smc=SMCContext(),
+        i6=I6Confluence(),
+    )
+
+    mock_producer = MagicMock()
+    publish_calls = []
+
+    async def _mock_publish(topic, payload, key=None):
+        publish_calls.append({"topic": topic, "payload": payload})
+
+    mock_producer.publish = _mock_publish
+
+    svc = _make_svc_for_pipeline({"_kafka_producer": mock_producer})
+    raw_signals = [_make_minimal_signal()]
+
+    # Make DB write raise — but pipeline must continue and publish record
+    with patch(
+        "services.signal_generator_service.insert_signals_with_features",
+        side_effect=Exception("DB down"),
+    ):
+        await svc._process_event(
+            event=event,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            bar_close_ts=None,
+            source="live",
+            raw_signals=raw_signals,
+            regime_data=None,
+            drift_penalty=1.0,
+            features={},
+        )
+
+    # BarIntelligenceRecord must be published regardless of DB failure
+    record_publishes = [
+        c for c in publish_calls
+        if "intelligence.record" in c["topic"]
+    ]
+    assert len(record_publishes) >= 1, (
+        "BarIntelligenceRecord must be published even when DB write fails"
+    )
+    # Verify ledger_written=False in the record
+    record_json = record_publishes[0]["payload"]
+    if isinstance(record_json, str):
+        record_data = json.loads(record_json)
+        assert record_data.get("ledger_written") is False, (
+            "ledger_written must be False when DB write fails"
+        )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_metrics_incremented():
+    """_process_event increments _PIPELINE_STAGE_INPUT counter for quality_gate stage."""
+    import services.signal_generator_service as sgs_mod
+
+    svc = _make_svc_for_pipeline()
+    ts = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
+    raw_signals = [
+        _make_minimal_signal("trad_TrendFollowing", 1),
+        _make_minimal_signal("trad_MeanReversion", -1),
+        _make_minimal_signal("trad_OFISpike", 1),
+    ]
+
+    before = sgs_mod._PIPELINE_STAGE_INPUT.labels(stage="quality_gate")._value.get()
+
+    await svc._process_event(
+        event=None,
+        symbol="ES",
+        timeframe="5m",
+        timestamp=ts,
+        bar_close_ts=None,
+        source="live",
+        raw_signals=raw_signals,
+        regime_data=None,
+        drift_penalty=1.0,
+        features={},
+    )
+
+    after = sgs_mod._PIPELINE_STAGE_INPUT.labels(stage="quality_gate")._value.get()
+    assert after - before == 3, (
+        f"Expected quality_gate input counter to increase by 3, got {after - before}"
+    )
+
+
+def test_to_ranked_signal_maps_fields():
+    """_to_ranked_signal correctly maps signal dict fields to RankedSignal model."""
+    from services.signal_generator_service import SignalGeneratorService
+    from src.intelligence.schemas import RankedSignal
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+
+    sig = {
+        "signal_id": "abc123",
+        "setup_plugin": "trad_TrendFollowing",
+        "direction": 1,
+        "confidence": 0.65,
+        "_raw_confidence": 0.80,
+        "calibrated_confidence": 0.72,
+        "regime_eligible": True,
+        "quality_score": 0.90,
+        "tod_multiplier": 1.1,
+        "adjusted_rank": 3.0,
+    }
+
+    result = svc._to_ranked_signal(sig, winner=None)
+
+    assert isinstance(result, RankedSignal)
+    assert result.signal_id == "abc123"
+    assert result.plugin == "trad_TrendFollowing"
+    assert result.direction == 1
+    assert result.raw_confidence == pytest.approx(0.80)
+    assert result.calibrated_confidence == pytest.approx(0.72)
+    assert result.regime_eligible is True
+    assert result.quality_score == pytest.approx(0.90)
+    assert result.tod_multiplier == pytest.approx(1.1)
+    assert result.adjusted_rank == pytest.approx(3.0)
+    assert result.is_winner is False
+
+
+def test_to_ranked_signal_is_winner_true_when_matching_winner():
+    """_to_ranked_signal sets is_winner=True when signal matches winner plugin+direction."""
+    from services.signal_generator_service import SignalGeneratorService
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+
+    sig = {
+        "signal_id": "abc123",
+        "setup_plugin": "trad_TrendFollowing",
+        "direction": 1,
+        "confidence": 0.75,
+        "_raw_confidence": 0.80,
+        "calibrated_confidence": 0.75,
+        "regime_eligible": True,
+        "quality_score": 1.0,
+        "tod_multiplier": 1.0,
+        "adjusted_rank": 1.0,
+    }
+    winner = {"setup_plugin": "trad_TrendFollowing", "direction": 1}
+
+    result = svc._to_ranked_signal(sig, winner=winner)
+    assert result.is_winner is True
+
+
+@pytest.mark.asyncio
+async def test_backward_compat_i7_published():
+    """_process_event publishes scorecard to intelligence.i7 topic (backward compat)."""
+    from src.intelligence.schemas import (
+        I1Indicators,
+        I2Events,
+        I3Structure,
+        I4Context,
+        I5Patterns,
+        I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
+    )
+
+    ts = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
+    event = IntelligenceEvent(
+        ts=ts,
+        symbol="ES",
+        tf="5m",
+        bar=OHLCVBar(o=5100.0, h=5110.0, l=5095.0, c=5105.0, v=10000),
+        i1=I1Indicators(rsi_14=55.0, atr_14=10.0),
+        i2=I2Events(),
+        i3=I3Structure(),
+        i4=I4Context(),
+        i5=I5Patterns(),
+        smc=SMCContext(),
+        i6=I6Confluence(),
+    )
+
+    mock_producer = MagicMock()
+    publish_calls = []
+
+    async def _mock_publish(topic, payload, key=None):
+        publish_calls.append(topic)
+
+    mock_producer.publish = _mock_publish
+
+    svc = _make_svc_for_pipeline({"_kafka_producer": mock_producer})
+    raw_signals = [_make_minimal_signal()]
+
+    await svc._process_event(
+        event=event,
+        symbol="ES",
+        timeframe="5m",
+        timestamp=ts,
+        bar_close_ts=None,
+        source="live",
+        raw_signals=raw_signals,
+        regime_data=None,
+        drift_penalty=1.0,
+        features={},
+    )
+
+    i7_topics = [t for t in publish_calls if "intelligence.i7" in t]
+    assert len(i7_topics) >= 1, (
+        f"Expected publish to intelligence.i7 topic for backward compat, got: {publish_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_signals_aggregated_published_on_winner():
+    """When a winner is selected, signals.aggregated is published.
+    When no winner (empty signals), signals.aggregated is NOT published.
+    """
+
+    from src.intelligence.schemas import (
+        I1Indicators,
+        I2Events,
+        I3Structure,
+        I4Context,
+        I5Patterns,
+        I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
+    )
+
+    ts = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
+    event = IntelligenceEvent(
+        ts=ts,
+        symbol="ES",
+        tf="5m",
+        bar=OHLCVBar(o=5100.0, h=5110.0, l=5095.0, c=5105.0, v=10000),
+        i1=I1Indicators(rsi_14=55.0, atr_14=10.0),
+        i2=I2Events(),
+        i3=I3Structure(),
+        i4=I4Context(),
+        i5=I5Patterns(),
+        smc=SMCContext(),
+        i6=I6Confluence(),
+    )
+
+    # Test WITH winner: high-confidence signal that passes all gates
+    mock_producer = MagicMock()
+    publish_topics_with_winner = []
+
+    async def _mock_publish_with(topic, payload, key=None):
+        publish_topics_with_winner.append(topic)
+
+    mock_producer.publish = _mock_publish_with
+
+    svc = _make_svc_for_pipeline({"_kafka_producer": mock_producer})
+    raw_signals = [_make_minimal_signal(confidence=0.85)]
+
+    await svc._process_event(
+        event=event,
+        symbol="ES",
+        timeframe="5m",
+        timestamp=ts,
+        bar_close_ts=None,
+        source="live",
+        raw_signals=raw_signals,
+        regime_data=None,
+        drift_penalty=1.0,
+        features={},
+    )
+
+    aggregated_published = any("signals.aggregated" in t for t in publish_topics_with_winner)
+    assert aggregated_published, (
+        "signals.aggregated must be published when a winner is selected; "
+        f"published topics: {publish_topics_with_winner}"
+    )
+
+    # Test WITHOUT signals: empty raw_signals → no winner → no signals.aggregated publish
+    mock_producer2 = MagicMock()
+    publish_topics_no_winner = []
+
+    async def _mock_publish_no(topic, payload, key=None):
+        publish_topics_no_winner.append(topic)
+
+    mock_producer2.publish = _mock_publish_no
+
+    svc2 = _make_svc_for_pipeline({"_kafka_producer": mock_producer2})
+
+    await svc2._process_event(
+        event=event,
+        symbol="ES",
+        timeframe="5m",
+        timestamp=ts,
+        bar_close_ts=None,
+        source="live",
+        raw_signals=[],  # no signals → no winner
+        regime_data=None,
+        drift_penalty=1.0,
+        features={},
+    )
+
+    aggregated_no_winner = any("signals.aggregated" in t for t in publish_topics_no_winner)
+    assert not aggregated_no_winner, (
+        "signals.aggregated must NOT be published when no signals fire; "
+        f"published topics: {publish_topics_no_winner}"
+    )
