@@ -13,8 +13,7 @@ Interface decisions (D-08, D-09, D-10, D-11):
 - migrate_symbol: contract-roll support — atomic rename of all (old_symbol, tf) keys
   to (new_symbol, tf) without dropping any buffered bars
 
-Implementation: Wave 1 (44.1-02). This file is a class shell — all methods raise
-NotImplementedError. Tests are in tests/unit/core/test_bar_history.py.
+Implementation: Wave 1 (44.1-02).
 """
 
 from __future__ import annotations
@@ -24,6 +23,8 @@ from collections import deque
 import pandas as pd
 
 from src.core.schemas.bar_message import BarMessage
+
+_STANDARD_TFS = ("1m", "5m", "15m", "1h")
 
 
 class BarHistory:
@@ -44,7 +45,10 @@ class BarHistory:
         Creates the deque if it does not yet exist. If the deque is at maxlen,
         the oldest bar is automatically evicted.
         """
-        raise NotImplementedError
+        key = f"{bar.symbol}:{bar.tf}"
+        if key not in self._data:
+            self._data[key] = deque(maxlen=self._maxlen)
+        self._data[key].append(bar)
 
     def get(self, symbol: str, tf: str) -> deque[BarMessage]:
         """Return the deque for (symbol, tf).
@@ -52,7 +56,7 @@ class BarHistory:
         Returns an empty deque if no bars have been appended for this key.
         Callers must not mutate the returned deque directly.
         """
-        raise NotImplementedError
+        return self._data.get(f"{symbol}:{tf}", deque())
 
     def to_dataframe(self, symbol: str, tf: str) -> pd.DataFrame:
         """Return a DataFrame of bars for (symbol, tf), ordered oldest-first.
@@ -60,14 +64,29 @@ class BarHistory:
         Columns: timestamp, open, high, low, close, volume
         Returns an empty DataFrame (correct columns, 0 rows) for unknown keys.
         """
-        raise NotImplementedError
+        bars = self._data.get(f"{symbol}:{tf}")
+        columns = ["timestamp", "open", "high", "low", "close", "volume"]
+        if not bars:
+            return pd.DataFrame(columns=columns)
+        rows = [
+            {
+                "timestamp": bar.ts,
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume,
+            }
+            for bar in bars
+        ]
+        return pd.DataFrame(rows, columns=columns)
 
     def is_warm(self, symbol: str, tf: str, min_bars: int) -> bool:
         """Return True when the deque for (symbol, tf) has at least min_bars entries.
 
         Used by pipeline services as a warmup gate before plugin execution.
         """
-        raise NotImplementedError
+        return len(self.get(symbol, tf)) >= min_bars
 
     def seed(self, symbol: str, tf: str, bars: list[BarMessage]) -> None:
         """Populate the deque for (symbol, tf) from a DB-loaded list.
@@ -76,7 +95,8 @@ class BarHistory:
         only the most recent maxlen bars are kept (maxlen is honored).
         Existing deque contents are replaced on seed.
         """
-        raise NotImplementedError
+        key = f"{symbol}:{tf}"
+        self._data[key] = deque(bars[-self._maxlen:], maxlen=self._maxlen)
 
     def migrate_symbol(self, old_symbol: str, new_symbol: str) -> None:
         """Atomically rename all (old_symbol, tf) keys to (new_symbol, tf).
@@ -85,4 +105,8 @@ class BarHistory:
         to the new front-month contract without dropping any bars.
         If old_symbol has no data, this method is a no-op (does not error).
         """
-        raise NotImplementedError
+        for tf in _STANDARD_TFS:
+            old_key = f"{old_symbol}:{tf}"
+            new_key = f"{new_symbol}:{tf}"
+            if old_key in self._data:
+                self._data[new_key] = self._data.pop(old_key)

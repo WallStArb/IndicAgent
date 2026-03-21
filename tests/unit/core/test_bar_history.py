@@ -72,7 +72,6 @@ def _make_bars_sequence(
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_append_and_get():
     """append a BarMessage, get returns deque with that bar."""
     from src.core.bar_history import BarHistory
@@ -85,7 +84,6 @@ def test_append_and_get():
     assert result[0] is bar
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_maxlen_eviction():
     """append maxlen+1 bars, oldest evicted."""
     from src.core.bar_history import BarHistory
@@ -100,7 +98,6 @@ def test_maxlen_eviction():
     assert bars[0] not in result
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_to_dataframe():
     """to_dataframe returns DataFrame with columns [timestamp, open, high, low, close, volume]."""
     import pandas as pd
@@ -118,7 +115,6 @@ def test_to_dataframe():
     assert len(df) == 3
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_to_dataframe_empty():
     """to_dataframe returns empty DataFrame for unknown (symbol, tf)."""
     import pandas as pd
@@ -131,7 +127,6 @@ def test_to_dataframe_empty():
     assert len(df) == 0
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_is_warm_true():
     """is_warm returns True when len >= min_bars."""
     from src.core.bar_history import BarHistory
@@ -144,7 +139,6 @@ def test_is_warm_true():
     assert bh.is_warm("ES", "1m", min_bars=3) is True
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_is_warm_false():
     """is_warm returns False when len < min_bars."""
     from src.core.bar_history import BarHistory
@@ -157,7 +151,6 @@ def test_is_warm_false():
     assert bh.is_warm("ZZ", "1m", min_bars=1) is False  # unknown key
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_seed():
     """seed with 250 bars, only last 200 kept (maxlen honored)."""
     from src.core.bar_history import BarHistory
@@ -171,7 +164,6 @@ def test_seed():
     assert result[-1] is bars[-1]  # last bar is the most recent
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_seed_chronological_order():
     """seed bars are in ts ascending order after seed (oldest first)."""
     from src.core.bar_history import BarHistory
@@ -184,7 +176,6 @@ def test_seed_chronological_order():
     assert timestamps == sorted(timestamps)
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_migrate_symbol():
     """bars move from old to new key for all TFs."""
     from datetime import timedelta
@@ -218,7 +209,6 @@ def test_migrate_symbol():
     assert len(bh.get("ESM6", "5m")) == 1
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_migrate_symbol_no_data():
     """migrate on unknown symbol does not error."""
     from src.core.bar_history import BarHistory
