@@ -159,6 +159,8 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [ ] **Phase 43: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
 - [x] **Phase 44: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils, BaseI7Plugin mixin (OHLCV extraction, _no_signal, compute_next), direction→signal_type helper, confidence system contract [0.10, 0.95]; validate_tier() enforcement; cross_timeframe.py → 3 focused modules; composites/common.py → utils/common.py (tier-agnostic); OFI type fixes + make_signal() factory + validate_signal() enforcement (~458 LOC duplication eliminated, zero signal behavior change) (completed 2026-03-21)
 - [ ] **Phase 44.1: Feature Pipeline Renaissance Refactor** — replace indicator_service + market_analysis_service + timeframes_builder_service with unified FeaturePipelineService; shared BarHistory + BarAccumulator modules; typed BarMessage schema; in-pipeline HTF derivation (no DB queries in hot path); 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99; SignalGeneratorService simplified (remove DB seed, wire BarHistory to IntelligenceEvent stream)
+- [ ] **Phase 44.2: SignalGeneratorService Consolidation** — absorb 6 pipeline stage microservices (quality_gate, regime_gate, tod_adjuster, calibrator, ranker, winner_selector) into in-process pure functions; `src/intelligence/pipeline/` module dir; bounded async audit queue; publish BarIntelligenceRecord to `development.intelligence.record`; 8 Kafka execution hops → 2; retire 6 systemd units
+- [ ] **Phase 44.3: Atomic Persistence + OHLCV Unification** — FeatureWriterService consumes `intelligence.record` only; single atomic INSERT per bar (no UPSERTs, no partial rows); DB migration for 10 new `intelligence_features` columns; i8 UPSERT migrated to LLMWriterService; FeaturePipelineService as sole live writer to `market_data_ohlcv`; 18 services → 9 pipeline complete
 - [ ] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family; wire exhaustion_utils (guard/boost) to all applicable I7 plugins (32/36 currently unwired — Renaissance violation); both ship in single shadow mode window (logs old vs new confidence, no live score change); prerequisite for Phase 46 amplification
 - [ ] **Phase 46: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
 - [ ] **Phase 47: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
@@ -600,7 +602,7 @@ Plans:
 **Goal**: The intelligence observation pipeline (I1–I6) runs inside a single service (FeaturePipelineService), reducing hot-path Kafka hops from 3 to 1, eliminating 3 diverging bar history implementations, fixing stale HTF context at I6, and delivering typed BarMessage/IntelligenceEvent schemas. pipeline_latency_ms < 50ms at p99.
 **Depends on**: Phase 44 (I7 utility modules in place; signal_generator already uses make_signal() factory)
 **Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04
-**Spec**: `docs/superpowers/specs/2026-03-21-feature-pipeline-renaissance-design.md`
+**Spec**: `docs/superpowers/specs/2026-03-21-renaissance-pipeline-refactor-design.md`
 
 **Services replaced:**
 - `indicagent-indicator` (indicator_service.py) → removed
@@ -633,6 +635,71 @@ Plans:
 - [ ] 44.1-03-PLAN.md — Build FeaturePipelineService + systemd unit + service tests (PIPE-01, PIPE-03)
 - [ ] 44.1-04-PLAN.md — Simplify SignalGeneratorService + live cutover (PIPE-01, PIPE-04)
 - [ ] 44.1-05-PLAN.md — Post-cutover cleanup: retire old units + topic + regression (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
+
+### Phase 44.2: SignalGeneratorService Consolidation
+**Goal**: The 6 pipeline stage microservices built in Phase 40 (quality_gate, regime_gate, tod_adjuster, calibrator, ranker, winner_selector) are absorbed into SignalGeneratorService as in-process pure functions. 8 Kafka execution hops become 2. Observability preserved via bounded async audit queue. SignalGeneratorService publishes `BarIntelligenceRecord` to `development.intelligence.record`.
+**Depends on**: Phase 44.1 (BarHistory shared module, BarMessage typed schema, IntelligenceEvent schema extended with session_type + pipeline_latency_ms)
+**Requirements**: PIPE-05, PIPE-06, PIPE-07
+**Spec**: `docs/superpowers/specs/2026-03-21-renaissance-pipeline-refactor-design.md`
+
+**Services retired:**
+- `indicagent-quality-gate` (quality_gate_service.py) → removed
+- `indicagent-regime-gate` (regime_gate_service.py) → removed
+- `indicagent-tod-adjuster` (tod_adjuster_service.py) → removed
+- `indicagent-calibrator` (calibrator_service.py) → removed
+- `indicagent-ranker` (ranker_service.py) → removed
+- `indicagent-winner-selector` (winner_selector_service.py) → removed
+
+**Modules added:**
+- `src/intelligence/pipeline/` directory (rename from `src/intelligence/stages/`)
+- `apply_quality_gate()`, `apply_regime_gate()`, `apply_tod_adjustment()`, `apply_calibration()`, `rank_signals()`, `select_winner()` — pure functions, no Kafka, no DB
+
+**Topics added:**
+- `development.intelligence.record` — BarIntelligenceRecord, consumed by FeatureWriterService
+
+**Success Criteria** (what must be TRUE):
+  1. `src/intelligence/pipeline/` exists with 6 pure-function modules; `src/intelligence/stages/` deleted
+  2. `signal_generator_service.py` calls all 6 pure functions in-process per bar — no Kafka round-trips for pipeline stages
+  3. `development.intelligence.record` published with `BarIntelligenceRecord` including `ranked_signals`, `ledger_written`, `pipeline_latency_ms`, `session_type`, `days_to_expiry`
+  4. Bounded audit queue: `signal_generator_audit_queue_drops_total = 0` under normal load; `signal_generator_ledger_write_failures_total = 0` under normal operation
+  5. All 6 retired systemd units absent from `systemctl list-units`
+  6. `development.intelligence.i7` still published (backward compat for dashboard SSE)
+  7. `development.signals.aggregated` still published (for SignalLifecycleService)
+  8. All existing signal_generator unit tests pass; new unit tests for each pipeline pure function
+  9. Prometheus metrics: `signal_generator_pipeline_stage_input_total{stage}` and `signal_generator_pipeline_stage_output_total{stage}` visible
+**Plans**: 4 plans
+
+Plans:
+- [ ] 44.2-01-PLAN.md — Pipeline pure functions: extract logic from stage services into `src/intelligence/pipeline/` modules + unit tests (PIPE-05)
+- [ ] 44.2-02-PLAN.md — Wire pipeline functions into SignalGeneratorService + audit queue + BarIntelligenceRecord publish (PIPE-06)
+- [ ] 44.2-03-PLAN.md — Retire 6 stage services + systemd units + live cutover (PIPE-06)
+- [ ] 44.2-04-PLAN.md — Integration test: E2E bar → BarIntelligenceRecord validation + metrics check (PIPE-07)
+
+### Phase 44.3: Atomic Persistence + OHLCV Unification
+**Goal**: FeatureWriterService consumes `development.intelligence.record` only and performs a single atomic INSERT per bar — no UPSERTs, no partial rows, no race conditions. i8 persistence migrated from FeatureWriterService to LLMWriterService. FeaturePipelineService becomes the sole live writer to `market_data_ohlcv`, creating a single OHLCV ground truth. All `intelligence_features` rows complete at insert time.
+**Depends on**: Phase 44.2 (BarIntelligenceRecord flowing on `development.intelligence.record`)
+**Requirements**: PIPE-08, PIPE-09, PIPE-10
+**Spec**: `docs/superpowers/specs/2026-03-21-renaissance-pipeline-refactor-design.md`
+
+**DB migration (in scope):**
+- `production/migrations/NNN_intelligence_features_record_columns.sql`
+- Adds: `winner_plugin`, `winner_confidence`, `winner_direction`, `signals_evaluated`, `signals_after_quality`, `signals_after_regime`, `signals_after_tod`, `signals_after_calibration`, `ledger_written`, `i7_computed_at`
+
+**Success Criteria** (what must be TRUE):
+  1. `intelligence_features` rows arrive with `i7` not null at insert time — query confirms zero rows with `i7 IS NULL AND computed_at > now() - interval '1 hour'`
+  2. `ledger_written` column populated on all new rows — `TRUE` for winners, `FALSE` on ledger write failure
+  3. `market_data_ohlcv` receiving live 1m bars from FeaturePipelineService — `SELECT count(*) FROM market_data_ohlcv WHERE timestamp > now() - interval '5 minutes'` returns > 0 during market hours
+  4. FeatureWriterService consumes only `development.intelligence.record` — no subscriptions to `development.intelligence` or `development.intelligence.i7`
+  5. LLMWriterService UPSERTs `intelligence_features.i8` — confirmed by checking a recent `llm_calls` row maps to a populated `intelligence_features.i8` JSONB column
+  6. All `_process_i7_message()`, `_process_i8_message()`, `_flush_i7_i8()` code removed from FeatureWriterService — grep confirms absence
+  7. DB migration applied and verified: `SELECT column_name FROM information_schema.columns WHERE table_name = 'intelligence_features'` includes all 10 new columns
+  8. All FeatureWriterService unit tests pass against simplified single-buffer logic
+**Plans**: 3 plans
+
+Plans:
+- [ ] 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification: single-buffer atomic INSERT (PIPE-08, PIPE-09)
+- [ ] 44.3-02-PLAN.md — LLMWriterService i8 UPSERT wiring: subscribe intelligence.i8, buffer, UPDATE intelligence_features (PIPE-09)
+- [ ] 44.3-03-PLAN.md — FeaturePipelineService live OHLCV writes + post-cutover regression (PIPE-08, PIPE-10)
 
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
 **Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation.
