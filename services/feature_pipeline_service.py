@@ -16,7 +16,7 @@ Key design decisions:
 - smc_trend_direction renamed before features merge (I3 trend_direction preserved)
 - _prev_i1_features injected before I1, stored after I1 (I2 crossover works bar 2+)
 - Roll events migrate BarHistory and adjust price-sensitive I1 plugin state
-- gap_preceding=True set when previous bar ts is stale for (symbol, tf) per D-20
+- gap_preceding=True set when previous bar ts is stale for (symbol, tf)
 """
 
 from __future__ import annotations
@@ -95,8 +95,8 @@ from src.observability.metrics import (
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-# TF string → seconds per bar (for gap detection per D-20)
-_TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+# Canonical timeframe ordering for I1-I6 pipeline.
+_STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
 
 # I1 plugins that track absolute price levels — adjusted by roll_gap on roll.
 PRICE_SENSITIVE_PLUGINS: frozenset[str] = frozenset(
@@ -160,7 +160,7 @@ class FeaturePipelineService:
         self._settings = Settings()
         self._contracts = get_active_contracts(self._settings)
         self._symbols = [c.symbol for c in self._contracts]
-        self._timeframes = ["1m", "5m", "15m", "1h"]
+        self._timeframes = list(_STANDARD_TFS)
 
         # Plugin registry
         register_all_plugins()
@@ -187,20 +187,20 @@ class FeaturePipelineService:
 
         # Per-(plugin, symbol, timeframe) state namespace — prevents cross-symbol state bleed
         self._plugin_states: dict[tuple[str, str, str], dict] = {}
-        # Per-key threading.Lock for asyncio.to_thread CPU-bound plugins (D-37)
+        # Per-key threading.Lock for asyncio.to_thread CPU-bound plugins
         self._plugin_states_locks: dict[tuple[str, str, str], threading.Lock] = {}
         self._plugin_call_counts: dict[tuple[str, str], int] = defaultdict(int)
 
         # Previous I1 features per "{symbol}:{tf}" — enables I2 crossover detection on bar 2+
         self._prev_i1_features: dict[str, dict[str, Any]] = {}
 
-        # Concurrency bound per D-34
+        # Concurrency bound per
         self._sem = asyncio.Semaphore(min(32, (os.cpu_count() or 4) * 2))
 
-        # Last published IntelligenceEvent per "{symbol}:{tf}" — for startup re-publish (D-31)
+        # Last published IntelligenceEvent per "{symbol}:{tf}" — for startup re-publish
         self._last_events: dict[str, IntelligenceEvent] = {}
 
-        # Last bar timestamp per "{symbol}:{tf}" — for gap detection (D-20)
+        # Last bar timestamp per "{symbol}:{tf}" — for gap detection
         self._last_bar_ts: dict[str, float] = {}
 
         # BarHistory — typed deque store (replaces raw dict[str, deque])
@@ -221,7 +221,7 @@ class FeaturePipelineService:
         self._consumer: KafkaConsumerClient | None = None
         self._tick_consumer: KafkaConsumerClient | None = None
 
-        # Metrics (D-50) — use metrics.py to prevent duplicate registration
+        # Metrics — use metrics.py to prevent duplicate registration
         self._pipeline_latency_histogram = gauge(
             "feature_pipeline_latency_ms",
             "Last per-bar pipeline latency in milliseconds",
@@ -257,11 +257,11 @@ class FeaturePipelineService:
     # ---------------------------------------------------------------------------
 
     async def _seed_bar_history(self) -> None:
-        """Seed BarHistory from intelligence_features using a single ROW_NUMBER window query (D-27).
+        """Seed BarHistory from intelligence_features using a single ROW_NUMBER window query.
 
         Primary: intelligence_features (preferred — includes I1-I6 context).
-        Fallback (D-28): market_data_ohlcv for (symbol, tf) pairs with insufficient rows.
-        After seeding, re-publishes last known IntelligenceEvent per (symbol, tf) (D-31).
+        Fallback: market_data_ohlcv for (symbol, tf) pairs with insufficient rows.
+        After seeding, re-publishes last known IntelligenceEvent per (symbol, tf).
         """
         if not self._db:
             self.logger.warning("DB seed skipped — no db")
@@ -270,7 +270,7 @@ class FeaturePipelineService:
         symbols = self._symbols
         timeframes = self._timeframes
 
-        # Single ROW_NUMBER() window query covering all active symbols (D-27)
+        # Single ROW_NUMBER() window query covering all active symbols
         try:
             rows = await self._db.execute_query(
                 """
@@ -342,14 +342,14 @@ class FeaturePipelineService:
                 self._bar_history.seed(symbol, tf, bars)
                 seeded_pairs.add((symbol, tf))
 
-            # Re-publish last known IntelligenceEvent (D-31)
+            # Re-publish last known IntelligenceEvent
             if latest_row is not None:
                 try:
                     await self._republish_seed_event(symbol, tf, latest_row)
                 except Exception as e:
                     self.logger.warning("Seed republish failed", symbol=symbol, tf=tf, error=str(e))
 
-        # Fallback: for pairs below min_bars, seed from market_data_ohlcv (D-28)
+        # Fallback: for pairs below min_bars, seed from market_data_ohlcv
         fallback_bars = 0
         sem = asyncio.Semaphore(8)
 
@@ -478,7 +478,7 @@ class FeaturePipelineService:
     # ---------------------------------------------------------------------------
 
     async def _on_bars(self, messages: list[BarMessage]) -> None:
-        """Process a batch of incoming 1m bar messages concurrently (D-34)."""
+        """Process a batch of incoming 1m bar messages concurrently."""
         async def _bounded(bar: BarMessage) -> None:
             async with self._sem:
                 await self._process_bar(bar)
@@ -489,11 +489,11 @@ class FeaturePipelineService:
         """Core per-bar processing: gap detection → BarHistory → BarAccumulator → pipeline."""
         t0 = time.perf_counter()
 
-        # 1. Gap detection (D-20): check if previous bar ts is stale
+        # 1. Gap detection: check if previous bar ts is stale
         key = f"{bar.symbol}:{bar.tf}"
         prev_ts = self._last_bar_ts.get(key)
         if prev_ts is not None:
-            tf_seconds = _TF_SECONDS.get(bar.tf, 60)
+            tf_seconds = TF_SECONDS.get(bar.tf, 60)
             # tolerance: 1.5x expected interval handles minor delays
             if (bar.ts.timestamp() - prev_ts) > tf_seconds * 1.5:
                 bar = bar.model_copy(update={"gap_preceding": True})
@@ -525,7 +525,7 @@ class FeaturePipelineService:
                 self._pipeline_errors.inc()
 
     async def _publish_htf_bar(self, bar: BarMessage) -> None:
-        """Publish completed HTF bar to development.market.bars.htf topic (D-06/D-16)."""
+        """Publish completed HTF bar to development.market.bars.htf topic."""
         topic = topic_market_bars_htf(self._settings.env_name)
         payload = bar.model_dump_json()
         await self._producer.publish(
@@ -549,7 +549,7 @@ class FeaturePipelineService:
         frames: dict[str, Any] = {"main": main_df}
 
         # Inject cross-timeframe bar history and cached intelligence
-        tf_hierarchy = ["1m", "5m", "15m", "1h"]
+        tf_hierarchy = _STANDARD_TFS
         for other_tf in tf_hierarchy:
             if other_tf == tf:
                 continue
@@ -566,13 +566,13 @@ class FeaturePipelineService:
             frames["__instrument__"] = instrument
 
         # === I1: Technical indicators ===
-        # Inject previous bar's I1 features for I2 crossover detection (D-39)
+        # Inject previous bar's I1 features for I2 crossover detection
         frames["prev_features"] = self._prev_i1_features.get(key, {})
 
         i1_result = await self._run_i1(frames, symbol, tf)
         frames["features"] = dict(i1_result)
 
-        # Store I1 features for next bar's prev_features injection (D-39)
+        # Store I1 features for next bar's prev_features injection
         self._prev_i1_features[key] = dict(i1_result)
 
         # === I2-I6: Analysis pipeline ===
@@ -797,7 +797,7 @@ class FeaturePipelineService:
         )
 
     # ---------------------------------------------------------------------------
-    # Roll event handling (D-40 through D-42)
+    # Roll event handling
     # ---------------------------------------------------------------------------
 
     async def _handle_roll_event(self, event: dict) -> None:
@@ -815,12 +815,12 @@ class FeaturePipelineService:
         old_symbol, new_symbol = result
         roll_gap: float = float(event.get("roll_gap", 0.0))
 
-        # Migrate BarHistory (D-40)
+        # Migrate BarHistory
         self._bar_history.migrate_symbol(old_symbol, new_symbol)
 
-        # Migrate plugin states (D-41/D-42) — same as indicator_service pattern
+        # Migrate plugin states — same as indicator_service pattern
         total_migrated = 0
-        for tf in ["1m", "5m", "15m", "1h"]:
+        for tf in _STANDARD_TFS:
             old_plugin_keys = [
                 k for k in self._plugin_states
                 if k[1] == old_symbol and k[2] == tf
@@ -829,7 +829,6 @@ class FeaturePipelineService:
                 continue
 
             migrated_count = 0
-            keys_to_delete: list[tuple[str, str, str]] = []
             for key in old_plugin_keys:
                 plugin_name = key[0]
                 old_state = self._plugin_states[key]
@@ -839,12 +838,9 @@ class FeaturePipelineService:
                 else:
                     new_state = old_state.copy() if isinstance(old_state, dict) else old_state
                 self._plugin_states[new_key] = new_state
-                keys_to_delete.append(key)
-                migrated_count += 1
-
-            for key in keys_to_delete:
                 del self._plugin_states[key]
                 self._plugin_states_locks.pop(key, None)
+                migrated_count += 1
 
             total_migrated += migrated_count
             self.logger.info(
@@ -856,7 +852,7 @@ class FeaturePipelineService:
             )
 
         # Migrate prev_i1_features cache
-        for tf in ["1m", "5m", "15m", "1h"]:
+        for tf in _STANDARD_TFS:
             old_key = f"{old_symbol}:{tf}"
             new_key = f"{new_symbol}:{tf}"
             if old_key in self._prev_i1_features:
@@ -912,7 +908,7 @@ class FeaturePipelineService:
             if self.shutdown_requested:
                 break
             try:
-                # Route system.events to roll handler (D-32)
+                # Route system.events to roll handler
                 if topic == _sys_events_topic:
                     await self._handle_roll_event(payload)
                     continue
@@ -1000,22 +996,22 @@ class FeaturePipelineService:
         try:
             start_metrics_server(port=9125)
 
-            # 1. DB connect before bar consumption (D-26)
+            # 1. DB connect before bar consumption
             if self._db:
                 await self._db.initialize()
 
             # 2. Start Kafka producer before warmup — warmup publishes seeded intelligence
             await self._producer.start()
 
-            # 3. Seed BarHistory from intelligence_features (D-27/D-28)
+            # 3. Seed BarHistory from intelligence_features
             await self._seed_bar_history()
 
-            # 4. Build topics list — always subscribe to system.events (D-32)
+            # 4. Build topics list — always subscribe to system.events
             env = self._settings.env_name
             topics: list[str] = [topic_market_bars(env)]
             topics.append(topic_system_events(env))
 
-            # 5. Start Kafka consumer subscribed to market.bars + system.events (D-33)
+            # 5. Start Kafka consumer subscribed to market.bars + system.events
             self._consumer = KafkaConsumerClient(
                 *topics,
                 bootstrap_servers=self._settings.kafka_bootstrap_servers,
