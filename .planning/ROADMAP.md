@@ -612,8 +612,8 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification: single-buffer atomic INSERT (PIPE-08, PIPE-09)
-- [ ] 44.3-02-PLAN.md — LLMWriterService i8 UPSERT wiring: subscribe intelligence.i8, buffer, UPDATE intelligence_features (PIPE-09)
+- [x] 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification: single-buffer atomic INSERT (PIPE-08, PIPE-09)
+- [x] 44.3-02-PLAN.md — LLMWriterService i8 UPSERT wiring: subscribe intelligence.i8, buffer, UPDATE intelligence_features (PIPE-09)
 - [ ] 44.3-03-PLAN.md — FeaturePipelineService live OHLCV writes + post-cutover regression (PIPE-08, PIPE-10)
 - [ ] 44.3-04-PLAN.md — SSE broadcaster rewire: intelligence.record → dashboard signal_scorecard + retire intelligence.i7 topic (PIPE-08)
 

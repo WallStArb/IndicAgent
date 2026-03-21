@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
 status: unknown
-stopped_at: Completed 44.2-04-PLAN.md — E2E integration test for bar to BarIntelligenceRecord pipeline
-last_updated: "2026-03-21T21:06:24.413Z"
+stopped_at: Completed 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification
+last_updated: "2026-03-21T23:34:37.756Z"
 progress:
   total_phases: 15
   completed_phases: 8
   total_plans: 42
-  completed_plans: 38
+  completed_plans: 40
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 44.2 — signalgeneratorservice-consolidation
+**Current focus:** Phase 44.3 — atomic-persistence-ohlcv-unification
 
 ## Current Position
 
-Phase: 44.3
-Plan: Not started
+Phase: 44.3 (atomic-persistence-ohlcv-unification) — EXECUTING
+Plan: 2 of 4
 
 ## Performance Metrics
 
@@ -173,7 +173,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-21T20:54:29.388Z
-Stopped at: Completed 44.2-04-PLAN.md — E2E integration test for bar to BarIntelligenceRecord pipeline
+Last session: 2026-03-21T23:34:37.753Z
+Stopped at: Completed 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification
 Resume file: None
 Next action: Run `/gsd:discuss-phase 44` to plan Phase 44 (I7 DAG Refactor)
