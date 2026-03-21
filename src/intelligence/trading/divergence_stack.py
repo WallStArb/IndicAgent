@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 # ---------------------------------------------------------------------------
 # Tunable weight configuration -- module-level for hot-reload without deploy
@@ -52,7 +56,9 @@ class DivergenceStackPlugin:
             "confidence",
             "supporting_factors",
             "entry_price",
+            "stop_loss",
             "targets",
+            "regime_context",
             "ttl_bars",
             # Always-logged scoring fields
             "div_weighted_score",
@@ -86,7 +92,7 @@ class DivergenceStackPlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < 20:
-            return {}
+            return no_signal()
 
         symbol = frames.get("symbol", "_")
         timeframe = frames.get("timeframe", "_")
@@ -172,13 +178,23 @@ class DivergenceStackPlugin:
 
             if bull_weight >= bear_weight:
                 direction = 1
-                direction_str = "long"
             else:
                 direction = -1
-                direction_str = "short"
+
+            atr = get_atr(features)
+            if atr is None:
+                return {**base_output, "signal_type": "none", "direction": 0, "confidence": 0.0, "supporting_factors": []}
+
+            entry = float(df["close"].iloc[-1])
+            signal_type = signal_type_for_direction("divergence", direction)
+            tf = frame_trade(signal_type, direction, entry, features, atr)
+            if not tf.viable:
+                return {**base_output, "signal_type": "none", "direction": 0, "confidence": 0.0, "supporting_factors": []}
+            stop = tf.stop
+            targets = [round(t.price, 2) for t in tf.targets]
 
             # Confidence proportional to weighted_score
-            confidence = round(min(1.0, weighted_score / 0.60), 4)
+            confidence = compose_confidence(weighted_score / 0.60)
 
             supporting = [
                 name
@@ -187,16 +203,16 @@ class DivergenceStackPlugin:
             ]
             supporting_factors = [f"div_{name}" for name in supporting]
 
-            entry = float(df["close"].iloc[-1])
-
             return {
                 **base_output,
-                "signal_type": f"divergence_{direction_str}",
+                "signal_type": signal_type,
                 "direction": direction,
                 "confidence": confidence,
                 "supporting_factors": supporting_factors,
                 "entry_price": round(entry, 2),
-                "targets": [],
+                "stop_loss": round(stop, 2),
+                "targets": targets,
+                "regime_context": "any",
                 "ttl_bars": 10,
             }
 
