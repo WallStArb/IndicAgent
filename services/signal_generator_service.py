@@ -49,19 +49,32 @@ from src.core.service_utils import (
 )
 from src.core.stream_keys import (
     message_key,
+    topic_calibrated,
     topic_cross_asset,
     topic_intelligence,
+    topic_intelligence_i7,
+    topic_intelligence_record,
     topic_market_ticks,
     topic_quality_gated,
+    topic_ranked,
+    topic_regime_gated,
     topic_signals,
     topic_signals_aggregated,
     topic_system_events,
-    topic_winner,
+    topic_tod_adjusted,
 )
 from src.intelligence.cross_asset_features import resolve_eq_index_base
+from src.intelligence.pipeline import (
+    apply_calibration,
+    apply_quality_gate,
+    apply_regime_gate,
+    apply_tod_adjustment,
+    rank_signals,
+    select_winner,
+)
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
-from src.intelligence.schemas import IntelligenceEvent
+from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent, RankedSignal
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_ledger import (
     LedgerEntry,
@@ -87,6 +100,26 @@ SIGNAL_VALIDATION_FAILURES = _PrometheusCounter(
     "signal_validation_failures_total",
     "Signal validation failures before aggregation",
     ["plugin"],
+)
+
+# In-process pipeline stage counters (PIPE-06).
+_PIPELINE_STAGE_INPUT = _PrometheusCounter(
+    "signal_generator_pipeline_stage_input_total",
+    "Signals entering each pipeline stage",
+    ["stage"],
+)
+_PIPELINE_STAGE_OUTPUT = _PrometheusCounter(
+    "signal_generator_pipeline_stage_output_total",
+    "Signals exiting each pipeline stage",
+    ["stage"],
+)
+_LEDGER_WRITE_FAILURES = _PrometheusCounter(
+    "signal_generator_ledger_write_failures_total",
+    "Signal ledger write failures",
+)
+_AUDIT_DROPS = _PrometheusCounter(
+    "signal_generator_audit_queue_drops_total",
+    "Audit queue overflow drops",
 )
 
 # Minimum bars between published signals per timeframe. Prevents condition
@@ -410,9 +443,6 @@ class SignalGeneratorService:
         self.db_manager: DatabaseManager | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
-        # DAG pipeline: producer publishes I7 signals to QualityGate stage entry point.
-        # Winner consumer receives selected signals from WinnerSelector stage for DB writes.
-        self._dag_winner_consumer: KafkaConsumerClient | None = None
 
         settings = Settings()
         self.env_name = settings.env_name or ""
@@ -463,6 +493,11 @@ class SignalGeneratorService:
         self._calibration_curves: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}   # (plugin_name, tf) -> (breakpoints, values)
         self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
         self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
+
+        # Phase 44.2: Bounded audit queue for async stage snapshot publishing.
+        # put_nowait() is called on hot path; drain happens in background task.
+        # maxsize=1000 bounds memory; overflow tracked by _AUDIT_DROPS counter.
+        self._audit_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
         # Phase 037: Cross-asset intelligence cache (keyed by tf)
         self._cross_asset_enabled: bool = getattr(settings, "cross_asset_enabled", False)
@@ -762,20 +797,6 @@ class SignalGeneratorService:
         await self._kafka_producer.start()
         self.logger.info("Kafka producer started")
 
-        # DAG pipeline: winner consumer — receives selected signals from WinnerSelector stage.
-        # Separate consumer group so it doesn't interfere with the main intelligence consumer.
-        self._dag_winner_consumer = KafkaConsumerClient(
-            topic_winner(self.env_name),
-            bootstrap_servers=self._kafka_bootstrap,
-            group_id="signal_generator_winner_group",
-            auto_offset_reset="latest",
-        )
-        await self._dag_winner_consumer.start()
-        self.logger.info(
-            "DAG winner consumer started",
-            topic=topic_winner(self.env_name),
-        )
-
     async def stop(self) -> None:
         self.logger.info("Stopping Signal Generator Service")
         self.running = False
@@ -785,8 +806,6 @@ class SignalGeneratorService:
             await self._kafka_consumer.stop()
         if self._kafka_producer:
             await self._kafka_producer.stop()
-        if self._dag_winner_consumer:
-            await self._dag_winner_consumer.stop()
         if self.db_manager:
             await self.db_manager.close()
         self.logger.info("Signal Generator Service stopped")
@@ -984,7 +1003,6 @@ class SignalGeneratorService:
             key = (symbol, timeframe, plugin, direction)
             _apply_alpha_decay(sig, timeframe, self._setup_last_fire.get(key))
 
-        trend_regime = float(features.get("trend_regime", 0.0))
         # Look up authority TF regime data for slow-clock gating (SIGINT-04).
         authority_tf = _REGIME_AUTHORITY_TF.get(timeframe, timeframe)
         regime_data = self._regime_cache.get(symbol, {}).get(authority_tf)
@@ -992,54 +1010,21 @@ class SignalGeneratorService:
         # QUAL-09: Read KS drift penalty from in-process dict for this symbol/TF.
         drift_penalty = await self._read_drift_penalty(symbol, timeframe)
 
-        # DAG pipeline: publish each signal to quality_gated topic (QualityGate stage entry).
-        # The 6-stage DAG (QualityGate→RegimeGate→TODAdjuster→Calibrator→Ranker→WinnerSelector)
-        # processes signals and emits the winner back on the winner topic.
-        # _consume_winner_signals() receives winners and handles DB writes + downstream publish.
-        if raw_signals and self._kafka_producer:
-            _dag_meta = {
-                "trend_regime": trend_regime,
-                "regime_data": regime_data,
-                "perf_weights": self._perf_weights,
-                "drift_penalty": drift_penalty,
-                "timeframe": timeframe,
-                "symbol": symbol,
-                "timestamp": timestamp.isoformat(),
-                "bar_close_ts": bar_close_ts.isoformat() if bar_close_ts else None,
-                "source": source,
-                # Include features subset for DAG context
-                "hmm_regime": features.get("hmm_regime"),
-                "hmm_regime_prob": features.get("hmm_regime_prob"),
-                "hmm_regime_duration": features.get("hmm_regime_duration"),
-            }
-            _quality_gated_topic = topic_quality_gated(self.env_name)
-            for sig in raw_signals:
-                dag_msg = {**sig, **_dag_meta}
-                # Ensure direction and numeric fields are serializable
-                dag_msg["direction"] = int(sig.get("direction", 0))
-                dag_msg["confidence"] = float(sig.get("confidence", 0.0))
-                try:
-                    await self._kafka_producer.publish(
-                        _quality_gated_topic,
-                        dag_msg,
-                        key=message_key(symbol, timeframe),
-                    )
-                except Exception as _dag_err:
-                    self.logger.warning(
-                        "DAG publish failed",
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        setup_plugin=sig.get("setup_plugin"),
-                        error=str(_dag_err),
-                    )
-            self.logger.debug(
-                "dag_signals_published",
-                symbol=symbol,
-                timeframe=timeframe,
-                signal_count=len(raw_signals),
-            )
+        # In-process pipeline: call all 6 pure functions, write ledger, publish record.
+        await self._process_event(
+            event=frames.get("_event"),  # event reference injected via frames by caller
+            symbol=symbol,
+            timeframe=timeframe,
+            timestamp=timestamp,
+            bar_close_ts=bar_close_ts,
+            source=source,
+            raw_signals=raw_signals,
+            regime_data=regime_data,
+            drift_penalty=drift_penalty,
+            features=features,
+        )
 
-        # Emit bar-to-signal latency metric even for DAG path
+        # Emit bar-to-signal latency metric
         signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
         if source == "live" and bar_close_ts is not None and signal_computed_at is not None:
             BAR_TO_SIGNAL_LATENCY.labels(symbol=symbol, tf=timeframe).observe(
@@ -1052,7 +1037,7 @@ class SignalGeneratorService:
         self._total_bars += 1
 
         self.logger.debug(
-            "Bar processed (DAG path)",
+            "Bar processed (in-process pipeline)",
             symbol=symbol,
             timeframe=timeframe,
             signals_fired=len(raw_signals),
@@ -1060,227 +1045,377 @@ class SignalGeneratorService:
         )
 
 
-    async def _consume_winner_signals(self) -> None:
-        """Consume winner signals from DAG pipeline and write to DB + publish downstream.
+    async def _drain_audit_queue(self) -> None:
+        """Background task: drain audit payloads to Kafka pipeline.* topics.
 
-        Runs as a parallel async task alongside _process_loop(). Receives signals from
-        WinnerSelector stage (pipeline.winner topic), creates LedgerEntry, writes to
-        signal_ledger, and publishes to signals.aggregated for signal_lifecycle_service.
-
-        Uses SignalStatus.PENDING (enum) not the raw string "pending" — CHECK constraint safe.
+        Runs alongside _process_loop(). Hot path uses put_nowait() which never
+        blocks; this drain task handles the actual I/O off the critical path.
         """
-        if not self._dag_winner_consumer:
-            return
-        try:
-            async for _topic, _key, payload in self._dag_winner_consumer.messages():
-                if self.shutdown_requested:
-                    break
-                try:
-                    # WinnerSelector stage produces: {selected_signal, all_ranked,
-                    # resolution_method, symbol, timeframe, timestamp, ...}
-                    selected_signal = payload.get("selected_signal")
-                    if not selected_signal:
-                        # No winner this bar (no signals fired or all suppressed)
-                        continue
+        while not self.shutdown_requested:
+            try:
+                payload = await asyncio.wait_for(self._audit_queue.get(), timeout=1.0)
+                if self._kafka_producer:
+                    await self._kafka_producer.publish(payload["topic"], payload["data"])
+            except TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("audit_drain_error", error=str(e))
 
-                    symbol = str(payload.get("symbol", ""))
-                    timeframe = str(payload.get("timeframe", ""))
-                    if not symbol or not timeframe:
-                        self.logger.warning(
-                            "winner_missing_symbol_tf", payload_keys=list(payload.keys())
-                        )
-                        continue
+    async def _queue_stage_audits(self, payloads: list[dict]) -> None:
+        """Non-blocking enqueue of stage audit snapshots.
 
-                    # Parse timestamp
-                    ts_raw = payload.get("timestamp", "")
-                    try:
-                        timestamp = datetime.fromisoformat(str(ts_raw))
-                    except (ValueError, TypeError):
-                        timestamp = datetime.now(tz=UTC)
+        Drops payloads silently when queue is full (overflow tracked by _AUDIT_DROPS).
+        Called on the hot path — must never block.
+        """
+        for p in payloads:
+            try:
+                self._audit_queue.put_nowait(p)
+            except asyncio.QueueFull:
+                _AUDIT_DROPS.inc()
 
-                    signal_computed_at = datetime.now(tz=UTC)
+    def _to_ranked_signal(self, sig: dict, winner: dict | None) -> RankedSignal:
+        """Map a signal dict (post-pipeline) to a RankedSignal Pydantic model.
 
-                    # Build message for signals + signals.aggregated topics
-                    sig = selected_signal
-                    message: dict = {
-                        k: str(v)
-                        for k, v in sig.items()
-                        if isinstance(v, (str, int, float, bool))
-                    }
-                    targets = sig.get("targets") or []
-                    target_labels = sig.get("target_labels") or []
-                    if targets:
-                        message["profit_target"] = str(float(targets[0]))
-                        if len(targets) > 1:
-                            message["profit_target_2"] = str(float(targets[1]))
-                        if len(targets) > 2:
-                            message["profit_target_3"] = str(float(targets[2]))
-                    message["target_labels"] = json.dumps(target_labels)
-                    message["target_types"] = json.dumps(sig.get("target_types") or [])
-                    # RR fields
-                    entry_p = float(sig.get("entry_price", 0))
-                    stop_p = float(sig.get("stop_loss", 0))
-                    risk = abs(entry_p - stop_p)
-                    if risk > 0 and targets:
-                        message["risk_reward_ratio"] = str(
-                            round(abs(float(targets[0]) - entry_p) / risk, 2)
-                        )
-                    message["timestamp"] = timestamp.isoformat()
-                    message["symbol"] = symbol
-                    message["timeframe"] = timeframe
-                    message["signal_computed_at"] = signal_computed_at.isoformat()
-                    # Generate once; reuse in message and LedgerEntry to avoid ID mismatch
-                    _winner_signal_id = str(sig.get("signal_id", "") or uuid4())
-                    message["signal_id"] = _winner_signal_id
-                    message["was_selected"] = "1"
-                    # Propagate cis_score if present from WinnerSelector stage
-                    if payload.get("cis_score") is not None:
-                        message["cis_score"] = str(payload["cis_score"])
-                    msg_key = message_key(symbol, timeframe)
+        raw_confidence is read from the "_raw_confidence" key captured before the
+        pipeline ran. is_winner is set when the signal matches the winner by plugin+direction.
+        """
+        winner_plugin = winner.get("setup_plugin") if winner else None
+        winner_dir = winner.get("direction") if winner else None
+        is_winner = (
+            winner is not None
+            and sig.get("setup_plugin") == winner_plugin
+            and sig.get("direction") == winner_dir
+        )
+        return RankedSignal(
+            signal_id=sig.get("signal_id", ""),
+            plugin=sig.get("setup_plugin", "unknown"),
+            direction=int(sig.get("direction", 0)),
+            raw_confidence=float(sig.get("_raw_confidence", sig.get("confidence", 0.0))),
+            calibrated_confidence=float(
+                sig.get("calibrated_confidence", sig.get("confidence", 0.0))
+            ),
+            regime_eligible=bool(sig.get("regime_eligible", True)),
+            quality_score=float(sig.get("quality_score", 1.0)),
+            tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
+            adjusted_rank=float(sig.get("adjusted_rank", 999.0)),
+            is_winner=is_winner,
+        )
 
-                    # Build LedgerEntry from winner signal for DB write
-                    # Uses SignalStatus enum — respects Phase 39 CHECK constraints
-                    direction = int(sig.get("direction", 0))
-                    all_ranked = payload.get("all_ranked", [selected_signal])
-                    entries: list[LedgerEntry] = []
-                    for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
-                        _ranked_id = str(ranked_sig.get("signal_id") or "")
-                        _is_winner = _ranked_id == _winner_signal_id or (
-                            not _ranked_id
-                            and ranked_sig.get("setup_plugin") == sig.get("setup_plugin")
-                            and ranked_sig.get("regime_eligible", True)
-                        )
-                        _status = (
-                            SignalStatus.PENDING
-                            if ranked_sig.get("regime_eligible", True)
-                            else SignalStatus.REGIME_SUPPRESSED
-                        )
-                        _direction = int(ranked_sig.get("direction", 0))
-                        entries.append(
-                            LedgerEntry(
-                                signal_id=_ranked_id or str(uuid4()),
-                                timestamp=timestamp,
-                                symbol=symbol,
-                                timeframe=timeframe,
-                                setup_plugin=str(ranked_sig.get("setup_plugin", "unknown")),
-                                signal_type=str(ranked_sig.get("signal_type", "unknown")),
-                                direction=_direction,
-                                entry_price=float(ranked_sig.get("entry_price", 0.0)),
-                                stop_loss=float(ranked_sig.get("stop_loss", 0.0)),
-                                targets=[
-                                    float(t) for t in (ranked_sig.get("targets") or [])
-                                ],
-                                confidence=float(ranked_sig.get("confidence", 0.0)),
-                                confluence_score=float(
-                                    ranked_sig.get("confluence_score", 0.0)
-                                ),
-                                regime_context=str(ranked_sig.get("regime_context", "")),
-                                supporting_factors=list(
-                                    ranked_sig.get("supporting_factors", [])
-                                ),
-                                was_selected=_is_winner,
-                                num_signals_bar=len(all_ranked),
-                                num_agreeing=int(payload.get("num_agreeing", 0)),
-                                num_conflicting=int(payload.get("num_conflicting", 0)),
-                                resolution_method=str(
-                                    payload.get("resolution_method", "dag_winner")
-                                ),
-                                composite_rank=rank_idx,
-                                status=_status,
-                                feature_ts=timestamp,
-                                feature_tf=timeframe,
-                                signal_computed_at=signal_computed_at,
-                            )
-                        )
+    async def _process_event(
+        self,
+        event: Any,
+        symbol: str,
+        timeframe: str,
+        timestamp: datetime,
+        bar_close_ts: datetime | None,
+        source: str,
+        raw_signals: list[dict],
+        regime_data: dict | None,
+        drift_penalty: float,
+        features: dict,
+    ) -> None:
+        """In-process pipeline: apply all 6 stages, write ledger, publish record.
 
-                    # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
-                    for entry in entries:
-                        plugin_instance = registry.patterns.get(entry.setup_plugin)
-                        if plugin_instance is not None and getattr(
-                            plugin_instance, "IS_SHADOW", False
-                        ):
-                            entry.is_shadow = True
+        Replaces the 8-hop Kafka DAG dispatch from the old architecture.
+        Hot path: 6 synchronous function calls + async DB write + async publishes.
+        Audit snapshots are queued non-blocking for background drain.
 
-                    # Gate check: suppress re-fires and direction flips
-                    _winner_direction = direction
-                    if self._check_gate(symbol, timeframe, _winner_direction, timestamp):
-                        self.logger.debug(
-                            "winner_signal_gated",
+        Gate logic (_check_gate/_update_gate) runs here in-process before ledger write.
+        _check_gate() runs before ledger write; _update_gate() runs after.
+        """
+        pipeline_start = time.monotonic()
+
+        # Capture raw_confidence before pipeline modifies confidence
+        for sig in raw_signals:
+            sig["_raw_confidence"] = float(sig.get("confidence", 0.0))
+
+        # Build quality gate thresholds from I4 context + drift penalty
+        if event is not None:
+            _hurst_q = float(event.i4.hurst_trend_quality or 1.0)
+            _entropy_q = float(event.i4.entropy_quality or 1.0)
+        else:
+            _hurst_q = 1.0
+            _entropy_q = 1.0
+        thresholds = {
+            "hurst_quality": _hurst_q,
+            "entropy_quality": _entropy_q,
+            "drift_penalty": drift_penalty,
+        }
+
+        # Stage 1: Quality gate
+        _PIPELINE_STAGE_INPUT.labels(stage="quality_gate").inc(len(raw_signals))
+        quality_gated = apply_quality_gate(raw_signals, thresholds)
+        _PIPELINE_STAGE_OUTPUT.labels(stage="quality_gate").inc(len(quality_gated))
+
+        # Stage 2: Regime gate
+        _PIPELINE_STAGE_INPUT.labels(stage="regime_gate").inc(len(quality_gated))
+        regime_gated = apply_regime_gate(quality_gated, regime_data)
+        regime_eligible_count = len([s for s in regime_gated if s.get("regime_eligible", True)])
+        _PIPELINE_STAGE_OUTPUT.labels(stage="regime_gate").inc(regime_eligible_count)
+
+        # Stage 3: TOD adjustment
+        bar_hour_et = timestamp.astimezone(_ET).hour
+        _PIPELINE_STAGE_INPUT.labels(stage="tod_adjuster").inc(len(regime_gated))
+        tod_adjusted = apply_tod_adjustment(
+            regime_gated, self._tod_multipliers, timeframe, bar_hour_et
+        )
+        _PIPELINE_STAGE_OUTPUT.labels(stage="tod_adjuster").inc(len(tod_adjusted))
+
+        # Stage 4: Calibration
+        _PIPELINE_STAGE_INPUT.labels(stage="calibrator").inc(len(tod_adjusted))
+        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, timeframe)
+        _PIPELINE_STAGE_OUTPUT.labels(stage="calibrator").inc(len(calibrated))
+
+        # Stage 5: Ranking
+        _PIPELINE_STAGE_INPUT.labels(stage="ranker").inc(len(calibrated))
+        ranked = rank_signals(calibrated, self._perf_weights, timeframe)
+        _PIPELINE_STAGE_OUTPUT.labels(stage="ranker").inc(len(ranked))
+
+        # Stage 6: Winner selection
+        _PIPELINE_STAGE_INPUT.labels(stage="winner_selector").inc(len(ranked))
+        winner, all_ranked, resolution_method = select_winner(
+            ranked, self._cis_scorer, features
+        )
+        _PIPELINE_STAGE_OUTPUT.labels(stage="winner_selector").inc(1 if winner else 0)
+
+        # Queue stage audit snapshots to pipeline.* topics (non-blocking)
+        _audit_ts = timestamp.isoformat()
+        _audit_meta = {"symbol": symbol, "timeframe": timeframe, "ts": _audit_ts}
+        await self._queue_stage_audits([
+            {"topic": topic_quality_gated(self.env_name),
+             "data": {"signals": quality_gated, **_audit_meta}},
+            {"topic": topic_regime_gated(self.env_name),
+             "data": {"signals": regime_gated, **_audit_meta}},
+            {"topic": topic_tod_adjusted(self.env_name),
+             "data": {"signals": tod_adjusted, **_audit_meta}},
+            {"topic": topic_calibrated(self.env_name),
+             "data": {"signals": calibrated, **_audit_meta}},
+            {"topic": topic_ranked(self.env_name),
+             "data": {"signals": ranked, **_audit_meta}},
+        ])
+
+        # Gate check + ledger write (was in the old DAG winner consumer loop)
+        ledger_written = False
+        signal_computed_at = datetime.now(tz=UTC)
+        _winner_signal_id: str = ""
+
+        if winner:
+            _winner_direction = int(winner.get("direction", 0))
+            if self._check_gate(symbol, timeframe, _winner_direction, timestamp):
+                # Gate suppresses (cooldown or direction flip) — publish record but no DB
+                self.logger.debug(
+                    "winner_signal_gated",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    direction=_winner_direction,
+                )
+                winner = None
+            else:
+                # Build LedgerEntry list from all_ranked (same pattern as old DAG path)
+                _winner_signal_id = str(winner.get("signal_id", "") or uuid4())
+                # Set signal_id on winner dict so it matches the ledger entry
+                winner["signal_id"] = _winner_signal_id
+                entries: list[LedgerEntry] = []
+                for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
+                    _ranked_id = str(ranked_sig.get("signal_id") or "")
+                    _is_winner_entry = _ranked_id == _winner_signal_id or (
+                        not _ranked_id
+                        and ranked_sig.get("setup_plugin") == winner.get("setup_plugin")
+                        and ranked_sig.get("regime_eligible", True)
+                    )
+                    _status = (
+                        SignalStatus.PENDING
+                        if ranked_sig.get("regime_eligible", True)
+                        else SignalStatus.REGIME_SUPPRESSED
+                    )
+                    _ranked_dir = int(ranked_sig.get("direction", 0))
+                    entries.append(
+                        LedgerEntry(
+                            signal_id=_ranked_id or str(uuid4()),
+                            timestamp=timestamp,
                             symbol=symbol,
                             timeframe=timeframe,
-                            direction=_winner_direction,
+                            setup_plugin=str(ranked_sig.get("setup_plugin", "unknown")),
+                            signal_type=str(ranked_sig.get("signal_type", "unknown")),
+                            direction=_ranked_dir,
+                            entry_price=float(ranked_sig.get("entry_price", 0.0)),
+                            stop_loss=float(ranked_sig.get("stop_loss", 0.0)),
+                            targets=[
+                                float(t) for t in (ranked_sig.get("targets") or [])
+                            ],
+                            confidence=float(ranked_sig.get("confidence", 0.0)),
+                            confluence_score=float(
+                                ranked_sig.get("confluence_score", 0.0)
+                            ),
+                            regime_context=str(ranked_sig.get("regime_context", "")),
+                            supporting_factors=list(
+                                ranked_sig.get("supporting_factors", [])
+                            ),
+                            was_selected=_is_winner_entry,
+                            num_signals_bar=len(all_ranked),
+                            num_agreeing=0,
+                            num_conflicting=0,
+                            resolution_method=str(resolution_method or "in_process"),
+                            composite_rank=rank_idx,
+                            status=_status,
+                            feature_ts=timestamp,
+                            feature_tf=timeframe,
+                            signal_computed_at=signal_computed_at,
                         )
-                        continue
-
-                    # STREAM PUBLISH FIRST (hot tier)
-                    published_signal = False
-                    if self._kafka_producer:
-                        try:
-                            await self._kafka_producer.publish(
-                                topic_signals(self.env_name), message, key=msg_key
-                            )
-                            await self._kafka_producer.publish(
-                                topic_signals_aggregated(self.env_name), message, key=msg_key
-                            )
-                            published_signal = True
-                        except Exception as _pub_err:
-                            self.logger.warning(
-                                "winner_kafka_publish_failed",
-                                symbol=symbol,
-                                timeframe=timeframe,
-                                error=str(_pub_err),
-                            )
-
-                    if published_signal:
-                        self._update_gate(
-                            symbol, timeframe, _winner_direction, timestamp,
-                            message["signal_id"]
-                        )
-                        _pub_plugin = sig.get("setup_plugin", "")
-                        if _pub_plugin:
-                            _decay_key = (symbol, timeframe, _pub_plugin, _winner_direction)
-                            self._setup_last_fire[_decay_key] = {"bars_since": 0}
-
-                    # DB INSERT (cold tier) — atomic signal_ledger + signal_features write
-                    if entries and self.db_manager:
-                        try:
-                            # Pass empty features dict — winner carries its own data
-                            await insert_signals_with_features(
-                                self.db_manager.pool, entries, {}
-                            )
-                            selected_count = sum(1 for e in entries if e.was_selected)
-                            self.signals_generated_total.inc(len(entries))
-                            self.signals_selected_total.inc(selected_count)
-                            self._total_signals += len(entries)
-                        except Exception as _db_err:
-                            self.logger.error(
-                                "winner_db_write_failed",
-                                symbol=symbol,
-                                timeframe=timeframe,
-                                error=str(_db_err),
-                            )
-
-                    self.logger.debug(
-                        "winner_signal_processed",
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        setup_plugin=sig.get("setup_plugin"),
-                        published=published_signal,
-                        entries_count=len(entries),
                     )
 
-                except asyncio.CancelledError:
-                    break
-                except Exception as _e:
-                    self.logger.exception(
-                        "winner_consumer_message_error", error=str(_e)
+                # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
+                for entry in entries:
+                    plugin_instance = registry.patterns.get(entry.setup_plugin)
+                    if plugin_instance is not None and getattr(
+                        plugin_instance, "IS_SHADOW", False
+                    ):
+                        entry.is_shadow = True
+
+                # Publish winner to signals + signals.aggregated (backward compat)
+                sig = winner
+                msg_key = message_key(symbol, timeframe)
+                message: dict = {
+                    k: str(v)
+                    for k, v in sig.items()
+                    if isinstance(v, (str, int, float, bool))
+                }
+                targets = sig.get("targets") or []
+                target_labels = sig.get("target_labels") or []
+                if targets:
+                    message["profit_target"] = str(float(targets[0]))
+                    if len(targets) > 1:
+                        message["profit_target_2"] = str(float(targets[1]))
+                    if len(targets) > 2:
+                        message["profit_target_3"] = str(float(targets[2]))
+                message["target_labels"] = json.dumps(target_labels)
+                message["target_types"] = json.dumps(sig.get("target_types") or [])
+                entry_p = float(sig.get("entry_price", 0))
+                stop_p = float(sig.get("stop_loss", 0))
+                risk = abs(entry_p - stop_p)
+                if risk > 0 and targets:
+                    message["risk_reward_ratio"] = str(
+                        round(abs(float(targets[0]) - entry_p) / risk, 2)
                     )
-        except asyncio.CancelledError:
-            pass
-        except Exception as _outer_err:
-            self.logger.warning(
-                "winner_consumer_loop_failed", error=str(_outer_err)
-            )
+                message["timestamp"] = timestamp.isoformat()
+                message["symbol"] = symbol
+                message["timeframe"] = timeframe
+                message["signal_computed_at"] = signal_computed_at.isoformat()
+                message["signal_id"] = _winner_signal_id
+                message["was_selected"] = "1"
+
+                published_signal = False
+                if self._kafka_producer:
+                    try:
+                        await self._kafka_producer.publish(
+                            topic_signals(self.env_name), message, key=msg_key
+                        )
+                        await self._kafka_producer.publish(
+                            topic_signals_aggregated(self.env_name), message, key=msg_key
+                        )
+                        published_signal = True
+                    except Exception as _pub_err:
+                        self.logger.warning(
+                            "winner_kafka_publish_failed",
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            error=str(_pub_err),
+                        )
+
+                if published_signal:
+                    self._update_gate(
+                        symbol, timeframe, _winner_direction, timestamp, _winner_signal_id
+                    )
+                    _pub_plugin = sig.get("setup_plugin", "")
+                    if _pub_plugin:
+                        _decay_key = (symbol, timeframe, _pub_plugin, _winner_direction)
+                        self._setup_last_fire[_decay_key] = {"bars_since": 0}
+
+                # DB INSERT (cold tier)
+                if entries and self.db_manager:
+                    try:
+                        await insert_signals_with_features(
+                            self.db_manager.pool, entries, {}
+                        )
+                        selected_count = sum(1 for e in entries if e.was_selected)
+                        self.signals_generated_total.inc(len(entries))
+                        self.signals_selected_total.inc(selected_count)
+                        self._total_signals += len(entries)
+                        ledger_written = True
+                    except Exception as _db_err:
+                        self.logger.error(
+                            "signal_ledger_write_failed",
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            error=str(_db_err),
+                        )
+                        _LEDGER_WRITE_FAILURES.inc()
+
+        # Build and publish BarIntelligenceRecord to intelligence.record
+        pipeline_latency_ms = (time.monotonic() - pipeline_start) * 1000
+        ranked_signal_models = [self._to_ranked_signal(s, winner) for s in all_ranked]
+
+        # Backward-compat: publish I7 scorecard to intelligence.i7
+        if all_ranked and self._kafka_producer:
+            try:
+                scorecard_payload = {
+                    "ts": timestamp.isoformat(),
+                    "symbol": symbol,
+                    "tf": timeframe,
+                    "data": json.dumps(
+                        [
+                            {
+                                "plugin": s.plugin,
+                                "direction": s.direction,
+                                "calibrated_confidence": s.calibrated_confidence,
+                                "adjusted_rank": s.adjusted_rank,
+                                "is_winner": s.is_winner,
+                            }
+                            for s in ranked_signal_models
+                        ]
+                    ),
+                }
+                await self._kafka_producer.publish(
+                    topic_intelligence_i7(self.env_name),
+                    scorecard_payload,
+                    key=message_key(symbol, timeframe),
+                )
+            except Exception as _i7_err:
+                self.logger.warning("i7_scorecard_publish_failed", error=str(_i7_err))
+
+        if event is not None and self._kafka_producer:
+            try:
+                record = BarIntelligenceRecord(
+                    intelligence=event,
+                    ranked_signals=ranked_signal_models,
+                    winner_plugin=winner.get("setup_plugin") if winner else None,
+                    winner_confidence=(
+                        winner.get("calibrated_confidence") or winner.get("confidence")
+                        if winner else None
+                    ),
+                    winner_direction=int(winner.get("direction", 0)) if winner else None,
+                    signals_evaluated=len(raw_signals),
+                    signals_after_quality=len(quality_gated),
+                    signals_after_regime=regime_eligible_count,
+                    signals_after_tod=len(tod_adjusted),
+                    signals_after_calibration=len(calibrated),
+                    ledger_written=ledger_written,
+                    session_type=str(getattr(event, "session_type", "rth")),
+                    days_to_expiry=None,
+                    i7_computed_at=signal_computed_at,
+                    pipeline_latency_ms=pipeline_latency_ms,
+                )
+                await self._kafka_producer.publish(
+                    topic_intelligence_record(self.env_name),
+                    record.model_dump_json(),
+                    key=message_key(symbol, timeframe),
+                )
+            except Exception as _rec_err:
+                self.logger.warning(
+                    "intelligence_record_publish_failed", error=str(_rec_err)
+                )
 
     async def _process_single_message(
         self,
@@ -1343,6 +1478,7 @@ class SignalGeneratorService:
                 "main": self._get_df(symbol, timeframe),
                 "features": features,
                 "timeframe": timeframe,  # Phase 041: enables TF guard in VWAP/session plugins
+                "_event": event,  # Phase 44.2: passed to _process_event for BarIntelligenceRecord
             }
 
             # Phase 037: Inject cross-asset frames for EQ_INDEX symbols when enabled
@@ -1715,8 +1851,8 @@ class SignalGeneratorService:
                 asyncio.create_task(self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)),
                 asyncio.create_task(self._run_refresh_loop("calibration_curves", 1800, self._load_calibration_curves_from_db)),
                 asyncio.create_task(self._run_refresh_loop("tod_multipliers", 14400, self._load_tod_multipliers_from_db)),
-                # DAG pipeline: consume winners from WinnerSelector stage for DB writes
-                asyncio.create_task(self._consume_winner_signals()),
+                # Phase 44.2: Audit queue drain — publishes stage snapshots off hot path
+                asyncio.create_task(self._drain_audit_queue()),
             ]
             self.logger.info("Signal Generator Service started")
             await asyncio.gather(*tasks, return_exceptions=True)
