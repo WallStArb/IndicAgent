@@ -506,61 +506,16 @@ Plans:
 - [x] 39.1-06-PLAN.md — Topic namespace cleanup: audit dev.* references, fix any hardcoded strings, delete orphaned dev.* topics (INFRA-01) [wave 1]
 
 ### Phase 40: DAG Refactor (Clean Foundation)
+**COMPLETED 2026-03-19**
 **Goal**: Refactor the monolithic signal pipeline into a clean DAG of independent microservices — 6 stages (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector) communicate via Redpanda streams, each with circuit breakers and basic attribution tracking.
-**Depends on**: Phase 39 (clean data and indexes in place before architectural refactor)
-**Requirements**: None (architectural refactor)
-**Success Criteria** (what must be TRUE):
-  1. Pipeline is clean DAG of 6 independent stages (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector)
-  2. Each stage is separate microservice with systemd unit
-  3. Stages communicate via Redpanda streams only (no direct coupling)
-  4. Each stage has single responsibility (quality gating, regime filtering, TOD adjustment, calibration, ranking, winner selection)
-  5. Fault tolerance: bypass on stage failure with circuit breaker
-  6. Data quality: validation at each stage drops invalid signals
-  7. < 10ms latency per stage
-  8. Monolithic aggregator removed from signal_generator_service.py
-  9. All stages emit basic attribution to side channel (before, after, value_added, reason)
+**Note**: The 6 DAG microservices built here are absorbed back in-process in Phase 44.2 — the DAG stage boundaries were proven and then consolidated for latency. Attribution preserved via async audit queue.
 **Plans**: 4 plans
 
 Plans:
-- [ ] 40-01-PLAN.md — DAG infrastructure: Stage base class, CircuitBreaker, DataQualityMonitor [wave 1]
-- [ ] 40-02-PLAN.md — 6 stage implementations: QualityGate, RegimeGate, TODAdjuster, Calibrator, Ranker, WinnerSelector [wave 2]
-- [ ] 40-03-PLAN.md — Redpanda topics + systemd services: 8 topics (7-day retention), 6 services (:9119-:9124) [wave 2]
-- [ ] 40-04-PLAN.md — Integration: refactor signal_generator_service, E2E test, verify fault tolerance [wave 3]
-
-**Renaissance Principles (LOCKED):**
-1. **Instrument everything** — Every decision, transformation, attribution tracked
-2. **Let the system run** — Fully automated feedback loops, no manual reviews
-3. **Earn the right** — Statistical proof (p < 0.05) before any change
-4. **Segment relentlessly** — Regime/context-specific analysis, never global
-5. **Degrade gracefully** — Fault tolerance with circuit breakers and bypass modes
-6. **Data quality over model complexity** — Validate at each stage, drop invalid signals
-7. **Never drop data** — Full retention of all intermediate outputs (7-day topic retention)
-
-**Out of scope (deferred to Phase 50):**
-- Performance Attribution Service (aggregates attribution into DB)
-- A/B Test Framework (continuous experimentation)
-- Causal Inference Engine (prove causality vs correlation)
-- Counterfactual Analysis (track missed opportunities)
-- LLM Gate Optimizer (automated config tuning)
-- Dashboard DAG Visualization
-
-### Phase 43: Performance & Stability Emergency
-**Goal**: Eliminate the two production bottlenecks causing active pain (OHLCV 4-5s query timeouts, feature_writer 920ms lag) and harden the runtime before Phase 41 cross-timeframe work adds more load.
-**Depends on**: Phase 40 (DAG refactor in place; aggregator eliminated before these optimizations land)
-**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06
-**Success Criteria** (what must be TRUE):
-  1. `market_data_ohlcv` chunk count drops from 15,721 to ~365 (time-only partitioning, no space partitioning) — `SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = 'market_data_ohlcv'` returns ≤ 400.
-  2. Feature writer p99 ingestion lag < 50ms — achievable by consolidating 3 sequential `xreadgroup` calls into a single batch poll matching the pattern in `market_analysis_service`.
-  3. Plugin pipeline CPU work is dispatched to a thread pool via `asyncio.to_thread()` — event loop is unblocked during minute-boundary bursts; a threading.Lock guards shared plugin state.
-  4. Signal lifecycle service active-signal lookup is O(1) via index dict `{(symbol, tf): [sids]}` — shadow loop and chandelier are indexed the same way; chandelier state is written to DB only when the stop price changes by ≥ 0.01%.
-  5. Calibration curves pre-converted to numpy arrays at cache load time (not per-bar in `_build_all_ranked()`).
-  6. All 5 service refresh loops (perf weights, drift penalties, calibration, etc.) use a shared `_run_refresh_loop(name, interval_s, fn)` coroutine — behavioral divergence between loops eliminated.
-**Plans**: 3 plans
-
-Plans:
-- [ ] 40.5-01-PLAN.md — OHLCV hypertable rebuild: time-only partitioning, 7-day intervals (PERF-01)
-- [ ] 40.5-02-PLAN.md — Plugin thread pool + calibration ndarray pre-alloc + refresh loop helper (PERF-03, PERF-05, PERF-06)
-- [ ] 40.5-03-PLAN.md — Feature writer i7/i8 batch buffering + lifecycle O(1) index + chandelier write guard + stale signal cleanup (PERF-02, PERF-04)
+- [x] 40-01-PLAN.md — DAG infrastructure: Stage base class, CircuitBreaker, DataQualityMonitor [wave 1]
+- [x] 40-02-PLAN.md — 6 stage implementations: QualityGate, RegimeGate, TODAdjuster, Calibrator, Ranker, WinnerSelector [wave 2]
+- [x] 40-03-PLAN.md — Redpanda topics + systemd services: 8 topics (7-day retention), 6 services (:9119-:9124) [wave 2]
+- [x] 40-04-PLAN.md — Integration: refactor signal_generator_service, E2E test, verify fault tolerance [wave 3]
 
 ### Phase 44: I7 DAG Refactor
 **Goal**: The I7 trading layer has clean DAG structure — ~458 LOC of duplication extracted into shared utility functions (plugin_utils, atr_utils, confidence_utils), Protocol enforcement tightened, I6 cross_timeframe.py decomposed into 3 focused modules, signal construction standardized via make_signal() factory with validate_signal() enforcement, composites/common.py promoted to tier-agnostic utils/common.py, and all 8 microstructure plugin type contracts fixed. Zero signal behavior change — pure structural refactor, all existing tests pass unchanged.
@@ -633,7 +588,7 @@ Plans:
 - [x] 44.1-02-PLAN.md — Implement BarHistory + BarAccumulator (TDD) (PIPE-02, PIPE-03)
 - [x] 44.1-03-PLAN.md — Build FeaturePipelineService + systemd unit + service tests (PIPE-01, PIPE-03)
 - [x] 44.1-04-PLAN.md — Simplify SignalGeneratorService + live cutover (PIPE-01, PIPE-04)
-- [ ] 44.1-05-PLAN.md — Post-cutover cleanup: retire old units + topic + regression (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
+- [x] 44.1-05-PLAN.md — Post-cutover cleanup: retire old units + topic + regression (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
 
 ### Phase 44.2: SignalGeneratorService Consolidation
 **Goal**: The 6 pipeline stage microservices built in Phase 40 (quality_gate, regime_gate, tod_adjuster, calibrator, ranker, winner_selector) are absorbed into SignalGeneratorService as in-process pure functions. 8 Kafka execution hops become 2. Observability preserved via bounded async audit queue. SignalGeneratorService publishes `BarIntelligenceRecord` to `development.intelligence.record`.
@@ -693,21 +648,22 @@ Plans:
   6. All `_process_i7_message()`, `_process_i8_message()`, `_flush_i7_i8()` code removed from FeatureWriterService — grep confirms absence
   7. DB migration applied and verified: `SELECT column_name FROM information_schema.columns WHERE table_name = 'intelligence_features'` includes all 10 new columns
   8. All FeatureWriterService unit tests pass against simplified single-buffer logic
-**Plans**: 3 plans
+**Plans**: 4 plans
 
 Plans:
 - [ ] 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification: single-buffer atomic INSERT (PIPE-08, PIPE-09)
 - [ ] 44.3-02-PLAN.md — LLMWriterService i8 UPSERT wiring: subscribe intelligence.i8, buffer, UPDATE intelligence_features (PIPE-09)
 - [ ] 44.3-03-PLAN.md — FeaturePipelineService live OHLCV writes + post-cutover regression (PIPE-08, PIPE-10)
+- [ ] 44.3-04-PLAN.md — SSE broadcaster rewire: intelligence.record → dashboard signal_scorecard + retire intelligence.i7 topic (PIPE-08)
 
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
-**Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation.
-**Depends on**: Phase 44 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract, make_signal() factory wired)
-**Requirements**: CONF-01, CONF-02, CONF-03
+**Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation. Also fixes the two remaining infrastructure pain points: OHLCV chunk fragmentation and lifecycle O(N) scan.
+**Depends on**: Phase 44 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract, make_signal() factory wired), Phase 44.3 (FeaturePipelineService is sole OHLCV writer before rebuild)
+**Requirements**: CONF-01, CONF-02, CONF-03, PERF-01, PERF-04
 
 **Exhaustion wiring by setup family (applicability map built during planning):**
 - `apply_exhaustion_guard` (-0.15 penalty) → trend-following, momentum, breakout families (penalize chasing tired moves)
-- `apply_exhaustion_boost` (+0.10 reward) → sweep/reclaim, reversal, mean-reversion families (reward sweep completion)
+- `apply_exhaustion_boost` (+0.10 reward) → sweep/reclaim, reversal, mean-reversion families (reward sweet completion)
 - Microstructure (OFI/CVD/delta) → evaluate per-plugin: exhaustion as gate (suppress) vs boost vs neither
 - Session/ORB/gap setups → evaluate per-plugin during planning
 
@@ -717,26 +673,25 @@ Plans:
   3. Shadow logging in each plugin emits `{"old_confidence": X, "new_confidence": Y, "ctf_contribution": Z, "exhaustion_contribution": W}` per fired signal — visible in `intelligence_features.i7` JSONB
   4. Live `calibrated_confidence` in `signal_ledger` is unchanged (shadow mode confirmed by querying a 24h window and verifying zero change in score distribution)
   5. Each plugin family uses the correct I6 sub-score weight: trend-following → `ctf_trend_alignment`; mean-reversion → `ctf_regime_agreement`; SMC → `ctf_fvg_alignment` + `ctf_ob_alignment`; microstructure (OFI/CVD) → `ctf_score` as gate
+  6. (PERF-01) `market_data_ohlcv` chunk count ≤ 400 — `SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = 'market_data_ohlcv'` — time-only partitioning, 7-day intervals, rebuild performed after 44.3 confirms FeaturePipelineService is sole writer
+  7. (PERF-04) Signal lifecycle active-signal lookup is O(1) via `{(symbol, tf): [sids]}` index dict — chandelier state written to DB only when stop price changes by ≥ 0.01% (write guard eliminates redundant UPDATE churn)
+**Plans**: 5 plans
+
+Plans:
 - [ ] 45-01-PLAN.md — exhaustion_utils wiring applicability map + guard/boost wiring for trend/momentum/breakout families (CONF-01)
 - [ ] 45-02-PLAN.md — ctf_* wiring for trend/mean-reversion plugin families + exhaustion for reversal/sweep families (CONF-02)
 - [ ] 45-03-PLAN.md — ctf_* + exhaustion wiring for SMC + microstructure families + unified shadow logging (CONF-03)
+- [ ] 45-04-PLAN.md — OHLCV hypertable rebuild: drop space partitioning, 7-day chunk intervals, verify FeaturePipelineService sole writer (PERF-01)
+- [ ] 45-05-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard (PERF-04)
 
 ### Phase 41: Intelligence Gap Fill
-**Goal**: Intelligence fields that were stubs are now populated with real computed values — FVG and OB cross-TF alignment drive I6 scores, Volume Profile levels anchor T1/T2 targets, roll premium/discount is stored per bar, higher-TF S/R context reaches I7 plugins, VWAP/session guards prevent intraday-only plugins firing on wrong TFs.
-**Depends on**: Phase 45 (confluence wiring complete; I6 data quality now matters for I7 confidence)
-**Requirements**: INTEL-01, INTEL-02, INTEL-03, INTEL-04, INTEL-05
-**Success Criteria** (what must be TRUE):
-  1. `i6_fvg_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where FVGs exist on multiple timeframes — the hardcoded `0.0` stub is absent from `cross_timeframe.py`.
-  2. `i6_ob_tf_alignment` is non-zero in live `intelligence_features` rows for symbols where Order Blocks align across TFs — the hardcoded `0.0` stub is absent.
-  3. When price is near a value area boundary, `trade_framer.py` sets `target_1` to POC and `target_2` to VAH or VAL — verifiable in `signal_ledger` rows where `distance_to_vah_atr < 0.5` or `distance_to_val_atr < 0.5`.
-  4. For futures symbols within 5 days of roll, `intelligence_features` rows contain a non-NULL `roll_premium_pct` field equal to `(front_price - back_price) / back_price` — verifiable by querying near a known roll date.
-  5. I7 plugins receive 1h POC/VAH/VAL and I6 CTF data via `trade_framer` context — stop and target fields in `signal_ledger` reflect higher-TF levels when they are closer than the bar-level levels.
+**COMPLETED 2026-03-20** — see phase list for delivered items.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 41-01-PLAN.md — FVG + OB cross-TF alignment scoring in cross_timeframe.py (INTEL-01, INTEL-02)
-- [ ] 41-02-PLAN.md — Volume Profile POC/VAH/VAL as T1/T2 targets in trade_framer.py (INTEL-03)
-- [ ] 41-03-PLAN.md — HTF context injection + VWAP/session TF guards + aggregator/write-back comments (INTEL-05)
+- [x] 41-01-PLAN.md — FVG + OB cross-TF alignment scoring in cross_timeframe.py (INTEL-01, INTEL-02)
+- [x] 41-02-PLAN.md — Volume Profile POC/VAH/VAL as T1/T2 targets in trade_framer.py (INTEL-03)
+- [x] 41-03-PLAN.md — HTF context injection + VWAP/session TF guards + aggregator/write-back comments (INTEL-05)
 
 ### Phase 42: Candlestick Pattern Expansion
 **Goal**: The I5 candlestick pattern library grows from 19 to 29 patterns, and CandlestickPatternSetup applies database-driven confidence weights that self-calibrate from live outcomes.
