@@ -6,8 +6,7 @@ set -euo pipefail
 
 SERVICES=(
     indicagent-tws
-    indicagent-indicator
-    indicagent-market-analysis
+    indicagent-feature-pipeline
     indicagent-feature-writer
     indicagent-signal-generator
     indicagent-signal-lifecycle
