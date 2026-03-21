@@ -1,10 +1,14 @@
-"""Characterization tests for per-key asyncio.Lock acquisition and release behavior.
+"""Characterization tests for per-key lock acquisition and release behavior.
 
 Tests document and pin the locking contract added in Phase 18 — do not modify without
 understanding the concurrent state isolation design.
+
+Phase 43 update: MarketAnalysisService migrated from asyncio.Lock to threading.Lock
+to support asyncio.to_thread() plugin execution. IndicatorService retains asyncio.Lock.
 """
 
-import asyncio
+import threading
+import time
 
 import pytest
 
@@ -14,7 +18,7 @@ from services.market_analysis_service import MarketAnalysisService
 
 @pytest.mark.unit
 class TestPerKeyLockCharacterization:
-    """Pin the per-key asyncio.Lock contract for MarketAnalysisService and IndicatorService."""
+    """Pin the per-key lock contract for MarketAnalysisService (threading) and IndicatorService (asyncio)."""
 
     def test_same_key_returns_same_lock_market_analysis(self):
         """_get_state_lock() is idempotent: same key must return the exact same lock object."""
@@ -35,9 +39,8 @@ class TestPerKeyLockCharacterization:
         lock_b = svc._get_state_lock(key_b)
         assert lock_a is not lock_b
 
-    @pytest.mark.asyncio
-    async def test_held_lock_blocks_concurrent_waiter(self):
-        """A lock held by one coroutine must block a second coroutine until released."""
+    def test_held_lock_blocks_concurrent_waiter(self):
+        """A threading.Lock held by one thread must block a second thread until released."""
         svc = MarketAnalysisService.__new__(MarketAnalysisService)
         svc._plugin_states_locks = {}
         key = ("HMM", "ES", "5m")
@@ -45,24 +48,41 @@ class TestPerKeyLockCharacterization:
 
         execution_order = []
 
-        async def holder():
-            async with lock:
+        def holder():
+            with lock:
                 execution_order.append("holder_entered")
-                await asyncio.sleep(0.01)
+                time.sleep(0.05)
                 execution_order.append("holder_exited")
 
-        async def waiter():
-            await asyncio.sleep(0.001)  # let holder acquire first
-            async with lock:
+        def waiter():
+            time.sleep(0.01)  # let holder acquire first
+            with lock:
                 execution_order.append("waiter_entered")
 
-        await asyncio.gather(holder(), waiter())
+        t1 = threading.Thread(target=holder)
+        t2 = threading.Thread(target=waiter)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         assert execution_order == ["holder_entered", "holder_exited", "waiter_entered"]
 
+    def test_lock_not_held_after_with_exits(self):
+        """threading.Lock must be free (not locked) after with block completes normally."""
+        svc = MarketAnalysisService.__new__(MarketAnalysisService)
+        svc._plugin_states_locks = {}
+        key = ("GARCH", "ES", "1m")
+        lock = svc._get_state_lock(key)
+
+        with lock:
+            pass  # normal exit
+
+        assert not lock.locked()
+
     @pytest.mark.asyncio
     async def test_lock_released_after_async_with_exits(self):
-        """Lock must be free (not locked) after async with block completes normally."""
+        """asyncio.Lock (IndicatorService) must be free after async with block completes normally."""
         svc = IndicatorService.__new__(IndicatorService)
         svc._i1_plugin_states_locks = {}
         key = ("GARCH", "ES", "1m")
