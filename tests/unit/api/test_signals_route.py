@@ -214,7 +214,10 @@ class TestGetSignals:
 
     @pytest.mark.unit
     def test_get_signals_base_symbol_resolved(self):
-        """Base symbol 'ES' resolves to 'ESH6' before the DB query."""
+        """Base symbol 'ES' resolves to the active ES contract before the DB query."""
+        from src.config.settings import get_active_contracts
+        active_es = next(c.symbol for c in get_active_contracts() if c.base == "ES")
+
         mock_db = _make_mock_db()
         mock_db.fetch = AsyncMock(return_value=[])
 
@@ -223,7 +226,6 @@ class TestGetSignals:
 
         assert response.status_code == 200
         call_args = mock_db.fetch.call_args
-        # First positional arg after the query string should be the resolved contract
         positional = list(call_args.args)
-        # positional[0] is the SQL query, positional[1] is the symbol
-        assert positional[1] == "ESH6"
+        # positional[0] is the SQL query, positional[1] is the resolved contract symbol
+        assert positional[1] == active_es

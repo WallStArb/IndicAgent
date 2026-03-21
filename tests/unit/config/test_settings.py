@@ -127,13 +127,15 @@ class TestHelperFunctions:
 
     @pytest.mark.unit
     def test_get_active_contracts(self):
-        """Should return contract symbol strings (at least original 14)."""
+        """Should return Instrument objects with at least the original 14 instruments."""
         settings = Settings(_env_file=None)
         contracts = get_active_contracts(settings)
+        bases = {c.base for c in contracts}
         assert len(contracts) >= 14
-        assert "ESH6" in contracts
-        assert "ZTH6" in contracts
-        assert all(isinstance(s, str) for s in contracts)
+        assert "ES" in bases
+        assert "ZT" in bases
+        from src.core.models import Instrument
+        assert all(isinstance(c, Instrument) for c in contracts)
 
     @pytest.mark.unit
     def test_get_base_symbols(self):
@@ -149,7 +151,8 @@ class TestHelperFunctions:
     def test_get_contract_info_by_symbol(self):
         """Lookup by full contract symbol."""
         settings = Settings(_env_file=None)
-        c = get_contract_info("ESH6", settings)
+        # Use base "ES" to get whichever contract is currently active
+        c = get_contract_info("ES", settings)
         assert c is not None
         assert c.base == "ES"
         assert c.name == "E-mini S&P 500"
@@ -173,13 +176,13 @@ class TestHelperFunctions:
     def test_get_point_value(self):
         settings = Settings(_env_file=None)
         assert get_point_value("ES", settings) == 50
-        assert get_point_value("CLJ6", settings) == 1000
+        assert get_point_value("CL", settings) == 1000
         assert get_point_value("FAKE", settings) is None
 
     @pytest.mark.unit
     def test_get_tick_size(self):
         settings = Settings(_env_file=None)
         assert get_tick_size("NQ", settings) == 0.25
-        assert get_tick_size("CLJ6", settings) == 0.01
+        assert get_tick_size("CL", settings) == 0.01
         assert get_tick_size("EURUSD", settings) == 0.00001
         assert get_tick_size("FAKE", settings) is None

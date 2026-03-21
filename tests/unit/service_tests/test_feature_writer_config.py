@@ -26,23 +26,18 @@ def _make_service():
 
 
 def test_default_config_uses_active_contracts():
-    """Default config symbols must include active H6 contracts and exclude stale ones.
-
-    ESH6 and NQH6 are confirmed active. CLK6 (CL April) and GCM6 (GC June)
-    are stale symbols that must no longer appear.
-    """
+    """Default config symbols must match get_active_contracts() — not a stale hardcoded list."""
     from src.config.settings import Settings, get_active_contracts
 
     service = _make_service()
 
     symbols = service.config["service"]["symbols"]
-    active = get_active_contracts(Settings())
+    active_symbols = [i.symbol for i in get_active_contracts(Settings())]
 
-    assert "ESH6" in symbols, "ESH6 (active contract) must be in default symbol list"
-    assert "NQH6" in symbols, "NQH6 (active contract) must be in default symbol list"
-    assert "CLK6" not in symbols, "CLK6 (stale) must NOT be in default symbol list"
-    assert "GCM6" not in symbols, "GCM6 (stale) must NOT be in default symbol list"
-    assert symbols == active, "feature_writer symbols must exactly match get_active_contracts()"
+    # Must contain whichever ES and NQ contracts are currently active
+    assert any(s.startswith("ES") for s in symbols), "No ES contract in default symbol list"
+    assert any(s.startswith("NQ") for s in symbols), "No NQ contract in default symbol list"
+    assert symbols == active_symbols, "feature_writer symbols must exactly match get_active_contracts()"
 
 
 def test_active_contracts_count():
