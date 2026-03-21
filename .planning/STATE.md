@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: candidates
+milestone: v2.0
+milestone_name: Signal Integrity & ML Foundation
 status: unknown
-stopped_at: Completed 42-05-PLAN.md — weight updater calibration and 7-day backtest validation
-last_updated: "2026-03-20T21:25:25.337Z"
+stopped_at: Completed 44-01-PLAN.md — I7 utility foundation modules
+last_updated: "2026-03-21T01:56:26.071Z"
 progress:
-  total_phases: 25
+  total_phases: 13
   completed_phases: 6
-  total_plans: 27
-  completed_plans: 27
+  total_plans: 31
+  completed_plans: 28
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 42 — candlestick-pattern-expansion
+**Current focus:** Phase 44 — i7-dag-refactor
 
 ## Current Position
 
-Phase: 47
-Plan: Not started
+Phase: 44 (i7-dag-refactor) — EXECUTING
+Plan: 2 of 4
 
 ## Performance Metrics
 
@@ -173,7 +173,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-20T21:19:52.183Z
-Stopped at: Completed 42-05-PLAN.md — weight updater calibration and 7-day backtest validation
+Last session: 2026-03-21T01:56:26.068Z
+Stopped at: Completed 44-01-PLAN.md — I7 utility foundation modules
 Resume file: None
-Next action: Run `/gsd:plan-phase 47` to plan Phase 47 (Signal Pipeline DAG Refactor)
+Next action: Run `/gsd:discuss-phase 44` to plan Phase 44 (I7 DAG Refactor)

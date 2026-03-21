@@ -589,7 +589,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 44-01-PLAN.md — Create utility modules (plugin_utils, atr_utils, confidence_utils) + promote utils/common.py + tests (DAG-01, DAG-03, DAG-04)
+- [x] 44-01-PLAN.md — Create utility modules (plugin_utils, atr_utils, confidence_utils) + promote utils/common.py + tests (DAG-01, DAG-03, DAG-04)
 - [ ] 44-02-PLAN.md — Wire all 36 I7 plugins + I2 composite import migration (DAG-01, DAG-02, DAG-03)
 - [ ] 44-03-PLAN.md — cross_timeframe.py decomposition into 3 focused modules (DAG-04)
 - [ ] 44-04-PLAN.md — Microstructure type fixes + make_signal() factory + validate_signal() enforcement (DAG-01, DAG-02, DAG-03, DAG-04)
@@ -849,7 +849,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 41. Intelligence Gap Fill | v2.0 | 3/3 | Complete | 2026-03-20 |
 | 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
 | 43. Performance & Stability Emergency | v2.0 | 2/3 | In Progress | — |
-| 44. I7 DAG Refactor | v2.0 | 0/3 | Not started | — |
+| 44. I7 DAG Refactor | v2.0 | 1/4 | In Progress|  |
 | 45. I6 → I7 Confluence Wiring | v2.0 | 0/2 | Not started | — |
 | 46. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 47. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
