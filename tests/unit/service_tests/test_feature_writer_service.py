@@ -1,4 +1,9 @@
-"""Tests for feature_writer_service — consumer group batch writer to intelligence_features."""
+"""Tests for feature_writer_service — consumer group batch writer to intelligence_features.
+
+Updated for Phase 44.3: FeatureWriterService now consumes development.intelligence.record
+only, performs a single atomic INSERT per bar from BarIntelligenceRecord. All i7/i8
+two-phase write code removed.
+"""
 
 import json
 from datetime import UTC, datetime
@@ -46,103 +51,186 @@ def _make_valid_event():
     )
 
 
-def _make_valid_event_json() -> bytes:
-    """Return bytes of a valid IntelligenceEvent JSON for stream message fields."""
-    return _make_valid_event().model_dump_json().encode()
-
-
-# ── _parse_intelligence_event ─────────────────────────────────────────────────
-
-
-def test_parse_valid_event_returns_intelligence_event():
-    """Valid IntelligenceEvent JSON in b'event' field returns IntelligenceEvent."""
-    from services.feature_writer_service import _parse_intelligence_event
-    from src.intelligence.schemas import IntelligenceEvent
-
-    fields = {b"event": _make_valid_event_json()}
-    result = _parse_intelligence_event(fields)
-
-    assert result is not None
-    assert isinstance(result, IntelligenceEvent)
-    assert result.symbol == "ESH6"
-    assert result.tf == "5m"
-    assert result.bar.o == pytest.approx(5100.25)
-    assert result.bar.v == 12345
-
-
-def test_parse_missing_event_field_returns_none():
-    """Empty fields dict (missing b'event' key) returns None without crashing."""
-    from services.feature_writer_service import _parse_intelligence_event
-
-    result = _parse_intelligence_event({})
-    assert result is None
-
-
-def test_parse_malformed_json_returns_none():
-    """Garbled JSON bytes returns None (ack-and-skip, no crash)."""
-    from services.feature_writer_service import _parse_intelligence_event
-
-    result = _parse_intelligence_event({b"event": b"not-valid-json{{{"})
-    assert result is None
-
-
-# ── _event_to_insert_params ───────────────────────────────────────────────────
-
-
-def test_event_to_insert_params_returns_17_tuple():
-    """_event_to_insert_params returns 18-element tuple (14 base + 3 timing + 1 days_to_expiry)."""
-    from services.feature_writer_service import _event_to_insert_params
+def _make_valid_bar_intelligence_record():
+    """Build a valid BarIntelligenceRecord for test fixtures."""
+    from src.intelligence.schemas import BarIntelligenceRecord, RankedSignal
 
     event = _make_valid_event()
-    params = _event_to_insert_params(event)
-
-    assert isinstance(params, tuple)
-    assert len(params) == 18  # was 17; now includes days_to_expiry at $18
-
-
-def test_event_to_insert_params_first_element_is_datetime():
-    """First element of insert params is a datetime (ts column)."""
-    from services.feature_writer_service import _event_to_insert_params
-
-    event = _make_valid_event()
-    params = _event_to_insert_params(event)
-
-    assert isinstance(params[0], datetime)
-    assert params[0].year == 2026
-
-
-def test_event_to_insert_params_jsonb_columns_are_strings():
-    """JSONB columns (elements 6..12) must be json.dumps() strings, not dicts.
-
-    asyncpg does not auto-serialize dicts to JSONB — they must be strings.
-    """
-    from services.feature_writer_service import _event_to_insert_params
-
-    event = _make_valid_event()
-    params = _event_to_insert_params(event)
-
-    # Elements at indices 6..12 are the 7 JSONB columns: bar, i1, i3, i4, i5, smc, i6
-    for idx in range(6, 13):
-        value = params[idx]
-        assert isinstance(
-            value, str
-        ), f"params[{idx}] must be a JSON string, got {type(value).__name__}"
-        # Must be valid JSON
-        parsed = json.loads(value)
-        assert isinstance(parsed, dict), f"params[{idx}] must decode to a dict"
+    return BarIntelligenceRecord(
+        schema_version="1.0",
+        intelligence=event,
+        ranked_signals=[
+            RankedSignal(
+                signal_id="abc123",
+                plugin="trad_TrendFollowing",
+                direction=1,
+                raw_confidence=0.72,
+                calibrated_confidence=0.75,
+                regime_eligible=True,
+                quality_score=0.80,
+                tod_multiplier=1.1,
+                adjusted_rank=0.88,
+                is_winner=True,
+            )
+        ],
+        winner_plugin="trad_TrendFollowing",
+        winner_confidence=0.75,
+        winner_direction=1,
+        signals_evaluated=5,
+        signals_after_quality=4,
+        signals_after_regime=3,
+        signals_after_tod=3,
+        signals_after_calibration=2,
+        ledger_written=True,
+        session_type="rth",
+        i7_computed_at=datetime(2026, 2, 18, 10, 0, 1, tzinfo=UTC),
+        pipeline_latency_ms=45.3,
+    )
 
 
-# ── FeatureWriterService._maybe_flush ─────────────────────────────────────────
+# ── _parse_intelligence_record ─────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_maybe_flush_force_calls_execute_batch():
-    """_maybe_flush(force=True) with 3 buffered events calls execute_batch with 3 params."""
+def test_parse_intelligence_record_returns_bar_intelligence_record():
+    """Valid BarIntelligenceRecord JSON returns BarIntelligenceRecord instance."""
+    from src.intelligence.schemas import BarIntelligenceRecord
+
     from services.feature_writer_service import FeatureWriterService
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
-    svc._last_flush = 0.0  # far in the past
+    svc._parse_errors_total = MagicMock()
+
+    record = _make_valid_bar_intelligence_record()
+    raw = record.model_dump_json().encode()
+
+    result = svc._parse_intelligence_record(raw)
+
+    assert result is not None
+    assert isinstance(result, BarIntelligenceRecord)
+    assert result.intelligence.symbol == "ESH6"
+    assert result.winner_plugin == "trad_TrendFollowing"
+
+
+def test_parse_intelligence_record_returns_none_for_invalid_json():
+    """Malformed JSON returns None without crashing."""
+    from services.feature_writer_service import FeatureWriterService
+
+    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc.logger = MagicMock()
+    svc._parse_errors_total = MagicMock()
+
+    result = svc._parse_intelligence_record(b"not-valid-json{{{")
+
+    assert result is None
+    svc._parse_errors_total.inc.assert_called_once()
+
+
+# ── _record_to_insert_params ──────────────────────────────────────────────────
+
+
+def test_record_to_insert_params_returns_31_tuple():
+    """_record_to_insert_params returns a 31-element tuple matching SQL columns."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
+
+    assert isinstance(params, tuple)
+    assert len(params) == 31
+
+
+def test_record_to_insert_params_serializes_ranked_signals_to_json():
+    """ranked_signals is serialized to a JSON string for the i7 column."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
+
+    # i7 column is at index 14 (15th column: ts,sym,tf,platform,source,schema_ver,bar,i1,i2,i3,i4,i5,smc,i6,i7)
+    i7_value = params[14]
+    assert isinstance(i7_value, str), "i7 must be a JSON string for asyncpg"
+    parsed = json.loads(i7_value)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 1
+    assert parsed[0]["plugin"] == "trad_TrendFollowing"
+
+
+def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
+    """ts, i7_computed_at, computed_at are Python datetime objects (asyncpg requirement)."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
+
+    # $1 = ts
+    assert isinstance(params[0], datetime), f"ts must be datetime, got {type(params[0])}"
+    # $29 = i7_computed_at (index 28)
+    assert isinstance(params[28], datetime), (
+        f"i7_computed_at must be datetime, got {type(params[28])}"
+    )
+
+
+def test_record_to_insert_params_handles_none_winner_fields():
+    """None winner fields are passed through as None (not string 'None')."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    record.winner_plugin = None
+    record.winner_confidence = None
+    record.winner_direction = None
+    params = _record_to_insert_params(record)
+
+    # winner_plugin at index 18, winner_confidence at 19, winner_direction at 20
+    assert params[18] is None, "winner_plugin should be None"
+    assert params[19] is None, "winner_confidence should be None"
+    assert params[20] is None, "winner_direction should be None"
+
+
+def test_record_to_insert_params_extracts_session_type_as_string():
+    """session_type is stored as a plain string value."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    record.session_type = "rth"
+    params = _record_to_insert_params(record)
+
+    # session_type at index 29 ($30 column)
+    session_type_val = params[29]
+    assert isinstance(session_type_val, str), "session_type must be a string"
+    assert session_type_val == "rth"
+
+
+def test_record_to_insert_params_jsonb_columns_are_strings():
+    """JSONB columns (bar, i1, i2, i3, i4, i5, smc, i6, i7) must be JSON strings."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
+
+    # Indices 6..14 are bar, i1, i2, i3, i4, i5, smc, i6, i7
+    for idx in range(6, 15):
+        value = params[idx]
+        assert isinstance(value, str), (
+            f"params[{idx}] must be a JSON string, got {type(value).__name__}"
+        )
+        parsed = json.loads(value)
+        assert isinstance(parsed, (dict, list)), (
+            f"params[{idx}] must decode to dict or list"
+        )
+
+
+# ── _maybe_flush (no i7/i8 buffer references) ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_maybe_flush_force_calls_execute_batch():
+    """_maybe_flush(force=True) with 3 buffered records calls execute_batch with 3 params."""
+    from services.feature_writer_service import FeatureWriterService, _record_to_insert_params
+
+    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc.logger = MagicMock()
+    svc._last_flush = 0.0
     svc.batch_writes_total = MagicMock()
     svc.events_buffered_gauge = MagicMock()
     svc.error_count_total = MagicMock()
@@ -153,19 +241,29 @@ async def test_maybe_flush_force_calls_execute_batch():
     mock_db.execute_batch = AsyncMock()
     svc.db_manager = mock_db
 
-    event = _make_valid_event()
-    from services.feature_writer_service import _event_to_insert_params
-
-    params = _event_to_insert_params(event)
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
     svc._buffer = [params, params, params]
 
     await svc._maybe_flush(force=True)
 
     mock_db.execute_batch.assert_called_once()
     call_args = mock_db.execute_batch.call_args
-    # Second argument is the params list
     assert len(call_args[0][1]) == 3
     assert svc._buffer == []
+
+
+@pytest.mark.asyncio
+async def test_maybe_flush_has_no_i7_i8_buffer_references():
+    """_maybe_flush no longer references _i7_buffer or _i8_buffer."""
+    import inspect
+
+    from services.feature_writer_service import FeatureWriterService
+
+    source = inspect.getsource(FeatureWriterService._maybe_flush)
+    assert "_i7_buffer" not in source, "_i7_buffer must be absent from _maybe_flush"
+    assert "_i8_buffer" not in source, "_i8_buffer must be absent from _maybe_flush"
+    assert "_flush_i7_i8" not in source, "_flush_i7_i8 must be absent from _maybe_flush"
 
 
 @pytest.mark.asyncio
@@ -173,11 +271,14 @@ async def test_maybe_flush_time_based_calls_execute_batch():
     """_maybe_flush(force=False) with events older than FLUSH_INTERVAL_SECS calls execute_batch."""
     import time
 
-    from services.feature_writer_service import FLUSH_INTERVAL_SECS, FeatureWriterService
+    from services.feature_writer_service import (
+        FLUSH_INTERVAL_SECS,
+        FeatureWriterService,
+        _record_to_insert_params,
+    )
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
-    # Set last_flush far enough in the past to trigger time-based flush
     svc._last_flush = time.monotonic() - (FLUSH_INTERVAL_SECS + 1.0)
     svc.batch_writes_total = MagicMock()
     svc.events_buffered_gauge = MagicMock()
@@ -189,10 +290,8 @@ async def test_maybe_flush_time_based_calls_execute_batch():
     mock_db.execute_batch = AsyncMock()
     svc.db_manager = mock_db
 
-    event = _make_valid_event()
-    from services.feature_writer_service import _event_to_insert_params
-
-    params = _event_to_insert_params(event)
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
     svc._buffer = [params]
 
     await svc._maybe_flush(force=False)
@@ -206,28 +305,55 @@ async def test_maybe_flush_recent_events_no_call():
     """_maybe_flush(force=False) with recent events does NOT call execute_batch."""
     import time
 
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterService, _record_to_insert_params
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
-    # Just flushed — last_flush is current time
     svc._last_flush = time.monotonic()
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
     svc.db_manager = mock_db
 
-    event = _make_valid_event()
-    from services.feature_writer_service import _event_to_insert_params
-
-    params = _event_to_insert_params(event)
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
     svc._buffer = [params]
 
     await svc._maybe_flush(force=False)
 
     mock_db.execute_batch.assert_not_called()
-    # Buffer should still have the event
     assert len(svc._buffer) == 1
+
+
+# ── removed code verification ─────────────────────────────────────────────────
+
+
+def test_removed_i7_i8_methods_absent():
+    """_process_i7_message, _process_i8_message, _flush_i7_i8 must be absent."""
+    from services.feature_writer_service import FeatureWriterService
+
+    assert not hasattr(FeatureWriterService, "_process_i7_message"), (
+        "_process_i7_message must be removed"
+    )
+    assert not hasattr(FeatureWriterService, "_process_i8_message"), (
+        "_process_i8_message must be removed"
+    )
+    assert not hasattr(FeatureWriterService, "_flush_i7_i8"), "_flush_i7_i8 must be removed"
+
+
+def test_topic_routing_only_handles_intelligence_record():
+    """_process_loop source must contain intelligence_record_topic routing."""
+    import inspect
+
+    from services.feature_writer_service import FeatureWriterService
+
+    source = inspect.getsource(FeatureWriterService._process_loop)
+    assert "intelligence_record_topic" in source, (
+        "_process_loop must route intelligence_record_topic"
+    )
+    # Old multi-topic routing removed
+    assert "i7_topic" not in source, "i7_topic must be absent from _process_loop"
+    assert "i8_topic" not in source, "i8_topic must be absent from _process_loop"
 
 
 # ── graceful shutdown ─────────────────────────────────────────────────────────
@@ -236,7 +362,7 @@ async def test_maybe_flush_recent_events_no_call():
 @pytest.mark.asyncio
 async def test_graceful_shutdown_sets_flag_and_flushes():
     """_shutdown sets shutdown_requested=True and flushes buffer."""
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterService, _record_to_insert_params
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
@@ -255,35 +381,30 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
     mock_db.close = AsyncMock()
     svc.db_manager = mock_db
 
-    # Kafka migration: _kafka_consumer replaces redis_client
     mock_kafka = MagicMock()
     mock_kafka.stop = AsyncMock()
     svc._kafka_consumer = mock_kafka
 
-    event = _make_valid_event()
-    from services.feature_writer_service import _event_to_insert_params
-
-    params = _event_to_insert_params(event)
+    record = _make_valid_bar_intelligence_record()
+    params = _record_to_insert_params(record)
     svc._buffer = [params, params]
 
     await svc._shutdown()
 
     assert svc.shutdown_requested is True
-    # Buffer must be flushed on shutdown
     mock_db.execute_batch.assert_called_once()
     assert svc._buffer == []
 
 
 def test_kafka_consumer_group_is_feature_writer_group():
-    """KAFKA-07: FeatureWriterService uses CONSUMER_GROUP='feature_writer_group' (no xreadgroup)."""
+    """KAFKA-07: FeatureWriterService uses CONSUMER_GROUP='feature_writer_group'."""
     from services.feature_writer_service import CONSUMER_GROUP, FeatureWriterService
 
     assert CONSUMER_GROUP == "feature_writer_group"
-    # Verify no redis_client attribute on new instance (Kafka-native)
     svc = FeatureWriterService.__new__(FeatureWriterService)
-    assert not hasattr(
-        svc, "redis_client"
-    ), "redis_client must not be present after Kafka migration"
+    assert not hasattr(svc, "redis_client"), (
+        "redis_client must not be present after Kafka migration"
+    )
 
 
 # ── _build_expiry_map ─────────────────────────────────────────────────────────
@@ -293,7 +414,6 @@ class TestBuildExpiryMap:
     """Tests for _build_expiry_map pure function."""
 
     def _make_settings_with(self, instruments):
-        """Build a minimal Settings-like object with given contracts list."""
         from unittest.mock import MagicMock
 
         s = MagicMock()
@@ -365,8 +485,6 @@ class TestComputeDaysToExpiry:
     """Tests for _compute_days_to_expiry pure function."""
 
     def _dt(self, year, month, day):
-        from datetime import UTC, datetime
-
         return datetime(year, month, day, 10, 0, 0, tzinfo=UTC)
 
     def test_futures_days_before_expiry(self):
@@ -406,209 +524,3 @@ class TestComputeDaysToExpiry:
 
         result = _compute_days_to_expiry("ESH6", self._dt(2026, 3, 4), {})
         assert result is None
-
-
-# ── _event_to_insert_params with expiry_map ───────────────────────────────────
-
-
-def test_event_to_insert_params_18_with_expiry_map():
-    """_event_to_insert_params with expiry_map returns 18-tuple, $18 is int."""
-    from datetime import date
-
-    from services.feature_writer_service import _event_to_insert_params
-
-    event = _make_valid_event()  # symbol="ESH6", ts=datetime(2026,2,18,10,0,0)
-    expiry_map = {"ESH6": date(2026, 3, 20)}
-    params = _event_to_insert_params(event, expiry_map)
-
-    assert len(params) == 18
-    assert isinstance(params[17], int)
-    assert params[17] > 0  # 2026-02-18 is before 2026-03-20
-
-
-def test_event_to_insert_params_days_zero_for_non_futures():
-    """FX/crypto symbol not in expiry_map → $18 is 0."""
-    from datetime import UTC, datetime
-
-    from services.feature_writer_service import _event_to_insert_params
-    from src.intelligence.schemas import (
-        I1Indicators,
-        I3Structure,
-        I4Context,
-        I5Patterns,
-        I6Confluence,
-        IntelligenceEvent,
-        OHLCVBar,
-        SMCContext,
-    )
-
-    event = IntelligenceEvent(
-        ts=datetime(2026, 2, 18, 10, 0, 0, tzinfo=UTC),
-        symbol="EURUSD",
-        tf="5m",
-        bar=OHLCVBar(o=1.05, h=1.052, l=1.048, c=1.051, v=1000),
-        i1=I1Indicators(rsi_14=50.0),
-        i3=I3Structure(),
-        i4=I4Context(),
-        i5=I5Patterns(),
-        smc=SMCContext(),
-        i6=I6Confluence(),
-    )
-    expiry_map = {"ESH6": None}  # EURUSD not in map — returns 0 (non-futures lookup)
-    params = _event_to_insert_params(event, expiry_map)
-
-    assert params[17] == 0
-
-
-# ── PERF-02: i7/i8 batch buffering ───────────────────────────────────────────
-
-
-def _make_svc_with_mocks():
-    """Build a FeatureWriterService with mocked DB and metrics for i7/i8 tests."""
-    from services.feature_writer_service import FeatureWriterService
-
-    svc = FeatureWriterService.__new__(FeatureWriterService)
-    svc.logger = MagicMock()
-    svc._i7_buffer = []
-    svc._i8_buffer = []
-    svc._buffer = []
-    svc._last_flush = 0.0
-    svc._error_count = 0
-    svc._total_batches = 0
-    svc.batch_writes_total = MagicMock()
-    svc.events_buffered_gauge = MagicMock()
-    svc.error_count_total = MagicMock()
-    svc.i7_i8_batch_writes_total = MagicMock()
-
-    mock_db = MagicMock()
-    mock_db.execute_batch = AsyncMock()
-    svc.db_manager = mock_db
-    return svc
-
-
-@pytest.mark.asyncio
-async def test_process_i7_message_buffers_not_writes():
-    """_process_i7_message appends to _i7_buffer and does NOT call execute_batch."""
-    svc = _make_svc_with_mocks()
-
-    payload = {"ts": "2026-03-20T10:00:00Z", "data": '[{"signal_id": "abc"}]'}
-    result = await svc._process_i7_message("ES", "1m", payload)
-
-    assert result is True
-    assert len(svc._i7_buffer) == 1
-    svc.db_manager.execute_batch.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_process_i8_message_buffers_not_writes():
-    """_process_i8_message appends to _i8_buffer and does NOT call execute_batch."""
-    svc = _make_svc_with_mocks()
-
-    payload = {
-        "ts": "2026-03-20T10:00:00Z",
-        "model": "qwen3.5:9b",
-        "confidence": "0.75",
-        "summary": "Bullish setup",
-        "generated_at": "2026-03-20T10:00:01Z",
-    }
-    result = await svc._process_i8_message("ES", "1m", payload)
-
-    assert result is True
-    assert len(svc._i8_buffer) == 1
-    svc.db_manager.execute_batch.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_flush_i7_i8_writes_accumulated_params():
-    """_flush_i7_i8 calls execute_batch with all buffered i7 and i8 rows."""
-    from datetime import UTC, datetime
-
-    svc = _make_svc_with_mocks()
-
-    # Seed buffers directly
-    ts = datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC)
-    svc._i7_buffer = [(ts, "ES", "1m", '[{"sig": "a"}]'), (ts, "NQ", "5m", '[{"sig": "b"}]')]
-    svc._i8_buffer = [(ts, "ES", "1m", '{"model":"x","confidence":"0.7","summary":"s","generated_at":"t"}')]
-
-    await svc._flush_i7_i8()
-
-    # execute_batch called twice: once for i7, once for i8
-    assert svc.db_manager.execute_batch.call_count == 2
-    # Buffers cleared after flush
-    assert svc._i7_buffer == []
-    assert svc._i8_buffer == []
-    # Counter incremented twice (once per buffer)
-    assert svc.i7_i8_batch_writes_total.inc.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_flush_i7_i8_skips_empty_buffers():
-    """_flush_i7_i8 does not call execute_batch when both buffers are empty."""
-    svc = _make_svc_with_mocks()
-
-    await svc._flush_i7_i8()
-
-    svc.db_manager.execute_batch.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_maybe_flush_triggers_i7_i8_on_size_threshold():
-    """When i7+i8 buffer total >= BATCH_SIZE, _maybe_flush triggers i7/i8 flush."""
-    import time
-
-    from services.feature_writer_service import BATCH_SIZE
-
-    svc = _make_svc_with_mocks()
-    # Make last_flush recent so main buffer won't time-trigger
-    svc._last_flush = time.monotonic()
-
-    from datetime import UTC, datetime
-
-    ts = datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC)
-    # Fill i7_buffer to BATCH_SIZE threshold
-    svc._i7_buffer = [(ts, "ES", "1m", "[]")] * BATCH_SIZE
-
-    await svc._maybe_flush(force=False)
-
-    # i7 batch should have been flushed even though main buffer wasn't
-    svc.db_manager.execute_batch.assert_called()
-    assert svc._i7_buffer == []
-
-
-@pytest.mark.asyncio
-async def test_shutdown_flushes_i7_i8_when_main_buffer_empty():
-    """_shutdown flushes i7/i8 buffers even when the main _buffer is empty."""
-    from datetime import UTC, datetime
-
-    from services.feature_writer_service import FeatureWriterService
-
-    svc = FeatureWriterService.__new__(FeatureWriterService)
-    svc.logger = MagicMock()
-    svc._buffer = []  # main buffer empty
-    svc._i7_buffer = [(datetime(2026, 3, 20, 10, 0, 0, tzinfo=UTC), "ES", "1m", "[]")]
-    svc._i8_buffer = []
-    svc._last_flush = 0.0
-    svc._error_count = 0
-    svc._total_batches = 0
-    svc._total_events = 0
-    svc.running = True
-    svc.shutdown_requested = False
-    svc.batch_writes_total = MagicMock()
-    svc.events_buffered_gauge = MagicMock()
-    svc.error_count_total = MagicMock()
-    svc.i7_i8_batch_writes_total = MagicMock()
-
-    mock_db = MagicMock()
-    mock_db.execute_batch = AsyncMock()
-    mock_db.close = AsyncMock()
-    svc.db_manager = mock_db
-
-    mock_kafka = MagicMock()
-    mock_kafka.stop = AsyncMock()
-    svc._kafka_consumer = mock_kafka
-
-    await svc._shutdown()
-
-    # i7 buffer must have been flushed
-    mock_db.execute_batch.assert_called()
-    assert svc._i7_buffer == []
