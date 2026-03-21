@@ -157,7 +157,8 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, roll premium/discount, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments (completed 2026-03-20)
 - [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
 - [ ] **Phase 43: Performance & Stability Emergency** — ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts), feature_writer sequential polling fix (920ms → <50ms lag), plugin pipeline thread-pool offload, lifecycle O(N) loop + chandelier write guard, calibration ndarray pre-alloc, refresh loop shared helper coroutine
-- [ ] **Phase 44: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils, BaseI7Plugin mixin (OHLCV extraction, _no_signal, compute_next), direction→signal_type helper, confidence system contract [0.10, 0.95]; validate_tier() enforcement; cross_timeframe.py → 3 focused modules; composites/common.py → utils/common.py (tier-agnostic); OFI type fixes + make_signal() factory + validate_signal() enforcement (~458 LOC duplication eliminated, zero signal behavior change)
+- [x] **Phase 44: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils, BaseI7Plugin mixin (OHLCV extraction, _no_signal, compute_next), direction→signal_type helper, confidence system contract [0.10, 0.95]; validate_tier() enforcement; cross_timeframe.py → 3 focused modules; composites/common.py → utils/common.py (tier-agnostic); OFI type fixes + make_signal() factory + validate_signal() enforcement (~458 LOC duplication eliminated, zero signal behavior change) (completed 2026-03-21)
+- [ ] **Phase 44.1: Feature Pipeline Renaissance Refactor** — replace indicator_service + market_analysis_service + timeframes_builder_service with unified FeaturePipelineService; shared BarHistory + BarAccumulator modules; typed BarMessage schema; in-pipeline HTF derivation (no DB queries in hot path); 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99; SignalGeneratorService simplified (remove DB seed, wire BarHistory to IntelligenceEvent stream)
 - [ ] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family; wire exhaustion_utils (guard/boost) to all applicable I7 plugins (32/36 currently unwired — Renaissance violation); both ship in single shadow mode window (logs old vs new confidence, no live score change); prerequisite for Phase 46 amplification
 - [ ] **Phase 46: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
 - [ ] **Phase 47: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
@@ -594,6 +595,35 @@ Plans:
 - [x] 44-03-PLAN.md — cross_timeframe.py decomposition into 3 focused modules (DAG-04)
 - [x] 44-04-PLAN.md — Microstructure type fixes + make_signal() factory + validate_signal() enforcement (DAG-01, DAG-02, DAG-03, DAG-04)
 - [x] 44-05-PLAN.md — Gap closure: wire divergence_stack.py to shared utilities (DAG-01, DAG-02, DAG-03)
+
+### Phase 44.1: Feature Pipeline Renaissance Refactor
+**Goal**: The intelligence observation pipeline (I1–I6) runs inside a single service (FeaturePipelineService), reducing hot-path Kafka hops from 3 to 1, eliminating 3 diverging bar history implementations, fixing stale HTF context at I6, and delivering typed BarMessage/IntelligenceEvent schemas. pipeline_latency_ms < 50ms at p99.
+**Depends on**: Phase 44 (I7 utility modules in place; signal_generator already uses make_signal() factory)
+**Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04
+**Spec**: `docs/superpowers/specs/2026-03-21-feature-pipeline-renaissance-design.md`
+
+**Services replaced:**
+- `indicagent-indicator` (indicator_service.py) → removed
+- `indicagent-market-analysis` (market_analysis_service.py) → removed
+- `indicagent-timeframes` (timeframes_builder_service.py) → removed
+- `indicagent-feature-pipeline` (feature_pipeline_service.py) → NEW
+
+**Shared modules added:**
+- `src/core/bar_history.py` — single BarHistory implementation (replaces 3 diverging copies)
+- `src/core/bar_accumulator.py` — in-pipeline HTF bar derivation (replaces DB aggregate view queries)
+- `src/core/schemas/bar_message.py` — typed BarMessage + SessionType (replaces stringly-typed dicts)
+
+**Success Criteria** (what must be TRUE):
+  1. `development.intelligence` published for all 61 symbols on every bar — verify with `rpk topic consume`
+  2. `development.market.bars.htf` published when HTF windows close — SignalLifecycleService unaffected
+  3. `pipeline_latency_ms` metric present and < 50ms at p99 in Prometheus at `:9119`
+  4. I6 `ctf_*` scores reflect in-pipeline HTF state — no DB queries during per-bar execution
+  5. All existing I1–I6 plugin unit tests pass unchanged
+  6. `BarHistory` module is the single implementation used by both FeaturePipelineService and SignalGeneratorService — grep confirms no other bar deque/OrderedDict in services/
+  7. `indicagent-indicator`, `indicagent-market-analysis`, `indicagent-timeframes` systemd units do not exist
+  8. No `float(bar["open"])` string coercions in services/ — grep confirms zero
+  9. Roll events handled: `BarHistory.migrate_symbol()` called, I1 price state adjusted by roll gap
+  10. I2 crossover detection correct on bar 2+ (`_prev_i1_features` injected per (symbol, tf))
 
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
 **Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation.
