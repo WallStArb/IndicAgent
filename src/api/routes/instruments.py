@@ -28,7 +28,11 @@ async def list_instruments(
         "FROM instruments WHERE is_active = TRUE ORDER BY symbol"
     )
     return [
-        {"symbol": r["symbol"], "is_active": r["is_active"], **json.loads(r["contract_details"])}
+        {
+            "symbol": r["symbol"],
+            "is_active": r["is_active"],
+            **(r["contract_details"] if isinstance(r["contract_details"], dict) else json.loads(r["contract_details"])),
+        }
         for r in rows
     ]
 
@@ -46,4 +50,5 @@ async def get_instrument(
     if not rows:
         raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found")
     r = rows[0]
-    return {"symbol": r["symbol"], "is_active": r["is_active"], **json.loads(r["contract_details"])}
+    cd = r["contract_details"]
+    return {"symbol": r["symbol"], "is_active": r["is_active"], **(cd if isinstance(cd, dict) else json.loads(cd))}
