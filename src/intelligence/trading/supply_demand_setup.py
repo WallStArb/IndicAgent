@@ -11,9 +11,10 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal
 
 
 @dataclass
@@ -42,21 +43,23 @@ class SupplyDemandSetupPlugin:
     MIN_FRESHNESS: float = 0.40
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
 
         in_demand = float(features.get("in_demand_zone", 0.0))
         in_supply = float(features.get("in_supply_zone", 0.0))
 
         # Gate 1: must be inside a zone
         if in_demand != 1.0 and in_supply != 1.0:
-            return self._no_signal()
+            return no_signal()
 
         # Gate 2: not both (ambiguous)
         if in_demand == 1.0 and in_supply == 1.0:
-            return self._no_signal()
+            return no_signal()
 
         if in_demand == 1.0:
             direction = 1
@@ -73,18 +76,13 @@ class SupplyDemandSetupPlugin:
 
         # Gate 3: freshness threshold
         if freshness < self.MIN_FRESHNESS:
-            return self._no_signal()
+            return no_signal()
 
-        atr = float(features.get("atr_14", 0.0))
-        close_arr = df["close"].to_numpy(dtype=float)
-        if atr <= 0:
-            high_arr = df["high"].to_numpy(dtype=float)
-            low_arr = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high_arr[-14:] - low_arr[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
-        entry = float(close_arr[-1])
+        entry = float(close[-1])
         supporting: list[str] = [f"{'demand' if direction == 1 else 'supply'}_zone_entry"]
 
         # Stop: beyond distal zone edge with buffer
@@ -172,7 +170,7 @@ class SupplyDemandSetupPlugin:
             confidence += 0.05
             supporting.append("ctf_aligned")
 
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
         return {
@@ -187,10 +185,6 @@ class SupplyDemandSetupPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = SupplyDemandSetupPlugin()

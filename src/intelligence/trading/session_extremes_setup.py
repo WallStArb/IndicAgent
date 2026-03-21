@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 
 
 @dataclass
@@ -55,22 +58,17 @@ class SessionExtremesSetupPlugin:
         asian_high = features.get("asian_session_high")
         asian_low = features.get("asian_session_low")
         if not isinstance(asian_high, (int, float)) or not isinstance(asian_low, (int, float)):
-            return self._no_signal()
+            return no_signal()
 
         # SESS-02: London or NY session only
         session_london = float(features.get("session_london", 0.0))
         session_ny = float(features.get("session_ny", 0.0))
         if not (session_london or session_ny):
-            return self._no_signal()
+            return no_signal()
 
-        # ATR with fallback
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
-        atr = float(features.get("atr_14") or 0.0)
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # Gate 3: proximity to Asian extreme
         close = float(df["close"].iloc[-1])
@@ -80,7 +78,7 @@ class SessionExtremesSetupPlugin:
         near_low = dist_low <= self.proximity_atr_mult
 
         if not (near_high or near_low):
-            return self._no_signal()
+            return no_signal()
 
         # If simultaneously near both (very tight Asian range), pick closer
         if near_high and near_low:
@@ -114,7 +112,7 @@ class SessionExtremesSetupPlugin:
             supporting.append("rsi_extreme")
 
         if not supporting:
-            return self._no_signal()
+            return no_signal()
 
         # Entry, stop, targets
         entry_price = asian_high if near_high else asian_low
@@ -125,7 +123,7 @@ class SessionExtremesSetupPlugin:
             round(entry_price + direction * 3.0 * atr, 2),
         ]
 
-        confidence = round(min(0.90, 0.45 + 0.15 * len(supporting)), 4)
+        confidence = compose_confidence(0.45 + 0.15 * len(supporting))
 
         extreme = "high" if near_high else "low"
         side = "short" if direction == -1 else "long"
@@ -156,10 +154,6 @@ class SessionExtremesSetupPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = SessionExtremesSetupPlugin()

@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal
 
 
 @dataclass
@@ -42,19 +45,21 @@ class SqueezeExpansionPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
 
         # Gate: squeeze must have just released
         squeeze_fired = features.get("squeeze_fired", 0.0)
         squeeze_active = features.get("squeeze_active", 0.0)
         if squeeze_fired != 1.0 or squeeze_active != 0.0:
-            return self._no_signal()
+            return no_signal()
 
         # Gate: volume expansion
-        close = df["close"].to_numpy(dtype=float)
+        df = frames.get("main")
         volume = df["volume"].to_numpy(dtype=float)
         current_volume = float(volume[-1])
 
@@ -65,43 +70,38 @@ class SqueezeExpansionPlugin:
             else:
                 volume_sma_20 = float(np.mean(volume))
         if volume_sma_20 <= 0:
-            return self._no_signal()
+            return no_signal()
 
         volume_ratio = current_volume / volume_sma_20
         if current_volume <= volume_sma_20 * self.volume_expansion_threshold:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: block in extreme GARCH vol regime (regime=3, top 5th pctile) ──
         vol_regime = int(features.get("garch_vol_regime", 1))
         if vol_regime == 3:
-            return self._no_signal()
+            return no_signal()
 
         # Direction from momentum_bias, fallback to close vs bb_middle
         momentum_bias = features.get("momentum_bias", 0.0)
         bb_middle = features.get("bb_20_2_mid", 0.0)
         bb_upper = features.get("bb_20_2_upper", 0.0)
         bb_lower = features.get("bb_20_2_lower", 0.0)
-        atr = features.get("atr_14", 0.0)
         squeeze_bars = features.get("squeeze_bars", 0.0)
         trend_regime = features.get("trend_regime", 0.0)
+
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         if momentum_bias != 0.0:
             direction = 1 if momentum_bias > 0 else -1
         elif bb_middle > 0:
             direction = 1 if close[-1] > bb_middle else -1
         else:
-            return self._no_signal()
+            return no_signal()
 
         # Entry
         entry = float(close[-1])
-
-        # ATR fallback
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
 
         # Stop loss
         if direction == 1:
@@ -149,7 +149,7 @@ class SqueezeExpansionPlugin:
             + 0.2 * momentum_score
             + 0.2 * regime_score
         )
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
+        confidence = compose_confidence(raw_conf)
 
         # Supporting factors
         supporting = []
@@ -178,10 +178,6 @@ class SqueezeExpansionPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = SqueezeExpansionPlugin()

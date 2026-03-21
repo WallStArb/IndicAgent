@@ -15,9 +15,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Minimum volume ratio for signal confirmation
@@ -65,7 +65,7 @@ class VWAPReclaimPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         timeframe = frames.get("timeframe", "")
         if timeframe and timeframe not in ("1m", "5m", "15m"):
-            return self._no_signal()
+            return no_signal()
 
         df = frames.get("main")
         features = frames.get("features") or {}
@@ -73,12 +73,12 @@ class VWAPReclaimPlugin:
         tf = frames.get("__timeframe__", "")
 
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         # ── Required: session_vwap ────────────────────────────────────────────
         session_vwap = features.get("session_vwap")
         if session_vwap is None:
-            return self._no_signal()
+            return no_signal()
         session_vwap = float(session_vwap)
 
         # ── Current position relative to VWAP ────────────────────────────────
@@ -112,22 +112,22 @@ class VWAPReclaimPlugin:
 
         # ── Require prior state to detect a cross ─────────────────────────────
         if above_prev is None:
-            return self._no_signal()
+            return no_signal()
 
         # ── Detect cross ──────────────────────────────────────────────────────
         crossed_up = (not above_prev) and above_now    # was below → now above (long reclaim)
         crossed_down = above_prev and (not above_now)  # was above → now below (short break)
 
         if not (crossed_up or crossed_down):
-            return self._no_signal()
+            return no_signal()
 
         # ── Validate "spent time on wrong side" before the cross ─────────────
         if crossed_up and pre_bars_below == 0:
             # Never actually spent time below VWAP before reclaiming
-            return self._no_signal()
+            return no_signal()
         if crossed_down and pre_bars_above == 0:
             # Never spent time above VWAP before breaking down
-            return self._no_signal()
+            return no_signal()
 
         direction = 1 if crossed_up else -1
         bars_wrong_side = pre_bars_below if crossed_up else pre_bars_above
@@ -144,16 +144,11 @@ class VWAPReclaimPlugin:
             volume_ratio = (bar_vol / avg_vol) if avg_vol > 0 else 0.0
 
         if not vol_ok:
-            return self._no_signal()
+            return no_signal()
 
-        # ── ATR ───────────────────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Entry ─────────────────────────────────────────────────────────────
         entry = float(close[-1])
@@ -168,7 +163,7 @@ class VWAPReclaimPlugin:
             atr=atr,
         )
         if not frame.viable:
-            return self._no_signal()
+            return no_signal()
 
         # ── Confidence scoring ────────────────────────────────────────────────
         # Volume ratio: 0.3 weight
@@ -231,10 +226,6 @@ class VWAPReclaimPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = VWAPReclaimPlugin()

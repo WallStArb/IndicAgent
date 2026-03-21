@@ -11,9 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 
 @dataclass
@@ -45,48 +47,41 @@ class FVGFillPlugin:
     # signal_generator_service passes current-TF OHLCV regardless. ".*" makes intent clear.
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe=".*", lookback=50),)
     regime_type: str = "mean_reversion"
-    atr_stop_multiplier: float = 1.5
-    atr_target_multipliers: tuple = (2.0, 3.5, 5.0)
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
 
         fvg_type = int(features.get("fvg_type", 0))
         fvg_open_count = float(features.get("fvg_open_count", 0.0))
 
         # Gate: must have an open FVG with at least 1 open gap
         if fvg_type == 0 or fvg_open_count < 1.0:
-            return self._no_signal()
+            return no_signal()
 
-        atr = float(features.get("atr_14", 0.0))
-        close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
-
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         direction = 1 if fvg_type == 1 else -1
         entry = float(close[-1])
 
-        # Stop and targets
-        if direction == 1:
-            stop = entry - atr * self.atr_stop_multiplier
-            targets = [round(entry + atr * m, 2) for m in self.atr_target_multipliers]
-        else:
-            stop = entry + atr * self.atr_stop_multiplier
-            targets = [round(entry - atr * m, 2) for m in self.atr_target_multipliers]
+        signal_type = signal_type_for_direction("fvg_fill", direction)
+        tf = frame_trade(signal_type, direction, entry, features, atr)
+        if not tf.viable:
+            return no_signal()
+        stop = tf.stop
+        targets = [round(t.price, 2) for t in tf.targets]
 
         # Confidence: 0.5 base + 0.3 * min(1.0, open_count/3.0)
         magnetism = min(1.0, fvg_open_count / 3.0)
-        confidence = 0.5 + 0.3 * magnetism
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        raw_conf = 0.5 + 0.3 * magnetism
+        confidence = compose_confidence(raw_conf)
 
         supporting = ["fvg_detected"]
         if fvg_open_count >= 3.0:
@@ -99,7 +94,6 @@ class FVGFillPlugin:
         if fvg_top > 0 and fvg_bottom > 0:
             supporting.append("fvg_bounds_present")
 
-        signal_type = "fvg_fill_long" if direction == 1 else "fvg_fill_short"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
         return {
@@ -115,10 +109,6 @@ class FVGFillPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = FVGFillPlugin()

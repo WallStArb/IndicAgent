@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
+from .plugin_utils import extract_ohlcv, no_signal
 
 
 @dataclass
@@ -39,36 +40,32 @@ class LiquiditySweepReclaimPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
 
         sweep_detected = features.get("sweep_detected", 0.0)
         sweep_reclaimed = features.get("sweep_reclaimed", 0.0)
 
         if sweep_detected != 1.0 or sweep_reclaimed != 1.0:
-            return self._no_signal()
+            return no_signal()
 
         sweep_type = features.get("sweep_type", 0.0)
         sweep_level = features.get("sweep_level", 0.0)
-        atr = features.get("atr_14", 0.0)
 
         if sweep_type == 0.0:
-            return self._no_signal()
+            return no_signal()
 
         direction = 1 if sweep_type > 0 else -1
 
-        close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
-        entry = float(close[-1])
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
-        # ATR fallback if not in features
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        entry = float(close[-1])
 
         # Stop loss
         if direction == 1:
@@ -118,7 +115,7 @@ class LiquiditySweepReclaimPlugin:
                 supporting.append(f"named_bsl_level_{sig:.2f}")
 
         confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         signal_type = "sweep_reclaim_long" if direction == 1 else "sweep_reclaim_short"
 
@@ -134,10 +131,6 @@ class LiquiditySweepReclaimPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = LiquiditySweepReclaimPlugin()

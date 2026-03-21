@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal
 
 
 @dataclass
@@ -54,44 +55,41 @@ class GapAnalysisSetupPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
+        df = frames.get("main")
 
         # Time gate (I4 SessionContext) — only active when feature is present
         bars_since = features.get("bars_since_session_start")
         if bars_since is not None and float(bars_since) > 30:
             session_ny = features.get("session_ny", 1.0)
             if not session_ny:
-                return self._no_signal()
+                return no_signal()
 
         # GAP-01: Gap detection — close[-2] is prior bar close, open[-1] is current bar open
-        close = df["close"].to_numpy(dtype=float)
-        open_ = df["open"].to_numpy(dtype=float)
         prior_close = float(close[-2])
 
         gap_size = float(open_[-1]) - prior_close
         direction = 1 if gap_size > 0 else (-1 if gap_size < 0 else 0)
         if direction == 0:
-            return self._no_signal()
+            return no_signal()
 
-        # ATR with fallback (established pattern from all I7 plugins)
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # Minimum gap gate
         if abs(gap_size) < self.min_gap_atr_mult * atr:
-            return self._no_signal()
+            return no_signal()
 
         gap_size_atr = abs(gap_size) / atr
 
         # GAP-02: Volume check
+        import numpy as np
         vol = df["volume"].to_numpy(dtype=float)
         if len(vol) > 21:
             vol_mean = np.mean(vol[-21:-1])
@@ -130,7 +128,7 @@ class GapAnalysisSetupPlugin:
         base = min(1.0, gap_size_atr / 2.0)
         if high_volume:
             base += 0.15
-        confidence = round(min(0.95, max(0.05, base)), 4)
+        confidence = compose_confidence(base)
 
         # Supporting factors
         supporting: list[str] = []
@@ -159,10 +157,6 @@ class GapAnalysisSetupPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = GapAnalysisSetupPlugin()

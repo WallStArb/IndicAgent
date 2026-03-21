@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import extract_ohlcv, no_signal
 
 _VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
 
@@ -45,10 +48,12 @@ class VWAPDeviationPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
+
         features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
 
         # ── VWAP features ──
         vwap = features.get("vwap", 0.0)
@@ -58,9 +63,9 @@ class VWAPDeviationPlugin:
 
         # Gate: VWAP must be meaningful (session has volume)
         if vwap_std <= 0 or vwap <= 0:
-            return self._no_signal()
+            return no_signal()
 
-        close = df["close"].to_numpy(dtype=float)
+        df = frames.get("main")
         volume = df["volume"].to_numpy(dtype=float)
         price = float(close[-1])
 
@@ -69,19 +74,14 @@ class VWAPDeviationPlugin:
         effective_threshold = _VOL_THRESHOLDS.get(vol_regime, 2.0)
         sigma_deviation = abs(price - vwap) / vwap_std
         if sigma_deviation < effective_threshold:
-            return self._no_signal()
+            return no_signal()
 
         # Direction
         direction = 1 if price < vwap else -1
 
-        # ATR
-        atr = features.get("atr_14", 0.0)
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         entry = price
 
@@ -122,7 +122,7 @@ class VWAPDeviationPlugin:
         vol_contraction = max(0.0, 1.0 - max(0.0, volume_ratio - 1.0))
 
         raw_conf = 0.40 * dev_score + 0.35 * regime_compat + 0.25 * vol_contraction
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
+        confidence = compose_confidence(raw_conf)
 
         # Supporting factors
         supporting = ["vwap_2sigma_breach", f"vwap_{sigma_deviation:.1f}sigma_deviation"]
@@ -149,10 +149,6 @@ class VWAPDeviationPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = VWAPDeviationPlugin()

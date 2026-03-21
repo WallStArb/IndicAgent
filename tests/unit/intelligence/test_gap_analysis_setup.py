@@ -174,10 +174,11 @@ class TestGapNoSignal:
     """Edge cases that must return empty dict."""
 
     def test_insufficient_data_returns_empty(self):
-        """DataFrame with only 30 rows (< min_lookback=50) returns {}."""
+        """DataFrame with only 30 rows (< min_lookback=50) returns no_signal dict."""
         close = np.linspace(5000, 5100, 30)
         df = make_ohlcv(close)
         features = {"atr_14": 10.0}
         plugin = GapAnalysisSetupPlugin()
         result = plugin.compute_full({"main": df, "features": features})
-        assert result == {}
+        assert result["signal_type"] == "none"
+        assert result["direction"] == 0

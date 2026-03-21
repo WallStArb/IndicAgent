@@ -20,9 +20,10 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 _ET_TZ = ZoneInfo("America/New_York")
@@ -64,7 +65,7 @@ class PrevDayLevelTestPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         timeframe = frames.get("timeframe", "")
         if timeframe and timeframe not in ("1m", "5m", "15m"):
-            return self._no_signal()
+            return no_signal()
 
         df = frames.get("main")
         features = frames.get("features") or {}
@@ -76,15 +77,10 @@ class PrevDayLevelTestPlugin:
 
         # ── Extract price arrays ────────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
 
-        # ── ATR with fallback ───────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── State ───────────────────────────────────────────────────────────
         state = self._state.get((symbol, tf), {})
@@ -111,7 +107,7 @@ class PrevDayLevelTestPlugin:
 
         if not (_valid_level(pdh_raw) or _valid_level(pdl_raw) or _valid_level(pdc_raw)):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         pdh = float(pdh_raw) if _valid_level(pdh_raw) else None
         pdl = float(pdl_raw) if _valid_level(pdl_raw) else None
@@ -137,7 +133,7 @@ class PrevDayLevelTestPlugin:
 
         if not (near_pdh or near_pdl or near_pdc):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Pick nearest level ───────────────────────────────────────────────
         candidates: list[tuple[float, str, float]] = []
@@ -203,7 +199,7 @@ class PrevDayLevelTestPlugin:
             elif hmm_regime == 0.0:
                 confidence -= 0.05
 
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         # ── Regime context ───────────────────────────────────────────────────
         if hmm_regime == 1.0:
@@ -223,7 +219,7 @@ class PrevDayLevelTestPlugin:
         )
         if not frame.viable:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Write state back ─────────────────────────────────────────────────
         self._state[(symbol, tf)] = state
@@ -251,10 +247,6 @@ class PrevDayLevelTestPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = PrevDayLevelTestPlugin()

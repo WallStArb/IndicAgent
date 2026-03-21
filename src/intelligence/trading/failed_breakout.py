@@ -12,9 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Maximum bars after BOS detection to wait for close-back-through reversal
@@ -61,15 +62,10 @@ class FailedBreakoutPlugin:
             return {}
 
         close = df["close"].to_numpy(dtype=float)
-        high = df["high"].to_numpy(dtype=float)
-        low = df["low"].to_numpy(dtype=float)
 
-        # ATR — from features or inline estimate
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         state = self._state.get((symbol, tf), {})
 
@@ -96,7 +92,7 @@ class FailedBreakoutPlugin:
         # ── Gate: no active BOS tracking ────────────────────────────────────
         if not state.get("bos_level"):
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         bos_level = float(state["bos_level"])
         bos_direction = int(state["bos_direction"])
@@ -107,7 +103,7 @@ class FailedBreakoutPlugin:
             # Clear BOS tracking — window missed
             state.clear()
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Reversal check ───────────────────────────────────────────────────
         close_price = float(close[-1])
@@ -124,11 +120,11 @@ class FailedBreakoutPlugin:
         else:
             # Unknown direction — cannot determine reversal
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         if not reversal:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Confidence ──────────────────────────────────────────────────────
         hmm_regime = float(features.get("hmm_regime", 0.0))
@@ -144,7 +140,7 @@ class FailedBreakoutPlugin:
         else:
             regime_ctx = "neutral"
 
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        confidence = compose_confidence(confidence)
 
         reversal_close_delta = abs(close_price - bos_level)
 
@@ -160,7 +156,7 @@ class FailedBreakoutPlugin:
         )
         if not frame.viable:
             self._state[(symbol, tf)] = state
-            return self._no_signal()
+            return no_signal()
 
         # ── Signal fired — clear BOS tracking ────────────────────────────────
         state.clear()
@@ -188,10 +184,6 @@ class FailedBreakoutPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = FailedBreakoutPlugin()

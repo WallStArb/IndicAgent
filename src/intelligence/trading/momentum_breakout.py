@@ -8,7 +8,10 @@ from typing import Any
 import numpy as np
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
+from .plugin_utils import extract_ohlcv, no_signal
 
 
 @dataclass
@@ -46,12 +49,14 @@ class MomentumBreakoutPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
-        features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return {}
+        result = extract_ohlcv(frames, self.min_lookback)
+        if result is None:
+            return no_signal()
+        open_, high, low, close = result
 
-        close = df["close"].to_numpy(dtype=float)
+        features = frames.get("features") or {}
+
+        df = frames.get("main")
         volume = df["volume"].to_numpy(dtype=float)
         price = float(close[-1])
 
@@ -63,18 +68,18 @@ class MomentumBreakoutPlugin:
                 past = float(close[-1 - self.roc_period])
                 roc = (price - past) / past * 100.0 if past != 0 else 0.0
             else:
-                return self._no_signal()
+                return no_signal()
 
         if abs(roc) <= self.roc_threshold:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate B: volume expansion ──
         vol_sma = float(np.mean(volume[-20:])) if len(volume) >= 20 else float(np.mean(volume))
         if vol_sma <= 0:
-            return self._no_signal()
+            return no_signal()
         volume_ratio = float(volume[-1]) / vol_sma
         if volume_ratio <= self.volume_expansion_threshold:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate C + direction: structure break must match ROC direction ──
         swing_high = features.get("swing_high", 0.0)
@@ -82,23 +87,19 @@ class MomentumBreakoutPlugin:
 
         if roc > 0:
             if swing_high <= 0 or price <= swing_high:
-                return self._no_signal()
+                return no_signal()
             direction = 1
             structure_level = float(swing_high)
         else:
             if swing_low <= 0 or price >= swing_low:
-                return self._no_signal()
+                return no_signal()
             direction = -1
             structure_level = float(swing_low)
 
         # ── ATR ──
-        atr = features.get("atr_14", 0.0)
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         entry = price
 
@@ -134,7 +135,6 @@ class MomentumBreakoutPlugin:
             regime_score = 0.1
 
         raw_conf = 0.35 * roc_score + 0.30 * vol_score + 0.20 * break_margin + 0.15 * regime_score
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
 
         # Supporting factors
         supporting = [
@@ -151,13 +151,13 @@ class MomentumBreakoutPlugin:
         supply_str = float(features.get("supply_strength", 0.0))
         demand_str = float(features.get("demand_strength", 0.0))
         if direction == 1 and in_supply == 1.0:
-            confidence -= 0.12 * supply_str
+            raw_conf -= 0.12 * supply_str
             supporting.append("penalty_supply_zone_friction")
         elif direction == -1 and in_demand == 1.0:
-            confidence -= 0.12 * demand_str
+            raw_conf -= 0.12 * demand_str
             supporting.append("penalty_demand_zone_friction")
-        confidence, supporting = apply_exhaustion_guard(features, confidence, supporting)
-        confidence = round(min(0.95, max(0.10, confidence)), 4)
+        raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
 
         signal_type = "momentum_breakout_long" if direction == 1 else "momentum_breakout_short"
         regime_ctx = "breakout_bullish" if direction == 1 else "breakout_bearish"
@@ -175,10 +175,6 @@ class MomentumBreakoutPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = MomentumBreakoutPlugin()

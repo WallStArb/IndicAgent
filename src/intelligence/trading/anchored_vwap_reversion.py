@@ -15,10 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
 from ..utils import guard_intraday_only
+from .atr_utils import get_atr
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 
@@ -59,12 +59,12 @@ class AnchoredVWAPReversionPlugin:
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         if not guard_intraday_only(frames):
-            return self._no_signal()
+            return no_signal()
 
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: required I4 VWAP fields ────────────────────────────────────
         sigma = features.get("session_vwap_deviation_sigma")
@@ -72,7 +72,7 @@ class AnchoredVWAPReversionPlugin:
         hurst = features.get("hurst_exponent")
 
         if sigma is None or hmm is None or hurst is None:
-            return self._no_signal()
+            return no_signal()
 
         sigma = float(sigma)
         hmm = int(hmm)
@@ -80,28 +80,23 @@ class AnchoredVWAPReversionPlugin:
 
         # ── Gate: sigma threshold ─────────────────────────────────────────────
         if abs(sigma) < 1.5:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: must be ranging (hmm_regime == 0) ───────────────────────────
         if hmm != 0:
-            return self._no_signal()
+            return no_signal()
 
         # ── Gate: hurst must confirm mean-reversion tendency ─────────────────
         if hurst >= 0.55:
-            return self._no_signal()
+            return no_signal()
 
         # ── Direction ─────────────────────────────────────────────────────────
         # Short when price above VWAP (sigma > 0), long when below (sigma < 0)
         direction = -1 if sigma > 0 else 1
 
-        # ── ATR ───────────────────────────────────────────────────────────────
-        atr = float(features.get("atr_14", 0.0))
-        if atr <= 0:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
-        if atr <= 0:
-            return self._no_signal()
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         # ── Entry (current close) ─────────────────────────────────────────────
         close = df["close"].to_numpy(dtype=float)
@@ -117,7 +112,7 @@ class AnchoredVWAPReversionPlugin:
             atr=atr,
         )
         if not frame.viable:
-            return self._no_signal()
+            return no_signal()
 
         # ── Override targets with VWAP levels ────────────────────────────────
         session_vwap = float(features.get("session_vwap", 0.0))
@@ -194,10 +189,6 @@ class AnchoredVWAPReversionPlugin:
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = AnchoredVWAPReversionPlugin()
