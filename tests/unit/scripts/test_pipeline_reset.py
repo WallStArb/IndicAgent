@@ -104,6 +104,7 @@ def test_truncate_tables_includes_ohlcv_when_not_keep():
 
     conn = MagicMock()
     cur = MagicMock()
+    cur.fetchone.return_value = (100,)  # _row_count needs a real tuple for > comparison
     conn.cursor.return_value.__enter__ = lambda s: cur
     conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 

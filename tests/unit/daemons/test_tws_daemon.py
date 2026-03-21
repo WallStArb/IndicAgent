@@ -27,6 +27,10 @@ async def test_tws_daemon_publishes_bar_to_kafka():
     kafka_producer.publish = AsyncMock()
     daemon._kafka_producer = kafka_producer
 
+    roll_monitor_mock = MagicMock()
+    roll_monitor_mock.is_enabled = False
+    daemon._roll_monitor = roll_monitor_mock
+
     from datetime import datetime
 
     class FakeBar:

@@ -424,7 +424,7 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
     try:
         await run_calibration_update(db_manager)
     except Exception as exc:
-        logger.error("run_calibration_update call failed", error=str(exc))
+        logger.error("CIS weight calibration failed", exc_info=True)
 
     # Phase 42: Run pattern reliability calibration in independent failure domain.
     # Failure here does not affect CIS weight update completion.
@@ -441,7 +441,7 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
                 promoted_count,
             )
     except Exception as exc:
-        logger.error("Pattern calibration failed", error=str(exc))
+        logger.error("Pattern reliability calibration failed", exc_info=True)
 
     return global_result
 
