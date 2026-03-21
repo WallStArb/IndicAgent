@@ -339,7 +339,7 @@ def test_queue_ohlcv_write_1m_bar():
         low=5098.0,
         close=5103.0,
         volume=1234,
-        source="ibkr_live",
+        source="ibkr_named",
         session_type=SessionType.RTH,
     )
     svc._queue_ohlcv_write(bar)
@@ -397,7 +397,7 @@ def test_queue_ohlcv_write_tuple_structure():
         low=5098.0,
         close=5103.0,
         volume=1234,
-        source="ibkr_live",
+        source="ibkr_named",
         session_type=SessionType.RTH,
     )
     svc._queue_ohlcv_write(bar)
@@ -435,11 +435,12 @@ def test_flush_ohlcv_calls_executemany():
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)
 
-    # Mock pool
+    # Mock pool (accessed as svc._db.pool per implementation)
     mock_pool = MagicMock()
     mock_pool.acquire = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=False)))
 
-    svc._pool = mock_pool
+    svc._db = MagicMock()
+    svc._db.pool = mock_pool
 
     asyncio.run(svc._flush_ohlcv())
 
@@ -475,7 +476,8 @@ def test_flush_ohlcv_clears_buffer_on_success():
             __aexit__=AsyncMock(return_value=False),
         )
     )
-    svc._pool = mock_pool
+    svc._db = MagicMock()
+    svc._db.pool = mock_pool
 
     asyncio.run(svc._flush_ohlcv())
 
@@ -507,7 +509,8 @@ def test_flush_ohlcv_retains_buffer_on_failure():
             __aexit__=AsyncMock(return_value=False),
         )
     )
-    svc._pool = mock_pool
+    svc._db = MagicMock()
+    svc._db.pool = mock_pool
 
     asyncio.run(svc._flush_ohlcv())
 
