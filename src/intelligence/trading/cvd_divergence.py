@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 _CONFIRMATION_BARS: int = 3
 _CVD_DIV_THRESHOLD: float = 0.0  # any nonzero divergence qualifies
@@ -35,7 +39,7 @@ class CVDDivergencePlugin:
     - dual_divergence = (abs(ofi_divergence) >= 1.0 AND abs(cvd_divergence) >= 1.0)
 
     Direction: opposite of price direction (mean reversion)
-    Confidence: base 0.55, +0.10 if dual_divergence, +0.05 per extra bar beyond N
+    Confidence: compose_confidence(base 0.55, +0.10 if dual_divergence, +0.05 per extra bar beyond N)
     """
 
     name: str = "trad_CVDDivergence"
@@ -63,20 +67,20 @@ class CVDDivergencePlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         cvd_div = features.get("cvd_divergence")
         cvd_slope = features.get("cvd_slope_5bar")
 
         if cvd_div is None:
-            return self._no_signal()
+            return no_signal()
 
         cvd_div = float(cvd_div)
         if cvd_div == 0.0:
             # Zero CVD divergence invalidates any accumulated confirmation count
             state_key = f"{frames.get('__symbol__', '_')}_{frames.get('__timeframe__', '_')}"
             self._state.pop(state_key, None)
-            return self._no_signal()
+            return no_signal()
 
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
@@ -94,7 +98,11 @@ class CVDDivergencePlugin:
 
         # Gate: require N confirmation bars
         if state["count"] < _CONFIRMATION_BARS:
-            return self._no_signal()
+            return no_signal()
+
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         close = df["close"].to_numpy(dtype=float)
         entry = float(close[-1])
@@ -114,14 +122,22 @@ class CVDDivergencePlugin:
 
         # Confidence
         extra_bars = max(0, state["count"] - _CONFIRMATION_BARS)
-        confidence = 0.55
+        raw_conf = 0.55
         if dual_divergence:
-            confidence += 0.10
-        confidence += extra_bars * 0.05
-        confidence = round(min(0.85, confidence), 4)
+            raw_conf += 0.10
+        raw_conf += extra_bars * 0.05
+        confidence = compose_confidence(raw_conf)
 
-        signal_type = "cvd_divergence_long" if direction == 1 else "cvd_divergence_short"
+        sig_type = signal_type_for_direction("cvd_divergence", direction)
+        tf_result = frame_trade(sig_type, direction, entry, features, atr)
+        if not tf_result.viable:
+            return no_signal()
+
+        stop_loss = tf_result.stop
+        targets = [t.price for t in tf_result.targets]
+
         hmm_regime = features.get("hmm_regime")
+        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
 
         supporting: list[str] = [
             f"cvd_divergence={cvd_div:.3f}",
@@ -133,23 +149,19 @@ class CVDDivergencePlugin:
             supporting.append("dual_divergence_confirmed")
 
         return {
-            "signal_type": signal_type,
+            "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
-            "stop_loss": None,
-            "targets": None,
+            "stop_loss": float(stop_loss),
+            "targets": [float(t) for t in targets],
             "confidence": confidence,
-            "regime_context": {"hmm_regime": hmm_regime},
+            "regime_context": regime_context,
             "supporting_factors": supporting,
             "dual_divergence": dual_divergence,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = CVDDivergencePlugin()

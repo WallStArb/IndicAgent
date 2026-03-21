@@ -15,9 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
-
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 _SPIKE_Z_THRESHOLD: float = 1.5  # lower than OFI/CVD spike (1.5 vs 2.0 — captures more cases)
 _PRICE_FOLLOW_THRESHOLD: float = 0.3  # price must move < 0.3 ATR for exhaustion
@@ -32,7 +34,7 @@ class DeltaExhaustionPlugin:
     - abs(price_change) < 0.3 * atr (price fails to follow CVD direction)
 
     Direction: opposite of CVD spike direction (exhaustion → reversal)
-    Confidence: min(0.75, 0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10)
+    Confidence: compose_confidence(0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10)
     """
 
     name: str = "trad_DeltaExhaustion"
@@ -58,32 +60,27 @@ class DeltaExhaustionPlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         cvd_spike_z = features.get("cvd_spike_z")
         if cvd_spike_z is None:
-            return self._no_signal()
+            return no_signal()
 
         cvd_spike_z = float(cvd_spike_z)
         if abs(cvd_spike_z) <= _SPIKE_Z_THRESHOLD:
-            return self._no_signal()
+            return no_signal()
 
-        # ATR from features or fallback
-        atr = features.get("atr_14")
-        if atr is not None:
-            atr = float(atr)
-        else:
-            high = df["high"].to_numpy(dtype=float)
-            low = df["low"].to_numpy(dtype=float)
-            atr = float(np.mean(high[-14:] - low[-14:]))
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         if atr <= 0:
-            return self._no_signal()
+            return no_signal()
 
         # Price follow-through: compare current close to previous close
         close = df["close"].to_numpy(dtype=float)
         if len(close) < 2:
-            return self._no_signal()
+            return no_signal()
 
         entry = float(close[-1])
         prev_close = float(close[-2])
@@ -95,18 +92,25 @@ class DeltaExhaustionPlugin:
 
         # Price failed to follow: price change is less than threshold
         if price_follow_ratio >= _PRICE_FOLLOW_THRESHOLD:
-            return self._no_signal()
+            return no_signal()
 
         # Exhaustion: opposite of CVD direction
         direction = -cvd_direction
 
-        confidence = round(
-            min(0.75, 0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10),
-            4,
+        confidence = compose_confidence(
+            0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10
         )
 
-        signal_type = "delta_exhaustion_long" if direction == 1 else "delta_exhaustion_short"
+        sig_type = signal_type_for_direction("delta_exhaustion", direction)
+        tf = frame_trade(sig_type, direction, entry, features, atr)
+        if not tf.viable:
+            return no_signal()
+
+        stop_loss = tf.stop
+        targets = [t.price for t in tf.targets]
+
         hmm_regime = features.get("hmm_regime")
+        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
 
         supporting: list[str] = [
             f"cvd_spike_z={cvd_spike_z:.3f}",
@@ -115,22 +119,18 @@ class DeltaExhaustionPlugin:
         ]
 
         return {
-            "signal_type": signal_type,
+            "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
-            "stop_loss": None,
-            "targets": None,
+            "stop_loss": float(stop_loss),
+            "targets": [float(t) for t in targets],
             "confidence": confidence,
-            "regime_context": {"hmm_regime": hmm_regime},
+            "regime_context": regime_context,
             "supporting_factors": supporting,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = DeltaExhaustionPlugin()

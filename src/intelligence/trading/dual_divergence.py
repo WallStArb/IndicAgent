@@ -20,6 +20,10 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from ..plugins import InputSpec
+from .atr_utils import get_atr
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal, signal_type_for_direction
+from .trade_framer import frame_trade
 
 _CONFIRMATION_BARS: int = 3
 _OFI_DIV_THRESHOLD: float = 1.0   # minimum abs(ofi_divergence)
@@ -40,7 +44,7 @@ class DualDivergencePlugin:
     until promoted via promote_shadow.py after statistical validation.
 
     Direction: based on divergence direction (sign of ofi_divergence)
-    Confidence: min(0.85, 0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
+    Confidence: compose_confidence(0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
     """
 
     # Plugin-level shadow flag — ClassVar so it's not an instance field
@@ -71,20 +75,20 @@ class DualDivergencePlugin:
         df = frames.get("main")
         features = frames.get("features") or {}
         if df is None or len(df) < self.min_lookback:
-            return self._no_signal()
+            return no_signal()
 
         ofi_div = features.get("ofi_divergence")
         cvd_div = features.get("cvd_divergence")
 
         if ofi_div is None or cvd_div is None:
-            return self._no_signal()
+            return no_signal()
 
         ofi_div = float(ofi_div)
         cvd_div = float(cvd_div)
 
         # Both must exceed their thresholds
         if abs(ofi_div) < _OFI_DIV_THRESHOLD or abs(cvd_div) < _CVD_DIV_THRESHOLD:
-            return self._no_signal()
+            return no_signal()
 
         # Both must agree in direction (both bearish or both bullish vs price)
         ofi_sign = 1 if ofi_div > 0 else -1
@@ -93,7 +97,7 @@ class DualDivergencePlugin:
             # Disagreement invalidates accumulated confirmation count
             state_key = f"{frames.get('__symbol__', '_')}_{frames.get('__timeframe__', '_')}"
             self._state.pop(state_key, None)
-            return self._no_signal()
+            return no_signal()
 
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
@@ -110,7 +114,11 @@ class DualDivergencePlugin:
 
         # Gate: require N confirmation bars
         if state["count"] < _CONFIRMATION_BARS:
-            return self._no_signal()
+            return no_signal()
+
+        atr = get_atr(features)
+        if atr is None:
+            return no_signal()
 
         close = df["close"].to_numpy(dtype=float)
         entry = float(close[-1])
@@ -118,13 +126,20 @@ class DualDivergencePlugin:
         # Direction: sign of divergence (positive = bullish pressure vs price)
         direction = combined_sign
 
-        confidence = round(
-            min(0.85, 0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05),
-            4,
+        confidence = compose_confidence(
+            0.60 + abs(ofi_div) * 0.05 + abs(cvd_div) * 0.05
         )
 
-        signal_type = "dual_divergence_long" if direction == 1 else "dual_divergence_short"
+        sig_type = signal_type_for_direction("dual_divergence", direction)
+        tf_result = frame_trade(sig_type, direction, entry, features, atr)
+        if not tf_result.viable:
+            return no_signal()
+
+        stop_loss = tf_result.stop
+        targets = [t.price for t in tf_result.targets]
+
         hmm_regime = features.get("hmm_regime")
+        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
         cvd_slope = features.get("cvd_slope_5bar")
         ofi_ewma = features.get("ofi_ewma_20")
 
@@ -139,22 +154,18 @@ class DualDivergencePlugin:
             supporting.append(f"ofi_ewma_20={float(ofi_ewma):.1f}")
 
         return {
-            "signal_type": signal_type,
+            "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
-            "stop_loss": None,
-            "targets": None,
+            "stop_loss": float(stop_loss),
+            "targets": [float(t) for t in targets],
             "confidence": confidence,
-            "regime_context": {"hmm_regime": hmm_regime},
+            "regime_context": regime_context,
             "supporting_factors": supporting,
         }
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
-
-    @staticmethod
-    def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
 
 
 plugin = DualDivergencePlugin()

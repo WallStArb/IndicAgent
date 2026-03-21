@@ -17,8 +17,8 @@ Renaissance principles applied:
 - Earn the right through proof: low_vol_flag suppresses when spread std is
   degenerate; multi-layer gate before firing.
 
-Version: 1.0.0
-Last Updated: 2026-03-18
+Version: 1.1.0
+Last Updated: 2026-03-21
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ from typing import Any
 
 from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
+from .confidence_utils import compose_confidence
+from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
 # Spread z-score threshold for signal to fire.
@@ -63,7 +65,7 @@ class CrossAssetDivergencePlugin:
       if cross_asset_5m agrees in direction: base *= 1.2
       if eq_vol_imbalance > 1.5: base += 0.05
       if hmm_regime_prob >= 0.75: base += 0.10
-      confidence = clamp(base, 0.0, 1.0)
+      confidence = compose_confidence(base)
     """
 
     name: str = "trad_CrossAssetDivergence"
@@ -73,11 +75,10 @@ class CrossAssetDivergencePlugin:
             "signal_type",
             "direction",
             "confidence",
-            "entry",
-            "stop",
-            "target_1",
-            "target_2",
-            "target_full",
+            "entry_price",
+            "stop_loss",
+            "targets",
+            "regime_context",
             "setup_variant",
             "supporting_factors",
             "stop_basis",
@@ -95,16 +96,16 @@ class CrossAssetDivergencePlugin:
         symbol = str(features.get("symbol", ""))
         base = resolve_eq_index_base(symbol)
         if base is None:
-            return self._no_signal()
+            return no_signal()
 
         # Guard: cross_asset data must be present and ready
         xa = frames.get("cross_asset") or {}
         if not xa.get("ready"):
-            return self._no_signal()
+            return no_signal()
 
         # Guard: low_vol_flag means spread std is near-zero — signal unreliable
         if xa.get("low_vol_flag", False):
-            return self._no_signal()
+            return no_signal()
 
         # Determine active pair and its spread_z
         active_pair = xa.get("active_pair", "ES_NQ")
@@ -115,7 +116,7 @@ class CrossAssetDivergencePlugin:
 
         # Guard: threshold gate (strict >)
         if abs(spread_z) <= _FIRE_THRESHOLD:
-            return self._no_signal()
+            return no_signal()
 
         spread_positive = spread_z > 0  # ES outperformed pair
 
@@ -163,14 +164,17 @@ class CrossAssetDivergencePlugin:
         if hmm_regime_prob >= _CONF_REGIME_PROB_THRESHOLD:
             conf += _CONF_REGIME_PROB_BOOST
 
-        confidence = float(min(max(conf, 0.0), 1.0))
+        confidence = compose_confidence(conf)
 
         # Frame trade for stop/target computation
         df = frames.get("main")
         if df is None or len(df) < 2:
-            return self._no_signal()
+            return no_signal()
 
         atr = float(features.get("atr_14", 0.0) or 0.0)
+        if atr <= 0:
+            return no_signal()
+
         entry_price = float(df["close"].iloc[-1])
 
         signal_type = (
@@ -187,34 +191,35 @@ class CrossAssetDivergencePlugin:
         )
 
         if not tf.viable:
-            return self._no_signal()
+            return no_signal()
 
-        # Extract target prices from TradeFrame.targets list
-        target_1 = float(tf.targets[0].price) if len(tf.targets) > 0 else 0.0
-        target_2 = float(tf.targets[1].price) if len(tf.targets) > 1 else 0.0
-        target_full = float(tf.targets[2].price) if len(tf.targets) > 2 else target_2
+        stop_loss = float(tf.stop)
+        targets = [float(t.price) for t in tf.targets]
 
-        supporting_factors: dict[str, Any] = {
-            "active_pair": active_pair,
-            "es_nq_spread_z": xa.get("es_nq_spread_z"),
-            "es_rty_spread_z": xa.get("es_rty_spread_z"),
-            "eq_corr_break": xa.get("eq_corr_break"),
-            "eq_vol_imbalance": eq_vol_imbalance,
-            "pairs_confirming": pairs_confirming,
-            "data_quality_score": xa.get("data_quality_score"),
-            "hmm_regime": hmm_regime,
-            "hmm_regime_prob": hmm_regime_prob,
-        }
+        # regime_context as str (not dict)
+        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
+
+        supporting_factors: list[str] = [
+            f"active_pair={active_pair}",
+            f"spread_z={spread_z:.3f}",
+            f"pairs_confirming={pairs_confirming}",
+            f"eq_vol_imbalance={eq_vol_imbalance:.2f}",
+            f"hmm_regime={hmm_regime}",
+            f"hmm_regime_prob={hmm_regime_prob:.3f}",
+        ]
+        if xa.get("eq_corr_break") is not None:
+            supporting_factors.append(f"eq_corr_break={xa['eq_corr_break']:.3f}")
+        if xa.get("data_quality_score") is not None:
+            supporting_factors.append(f"data_quality_score={xa['data_quality_score']:.3f}")
 
         return {
             "signal_type": signal_type,
             "direction": direction,
             "confidence": confidence,
-            "entry": float(tf.entry),
-            "stop": float(tf.stop),
-            "target_1": target_1,
-            "target_2": target_2,
-            "target_full": target_full,
+            "entry_price": round(entry_price, 2),
+            "stop_loss": stop_loss,
+            "targets": targets,
+            "regime_context": regime_context,
             "stop_basis": tf.stop_basis,
             "setup_variant": setup_variant,
             "supporting_factors": supporting_factors,
@@ -225,7 +230,7 @@ class CrossAssetDivergencePlugin:
 
     @staticmethod
     def _no_signal() -> dict[str, Any]:
-        return {"signal_type": "none", "direction": 0, "confidence": 0.0}
+        return no_signal()
 
 
 plugin = CrossAssetDivergencePlugin()

@@ -31,6 +31,7 @@ class TestDualDivergence:
             "ofi_divergence": 1.8,
             "cvd_divergence": 1.2,
             "cvd_slope_5bar": 200.0,
+            "atr_14": 2.0,
         }
         # Build up N=3 confirmation bars
         for _ in range(2):
@@ -38,6 +39,10 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
+        assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+        assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+        assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
+        assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_both_diverge_bearish(self):
         """Both OFI and CVD bearish divergence → fires short."""
@@ -47,6 +52,7 @@ class TestDualDivergence:
             "ofi_divergence": -1.8,
             "cvd_divergence": -1.2,
             "cvd_slope_5bar": -200.0,
+            "atr_14": 2.0,
         }
         for _ in range(2):
             plugin.compute_full(_make_frames(close, features))
@@ -111,6 +117,7 @@ class TestDualDivergence:
             "ofi_divergence": 1.8,
             "cvd_divergence": 1.2,
             "cvd_slope_5bar": 200.0,
+            "atr_14": 2.0,
         }
         for _ in range(2):
             plugin.compute_full(_make_frames(close, features))
@@ -124,9 +131,11 @@ class TestDualDivergence:
         from src.intelligence.trading.dual_divergence import plugin
         assert plugin.name == "trad_DualDivergence"
 
-    def test_plugin_has_no_signal_method(self):
-        """Plugin must have _no_signal method."""
+    def test_no_signal_uses_canonical_format(self):
+        """no-signal output must have direction=0 and signal_type='none'."""
         plugin = self._make_plugin()
-        assert hasattr(plugin, "_no_signal")
-        result = plugin._no_signal()
+        close = np.linspace(5000.0, 5010.0, 25)
+        # Missing features → should return no-signal
+        result = plugin.compute_full(_make_frames(close, {}))
         assert result.get("direction") == 0
+        assert result.get("signal_type") == "none"

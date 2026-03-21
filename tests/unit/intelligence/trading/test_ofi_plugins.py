@@ -30,19 +30,24 @@ class TestOFIContinuation:
         close = np.linspace(5000.0, 5010.0, 25)
         # Call compute_full 5 times to build up consecutive count
         for i in range(4):
-            frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0})
+            frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
             plugin.compute_full(frames)
-        frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0})
+        frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
+        if result.get("direction") != 0:
+            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
+            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_no_signal_insufficient_persistence(self):
         """After only 2 bars of positive OFI, no signal fires."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         # Only call once — only 1 bar of history
-        frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0})
+        frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == 0, f"Expected 0, got {result.get('direction')}"
 
@@ -65,9 +70,9 @@ class TestOFIContinuation:
         close = np.linspace(5000.0, 5010.0, 25)
         # Build up positive OFI count
         for _ in range(5):
-            plugin.compute_full(_make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0}))
+            plugin.compute_full(_make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0}))
         # Flip to negative — count should reset
-        result = plugin.compute_full(_make_frames(close, {"ofi_ewma_20": -150.0, "ofi_ewma_5": -120.0}))
+        result = plugin.compute_full(_make_frames(close, {"ofi_ewma_20": -150.0, "ofi_ewma_5": -120.0, "atr_14": 2.0}))
         assert result.get("direction") == 0  # count reset, only 1 bar in new direction
 
     def test_module_level_plugin_instance(self):
@@ -88,16 +93,21 @@ class TestOFIDivergence:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         # ofi_divergence = -1.8: OFI bearish vs price bullish → bearish mean reversion
-        frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_20": -100.0})
+        frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_20": -100.0, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
+        if result.get("direction") != 0:
+            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
+            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_bullish_divergence(self):
         """ofi_divergence > 1.5: OFI bullish vs price falling → bullish mean reversion."""
         plugin = self._make_plugin()
         close = np.linspace(5010.0, 5000.0, 25)
-        frames = _make_frames(close, {"ofi_divergence": 1.8, "ofi_ewma_20": 100.0})
+        frames = _make_frames(close, {"ofi_divergence": 1.8, "ofi_ewma_20": 100.0, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
 
@@ -145,16 +155,21 @@ class TestOFISpike:
         """ofi_spike_z = 2.5 fires with direction=1."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_spike_z": 2.5})
+        frames = _make_frames(close, {"ofi_spike_z": 2.5, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}"
         assert result.get("confidence", 0) > 0
+        if result.get("direction") != 0:
+            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
+            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
+            assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
+            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
 
     def test_fires_when_ofi_spike_z_exceeds_2_negative(self):
         """ofi_spike_z = -2.5 fires with direction=-1."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_spike_z": -2.5})
+        frames = _make_frames(close, {"ofi_spike_z": -2.5, "atr_14": 2.0})
         result = plugin.compute_full(frames)
         assert result.get("direction") == -1
 
@@ -185,7 +200,7 @@ class TestOFISpike:
         # Plugin is stateless — either no _state attribute, or empty dict at class level
         # The key is that calling compute_full multiple times works without state
         close = np.linspace(5000.0, 5010.0, 25)
-        frames = _make_frames(close, {"ofi_spike_z": 2.5})
+        frames = _make_frames(close, {"ofi_spike_z": 2.5, "atr_14": 2.0})
         r1 = plugin.compute_full(frames)
         r2 = plugin.compute_full(frames)
         assert r1.get("direction") == r2.get("direction") == 1
