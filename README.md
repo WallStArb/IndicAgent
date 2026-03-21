@@ -1,6 +1,6 @@
 # IndicAgent Market Intelligence Platform
 
-**v1.9 · 111 plugins · 2159 tests · 60 instruments · <10ms end-to-end**
+**v2.0 · 121 plugins · 2641 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
@@ -14,7 +14,7 @@
 
 ## What It Is
 
-IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, drift-corrected — in under 10ms. 103 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream. Any HTTP client subscribes to live intelligence over SSE or pulls over REST with no pipeline changes required.
+IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, drift-corrected — in under 10ms. 121 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream. Any HTTP client subscribes to live intelligence over SSE or pulls over REST with no pipeline changes required.
 
 Built on an **event-driven microservices architecture**: each of the 8 pipeline services owns a single responsibility (Separation of Concerns) and communicates exclusively through a Redpanda event stream — no service calls another directly. Services are deployed, restarted, and scaled independently. The stream is the only contract.
 
@@ -57,11 +57,12 @@ This is Separation of Concerns (SoC) as an architectural invariant, not a coding
 | Service | Owns |
 |---------|------|
 | TWS Daemon | Data collection from market feed |
-| Indicator Service | I1/I2 mathematical computation |
-| Market Analysis | I3–I6 structure, regime, pattern intelligence |
+| Feature Pipeline | I1–I6 unified in-process computation — indicators, structure, regime, patterns, SMC, confluence |
 | Signal Generator | I7 setup detection and CIS adjudication |
 | Signal Lifecycle | Open trade tracking, MAE/MFE, outcome classification |
 | Feature Writer | Persistence of intelligence vectors to TimescaleDB |
+| LLM Writer | LLM call audit trail with outcome back-fill |
+| Cross-Asset | Cross-asset spread dynamics injected into I7 |
 | AI Narrative | I8 LLM analysis and group synthesis |
 | API | SSE fan-out and REST delivery to clients |
 
@@ -70,11 +71,10 @@ Producers publish. Consumers subscribe. No service knows the others exist.
 Restart `market_analysis_service` to deploy a new plugin: zero effect on `signal_lifecycle_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
 
 ```
-IBKR TWS ──► [Redpanda topics] ──► indicator_service
-                                    ──► market_analysis_service
-                                    ──► signal_generator_service ──► signal_lifecycle_service
+IBKR TWS ──► [Redpanda topics] ──► feature_pipeline_service (I1–I6)
+                                    ──► signal_generator_service (I7) ──► signal_lifecycle_service
                                     ──► feature_writer_service
-                                    ──► ai_narrative_service
+                                    ──► ai_narrative_service (I8)
                                     ──► api_service ──► SSE ──► any HTTP client
 ```
 
@@ -86,18 +86,19 @@ Every stream is namespaced and typed:
 
 | Stream | Carries |
 |--------|---------|
-| `indicators:SYMBOL:TF` | I1 indicator values per bar |
-| `intelligence:SYMBOL:TF` | Full typed `IntelligenceEvent` (I1–I8 payload) |
+| `intelligence:SYMBOL:TF` | Full typed `IntelligenceEvent` (I1–I8 payload) — single canonical bus |
+| `intelligence_i7:SYMBOL:TF` | I7 signal scorecard (all ranked candidates per bar) |
 | `signals:SYMBOL:TF:aggregated` | Selected I7 signal with CIS score + ranked candidates |
 | `narratives:SYMBOL:TF` | I8 AI narrative text |
 | `llm_calls:stream` | Every LLM invocation (success, failure, counterfactual) |
 | `llm_outcomes:stream` | Signal lifecycle exits with outcome, P&L R, MAE, MFE |
+| `cross_asset` | Cross-asset spread dynamics (EQ index group) |
 
 ---
 
 ## The Plugin System
 
-### 103 plugins in a dependency DAG
+### 121 plugins in a dependency DAG
 
 Every output in the pipeline is produced by a plugin. Plugins are stateless workers that read from the typed bus and write back to it. The dependency graph is declared, not hardcoded: each plugin specifies what it reads, and the DAG engine derives execution order automatically at startup using topological sort.
 
@@ -135,20 +136,20 @@ Comprehensive validation runs at service startup to ensure system integrity befo
 - Orphaned plugins — detects imported plugin modules with missing `.py` files
 - TREND_SETUPS sync — ensures hardcoded trend setups match TIER_I7 plugins with `regime_type="trend"`
 
-**Integration:** Called at startup of `indicator_service`, `market_analysis_service`, and `signal_generator_service` before each service begins processing.
+**Integration:** Called at startup of `feature_pipeline_service` and `signal_generator_service` before each service begins processing.
 
 **Error handling:** Raises `RuntimeError` with `sys.exit(1)` if any validation fails, preventing services from starting with misconfigured plugins.
 
 | Tier | Count | Role |
 |------|-------|------|
-| I1 | 25 | Raw technical indicators — RSI, MACD, ATR, VWAP, ADX, Supertrend, HMA, and 18 more |
+| I1 | 27 | Raw technical indicators — RSI, MACD, ATR, VWAP, ADX, Supertrend, HMA, OFI, CVD, and 18 more |
 | I2 | 11 | Discrete events derived from I1 — crossovers, threshold crossings, volume surges, momentum acceleration |
-| I3 | 8 | Market structure — swing detection, S/R zones, Market Profile, Anchored VWAP, Fibonacci, session levels |
-| I4 | 7 | Regime classification — GARCH, Kalman filter, HMM, BOCPD, Hurst Exponent, Shannon Entropy, SessionContext |
-| I5 | 14 | Pattern detection — RSI divergence, squeeze, chart patterns, trend confluence, key level reactions |
+| I3 | 7 | Market structure — swing detection, S/R zones, Market Profile, Fibonacci, session levels |
+| I4 | 11 | Regime classification — GARCH, Kalman filter, HMM, BOCPD, Hurst Exponent, Shannon Entropy, Volume Profile, Anchored VWAP, and more |
+| I5 | 15 | Pattern detection — RSI divergence, squeeze, chart patterns, trend confluence, key level reactions |
 | I6 SMC | 13 | Smart Money Concepts — BOS/CHoCH, FVG, order blocks, liquidity pools, ICT killzones, AMD cycles, BOCPD |
 | I6 confluence | 1 | Cross-timeframe SMC synthesis |
-| I7 setups | 17 | Trading setups — entry, stop, target logic; CIS-gated |
+| I7 setups | 36 | Trading setups — entry, stop, target logic; CIS-gated; includes OFI/CVD microstructure and cross-asset divergence |
 | Aggregation | 2 | CIS scorer + signal aggregator |
 
 → [DAG Execution](docs/concepts/dag-execution.md)
@@ -409,12 +410,13 @@ Every service exposes a Prometheus-compatible metrics endpoint:
 
 | Service | Metrics |
 |---------|---------|
-| `indicator_service` | :9109 |
+| `feature_pipeline_service` | :9125 |
 | `signal_generator_service` | :9112 |
 | `ai_narrative_service` | :9113 |
-| `market_analysis_service` | :9114 |
 | `signal_lifecycle_service` | :9115 |
 | `feature_writer_service` | :9116 |
+| `llm_writer_service` | :9117 |
+| `cross_asset_service` | :9118 |
 
 Grafana dashboards: pipeline throughput per symbol/TF · per-service P50/P95/P99 latency · signal generation and regime gate drop rates · LLM call success and fallback rates · per-plugin error rates.
 
@@ -444,10 +446,10 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 
 | | |
 |---|---|
-| **Version** | v1.8 — shipped 2026-03-13 |
+| **Version** | v2.0 in progress — Signal Integrity & ML Foundation |
 | **Instruments** | 60 — equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) · 38 ETFs |
-| **Plugins** | 103 across I1–I7 + 2 aggregation components |
-| **Tests** | 1754 passing (unit + integration) |
+| **Plugins** | 121 across I1–I7 + 2 aggregation components |
+| **Tests** | 2641 passing (unit) |
 | **Latency** | <10ms bar-to-intelligence, feed-provider bound |
 | **Data in** | IBKR TWS: 100–500+ ticks/sec per instrument |
 | **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
@@ -460,14 +462,17 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 
 ## Current Status
 
-**v1.8 shipped — Renaissance Signal Quality.**
+**v2.0 in progress — Signal Integrity & ML Foundation.**
 
-- **I1–I8 pipeline:** Fully operational. 103 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
-- **v1.8 delivered:** Hurst Exponent + Shannon Entropy (I4) · alpha decay + freshness decay · per-setup cooldown gate · KS + CUSUM drift detection with live pipeline feedback · `GET /api/drift` · Signal Scorecard SSE stream · DB signal history in drill panel · TierTooltips.
+- **I1–I8 pipeline:** Fully operational. 121 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
+- **v2.0 phases complete:** DAG Refactor (Phase 40) · Intelligence Gap Fill (Phase 41) · Candlestick Expansion (Phase 42) · I6 Confluence (Phase 43) · Feature Pipeline Renaissance (Phase 44.1 — `indicator_service` + `market_analysis_service` unified into `feature_pipeline_service`).
+- **Feature Pipeline:** I1–I6 now run as a single in-process pipeline (`feature_pipeline_service`) — eliminates inter-service hops, reduces end-to-end latency, simplifies service topology.
+- **Cross-asset intelligence:** OFI/CVD microstructure (I1) + 7 new I7 setups + `cross_asset_service` injecting spread dynamics into I7 for EQ index instruments.
+- **CIS pipeline:** Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`. Full audit trail per signal.
 - **API layer:** REST + SSE. Full intelligence accessible to any HTTP client over standard HTTP.
 - **Dashboard:** Price hero · multi-TF intelligence panels · SMC panel · I7 signal drill panel with DB history · Signal Scorecard (all ranked candidates) · AI narrative cards · tier tooltips throughout.
 - **AI Narratives:** OpenRouter (free models) / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
-- **Next:** v1.9 — TBD (`/gsd:new-milestone`).
+- **Next:** Phase 44.2 — Signal Generator consolidation.
 
 ---
 
@@ -483,4 +488,4 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 
 ---
 
-**v1.8 · 103 plugins · 1754 tests · 60 instruments**
+**v2.0 · 121 plugins · 2641 tests · 60 instruments**
