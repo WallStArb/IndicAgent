@@ -417,45 +417,6 @@ Plans:
 - [x] 38-02-PLAN.md — Roll detection engine: tws_daemon volume tracking, z-score detection, confirmation window, cooldown, roll event publishing (ROLL-04)
 - [x] 38-03-PLAN.md — Pipeline integration: downstream service consumption, plugin state migration, roll boundary markers, backfill seeding (ROLL-05, ROLL-06)
 
-### Phase 50: Signal Pipeline DAG Refactor: monolithic→DAG microservices + Renaissance observability
-
-**Goal**: Refactor the signal pipeline from a monolithic aggregator to a clean DAG of independent microservices, then add Renaissance-grade observability: performance attribution, live A/B experimentation, causal inference, data quality monitoring, and fault tolerance.
-**Requirements**: None (architectural refactor)
-**Depends on**: Phase 49
-**Success Criteria** (what must be TRUE):
-  1. Pipeline is clean DAG of 6 independent stages (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector)
-  2. Each stage is separate microservice with systemd unit
-  3. Stages communicate via Redpanda streams only (no direct coupling)
-  4. Each stage has single responsibility (quality gating, regime filtering, TOD adjustment, calibration, ranking, winner selection)
-  5. Fault tolerance: bypass on stage failure with circuit breaker
-  6. Data quality: validation at each stage drops invalid signals
-  7. < 10ms latency per stage
-  8. Monolithic aggregator removed from signal_generator_service.py
-  9. All stages emit attribution to side channel
-**Plans**: 4 plans
-
-Plans:
-- [ ] 47-01-PLAN.md — DAG infrastructure: Stage base class, CircuitBreaker, DataQualityMonitor [wave 1]
-- [ ] 47-02-PLAN.md — 6 stage implementations: QualityGate, RegimeGate, TODAdjuster, Calibrator, Ranker, WinnerSelector [wave 2]
-- [ ] 47-03-PLAN.md — Redpanda topics + systemd services: 8 topics (7-day retention), 6 services (:9119-:9124) [wave 2]
-- [ ] 47-04-PLAN.md — Integration: refactor signal_generator_service, E2E test, verify fault tolerance [wave 3]
-
-**Renaissance Principles (LOCKED):**
-1. **Instrument everything** — Every decision, transformation, attribution tracked
-2. **Let the system run** — Fully automated feedback loops, no manual reviews
-3. **Earn the right** — Statistical proof (p < 0.05) before any change
-4. **Segment relentlessly** — Regime/context-specific analysis, never global
-5. **Degrade gracefully** — Fault tolerance with circuit breakers and bypass modes
-6. **Data quality over model complexity** — Validate at each stage, drop invalid signals
-7. **Never drop data** — Full retention of all intermediate outputs (7-day topic retention)
-
-**Out of scope for Phase 0 (DAG Refactor):**
-- Performance Attribution Service (Phase 1)
-- Counterfactual Analysis (Phase 2)
-- A/B Test Framework (Phase 3)
-- Causal Inference (Phase 4)
-- Dashboard & Monitoring (Phase 5)
-
 </details>
 
 ### Phase 39: Data Quality + DB Health
@@ -712,21 +673,15 @@ Plans:
 - [x] 42-04-PLAN.md — weight_updater pattern calibration + 7-day backtest validation (CANDLE-01, CANDLE-02) [wave 2]
 
 ### Phase 46: I6 Confluence Expansion
-**Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — market_analysis_service injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment.
-**Depends on**: Phase 41 (i6_fvg_tf_alignment and i6_ob_tf_alignment live), Phase 42 (candlestick patterns stable)
-**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04
+**Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — FeaturePipelineService injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment. FVG/OB alignment weights become non-zero (wired in Phase 41, weighted here after Phase 45 validates confluence data quality).
+**Depends on**: Phase 45 (confluence wiring validated, I6 data quality confirmed), Phase 44.1 (FeaturePipelineService is the frame injection point)
+**Requirements**: CONF-04, CONF-05, CONF-06
 **Success Criteria** (what must be TRUE):
-  1. `market_analysis_service` consumes from `development.cross_asset` topic and injects cross-asset features into the frame dict before I6 plugin execution — verifiable by confirming `frames.get('cross_asset')` is non-None in a live `CrossTimeframeConfluencePlugin.compute()` call log.
+  1. `FeaturePipelineService` consumes from `development.cross_asset` topic and injects cross-asset features into the frame dict before I6 plugin execution — verifiable by confirming `frames.get('cross_asset')` is non-None in a live `CrossTimeframeConfluencePlugin.compute()` call log.
   2. When VIX spread z-score is high (simulated injection), mean-reversion setups show reduced `ctf_score` and volatility/breakout setups show increased `ctf_score` — the VIX suppression multiplier is logged per bar.
   3. When ES/NQ/RTY/YM spread z-scores are all aligned (same direction), `ctf_score` gets a sector rotation boost — the contributing fields are logged in `intelligence_features.i6` JSONB.
   4. `i6_fvg_tf_alignment` and `i6_ob_tf_alignment` have non-zero weights in the `CrossTimeframeConfluencePlugin` scoring formula — querying `intelligence_features.i6` for ES 1m bars shows non-zero `ctf_score` contributions from these fields.
-**Plans**: 4 plans
-
-Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+**Plans**: TBD (plan during Phase 45)
 
 ### Phase 47: Shadow Mode Graduation
 **Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds adjusted if data supports it, cross-asset and roll monitor enabled, trad_DualDivergence promoted once it passes the statistical gate.
@@ -737,13 +692,7 @@ Plans:
   2. `CROSS_ASSET_ENABLED=true` is set in the production environment; `indicagent-cross-asset` publishes live data and `signal_generator_service` injects cross-asset frames for EQ_INDEX symbols — verifiable by querying `signal_ledger` for `trad_CrossAssetDivergence` signals after enablement.
   3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
   4. `trad_DualDivergence` `IS_SHADOW` flag is removed; the plugin fires live signals that appear in `signal_ledger` with `is_shadow = FALSE` — N >= 50 resolved signals with win rate > 50% is confirmed before flag removal.
-**Plans**: 4 plans
-
-Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+**Plans**: TBD (plan during Phase 46)
 
 ### Phase 48: Auth + External Access
 **Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer, and keyset pagination enables efficient large features export.
@@ -756,13 +705,7 @@ Plans:
   4. Login, logout, token refresh, and authentication failure events are logged as structured records — `grep "auth_event" logs/api.log` shows timestamped entries for each event type.
   5. The Next.js dashboard runs as a standalone production build managed by a systemd unit — `systemctl status indicagent-dashboard` shows `active (running)` and the build serves from the compiled output directory.
   6. Auth endpoints (login, refresh) enforce rate limiting — more than 10 failed login attempts within 60 seconds returns HTTP 429 for subsequent attempts.
-**Plans**: 4 plans
-
-Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+**Plans**: TBD (plan during Phase 47)
 
 ### Phase 49: ML Scoring Model
 **Goal**: A LightGBM model scores every new signal in shadow mode, trained on signal_features with stationarity gates and regime segmentation, with walk-forward retraining and SHAP attribution. LLM call audit trail completes the training data feed (token counts, retry chain, outcome back-fill).
@@ -776,17 +719,11 @@ Plans:
   5. Walk-forward retraining runs on schedule (every 7 days via systemd timer) with 60-day expanding window and 14-day hold-out — the timer completion and AUC/Brier metrics are logged to `logs/ml_trainer.log`.
   6. After 8-week shadow gate passes (AUC >= 0.56, Brier < 0.25, Pearson r > 0.20 p < 0.05, win rate lift > +3% at ml_score > 0.6), ML blend is enabled in the aggregator with α=0.20 — `_build_all_ranked()` uses `calibrated_confidence * (1 - α) + ml_score * α` as the sort key.
   7. Global LightGBM model and 3 regime-specific models (ranging/trending/volatile) are trained independently — the regime-specific model is used when `N >= 500` for that regime; otherwise falls back to global model with a logged reason.
-**Plans**: 4 plans
-
-Plans:
-- [ ] 039-01-PLAN.md — SignalStatus enum replacing raw string literals (DATA-06)
-- [ ] 039-02-PLAN.md — CIS null repair exit-1 gate + alpha validation re-run (DATA-01, DATA-02)
-- [ ] 039-03-PLAN.md — OHLCV rebuild script + signal_ledger composite index (DATA-03, DATA-04)
-- [ ] 039-04-PLAN.md — Gap-fill service with RTH detection + systemd timer (DATA-05)
+**Plans**: TBD (plan during Phase 48)
 
 ### Phase 50: Renaissance Observability (Attribution, A/B Testing, Causal Inference)
 **Goal**: The DAG pipeline has Renaissance-grade observability — performance attribution tracks value added by each stage, live A/B experimentation tests configuration changes, causal inference proves improvements are not just correlation, counterfactual analysis quantifies missed opportunities, LLM analyzes attribution to recommend optimizations. Intelligence tier audit surface makes every feature vector inspectable (I3/I4/I5/I6 fields visible in dashboard). Staleness is a first-class quality signal: stale intelligence reduces confidence in signal_ledger so ML training can exclude unreliable rows; dashboard badge is a side effect of the data-quality fix, not the primary deliverable.
-**Depends on**: Phase 40 (DAG foundation with basic attribution in place), Phase 49 (ML model provides additional signal features for causal analysis)
+**Depends on**: Phase 44.2 (in-process DAG with attribution audit queue in place), Phase 49 (ML model provides additional signal features for causal analysis)
 **Requirements**: None (observability infrastructure)
 **Success Criteria** (what must be TRUE):
   1. Every signal has full attribution chain in `performance_attribution` table — can query value added by each stage
@@ -801,12 +738,12 @@ Plans:
 **Plans**: TBD (6-7 plans)
 
 Plans:
-- [ ] 47-01-PLAN.md — Performance Attribution Service: subscribe to attribution stream, aggregate, write to DB (Phase 1)
-- [ ] 47-02-PLAN.md — Counterfactual Analysis: track suppressed signals, simulate outcomes, quantify opportunity cost (Phase 2)
-- [ ] 47-03-PLAN.md — A/B Test Framework: deploy multiple variants, statistical winner selection (Phase 3)
-- [ ] 47-04-PLAN.md — Causal Inference Engine: randomized trials, causal effect estimation (Phase 4)
-- [ ] 47-05-PLAN.md — LLM Gate Optimizer: analyze attribution + counterfactuals, recommend changes (Phase 3)
-- [ ] 47-06-PLAN.md — Dashboard & Monitoring: DAG visualization, stage health metrics, attribution reports (Phase 5)
+- [ ] 50-01-PLAN.md — Performance Attribution Service: subscribe to attribution stream, aggregate, write to DB
+- [ ] 50-02-PLAN.md — Counterfactual Analysis: track suppressed signals, simulate outcomes, quantify opportunity cost
+- [ ] 50-03-PLAN.md — A/B Test Framework: deploy multiple variants, statistical winner selection
+- [ ] 50-04-PLAN.md — Causal Inference Engine: randomized trials, causal effect estimation
+- [ ] 50-05-PLAN.md — LLM Gate Optimizer: analyze attribution + counterfactuals, recommend changes
+- [ ] 50-06-PLAN.md — Dashboard & Monitoring: DAG visualization, stage health metrics, attribution reports
 
 **Out of scope (future phases):**
 - Stage splitting (if attribution shows stages do too much)
