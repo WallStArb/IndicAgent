@@ -585,7 +585,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 44.2-01-PLAN.md — Pipeline pure functions: extract logic from stage services into `src/intelligence/pipeline/` modules + unit tests (PIPE-05)
+- [x] 44.2-01-PLAN.md — Pipeline pure functions: extract logic from stage services into `src/intelligence/pipeline/` modules + unit tests (PIPE-05)
 - [ ] 44.2-02-PLAN.md — Wire pipeline functions into SignalGeneratorService + audit queue + BarIntelligenceRecord publish (PIPE-06)
 - [ ] 44.2-03-PLAN.md — Retire 6 stage services + systemd units + live cutover (PIPE-06)
 - [ ] 44.2-04-PLAN.md — Integration test: E2E bar → BarIntelligenceRecord validation + metrics check (PIPE-07)
