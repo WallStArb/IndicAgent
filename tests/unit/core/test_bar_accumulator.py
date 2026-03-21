@@ -45,7 +45,6 @@ def _make_1m_bar(
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_5m_boundaries():
     """Feed 5 sequential 1m bars at :00,:01,:02,:03,:04 then :05 — first 5m bar emitted at :05 boundary cross."""
     from src.core.bar_accumulator import BarAccumulator
@@ -61,7 +60,6 @@ def test_5m_boundaries():
     assert len(five_m_bars) == 1
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_15m_boundaries():
     """Feed 15 sequential 1m bars — 15m bar emitted at :15 boundary cross."""
     from src.core.bar_accumulator import BarAccumulator
@@ -76,7 +74,6 @@ def test_15m_boundaries():
     assert len(fifteen_m_bars) == 1
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_1h_boundaries():
     """Feed 60 sequential 1m bars — 1h bar emitted at :00 boundary cross."""
     from src.core.bar_accumulator import BarAccumulator
@@ -91,7 +88,6 @@ def test_1h_boundaries():
     assert len(one_h_bars) == 1
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_gap_no_emission():
     """Skip 3 bars in a 5m window, feed bar at :05 — only the partial 5m bar from the window with data emitted."""
     from src.core.bar_accumulator import BarAccumulator
@@ -110,7 +106,6 @@ def test_gap_no_emission():
     assert len(five_m_bars) == 1
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_current_partial():
     """After 3 of 5 bars in a 5m window, current_partial returns in-progress bar with OHLCV from those 3 bars."""
     from src.core.bar_accumulator import BarAccumulator
@@ -125,7 +120,6 @@ def test_current_partial():
     assert partial.symbol == "ES"
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_ohlcv_aggregation():
     """5m bar has correct open (first bar), high (max), low (min), close (last bar), volume (sum)."""
     from src.core.bar_accumulator import BarAccumulator
@@ -174,7 +168,6 @@ def test_ohlcv_aggregation():
     assert five_m.volume == 5000  # sum of volumes
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_htf_derived_source():
     """Emitted HTF bars have source='htf_derived'."""
     from src.core.bar_accumulator import BarAccumulator
@@ -190,7 +183,6 @@ def test_htf_derived_source():
     assert five_m_bars[0].source == "htf_derived"
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_no_1m_no_output():
     """update with a 5m bar (not 1m) returns empty list."""
     from src.core.bar_accumulator import BarAccumulator
@@ -213,7 +205,6 @@ def test_no_1m_no_output():
     assert result == []
 
 
-@pytest.mark.xfail(reason="Wave 1 implementation", strict=True)
 def test_session_break_closes_partial():
     """Feed bars across a session boundary (per D-14) — partial bar is closed and emitted at session break."""
     from src.core.bar_accumulator import BarAccumulator, TradingSession
