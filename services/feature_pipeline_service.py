@@ -99,6 +99,17 @@ from src.observability.metrics import (
 # Canonical timeframe ordering for I1-I6 pipeline.
 _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
 
+# OHLCV batch write — buffer 50 rows or flush every 5 seconds.
+# Only 1m bars written; HTF bars derived by TimescaleDB continuous aggregates.
+_OHLCV_BATCH_SIZE: int = 50
+_OHLCV_FLUSH_INTERVAL: float = 5.0
+
+_INSERT_OHLCV_SQL: str = """
+INSERT INTO market_data_ohlcv (timestamp, symbol, timeframe, open, high, low, close, volume)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT DO NOTHING
+"""
+
 # I1 plugins that track absolute price levels — adjusted by roll_gap on roll.
 PRICE_SENSITIVE_PLUGINS: frozenset[str] = frozenset(
     {"bollinger_bands", "keltner_channel", "donchian_channel"}
@@ -240,6 +251,14 @@ class FeaturePipelineService:
             "Feature pipeline service uptime in seconds",
         )
         self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
+
+        # OHLCV batch write buffer — flushed by size or interval in _process_market_data
+        self._ohlcv_buffer: list[tuple] = []
+        self._ohlcv_last_flush: float = time.monotonic()
+        self.ohlcv_writes_total = counter(
+            "feature_pipeline_ohlcv_writes_total",
+            "Total OHLCV rows written to market_data_ohlcv",
+        )
 
         self.logger = structlog.get_logger(__name__)
 
@@ -498,16 +517,19 @@ class FeaturePipelineService:
                 bar = bar.model_copy(update={"gap_preceding": True})
         self._last_bar_ts[key] = bar.ts.timestamp()
 
-        # 2. Append to BarHistory
+        # 2. Queue live 1m bar for OHLCV write (independent of intelligence pipeline)
+        self._queue_ohlcv_write(bar)
+
+        # 3. Append to BarHistory
         self._bar_history.append(bar)
 
-        # 3. BarAccumulator update — get completed HTF bars
+        # 4. BarAccumulator update — get completed HTF bars
         htf_bars = self._bar_accumulator.update(bar)
         for htf_bar in htf_bars:
             self._bar_history.append(htf_bar)
             await self._publish_htf_bar(htf_bar)
 
-        # 4. Process bar + all completed HTF bars through I1-I6 pipeline
+        # 5. Process bar + all completed HTF bars through I1-I6 pipeline
         all_bars = [bar] + htf_bars
         for b in all_bars:
             if not self._bar_history.is_warm(b.symbol, b.tf, min_bars_for_tf(b.tf)):
@@ -532,6 +554,51 @@ class FeaturePipelineService:
             {"bar": payload},
             key=f"{bar.symbol}:{bar.tf}",
         )
+
+    # ---------------------------------------------------------------------------
+    # Live OHLCV write path
+    # ---------------------------------------------------------------------------
+
+    def _queue_ohlcv_write(self, bar: BarMessage) -> None:
+        """Buffer a 1m bar for batch INSERT to market_data_ohlcv.
+
+        Only 1m bars are written — HTF bars are derived by TimescaleDB continuous
+        aggregate views (ohlcv_5m, ohlcv_15m, ohlcv_1h, etc.).
+        """
+        if bar.tf != "1m":
+            return  # Only 1m bars — HTF derived by TimescaleDB continuous aggregates
+        self._ohlcv_buffer.append((
+            bar.ts,       # timestamp (Python datetime — asyncpg requirement)
+            bar.symbol,   # symbol
+            bar.tf,       # timeframe
+            bar.open,     # open
+            bar.high,     # high
+            bar.low,      # low
+            bar.close,    # close
+            bar.volume,   # volume
+        ))
+
+    async def _flush_ohlcv(self) -> None:
+        """Flush _ohlcv_buffer to market_data_ohlcv via batch executemany.
+
+        Uses ON CONFLICT DO NOTHING for idempotent writes — safe on replay.
+        On DB error, buffer is left intact for retry on next flush cycle.
+        """
+        if not self._ohlcv_buffer:
+            return
+        pool = getattr(self._db, "pool", None) if self._db else None
+        if pool is None:
+            return
+        batch = self._ohlcv_buffer[:]
+        try:
+            async with pool.acquire() as conn:
+                await conn.executemany(_INSERT_OHLCV_SQL, batch)
+            self.ohlcv_writes_total.inc(len(batch))
+            self._ohlcv_buffer.clear()
+            self._ohlcv_last_flush = time.monotonic()
+        except Exception as e:
+            self.logger.error("ohlcv_flush_failed", error=str(e), buffer_size=len(batch))
+            # Leave buffer intact for retry on next flush cycle
 
     # ---------------------------------------------------------------------------
     # I1-I6 pipeline execution
@@ -952,6 +1019,16 @@ class FeaturePipelineService:
 
                 await self._process_bar(bar)
 
+                # Flush OHLCV buffer if size threshold or time interval reached
+                if (
+                    len(self._ohlcv_buffer) >= _OHLCV_BATCH_SIZE
+                    or (
+                        self._ohlcv_buffer
+                        and time.monotonic() - self._ohlcv_last_flush > _OHLCV_FLUSH_INTERVAL
+                    )
+                ):
+                    await self._flush_ohlcv()
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1049,7 +1126,7 @@ class FeaturePipelineService:
             await self.stop()
 
     async def stop(self) -> None:
-        """Graceful shutdown — drain consumer, flush producer."""
+        """Graceful shutdown — drain consumer, flush producer, drain OHLCV buffer."""
         self.logger.info("Stopping FeaturePipelineService")
         self.running = False
         self.shutdown_requested = True
@@ -1057,6 +1134,7 @@ class FeaturePipelineService:
             await self._consumer.stop()
         if self._tick_consumer:
             await self._tick_consumer.stop()
+        await self._flush_ohlcv()  # drain remaining OHLCV buffer
         await self._producer.stop()
         self.logger.info("FeaturePipelineService stopped")
 
