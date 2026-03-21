@@ -187,6 +187,10 @@ class BarIntelligenceRecord(BaseModel):
     ledger_written: bool            # False on signal_ledger write failure
                                     # Phase 49 filters WHERE ledger_written = TRUE
 
+    # Denormalized from IntelligenceEvent — top-level for fast INSERT without JSONB parse
+    session_type: SessionType       # mirrors intelligence.session_type
+    days_to_expiry: int | None      # computed by FeaturePipelineService from expiry map (startup step 2)
+
     # Timing
     i7_computed_at: datetime
     pipeline_latency_ms: float      # bar_close_ts → record publish delta
@@ -200,6 +204,8 @@ def topic_intelligence_record(env_name: str) -> str:
     """Complete BarIntelligenceRecord — single atomic persistence source."""
     return f"{env_prefix(env_name)}intelligence.record"
 ```
+
+> **Note on existing pipeline topic functions:** `stream_keys.py` already defines `topic_quality_gated()`, `topic_regime_gated()`, `topic_tod_adjusted()`, `topic_calibrated()`, `topic_ranked()`, `topic_winner()` (no `pipeline_` infix). Phase 44.2 uses these existing names. The audit queue payloads in `_queue_stage_audits()` use these functions directly.
 
 ---
 
@@ -215,9 +221,10 @@ class BarHistory:
         self._data: dict[tuple[str,str], deque[BarMessage]] = defaultdict(
             lambda: deque(maxlen=maxlen)
         )
-        # DataFrame cache — invalidated on append, O(1) on repeat reads same bar
-        self._df_cache: dict[tuple[str,str], pd.DataFrame] = {}
-        # Note: _df_cache populated at service layer, not here — pandas banned from core
+        # Opaque cache slot — service layer stores its own derived representation here
+        # (e.g., DataFrame). Typed Any in core to avoid pandas import dependency.
+        self._frame_cache: dict[tuple[str,str], Any] = {}
+        # Note: pandas is banned from src/core/ — DataFrame construction happens at service layer
 
     def append(self, bar: BarMessage) -> None: ...
     def get(self, symbol: str, tf: str) -> deque[BarMessage]: ...
@@ -356,6 +363,8 @@ Target: **pipeline_latency_ms < 50ms p99**
 
 Each module is a pure function: typed inputs → typed outputs. No Kafka, no DB, no service awareness. State is passed as arguments, not closed over.
 
+> **Migration note:** These modules currently exist as service classes at `src/intelligence/stages/` (e.g., `QualityGateService` with Kafka consumer/producer wiring). Phase 44.2 renames the directory to `src/intelligence/pipeline/` and refactors each service class into a pure function. The old service files at `src/intelligence/stages/` are deleted once the pure-function equivalents are verified.
+
 ```
 src/intelligence/pipeline/
     __init__.py
@@ -424,13 +433,14 @@ async def _process_event(self, event: IntelligenceEvent) -> None:
     winner         = select_winner(ranked)
 
     # Observability — async, bounded queue, never blocks hot path
+    # topic_quality_gated() / topic_regime_gated() etc. are existing stream_keys.py functions
     await self._queue_stage_audits([
-        {"topic": topic_pipeline_quality_gated(...), "data": quality_gated},
-        {"topic": topic_pipeline_regime_gated(...),  "data": regime_gated},
-        {"topic": topic_pipeline_tod_adjusted(...),  "data": tod_adjusted},
-        {"topic": topic_pipeline_calibrated(...),    "data": calibrated},
-        {"topic": topic_pipeline_ranked(...),        "data": ranked},
-        {"topic": topic_pipeline_winner(...),        "data": winner},
+        {"topic": topic_quality_gated(...),  "data": quality_gated},
+        {"topic": topic_regime_gated(...),   "data": regime_gated},
+        {"topic": topic_tod_adjusted(...),   "data": tod_adjusted},
+        {"topic": topic_calibrated(...),     "data": calibrated},
+        {"topic": topic_ranked(...),         "data": ranked},
+        {"topic": topic_winner(...),         "data": winner},
     ])
 
     # Write winner to signal_ledger — defined failure mode
@@ -481,6 +491,23 @@ signal_generator_latency_ms
 
 **After:** 1 topic, single atomic INSERT, complete rows, always.
 
+**DB migration required (Phase 44.3 scope):** New columns must be added to `intelligence_features` before the new INSERT runs:
+```sql
+ALTER TABLE intelligence_features
+    ADD COLUMN IF NOT EXISTS winner_plugin text,
+    ADD COLUMN IF NOT EXISTS winner_confidence double precision,
+    ADD COLUMN IF NOT EXISTS winner_direction text,
+    ADD COLUMN IF NOT EXISTS signals_evaluated integer,
+    ADD COLUMN IF NOT EXISTS signals_after_quality integer,
+    ADD COLUMN IF NOT EXISTS signals_after_regime integer,
+    ADD COLUMN IF NOT EXISTS signals_after_tod integer,
+    ADD COLUMN IF NOT EXISTS signals_after_calibration integer,
+    ADD COLUMN IF NOT EXISTS ledger_written boolean,
+    ADD COLUMN IF NOT EXISTS i7_computed_at timestamptz;
+-- session_type and days_to_expiry already exist in intelligence_features schema
+```
+Migration file: `production/migrations/NNN_intelligence_features_record_columns.sql` (NNN = next sequence number).
+
 ```sql
 INSERT INTO intelligence_features (
     ts, symbol, tf,
@@ -497,7 +524,7 @@ ON CONFLICT (ts, symbol, tf) DO NOTHING
 
 **Removed:** `_process_i7_message()`, `_process_i8_message()`, `_flush_i7_i8()`, `_UPSERT_I7_SQL`, `_UPSERT_I8_SQL`, `_i7_buffer`, `_i8_buffer`.
 
-**i8 persistence moved to LLMWriterService.** LLMWriterService already owns all LLM data, already consumes `development.intelligence.i8`. It now also UPSERTs `intelligence_features.i8` — everything LLM in one service, zero cross-service coordination for i8.
+**i8 persistence moved to LLMWriterService.** LLMWriterService owns all LLM data and already writes `llm_calls`. Phase 44.3 adds: new `development.intelligence.i8` topic subscription, new consumer group, buffer, and `UPDATE intelligence_features SET i8 = $1 WHERE ts = $2 AND symbol = $3 AND tf = $4` UPSERT — everything LLM in one service. This is new work in LLMWriterService, not a minor wiring step.
 
 ---
 
