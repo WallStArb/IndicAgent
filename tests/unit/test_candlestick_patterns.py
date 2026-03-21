@@ -7,7 +7,6 @@ Tests verify all 10 new pattern detection functions added in Phase 42.
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from src.intelligence.patterns.candlestick_patterns import plugin
 

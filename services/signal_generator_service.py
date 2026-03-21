@@ -478,7 +478,8 @@ class SignalGeneratorService:
         self._cis_weights_cache: dict[tuple[str, str], tuple[dict[str, float], int]] = {}
 
         # Phase 35: Calibration + TOD multiplier + CIS Kalman state
-        self._calibration_curves: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}   # (plugin_name, tf) -> (breakpoints, values)
+        # (plugin_name, tf) -> (breakpoints, values)
+        self._calibration_curves: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
         self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
         self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
 
@@ -1843,12 +1844,28 @@ class SignalGeneratorService:
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
-                asyncio.create_task(self._run_refresh_loop("perf_weights", 3600, self._load_perf_weights)),
-                asyncio.create_task(self._run_refresh_loop("drift_penalties", 14400, self._refresh_drift_penalties_from_db)),
+                asyncio.create_task(
+                    self._run_refresh_loop("perf_weights", 3600, self._load_perf_weights)
+                ),
+                asyncio.create_task(
+                    self._run_refresh_loop(
+                        "drift_penalties", 14400, self._refresh_drift_penalties_from_db
+                    )
+                ),
                 asyncio.create_task(self._resolution_listener_loop()),
-                asyncio.create_task(self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)),
-                asyncio.create_task(self._run_refresh_loop("calibration_curves", 1800, self._load_calibration_curves_from_db)),
-                asyncio.create_task(self._run_refresh_loop("tod_multipliers", 14400, self._load_tod_multipliers_from_db)),
+                asyncio.create_task(
+                    self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)
+                ),
+                asyncio.create_task(
+                    self._run_refresh_loop(
+                        "calibration_curves", 1800, self._load_calibration_curves_from_db
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_refresh_loop(
+                        "tod_multipliers", 14400, self._load_tod_multipliers_from_db
+                    )
+                ),
                 # Phase 44.2: Audit queue drain — publishes stage snapshots off hot path
                 asyncio.create_task(self._drain_audit_queue()),
             ]
