@@ -625,6 +625,15 @@ Plans:
   9. Roll events handled: `BarHistory.migrate_symbol()` called, I1 price state adjusted by roll gap
   10. I2 crossover detection correct on bar 2+ (`_prev_i1_features` injected per (symbol, tf))
 
+**Plans**: 5 plans
+
+Plans:
+- [ ] 44.1-01-PLAN.md — Test stubs + module shells (BarMessage, BarHistory, BarAccumulator, IntelligenceEvent extension) (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
+- [ ] 44.1-02-PLAN.md — Implement BarHistory + BarAccumulator (TDD) (PIPE-02, PIPE-03)
+- [ ] 44.1-03-PLAN.md — Build FeaturePipelineService + systemd unit + service tests (PIPE-01, PIPE-03)
+- [ ] 44.1-04-PLAN.md — Simplify SignalGeneratorService + live cutover (PIPE-01, PIPE-04)
+- [ ] 44.1-05-PLAN.md — Post-cutover cleanup: retire old units + topic + regression (PIPE-01, PIPE-02, PIPE-03, PIPE-04)
+
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
 **Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation.
 **Depends on**: Phase 44 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract, make_signal() factory wired)
