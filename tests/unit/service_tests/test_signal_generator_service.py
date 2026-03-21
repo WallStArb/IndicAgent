@@ -240,6 +240,7 @@ async def test_process_message_accesses_typed_attributes():
     svc._regime_cache = collections.defaultdict(dict)
     svc._cross_asset_enabled = False
     svc._htf_intel_cache = {}  # Phase 041: HTF cache added to __init__
+    svc.db_manager = None  # _load_pattern_reliability_weights handles None gracefully
     svc._process_bar = mock_process_bar
 
     await svc._process_single_message("ESH6", "5m", fields, "intel:ESH6:5m", b"1-0")

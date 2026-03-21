@@ -14,7 +14,7 @@ def _make_service():
         patch("services.ai_narrative_service.gauge", return_value=MagicMock()),
         patch("services.ai_narrative_service.Settings") as mock_settings,
         patch(
-            "services.ai_narrative_service.get_active_contracts",
+            "services.ai_narrative_service.get_active_symbols",
             return_value=["ESH6", "NQH6", "RTYH6"],
         ),
     ):

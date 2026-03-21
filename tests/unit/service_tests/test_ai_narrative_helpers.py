@@ -12,27 +12,25 @@ from services.ai_narrative_service import (
 )
 
 
-def _make_fields(direction: int = 1, **overrides) -> dict[bytes, bytes]:
-    """Build a bytes-keyed field dict like xreadgroup returns."""
-    base: dict[bytes, bytes] = {
-        b"symbol": b"ESH6",
-        b"timeframe": b"5m",
-        b"timestamp": b"2026-02-19T14:05:00",
-        b"direction": str(direction).encode(),
-        b"confidence": b"0.74",
-        b"confluence_score": b"0.81",
-        b"setup_plugin": b"trad_TrendFollowing",
-        b"signal_type": b"trend_following",
-        b"entry_price": b"5102.50",
-        b"stop_loss": b"5094.00",
-        b"targets": b"5112.00,5118.50",
-        b"regime_context": b"trending_up",
-        b"supporting_factors": b"BOS confirmed, RSI bullish",
+def _make_fields(direction: int = 1, **overrides) -> dict[str, str]:
+    """Build a string-keyed field dict like Kafka JSON consumer returns."""
+    base: dict[str, str] = {
+        "symbol": "ESH6",
+        "timeframe": "5m",
+        "timestamp": "2026-02-19T14:05:00",
+        "direction": str(direction),
+        "confidence": "0.74",
+        "confluence_score": "0.81",
+        "setup_plugin": "trad_TrendFollowing",
+        "signal_type": "trend_following",
+        "entry_price": "5102.50",
+        "stop_loss": "5094.00",
+        "targets": "5112.00,5118.50",
+        "regime_context": "trending_up",
+        "supporting_factors": "BOS confirmed, RSI bullish",
     }
     for k, v in overrides.items():
-        key = k.encode() if isinstance(k, str) else k
-        val = v.encode() if isinstance(v, str) else v
-        base[key] = val
+        base[k] = str(v) if not isinstance(v, str) else v
     return base
 
 

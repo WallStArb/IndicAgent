@@ -145,9 +145,11 @@ def parse_aggregated_signal(fields: dict[str, Any]) -> dict[str, Any] | None:
     """
 
     def _get(key: str, default: str = "") -> str:
-        raw = fields.get(key, "")
+        raw = fields.get(key) if key in fields else fields.get(key.encode(), "")
         if raw is None:
             return default
+        if isinstance(raw, bytes):
+            raw = raw.decode()
         return str(raw).strip() or default
 
     direction = int(float(_get("direction", "0")))

@@ -59,7 +59,7 @@ def compute_setup_performance(rows: list[dict]) -> dict[str, dict]:
         pnl_r = row.get("pnl_r")
         if pnl_r is None:
             continue
-        exit_at = row.get("exit_at")
+        exit_at = row.get("exit_at") or row.get("resolved_at")
         if exit_at is not None:
             # Ensure timezone-aware comparison
             if exit_at.tzinfo is None:

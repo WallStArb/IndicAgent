@@ -352,27 +352,29 @@ class TestInsertFeaturesSync:
         return mock_conn, mock_cursor
 
     @pytest.mark.unit
-    def test_calls_execute_batch_with_correct_sql(self):
-        """execute_batch must be called with the module-level _INSERT_FEATURE_SYNC_SQL."""
+    def test_calls_execute_values_with_correct_sql(self):
+        """execute_values must be called with the module-level _INSERT_FEATURE_SYNC_SQL."""
         from unittest.mock import patch
 
         from historical_backfill import _INSERT_FEATURE_SYNC_SQL, _insert_features_sync
 
         mock_conn, mock_cursor = self._mock_conn()
         rows = [("fake_row",)]
-        with patch("psycopg2.extras.execute_batch") as mock_eb:
+        with patch("psycopg2.extras.execute_values") as mock_ev:
             _insert_features_sync(mock_conn, rows)
-        mock_eb.assert_called_once_with(mock_cursor, _INSERT_FEATURE_SYNC_SQL, rows)
+        assert mock_ev.call_args[0][0] is mock_cursor
+        assert mock_ev.call_args[0][1] == _INSERT_FEATURE_SYNC_SQL
+        assert mock_ev.call_args[0][2] == rows
 
     @pytest.mark.unit
     def test_commits_connection(self):
-        """conn.commit() must be called after execute_batch."""
+        """conn.commit() must be called after execute_values."""
         from unittest.mock import patch
 
         from historical_backfill import _insert_features_sync
 
         mock_conn, _ = self._mock_conn()
-        with patch("psycopg2.extras.execute_batch"):
+        with patch("psycopg2.extras.execute_values"):
             _insert_features_sync(mock_conn, [("row",)])
         mock_conn.commit.assert_called_once()
 
