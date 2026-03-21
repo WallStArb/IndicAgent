@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Feature Writer Service — persists IntelligenceEvent to intelligence_features hypertable.
+"""Feature Writer Service — persists BarIntelligenceRecord to intelligence_features hypertable.
 
-Consumes intelligence topic via Kafka consumer group 'feature_writer_group'
-and batch-writes rows to the intelligence_features TimescaleDB hypertable.
+Consumes development.intelligence.record via Kafka consumer group 'feature_writer_group'
+and batch-writes complete rows to the intelligence_features TimescaleDB hypertable.
 
-This service is additive: it does NOT modify market_analysis_service.py.
-Every IntelligenceEvent published is durably persisted here.
+Phase 44.3: Single atomic INSERT per bar from BarIntelligenceRecord.
+No more i7/i8 two-phase UPSERT writes — every row is complete at insert time.
 """
 
 from __future__ import annotations
@@ -32,13 +32,11 @@ from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import parse_roll_event, setup_service_logging
 from src.core.stream_keys import (
     topic_cross_asset,
-    topic_intelligence,
-    topic_intelligence_i7,
-    topic_intelligence_i8,
+    topic_intelligence_record,
     topic_system_events,
 )
 from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
-from src.intelligence.schemas import IntelligenceEvent
+from src.intelligence.schemas import BarIntelligenceRecord
 from src.observability.metrics import counter, gauge, start_metrics_server
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -53,26 +51,26 @@ CONSUMER_NAME: str = "feature_writer_1"
 _INSERT_FEATURE_SQL = """
 INSERT INTO intelligence_features (
     ts, symbol, tf, platform, source, schema_version,
-    bar, i1, i2, i3, i4, i5, smc, i6,
-    bar_close_ts, i1_computed_at, computed_at, days_to_expiry
-) VALUES (
+    bar, i1, i2, i3, i4, i5, smc, i6, i7,
+    bar_close_ts, i1_computed_at, computed_at,
+    winner_plugin, winner_confidence, winner_direction,
+    signals_evaluated, signals_after_quality, signals_after_regime,
+    signals_after_tod, signals_after_calibration,
+    ledger_written, pipeline_latency_ms,
+    i7_computed_at, session_type, days_to_expiry
+)
+VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
-    $15, $16, $17, $18
+    $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb,
+    $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
+    $16, $17, $18,
+    $19, $20, $21,
+    $22, $23, $24,
+    $25, $26,
+    $27, $28,
+    $29, $30, $31
 )
 ON CONFLICT (ts, symbol, tf) DO NOTHING
-"""
-
-_UPSERT_I7_SQL = """
-INSERT INTO intelligence_features (ts, symbol, tf, i7)
-VALUES ($1::timestamptz, $2, $3, $4::jsonb)
-ON CONFLICT (ts, symbol, tf) DO UPDATE SET i7 = EXCLUDED.i7
-"""
-
-_UPSERT_I8_SQL = """
-INSERT INTO intelligence_features (ts, symbol, tf, i8)
-VALUES ($1::timestamptz, $2, $3, $4::jsonb)
-ON CONFLICT (ts, symbol, tf) DO UPDATE SET i8 = EXCLUDED.i8
 """
 
 _UPSERT_ROLL_BOUNDARY_SQL = """
@@ -117,25 +115,6 @@ def _decode_field(val: object, default: str = "") -> str:
     if val is None:
         return default
     return val.decode() if isinstance(val, bytes) else str(val)
-
-
-def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
-    """Parse intelligence stream/topic message into typed IntelligenceEvent.
-
-    Supports both Redis stream format ({b'event': bytes}) and Kafka JSON format
-    ({'event': str}). Returns None on any failure.
-    """
-    # Try string key first (Kafka), then bytes key (Redis/test fixtures)
-    raw = fields.get("event") or fields.get(b"event", b"")
-    if not raw:
-        return None
-    if isinstance(raw, str):
-        raw = raw.encode()
-    try:
-        return IntelligenceEvent.model_validate_json(raw)
-    except (ValidationError, ValueError) as e:
-        logger.warning("Failed to parse IntelligenceEvent", error=str(e))
-        return None
 
 
 def _build_expiry_map(settings: Settings) -> dict[str, date]:
@@ -183,57 +162,90 @@ def _compute_days_to_expiry(
     return max(0, (expiry_date - bar_ts.date()).days)
 
 
-def _event_to_insert_params(
-    event: IntelligenceEvent,
+def _record_to_insert_params(
+    record: BarIntelligenceRecord,
     expiry_map: dict[str, date] | None = None,
 ) -> tuple:
-    """Build an 18-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
+    """Build a 31-element tuple of INSERT parameters for _INSERT_FEATURE_SQL.
 
-    Returns positional params matching $1..$18:
-      $1  ts             — datetime
-      $2  symbol         — str
-      $3  tf             — str
-      $4  platform       — str
-      $5  source         — str
-      $6  schema_version — str
-      $7  bar            — JSON string (jsonb)
-      $8  i1             — JSON string (jsonb)
-      $9  i2             — JSON string (jsonb)
-      $10 i3             — JSON string (jsonb)
-      $11 i4             — JSON string (jsonb)
-      $12 i5             — JSON string (jsonb)
-      $13 smc            — JSON string (jsonb)
-      $14 i6             — JSON string (jsonb)
-      $15 bar_close_ts   — datetime | None (always set for live; set for backfill too)
-      $16 i1_computed_at — datetime | None (None for backfill)
-      $17 computed_at    — datetime | None (None for backfill)
-      $18 days_to_expiry — int | None (None when expiry_map not yet built)
-
-    JSONB columns MUST be json.dumps() strings — asyncpg does not auto-serialize dicts.
-    - bar uses model.model_dump() (no exclude_none — bar always has full data)
-    - i1 uses model.model_dump() (no exclude_none — I1 has extra='allow', many dynamic fields)
-    - i2..i6 use model.model_dump(exclude_none=True) (strict models, exclude None for compactness)
+    Returns positional params matching $1..$31:
+      $1  ts                       — datetime
+      $2  symbol                   — str
+      $3  tf                       — str
+      $4  platform                 — str
+      $5  source                   — str
+      $6  schema_version           — str (from BarIntelligenceRecord)
+      $7  bar                      — JSON string (jsonb)
+      $8  i1                       — JSON string (jsonb)
+      $9  i2                       — JSON string (jsonb)
+      $10 i3                       — JSON string (jsonb)
+      $11 i4                       — JSON string (jsonb)
+      $12 i5                       — JSON string (jsonb)
+      $13 smc                      — JSON string (jsonb)
+      $14 i6                       — JSON string (jsonb)
+      $15 i7                       — JSON string (jsonb) — full ranked_signals array
+      $16 bar_close_ts             — datetime | None
+      $17 i1_computed_at           — datetime | None
+      $18 computed_at              — datetime | None
+      $19 winner_plugin            — str | None
+      $20 winner_confidence        — float | None
+      $21 winner_direction         — str | None (cast from int)
+      $22 signals_evaluated        — int
+      $23 signals_after_quality    — int
+      $24 signals_after_regime     — int
+      $25 signals_after_tod        — int
+      $26 signals_after_calibration — int
+      $27 ledger_written           — bool
+      $28 pipeline_latency_ms      — float
+      $29 i7_computed_at           — datetime
+      $30 session_type             — str
+      $31 days_to_expiry           — int | None
     """
+    event = record.intelligence
     days = _compute_days_to_expiry(event.symbol, event.ts, expiry_map or {})
+
+    # winner_direction: int in schema, stored as text in DB
+    winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
+
+    # session_type: stored as plain string
+    session_type_val = (
+        record.session_type
+        if isinstance(record.session_type, str)
+        else str(record.session_type)
+    )
+
     return (
-        event.ts,
-        event.symbol,
-        event.tf,
-        event.platform,
-        event.source,
-        event.schema_version,
-        json.dumps(event.bar.model_dump()),
-        json.dumps(event.i1.model_dump()),
-        json.dumps(event.i2.model_dump(exclude_none=True)),
-        json.dumps(event.i3.model_dump(exclude_none=True)),
-        json.dumps(event.i4.model_dump(exclude_none=True)),
-        json.dumps(event.i5.model_dump(exclude_none=True)),
-        json.dumps(event.smc.model_dump(exclude_none=True)),
-        json.dumps(event.i6.model_dump(exclude_none=True)),
-        event.bar_close_ts,  # $15 — always set for live; also set for backfill
-        event.i1_computed_at,  # $16 — None for backfill
-        event.computed_at,  # $17 — None for backfill
-        days,  # $18 — days_to_expiry
+        event.ts,  # $1 ts
+        event.symbol,  # $2 symbol
+        event.tf,  # $3 tf
+        event.platform,  # $4 platform
+        event.source,  # $5 source
+        record.schema_version,  # $6 schema_version
+        json.dumps(event.bar.model_dump()),  # $7 bar jsonb
+        json.dumps(event.i1.model_dump()),  # $8 i1 jsonb
+        json.dumps(event.i2.model_dump(exclude_none=True)),  # $9 i2 jsonb
+        json.dumps(event.i3.model_dump(exclude_none=True)),  # $10 i3 jsonb
+        json.dumps(event.i4.model_dump(exclude_none=True)),  # $11 i4 jsonb
+        json.dumps(event.i5.model_dump(exclude_none=True)),  # $12 i5 jsonb
+        json.dumps(event.smc.model_dump(exclude_none=True)),  # $13 smc jsonb
+        json.dumps(event.i6.model_dump(exclude_none=True)),  # $14 i6 jsonb
+        json.dumps([s.model_dump() for s in record.ranked_signals]),  # $15 i7 jsonb
+        event.bar_close_ts,  # $16 bar_close_ts
+        event.i1_computed_at,  # $17 i1_computed_at
+        event.computed_at,  # $18 computed_at
+        record.winner_plugin,  # $19 winner_plugin
+        record.winner_confidence,  # $20 winner_confidence
+        winner_dir,  # $21 winner_direction
+        record.signals_evaluated,  # $22 signals_evaluated
+        record.signals_after_quality,  # $23 signals_after_quality
+        record.signals_after_regime,  # $24 signals_after_regime
+        record.signals_after_tod,  # $25 signals_after_tod
+        record.signals_after_calibration,  # $26 signals_after_calibration
+        record.ledger_written,  # $27 ledger_written
+        record.pipeline_latency_ms,  # $28 pipeline_latency_ms
+        record.i7_computed_at,  # $29 i7_computed_at
+        session_type_val,  # $30 session_type
+        days,  # $31 days_to_expiry
     )
 
 
@@ -241,8 +253,12 @@ def _event_to_insert_params(
 
 
 class FeatureWriterService:
-    """Async Kafka consumer service: intelligence topic → buffer → batch INSERT to
-    intelligence_features."""
+    """Async Kafka consumer service: intelligence.record topic → buffer → batch INSERT to
+    intelligence_features.
+
+    Phase 44.3: Consumes development.intelligence.record only. Performs a single atomic
+    INSERT per bar with all columns from BarIntelligenceRecord. No i7/i8 two-phase writes.
+    """
 
     def __init__(self, config_file: str | None = None):
         self.running = False
@@ -256,8 +272,6 @@ class FeatureWriterService:
         self.db_manager: DatabaseManager | None = None
 
         self._buffer: list[tuple] = []
-        self._i7_buffer: list[tuple] = []  # (ts_dt, symbol, timeframe, data_json)
-        self._i8_buffer: list[tuple] = []  # (ts_dt, symbol, timeframe, data_json)
         self._last_flush: float = time.monotonic()
 
         try:
@@ -276,7 +290,7 @@ class FeatureWriterService:
         # Prometheus metrics
         self.events_consumed_total = counter(
             "feature_writer_events_consumed_total",
-            "Total IntelligenceEvents consumed from intelligence: streams",
+            "Total BarIntelligenceRecords consumed from intelligence.record topic",
         )
         self.batch_writes_total = counter(
             "feature_writer_batch_writes_total",
@@ -294,9 +308,9 @@ class FeatureWriterService:
             "feature_writer_errors_total",
             "Total errors encountered by feature writer",
         )
-        self.i7_i8_batch_writes_total = counter(
-            "feature_writer_i7_i8_batch_writes_total",
-            "Total i7/i8 batch writes to intelligence_features",
+        self._parse_errors_total = counter(
+            "feature_writer_parse_errors_total",
+            "Total BarIntelligenceRecord parse failures",
         )
 
         self._total_events = 0
@@ -368,7 +382,7 @@ class FeatureWriterService:
             self.db_manager = None
 
     async def _setup_kafka_clients(self) -> None:
-        """Build expiry map and create Kafka consumer for intelligence topics."""
+        """Build expiry map and create Kafka consumer for intelligence.record topic."""
         # Build expiry map at startup (cached for lifetime of service)
         try:
             _s = Settings()
@@ -378,18 +392,16 @@ class FeatureWriterService:
             self.logger.warning("Failed to build expiry map", error=str(e))
             self._expiry_map = {}
 
-        # Build topics list — conditionally add system.events when roll_monitor_enabled
+        # Build topics list — single intelligence.record source + optional side channels
         topics = [
-            topic_intelligence(self._env_name),
-            topic_intelligence_i7(self._env_name),
-            topic_intelligence_i8(self._env_name),
+            topic_intelligence_record(self._env_name),
         ]
         if self._roll_monitor_enabled:
             topics.append(topic_system_events(self._env_name))
         if self._cross_asset_enabled:
             topics.append(topic_cross_asset(self._env_name))
 
-        # Single consumer subscribed to intelligence topics (and optionally system.events)
+        # Single consumer subscribed to intelligence.record (and optionally system.events)
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
             bootstrap_servers=self._kafka_bootstrap,
@@ -403,18 +415,39 @@ class FeatureWriterService:
             group=CONSUMER_GROUP,
         )
 
+    def _parse_intelligence_record(self, raw: bytes | str) -> BarIntelligenceRecord | None:
+        """Parse BarIntelligenceRecord from Kafka message bytes/str.
+
+        Returns None on any failure — caller skips the message.
+        """
+        try:
+            return BarIntelligenceRecord.model_validate_json(raw)
+        except (ValidationError, ValueError) as e:
+            self.logger.warning("parse_record_failed", error=str(e))
+            self._parse_errors_total.inc()
+            return None
+
     async def _process_single_message(
         self,
         symbol: str,
         timeframe: str,
         payload: dict,
     ) -> bool:
-        """Parse one Kafka message payload, buffer insert params."""
+        """Parse one Kafka message payload (BarIntelligenceRecord), buffer insert params."""
         try:
-            event = _parse_intelligence_event(payload)
-            if event is None:
+            # Extract raw JSON from payload dict (Kafka message value)
+            raw = payload.get("event") or payload.get(b"event", b"")
+            if not raw:
+                # Payload IS the record (direct JSON encoding, not wrapped in "event" field)
+                # For intelligence.record, the full message value is the JSON
+                raw = json.dumps(payload).encode() if isinstance(payload, dict) else payload
+            if isinstance(raw, str):
+                raw = raw.encode()
+
+            record = self._parse_intelligence_record(raw)
+            if record is None:
                 self.logger.warning(
-                    "Malformed intelligence event — skipped",
+                    "Malformed BarIntelligenceRecord — skipped",
                     symbol=symbol,
                     tf=timeframe,
                 )
@@ -422,7 +455,7 @@ class FeatureWriterService:
                     self.error_count_total.inc()
                 return True
 
-            params = _event_to_insert_params(event, self._expiry_map)
+            params = _record_to_insert_params(record, self._expiry_map)
             self._buffer.append(params)
             self.events_consumed_total.inc()
             self._total_events += 1
@@ -451,16 +484,8 @@ class FeatureWriterService:
         Flushes when:
         - force=True (explicit flush, e.g. on BATCH_SIZE reached or shutdown)
         - time since last flush >= FLUSH_INTERVAL_SECS (time-based flush)
-
-        i7/i8 buffers are also flushed whenever the main flush fires (or when
-        their combined size reaches BATCH_SIZE).
         """
         should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
-
-        # Also flush i7/i8 on their own size threshold, even if main buffer not ready
-        i7_i8_count = len(getattr(self, "_i7_buffer", ())) + len(getattr(self, "_i8_buffer", ()))
-        if i7_i8_count >= BATCH_SIZE and self.db_manager:
-            await self._flush_i7_i8()
 
         if not self._buffer:
             return
@@ -494,59 +519,6 @@ class FeatureWriterService:
             self.error_count_total.inc()
             self._error_count += 1
             self.events_buffered_gauge.set(len(self._buffer))
-        finally:
-            await self._flush_i7_i8()
-
-    async def _flush_i7_i8(self) -> None:
-        """Flush i7 and i8 buffers to DB via batch UPSERT."""
-        if not self.db_manager:
-            return
-        if getattr(self, "_i7_buffer", None):
-            try:
-                await self.db_manager.execute_batch(_UPSERT_I7_SQL, list(self._i7_buffer))
-                self._i7_buffer.clear()
-                self.i7_i8_batch_writes_total.inc()
-            except Exception as e:
-                self.logger.error(
-                    "i7 batch write failed", error=str(e), rows=len(self._i7_buffer)
-                )
-                self.error_count_total.inc()
-                self._error_count += 1
-        if getattr(self, "_i8_buffer", None):
-            try:
-                await self.db_manager.execute_batch(_UPSERT_I8_SQL, list(self._i8_buffer))
-                self._i8_buffer.clear()
-                self.i7_i8_batch_writes_total.inc()
-            except Exception as e:
-                self.logger.error(
-                    "i8 batch write failed", error=str(e), rows=len(self._i8_buffer)
-                )
-                self.error_count_total.inc()
-                self._error_count += 1
-
-    async def _process_i7_message(
-        self,
-        symbol: str,
-        timeframe: str,
-        payload: dict,
-    ) -> bool:
-        """Buffer i7 column from intelligence.i7 topic message for batch flush."""
-        try:
-            ts_raw = payload.get("ts") or payload.get(b"ts", b"")
-            if not ts_raw:
-                return True  # no ts — skip silently
-            ts_dt = _parse_ts(ts_raw)
-            data_raw = payload.get("data") or payload.get(b"data", "[]")
-            if isinstance(data_raw, bytes):
-                data_raw = data_raw.decode("utf-8", errors="replace")
-            if isinstance(data_raw, list):
-                data_raw = json.dumps(data_raw)
-            self._i7_buffer.append((ts_dt, symbol, timeframe, data_raw))
-            return True
-        except Exception as e:
-            self.logger.error("i7 buffer append failed", symbol=symbol, tf=timeframe, error=str(e))
-            self.error_count_total.inc()
-            return False
 
     async def _handle_roll_event(self, event: dict) -> None:
         """Write roll boundary marker to intelligence_features on futures roll.
@@ -585,35 +557,6 @@ class FeatureWriterService:
         except Exception as e:
             self.logger.error("roll_boundary_write_failed", error=str(e))
             self.error_count_total.inc()
-
-    async def _process_i8_message(
-        self,
-        symbol: str,
-        timeframe: str,
-        payload: dict,
-    ) -> bool:
-        """Buffer i8 column from intelligence.i8 topic message for batch flush."""
-        try:
-            ts_raw = payload.get("ts") or payload.get(b"ts", b"")
-            if not ts_raw:
-                return True  # no ts — skip silently
-            ts_dt = _parse_ts(ts_raw)
-            i8_payload = {
-                "model": _decode_field(payload.get("model") or payload.get(b"model"), "unknown"),
-                "confidence": _decode_field(
-                    payload.get("confidence") or payload.get(b"confidence"), "0.0"
-                ),
-                "summary": _decode_field(payload.get("summary") or payload.get(b"summary"), ""),
-                "generated_at": _decode_field(
-                    payload.get("generated_at") or payload.get(b"generated_at"), ""
-                ),
-            }
-            self._i8_buffer.append((ts_dt, symbol, timeframe, json.dumps(i8_payload)))
-            return True
-        except Exception as e:
-            self.logger.error("i8 buffer append failed", symbol=symbol, tf=timeframe, error=str(e))
-            self.error_count_total.inc()
-            return False
 
     async def _process_cross_asset_message(self, payload: dict) -> None:
         """Persist cross-asset spread features to intelligence_features.
@@ -659,13 +602,11 @@ class FeatureWriterService:
             self.error_count_total.inc()
 
     async def _process_loop(self) -> None:
-        """Kafka consumer loop — reads intelligence topics and routes by topic."""
+        """Kafka consumer loop — reads intelligence.record topic and routes by topic."""
         if not self._kafka_consumer:
             return
 
-        intelligence_topic = topic_intelligence(self._env_name)
-        i7_topic = topic_intelligence_i7(self._env_name)
-        i8_topic = topic_intelligence_i8(self._env_name)
+        intelligence_record_topic = topic_intelligence_record(self._env_name)
         sys_events_topic = topic_system_events(self._env_name)
         cross_asset_topic = topic_cross_asset(self._env_name) if self._cross_asset_enabled else ""
 
@@ -691,14 +632,8 @@ class FeatureWriterService:
                     continue
                 symbol, timeframe = parts
 
-                if kafka_topic == intelligence_topic:
+                if kafka_topic == intelligence_record_topic:
                     await self._process_single_message(symbol, timeframe, payload)
-                    await self._maybe_flush(force=False)
-                elif kafka_topic == i7_topic:
-                    await self._process_i7_message(symbol, timeframe, payload)
-                    await self._maybe_flush(force=False)
-                elif kafka_topic == i8_topic:
-                    await self._process_i8_message(symbol, timeframe, payload)
                     await self._maybe_flush(force=False)
 
             except asyncio.CancelledError:
@@ -735,12 +670,8 @@ class FeatureWriterService:
         self.shutdown_requested = True
         self.running = False
 
-        # Flush remaining buffered events before closing
+        # Flush remaining buffered records before closing
         await self._maybe_flush(force=True)
-        # Flush any remaining i7/i8 that weren't flushed via _maybe_flush
-        # (e.g. if main buffer was empty on shutdown)
-        if self.db_manager:
-            await self._flush_i7_i8()
 
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
