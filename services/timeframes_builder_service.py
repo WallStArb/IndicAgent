@@ -31,7 +31,7 @@ import structlog
 from src.config.settings import Settings, get_active_symbols
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.service_utils import TF_DURATIONS
-from src.core.stream_keys import message_key, topic_market_bars
+from src.core.stream_keys import message_key, topic_market_bars, topic_market_bars_htf
 from src.core.timeframe_builder import (
     _TARGET_TIMEFRAMES,
     _floor_to_period,
@@ -49,6 +49,7 @@ class TimeframeBuilderService:
         settings = Settings()
         self._env_name = settings.env_name.strip()
         self._bootstrap = settings.kafka_bootstrap_servers
+        self._htf_topic = topic_market_bars_htf(self._env_name)
         self._symbols: list[str] = get_active_symbols(settings)
 
         self.running = False
@@ -103,7 +104,7 @@ class TimeframeBuilderService:
             acc = self._accumulators[symbol][tf]
 
             if acc is not None and acc["period_ts"] != new_period_ts:
-                await self._emit_bar(symbol, tf, acc)
+                await self._emit_bar(symbol, tf, acc, tf_minutes)
                 acc = None
 
             bar_data: dict[str, Any] = {
@@ -116,8 +117,10 @@ class TimeframeBuilderService:
             }
             self._accumulators[symbol][tf] = _update_accumulator(acc, bar_data, new_period_ts)
 
-    async def _emit_bar(self, symbol: str, timeframe: str, acc: dict[str, Any]) -> None:
-        """Publish a completed aggregated bar to dev.market.bars."""
+    async def _emit_bar(
+        self, symbol: str, timeframe: str, acc: dict[str, Any], tf_minutes: int
+    ) -> None:
+        """Publish a completed aggregated bar to development.market.bars.htf."""
         period_ts = acc["period_ts"]
 
         last = self._last_emitted.get(symbol, {}).get(timeframe)
@@ -134,6 +137,8 @@ class TimeframeBuilderService:
         period_ts_dt = datetime.fromtimestamp(period_ts, tz=UTC)
         tf_secs = TF_DURATIONS.get(timeframe, 0)
         close_ts = (period_ts_dt + timedelta(seconds=tf_secs)).isoformat()
+        bar_count = acc.get("bar_count", 0)
+        is_complete = bar_count == tf_minutes
 
         payload = {
             "symbol": symbol,
@@ -144,13 +149,15 @@ class TimeframeBuilderService:
             "low": str(acc["low"]),
             "close": str(acc["close"]),
             "volume": str(acc["volume"]),
+            "bar_count": bar_count,
+            "is_complete": is_complete,
             "source": "timeframe_builder",
             "bar_close_ts": close_ts,
         }
 
         try:
             await self._producer.publish(
-                topic_market_bars(self._env_name),
+                self._htf_topic,
                 payload,
                 key=message_key(symbol, timeframe),
             )
@@ -161,6 +168,8 @@ class TimeframeBuilderService:
                 symbol=symbol,
                 timeframe=timeframe,
                 period_ts=period_ts,
+                bar_count=bar_count,
+                is_complete=is_complete,
             )
         except Exception as e:
             self.logger.error(
@@ -173,7 +182,7 @@ class TimeframeBuilderService:
     async def _consume_loop(self) -> None:
         """Main consume loop: read 1m bars from Kafka and aggregate."""
         assert self._consumer is not None
-        async for topic, key, payload in self._consumer.messages():
+        async for _topic, key, payload in self._consumer.messages():
             if self.shutdown_requested:
                 break
 
