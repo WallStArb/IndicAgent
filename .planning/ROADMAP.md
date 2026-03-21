@@ -588,7 +588,7 @@ Plans:
 - [x] 44.2-01-PLAN.md — Pipeline pure functions: extract logic from stage services into `src/intelligence/pipeline/` modules + unit tests (PIPE-05)
 - [x] 44.2-02-PLAN.md — Wire pipeline functions into SignalGeneratorService + audit queue + BarIntelligenceRecord publish (PIPE-06)
 - [x] 44.2-03-PLAN.md — Retire 6 stage services + systemd units + live cutover (PIPE-06)
-- [ ] 44.2-04-PLAN.md — Integration test: E2E bar → BarIntelligenceRecord validation + metrics check (PIPE-07)
+- [x] 44.2-04-PLAN.md — Integration test: E2E bar → BarIntelligenceRecord validation + metrics check (PIPE-07)
 
 ### Phase 44.3: Atomic Persistence + OHLCV Unification
 **Goal**: FeatureWriterService consumes `development.intelligence.record` only and performs a single atomic INSERT per bar — no UPSERTs, no partial rows, no race conditions. i8 persistence migrated from FeatureWriterService to LLMWriterService. FeaturePipelineService becomes the sole live writer to `market_data_ohlcv`, creating a single OHLCV ground truth. All `intelligence_features` rows complete at insert time.
