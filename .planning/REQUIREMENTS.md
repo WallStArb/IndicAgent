@@ -125,7 +125,8 @@
 | PERF-01 through PERF-06 | Phase 43 | Complete |
 | PERF-07 | Phase 44+ | Pending |
 | INTEL-01 through INTEL-03 | Phase 41 | Complete |
-| INTEL-04 through INTEL-05 | Phase 44+ | Pending |
+| INTEL-05 | Phase 41 | Complete |
+| INTEL-04 | Phase 47 | Pending |
 | CANDLE-01 through CANDLE-02 | Phase 42 | Complete |
 | SHADOW-01 through SHADOW-04 | Phase 44 | Pending |
 | AUTH-01 through AUTH-06 | Phase 45 | Pending |
