@@ -71,6 +71,9 @@ from src.intelligence.trading.signal_ledger import (
     insert_signals_with_features,
 )
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+from prometheus_client import Counter as _PrometheusCounter
+
+from src.intelligence.trading.signal_schema import make_signal, validate_signal
 from src.observability.metrics import (
     BAR_TO_SIGNAL_LATENCY,
     counter,
@@ -81,6 +84,14 @@ from src.observability.metrics import (
 
 # I7 plugin names — imported from register_plugins (single source of truth)
 I7_PLUGINS = TIER_I7
+
+# Prometheus counter for signal validation failures (per D-17).
+# Uses raw prometheus_client.Counter with labels (project helper counter() doesn't support labels).
+SIGNAL_VALIDATION_FAILURES = _PrometheusCounter(
+    "signal_validation_failures_total",
+    "Signal validation failures before aggregation",
+    ["plugin"],
+)
 
 # Minimum bars between published signals per timeframe. Prevents condition
 # re-fires (same setup firing every bar while condition persists).
@@ -884,12 +895,25 @@ class SignalGeneratorService:
             self._df_cache[key] = pd.DataFrame(list(self.bar_history[key]))
         return self._df_cache[key]
 
-    def _run_setup_plugins(self, frames: dict[str, Any]) -> tuple[list[dict], dict]:
-        """Run all I7 setup plugins and return directional signals + always-log metadata.
+    def _run_setup_plugins(
+        self,
+        frames: dict[str, Any],
+        symbol: str = "",
+        timeframe: str = "",
+        timestamp: datetime | None = None,
+        ttl_bars: int = 10,
+    ) -> tuple[list[dict], dict]:
+        """Run all I7 setup plugins and return validated signals + always-log metadata.
+
+        Per D-29/D-30: make_signal() is the single construction point; validate_signal()
+        gates every signal before it reaches downstream processing.
+
+        Per D-15/D-16/D-17/D-18: validation failures emit ERROR log + Prometheus counter
+        + drop (never silent, never crash).
 
         Returns:
             (signals, plugin_metadata) where:
-            - signals: list of directional signal dicts (direction != 0)
+            - signals: list of validated signal.v1 dicts (direction != 0, passed validation)
             - plugin_metadata: always-log fields from DivergenceStack regardless of signal fire
 
         Each signal dict is tagged with regime_type from the plugin attribute
@@ -897,6 +921,12 @@ class SignalGeneratorService:
         """
         signals = []
         plugin_metadata: dict = {}
+        ts_str = timestamp.isoformat() if timestamp is not None else ""
+        close_price = 0.0
+        df = frames.get("main")
+        if df is not None and len(df) > 0:
+            close_price = float(df["close"].iloc[-1])
+
         for name in I7_PLUGINS:
             t0 = time.time()
             try:
@@ -916,10 +946,59 @@ class SignalGeneratorService:
                             "cmf_div_score": result.get("cmf_div_score"),
                         }
                 if result and result.get("direction", 0) != 0:
-                    result["setup_plugin"] = name
-                    # Tag with regime_type from plugin attribute for slow-clock gate
-                    result["regime_type"] = getattr(plugin, "regime_type", "any")
-                    signals.append(result)
+                    # Per D-29: construct canonical signal.v1 via make_signal() factory
+                    try:
+                        signal = make_signal(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            timestamp=ts_str,
+                            signal_type=result["signal_type"],
+                            setup_plugin=name,
+                            direction=result["direction"],
+                            entry_price=result.get("entry_price", close_price),
+                            stop_loss=result["stop_loss"],
+                            targets=result["targets"],
+                            confidence=result["confidence"],
+                            regime_context=result.get("regime_context", "any"),
+                            confluence_score=result.get("confluence_score", 0.0),
+                            supporting_factors=result.get("supporting_factors", []),
+                            invalidation_conditions=result.get("invalidation_conditions", []),
+                            ttl_bars=result.get("ttl_bars", ttl_bars),
+                        )
+                    except (KeyError, TypeError) as e:
+                        self.logger.error(
+                            "make_signal_construction_failed",
+                            plugin=name,
+                            error=str(e),
+                            result_keys=list(result.keys()),
+                        )
+                        SIGNAL_VALIDATION_FAILURES.labels(plugin=name).inc()
+                        record_plugin_execution(name, "", "", elapsed, "error", "I7")
+                        continue
+
+                    # Per D-30: validate before aggregation — drop invalid signals
+                    if not validate_signal(signal):
+                        self.logger.error(
+                            "signal_validation_failed",
+                            plugin=name,
+                            signal=signal,
+                            reason="validate_signal returned False",
+                        )
+                        SIGNAL_VALIDATION_FAILURES.labels(plugin=name).inc()
+                        record_plugin_execution(name, "", "", elapsed, "validation_failed", "I7")
+                        continue  # Drop invalid signal — never reaches aggregator (per D-18)
+
+                    # Preserve extra plugin-output fields used downstream (e.g. regime_type tag,
+                    # dual_divergence, tod_multiplier) that aren't part of signal.v1 schema
+                    signal["regime_type"] = getattr(plugin, "regime_type", "any")
+                    if "dual_divergence" in result:
+                        signal["dual_divergence"] = result["dual_divergence"]
+                    if "setup_variant" in result:
+                        signal["setup_variant"] = result["setup_variant"]
+                    if "stop_basis" in result:
+                        signal["stop_basis"] = result["stop_basis"]
+
+                    signals.append(signal)
                     record_plugin_execution(name, "", "", elapsed, "success", "I7")
                 else:
                     record_plugin_execution(name, "", "", elapsed, "no_signal", "I7")
@@ -961,13 +1040,17 @@ class SignalGeneratorService:
             if htf_val is not None:
                 features["htf_1h_val"] = float(htf_val)
 
-        raw_signals, _plugin_metadata = self._run_setup_plugins(frames)
-
-        # Apply per-TF TTL — overrides the hardcoded default of 10 in make_signal().
-        # TF_TTL_BARS provides timeframe-appropriate windows for lifecycle tracking.
+        # Apply per-TF TTL — make_signal() receives this value so signals are constructed
+        # with the correct TTL from the start. TF_TTL_BARS is the single source of truth.
         tf_ttl = TF_TTL_BARS.get(timeframe, 10)
-        for sig in raw_signals:
-            sig["ttl_bars"] = tf_ttl
+
+        raw_signals, _plugin_metadata = self._run_setup_plugins(
+            frames,
+            symbol=symbol,
+            timeframe=timeframe,
+            timestamp=timestamp,
+            ttl_bars=tf_ttl,
+        )
 
         # QUAL-04: per-setup cooldown — strip same setup/direction within N bars.
         # Runs before aggregation so blocked signals never enter alpha decay path.
