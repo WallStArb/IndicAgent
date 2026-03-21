@@ -33,7 +33,7 @@ from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
-from src.core.stream_keys import topic_llm_calls, topic_llm_outcomes
+from src.core.stream_keys import topic_intelligence_i8, topic_llm_calls, topic_llm_outcomes
 from src.observability.metrics import counter, gauge, start_metrics_server
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -93,6 +93,12 @@ DO UPDATE SET
     p_value = EXCLUDED.p_value,
     is_significant = EXCLUDED.is_significant,
     score_updated_at = NOW()
+"""
+
+_UPSERT_I8_SQL = """
+UPDATE intelligence_features
+SET i8 = $4::jsonb
+WHERE ts = $1::timestamptz AND symbol = $2 AND tf = $3
 """
 
 _SELECT_OUTCOME_ROWS_SQL = """
@@ -314,6 +320,7 @@ class LLMWriterService:
         self.db_manager: DatabaseManager | None = None
 
         self._calls_buffer: list[tuple] = []
+        self._i8_buffer: list[tuple] = []
         self._last_flush: float = time.monotonic()
         self._last_score_recompute: float = time.monotonic()
 
@@ -353,6 +360,14 @@ class LLMWriterService:
         self.service_uptime_seconds = gauge(
             "llm_writer_service_uptime_seconds",
             "LLM writer service uptime in seconds",
+        )
+        self.i8_writes_total = counter(
+            "llm_writer_i8_writes_total",
+            "Total i8 UPSERTs to intelligence_features",
+        )
+        self.i8_update_miss_total = counter(
+            "llm_writer_i8_update_miss_total",
+            "i8 UPDATEs that found 0 rows (timing window)",
         )
 
         self._total_calls = 0
@@ -416,13 +431,15 @@ class LLMWriterService:
             self.db_manager = None
 
     async def _setup_kafka_clients(self) -> None:
-        """Create Kafka consumer subscribed to llm.calls and llm.outcomes topics."""
+        """Create Kafka consumer subscribed to llm.calls, llm.outcomes, and intelligence.i8."""
         calls_topic = topic_llm_calls(self._env_name)
         outcomes_topic = topic_llm_outcomes(self._env_name)
+        i8_topic = topic_intelligence_i8(self._env_name)
 
         self._kafka_consumer = KafkaConsumerClient(
             calls_topic,
             outcomes_topic,
+            i8_topic,
             bootstrap_servers=self._kafka_bootstrap,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="latest",
@@ -430,7 +447,7 @@ class LLMWriterService:
         await self._kafka_consumer.start()
         self.logger.info(
             "Kafka consumer started",
-            topics=[calls_topic, outcomes_topic],
+            topics=[calls_topic, outcomes_topic, i8_topic],
             group=CONSUMER_GROUP,
         )
 
@@ -470,6 +487,8 @@ class LLMWriterService:
             self.error_count_total.inc()
             self._error_count += 1
             self.buffer_size_gauge.set(len(self._calls_buffer))
+        finally:
+            await self._flush_i8()
 
     def _parsed_to_insert_tuple(self, parsed: dict) -> tuple:
         """Map parsed llm_call dict to a positional tuple for _INSERT_LLM_CALL_SQL."""
@@ -571,6 +590,54 @@ class LLMWriterService:
             self._error_count += 1
             return False
 
+    async def _process_i8_message(self, payload: dict) -> None:
+        """Buffer i8 column from intelligence.i8 topic message for batch UPDATE flush.
+
+        Mirrors the removed FeatureWriterService._process_i8_message but uses
+        LLMWriterService's buffer. Silently skips messages with no ts field.
+        """
+        ts_raw = payload.get("ts") or payload.get(b"ts", b"")
+        if not ts_raw:
+            return
+        ts_dt = _parse_ts(ts_raw)
+        symbol_raw = payload.get("symbol") or payload.get(b"symbol", b"")
+        tf_raw = payload.get("tf") or payload.get(b"tf", b"")
+        symbol = symbol_raw.decode() if isinstance(symbol_raw, bytes) else str(symbol_raw)
+        tf = tf_raw.decode() if isinstance(tf_raw, bytes) else str(tf_raw)
+
+        def _field(key: str) -> str:
+            val = payload.get(key) or payload.get(key.encode(), b"")
+            return val.decode() if isinstance(val, bytes) else str(val) if val else ""
+
+        i8_dict = {
+            "model": _field("model") or "unknown",
+            "confidence": _field("confidence") or "0.0",
+            "summary": _field("summary"),
+            "generated_at": _field("generated_at"),
+        }
+        self._i8_buffer.append((ts_dt, symbol, tf, json.dumps(i8_dict)))
+
+    async def _flush_i8(self) -> None:
+        """Flush _i8_buffer via UPDATE intelligence_features SET i8.
+
+        Plain UPDATE (no INSERT ON CONFLICT) to avoid phantom rows if
+        FeatureWriterService hasn't yet written the base row for this (ts, symbol, tf).
+        A 0-row UPDATE is safe — it is counted via i8_update_miss_total for observability.
+        """
+        if not self._i8_buffer:
+            return
+        if not self.db_manager:
+            self._i8_buffer.clear()
+            return
+        batch = self._i8_buffer[:]
+        try:
+            await self.db_manager.execute_batch(_UPSERT_I8_SQL, batch)
+            self.i8_writes_total.inc(len(batch))
+            self._i8_buffer.clear()
+        except Exception as e:
+            self.logger.error("i8_flush_failed", error=str(e), buffer_size=len(batch))
+            # Leave buffer intact for retry — same pattern as _calls_buffer
+
     async def _recompute_scores(self) -> None:
         """Query llm_calls for all rows with outcomes, compute model scores, upsert.
 
@@ -638,14 +705,15 @@ class LLMWriterService:
             self._error_count += 1
 
     async def _process_loop(self) -> None:
-        """Kafka consumer loop for llm.calls + llm.outcomes — routes by topic."""
+        """Kafka consumer loop for llm.calls + llm.outcomes + intelligence.i8 — routes by topic."""
         if not self._kafka_consumer:
             return
 
         calls_topic = topic_llm_calls(self._env_name)
         outcomes_topic = topic_llm_outcomes(self._env_name)
+        i8_topic = topic_intelligence_i8(self._env_name)
 
-        async for kafka_topic, key, payload in self._kafka_consumer.messages():
+        async for kafka_topic, _key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
                 break
             try:
@@ -654,6 +722,8 @@ class LLMWriterService:
                     await self._maybe_flush(force=False)
                 elif kafka_topic == outcomes_topic:
                     await self._process_outcome_message(payload)
+                elif kafka_topic == i8_topic:
+                    await self._process_i8_message(payload)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -705,6 +775,10 @@ class LLMWriterService:
 
         # Flush remaining buffered calls before closing
         await self._maybe_flush(force=True)
+        # Flush any remaining i8 that weren't flushed via _maybe_flush
+        # (e.g. if calls buffer was empty on shutdown)
+        if self.db_manager:
+            await self._flush_i8()
 
         if self._kafka_consumer:
             await self._kafka_consumer.stop()

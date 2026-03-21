@@ -193,3 +193,131 @@ def test_build_score_insert_params_high_p_not_significant():
     assert result is not None
     assert result["n_outcomes"] == 40
     assert result["is_significant"] is False  # p >= 0.05
+
+
+# ── i8 UPSERT wiring tests (TDD RED — will fail until implementation added) ──
+
+
+def test_upsert_i8_sql_is_update_not_insert():
+    """_UPSERT_I8_SQL must start with UPDATE (not INSERT) to avoid phantom rows."""
+    from services.llm_writer_service import _UPSERT_I8_SQL  # type: ignore[import]
+
+    assert _UPSERT_I8_SQL.strip().startswith("UPDATE"), (
+        "_UPSERT_I8_SQL must use UPDATE not INSERT ON CONFLICT to avoid phantom rows"
+    )
+
+
+def test_process_i8_message_buffers_correctly():
+    """_process_i8_message appends a 4-tuple (ts_dt, symbol, tf, i8_json) to _i8_buffer."""
+    import asyncio
+
+    from services.llm_writer_service import LLMWriterService  # type: ignore[import]
+
+    svc = LLMWriterService.__new__(LLMWriterService)
+    svc._i8_buffer = []
+    svc.logger = __import__("structlog").get_logger()
+
+    payload = {
+        "ts": "2026-03-21T10:00:00+00:00",
+        "symbol": "ES",
+        "tf": "1m",
+        "model": "qwen3.5:9b",
+        "confidence": "0.75",
+        "summary": "Bullish breakout expected",
+        "generated_at": "2026-03-21T10:00:01+00:00",
+    }
+
+    asyncio.get_event_loop().run_until_complete(svc._process_i8_message(payload))
+
+    assert len(svc._i8_buffer) == 1
+    ts_dt, symbol, tf, i8_json = svc._i8_buffer[0]
+    assert symbol == "ES"
+    assert tf == "1m"
+    import json as _json
+    parsed = _json.loads(i8_json)
+    assert parsed["model"] == "qwen3.5:9b"
+
+
+def test_process_i8_message_missing_ts_logs_warning():
+    """_process_i8_message with no ts field should NOT append to _i8_buffer."""
+    import asyncio
+
+    from services.llm_writer_service import LLMWriterService  # type: ignore[import]
+
+    svc = LLMWriterService.__new__(LLMWriterService)
+    svc._i8_buffer = []
+    svc.logger = __import__("structlog").get_logger()
+
+    payload = {
+        "symbol": "ES",
+        "tf": "1m",
+        "model": "qwen3.5:9b",
+    }
+
+    asyncio.get_event_loop().run_until_complete(svc._process_i8_message(payload))
+
+    assert len(svc._i8_buffer) == 0, "Missing ts should not append to buffer"
+
+
+def test_process_i8_message_uses_parse_ts():
+    """_process_i8_message uses _parse_ts for timestamp parsing (returns datetime, not str)."""
+    import asyncio
+    from datetime import datetime
+
+    from services.llm_writer_service import LLMWriterService  # type: ignore[import]
+
+    svc = LLMWriterService.__new__(LLMWriterService)
+    svc._i8_buffer = []
+    svc.logger = __import__("structlog").get_logger()
+
+    payload = {
+        "ts": "2026-03-21T10:00:00+00:00",
+        "symbol": "NQ",
+        "tf": "5m",
+        "model": "test",
+    }
+
+    asyncio.get_event_loop().run_until_complete(svc._process_i8_message(payload))
+
+    assert len(svc._i8_buffer) == 1
+    ts_dt = svc._i8_buffer[0][0]
+    assert isinstance(ts_dt, datetime), f"Expected datetime, got {type(ts_dt)}"
+    assert ts_dt.tzinfo is not None, "Timestamp must be timezone-aware"
+
+
+def test_i8_buffer_flushed_on_shutdown():
+    """_flush_i8 calls execute_batch with _UPSERT_I8_SQL and buffer contents."""
+    import asyncio
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.llm_writer_service import LLMWriterService, _UPSERT_I8_SQL  # type: ignore[import]
+
+    svc = LLMWriterService.__new__(LLMWriterService)
+    svc._i8_buffer = [
+        (datetime(2026, 3, 21, 10, 0, 0, tzinfo=UTC), "ES", "1m", '{"model": "test"}'),
+    ]
+    svc.logger = __import__("structlog").get_logger()
+
+    mock_pool = MagicMock()
+    mock_conn = AsyncMock()
+    mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_conn.executemany = AsyncMock(return_value=None)
+
+    # Set up db_manager mock
+    mock_db = MagicMock()
+    mock_db.execute_batch = AsyncMock(return_value=None)
+    svc.db_manager = mock_db
+
+    # Set up metrics
+    svc.i8_writes_total = MagicMock()
+    svc.i8_writes_total.inc = MagicMock()
+    svc.i8_update_miss_total = MagicMock()
+
+    asyncio.get_event_loop().run_until_complete(svc._flush_i8())
+
+    mock_db.execute_batch.assert_called_once()
+    call_args = mock_db.execute_batch.call_args
+    assert call_args[0][0] == _UPSERT_I8_SQL
+    assert len(svc._i8_buffer) == 0, "Buffer should be cleared after flush"
