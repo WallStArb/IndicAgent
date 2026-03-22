@@ -76,6 +76,7 @@ class TestDataProviderProtocol:
                 return None
 
             async def stream_ticks(self, symbols): ...
+            async def stream_real_time_bars(self, symbols): ...
             async def fetch_historical_bars(self, symbol, timeframe, start, end):
                 return []
 
