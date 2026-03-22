@@ -28,6 +28,15 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ CrossAssetService microservice: ES/NQ/RTY/YM spread z-scores, correlation break features; CrossAssetDivergencePlugin I7 — v1.9
 - ✓ Automated futures roll detection: volume z-score > 2.0, 3-bar confirmation, TOD adjustment, full pipeline propagation, plugin state migration — v1.9
 
+**v2.0 Signal Integrity & ML Foundation (2026-03-22):**
+- ✓ Intelligence pipeline refactored into clean DAG: FeaturePipelineService (I1–I6, 3 hops→1), SignalGeneratorService (6-stage in-process, 8 hops→2), atomic BarIntelligenceRecord INSERT; 18 services → 9 — v2.0
+- ✓ DB hardening: `signal_ledger` generated columns, CHECK constraints, composite lifecycle index; `market_data_ohlcv` rebuilt (15,740→21 chunks); data_quality_check.py 15-min timer with 10 Prometheus gauges — v2.0
+- ✓ Intelligence gap fill: real FVG/OB CTF alignment (was 0.0 stubs), VP as T1/T2 targets, HTF 1h cache injection; 18 new I5 candlestick patterns with DB-driven weight feedback — v2.0
+- ✓ I6 Confluence Expansion: VIXRegimePlugin + CrossAssetContextPlugin in I4; 4 new CTF measurement fields; cross-asset + VIX frame injection into FeaturePipelineService — v2.0
+- ✓ All 36 I7 plugins emit `_shadow` dict via `capture_confluence_features()` — ML training data foundation for v2.3 — v2.0
+- ✓ Shadow graduation: CROSS_ASSET_ENABLED removed (unconditionally active); regime gate parametrized (REGIME_PROB_MIN/REGIME_DUR_MIN) — v2.0
+- ✓ Code quality: SignalStatus + SignalOutcome enums; regime_type Protocol enforcement; pre-commit hooks; 3 production bug fixes; dual topic namespace cleanup — v2.0
+
 **v2.0 Intelligence Gap Fill (2026-03-20):**
 - ✓ Cross-TF FVG/OB alignment scores in `CrossTimeframeConfluencePlugin` — `_proximity_decay()` weighted direction-match scores — v2.0
 - ✓ Volume Profile as T1/T2 targets in `trade_framer.py` — `_select_vp()` + `_vp_regime_active()` with ATR bypass — v2.0
@@ -164,39 +173,26 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.0 Phase 44.3 complete 2026-03-22)
+### Current State (v2.0 shipped 2026-03-22)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
-- 6 active systemd services (6 DAG stage microservices retired in Phase 44.2): feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api
-- Signal pipeline: in-process 6-stage pipeline in SignalGeneratorService (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar to `development.intelligence.record`; bounded async audit queue for stage snapshots
-- Persistence: single atomic INSERT per bar from `BarIntelligenceRecord` (31-col tuple); i8 patched via LLMWriterService UPDATE; live 1m OHLCV written by FeaturePipelineService; `development.intelligence.i7` retired; SSE broadcaster reads from `development.intelligence.record`
-- `signal_ledger` extended to 58 fields: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire
-- `confidence_calibration` table: isotonic regression curves per (plugin, tf), trained alongside CIS weights
-- `signal_features` hypertable: mid-bar feature snapshots at signal fire time (ML training dataset)
-- `contract_metadata`: is_front_month, roll_detected_at, confirmation_count — roll detection ready
-- `system_events` table: Kafka-routed roll events with full audit trail
-- Dashboard: calibrated confidence headline + raw/filtered/calibrated trio in drill panel
-- OFI/CVD tick buffers in indicator_service; `market.ticks` Kafka topic wired
-- Cross-asset service: ES/NQ/RTY/YM spread z-scores live on `development.cross_asset`; CROSS_ASSET_ENABLED=false (shadow mode)
-- Roll monitor: ROLL_MONITOR_ENABLED=false (shadow mode); validated via unit tests; ready to enable
+- 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
+- Signal pipeline: in-process 6-stage pipeline in SignalGeneratorService (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar; single atomic INSERT per bar to `intelligence_features`
+- FeaturePipelineService: unified I1–I6 execution, live 1m OHLCV written to `market_data_ohlcv`, cross-asset + VIX frames injected before I6
+- All 36 I7 plugins emit `_shadow` dict with I6 ctf_* sub-scores — ML training foundation ready for v2.3
+- Cross-asset unconditionally active (CROSS_ASSET_ENABLED flag removed); roll monitor awaiting D-21 re-validation (todo 023 in done — scaffolding removed, operational gate pending)
+- `signal_ledger`: 58 fields + generated columns (effective_ts, pipeline_lag_ms) + CHECK constraints + composite lifecycle index
+- data_quality_check.py on 15-min systemd timer; 10 Prometheus gauges; IC scores for 3,227 plugin-regime slices
 
 **Infrastructure:** Ollama (:11434, qwen3.5:9b default), PostgreSQL/TimescaleDB (:5432), Redpanda, IBKR TWS at 192.168.1.157:7497
 
-**Phase 039 additions (2026-03-19):**
-- `signal_ledger.effective_ts` + `pipeline_lag_ms` via trigger; `signal_stats_daily` materialized view (33,859 rows)
-- `repair_cis_nulls.py` exit-1 completeness gate; DATA-02 alpha re-validation deferred (0 resolved outcomes for bootstrap plugins)
-- `rebuild_ohlcv.py` script for chunk rebuild (15,740 → <200 chunks); lifecycle index migration 043 ready to apply
-- `gap_fill_service.py` + systemd daily timer (13:20 UTC) — self-healing 1m RTH gap detection on :9119
-- `information_coefficient.py` + `compute_ic.py`; 3,227 IC slices, 512 significant (36%); top: `trad_MeanReversion` IC 0.76-0.81
-- `data_quality_metrics.py` + `data_quality_check.py` + 15-min systemd timer; 10 Prometheus gauges
-
-**Known issues / tech debt:**
-- validate_alpha.py re-runs needed for bootstrap plugins once 30+ signals accumulate
-- trad_DualDivergence IS_SHADOW=True (awaiting live confirmation before promotion)
+**Known issues / tech debt (v2.0 audit):**
+- validate_alpha.py re-run needed for DerivOsc + AC Osc once N≥30 signals accumulate (todo 023)
+- trad_DualDivergence IS_SHADOW=True (awaiting live confirmation before promotion — tracked in Phase 50)
+- Phase 43 broken CI test: test_held_lock_blocks_concurrent_waiter — threading.Lock migration (tracked in Phase 49)
+- 6 zombie DAG unit files in production/systemd/ (hygiene — todo 024)
+- Stale Wants=indicagent-indicator.service in feature-writer unit (hygiene — todo 024)
 - Two migrations share number 043 — next migration must start at 044
-- indicagent-timeframes.service — legacy, non-blocking
-
-**Next milestone candidates:** v2.0 — ML scoring model (XGBoost on intelligence_features + signal_ledger; needs ~90 days), Auth + External Access, I6 Confluence Expansion (cross-TF + cross-asset)
 
 ## Key Decisions
 
@@ -232,9 +228,13 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 | CUSUM integrated into weight_updater (not separate service) | Weight update job already reads setup_performance; CUSUM requires the same data; single process avoids scheduling drift | ✓ Good — CUSUM runs at same 15-min cadence as weight updates |
 | TOD grouping by (regime_type, tf, hour_et) not per-plugin | 120 cells vs 2,688 per-plugin; faster prior convergence; regimes already capture plugin-level behavior | ✓ Good — fast cold-start with meaningful priors; will revisit per-plugin after 90d data |
 | `active` derived from `all_ranked` not raw `signals` | Raw signals never get `adjusted_rank` set; perf_weights have zero effect on winner selection unless derived from all_ranked | ✓ Good — caught during v1.9 and corrected; all callers use all_ranked path |
-| trad_DualDivergence IS_SHADOW=True | Requires both OFI + CVD divergence simultaneously — fires rarely; accumulate live data before promoting | — Pending — shadow tracking live |
-| CrossAssetService default CROSS_ASSET_ENABLED=false | New microservice with equity-group-only scope; shadow mode validates data quality before enabling | — Pending — enable after 1 week of shadow monitoring |
-| ROLL_MONITOR_ENABLED=false default | Roll detection via volume z-score is a new signal path; shadow mode ensures no unintended service restarts | — Pending — enable after paper account validation |
+| trad_DualDivergence IS_SHADOW=True | Requires both OFI + CVD divergence simultaneously — fires rarely; accumulate live data before promoting | — Pending — shadow tracking live; Phase 50 graduation |
+| CrossAssetService default CROSS_ASSET_ENABLED=false | New microservice with equity-group-only scope; shadow mode validates data quality before enabling | ✓ Good — graduated in Phase 47; flag removed unconditionally |
+| ROLL_MONITOR_ENABLED=false default | Roll detection via volume z-score is a new signal path; shadow mode ensures no unintended service restarts | — Pending — D-21 gate blocked by empty market_data_5m; Phase 50 |
+| DAG microservices absorbed in-process (Phase 44.2) | 6 DAG microservices created in Phase 40 → absorbed into SignalGeneratorService; 8 Kafka hops → 2; bounded async audit queue for observability | ✓ Good — net: simpler ops, lower latency, same observability |
+| BarIntelligenceRecord single atomic INSERT | Eliminate 2-phase i7/i8 partial-row UPSERT pattern; complete rows at insert time; i8 patched via LLMWriterService UPDATE | ✓ Good — no partial rows, no race conditions |
+| VIX + cross-asset promoted to I4 (not I6) | Per-TF VIX z-score in I6 poisoned ML training data (different z per TF for same market moment); macro regime belongs in I4 | ✓ Good — I4Context +4 fields; ML training matrix now has stable vix_z feature |
+| _shadow dict capture at I7 with placeholder weights | Capture I6 ctf_* scores into _shadow now; Phase 49 learns weights via ML; zero confidence modification today | ✓ Good — dataset complete; weights deferred avoids premature optimization |
 
 ## Constraints
 
@@ -243,19 +243,16 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.0 — Signal Integrity & ML Foundation
+## Current Milestone: v2.1 — Data Foundation & Signal Confidence
 
-**Goal:** Eliminate data quality debt, fix machine performance, fill intelligence gaps, widen signal net, and lay the ML scoring foundation — so that by end of v2.0 we have 90+ days of clean labeled data ready for a regime-specific XGBoost model.
+**Goal:** Earn the right to trust the numbers. Fix the live data foundation, close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
 
-**Target features:**
-- Data quality + DB health (CIS null repair, market_data_ohlcv rebuild, signal_ledger indexes, gap-fill)
-- Machine hardening (feature writer lag fix, aggregator cache, calibration perf, refresh loop consistency, lifecycle perf)
-- Intelligence gap fill (i6 FVG/OB alignment stubs → real computation, POC/VAH/VAL as T1/T2 anchors, roll premium/discount, multi-TF S/R awareness)
-- Candlestick pattern expansion (18 new I5 patterns + I7 setup wiring)
-- I6 confluence expansion (cross-TF + cross-asset + VIX regime)
-- Shadow mode graduation (empirical gate tuning, enable cross-asset + roll monitor)
-- Auth + external access (JWT, Cloudflare Tunnel, SSE fan-out)
-- ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
+**Target phases:**
+- Phase 48: Tick Aggregation — replace broken bar polling with live 1m OHLCV from tick stream
+- Phase 49: DB Performance & Signal Ledger Hardening — composite indexes, CIS null repair, Phase 43 test gap
+- Phase 50: Roll Monitor & DualDivergence Graduation — D-21 validation, migration 049, shadow promotions
+- Phase 51: Signal & Indicator Validation Framework — per-layer sanity checks, automated deploy validation
+- Phase 52: Infrastructure Hardening — Docker restart policies, log rotation, health checks, no manual steps
 
 ---
-*Last updated: 2026-03-22 after phase 44.3 (v2.0 atomic persistence + OHLCV unification — single INSERT per bar, i7 topic retired)*
+*Last updated: 2026-03-22 after v2.0 milestone completion (Signal Integrity & ML Foundation — 14 phases, 60 plans, 18→9 services, _shadow dict foundation established)*

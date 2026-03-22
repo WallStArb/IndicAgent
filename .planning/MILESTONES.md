@@ -1,5 +1,65 @@
 # Milestones
 
+## v2.0 Signal Integrity & ML Foundation (Shipped: 2026-03-22)
+
+**Phases completed:** 14 phases, 60 plans, 111 tasks
+
+**Key accomplishments:**
+
+- signal_ledger enriched with effective_ts trigger column, pipeline_lag_ms latency instrumentation, two CHECK constraints, and signal_stats_daily materialized view (33,859 rows) for fast IC computation
+- Exit-1 completeness gate added to repair_cis_nulls.py; DATA-02 deferred — 0 resolved outcomes for DerivOsc and AC Osc (N < 30 gate)
+- OHLCV hypertable rebuild script with chunk-count/latency verification gate and signal_ledger composite index migration for lifecycle UPDATE performance
+- Self-healing gap-fill service detecting missing 1m RTH bars via asyncpg set-diff, fetching from IBKR, inserting with ON CONFLICT DO NOTHING; scheduled daily at 09:20 ET via systemd timer
+- signal_performance_segmented table with Pearson IC scores per plugin-regime slice; 3,227 rows written; trad_MeanReversion leads at IC=0.81 (15m); 512/3,227 slices statistically significant
+- 1. [Rule 1 - Bug] Fixed no-label Gauge .labels() call
+- PatternPlugin Protocol extended with mandatory regime_type field and validate_tier() now hard-crashes service startup if any I7 plugin is missing or has an invalid regime_type value
+- One-liner:
+- One-liner:
+- Before:
+- 1. SignalOutcome Enum (`src/intelligence/trading/signal_outcome.py`)
+- Hardcoded string scan results:
+- CircuitBreaker, DataQualityMonitor, and Stage base class for 6-stage signal pipeline DAG with fault tolerance, schema validation, and attribution emission
+- 6 DAG pipeline stage services (QualityGate → RegimeGate → TODAdjuster → Calibrator → Ranker → WinnerSelector) implementing the typed, attributed signal processing chain with circuit breaker protection
+- 8 Redpanda pipeline topics and 6 systemd microservices deployed — full DAG stage infrastructure running on :9119–:9124
+- Removed:
+- Replaced hardcoded 0.0 stubs in CrossTimeframeConfluencePlugin with direction-weighted FVG and Order Block proximity scores across higher timeframes, including per-TF contribution decomposition for full auditability.
+- 1. [Rule 1 - Bug] Fixed test scenario with logically inconsistent entry vs POC for near-boundary long test
+- 1. [Rule 1 - Bug] TF guard broke all existing tests that don't set frames["timeframe"]
+- 1. [Rule 1 - Bug] Fixed incorrect test fixtures from plan spec
+- CandlestickPatternSetup I7 plugin extended to read DB-driven pattern weights from frames injection with fallback priors, and 10 new Phase 42 patterns integrated via scalable pattern_flags loop
+- Pattern reliability calibration function added to weight_updater.py closing the Renaissance feedback loop, with 7-day ES 1m backtest confirming 4/5 pattern groups (97 tweezer + 85 belt_hold + 17 kicker + 1 harami fires)
+- 4 new Python modules establishing shared I7 utility foundation: plugin_utils (no_signal/extract_ohlcv/signal_type helpers), atr_utils (ATR null-guard), confidence_utils ([0.10,0.95] system clamp), utils/common.py (tier-agnostic composites); 58 tests all green
+- 1. [Rule 1 - Bug] Test assertions assumed `{}` for insufficient-data paths
+- cross_timeframe.py decomposed from 464-line monolith into 3 focused modules (confluence_weights, confluence_alignment, confluence_smc) + 133-line thin orchestrator, with CrossTimeframeConfluencePlugin interface unchanged
+- Task 1 — Fix type contracts in all 8 microstructure plugins:
+- Task 1 — Plugin wiring (5 transformations):
+- 1. [Rule 2 - Missing] Tick buffer from indicator_service
+- 1. [Rule 3 - Blocking] Port conflict on metrics endpoint
+- Three legacy systemd units deleted, development.indicators Redpanda topic retired, and full 2743-test suite confirmed green — Feature Pipeline Renaissance topology fully clean.
+- One-liner:
+- One-liner:
+- Deleted 6 stage microservice files, stages/ directory, and old stage tests; retired 6 systemd units; SignalGeneratorService running with in-process pipeline confirmed via Prometheus metrics
+- 9 pytest-asyncio tests validate the full bar → BarIntelligenceRecord pipeline with mocked I/O — no live infra required
+- DB migration adding 11 columns to intelligence_features + FeatureWriterService simplified to single atomic INSERT per bar from BarIntelligenceRecord, eliminating i7/i8 two-phase partial-row writes
+- One-liner:
+- FeaturePipelineService writes live 1m bars to market_data_ohlcv via async batch (buffer 50, flush 5s, ON CONFLICT DO NOTHING) — market_data_ohlcv is now single OHLCV ground truth
+- 1. [Rule 1 - Bug] Fixed broken RankedSignal field names in signal-scorecard.tsx
+- One-liner:
+- 1. [Rule 1 - Bug] mean_reversion.py already wired
+- 15 I7 plugins (SMC family + microstructure family) wired with capture_confluence_features shadow capture and per-plugin exhaustion handling; all emit signal["_shadow"] for Phase 49 ML training
+- 10 regression tests verify PERF-04: O(1) active signal index dict lookup and 0.01% chandelier write guard in signal_lifecycle_service
+- One-liner:
+- `capture_confluence_features()` shadow dict extended to 15 keys with VIX regime and EQ_INDEX sector rotation fields, using None-default semantics per D-06 to distinguish absent data from zero z-scores.
+- Two new I4 macro context plugins (VIXRegimePlugin, CrossAssetContextPlugin) registered in TIER_I4; I4Context extended to 97 fields; I6Confluence pass-through removed; CROSS_ASSET_VALID_TFS centralized
+- VIX frame injection fixed to VIX_REGIME_TF='1h'; I6 outputs locked by test; capture_signal_features renamed across all 36 I7 plugins with I4 key names
+- Query result:
+- One-liner:
+- Roll monitor graduation checkpoint reached — D-21 validation skipped (market_data_5m empty), ROLL_MONITOR_ENABLED kept false, scaffolding removal deferred to todo 023
+- CROSS_ASSET_ENABLED feature flag fully removed from 4 services and Settings — cross-asset intelligence unconditionally active in DAG (SHADOW-02 graduated)
+- D-21 validation gate
+
+---
+
 ## v1.9 I7 Alpha Engine (Shipped: 2026-03-18)
 
 **Phases completed:** 8 phases (31-38), 23 plans
