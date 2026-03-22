@@ -48,6 +48,11 @@ class CrossTimeframeConfluencePlugin:
             # consistent with all other ctf_* fields consumed by I7 plugins.
             "ctf_fvg_alignment",
             "ctf_ob_alignment",
+            # Phase 46: VIX regime + EQ_INDEX sector rotation (D-15, D-16)
+            "ctf_vix_level",
+            "ctf_vix_z",
+            "ctf_eq_spread_z",
+            "ctf_eq_pairs_confirming",
         }
     )
     min_lookback: int = 1
@@ -118,6 +123,26 @@ class CrossTimeframeConfluencePlugin:
                 if tf_min > highest_aligned_minutes:
                     highest_aligned_minutes = float(tf_min)
 
+        # Phase 46: VIX regime raw measurements (D-16) — all symbols
+        vix = frames.get("vix", {})
+        if vix.get("ready"):
+            ctf_vix_level = vix.get("level")
+            ctf_vix_z = vix.get("z_score")
+        else:
+            ctf_vix_level = None
+            ctf_vix_z = None
+
+        # Phase 46: EQ_INDEX sector rotation raw measurements (D-15) — EQ_INDEX only
+        cross_asset = frames.get("cross_asset", {})
+        if cross_asset.get("ready"):
+            active = cross_asset.get("active_pair", "ES_NQ")
+            spread_key = "es_nq_spread_z" if active == "ES_NQ" else "es_rty_spread_z"
+            ctf_eq_spread_z = cross_asset.get(spread_key)
+            ctf_eq_pairs_confirming = float(cross_asset.get("pairs_confirming", 0))
+        else:
+            ctf_eq_spread_z = None
+            ctf_eq_pairs_confirming = None
+
         return {
             "ctf_score": round(ctf_score, 4),
             "ctf_trend_alignment": round(trend_alignment, 4),
@@ -133,6 +158,11 @@ class CrossTimeframeConfluencePlugin:
             # backward compatibility with existing consumers of intelligence_features.
             "ctf_fvg_alignment": fvg_score,
             "ctf_ob_alignment": ob_score,
+            # Phase 46: VIX and cross-asset fields (D-15, D-16) — None when data unavailable
+            "ctf_vix_level": ctf_vix_level,
+            "ctf_vix_z": ctf_vix_z,
+            "ctf_eq_spread_z": ctf_eq_spread_z,
+            "ctf_eq_pairs_confirming": ctf_eq_pairs_confirming,
             # Per-TF FVG and OB contributions — Renaissance standard: every score is decomposable
             **{f"i6_fvg_tf_{tf}": v for tf, v in fvg_tf_contribs.items()},
             **{f"i6_ob_tf_{tf}": v for tf, v in ob_tf_contribs.items()},
