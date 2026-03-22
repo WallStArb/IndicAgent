@@ -171,7 +171,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ### Pending Todos
 
-**36 pending todos** accumulated across development sessions — use `/gsd:check-todos` to select and work through them.
+**41 pending todos** accumulated across development sessions — use `/gsd:check-todos` to select and work through them.
 
 Recent additions (2026-03-19):
 
