@@ -119,7 +119,7 @@ Callers (all 36 I7 plugins + confidence_utils.py itself): mechanical rename only
 | `src/intelligence/schemas.py` | `I4Context` +4 fields; `I6Confluence` −4 fields |
 | `src/intelligence/register_plugins.py` | Add both plugins to `TIER_I4` and `register_all_plugins()` |
 | `src/intelligence/confluence/cross_timeframe.py` | Remove ~20 lines VIX/cross-asset pass-through; update `outputs` frozenset |
-| `src/intelligence/trading/confidence_utils.py` | Rename function + 4 shadow dict keys |
+| `src/intelligence/trading/confidence_utils.py` | Rename function + 4 shadow dict keys; update module docstring and function docstring (currently references `ctf_*` prefixed keys and old function name) |
 | `services/feature_pipeline_service.py` | Add `VIX_REGIME_TF="1h"` constant; fix VIX injection TF; import `CROSS_ASSET_VALID_TFS` |
 | `services/signal_generator_service.py` | Import `CROSS_ASSET_VALID_TFS` from service_utils; remove local definition |
 | `src/core/service_utils.py` | Add `CROSS_ASSET_VALID_TFS: frozenset[str]` |
@@ -149,5 +149,5 @@ Callers (all 36 I7 plugins + confidence_utils.py itself): mechanical rename only
 5. `feature_pipeline_service` uses `VIX_REGIME_TF="1h"` for all VIX bar lookups (no `tf`-dependent lookup)
 6. `CROSS_ASSET_VALID_TFS` appears once (in `service_utils.py`), not in either service file
 7. `capture_signal_features()` is the function name in `confidence_utils.py` — `capture_confluence_features` does not exist
-8. All 36 I7 plugin callers updated to `capture_signal_features`
+8. All 36 I7 plugin callers updated to `capture_signal_features` (excluding the definition site in `confidence_utils.py` itself)
 9. 2716 existing unit tests pass (no regressions)
