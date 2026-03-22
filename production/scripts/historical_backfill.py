@@ -1024,19 +1024,41 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
 
-def _row_to_bar(row: tuple, symbol: str, timeframe: str) -> dict:
-    """Convert a DB row tuple to a bar dict with UTC timestamp normalization."""
-    ts = row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC)
-    return {
-        "timestamp": ts,
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "open": float(row[1]),
-        "high": float(row[2]),
-        "low": float(row[3]),
-        "close": float(row[4]),
-        "volume": int(row[5]),
-    }
+
+def detect_gaps(
+    db_conn: Any, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+) -> list[tuple[datetime, datetime]]:
+    """Detect gaps in OHLCV data within the specified range."""
+    # Find all existing bars in the range
+    query = """
+        SELECT timestamp FROM market_data_ohlcv
+        WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
+        ORDER BY timestamp ASC
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(query, (symbol, timeframe, start_dt, end_dt))
+        timestamps = [r[0] for r in cur.fetchall()]
+
+    if not timestamps:
+        return [(start_dt, end_dt)]
+
+    gaps = []
+
+    # Check start
+    if timestamps[0] > start_dt:
+        gaps.append((start_dt, timestamps[0]))
+
+    # Check intervals between bars
+    interval = timedelta(minutes=_TF_MINUTES.get(timeframe, 1))
+    for i in range(len(timestamps) - 1):
+        if timestamps[i+1] - timestamps[i] > interval:
+            gaps.append((timestamps[i] + interval, timestamps[i+1]))
+
+    # Check end
+    if timestamps[-1] < end_dt:
+        gaps.append((timestamps[-1] + interval, end_dt))
+
+    return gaps
 
 
 def connect_db(settings: Settings) -> Any:
@@ -1107,7 +1129,19 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = 
         cur.execute(query, params)
         rows = cur.fetchall()
 
-    bars = [_row_to_bar(row, symbol, timeframe) for row in rows]
+    bars = [
+        {
+            "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC),
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": float(row[5]),
+        }
+        for row in rows
+    ]
 
     if is_futures:
         # Deduplicate by timestamp — last-seen wins (SQL already ordered by timestamp ASC)
@@ -1491,46 +1525,56 @@ def main() -> None:
                         fetch_days, use_continuous = _TF_FETCH_CONFIG[tf]
                         if args.days:
                             fetch_days = min(fetch_days, args.days)
-                        # Skip continuous contracts for short windows (no rolls needed)
-                        if fetch_days <= 14:
-                            use_continuous = False
+
                         start_dt = (end_dt - timedelta(days=fetch_days)).replace(
                             hour=0, minute=0, second=0, microsecond=0
                         )
-                        try:
-                            use_continuous = use_continuous and (
-                                instrument.asset_class == AssetClass.FUTURES
-                            )
-                            ohlcv_bars = asyncio.run(
-                                provider.fetch_historical_bars(
-                                    symbol=instrument.symbol,
-                                    timeframe=tf,
-                                    start=start_dt,
-                                    end=end_dt,
-                                    continuous=use_continuous,
+
+                        gaps = detect_gaps(db_conn, instrument.symbol, tf, start_dt, end_dt)
+                        if not gaps:
+                            print(f"  {instrument.symbol}/{tf}: no gaps found.")
+                            fetched_tfs.add(tf)
+                            continue
+
+                        print(f"  {instrument.symbol}/{tf}: {len(gaps)} gaps detected, fetching...")
+
+                        # Skip continuous contracts for short windows (no rolls needed)
+                        use_cont = (
+                            use_continuous
+                            and (fetch_days > 14)
+                            and (instrument.asset_class == AssetClass.FUTURES)
+                        )
+                        for gap_start, gap_end in gaps:
+                            try:
+                                ohlcv_bars = asyncio.run(
+                                    provider.fetch_historical_bars(
+                                        symbol=instrument.symbol,
+                                        timeframe=tf,
+                                        start=gap_start,
+                                        end=gap_end,
+                                        continuous=use_cont,
+                                    )
                                 )
-                            )
-                            bar_dicts = [
-                                {
-                                    "timestamp": b.timestamp,
-                                    "open": b.open,
-                                    "high": b.high,
-                                    "low": b.low,
-                                    "close": b.close,
-                                    "volume": b.volume,
-                                    "source": b.source,
-                                }
-                                for b in ohlcv_bars
-                            ]
-                            n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
-                            total_bars += n
-                            if n > 0:
-                                fetched_tfs.add(tf)
-                            label = "continuous-adj" if use_continuous else "named"
-                            print(f"  {instrument.symbol}/{tf} ({label}, {fetch_days}d): {n} bars")
-                        except Exception as e:
-                            print(f"  {instrument.symbol}/{tf}: error — {e}")
-                        time.sleep(2)  # IBKR pacing between TF requests
+                                bar_dicts = [
+                                    {
+                                        "timestamp": b.timestamp,
+                                        "open": b.open,
+                                        "high": b.high,
+                                        "low": b.low,
+                                        "close": b.close,
+                                        "volume": b.volume,
+                                        "source": b.source,
+                                    }
+                                    for b in ohlcv_bars
+                                ]
+                                n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
+                                total_bars += n
+                                if n > 0:
+                                    fetched_tfs.add(tf)
+                                print(f"    Fetched {n} bars for gap {gap_start} to {gap_end}")
+                            except Exception as e:
+                                print(f"    Gap {gap_start} error — {e}")
+                            time.sleep(2)  # IBKR pacing
 
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.
