@@ -11,7 +11,7 @@ DragonflyDB writes are fully removed. ib_insync logic remains in src/providers/i
 
 Version: 1.0.1
 Last Updated: 2026-03-22
-Status: Current 
+Status: Current
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
+from typing import Any
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -34,6 +35,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import structlog
+from prometheus_client import Counter as _Counter
 from prometheus_client import start_http_server
 
 from src.config.contracts import derive_roll_chain, get_roll_window
@@ -397,7 +399,7 @@ class TwsDaemon:
 
         # Seen bar dedup (last 30 bars per symbol)
         self.seen_bar_timestamps: dict[str, set[str]] = defaultdict(set)
-        self.seen_bar_timestamps_order: dict[str, list[str]] = defaultdict(list)
+        self.seen_bar_timestamps_order: dict[str, deque] = defaultdict(lambda: deque(maxlen=30))
 
         # Metrics
         self.metrics_port = int(self.settings.metrics_port)
@@ -405,8 +407,6 @@ class TwsDaemon:
         self.m_dropped = prom_counter(
             "indicagent_ticks_dropped_total", "Dropped ticks due to backpressure"
         )
-        from prometheus_client import Counter as _Counter
-
         self.m_dropped_by_reason = _Counter(
             "indicagent_tws_ticks_dropped_reason_total",
             "Dropped ticks by reason",
@@ -414,7 +414,9 @@ class TwsDaemon:
         )
         self.m_bars = prom_counter("indicagent_bars_total", "Total bars processed")
         self.m_reconnects = prom_counter("indicagent_ibkr_reconnects_total", "IBKR reconnects")
-        self.m_drift = prom_counter("indicagent_bar_drift_total", "Discrepancies between 5s-derived and official bars")
+        self.m_drift = prom_counter(
+            "indicagent_bar_drift_total", "Discrepancies between 5s-derived and official bars"
+        )
         self.g_connected = prom_gauge("indicagent_ibkr_connected", "1 when connected")
         self.g_tick_queue = prom_gauge("indicagent_tick_queue_size", "Async tick queue depth")
 
@@ -467,7 +469,7 @@ class TwsDaemon:
             if connected:
                 self.connected = True
                 self.g_connected.set(1)
-                self.current_mode = self.market_hours.get_mode(datetime.now())
+                self.current_mode = self.market_hours.get_mode(datetime.now(UTC))
                 self._qualify_all_instruments()
                 logger.info("Connected to TWS via IBKRProvider")
                 return True
@@ -579,7 +581,7 @@ class TwsDaemon:
 
                 # Cleanup old cache entries (keep last 20)
                 if len(self._official_bars_cache[symbol]) > 20:
-                    oldest_ts = sorted(self._official_bars_cache[symbol].keys())[0]
+                    oldest_ts = min(self._official_bars_cache[symbol].keys())
                     del self._official_bars_cache[symbol][oldest_ts]
 
         except asyncio.CancelledError:
@@ -625,10 +627,10 @@ class TwsDaemon:
             return
         self.seen_bar_timestamps[symbol].add(bar_timestamp)
         order = self.seen_bar_timestamps_order[symbol]
-        order.append(bar_timestamp)
-        if len(order) > 30:
-            evicted = order.pop(0)
+        if len(order) >= 30:
+            evicted = order[0]
             self.seen_bar_timestamps[symbol].discard(evicted)
+        order.append(bar_timestamp)  # deque(maxlen=30) auto-evicts oldest on overflow
 
         # 1. Reconciliation (Renaissance Audit)
         official = self._official_bars_cache.get(symbol, {}).get(bar_timestamp)
@@ -711,7 +713,7 @@ class TwsDaemon:
         if current_time - self.last_health_check < self.health_check_interval:
             return
         self.last_health_check = current_time
-        elapsed = (datetime.now() - self.start_time).total_seconds()
+        elapsed = (datetime.now(UTC) - self.start_time).total_seconds()
         tick_rate = self.ticks_processed / elapsed if elapsed > 0 else 0
         performance = "HIGH" if tick_rate > 50 else "MEDIUM" if tick_rate > 10 else "LOW"
         logger.info(
@@ -753,11 +755,15 @@ class TwsDaemon:
 
         if self.loop:
             self._rtb_task = asyncio.run_coroutine_threadsafe(self._rtb_loop(), self.loop)
-            self._official_task = asyncio.run_coroutine_threadsafe(self._official_bars_loop(), self.loop)
-            self._heartbeat_task = asyncio.run_coroutine_threadsafe(self._heartbeat_loop(), self.loop)
+            self._official_task = asyncio.run_coroutine_threadsafe(
+                self._official_bars_loop(), self.loop
+            )
+            self._heartbeat_task = asyncio.run_coroutine_threadsafe(
+                self._heartbeat_loop(), self.loop
+            )
 
         self.running = True
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(UTC)
 
         logger.info("TWS Daemon started successfully")
 
@@ -794,7 +800,7 @@ class TwsDaemon:
                 now_ts = time.time()
                 if now_ts - self.last_mode_check_ts >= self.mode_check_interval:
                     self.last_mode_check_ts = now_ts
-                    self.current_mode = self.market_hours.get_mode(datetime.now())
+                    self.current_mode = self.market_hours.get_mode(datetime.now(UTC))
 
                 self.health_check()
                 time.sleep(0.1)
@@ -849,7 +855,7 @@ class TwsDaemon:
                 pass
 
         if self.start_time:
-            elapsed = (datetime.now() - self.start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - self.start_time).total_seconds()
             tick_rate = self.ticks_processed / elapsed if elapsed > 0 else 0
             logger.info(
                 "TWS Daemon session complete",
