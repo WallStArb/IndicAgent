@@ -1,25 +1,25 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Signal Integrity & ML Foundation
-status: unknown
+milestone: v2.1
+milestone_name: Data Foundation & Signal Confidence
+status: v2.0 milestone complete
 stopped_at: Completed 47-04-PLAN.md (cross-asset graduation — SHADOW-02 scaffolding removed)
-last_updated: "2026-03-22T16:30:01.691Z"
+last_updated: "2026-03-22T17:27:57.154Z"
 progress:
   total_phases: 14
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 60
-  completed_plans: 56
+  completed_plans: 57
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-18)
+See: .planning/PROJECT.md (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 47 — shadow-mode-graduation
+**Current focus:** v2.1 — Data Foundation & Signal Confidence (Phases 48-52)
 
 ## Current Position
 

@@ -4,6 +4,57 @@
 
 ---
 
+## Milestone: v2.0 — Signal Integrity & ML Foundation
+
+**Shipped:** 2026-03-22
+**Phases:** 14 (39–47, including 39.1, 40, 44.1, 44.2, 44.3, 46.1) | **Plans:** 60 | **Timeline:** 4 days (2026-03-19 → 2026-03-22)
+
+### What Was Built
+
+- Intelligence pipeline DAG refactor: FeaturePipelineService (I1–I6 unified, 3 Kafka hops → 1), SignalGeneratorService (6-stage in-process, 8 hops → 2), atomic `BarIntelligenceRecord` INSERT; service count 18 → 9
+- ML training data foundation: all 36 I7 plugins emit `_shadow` dict with I6 ctf_* sub-scores via `capture_confluence_features()` — Phase 49 learns weights from this data
+- DB hardening: `signal_ledger` generated columns + CHECK constraints + composite lifecycle index; `market_data_ohlcv` rebuilt 15,740 → 21 chunks; 15-min data quality monitoring with 10 Prometheus gauges
+- Intelligence gap fill: real FVG/OB CTF alignment (was 0.0 stubs), VP as T1/T2 targets, HTF 1h cache injection, 18 new I5 candlestick patterns with DB-driven weight feedback
+- I6 Confluence Expansion: VIXRegimePlugin + CrossAssetContextPlugin promoted to I4 (layer violation fixed); 4 new CTF measurement fields; cross-asset + VIX frames injected into pipeline
+- Code quality enforcement: SignalStatus + SignalOutcome enums; regime_type Protocol field; pre-commit hooks; 3 production bug fixes; dual topic namespace cleanup
+- Shadow graduation: CROSS_ASSET_ENABLED feature flag removed (unconditionally active); regime gate parametrized via Settings
+
+### What Worked
+
+- Decimal phase insertion (39.1, 46.1) handled urgency cleanly without disrupting main phase numbering — clean pattern for priority work
+- Phase 44 restructuring (44 → 44.1 → 44.2 → 44.3): decomposing the pipeline refactor into independent concerns (schema, in-process, atomic persistence) made each step verifiable without live infra
+- Milestone audit before archival caught 5 doc inconsistencies that would have corrupted the requirements record — worth the investment
+- "Absorbed in-process" pattern for Phase 44.2: 6 microservices absorbed into 1 with bounded async audit queue preserved all observability at 1/8th the Kafka hop cost
+- I4 layer promotion for VIX/cross-asset (Phase 46.1): catching the layer violation before ML training data accumulation prevented a data quality defect in the training matrix
+
+### What Was Inefficient
+
+- Phase 40 built 6 DAG microservices that were absorbed back in Phase 44.2 (3 phases later) — architectural indirection created real work without lasting value. Should have validated the in-process architecture first before creating standalone services.
+- SHADOW-03 couldn't be fully validated because `market_data_5m` was empty after DB cleanup — operational gate blocked by infrastructure state, not code quality. A CI-resistant graduation ceremony needs test-data fixtures, not live data.
+- 1 broken CI test (threading.Lock characterization) carried forward from Phase 43 → delayed until Phase 49. Should have been fixed in the same phase.
+
+### Patterns Established
+
+- `_shadow` dict capture pattern: I7 plugins call `capture_confluence_features()` → structured ML feature capture without modifying signal logic; weights learned later
+- `BarIntelligenceRecord` as typed handoff: clean schema boundary between FeaturePipelineService and feature_writer/signal_generator eliminates partial-row race conditions
+- Decimal phase ceremony rule: feature flag removal only after operational gate passes (D-21 validation) — prevents premature graduation of unvalidated signal paths
+- I4 layer rule: macro regime context (VIX, cross-asset spreads) belongs in I4 (per-bar, per-TF, consistent), not I6 (cross-TF scoring layer)
+
+### Key Lessons
+
+1. **In-process > microservices for compute-bound pipelines**: 6 Kafka round-trips per bar cost more than the isolation benefit for a single-host system. Build in-process first; extract to microservice only when isolation is actually needed.
+2. **DAG refactors need clear direction before execution**: Phase 40 built toward external microservices; Phase 44 reversed toward in-process. The indirection consumed 2 milestones of work. Better to spike both approaches before committing.
+3. **Shadow ceremony rule prevents premature graduation**: The SHADOW-03 stall (empty market_data_5m) vindicated the "gate must pass before removal" rule. Without it, roll monitor would have been enabled on stale/missing data.
+4. **Milestone audit before archival is worth it**: 43/58 requirements actually satisfied (vs 38/58 on paper) — audit found 5 checkbox inconsistencies that would have under-counted v2.0's real accomplishments.
+
+### Cost Observations
+
+- Model mix: ~60% sonnet, ~40% opus (heavy planning phases used opus; execution on sonnet)
+- Sessions: ~8 sessions over 4 days
+- Notable: Phase 44 chain (44→44.1→44.2→44.3) was the most complex sequence — typed schema handoffs prevented integration breaks that would have been invisible with duck-typed dicts
+
+---
+
 ## Milestone: v1.4 — Quant Foundation
 
 **Shipped:** 2026-03-07
