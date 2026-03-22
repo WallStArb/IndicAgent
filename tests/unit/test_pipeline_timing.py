@@ -181,27 +181,51 @@ def test_backfill_bar_close_ts_always_set():
 # ── feature_writer_service: INSERT param tuple ────────────────────────────────
 
 
-def test_feature_writer_writes_timing_columns_none_when_absent():
-    """Without timing fields, _event_to_insert_params returns None for timing positions."""
-    from services.feature_writer_service import _event_to_insert_params
+def _make_record(source: str = "live", bar_close_ts=None, i1_computed_at=None, computed_at=None):
+    """Build a minimal BarIntelligenceRecord for timing tests."""
+    from src.intelligence.schemas import BarIntelligenceRecord
 
-    event = _make_event(source="backfill")
-    params = _event_to_insert_params(event)
-    # bar_close_ts at $15, i1_computed_at at $16, computed_at at $17
-    assert params[14] is None  # bar_close_ts
-    assert params[15] is None  # i1_computed_at
-    assert params[16] is None  # computed_at
+    event = _make_event(
+        source=source,
+        bar_close_ts=bar_close_ts,
+        i1_computed_at=i1_computed_at,
+        computed_at=computed_at,
+    )
+    return BarIntelligenceRecord(
+        intelligence=event,
+        ranked_signals=[],
+        signals_evaluated=0,
+        signals_after_quality=0,
+        signals_after_regime=0,
+        signals_after_tod=0,
+        signals_after_calibration=0,
+        ledger_written=False,
+        i7_computed_at=datetime(2026, 1, 15, 13, 0, 1, tzinfo=UTC),
+        pipeline_latency_ms=0.0,
+    )
+
+
+def test_feature_writer_writes_timing_columns_none_when_absent():
+    """Without timing fields, _record_to_insert_params returns None for timing positions."""
+    from services.feature_writer_service import _record_to_insert_params
+
+    record = _make_record(source="backfill")
+    params = _record_to_insert_params(record)
+    # bar_close_ts at $16 (index 15), i1_computed_at at $17 (index 16), computed_at at $18 (index 17)
+    assert params[15] is None  # bar_close_ts
+    assert params[16] is None  # i1_computed_at
+    assert params[17] is None  # computed_at
 
 
 def test_feature_writer_writes_timing_columns_present_for_live():
-    """With timing fields set, _event_to_insert_params returns them at expected positions."""
-    from services.feature_writer_service import _event_to_insert_params
+    """With timing fields set, _record_to_insert_params returns them at expected positions."""
+    from services.feature_writer_service import _record_to_insert_params
 
     bct = datetime(2026, 1, 15, 13, 0, 0, tzinfo=UTC)
     i1_at = datetime(2026, 1, 15, 13, 0, 0, 450000, tzinfo=UTC)
     comp_at = datetime(2026, 1, 15, 13, 0, 1, 120000, tzinfo=UTC)
-    event = _make_event(source="live", bar_close_ts=bct, i1_computed_at=i1_at, computed_at=comp_at)
-    params = _event_to_insert_params(event)
-    assert params[14] == bct
-    assert params[15] == i1_at
-    assert params[16] == comp_at
+    record = _make_record(source="live", bar_close_ts=bct, i1_computed_at=i1_at, computed_at=comp_at)
+    params = _record_to_insert_params(record)
+    assert params[15] == bct
+    assert params[16] == i1_at
+    assert params[17] == comp_at
