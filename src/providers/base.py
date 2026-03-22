@@ -86,6 +86,18 @@ class DataProvider(Protocol):
         """
         ...
 
+    async def stream_real_time_bars(
+        self, symbols: list[str]
+    ) -> AsyncIterator[tuple[str, object]]:
+        """Async iterator yielding (symbol, RealTimeBar) tuples as 5-second bars arrive.
+
+        RealTimeBar fields: time (UTC close time), open_, high, low, close, volume (float).
+        Usage:
+            async for symbol, bar in provider.stream_real_time_bars(["ES", "NQ"]):
+                accumulate(symbol, bar)
+        """
+        ...
+
     async def fetch_historical_bars(
         self,
         symbol: str,
