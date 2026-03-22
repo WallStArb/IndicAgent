@@ -7,7 +7,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -66,7 +67,6 @@ class MeanReversionPlugin:
         rsi_div_bull = features.get("rsi_div_bullish", 0.0)
         rsi_div_bear = features.get("rsi_div_bearish", 0.0)
         vol_regime = features.get("vol_regime", 0.5)
-        bb_middle = features.get("bb_20_2_mid", None)
         sr_support = features.get("sr_nearest_support", None)
         sr_resistance = features.get("sr_nearest_resistance", None)
 
@@ -120,7 +120,6 @@ class MeanReversionPlugin:
             sr_prox = 0.0
 
         raw_conf = 0.3 * rsi_extreme + 0.3 * div_score + 0.2 * vol_stability + 0.2 * sr_prox
-        confidence = compose_confidence(raw_conf)
 
         # ── Supporting factors ──
         supporting = []
@@ -133,9 +132,12 @@ class MeanReversionPlugin:
         if vol_stability > 0.5:
             supporting.append("stable_vol_regime")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         regime_ctx = "ranging"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -145,6 +147,10 @@ class MeanReversionPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "mean_reversion", confidence,
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

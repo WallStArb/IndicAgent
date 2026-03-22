@@ -124,7 +124,7 @@ class TestCheckRollInsufficientData:
     def test_returns_false_with_less_than_20_bars(self):
         rm = _make_roll_monitor()
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)  # 12:00 ET standard RTH
-        for i in range(19):
+        for _ in range(19):
             rm.update_volume("ES", 10000.0, 500.0)
         result = rm.check_roll("ES", utc_now)
         assert result is False
@@ -140,7 +140,7 @@ class TestCheckRollInsufficientData:
         rm = _make_roll_monitor()
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         # Low volume next contract — well below threshold
-        for i in range(20):
+        for _ in range(20):
             rm.update_volume("ES", 10000.0, 100.0)  # ratio = 0.01, no detection
         result = rm.check_roll("ES", utc_now)
         # Should return False (no roll condition met), not error
@@ -154,7 +154,7 @@ class TestCheckRollInsufficientData:
 class TestVolumeRatioTrigger:
     def _fill_window_above_threshold(self, rm, base, bars=25):
         """Fill window with high next_vol to trigger ratio threshold."""
-        for i in range(bars):
+        for _ in range(bars):
             # next_vol >> current_vol -> ratio > 1.2
             rm.update_volume(base, 1000.0, 2000.0)
 
@@ -162,7 +162,7 @@ class TestVolumeRatioTrigger:
         rm = _make_roll_monitor()
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         # ratio = 800/1000 = 0.8 — below 1.2 threshold
-        for i in range(25):
+        for _ in range(25):
             rm.update_volume("ES", 1000.0, 800.0)
         # Should not accumulate confirmation
         rm.check_roll("ES", utc_now)
@@ -172,10 +172,10 @@ class TestVolumeRatioTrigger:
         rm = _make_roll_monitor()
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         # Fill enough bars for sufficient std dev
-        for i in range(30):
+        for _ in range(30):
             rm.update_volume("ES", 1000.0, 100.0)  # baseline: low next_vol
         # Add spiky next_vol to produce high z-score + ratio
-        for i in range(5):
+        for _ in range(5):
             rm.update_volume("ES", 1000.0, 50000.0)
         result = rm.check_roll("ES", utc_now)
         # After first check, if ratio+zscore met, confirmation_count should be >= 1 or roll confirmed
@@ -193,7 +193,7 @@ class TestZScoreGate:
         rm = _make_roll_monitor()
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         # Uniform high next_vol -> std_dev of next_vol = 0 -> z-score can't be > 2
-        for i in range(25):
+        for _ in range(25):
             rm.update_volume("ES", 1000.0, 5000.0)
         result = rm.check_roll("ES", utc_now)
         # Std of next_vol across all 25 bars = 0, so z-score guard prevents confirmation
@@ -208,7 +208,7 @@ class TestZScoreGate:
 class TestConfirmationWindow:
     def _setup_with_baseline_then_spike(self, rm, base="ES", baseline_bars=30):
         """Fill window with baseline volume then spike next_vol for high z-score."""
-        for i in range(baseline_bars):
+        for _ in range(baseline_bars):
             rm.update_volume(base, 1000.0, 100.0)  # low next_vol baseline
 
     def test_single_bar_does_not_confirm(self):
@@ -274,7 +274,7 @@ class TestConfirmationWindow:
 class TestCooldown:
     def _trigger_roll(self, rm, base="ES"):
         """Drive volume window to trigger a roll confirmation."""
-        for i in range(30):
+        for _ in range(30):
             rm.update_volume(base, 1000.0, 100.0)
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         rm._on_roll_confirmed = AsyncMock()
@@ -358,7 +358,7 @@ class TestFeatureFlag:
         s = _make_settings(roll_monitor_enabled=False)
         rm = _make_roll_monitor(s)
         # Fill valid data
-        for i in range(30):
+        for _ in range(30):
             rm.update_volume("ES", 1000.0, 100.0)
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         result = rm.check_roll("ES", utc_now)
@@ -367,7 +367,7 @@ class TestFeatureFlag:
     def test_disabled_no_confirmation_count_change(self):
         s = _make_settings(roll_monitor_enabled=False)
         rm = _make_roll_monitor(s)
-        for i in range(30):
+        for _ in range(30):
             rm.update_volume("ES", 1000.0, 50000.0)  # would trigger if enabled
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
         rm.check_roll("ES", utc_now)

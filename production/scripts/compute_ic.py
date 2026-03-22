@@ -41,7 +41,6 @@ from src.intelligence.ml.information_coefficient import (  # noqa: E402
 )
 from src.intelligence.trading.signal_outcome import WIN_OUTCOMES  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

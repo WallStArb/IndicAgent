@@ -80,7 +80,6 @@ class TestACOscillatorPlugin:
         """Constructed uptrend DataFrame produces ao > 0 (SMA5 > SMA34 of midpoint)."""
         n = 100
         # Build a strict uptrend: midpoint increases monotonically
-        rng = np.random.default_rng(0)
         closes = 100.0 + np.arange(n) * 2.0  # strong uptrend
         highs = closes + 0.5
         lows = closes - 0.5

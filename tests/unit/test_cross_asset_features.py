@@ -149,18 +149,8 @@ def _build_known_spread_windows(spread_series: list[float]) -> dict[str, deque]:
     rty_prices = [2000.0] * (n + _SHORT)
     ym_prices = [34000.0] * (n + _SHORT)
 
-    # ES: for each i in spread_series, we want ln(ES[i+5]/ES[i]) = spread_series[i]
-    # Build a chain: start at 4000, apply exp(spread) to get the 5-bar ratio
-    es_prices = []
-    base = 4000.0
-    for s in spread_series:
-        es_prices.append(base)
-        # After 5 bars, the price that gives 5-bar return = s is base * exp(s)
-        # But we need a chain, so move forward one step at a time
-        # Simplest: append flat then jump at the right time
-    # Actually we need the full price sequence so we build _SHORT prefix + n bars
-    # Trick: build a run where every 5-bar window gives the spread value
-    # Use es_prices = [4000] * _SHORT, then each bar = prev * exp(spread_series[i - _SHORT])
+    # ES: build price chain where ln(ES[i+5]/ES[i]) = spread_series[i]
+    # Prefix with _SHORT flat bars, then each new bar = price[i-5] * exp(spread)
     es_prices = [4000.0] * _SHORT
     for s in spread_series:
         # New price relative to the price 5 bars ago: close * exp(s) for 5-bar return

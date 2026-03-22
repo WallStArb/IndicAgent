@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-
-from src.intelligence.pipeline.winner_selector import select_winner, _CONFIDENCE_BOOST_PER_AGREE
 from src.intelligence.enums.signal_status import SignalStatus
+from src.intelligence.pipeline.winner_selector import _CONFIDENCE_BOOST_PER_AGREE, select_winner
 
 
 def make_signal(

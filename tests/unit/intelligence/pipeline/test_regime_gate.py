@@ -1,7 +1,6 @@
 """Unit tests for apply_regime_gate pure function."""
 from __future__ import annotations
 
-
 from src.intelligence.pipeline.regime_gate import apply_regime_gate
 
 

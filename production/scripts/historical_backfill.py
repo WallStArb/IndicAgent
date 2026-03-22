@@ -248,7 +248,7 @@ def fetch_per_contract(
 
         # Simple expiry: 3rd Friday of expiry month (CME equity index futures)
         # This is an approximation - IBKR provides accurate expiry in contract details
-        month_num = _MONTH_CODES[month_code]
+        month_num = MONTH_CODE_TO_NUM[month_code]
         # Find 3rd Friday of the month
         first_day = date(contract_year, month_num, 1)
         first_friday = (4 - first_day.weekday()) % 7 + 1

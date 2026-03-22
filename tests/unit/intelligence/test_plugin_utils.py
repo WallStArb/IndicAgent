@@ -12,7 +12,6 @@ from src.intelligence.trading.plugin_utils import (
     signal_type_for_direction,
 )
 
-
 # --- no_signal ---
 
 def test_no_signal_returns_dict():
@@ -85,17 +84,17 @@ def test_extract_ohlcv_returns_tuple_on_more_than_min():
 
 def test_extract_ohlcv_returns_numpy_arrays():
     frames = _make_frames(10)
-    o, h, l, c = extract_ohlcv(frames, 5)
-    for arr in (o, h, l, c):
+    o, h, low, c = extract_ohlcv(frames, 5)
+    for arr in (o, h, low, c):
         assert isinstance(arr, np.ndarray)
 
 
 def test_extract_ohlcv_values_correct():
     frames = _make_frames(5)
-    o, h, l, c = extract_ohlcv(frames, 5)
+    o, h, low, c = extract_ohlcv(frames, 5)
     np.testing.assert_array_equal(o, np.ones(5))
     np.testing.assert_array_equal(h, np.ones(5) * 2)
-    np.testing.assert_array_equal(l, np.zeros(5))
+    np.testing.assert_array_equal(low, np.zeros(5))
     np.testing.assert_array_equal(c, np.ones(5) * 1.5)
 
 

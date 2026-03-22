@@ -1,8 +1,8 @@
 from src.intelligence.trading.signal_outcome import (
-    SignalOutcome,
     STOP_OUTCOMES,
     TTL_OUTCOMES,
     WIN_OUTCOMES,
+    SignalOutcome,
 )
 
 

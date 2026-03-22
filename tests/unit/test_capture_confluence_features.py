@@ -10,7 +10,6 @@ from src.intelligence.trading.confidence_utils import (
     capture_confluence_features,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test 1: complete features dict returns full shadow dict
 # ---------------------------------------------------------------------------

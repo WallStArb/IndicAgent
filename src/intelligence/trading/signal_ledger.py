@@ -37,10 +37,10 @@ class SignalStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 from src.intelligence.trading.signal_outcome import (
-    SignalOutcome,
     STOP_OUTCOMES,
     TTL_OUTCOMES,
     WIN_OUTCOMES,
+    SignalOutcome,
 )
 
 __all__ = ["SignalOutcome", "STOP_OUTCOMES", "TTL_OUTCOMES", "WIN_OUTCOMES"]

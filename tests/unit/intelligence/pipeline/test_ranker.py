@@ -1,7 +1,6 @@
 """Unit tests for rank_signals pure function."""
 from __future__ import annotations
 
-
 from src.intelligence.pipeline.ranker import rank_signals
 from src.intelligence.trading.aggregator import SETUP_PRIORITY
 

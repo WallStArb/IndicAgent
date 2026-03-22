@@ -283,6 +283,7 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
         "supporting_factors": [],
         "composite_rank": 1,
     }
+    _ = fired_signal  # used as fixture data for mock below
     empty_agg = AggregatedResult(
         selected_signal=None,
         all_ranked=[],

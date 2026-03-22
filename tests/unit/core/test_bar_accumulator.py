@@ -7,8 +7,12 @@ These stubs define the behavioral contract that the implementation must satisfy.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from src.core.schemas.bar_message import BarMessage
 
 UTC = timezone.utc
 
@@ -137,7 +141,7 @@ def test_ohlcv_aggregation():
     ]
 
     emitted = []
-    for minute, o, h, l, c, v in bars_data:
+    for minute, o, h, low, c, v in bars_data:
         from src.core.schemas.bar_message import BarMessage, SessionType
 
         bar = BarMessage(
@@ -146,7 +150,7 @@ def test_ohlcv_aggregation():
             tf="1m",
             open=o,
             high=h,
-            low=l,
+            low=low,
             close=c,
             volume=v,
             source="ibkr_named",

@@ -42,6 +42,7 @@ def test_get_atr_int_value():
 def test_get_atr_no_recomputation_present():
     """Ensure the module does not import np or contain high/low ATR calculation logic."""
     import inspect
+
     import src.intelligence.trading.atr_utils as mod
 
     source = inspect.getsource(mod)
