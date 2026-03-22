@@ -1244,8 +1244,12 @@ def test_to_ranked_signal_is_winner_true_when_matching_winner():
 
 
 @pytest.mark.asyncio
-async def test_backward_compat_i7_published():
-    """_process_event publishes scorecard to intelligence.i7 topic (backward compat)."""
+async def test_backward_compat_i7_retired():
+    """_process_event no longer publishes to intelligence.i7 — topic retired in Phase 44.3.
+
+    intelligence.i7 topic is replaced by intelligence.record as the signal_scorecard source.
+    Verifies: no publish to intelligence.i7, and intelligence.record IS published.
+    """
     from src.intelligence.schemas import (
         I1Indicators,
         I2Events,
@@ -1297,9 +1301,16 @@ async def test_backward_compat_i7_published():
         features={},
     )
 
+    # intelligence.i7 must NOT be published — topic retired in Phase 44.3
     i7_topics = [t for t in publish_calls if "intelligence.i7" in t]
-    assert len(i7_topics) >= 1, (
-        f"Expected publish to intelligence.i7 topic for backward compat, got: {publish_calls}"
+    assert len(i7_topics) == 0, (
+        f"intelligence.i7 topic is retired — expected no publish, got: {i7_topics}"
+    )
+
+    # intelligence.record must be published (single atomic persistence source)
+    record_topics = [t for t in publish_calls if "intelligence.record" in t]
+    assert len(record_topics) >= 1, (
+        f"Expected publish to intelligence.record, got: {publish_calls}"
     )
 
 
