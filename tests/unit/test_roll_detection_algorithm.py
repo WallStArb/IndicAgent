@@ -407,6 +407,7 @@ class TestCallSiteBugFix:
         daemon.m_bars = MagicMock()
         daemon._kafka_producer = MagicMock()
         daemon._kafka_producer.publish = AsyncMock()
+        daemon._official_bars_cache = defaultdict(dict)
 
         mock_rm = MagicMock()
         mock_rm.should_skip_symbol = MagicMock(return_value=False)
@@ -534,6 +535,7 @@ class TestBarLoopWiring:
         daemon.m_bars = MagicMock()
         daemon._kafka_producer = MagicMock()
         daemon._kafka_producer.publish = AsyncMock()
+        daemon._official_bars_cache = defaultdict(dict)
 
         mock_rm = MagicMock()
         mock_rm.should_skip_symbol = MagicMock(return_value=False)

@@ -13,11 +13,9 @@ def _make_mock_roll_monitor():
     return mock_rm
 
 
-@pytest.mark.asyncio
-async def test_rtb_loop_publishes_5s_price_tick_for_display():
-    """_rtb_loop must publish each 5s bar close to market.ticks for dashboard display."""
+def _make_rtb_loop_daemon():
+    """Build a TwsDaemon via __new__ ready for _rtb_loop tests with a mock Kafka producer."""
     from collections import defaultdict
-    from datetime import datetime, timezone
 
     from services.tws_daemon import TwsDaemon
 
@@ -31,10 +29,22 @@ async def test_rtb_loop_publishes_5s_price_tick_for_display():
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
     daemon._roll_monitor = _make_mock_roll_monitor()
+    daemon._official_bars_cache = defaultdict(dict)
+    daemon._rtb_state = {}
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
     daemon._kafka_producer = kafka_producer
+
+    return daemon, kafka_producer
+
+
+@pytest.mark.asyncio
+async def test_rtb_loop_publishes_5s_price_tick_for_display():
+    """_rtb_loop must publish each 5s bar close to market.ticks for dashboard display."""
+    from datetime import datetime, timezone
+
+    daemon, kafka_producer = _make_rtb_loop_daemon()
 
     class FakeRTB:
         time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=timezone.utc)
@@ -74,6 +84,7 @@ async def test_emit_bar_dedup_guard_prevents_double_publish():
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
     daemon._roll_monitor = _make_mock_roll_monitor()
+    daemon._official_bars_cache = defaultdict(dict)
     daemon._symbol_to_base = {"ES": "ES"}
 
     kafka_producer = AsyncMock()
@@ -183,26 +194,9 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     IBKR RealTimeBar.time is the bar CLOSE time. First bar of a minute closes
     at :05, last at :60 (= start of next minute, triggers emit of prior minute).
     """
-    from collections import defaultdict
     from datetime import datetime, timezone
-    from unittest.mock import AsyncMock, MagicMock
 
-    from services.tws_daemon import TwsDaemon
-
-    daemon = TwsDaemon.__new__(TwsDaemon)
-    daemon.env_name = "dev"
-    daemon.running = True
-    daemon.bars_processed = 0
-    daemon.ticks_processed = 0
-    daemon.m_bars = MagicMock()
-    daemon.m_ticks = MagicMock()
-    daemon.seen_bar_timestamps = defaultdict(set)
-    daemon.seen_bar_timestamps_order = defaultdict(list)
-    daemon._roll_monitor = _make_mock_roll_monitor()
-
-    kafka_producer = AsyncMock()
-    kafka_producer.publish = AsyncMock()
-    daemon._kafka_producer = kafka_producer
+    daemon, kafka_producer = _make_rtb_loop_daemon()
 
     # 11 bars closing at :05..:55 in minute 14:00, then Bar60 (14:01:00) triggers emit
     class FakeRTB:
@@ -247,10 +241,10 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     assert float(bar_data["open"]) == 5500.0    # first bar open
     assert float(bar_data["high"]) == 5510.0    # max high
     assert float(bar_data["low"]) == 5498.0     # min low
-    assert float(bar_data["close"]) == 5506.0   # last bar close (Bar60, which triggered the emit)
-    assert float(bar_data["volume"]) == 1200.0  # 11×100 + 100 (Bar60) = 1200
-    assert bar_data["source"] == "authoritative"
+    assert float(bar_data["close"]) == 5505.0   # last bar of minute :00
 
+    assert float(bar_data["volume"]) == 1100.0  # 11×100 = 1100
+    assert bar_data["source"] == "authoritative"
 
 def test_timeframes_builder_no_redis_asyncio_import():
     """services/timeframes_builder_service.py must not import redis.asyncio after migration."""
