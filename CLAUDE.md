@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.27.0
-Last Updated: 2026-03-20
-Status: v2.0 IN PROGRESS — Phases 40-42 complete, Phase 43 (Performance Emergency) next
+Version: 5.28.0
+Last Updated: 2026-03-22
+Status: v2.0 IN PROGRESS — Phases 39-47 complete, Phase 48 (Auth + External Access) is final phase; Phases 49-50 (ML/Observability) deferred to v2.1
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -86,6 +86,8 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 ## Core Commands
 
 > Full reference: `docs/cheatsheet.md`
+
+**Roadmap consistency check:** `node ~/.claude/get-shit-done/bin/gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Inserted phases (e.g. 46.1) must be added to the milestone summary list manually, not just Phase Details. Run after any phase completion to catch stale checkboxes.
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
