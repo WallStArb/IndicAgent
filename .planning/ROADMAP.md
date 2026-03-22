@@ -714,12 +714,13 @@ Plans:
   3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
   4. `trad_DualDivergence` shadow stats monitoring emits Prometheus gauges on every weight_updater cycle; promotion gate requires N>=100 resolved signals AND 95% CI lower bound on E[PnL_R] > 0 (D-07); human sets `IS_SHADOW=False` when gate passes.
   5. `roll_premium_pct` (INTEL-04) is populated in `intelligence_features` for futures symbols during roll windows — `SELECT count(*) FROM intelligence_features WHERE roll_premium_pct IS NOT NULL AND ts > now() - interval '7 days'` returns > 0 after a roll event.
-**Plans:** 4/4 plans complete
+**Plans:** 4 plans complete (1 gap closure pending)
 Plans:
 - [x] 47-01-PLAN.md — Regime gate Settings migration + shadow stats monitoring (SHADOW-01, SHADOW-04)
 - [x] 47-02-PLAN.md — Roll detection bug fix + calendar extension + INTEL-04 migration (SHADOW-03, INTEL-04)
 - [x] 47-03-PLAN.md — Roll monitor graduation: enable + soak + scaffolding removal (SHADOW-03)
 - [x] 47-04-PLAN.md — Cross-asset graduation: enable + soak + scaffolding removal (SHADOW-02)
+- [ ] 47-05-PLAN.md — Roll monitor graduation ceremony: D-21 validation + enablement + 5-day soak + scaffolding removal (SHADOW-03, gap closure)
 
 ### Phase 48: Auth + External Access
 **Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer. Keyset pagination deferred to v2.1 (INTEL-V2).
