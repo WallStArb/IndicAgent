@@ -367,9 +367,6 @@ class TwsDaemon:
         self.mode_check_interval = 60
         self.last_mode_check_ts = 0.0
 
-        # Minute-boundary bar polling
-        self.last_bar_poll_minute: int = -1
-
         # Seen bar dedup (last 30 bars per symbol)
         self.seen_bar_timestamps: dict[str, set[str]] = defaultdict(set)
         self.seen_bar_timestamps_order: dict[str, list[str]] = defaultdict(list)
@@ -405,7 +402,7 @@ class TwsDaemon:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.loop_thread: threading.Thread | None = None
         self._reconnect_delay = 1.0
-        self._tick_task: asyncio.Future | None = None
+        self._rtb_task: asyncio.Future | None = None
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -459,36 +456,6 @@ class TwsDaemon:
                     asyncio.run(self.provider.qualify_instrument(instrument))
             except Exception as e:
                 logger.warning("qualify_instrument failed", symbol=instrument.symbol, error=str(e))
-
-    async def _tick_loop(self) -> None:
-        """Consume ticks from IBKRProvider and publish to Redpanda market.ticks topic."""
-        if not self.provider:
-            return
-        symbols = [c["symbol"] for c in self.contracts]
-        try:
-            async for tick in self.provider.stream_ticks(symbols):
-                if not self.running:
-                    break
-                try:
-                    tick_dict = {
-                        k: str(v) for k, v in tick.model_dump(mode="json").items() if v is not None
-                    }
-                    await self._kafka_producer.publish(
-                        topic_market_ticks(self.env_name),
-                        tick_dict,
-                        key=tick.symbol,
-                    )
-                    self.ticks_processed += 1
-                    self.m_ticks.inc()
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    self.dropped_ticks += 1
-                    self.m_dropped.inc()
-                    self.m_dropped_by_reason.labels(reason="tick_loop_error").inc()
-                    logger.warning("Tick loop error", error=str(e))
-        except asyncio.CancelledError:
-            logger.info("Tick loop cancelled (disconnect or shutdown)")
 
     async def _rtb_loop(self) -> None:
         """Consume 5-second RealTimeBars from IBKRProvider and aggregate to 1m bars.
@@ -655,7 +622,7 @@ class TwsDaemon:
             return
 
         if self.loop:
-            self._tick_task = asyncio.run_coroutine_threadsafe(self._tick_loop(), self.loop)
+            self._rtb_task = asyncio.run_coroutine_threadsafe(self._rtb_loop(), self.loop)
 
         self.running = True
         self.start_time = datetime.now()
@@ -673,8 +640,8 @@ class TwsDaemon:
                     logger.warning("Disconnected from TWS, attempting reconnect...")
                     if self.connect_tws():
                         if self.loop:
-                            self._tick_task = asyncio.run_coroutine_threadsafe(
-                                self._tick_loop(), self.loop
+                            self._rtb_task = asyncio.run_coroutine_threadsafe(
+                                self._rtb_loop(), self.loop
                             )
                         self.m_reconnects.inc()
                         self.reconnects += 1
@@ -690,11 +657,6 @@ class TwsDaemon:
                 if now_ts - self.last_mode_check_ts >= self.mode_check_interval:
                     self.last_mode_check_ts = now_ts
                     self.current_mode = self.market_hours.get_mode(datetime.now())
-
-                now = datetime.now()
-                if now.second >= 5 and self.last_bar_poll_minute != now.minute:
-                    self.last_bar_poll_minute = now.minute
-                    self.poll_1m_bars()
 
                 self.health_check()
                 time.sleep(0.1)
@@ -712,112 +674,9 @@ class TwsDaemon:
         logger.warning("TWS disconnected event received")
         self.connected = False
         self.g_connected.set(0)
-        if self._tick_task is not None and not self._tick_task.done():
-            self._tick_task.cancel()
-            logger.info("Tick loop task cancelled for reconnect")
-
-    def poll_1m_bars(self) -> None:
-        if not self.provider or not self.connected or not self.loop:
-            logger.warning("poll_1m_bars skipped - provider not connected or no loop")
-            return
-
-        now = datetime.now()
-        start = now - timedelta(minutes=2)
-
-        async def _gather_all() -> None:
-            sem = asyncio.Semaphore(5)
-
-            async def _with_sem(symbol: str) -> None:
-                async with sem:
-                    await self._fetch_bars_for_symbol(symbol, start, now)
-
-            symbols = [c["symbol"] for c in self.contracts]
-            await asyncio.gather(*[_with_sem(s) for s in symbols], return_exceptions=True)
-
-        fut = asyncio.run_coroutine_threadsafe(_gather_all(), self.loop)
-        fut.result(timeout=30)
-
-    async def _fetch_bars_for_symbol(self, symbol: str, start: datetime, now: datetime) -> int:
-        """Fetch 1-minute bars for a symbol and publish to Redpanda market.bars.
-
-        Returns count of newly published bars (0 if all were duplicates).
-
-        When ROLL_MONITOR_ENABLED=true, also calls RollMonitor.update_volume and
-        check_roll for each new bar. Paper-account unavailable contracts are skipped
-        via should_skip_symbol().
-        """
-        # Roll monitor: skip paper-unavailable contracts early
-        if self._roll_monitor.is_enabled and self._roll_monitor.should_skip_symbol(symbol):
-            return 0
-
-        try:
-            ohlcv_bars = await self.provider.fetch_historical_bars(symbol, "1m", start, now)
-            if not ohlcv_bars:
-                logger.warning("poll_1m_bars: 0 bars returned", symbol=symbol)
-                return 0
-
-            bars_published = 0
-            for bar in ohlcv_bars:
-                bar_timestamp = bar.timestamp.isoformat()
-                if bar_timestamp in self.seen_bar_timestamps[symbol]:
-                    continue
-                self.seen_bar_timestamps[symbol].add(bar_timestamp)
-                self.seen_bar_timestamps_order[symbol].append(bar_timestamp)
-                if len(self.seen_bar_timestamps_order[symbol]) > 30:
-                    evicted = self.seen_bar_timestamps_order[symbol].pop(0)
-                    self.seen_bar_timestamps[symbol].discard(evicted)
-
-                self.bars_processed += 1
-                bar_data = {
-                    "timestamp": bar_timestamp,
-                    "symbol": symbol,
-                    "timeframe": "1m",
-                    "open": str(bar.open),
-                    "high": str(bar.high),
-                    "low": str(bar.low),
-                    "close": str(bar.close),
-                    "volume": str(bar.volume),
-                    "source": "authoritative",
-                    "bar_close_ts": bar_timestamp,
-                }
-                await self._kafka_producer.publish(
-                    topic_market_bars(self.env_name),
-                    bar_data,
-                    key=message_key(symbol, "1m"),
-                )
-                logger.info("1m bar polled", symbol=symbol, close=bar.close, volume=bar.volume)
-                self.m_bars.inc()
-                bars_published += 1
-
-                # Roll monitor: volume tracking + detection (futures only, when enabled)
-                #
-                # TODO(phase-038): Dual-contract volume subscription not yet implemented.
-                # update_volume() requires (current_contract_vol, next_contract_vol) from
-                # simultaneous TWS subscriptions to both the front-month and deferred contract.
-                # Until dual-contract bar feeds are wired, current_vol == next_vol == bar.volume,
-                # which means the volume ratio is always 1.0 and check_roll() will never fire.
-                # old_symbol/new_symbol also need to be resolved from the roll chain.
-                # ROLL_MONITOR_ENABLED must remain false until this is implemented.
-                if self._roll_monitor.is_enabled:
-                    bar_utc = bar.timestamp if bar.timestamp.tzinfo is not None else \
-                        bar.timestamp.replace(tzinfo=UTC)
-                    self._roll_monitor.update_volume(symbol, float(bar.volume), float(bar.volume))
-                    if self._roll_monitor.check_roll(symbol, bar_utc):
-                        await self._roll_monitor._on_roll_confirmed(
-                            base_symbol=symbol,
-                            old_symbol=symbol,
-                            new_symbol=symbol,
-                            roll_gap=0.0,
-                            roll_direction="unknown",
-                            kafka_producer=self._kafka_producer,
-                            env_name=self.env_name,
-                        )
-
-            return bars_published
-
-        except Exception as e:
-            logger.warning("1m bar polling error", symbol=symbol, error=str(e))
-            return 0
+        if self._rtb_task is not None and not self._rtb_task.done():
+            self._rtb_task.cancel()
+            logger.info("RTB loop task cancelled for reconnect")
 
     def cleanup(self) -> None:
         logger.info("Cleaning up TWS Daemon...")
