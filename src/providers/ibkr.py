@@ -629,6 +629,90 @@ class IBKRProvider:
                 except Exception:
                     pass
 
+    async def stream_official_bars(
+        self, symbols: list[str], timeframe: str = "1m"
+    ) -> AsyncIterator[tuple[str, OHLCVBar]]:
+        """Async iterator yielding official, audited bars from IBKR's historical stream.
+
+        Uses reqHistoricalData with keepUpToDate=True. These bars are typically
+        more accurate/complete than 5s RealTimeBars but arrive with higher latency
+        (usually 2-5s after the bar close).
+
+        Provides a secondary 'Official' stream for reconciliation and failover.
+        """
+        if timeframe not in _TF_TO_IB:
+            raise ValueError(f"Unsupported timeframe '{timeframe}'")
+
+        self._loop = asyncio.get_event_loop()
+        # Separate queue for official bars to prevent crosstalk
+        official_queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
+
+        subscribed: list = []
+        for symbol in symbols:
+            contract = self._qualified_contracts.get(symbol)
+            if not contract or not self._ib:
+                continue
+
+            sec_type = getattr(contract, "secType", "")
+            what = "MIDPOINT" if sec_type == "CASH" else "TRADES"
+
+            # 1-day duration is the minimum for keepUpToDate
+            bars = self._ib.reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr="1 D",
+                barSizeSetting=_TF_TO_IB[timeframe],
+                whatToShow=what,
+                useRTH=False,
+                formatDate=1,
+                keepUpToDate=True,
+            )
+
+            def _on_official_bar(bars_list, has_new_bar, *, _symbol=symbol, _tf=timeframe):
+                if not has_new_bar or not bars_list:
+                    return
+                bar = bars_list[-1]
+                try:
+                    # Map IB bar to our OHLCVBar schema
+                    bar_ts = (
+                        bar.date
+                        if isinstance(bar.date, datetime)
+                        else datetime.fromisoformat(str(bar.date))
+                    )
+                    if bar_ts.tzinfo is None:
+                        bar_ts = bar_ts.replace(tzinfo=UTC)
+
+                    normalized = OHLCVBar(
+                        symbol=_symbol,
+                        timeframe=_tf,
+                        timestamp=bar_ts,
+                        open=float(bar.open),
+                        high=float(bar.high),
+                        low=float(bar.low),
+                        close=float(bar.close),
+                        volume=int(bar.volume),
+                        source="ibkr_official",
+                    )
+                    self._loop.call_soon_threadsafe(
+                        official_queue.put_nowait, (_symbol, normalized)
+                    )
+                except Exception:
+                    pass
+
+            bars.updateEvent += _on_official_bar
+            subscribed.append((bars, _on_official_bar))
+
+        try:
+            while True:
+                item = await official_queue.get()
+                yield item
+        finally:
+            # Cleanup subscriptions
+            for bars, cb in subscribed:
+                bars.updateEvent -= cb
+                # Note: ib_insync automatically cancels keepUpToDate when the IB instance
+                # is cleaned up, but we could explicitly cancel if needed.
+
     async def resolve_instrument(self, query: str) -> Instrument | None:
         """Resolve a symbol query to an Instrument via IBKR contract details."""
         if not self._ib:

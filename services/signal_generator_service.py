@@ -770,7 +770,8 @@ class SignalGeneratorService:
             *topics,
             bootstrap_servers=self._kafka_bootstrap,
             group_id="signal_generator_group",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
         self.logger.info(
@@ -1507,12 +1508,14 @@ class SignalGeneratorService:
                 try:
                     if topic == _sys_events_topic:
                         await self._handle_roll_event(payload)
+                        await self._kafka_consumer.commit()
                     elif topic == _cross_asset_topic:
                         # Cache latest cross-asset snapshot by timeframe
                         try:
                             tf = payload.get("tf", "")
                             if tf in CROSS_ASSET_VALID_TFS and payload.get("ready"):
                                 self._cross_asset_cache[tf] = payload
+                            await self._kafka_consumer.commit()
                         except Exception as _xa_err:
                             self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
                     elif topic == _intel_topic:
@@ -1531,11 +1534,13 @@ class SignalGeneratorService:
                             await self._process_single_message(
                                 symbol, timeframe, payload, topic, None
                             )
+                        await self._kafka_consumer.commit()
                     elif topic == _ticks_topic:
                         # key = "SYMBOL"
                         symbol = key or payload.get("symbol", "")
                         if symbol:
                             await self._handle_ticks_message(symbol, payload)
+                        await self._kafka_consumer.commit()
                 except asyncio.CancelledError:
                     break
                 except Exception as e:

@@ -59,13 +59,14 @@ class KafkaConsumerClient:
         bootstrap_servers: str,
         group_id: str,
         auto_offset_reset: str = "latest",
+        enable_auto_commit: bool = True,
     ) -> None:
         self._consumer = AIOKafkaConsumer(
             *topics,
             bootstrap_servers=bootstrap_servers,
             group_id=group_id,
             auto_offset_reset=auto_offset_reset,
-            enable_auto_commit=True,
+            enable_auto_commit=enable_auto_commit,
         )
 
     async def start(self) -> None:
@@ -75,6 +76,13 @@ class KafkaConsumerClient:
     async def stop(self) -> None:
         """Commit pending offsets, leave consumer group, and close the connection."""
         await self._consumer.stop()
+
+    async def commit(self) -> None:
+        """Manually commit offsets for all assigned partitions.
+
+        Only relevant when enable_auto_commit=False.
+        """
+        await self._consumer.commit()
 
     async def seek_to_beginning(self) -> None:
         """Seek all assigned partitions to the earliest offset.

@@ -62,13 +62,12 @@ This is Separation of Concerns (SoC) as an architectural invariant, not a coding
 | Signal Lifecycle | Open trade tracking, MAE/MFE, outcome classification |
 | Feature Writer | Persistence of intelligence vectors to TimescaleDB |
 | LLM Writer | LLM call audit trail with outcome back-fill |
-| Cross-Asset | Cross-asset spread dynamics injected into I7 |
 | AI Narrative | I8 LLM analysis and group synthesis |
 | API | SSE fan-out and REST delivery to clients |
 
 Producers publish. Consumers subscribe. No service knows the others exist.
 
-Restart `market_analysis_service` to deploy a new plugin: zero effect on `signal_lifecycle_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
+Restart `feature_pipeline_service` to deploy a new plugin: zero effect on `signal_lifecycle_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
 
 ```
 IBKR TWS ──► [Redpanda topics] ──► feature_pipeline_service (I1–I6)
@@ -455,7 +454,7 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 | **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
 | **Hot/Warm path** | Redpanda (Kafka-compatible, sub-ms, durable, replayable) |
 | **Cold path** | TimescaleDB on PostgreSQL 17 (feature store, signal ledger, LLM audit) |
-| **Services** | 9 systemd services, `Restart=always` |
+| Services | 7 systemd services, `Restart=always` |
 | **Stack** | Python 3.13 · FastAPI · LangGraph · Next.js 16.1 / React 19.2 · Tailwind v4 · Prometheus · Grafana |
 
 ---

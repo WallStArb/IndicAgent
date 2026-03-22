@@ -1012,6 +1012,7 @@ class FeaturePipelineService:
                 # Route system.events to roll handler
                 if topic == _sys_events_topic:
                     await self._handle_roll_event(payload)
+                    await self._consumer.commit()
                     continue
 
                 # Phase 46: Cache cross-asset snapshot by timeframe
@@ -1020,6 +1021,7 @@ class FeaturePipelineService:
                         tf = payload.get("tf", "")
                         if tf in CROSS_ASSET_VALID_TFS and payload.get("ready"):
                             self._cross_asset_cache[tf] = payload
+                        await self._consumer.commit()
                     except Exception as _xa_err:
                         self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
                     continue
@@ -1071,6 +1073,9 @@ class FeaturePipelineService:
                     )
                 ):
                     await self._flush_ohlcv()
+
+                # Explicitly commit after bar and OHLCV are processed
+                await self._consumer.commit()
 
             except asyncio.CancelledError:
                 break
@@ -1142,7 +1147,8 @@ class FeaturePipelineService:
                 *topics,
                 bootstrap_servers=self._settings.kafka_bootstrap_servers,
                 group_id="feature_pipeline",
-                auto_offset_reset="latest",
+                auto_offset_reset="earliest",
+                enable_auto_commit=False,
             )
             await self._consumer.start()
 

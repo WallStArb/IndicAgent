@@ -18,32 +18,33 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 ## System Operations
 ```bash
 # All services are systemd-managed (Restart=always, start on boot)
+# Authoritative unit files: production/systemd/
 sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-tws
-sudo systemctl restart indicagent-indicator
-sudo systemctl restart indicagent-market-analysis
+sudo systemctl restart indicagent-feature-pipeline
 sudo systemctl restart indicagent-signal-generator
 sudo systemctl restart indicagent-signal-lifecycle
 sudo systemctl restart indicagent-ai-narrative
 sudo systemctl restart indicagent-feature-writer
 sudo systemctl restart indicagent-llm-writer
+sudo systemctl restart indicagent-cross-asset
 sudo systemctl restart indicagent-api
 
-journalctl -u indicagent-tws -f              # live logs for any service
+journalctl -u indicagent-tws -f              # live logs for any service (print() only; structured logs in logs/<service>.log)
 
-# Start all services (e.g. after reboot)
-sudo systemctl start indicagent-tws indicagent-indicator indicagent-market-analysis \
+# Start all services (e.g. after reboot — start docker first: docker start timescaledb redpanda)
+sudo systemctl start indicagent-tws indicagent-feature-pipeline \
   indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative \
-  indicagent-feature-writer indicagent-llm-writer indicagent-api
+  indicagent-feature-writer indicagent-llm-writer indicagent-cross-asset indicagent-api
 
 # Health / metrics
-curl http://localhost:9109/metrics   # Indicator Service
 curl http://localhost:9112/metrics   # Signal Generator
 curl http://localhost:9113/metrics   # AI Narrative
-curl http://localhost:9114/metrics   # Market Analysis
 curl http://localhost:9115/metrics   # Signal Lifecycle
 curl http://localhost:9116/metrics   # Feature Writer
 curl http://localhost:9117/metrics   # LLM Writer
+curl http://localhost:9118/metrics   # Cross-Asset
+curl http://localhost:9125/metrics   # Feature Pipeline
 
 # Grafana & Prometheus (optional — dashboards and alerts)
 cd production && docker compose up -d prometheus grafana
@@ -52,9 +53,8 @@ cd production && docker compose up -d prometheus grafana
 # Note: 3001 avoids conflict with IndicAgent dashboard (Next.js on 3000)
 
 # Direct invocation (debugging only)
-.venv/bin/python production/daemons/high_frequency_tws_daemon.py --client-id 35
-.venv/bin/python services/indicator_service.py
-.venv/bin/python services/market_analysis_service.py
+.venv/bin/python services/tws_daemon.py
+.venv/bin/python services/feature_pipeline_service.py
 .venv/bin/python services/signal_generator_service.py
 .venv/bin/python services/feature_writer_service.py
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
@@ -75,11 +75,11 @@ cd production && docker compose up -d prometheus grafana
 # Step 2 — full reset (requires TWS connected at 10.0.0.33:7497; expect 30–60 min)
 .venv/bin/python production/scripts/pipeline_reset.py
 # → when prompted to STOP, run:
-sudo systemctl stop indicagent-signal-generator indicagent-signal-lifecycle \
-  indicagent-market-analysis indicagent-feature-writer indicagent-ai-narrative
+sudo systemctl stop indicagent-feature-pipeline indicagent-signal-generator indicagent-signal-lifecycle \
+  indicagent-feature-writer indicagent-ai-narrative
 # → press Enter, let fetch + replay complete
 # → when prompted to START, run:
-sudo systemctl start indicagent-market-analysis indicagent-feature-writer \
+sudo systemctl start indicagent-feature-pipeline indicagent-feature-writer \
   indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative
 
 # Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv

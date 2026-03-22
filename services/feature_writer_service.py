@@ -388,7 +388,8 @@ class FeatureWriterService:
             *topics,
             bootstrap_servers=self._kafka_bootstrap,
             group_id=CONSUMER_GROUP,
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
         )
         await self._kafka_consumer.start()
         self.logger.info(
@@ -485,6 +486,9 @@ class FeatureWriterService:
 
         try:
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
+            # Explicitly commit offsets after successful DB persistence
+            if self._kafka_consumer:
+                await self._kafka_consumer.commit()
             self._buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()
@@ -557,6 +561,10 @@ class FeatureWriterService:
                     _ROLL_BOUNDARY_TF,
                 )
 
+            # Explicitly commit after roll boundary write
+            if self._kafka_consumer:
+                await self._kafka_consumer.commit()
+
             self.logger.info(
                 "roll_boundary_written",
                 old=old_symbol,
@@ -601,8 +609,14 @@ class FeatureWriterService:
             # Persist cross-asset snapshot for each EQ_INDEX group member symbol
             params = [(ts_dt, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
             await self.db_manager.execute_batch(_UPSERT_CROSS_ASSET_SQL, params)
+
+            # Explicitly commit after cross-asset write
+            if self._kafka_consumer:
+                await self._kafka_consumer.commit()
+
             self.logger.debug(
                 "cross_asset_persisted",
+
                 tf=tf,
                 ts=ts_raw,
                 symbols=sorted(_EQ_INDEX_BASES),
