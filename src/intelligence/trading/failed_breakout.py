@@ -14,7 +14,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -140,8 +141,6 @@ class FailedBreakoutPlugin:
         else:
             regime_ctx = "neutral"
 
-        confidence = compose_confidence(confidence)
-
         reversal_close_delta = abs(close_price - bos_level)
 
         entry = close_price
@@ -171,7 +170,10 @@ class FailedBreakoutPlugin:
         if hmm_regime == 0.0:
             supporting.append("hmm_ranging_aligned")
 
-        return {
+        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
+        confidence = compose_confidence(confidence)
+
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(frame.entry, 2),
@@ -181,6 +183,10 @@ class FailedBreakoutPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "session", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

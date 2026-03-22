@@ -9,7 +9,8 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 
 # Module-level constants — static across all bars, extracted from hot path.
@@ -267,7 +268,6 @@ class CandlestickPatternSetupPlugin:
             raw_conf += 0.10
         if sr_confirms:
             raw_conf += 0.10
-        confidence = compose_confidence(raw_conf)
 
         # confluence_score: mandatory trend factor + optional volume + optional S/R
         confluence_score = 1  # trend is mandatory
@@ -282,11 +282,14 @@ class CandlestickPatternSetupPlugin:
         if sr_confirms:
             supporting.append("sr_proximity")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         suffix = "long" if direction == 1 else "short"
         signal_type = f"candlestick_{pattern_name}_{suffix}"
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -297,6 +300,10 @@ class CandlestickPatternSetupPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "session", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

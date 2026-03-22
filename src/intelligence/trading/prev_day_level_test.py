@@ -22,7 +22,8 @@ from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -199,8 +200,6 @@ class PrevDayLevelTestPlugin:
             elif hmm_regime == 0.0:
                 confidence -= 0.05
 
-        confidence = compose_confidence(confidence)
-
         # ── Regime context ───────────────────────────────────────────────────
         if hmm_regime == 1.0:
             regime_ctx = "bullish"
@@ -231,7 +230,10 @@ class PrevDayLevelTestPlugin:
             f"setup_variant={setup_variant}",
         ]
 
-        return {
+        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
+        confidence = compose_confidence(confidence)
+
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(frame.entry, 2),
@@ -244,6 +246,10 @@ class PrevDayLevelTestPlugin:
             "level_name": level_name,
             "level_value": level_value,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "session", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

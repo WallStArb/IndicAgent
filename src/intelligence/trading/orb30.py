@@ -24,7 +24,8 @@ from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -206,7 +207,6 @@ class ORB30Plugin:
         if hmm_regime in (1.0, 2.0):
             confidence += 0.10
         confidence += gap_boost
-        confidence = compose_confidence(confidence)
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
         if hmm_regime == 0.0:
@@ -240,7 +240,10 @@ class ORB30Plugin:
         if abs(gap_boost) > 0:
             supporting.append(f"gap_bias={gap_boost:+.2f}")
 
-        return {
+        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
+        confidence = compose_confidence(confidence)
+
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(frame.entry, 2),
@@ -250,6 +253,10 @@ class ORB30Plugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "session", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

@@ -17,7 +17,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -194,9 +195,6 @@ class DivergenceStackPlugin:
             stop = tf.stop
             targets = [round(t.price, 2) for t in tf.targets]
 
-            # Confidence proportional to weighted_score
-            confidence = compose_confidence(weighted_score / DIVERGENCE_CONFIDENCE_NORM)
-
             supporting = [
                 name
                 for name, s in per_input_scores.items()
@@ -204,7 +202,13 @@ class DivergenceStackPlugin:
             ]
             supporting_factors = [f"div_{name}" for name in supporting]
 
-            return {
+            raw_div_conf = weighted_score / DIVERGENCE_CONFIDENCE_NORM
+            raw_div_conf, supporting_factors = apply_exhaustion_guard(
+                features, raw_div_conf, supporting_factors
+            )
+            confidence = compose_confidence(raw_div_conf)
+
+            signal = {
                 **base_output,
                 "signal_type": signal_type,
                 "direction": direction,
@@ -216,6 +220,10 @@ class DivergenceStackPlugin:
                 "regime_context": "any",
                 "ttl_bars": 10,
             }
+            signal["_shadow"] = capture_confluence_features(
+                features, direction, "microstructure", signal["confidence"],
+            )
+            return signal
 
         # No signal — return base_output with neutral signal fields
         return {

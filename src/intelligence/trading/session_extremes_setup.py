@@ -9,7 +9,8 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 
 
@@ -123,7 +124,9 @@ class SessionExtremesSetupPlugin:
             round(entry_price + direction * 3.0 * atr, 2),
         ]
 
-        confidence = compose_confidence(0.45 + 0.15 * len(supporting))
+        raw_conf = 0.45 + 0.15 * len(supporting)
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
 
         extreme = "high" if near_high else "low"
         side = "short" if direction == -1 else "long"
@@ -138,7 +141,7 @@ class SessionExtremesSetupPlugin:
         regime_ctx = f"session_extreme_{session_ctx}"
         supporting.append(f"session:{session_ctx}")
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "bias": side,
@@ -151,6 +154,10 @@ class SessionExtremesSetupPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "session", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
