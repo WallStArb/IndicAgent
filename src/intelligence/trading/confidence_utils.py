@@ -8,8 +8,10 @@ Rounding: 4 decimal places for consistent ML feature representation.
 
 capture_signal_features() captures I4 macro context + I6 ctf_* scores + exhaustion state into
 signal["_shadow"] for ML training — zero confidence modification.
-Shadow dict has 15 keys: 4 I4 macro context (vix_level, vix_z, eq_spread_z,
-eq_pairs_confirming) + 7 I6 confluence + exhaustion (3 fields).
+Shadow dict has 15 keys: 2 metadata (profile, existing_confidence) + 6 I6 confluence
+(ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement,
+ctf_fvg_alignment, ctf_ob_alignment) + 4 I4 macro context (vix_level, vix_z,
+eq_spread_z, eq_pairs_confirming) + 3 exhaustion fields.
 ConfluenceWeightProfile holds placeholder weights (all 0.0) for each plugin family.
 Phase 49 fills non-zero values once XGBoost/logistic training produces learned weights.
 """

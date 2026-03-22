@@ -221,7 +221,7 @@ def test_no_vix_symbol_returns_not_ready():
 # ---------------------------------------------------------------------------
 
 
-def test_vix_injection_uses_fixed_1h_tf_not_trading_tf(monkeypatch):
+def test_vix_injection_uses_fixed_1h_tf_not_trading_tf():
     """VIX regime context must use 1h bars regardless of the bar's trading TF.
 
     This is the Phase 46.1 data-quality fix: the same market moment must

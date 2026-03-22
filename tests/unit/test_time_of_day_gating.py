@@ -205,7 +205,6 @@ class TestTodAdjustmentIntegratedWithCheckRoll:
 
     def _make_window_high_then_low(self, rm, base="ES", baseline_bars=50):
         """Fill window with high volumes (so subsequent low volumes trigger z < -2.0)."""
-        from unittest.mock import patch  # noqa: PLC0415
         for _ in range(baseline_bars):
             rm.update_volume(base, 50000.0)
 

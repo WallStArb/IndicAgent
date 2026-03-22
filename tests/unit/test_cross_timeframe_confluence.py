@@ -77,7 +77,7 @@ def test_vix_and_cross_asset_not_in_i6_output(plugin):
 def test_i6_does_not_emit_vix_or_eq_fields(plugin):
     """After Phase 46.1, I6 is pure cross-TF alignment — no VIX/EQ pass-through.
 
-    Checks both outputs frozenset (contract) and compute_full return value (runtime).
+    Checks the outputs frozenset (contract) — runtime check is in test_vix_and_cross_asset_not_in_i6_output.
     """
     assert "ctf_vix_level" not in plugin.outputs
     assert "ctf_vix_z" not in plugin.outputs

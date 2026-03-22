@@ -63,7 +63,7 @@ FUTURES_ROLL_CYCLES: dict[str, list[str]] = {
     "ZB": ["H", "M", "U", "Z"],   # 30-Year T-Bond
     "ZT": ["H", "M", "U", "Z"],   # 2-Year T-Note
     # ---- Volatility (CFE quarterly) ----
-    "VIX": ["H", "M", "U", "Z"],  # CBOE VIX Futures
+    "VX": ["H", "M", "U", "Z"],  # CBOE VIX Futures (IBKR symbol: VX)
     # ---- Energy (NYMEX monthly) ----
     "CL": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Crude Oil WTI
     # ---- Precious & Industrial Metals (COMEX monthly) ----

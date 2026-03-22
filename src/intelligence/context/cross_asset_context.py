@@ -53,7 +53,10 @@ class CrossAssetContextPlugin:
         eq_spread_z = xa.get(spread_key)
 
         raw_pairs = xa.get("pairs_confirming")
-        eq_pairs_confirming = float(raw_pairs) if raw_pairs is not None else None
+        try:
+            eq_pairs_confirming = float(raw_pairs) if raw_pairs is not None else None
+        except (ValueError, TypeError):
+            eq_pairs_confirming = None
 
         return {
             "eq_spread_z": eq_spread_z,

@@ -547,10 +547,13 @@ async def compute_shadow_plugin_stats(db_manager: Any) -> None:
         SHADOW_EV_CI_LOWER.labels(plugin=plugin_name).set(ci_lower_display)
 
         # Days to gate (per D-10)
+        def _as_utc(dt):
+            return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
         recent_30d = [
             r for r in plugin_rows
             if r.get("signal_computed_at") is not None
-            and (now - r["signal_computed_at"]).days <= 30
+            and (now - _as_utc(r["signal_computed_at"])).days <= 30
         ]
         fire_rate_30d = len(recent_30d)
         if fire_rate_30d > 0:
