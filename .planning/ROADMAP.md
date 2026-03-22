@@ -12,7 +12,10 @@
 - ✅ **v1.7 Data Integrity** — Phases 25-27 (shipped 2026-03-12)
 - ✅ **v1.8 Signal Intelligence** — Phases 28-29 (shipped 2026-03-13)
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
-- 🚧 **v2.0 Signal Integrity & ML Foundation** — Phases 39-48 (in progress)
+- ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
+- 🚧 **v2.1 Data Foundation & Signal Confidence** — Phases 48-52 (in progress)
+- ⏸ **v2.2 External Access** — Phase 53 (planned, deferred until v2.1 complete)
+- ⏸ **v2.3 ML Foundation** — Phases 54-55 (deferred until 30+ days clean signal data)
 
 ## Phases
 
@@ -148,23 +151,59 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 
 </details>
 
-<details open>
-<summary>🔄 v2.0 Signal Integrity & ML Foundation (Phases 39-48) — IN PROGRESS</summary>
+<details>
+<summary>✅ v2.0 Signal Integrity & ML Foundation (Phases 39-47) — SHIPPED 2026-03-22</summary>
 
-- [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns (effective_ts, pipeline_lag_ms), CHECK constraints (status/outcome/direction), signal_performance_segmented table, IC computation, data quality monitoring infrastructure (completed 2026-03-19)
-- [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (6/6 plans) (completed 2026-03-19)
-- [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices (calibrator, ranker, regime_gate, tod_adjuster, winner_selector, quality_gate), 8 Redpanda topics, systemd units, E2E DAG pipeline integration test (completed 2026-03-19)
-- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, multi-TF S/R context; VWAP/session plugin TF guards, aggregator active-from-all-ranked assertion, plugin state-writeback comments (completed 2026-03-20) [INTEL-04 roll premium deferred to Phase 47]
+**Milestone Goal:** Restructure the intelligence pipeline into a clean DAG, fill intelligence gaps (FVG/OB/CTF alignment, confluence, VIX/cross-asset), harden signal integrity with enums and enforcement, graduate shadow modes, and establish the _shadow dict training data infrastructure for v2.3 ML work.
+
+- [x] **Phase 39: Data Quality + DB Health (Expanded)** — CIS null repair, ohlcv chunk compress, signal_ledger generated columns, CHECK constraints, signal_performance_segmented, IC computation, data quality monitoring (completed 2026-03-19)
+- [x] **Phase 39.1: Intelligence Layer Enforcement (INSERTED)** — regime_type Protocol enforcement, SignalStatus + SignalOutcome enums, pre-commit hooks, VWAP/ShannonEntropy bug fixes, SQL hardening, topic namespace cleanup (completed 2026-03-19)
+- [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices, 8 Redpanda topics, systemd units, E2E pipeline integration test (completed 2026-03-19)
+- [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, multi-TF S/R context; VWAP/session TF guards, aggregator active-from-all-ranked assertion (completed 2026-03-20)
 - [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
-- [x] **Phase 44: I7 DAG Refactor** — extract atr_utils, position_utils, confidence_utils, BaseI7Plugin mixin (OHLCV extraction, _no_signal, compute_next), direction→signal_type helper, confidence system contract [0.10, 0.95]; validate_tier() enforcement; cross_timeframe.py → 3 focused modules; composites/common.py → utils/common.py (tier-agnostic); OFI type fixes + make_signal() factory + validate_signal() enforcement (~458 LOC duplication eliminated, zero signal behavior change) (completed 2026-03-21)
-- [x] **Phase 44.1: Feature Pipeline Renaissance Refactor** — replace indicator_service + market_analysis_service + timeframes_builder_service with unified FeaturePipelineService; shared BarHistory + BarAccumulator modules; typed BarMessage schema; in-pipeline HTF derivation (no DB queries in hot path); 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99; SignalGeneratorService simplified (remove DB seed, wire BarHistory to IntelligenceEvent stream) (completed 2026-03-22)
-- [x] **Phase 44.2: SignalGeneratorService Consolidation** — absorb 6 pipeline stage microservices (quality_gate, regime_gate, tod_adjuster, calibrator, ranker, winner_selector) into in-process pure functions; `src/intelligence/pipeline/` module dir; bounded async audit queue; publish BarIntelligenceRecord to `development.intelligence.record`; 8 Kafka execution hops → 2; retire 6 systemd units (completed 2026-03-22)
-- [x] **Phase 44.3: Atomic Persistence + OHLCV Unification** — FeatureWriterService consumes `intelligence.record` only; single atomic INSERT per bar (no UPSERTs, no partial rows); DB migration for 10 new `intelligence_features` columns; i8 UPSERT migrated to LLMWriterService; FeaturePipelineService as sole live writer to `market_data_ohlcv`; 18 services → 9 pipeline complete (completed 2026-03-22)
-- [x] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py; wire all 36 I7 plugins to capture raw ctf_* + exhaustion fields into standardized _shadow dict per signal (zero confidence modification — Option C; Phase 49 learns weights); lifecycle O(1) index + chandelier write guard (completed 2026-03-22)
-- [x] **Phase 46: I6 Confluence Expansion** — 4 new raw measurement fields in I6Confluence (ctf_vix_level, ctf_vix_z, ctf_eq_spread_z, ctf_eq_pairs_confirming); vix_context.py pure function module; FeaturePipelineService injects frames["cross_asset"] + frames["vix"]; ctf_score formula unchanged; _shadow dict captures for future ML (completed 2026-03-22)
-- [x] **Phase 46.1: VIX + Cross-Asset to I4** — VIXRegimePlugin + CrossAssetContextPlugin promoted to I4; CROSS_ASSET_VALID_TFS consolidated; I4Context +4 fields / I6Confluence -4 fields; VIX injection fix (VIX_REGIME_TF=1h); I6 pass-through removal (completed 2026-03-22)
-- [x] **Phase 47: Shadow Mode Graduation** — CROSS_ASSET_ENABLED feature flag removed (cross-asset unconditionally active); ROLL_MONITOR_ENABLED kept false pending D-21 re-validation (market_data_5m needs 5m backfill); trad_DualDivergence promotion deferred (completed 2026-03-22)
-- [ ] **Phase 48: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging
+- [x] **Phase 43: Performance & Stability Emergency** — market_data_ohlcv rebuilt (15,740→21 chunks), feature_writer i7/i8 buffering, asyncio.to_thread plugin execution, lifecycle O(1) active-signal index, ndarray calibration pre-alloc, _run_refresh_loop helper, 328K stale signals expired (executed 2026-03-20; 1 test gap remains — see Phase 49)
+- [x] **Phase 44: I7 DAG Refactor** — ~458 LOC duplication extracted into shared utilities, validate_tier() enforcement, cross_timeframe decomposed, make_signal() factory + validate_signal() enforcement (completed 2026-03-21)
+- [x] **Phase 44.1: Feature Pipeline Renaissance Refactor** — unified FeaturePipelineService replaces 3 services; 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99 (completed 2026-03-22)
+- [x] **Phase 44.2: SignalGeneratorService Consolidation** — 6 pipeline stage microservices absorbed in-process; 8 Kafka hops → 2; 6 systemd units retired (completed 2026-03-22)
+- [x] **Phase 44.3: Atomic Persistence + OHLCV Unification** — single atomic INSERT per bar; DB migration for 10 new columns; FeaturePipelineService sole live OHLCV writer; 18 services → 9 (completed 2026-03-22)
+- [x] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — ctf_fvg_alignment + ctf_ob_alignment exposed; capture_confluence_features() + ConfluenceWeightProfile; all 36 I7 plugins capture _shadow dict; lifecycle O(1) index + chandelier write guard (completed 2026-03-22)
+- [x] **Phase 46: I6 Confluence Expansion** — 4 new raw measurement fields (ctf_vix_level, ctf_vix_z, ctf_eq_spread_z, ctf_eq_pairs_confirming); vix_context.py pure function module (completed 2026-03-22)
+- [x] **Phase 46.1: VIX + Cross-Asset to I4** — VIXRegimePlugin + CrossAssetContextPlugin promoted to I4; I4Context +4 fields / I6Confluence -4 fields; VIX injection fix (completed 2026-03-22)
+- [x] **Phase 47: Shadow Mode Graduation** — CROSS_ASSET_ENABLED flag removed (unconditionally active); ROLL_MONITOR_ENABLED kept false pending D-21 re-validation; trad_DualDivergence promotion deferred (completed 2026-03-22)
+
+</details>
+
+<details open>
+<summary>🚧 v2.1 Data Foundation & Signal Confidence (Phases 48-52) — IN PROGRESS</summary>
+
+**Milestone Goal:** Earn the right to trust the numbers. Fix the live data foundation (tick aggregation), close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
+
+- [ ] **Phase 48: Tick Aggregation** — replace broken `reqHistoricalDataAsync` bar polling with live 1m OHLCV bars built from the tick stream; eliminate the bars_processed freeze (#1 known bug); all downstream indicators run on live data
+- [ ] **Phase 49: DB Performance & Signal Ledger Hardening** — signal_ledger composite index + query optimization; CIS null repair (blocked PostgreSQL shared memory fix); close Phase 43 test gap (threading.Lock characterization test); REQUIREMENTS.md requirement ID traceability fix
+- [ ] **Phase 50: Roll Monitor & DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration 049_roll_premium_pct.sql; enable ROLL_MONITOR_ENABLED; trad_DualDivergence promotion once D-07 gate passes
+- [ ] **Phase 51: Signal & Indicator Validation Framework** — per-layer sanity checks (I1→I7 output values statistically sensible); signal outcome completeness audit; setup_performance gate verification; automated validation that runs on each deploy
+- [ ] **Phase 52: Infrastructure Hardening** — Docker restart policies (timescaledb + redpanda); automated gap-fill on service restart; log rotation; deploy_dashboard.sh script; health check endpoints; no manual steps anywhere in the pipeline
+
+</details>
+
+<details>
+<summary>⏸ v2.2 External Access (Phase 53) — PLANNED, deferred until v2.1 complete</summary>
+
+**Milestone Goal:** Secure, observable external access. Cloudflare Tunnel SSE fix is the only strictly required item; JWT auth can be replaced with Cloudflare Access (zero application code). Full auth layer if intentional multi-user access is needed.
+
+- [ ] **Phase 53: Auth + External Access** — Cloudflare Tunnel `disableChunkedEncoding` SSE fix; Cloudflare Access or JWT cookie auth; CORS hardening; auth event logging; rate limiting
+  - Plans already created in `.planning/phases/53-auth-external-access/` (moved from Phase 48 v2.0)
+  - Revisit scope before executing — Cloudflare Access may replace JWT application code entirely
+
+</details>
+
+<details>
+<summary>⏸ v2.3 ML Foundation (Phases 54-55) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
+
+**Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
+
+- [ ] **Phase 54: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
+- [ ] **Phase 55: Renaissance Observability** — DAG performance attribution, A/B experiment framework, causal inference, counterfactual analysis, LLM gate optimizer, intelligence tier audit surface, staleness as first-class quality signal
 
 </details>
 
@@ -722,9 +761,9 @@ Plans:
 - [x] 47-04-PLAN.md — Cross-asset graduation: enable + soak + scaffolding removal (SHADOW-02)
 - [ ] 47-05-PLAN.md — Roll monitor graduation ceremony: D-21 validation + enablement + 5-day soak + scaffolding removal (SHADOW-03, gap closure)
 
-### Phase 48: Auth + External Access
-**Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer. Keyset pagination deferred to v2.1 (INTEL-V2).
-**Depends on**: Phase 47 (pipeline stable and shadow modes resolved before exposing external access)
+### Phase 53: Auth + External Access
+**Goal**: The API is protected by JWT authentication (or Cloudflare Access), SSE works correctly through Cloudflare Tunnel, CORS hardening in place. Keyset pagination deferred to v2.1 (INTEL-V2).
+**Depends on**: Phase 52 (infrastructure hardened, pipeline stable before exposing external access)
 **Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06
 **Success Criteria** (what must be TRUE):
   1. Every API endpoint (including SSE) returns HTTP 401 when called without a valid JWT cookie — `curl https://api.indicagent.com/api/signals/recent` without credentials returns `{"detail": "Not authenticated"}`.
@@ -736,16 +775,17 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 48-01-PLAN.md — JWT auth backend: auth module, CORS hardening, rate limiting, event logging (AUTH-01, AUTH-02, AUTH-03, AUTH-06)
-- [ ] 48-02-PLAN.md — Next.js standalone build + systemd unit + Cloudflare Tunnel SSE fix (AUTH-04, AUTH-05)
-- [ ] 48-03-PLAN.md — Dashboard auth integration: withCredentials, login page, auth guard (AUTH-02, AUTH-03)
+- [ ] 53-01-PLAN.md — JWT auth backend: auth module, CORS hardening, rate limiting, event logging (AUTH-01, AUTH-02, AUTH-03, AUTH-06)
+- [ ] 53-02-PLAN.md — Cloudflare Tunnel SSE fix + Next.js standalone build + systemd unit (AUTH-04, AUTH-05)
+- [ ] 53-03-PLAN.md — Dashboard auth integration: withCredentials, login page, auth guard (AUTH-02, AUTH-03)
+> **Note**: Revisit scope before executing — Cloudflare Access may replace Plans 53-01 and 53-03 entirely (zero application code). Plans 53-01/03 are kept for reference. Plan 53-02 (SSE `disableChunkedEncoding` fix) is required regardless.
 
 <details>
-<summary>⏸ Deferred to v2.1 — Phases 49-50 (requires 30+ days stable signal data + roll monitor graduated)</summary>
+<summary>⏸ Deferred to v2.3 — Phases 54-55 (requires 30+ days clean signal data from v2.1 + roll monitor graduated)</summary>
 
-### Phase 49: ML Scoring Model
+### Phase 54: ML Scoring Model
 **Goal**: A LightGBM model scores every new signal in shadow mode, trained on signal_features with stationarity gates and regime segmentation, with walk-forward retraining and SHAP attribution. LLM call audit trail completes the training data feed (token counts, retry chain, outcome back-fill).
-**Depends on**: Phase 48 (auth + external access in place before exposing ML endpoints); 30+ days clean signal_ledger outcomes; roll monitor graduated; market_data_5m populated
+**Depends on**: Phase 53 (external access in place); 30+ days clean signal_ledger outcomes from v2.1; roll monitor graduated; market_data_5m populated
 **Requirements**: ML-01, ML-02, ML-03, ML-04, ML-05, ML-06, ML-07
 **Success Criteria** (what must be TRUE):
   1. `feature_builder.py` produces a feature matrix using only columns from `signal_features` that existed at signal fire time — no `signal_ledger` outcome columns (outcome, pnl_r, mae, mfe) appear in the training feature set.
@@ -755,11 +795,11 @@ Plans:
   5. Walk-forward retraining runs on schedule (every 7 days via systemd timer) with 60-day expanding window and 14-day hold-out — the timer completion and AUC/Brier metrics are logged to `logs/ml_trainer.log`.
   6. After 8-week shadow gate passes (AUC >= 0.56, Brier < 0.25, Pearson r > 0.20 p < 0.05, win rate lift > +3% at ml_score > 0.6), ML blend is enabled in the aggregator with α=0.20 — `_build_all_ranked()` uses `calibrated_confidence * (1 - α) + ml_score * α` as the sort key.
   7. Global LightGBM model and 3 regime-specific models (ranging/trending/volatile) are trained independently — the regime-specific model is used when `N >= 500` for that regime; otherwise falls back to global model with a logged reason.
-**Plans**: TBD (plan during v2.1 milestone)
+**Plans**: TBD (plan during v2.3 milestone)
 
-### Phase 50: Renaissance Observability (Attribution, A/B Testing, Causal Inference)
+### Phase 55: Renaissance Observability (Attribution, A/B Testing, Causal Inference)
 **Goal**: The DAG pipeline has Renaissance-grade observability — performance attribution tracks value added by each stage, live A/B experimentation tests configuration changes, causal inference proves improvements are not just correlation, counterfactual analysis quantifies missed opportunities, LLM analyzes attribution to recommend optimizations. Intelligence tier audit surface makes every feature vector inspectable (I3/I4/I5/I6 fields visible in dashboard). Staleness is a first-class quality signal: stale intelligence reduces confidence in signal_ledger so ML training can exclude unreliable rows; dashboard badge is a side effect of the data-quality fix, not the primary deliverable.
-**Depends on**: Phase 44.2 (in-process DAG with attribution audit queue in place), Phase 49 (ML model provides additional signal features for causal analysis)
+**Depends on**: Phase 44.2 (in-process DAG with attribution audit queue in place), Phase 54 (ML model provides additional signal features for causal analysis)
 **Requirements**: None (observability infrastructure)
 **Success Criteria** (what must be TRUE):
   1. Every signal has full attribution chain in `performance_attribution` table — can query value added by each stage
@@ -771,7 +811,7 @@ Plans:
   7. Full DAG observability in dashboard — real-time latency, error rates, attribution metrics, circuit breaker status
   8. Every intelligence tier field (I3/I4/I5/I6) is inspectable in the drill panel — when a signal fires, the contributing feature values from all tiers are visible and auditable.
   9. `signal_ledger.data_age_ms` is populated at signal fire time; signals with `data_age_ms > 900000` (15 min) are flagged in dashboard with a staleness badge and excluded from ML training sets by default.
-**Plans**: TBD (plan during v2.1 milestone)
+**Plans**: TBD (plan during v2.3 milestone)
 
 **Out of scope (future phases):**
 - Stage splitting (if attribution shows stages do too much)
@@ -786,12 +826,12 @@ Plans:
 Items decided but not yet scheduled. Pull into a milestone when ready.
 Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
-### Tier 1 — v2.1 candidates
+### Tier 1 — v2.3 candidates (ML Foundation)
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| **Phase 49: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 49` in Phase Details section |
-| **Phase 50: Renaissance Observability** | Deferred from v2.0 — depends on Phase 49 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | Phase Detail: see `### Phase 50` in Phase Details section |
+| **Phase 54: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 54` in Phase Details section |
+| **Phase 55: Renaissance Observability** | Deferred from v2.0 — depends on Phase 54 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | Phase Detail: see `### Phase 55` in Phase Details section |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
