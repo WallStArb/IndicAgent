@@ -61,7 +61,7 @@ class KafkaSSEBroadcaster:
         self._latest: dict[str, dict[str, dict]] = defaultdict(dict)
 
     @staticmethod
-    def _extract_signal_scorecard_payload(topic: str, payload: dict | str) -> dict | str:
+    def _extract_signal_scorecard_payload(payload: dict | str) -> dict | str:
         """Transform intelligence.record payload into signal_scorecard shape.
 
         intelligence.record is published via KafkaProducerClient which double-serializes
@@ -110,7 +110,7 @@ class KafkaSSEBroadcaster:
             # Transform intelligence.record into signal_scorecard payload shape
             # so downstream SSE clients receive the same format as before.
             if topic == _intelligence_record_topic:
-                payload = self._extract_signal_scorecard_payload(topic, payload)
+                payload = self._extract_signal_scorecard_payload(payload)
             item = {"topic": topic, "key": key, "payload": payload}
             # Latest-per-key: always keep the most recent message for each key.
             # Uses key or falls back to a monotonic counter for keyless messages.
@@ -229,8 +229,6 @@ def _event_name_for_topic(topic: str) -> str:
         return "indicator_data"
     if candidate == "intelligence.record" or candidate.startswith("intelligence.record"):
         return "signal_scorecard"
-    if candidate == "intelligence.i7" or candidate.startswith("intelligence.i7"):
-        return "signal_scorecard"
     if candidate == "intelligence.i8" or candidate.startswith("intelligence.i8"):
         return "narrative_data"
     if candidate == "intelligence" or candidate.startswith("intelligence"):
@@ -342,6 +340,7 @@ async def sse_events(
     broadcaster: KafkaSSEBroadcaster = dependencies.kafka_broadcaster
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     topic_list = _build_topic_list(symbol_list, timeframe)
+    topic_set = set(topic_list)
 
     snapshot, live_q = broadcaster.subscribe()
 
@@ -384,7 +383,7 @@ async def sse_events(
                     break
 
                 # Filter to only topics this client subscribed to
-                if item["topic"] not in topic_list:
+                if item["topic"] not in topic_set:
                     continue
 
                 event_name = _event_name_for_topic(item["topic"])

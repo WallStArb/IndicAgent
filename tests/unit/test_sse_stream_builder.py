@@ -162,7 +162,8 @@ async def test_event_name_for_topic_intelligence():
     from src.api.routes.sse import _event_name_for_topic
 
     assert _event_name_for_topic("dev.intelligence") == "intelligence_data"
-    assert _event_name_for_topic("dev.intelligence.i7") == "signal_scorecard"
+    # i7 topic retired in Phase 44.3 — no longer maps to signal_scorecard
+    # assert _event_name_for_topic("dev.intelligence.i7") == "signal_scorecard"
     assert _event_name_for_topic("dev.intelligence.i8") == "narrative_data"
 
 

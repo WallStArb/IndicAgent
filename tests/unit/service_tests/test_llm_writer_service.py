@@ -199,11 +199,11 @@ def test_build_score_insert_params_high_p_not_significant():
 
 
 def test_upsert_i8_sql_is_update_not_insert():
-    """_UPSERT_I8_SQL must start with UPDATE (not INSERT) to avoid phantom rows."""
-    from services.llm_writer_service import _UPSERT_I8_SQL  # type: ignore[import]
+    """_UPDATE_I8_SQL must start with UPDATE (not INSERT) to avoid phantom rows."""
+    from services.llm_writer_service import _UPDATE_I8_SQL  # type: ignore[import]
 
-    assert _UPSERT_I8_SQL.strip().startswith("UPDATE"), (
-        "_UPSERT_I8_SQL must use UPDATE not INSERT ON CONFLICT to avoid phantom rows"
+    assert _UPDATE_I8_SQL.strip().startswith("UPDATE"), (
+        "_UPDATE_I8_SQL must use UPDATE not INSERT ON CONFLICT to avoid phantom rows"
     )
 
 
@@ -286,12 +286,12 @@ def test_process_i8_message_uses_parse_ts():
 
 
 def test_i8_buffer_flushed_on_shutdown():
-    """_flush_i8 calls execute_batch with _UPSERT_I8_SQL and buffer contents."""
+    """_flush_i8 calls execute_batch with _UPDATE_I8_SQL and buffer contents."""
     import asyncio
     from datetime import UTC, datetime
     from unittest.mock import AsyncMock, MagicMock
 
-    from services.llm_writer_service import LLMWriterService, _UPSERT_I8_SQL  # type: ignore[import]
+    from services.llm_writer_service import _UPDATE_I8_SQL, LLMWriterService  # type: ignore[import]
 
     svc = LLMWriterService.__new__(LLMWriterService)
     svc._i8_buffer = [
@@ -319,5 +319,5 @@ def test_i8_buffer_flushed_on_shutdown():
 
     mock_db.execute_batch.assert_called_once()
     call_args = mock_db.execute_batch.call_args
-    assert call_args[0][0] == _UPSERT_I8_SQL
+    assert call_args[0][0] == _UPDATE_I8_SQL
     assert len(svc._i8_buffer) == 0, "Buffer should be cleared after flush"

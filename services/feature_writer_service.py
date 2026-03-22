@@ -110,13 +110,6 @@ def _parse_ts(ts_raw: str | bytes) -> datetime:
 # ── Module-level pure functions (testable without class instantiation) ─────────
 
 
-def _decode_field(val: object, default: str = "") -> str:
-    """Decode a bytes or str field from a Kafka/Redis payload, with a fallback default."""
-    if val is None:
-        return default
-    return val.decode() if isinstance(val, bytes) else str(val)
-
-
 def _build_expiry_map(settings: Settings) -> dict[str, date]:
     """Build symbol → expiry date lookup at service startup. Call once; cache result.
 
@@ -207,12 +200,7 @@ def _record_to_insert_params(
     # winner_direction: int in schema, stored as text in DB
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
 
-    # session_type: stored as plain string
-    session_type_val = (
-        record.session_type
-        if isinstance(record.session_type, str)
-        else str(record.session_type)
-    )
+    session_type_val = str(record.session_type)
 
     return (
         event.ts,  # $1 ts
@@ -436,11 +424,8 @@ class FeatureWriterService:
         """Parse one Kafka message payload (BarIntelligenceRecord), buffer insert params."""
         try:
             # Extract raw JSON from payload dict (Kafka message value)
-            raw = payload.get("event") or payload.get(b"event", b"")
-            if not raw:
-                # Payload IS the record (direct JSON encoding, not wrapped in "event" field)
-                # For intelligence.record, the full message value is the JSON
-                raw = json.dumps(payload).encode() if isinstance(payload, dict) else payload
+            # intelligence.record messages arrive as raw JSON (str or bytes)
+            raw = payload if not isinstance(payload, dict) else json.dumps(payload).encode()
             if isinstance(raw, str):
                 raw = raw.encode()
 
@@ -451,8 +436,7 @@ class FeatureWriterService:
                     symbol=symbol,
                     tf=timeframe,
                 )
-                if hasattr(self, "error_count_total"):
-                    self.error_count_total.inc()
+                self.error_count_total.inc()
                 return True
 
             params = _record_to_insert_params(record, self._expiry_map)
