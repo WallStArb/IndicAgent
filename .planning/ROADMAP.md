@@ -161,7 +161,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [ ] **Phase 44.2: SignalGeneratorService Consolidation** — absorb 6 pipeline stage microservices (quality_gate, regime_gate, tod_adjuster, calibrator, ranker, winner_selector) into in-process pure functions; `src/intelligence/pipeline/` module dir; bounded async audit queue; publish BarIntelligenceRecord to `development.intelligence.record`; 8 Kafka execution hops → 2; retire 6 systemd units
 - [ ] **Phase 44.3: Atomic Persistence + OHLCV Unification** — FeatureWriterService consumes `intelligence.record` only; single atomic INSERT per bar (no UPSERTs, no partial rows); DB migration for 10 new `intelligence_features` columns; i8 UPSERT migrated to LLMWriterService; FeaturePipelineService as sole live writer to `market_data_ohlcv`; 18 services → 9 pipeline complete
 - [ ] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py; wire all 36 I7 plugins to capture raw ctf_* + exhaustion fields into standardized _shadow dict per signal (zero confidence modification — Option C; Phase 49 learns weights); lifecycle O(1) index + chandelier write guard
-- [ ] **Phase 46: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
+- [ ] **Phase 46: I6 Confluence Expansion** — 4 new raw measurement fields in I6Confluence (ctf_vix_level, ctf_vix_z, ctf_eq_spread_z, ctf_eq_pairs_confirming); vix_context.py pure function module; FeaturePipelineService injects frames["cross_asset"] + frames["vix"]; ctf_score formula unchanged; Phase 49 learns weights
 - [ ] **Phase 47: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
 - [ ] **Phase 48: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
 - [ ] **Phase 49: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution; LLM call audit trail complete (token counts, retry chain, outcome back-fill) as ML training data feed
@@ -642,7 +642,7 @@ Plans:
 Plans:
 - [x] 45-01-PLAN.md — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py (CONF-01)
 - [ ] 45-02-PLAN.md — wire capture_confluence_features() + exhaustion to trend/mean-reversion/session family plugins (CONF-02)
-- [ ] 45-03-PLAN.md — wire capture_confluence_features() + exhaustion to SMC + microstructure families (CONF-03)
+- [x] 45-03-PLAN.md — wire capture_confluence_features() + exhaustion to SMC + microstructure families (CONF-03)
 - [x] 45-04-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard regression tests (PERF-04)
 
 ### Phase 41: Intelligence Gap Fill
@@ -673,15 +673,26 @@ Plans:
 - [x] 42-04-PLAN.md — weight_updater pattern calibration + 7-day backtest validation (CANDLE-01, CANDLE-02) [wave 2]
 
 ### Phase 46: I6 Confluence Expansion
-**Goal**: The I6 confluence score reflects cross-asset dynamics and VIX regime — FeaturePipelineService injects cross-asset features into frames before I6 execution, and CrossTimeframeConfluencePlugin scores VIX suppression and equity sector rotation alongside existing TF alignment. FVG/OB alignment weights become non-zero (wired in Phase 41, weighted here after Phase 45 validates confluence data quality).
-**Depends on**: Phase 45 (confluence wiring validated, I6 data quality confirmed), Phase 44.1 (FeaturePipelineService is the frame injection point)
+**Goal**: Expand `I6Confluence` output with four new raw measurement fields — `ctf_vix_level`, `ctf_vix_z`, `ctf_eq_spread_z`, `ctf_eq_pairs_confirming` — giving Phase 49 ML independent, separable features for VIX regime and EQ_INDEX sector dynamics. `ctf_score` formula is NOT modified (data exposure phase, not formula tuning). FeaturePipelineService injects `frames["cross_asset"]` + `frames["vix"]` before I6 execution. VIX computation lives in `src/intelligence/context/vix_context.py` (pure function module).
+**Depends on**: Phase 45 (I6 data quality confirmed, shadow dict infrastructure in place), Phase 44.1 (FeaturePipelineService is the frame injection point)
 **Requirements**: CONF-04, CONF-05, CONF-06
+**Note**: FVG/OB "non-zero weights" from original spec superseded — `ctf_fvg_alignment` + `ctf_ob_alignment` are already independent I6 fields (Phase 45); Phase 49 learns weights. No formula change needed.
+
 **Success Criteria** (what must be TRUE):
-  1. `FeaturePipelineService` consumes from `development.cross_asset` topic and injects cross-asset features into the frame dict before I6 plugin execution — verifiable by confirming `frames.get('cross_asset')` is non-None in a live `CrossTimeframeConfluencePlugin.compute()` call log.
-  2. When VIX spread z-score is high (simulated injection), mean-reversion setups show reduced `ctf_score` and volatility/breakout setups show increased `ctf_score` — the VIX suppression multiplier is logged per bar.
-  3. When ES/NQ/RTY/YM spread z-scores are all aligned (same direction), `ctf_score` gets a sector rotation boost — the contributing fields are logged in `intelligence_features.i6` JSONB.
-  4. `i6_fvg_tf_alignment` and `i6_ob_tf_alignment` have non-zero weights in the `CrossTimeframeConfluencePlugin` scoring formula — querying `intelligence_features.i6` for ES 1m bars shows non-zero `ctf_score` contributions from these fields.
-**Plans**: TBD (plan during Phase 45)
+  1. `I6Confluence` schema has 4 new fields: `ctf_vix_level`, `ctf_vix_z`, `ctf_eq_spread_z`, `ctf_eq_pairs_confirming` — all `float | None`; grep confirms in `schemas.py`
+  2. `FeaturePipelineService` subscribes to `topic_cross_asset()`, caches in `_cross_asset_cache`, injects `frames["cross_asset"]` + `frames["cross_asset_5m"]` for EQ_INDEX symbols; injects `frames["vix"]` for all symbols
+  3. `src/intelligence/context/vix_context.py` exists as a pure function module; `compute_vix_context(vix_bars, z_window=20)` returns `{"level", "z_score", "ready"}` — unit tested
+  4. `ctf_vix_level` and `ctf_vix_z` are non-None in `intelligence_features.i6` for a live ES 1m bar query when VIX data is available
+  5. `ctf_eq_spread_z` and `ctf_eq_pairs_confirming` are non-None for EQ_INDEX symbols, None for non-EQ symbols — verifiable by querying `intelligence_features.i6` for ES vs GC
+  6. `capture_confluence_features()` in `confidence_utils.py` extended to include all 4 new fields in the `_shadow` dict
+  7. `ctf_score` value distribution unchanged — query `intelligence_features.i6` 24h window before/after deploy, confirm `ctf_score` stats identical
+**Plans**: 4 plans
+
+Plans:
+- [ ] 46-01-PLAN.md — `src/intelligence/context/vix_context.py` pure function module + unit tests
+- [ ] 46-02-PLAN.md — `I6Confluence` schema extension (4 new fields) + `cross_timeframe.py` reads frames["vix"] + frames["cross_asset"] and emits new fields
+- [ ] 46-03-PLAN.md — FeaturePipelineService: subscribe to cross_asset topic, `_cross_asset_cache`, inject `frames["cross_asset"]` + `frames["vix"]`
+- [ ] 46-04-PLAN.md — extend `capture_confluence_features()` shadow dict + integration test: live I6 output contains new fields
 
 ### Phase 47: Shadow Mode Graduation
 **Goal**: Shadow-mode features graduate to live after empirical validation — hmm_regime thresholds adjusted if data supports it, cross-asset and roll monitor enabled, trad_DualDivergence promoted once it passes the statistical gate. Roll premium/discount wired into intelligence pipeline alongside roll monitor enablement.
@@ -849,7 +860,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
 | 43. Performance & Stability Emergency | v2.0 | 2/3 | In Progress | — |
 | 44. I7 DAG Refactor | v2.0 | 5/5 | Complete   | 2026-03-22 |
-| 45. I6 → I7 Confluence Wiring | v2.0 | 2/4 | In Progress|  |
+| 45. I6 → I7 Confluence Wiring | v2.0 | 3/4 | In Progress|  |
 | 46. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 47. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 48. Auth + External Access | v2.0 | 0/TBD | Not started | — |
