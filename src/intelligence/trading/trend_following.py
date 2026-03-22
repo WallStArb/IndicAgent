@@ -7,7 +7,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
@@ -113,7 +113,7 @@ class TrendFollowingPlugin:
 
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -123,6 +123,8 @@ class TrendFollowingPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(features, direction, "trend", confidence)
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
