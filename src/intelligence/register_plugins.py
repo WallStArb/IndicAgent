@@ -14,6 +14,7 @@ from .composites.stochastic_events import plugin as stoch_events_plugin
 from .composites.volume_events import plugin as volume_events_plugin
 from .confluence.cross_timeframe import plugin as ctf_plugin
 from .context.anchored_vwap import plugin as anchored_vwap_plugin
+from .context.cross_asset_context import plugin as cross_asset_ctx_plugin
 from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
@@ -22,6 +23,7 @@ from .context.mtf_volatility import plugin as mtf_vol_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
+from .context.vix_regime import plugin as vix_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
 from .context.volume_profile import plugin as volume_profile_plugin
 from .indicators.ac_oscillator import plugin as ac_osc_plugin
@@ -141,7 +143,8 @@ def validate_schema_coverage() -> None:
         ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
                 garch_vol_plugin, hurst_plugin, shannon_plugin,
                 kalman_trend_plugin, session_ctx_plugin, mtf_vol_plugin,
-                anchored_vwap_plugin, volume_profile_plugin], I4Context),
+                anchored_vwap_plugin, volume_profile_plugin,
+                vix_regime_plugin, cross_asset_ctx_plugin], I4Context),
         ("I5", [rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
                 trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
                 triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
@@ -241,6 +244,8 @@ def register_all_plugins() -> None:
     registry.register_pattern(kalman_trend_plugin)
     registry.register_pattern(session_ctx_plugin)
     registry.register_pattern(mtf_vol_plugin)
+    registry.register_pattern(vix_regime_plugin)
+    registry.register_pattern(cross_asset_ctx_plugin)
 
     registry.register_pattern(bos_choch_plugin)
     registry.register_pattern(fvg_plugin)
@@ -382,6 +387,8 @@ TIER_I4: list[str] = [
     mtf_vol_plugin.name,
     anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
+    vix_regime_plugin.name,           # "ctx_VIXRegime" — Phase 46.1
+    cross_asset_ctx_plugin.name,      # "ctx_CrossAssetContext" — Phase 46.1
 ]
 
 TIER_I5: list[str] = [

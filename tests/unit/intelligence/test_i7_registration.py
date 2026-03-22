@@ -62,11 +62,11 @@ class TestI7Registration:
         assert expected_i7.issubset(registered), f"Missing: {expected_i7 - registered}"
 
     def test_total_plugin_count(self):
-        """Should have 27 indicators + 94 patterns = 121 total (037-02 adds CrossAssetDivergence)."""
+        """Should have 27 indicators + 96 patterns = 123 total (46.1 adds VIXRegime + CrossAssetContext)."""
         total = len(registry.indicators) + len(registry.patterns)
         n_ind = len(registry.indicators)
         n_pat = len(registry.patterns)
-        assert total == 121, f"Expected 121, got {total} (indicators={n_ind}, patterns={n_pat})"
+        assert total == 123, f"Expected 123, got {total} (indicators={n_ind}, patterns={n_pat})"
 
     @pytest.mark.unit
     def test_all_i7_plugins_have_regime_type_attribute(self):
