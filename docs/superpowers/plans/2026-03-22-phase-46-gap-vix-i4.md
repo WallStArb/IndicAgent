@@ -139,7 +139,7 @@ Expected actual: first 2 tests FAIL, last test FAILS (ctf_vix_level still presen
 
 Find the `I4Context` class in `src/intelligence/schemas.py` (line ~250). After the `VolumeProfile` section comment (before the final closing of the class), add:
 ```python
-    # MacroContextPlugin outputs (Phase 46.1)
+    # VIXRegimePlugin + CrossAssetContextPlugin outputs (Phase 46.1)
     vix_level: float | None = None            # VIX close price; computed from 1h bars always
     vix_z: float | None = None                # VIX z-score, 20-bar rolling mean, 1h window
     eq_spread_z: float | None = None          # dominant EQ pair spread z-score; EQ_INDEX only
@@ -546,8 +546,8 @@ TIER_I4: list[str] = [
 
 Find `register_all_plugins()` (line ~176). Locate where I4 plugins are registered (look for `garch_vol_plugin` or `hurst_plugin`). Add after the last existing I4 plugin registration:
 ```python
-    registry.register(vix_regime_plugin)
-    registry.register(cross_asset_ctx_plugin)
+    registry.register_pattern(vix_regime_plugin)
+    registry.register_pattern(cross_asset_ctx_plugin)
 ```
 
 - [ ] **Step 4: Verify validate_tier passes**
@@ -800,14 +800,15 @@ cd /home/bg/dev/indicagent
 sed -i 's/from \.confidence_utils import capture_confluence_features/from .confidence_utils import capture_signal_features/g' src/intelligence/trading/*.py
 ```
 
-Then rename all call sites:
+Then rename all call sites — **exclude `confidence_utils.py`** (already renamed in Step 1; re-running sed on it is harmless but confusing):
 ```bash
-sed -i 's/capture_confluence_features(/capture_signal_features(/g' src/intelligence/trading/*.py
+sed -i 's/capture_confluence_features(/capture_signal_features(/g' \
+  $(ls src/intelligence/trading/*.py | grep -v confidence_utils.py)
 ```
 
-Verify no old name remains:
+Verify no old name remains (in callers — definition was renamed in Step 1):
 ```bash
-grep -r "capture_confluence_features" src/intelligence/trading/
+grep -r "capture_confluence_features" src/intelligence/trading/ | grep -v "def capture_signal_features"
 ```
 Expected: no output (zero matches).
 
@@ -839,7 +840,11 @@ Expected: all pass (new plugin tests included).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/intelligence/trading/ tests/unit/test_capture_signal_features.py
+# Stage only the files changed in this task — do NOT use `git add src/intelligence/trading/`
+# (it would pick up unrelated modified files like mean_reversion.py, signal_ledger.py)
+git add src/intelligence/trading/confidence_utils.py
+git add $(git diff --name-only src/intelligence/trading/ | grep -v confidence_utils.py)
+git add tests/unit/test_capture_signal_features.py
 git commit -m "refactor(46.1): rename capture_confluence_features→capture_signal_features; update I4 shadow keys"
 ```
 
@@ -881,7 +886,8 @@ grep -r "_CROSS_ASSET_VALID_TFS\s*=" services/ && echo "FAIL: local constant sti
 
 # 7. capture_signal_features is the name
 .venv/bin/python -c "from src.intelligence.trading.confidence_utils import capture_signal_features; print('✓ capture_signal_features exists')"
-python -c "from src.intelligence.trading.confidence_utils import capture_confluence_features" 2>&1 | grep -q "ImportError" && echo "✓ Old name gone" || echo "FAIL: old name still importable"
+.venv/bin/python -c "from src.intelligence.trading.confidence_utils import capture_signal_features; print('✓ Rename complete')"
+grep "def capture_confluence_features" src/intelligence/trading/confidence_utils.py && echo "FAIL: old name still in definition" || echo "✓ Definition renamed"
 
 # 8. No old function name in trading plugins
 grep -r "capture_confluence_features" src/intelligence/trading/ && echo "FAIL: old name found" || echo "✓ All 36 callers updated"
