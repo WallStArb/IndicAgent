@@ -2,9 +2,12 @@
 
 Tests cover:
 - topic_cross_asset stream key
-- Settings cross_asset_* fields
+- Settings cross_asset_window_bars and cross_asset_metrics_port fields
 - compute_eq_index_features: ready=False, ready=True, z-score, corr_break,
   vol_imbalance, active_pair, pairs_confirming, low_vol_flag, clamp, types
+
+Note: cross_asset_enabled field removed from Settings in Phase 47-04 — cross-asset is
+always active. The corresponding Settings test has been removed.
 """
 
 from __future__ import annotations
@@ -35,13 +38,6 @@ def test_topic_cross_asset_empty_env():
 # ---------------------------------------------------------------------------
 # Settings field tests
 # ---------------------------------------------------------------------------
-
-
-def test_settings_cross_asset_enabled_default():
-    from src.config.settings import Settings
-
-    s = Settings()
-    assert s.cross_asset_enabled is False
 
 
 def test_settings_cross_asset_window_bars_default():

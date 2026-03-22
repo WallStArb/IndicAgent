@@ -37,7 +37,6 @@ def _make_service():
     svc.running = False
     svc.shutdown_requested = False
     svc.env_name = "development"
-    svc._cross_asset_enabled = True
     svc._window_bars = _WINDOW
     svc._metrics_port = 9118
     svc._kafka_bootstrap = "localhost:19092"

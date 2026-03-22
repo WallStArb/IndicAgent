@@ -229,7 +229,6 @@ class FeaturePipelineService:
 
         # Phase 46: Cross-asset cache and VIX symbol resolution
         self._cross_asset_cache: dict[str, dict] = {}  # tf -> cross_asset payload
-        self._cross_asset_enabled: bool = self._settings.cross_asset_enabled
 
         # Resolve VIX contract symbol for bar history lookup — D-10
         self._vix_symbol: str | None = None
@@ -656,7 +655,7 @@ class FeaturePipelineService:
         frames["prev_features"] = self._prev_i1_features.get(key, {})
 
         # Phase 46: Inject cross-asset frames for EQ_INDEX symbols (per D-12, D-13)
-        if self._cross_asset_enabled and resolve_eq_index_base(symbol) is not None:
+        if resolve_eq_index_base(symbol) is not None:
             frames["cross_asset"] = self._cross_asset_cache.get(tf, {"ready": False})
             frames["cross_asset_5m"] = self._cross_asset_cache.get("5m", {"ready": False})
 
@@ -1004,7 +1003,7 @@ class FeaturePipelineService:
         env = self._settings.env_name
         _sys_events_topic = topic_system_events(env)
         # Phase 46: Route cross_asset messages to cache
-        _cross_asset_topic = topic_cross_asset(env) if self._cross_asset_enabled else ""
+        _cross_asset_topic = topic_cross_asset(env)
 
         async for topic, key, payload in self._consumer.messages():
             if self.shutdown_requested:
@@ -1016,7 +1015,7 @@ class FeaturePipelineService:
                     continue
 
                 # Phase 46: Cache cross-asset snapshot by timeframe
-                if self._cross_asset_enabled and topic == _cross_asset_topic:
+                if topic == _cross_asset_topic:
                     try:
                         tf = payload.get("tf", "")
                         if tf in CROSS_ASSET_VALID_TFS and payload.get("ready"):
@@ -1132,12 +1131,11 @@ class FeaturePipelineService:
             # 3. Seed BarHistory from intelligence_features
             await self._seed_bar_history()
 
-            # 4. Build topics list — always subscribe to system.events
+            # 4. Build topics list — always subscribe to system.events and cross_asset
             env = self._settings.env_name
             topics: list[str] = [topic_market_bars(env)]
             topics.append(topic_system_events(env))
-            if self._cross_asset_enabled:
-                topics.append(topic_cross_asset(env))
+            topics.append(topic_cross_asset(env))
 
             # 5. Start Kafka consumer subscribed to market.bars + system.events
             self._consumer = KafkaConsumerClient(

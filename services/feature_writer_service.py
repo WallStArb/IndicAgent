@@ -267,13 +267,11 @@ class FeatureWriterService:
             self._env_name: str = _s.env_name or ""
             self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
             self._roll_monitor_enabled: bool = getattr(_s, "roll_monitor_enabled", False)
-            self._cross_asset_enabled: bool = getattr(_s, "cross_asset_enabled", False)
         except Exception as e:
             self.logger.warning("Settings() failed — defaulting env/kafka to ''", error=str(e))
             self._env_name = ""
             self._kafka_bootstrap = "localhost:19092"
             self._roll_monitor_enabled = False
-            self._cross_asset_enabled = False
 
         # Prometheus metrics
         self.events_consumed_total = counter(
@@ -386,8 +384,7 @@ class FeatureWriterService:
         ]
         if self._roll_monitor_enabled:
             topics.append(topic_system_events(self._env_name))
-        if self._cross_asset_enabled:
-            topics.append(topic_cross_asset(self._env_name))
+        topics.append(topic_cross_asset(self._env_name))
 
         # Single consumer subscribed to intelligence.record (and optionally system.events)
         self._kafka_consumer = KafkaConsumerClient(
@@ -624,7 +621,7 @@ class FeatureWriterService:
 
         intelligence_record_topic = topic_intelligence_record(self._env_name)
         sys_events_topic = topic_system_events(self._env_name)
-        cross_asset_topic = topic_cross_asset(self._env_name) if self._cross_asset_enabled else ""
+        cross_asset_topic = topic_cross_asset(self._env_name)
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
             if self.shutdown_requested:
@@ -636,7 +633,7 @@ class FeatureWriterService:
                     continue
 
                 # Route cross_asset topic — group-level, no symbol/tf key
-                if self._cross_asset_enabled and kafka_topic == cross_asset_topic:
+                if kafka_topic == cross_asset_topic:
                     await self._process_cross_asset_message(payload)
                     continue
 

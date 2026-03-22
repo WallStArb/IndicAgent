@@ -7,7 +7,7 @@ for the EQ_INDEX group (ES, NQ, RTY, YM), computes spread z-scores and correlati
 break features via compute_eq_index_features(), and publishes results to the
 cross_asset Kafka topic.
 
-Only active when CROSS_ASSET_ENABLED=true (shadow mode by default).
+Always active — CROSS_ASSET_ENABLED feature flag removed after graduation (Phase 47-04).
 
 Service lifecycle follows the signal_generator_service.py canonical pattern:
   - __init__: configure, setup_service_logging, start_metrics_server
@@ -90,7 +90,6 @@ class CrossAssetService:
         self.running = False
         self.shutdown_requested = False
         self.env_name: str = settings.env_name or ""
-        self._cross_asset_enabled: bool = settings.cross_asset_enabled
         self._window_bars: int = settings.cross_asset_window_bars
         self._metrics_port: int = settings.cross_asset_metrics_port
         self._kafka_bootstrap: str = settings.kafka_bootstrap_servers
@@ -382,10 +381,6 @@ class CrossAssetService:
         """Start the cross-asset intelligence service."""
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-
-        if not self._cross_asset_enabled:
-            self.logger.info("CROSS_ASSET_ENABLED=false — service idle; exiting.")
-            return
 
         self.logger.info(
             "Starting CrossAssetService",

@@ -238,7 +238,7 @@ async def test_process_message_accesses_typed_attributes():
 
     svc._df_cache = {}
     svc._regime_cache = collections.defaultdict(dict)
-    svc._cross_asset_enabled = False
+    svc._cross_asset_cache = {}  # Phase 47-04: always-on cache (flag removed)
     svc._htf_intel_cache = {}  # Phase 041: HTF cache added to __init__
     svc.db_manager = None  # _load_pattern_reliability_weights handles None gracefully
     svc._process_bar = mock_process_bar
@@ -517,7 +517,7 @@ async def test_process_single_message_appends_bar_to_bar_history():
     svc._error_count = 0
     svc._df_cache = {}
     svc._regime_cache = collections.defaultdict(dict)
-    svc._cross_asset_enabled = False
+    svc._cross_asset_cache = {}  # Phase 47-04: always-on cache (flag removed)
     svc._htf_intel_cache = {}
     svc.db_manager = None
 
