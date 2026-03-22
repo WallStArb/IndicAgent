@@ -46,6 +46,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.service_utils import (
+    CROSS_ASSET_VALID_TFS,
     PLUGIN_METRICS_SAMPLE_RATE,
     SEED_LOOKBACK_MULTIPLIER,
     TF_SECONDS,
@@ -101,9 +102,6 @@ from src.observability.metrics import (
 
 # Canonical timeframe ordering for I1-I6 pipeline.
 _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
-
-# Valid timeframes for cross-asset cache — own constant, not imported from signal_generator
-_CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 
 # OHLCV batch write — buffer 50 rows or flush every 5 seconds.
 # Only 1m bars written; HTF bars derived by TimescaleDB continuous aggregates.
@@ -1016,7 +1014,7 @@ class FeaturePipelineService:
                 if self._cross_asset_enabled and topic == _cross_asset_topic:
                     try:
                         tf = payload.get("tf", "")
-                        if tf in _CROSS_ASSET_VALID_TFS and payload.get("ready"):
+                        if tf in CROSS_ASSET_VALID_TFS and payload.get("ready"):
                             self._cross_asset_cache[tf] = payload
                     except Exception as _xa_err:
                         self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
