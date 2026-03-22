@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.28.0
+Version: 5.29.0
 Last Updated: 2026-03-22
-Status: v2.1 IN PROGRESS — v2.0 shipped 2026-03-22 (phases 39-47). Phase 48 (Tick Aggregation) SHIPPED — TWS now uses 5s real-time bars pushed by IBKR, accumulated into 1m OHLCV; 5s close published to development.market.ticks for live pricing. Phase 49 is next. Auth moved to Phase 53 (v2.2). ML deferred to v2.3 (phases 54-55).
+Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -72,7 +72,13 @@ Services should be thin: Redpanda consumer/producer + lifecycle wiring only. Reg
 
 ### Bug Fixes & Debugging
 1. `systematic-debugging` — structured investigation before proposing fixes
-2. `verification-before-completion` — confirm fix works before committing
+2. **Reproduce first (Mandatory)** — Create a standalone `reproduce_bug.py` script that demonstrates the failure before writing any fix.
+3. `verification-before-completion` — confirm fix works (and reproduction script now passes) before committing.
+
+### Inquiry vs. Directive Protocol (Gemini & Claude)
+To prevent premature or "helpful" code changes during the research phase:
+- **Inquiry:** If asked "How should we...?" or "What's the best approach?", research and propose in a `docs/ideas/` or `docs/research/` file. **Do NOT modify codebase.**
+- **Directive:** Only when an explicit instruction to "Implement X" or "Execute phase Y" is given, move to implementation and code changes.
 
 ### After Major Changes
 `revise-claude-md` · `verification-before-completion` · `requesting-code-review`
@@ -85,36 +91,79 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 ## Core Commands
 
-> Full reference: `docs/cheatsheet.md`
+> Full reference: `docs/cheatsheet.md` (pipeline reset, backfill scripts, service management, metrics ports)
 
-**Roadmap consistency check:** `node ~/.claude/get-shit-done/bin/gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Inserted phases (e.g. 46.1) must be added to the milestone summary list manually, not just Phase Details. Run after any phase completion to catch stale checkboxes.
+**Roadmap consistency check:** `node gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Run after any phase completion.
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
-**Services** (systemd-managed, `Restart=always`):
-- Config changes require restart: `sudo systemctl restart indicagent-<name>` to pick up `_load_config()` changes
-- Services require restart after adding new contracts to `instruments` table — config loads once at startup
-- New contracts require: (1) INSERT to `instruments` table, (2) restart services that consume symbols (indicator, market_analysis, feature_writer), (3) historical backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
-- `sudo systemctl {status|restart|start} indicagent-{tws,feature-pipeline,signal-generator,signal-lifecycle,ai-narrative,feature-writer,llm-writer,cross-asset,api}`
-- `journalctl -u indicagent-<name> -f` — live logs
-- Metrics ports: feature-pipeline :9125, signal-gen :9112, ai-narrative :9113, signal-lifecycle :9115, feature-writer :9116, llm-writer :9117, cross-asset :9118, quality-gate :9119, regime-gate :9120, tod-adjuster :9121, calibrator :9122, ranker :9123, winner-selector :9124
-
-**Pipeline Reset** (housekeeping + fetch + replay — single entry point): `.venv/bin/python production/scripts/pipeline_reset.py [--dry-run|--keep-ohlcv|--clear-llm] [--symbols SYM,SYM]`
-— TF depths: 1m=14d named, 5m=90d, 15m=180d, 1h=365d, 1d=2555d (7yr) continuous-adj. Pauses at stop/start boundaries and prints sudo commands to run.
-**`pipeline_reset.py` is interactive** — requires service stop + multiple Enter presses; fails when IBKR offline (historical data timeouts). For a DB-only clear (no backfill), use direct SQL:
-```bash
-# Stop pipeline services first, then:
-for t in signal_ledger intelligence_features setup_performance drift_state drift_monitor signal_features confidence_calibration cis_weights system_events market_data_ohlcv signal_performance_segmented llm_calls llm_model_scores; do
-  docker exec timescaledb psql -U postgres -d indicagent -c "TRUNCATE $t;" 2>&1
-done
-docker exec timescaledb psql -U postgres -d indicagent -c "REFRESH MATERIALIZED VIEW signal_stats_daily;"
-```
-**Gap-fill** (fetch + replay only missing days — no full reseed): `--days N` caps ALL TF fetch depths at N days and limits replay to the same window. Safe: `ON CONFLICT DO NOTHING` on both `intelligence_features` and `signal_ledger`.
-```bash
-.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM,SYM --days 2
-.venv/bin/python production/scripts/historical_backfill.py --replay-only --symbols SYM,SYM --days 2
-```
+**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{feature-pipeline,signal-generator,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
+
+## Naming Conventions
+
+**Principle (Renaissance rule):** A service's *concept name* (`snake_case`, no suffix) determines all its derived names across every layer. Given `feature_pipeline`, every layer's name is mechanically derivable — no lookup needed.
+
+### Cross-Layer Transformation Rules
+
+| Layer | Pattern | Example (`alpha_signal`) |
+|-------|---------|------------------------------|
+| Python file (Service) | `<concept>_service.py` | `alpha_signal_service.py` |
+| Python file (Plugin) | `src/intelligence/trading/<concept>.py` | `alpha_signal.py` |
+| Python class (Service) | `PascalCase` + `Service` | `AlphaSignalService` |
+| Python class (Plugin) | `PascalCase` + `Plugin` | `AlphaSignalPlugin` |
+| Systemd unit | `indicagent-<concept-kebab>.service` | `indicagent-alpha-signal.service` |
+| Log file | `logs/<python_filename>.log` | `logs/alpha_signal_service.log` |
+| Kafka topic fn | `topic_<concept>()` in `stream_keys.py` | `topic_alpha_signal()` |
+| Kafka topic string | `<env>.<domain>[.<sublayer>]` (dots only) | `dev.alpha_signal` |
+| DB table | `snake_case` plural noun | `alpha_signals` |
+| DB columns | `snake_case` | `ts`, `symbol`, `tf`, `i7` |
+
+### Active Service Map
+
+| Concept | Systemd unit | Log file | Output topic | DB table |
+|---------|-------------|----------|-------------|----------|
+| `tws` | `indicagent-tws` | `tws_daemon.log` | `market.bars`, `market.ticks` | `market_data_ohlcv` |
+| `feature_pipeline` | `indicagent-feature-pipeline` | `feature_pipeline_service.log` | `intelligence` | → `intelligence_features` (via feature_writer) |
+| `signal_generator` | `indicagent-signal-generator` | `signal_generator_service.log` | `signals.aggregated` | `signal_ledger` |
+| `signal_lifecycle` | `indicagent-signal-lifecycle` | `signal_lifecycle_service.log` | `llm.outcomes` | `signal_ledger` (updates) |
+| `ai_narrative` | `indicagent-ai-narrative` | `ai_narrative_service.log` | `narratives` | → `llm_calls` (via llm_writer) |
+| `feature_writer` | `indicagent-feature-writer` | `feature_writer_service.log` | — (DB writer) | `intelligence_features` |
+| `llm_writer` | `indicagent-llm-writer` | `llm_writer_service.log` | — (DB writer) | `llm_calls`, `llm_model_scores` |
+| `cross_asset` | `indicagent-cross-asset` | `cross_asset_service.log` | `cross_asset` | `development.cross_asset` |
+| `api` | `indicagent-api` | — | SSE on :8000 | — |
+
+Source service files: `services/*.service`. Installed: `/etc/systemd/system/`. `production/systemd/` is a reference template — NOT what's installed.
+
+### Per-Layer Naming Rules
+
+**Python**
+- Services: `<concept>_service.py` file / `PascalCaseService` class
+- Plugins: `snake_case.py` file (short name) / `PascalCasePlugin` class — `adx.py` → `ADXPlugin`
+- Aggregators/results: `PascalCase` no suffix — `CISScorer`, `AggregatedResult`
+- Constants: `UPPER_SNAKE_CASE` — `TIER_I1`, `PLUGIN_METRICS_SAMPLE_RATE`
+- Private attrs: `_snake_case` — `_regime_cache`, `_plugin_states`
+
+**Kafka topics** (always via `src/core/stream_keys.py`, never hardcoded)
+- Functions: `topic_<output_domain>()` — singular noun describing what flows in the topic
+- Strings: `<env>.<domain>` or `<env>.<domain>.<sublayer>` — **dots only, never colons**
+- Consumer groups: `<concept>_consumer` (idempotent on restart)
+
+**Database**
+- Tables: `snake_case` plural nouns — `intelligence_features`, `signal_ledger`
+- Columns: `snake_case` — timestamp is `ts` (not `feature_ts`); always `symbol`, `tf`
+- Views: `<source_table>_<timeframe>` — `ohlcv_15m`, `market_data_5m`
+- Migrations: `NNN_description.sql` (zero-padded, sequential)
+
+**Systemd / Infrastructure**
+- Units: `indicagent-<concept-kebab>.service` — installed copies in `/etc/systemd/system/`; source files in `services/`. `production/systemd/` is a reference dir with newer hardening (`LimitNOFILE=65536`) but has not been kept up to date — do not treat as authoritative.
+- Logs: `logs/<python_service_filename>.log` — read directly for structured output (journald shows only `print()`)
+- Containers: lowercase single-word — `timescaledb`, `redpanda`
+
+**Tests / TypeScript / Docs**
+- Tests: `tests/unit/test_<module>.py`; functions `test_<what>_<condition>`
+- TypeScript: components `PascalCase.tsx`, hooks `use-kebab-case.ts`, utils `kebab-case.ts`
+- Docs: `kebab-case.md`; plan docs `YYYY-MM-DD-<topic>.md`; uppercase `README.md`/`CLAUDE.md`/`CHANGELOG.md`
 
 ## Architecture Overview
 
@@ -139,13 +188,13 @@ IBKR TWS → feature_pipeline_service (I1-I6 unified) →
 ### Active Services
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
-| TWS Daemon | `indicagent-tws` | IBKR tick + bar collection | — |
-| Feature Pipeline | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline (replaces indicator + market-analysis) → `intelligence:SYMBOL:TF` | :9125 |
-| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream (no DB seed, no warmup delay) | :9112 |
+| TWS Daemon | `indicagent-tws` | IBKR 5s real-time bar push → 1m OHLCV aggregation; 5s close → market.ticks for live pricing | — |
+| Feature Pipeline | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
+| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
-| LLM Writer | `indicagent-llm-writer` | `llm_calls:stream` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
+| LLM Writer | `indicagent-llm-writer` | `llm.calls` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
 | Cross-Asset Service | `indicagent-cross-asset` | Cross-asset spread dynamics + I7 feed → `development.cross_asset` | :9118 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
 
@@ -205,8 +254,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`order_blocks.py` pre-filters to unmitigated OBs**: `_check_mitigated()` runs before output — `ob_type/top/bottom` always represents an unmitigated block. Downstream scoring (I6, trade_framer) does not need to re-check mitigation status.
 - **`cross_timeframe.py` already has multi-TF data**: `compute_full(frames)` iterates `intel_<tf>` keys (lines 89-92) — FVG/OB/VP outputs from all active TFs flow through automatically. Cross-TF scoring only needs the scoring function, no new data routing.
 - **HTF frame injection pattern**: `signal_generator_service._cross_asset_cache: dict[str, dict]` (tf → payload) is the canonical pattern for injecting per-TF external data into plugin frames before `compute_full()`. Replicate for any new per-TF source (e.g., `_htf_intel_cache`). Zero new subscriptions — populate cache from existing stream, inject into `frames` dict.
-- **Existing I7 utilities (check before creating new)**: `exhaustion_utils.py` (`apply_exhaustion_boost`, `apply_exhaustion_guard`) used by only 3/28 I7 plugins; `signal_schema.py` (`make_signal`, `validate_signal`) used by aggregator only. Phase 44 should wire these to all applicable plugins rather than create new ones.
-- **`composites/common.py` is I2-only today**: `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago` are wired to I2 composites but not imported by any I7 plugin. Phase 44 should evaluate which are useful in I7 before building equivalents from scratch.
+- **I7 utilities** (check before creating new): `exhaustion_utils.py` (`apply_exhaustion_boost`, `apply_exhaustion_guard`); `signal_schema.py` (`make_signal`, `validate_signal`). `composites/common.py` utilities (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`) are I2-only — evaluate before using in I7.
 
 ### Signal Identity Preservation (Renaissance Principle)
 
@@ -214,7 +262,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **OFI** (Order Flow Imbalance) = directional pressure from the limit order book — *intent*
 - **CVD** (Cumulative Volume Delta) = signed aggressive volume — *execution*
 
-Merging them into `OFIDivergencePlugin(mode="ofi"|"cvd")` destroys separability. When the ML scoring layer (Phase 49) builds the training matrix, `trad_OFIDivergence` and `trad_CVDDivergence` must appear as independent feature columns — collapsing them makes it impossible to measure which signal type contributes alpha independently.
+Merging them into `OFIDivergencePlugin(mode="ofi"|"cvd")` destroys separability. When the ML scoring layer builds the training matrix, `trad_OFIDivergence` and `trad_CVDDivergence` must appear as independent feature columns — collapsing them makes it impossible to measure which signal type contributes alpha independently.
 
 **Rule:** Extract shared *computation* utilities (normalization, threshold logic) without collapsing signal identities. This applies to all signal families: OFI/CVD, VWAP (3 plugins), liquidity (3 plugins). Shared utilities — yes. Shared identity — never.
 
@@ -238,33 +286,8 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **Re-exports:** Use explicit `__all__` export list instead of `# noqa` comments for backward compatibility re-exports.
 - **CodeRabbit limits**: 150 files max per review. Use `--base HEAD~N` to review recent commits. Process can get killed (exit code 137/OOM) on large diffs — review smaller chunks.
 - **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
-- **Simplify workflow**: Launches 3 parallel agents (reuse, quality, efficiency) — finds duplication, missing utilities, inefficient patterns. Real issues found in this session (provider list duplication, datetime parsing reuse).
+- **Simplify workflow**: Launches 3 parallel agents (reuse, quality, efficiency) — finds duplication, missing utilities, inefficient patterns.
 - **Documentation accuracy**: Docs may contain fabricated content (nonexistent classes, functions, DB tables) written as forward-looking specs never implemented. Always verify doc claims against actual code (`src/`) before trusting them — if a doc references a class or function, grep for it first.
-
-### Naming Conventions
-
-> Full reference: `docs/reference/documentation-standards.md`
-
-**Python**
-- Plugin classes: `PascalCase` + `Plugin` suffix — `MACDPlugin`, `BollingerPlugin`, `CHoCHReversalPlugin`
-- Aggregator/result classes: `PascalCase`, no suffix required — `CISScorer`, `AggregatedResult`
-- Service files: `snake_case_service.py` — `signal_generator_service.py`
-- Plugin files: `snake_case.py`, short — `adx.py`, `bollinger.py`, `choch_reversal.py`
-- Topic builder functions: `topic_<thing>()` — `topic_indicators()`, `topic_signals_aggregated()`
-- Constants: `UPPER_SNAKE_CASE` — `TIER_I1`, `PLUGIN_METRICS_SAMPLE_RATE`
-- Private attrs: `_snake_case` leading underscore — `_regime_cache`, `_plugin_states`
-
-**Redpanda topics**: dots not colons — `development.indicators`, `development.intelligence.i7`. Always via `stream_keys.py`.
-
-**Database**: tables/columns `snake_case`; migrations `NNN_description.sql` (zero-padded); views `<source>_<tf>` (`ohlcv_15m`).
-
-**Systemd**: `indicagent-<name>.service`
-
-**Tests**: `tests/unit/test_<module>.py`; functions as `test_<what>_<condition>`
-
-**TypeScript**: components `PascalCase.tsx`, hooks `use-kebab-case.ts`, utils `kebab-case.ts`
-
-**Docs**: kebab-case files, uppercase for `README.md`/`CLAUDE.md`/`CHANGELOG.md`; plan docs date-prefixed `YYYY-MM-DD-<topic>.md`
 
 ### Key Rules
 
@@ -272,7 +295,7 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **Data source language**: IndicAgent is provider-agnostic — docs/READMEs must not describe it as "IBKR-powered" or tie the product identity to any specific broker. Use "real-time market data" or "any real-time source". IBKR is the current implementation detail and belongs only in technical/operational sections.
 
 **Core Patterns**
-- **Timestamps: always UTC.** All datetimes must be timezone-aware UTC — `datetime.now(UTC)` or `datetime.now(tz=UTC)`. Never `datetime.now()` (naive) or `datetime.utcnow()` (naive despite the name). When labeling a naive timestamp from an external source (e.g. IBKR bars), use `replace(tzinfo=UTC)` only if you are certain the source is already UTC — otherwise `astimezone(UTC)`. All DB columns are `timestamp with time zone`; all stream timestamps are UTC ISO-8601 (`Z` suffix). This is the global standard for all financial data systems (Renaissance, CME, IBKR, all major funds).
+- **Timestamps: always UTC.** All datetimes must be timezone-aware UTC — `datetime.now(UTC)` or `datetime.now(tz=UTC)`. Never `datetime.now()` (naive) or `datetime.utcnow()` (naive despite the name). When labeling a naive timestamp from an external source (e.g. IBKR bars), use `replace(tzinfo=UTC)` only if you are certain the source is already UTC — otherwise `astimezone(UTC)`. All DB columns are `timestamp with time zone`; all stream timestamps are UTC ISO-8601 (`Z` suffix).
 - **asyncpg batch inserts**: `execute_batch()` / `executemany()` requires Python `datetime` objects for `timestamptz` columns — ISO-8601 strings cause type mismatch. SQL `::timestamptz` casts work for single inserts but not batch mode. Use `_parse_ts()` from `feature_writer_service.py` or parse with `datetime.fromisoformat()` before inserting.
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
@@ -280,9 +303,6 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **Metrics**: create via `src/observability/metrics.py` to prevent duplicate registration.
 - **Tests**: `tests/unit/`, `tests/integration/`, `tests/e2e/`. Unit tests are CI-clean; integration requires live infra.
 - **Ruff**: always run `.venv/bin/ruff check .` from project root (not absolute paths).
-
-**Stream & Consumer Groups**
-- **Boolean serialization**: verify current format after Redpanda migration — previously `"1"`/`"0"` in Redis streams, parsed with `Number(payload.field) > 0` in `use-market-stream.ts`. May have changed with Kafka serialization.
 
 **Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
@@ -303,9 +323,9 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 
 **External Systems**
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules). Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
+- **TWS bar source**: `tws_daemon.py` uses `stream_real_time_bars()` — IBKR pushes 5-second bars, accumulated into 1m OHLCV and published to `development.market.bars`. Each 5s close is also published to `development.market.ticks` for live dashboard pricing. `fetch_historical_bars` in `src/providers/ibkr.py` is kept for backfill scripts only.
+- **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
-- **TWS bar source (Phase 48 shipped)**: `tws_daemon.py` uses `stream_real_time_bars()` — IBKR pushes 5-second bars, accumulated into 1m OHLCV and published to `development.market.bars`. Each 5s close is also published to `development.market.ticks` for live dashboard pricing. `fetch_historical_bars` in `src/providers/ibkr.py` is kept for backfill scripts only.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
 
@@ -344,13 +364,7 @@ When investigating "service not writing to database":
 
 ## Roadmap
 
-**v2.0 SHIPPED 2026-03-22** — Phases 39-47 complete. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation.
-**v2.1 IN PROGRESS** — Phase 48 SHIPPED (5s real-time bar aggregation). Phase 49 next: DB performance + Phase 43 gap closure. Phases 49-52: data foundation, DB hardening, roll monitor graduation, signal validation, infra hardening.
-**v2.2 PLANNED** — Phase 53: auth + external access (deferred until pipeline proven). Plans exist in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
+**v2.0 SHIPPED 2026-03-22** — Phases 39-48. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation, 5s real-time bar aggregation.
+**v2.1 IN PROGRESS** — Phases 49-52. See `.planning/ROADMAP.md` for active phase details.
+**v2.2 PLANNED** — Phase 53: auth + external access. Plans in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
 **v2.3 DEFERRED** — Phases 54-55: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.1.
-
-**Phase 43 gaps (close in Phase 49):** `test_concurrent_lock_behavior.py::test_held_lock_blocks_concurrent_waiter` uses `async with` on a `threading.Lock` — broken since Phase 43 changed from asyncio.Lock. Fix: update test to use threading.Lock directly. Also: REQUIREMENTS.md PERF IDs are mismatched vs delivered work — update traceability.
-
-**Shadow modes (post Phase 47):** `CROSS_ASSET_ENABLED` flag removed — cross-asset unconditionally active. `ROLL_MONITOR_ENABLED=false` — awaiting D-21 re-validation + market_data_5m backfill + migration 049_roll_premium_pct.sql. `trad_DualDivergence IS_SHADOW=True` — awaiting D-07 gate (N>=100, 95% CI lower bound E[PnL_R] > 0).
-
-Full history: `.planning/ROADMAP.md`

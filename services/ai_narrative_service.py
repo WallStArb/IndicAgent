@@ -666,7 +666,7 @@ class AINarrativeService:
             },
             "logging": {
                 "level": "INFO",
-                "file": "logs/ai_narrative.log",
+                "file": "logs/ai_narrative_service.log",
                 "max_size": "10MB",
                 "backup_count": 5,
             },
@@ -729,7 +729,8 @@ class AINarrativeService:
             topic_signals_aggregated(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
             group_id="ai_narrative",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
         )
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self._kafka_bootstrap,
@@ -1069,6 +1070,7 @@ class AINarrativeService:
                     continue
                 symbol, timeframe = parts
                 await self._process_single_message(symbol, timeframe, payload)
+                await self._kafka_consumer.commit()
             except asyncio.CancelledError:
                 break
             except Exception as e:

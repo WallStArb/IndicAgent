@@ -414,6 +414,7 @@ class TwsDaemon:
         )
         self.m_bars = prom_counter("indicagent_bars_total", "Total bars processed")
         self.m_reconnects = prom_counter("indicagent_ibkr_reconnects_total", "IBKR reconnects")
+        self.m_drift = prom_counter("indicagent_bar_drift_total", "Discrepancies between 5s-derived and official bars")
         self.g_connected = prom_gauge("indicagent_ibkr_connected", "1 when connected")
         self.g_tick_queue = prom_gauge("indicagent_tick_queue_size", "Async tick queue depth")
 
@@ -431,6 +432,13 @@ class TwsDaemon:
         self.loop_thread: threading.Thread | None = None
         self._reconnect_delay = 1.0
         self._rtb_task: asyncio.Future | None = None
+        self._official_task: asyncio.Future | None = None
+        self._heartbeat_task: asyncio.Future | None = None
+
+        # Per-symbol RTB state: symbol -> {open, high, low, close, volume, bar_minute, emitted}
+        self._rtb_state: dict[str, dict] = {}
+        # Reconciliation state: symbol -> {ts: OHLCVBar}
+        self._official_bars_cache: dict[str, dict[str, Any]] = defaultdict(dict)
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -488,27 +496,24 @@ class TwsDaemon:
     async def _rtb_loop(self) -> None:
         """Consume 5-second RealTimeBars from IBKRProvider and aggregate to 1m bars.
 
-        Maintains per-symbol OHLCV state. Emits a complete 1m bar to development.market.bars
-        when the minute boundary changes (RealTimeBar.time is bar close time).
-        Also publishes each 5s close to development.market.ticks for dashboard display.
-
-        Note: ticks_processed counter now counts 5s bar publishes, not order-book ticks.
+        Maintains per-symbol OHLCV state. Data is EMITTED by _heartbeat_loop
+        to ensure deterministic timing even during quiet periods (FX/Crypto).
         """
         if not self.provider:
             return
         symbols = [c["symbol"] for c in self.contracts]
 
-        def _init_state() -> dict:
+        def _init_state(minute=None) -> dict:
             return {
-                "bar_minute": None,
+                "bar_minute": minute,
                 "open": None,
                 "high": None,
                 "low": None,
                 "close": None,
                 "volume": 0.0,
+                "last_update": time.time(),
+                "emitted": False
             }
-
-        state: dict[str, dict] = {}
 
         try:
             async for symbol, rtb in self.provider.stream_real_time_bars(symbols):
@@ -516,21 +521,25 @@ class TwsDaemon:
                     break
                 try:
                     bar_minute = rtb.time.replace(second=0, microsecond=0)
-                    s = state.setdefault(symbol, _init_state())
+                    s = self._rtb_state.setdefault(symbol, _init_state(bar_minute))
 
-                    # Accumulate 5s bar into current (or new) minute
-                    if s["open"] is None:
-                        s["open"] = rtb.open_
-                        s["bar_minute"] = bar_minute
-                    s["high"] = max(s["high"] or rtb.high, rtb.high)
-                    s["low"] = min(s["low"] or rtb.low, rtb.low)
-                    s["close"] = rtb.close
-                    s["volume"] += rtb.volume
+                    # If this 5s bar belongs to a newer minute than our current state,
+                    # it means the heartbeat should have already emitted the old one.
+                    # We update state to the new minute.
+                    if s["bar_minute"] is not None and bar_minute > s["bar_minute"]:
+                        if not s["emitted"]:
+                            # Force emit the stale bar if the heartbeat was late
+                            await self._emit_bar(symbol, s)
+                        s.update(_init_state(bar_minute))
 
-                    # Minute boundary crossed → emit completed 1m bar, reset state
-                    if s["bar_minute"] is not None and bar_minute != s["bar_minute"]:
-                        await self._emit_bar(symbol, s)
-                        s.update(_init_state())
+                    if s["bar_minute"] is None or bar_minute >= s["bar_minute"]:
+                        if s["open"] is None:
+                            s["open"] = rtb.open_
+                        s["high"] = max(s["high"] or rtb.high, rtb.high)
+                        s["low"] = min(s["low"] or rtb.low, rtb.low)
+                        s["close"] = rtb.close
+                        s["volume"] += rtb.volume
+                        s["last_update"] = time.time()
 
                     # Publish 5s close as price update for dashboard
                     await self._kafka_producer.publish(
@@ -552,14 +561,66 @@ class TwsDaemon:
                     logger.warning("RTB loop error", symbol=symbol, error=str(e))
 
         except asyncio.CancelledError:
-            logger.info("RTB loop cancelled (disconnect or shutdown)")
+            logger.info("RTB loop cancelled")
+
+    async def _official_bars_loop(self) -> None:
+        """Consume official, audited 1m bars from IBKR for reconciliation."""
+        if not self.provider:
+            return
+        symbols = [c["symbol"] for c in self.contracts]
+
+        try:
+            async for symbol, bar in self.provider.stream_official_bars(symbols):
+                if not self.running:
+                    break
+                # Store in cache for heartbeat/emit to compare
+                ts_str = bar.timestamp.isoformat()
+                self._official_bars_cache[symbol][ts_str] = bar
+
+                # Cleanup old cache entries (keep last 20)
+                if len(self._official_bars_cache[symbol]) > 20:
+                    oldest_ts = sorted(self._official_bars_cache[symbol].keys())[0]
+                    del self._official_bars_cache[symbol][oldest_ts]
+
+        except asyncio.CancelledError:
+            logger.info("Official bars loop cancelled")
+        except Exception as e:
+            logger.error("Official bars loop error", error=str(e))
+
+    async def _heartbeat_loop(self) -> None:
+        """Deterministic bar emission loop.
+
+        Runs every 1s. Checks if current_time > bar_minute + 61s.
+        If yes, emits the bar regardless of whether new data arrived.
+        """
+        while self.running:
+            try:
+                now_utc = datetime.now(UTC)
+                # Check all active symbols for minutes that need sealing
+                for symbol in self._symbol_to_base:
+                    s = self._rtb_state.get(symbol)
+                    if not s or not s["bar_minute"]:
+                        continue
+
+                    # If we are at least 1 second into the NEXT minute, emit the PREVIOUS minute
+                    # e.g. at 10:01:01, emit the 10:00:00 bar.
+                    if now_utc >= s["bar_minute"] + timedelta(seconds=61) and not s["emitted"]:
+                        await self._emit_bar(symbol, s)
+                        s["emitted"] = True
+
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("Heartbeat loop error", error=str(e))
+                await asyncio.sleep(1)
 
     async def _emit_bar(self, symbol: str, state: dict) -> None:
-        """Publish completed 1m bar to development.market.bars."""
+        """Publish completed 1m bar and perform reconciliation with official source."""
         bar_minute = state["bar_minute"]
         bar_timestamp = bar_minute.isoformat()
 
-        # Dedup guard (protects against double-emit on reconnect)
+        # Dedup guard
         if bar_timestamp in self.seen_bar_timestamps[symbol]:
             return
         self.seen_bar_timestamps[symbol].add(bar_timestamp)
@@ -569,6 +630,40 @@ class TwsDaemon:
             evicted = order.pop(0)
             self.seen_bar_timestamps[symbol].discard(evicted)
 
+        # 1. Reconciliation (Renaissance Audit)
+        official = self._official_bars_cache.get(symbol, {}).get(bar_timestamp)
+        drift_detected = False
+        if official:
+            # Check close price drift (threshold: 0.01%)
+            price_diff = abs(float(state["close"]) - official.close)
+            if price_diff > (official.close * 0.0001):
+                drift_detected = True
+                self.m_drift.inc()
+                logger.warning(
+                    "Data drift detected",
+                    symbol=symbol,
+                    ts=bar_timestamp,
+                    derived=state["close"],
+                    official=official.close,
+                    diff=price_diff
+                )
+
+        # Handle the case where state is completely empty (no 5s data for the minute)
+        # Use official bar data if available, otherwise flat bar from prev close
+        if state["open"] is None:
+            if official:
+                state.update({
+                    "open": official.open,
+                    "high": official.high,
+                    "low": official.low,
+                    "close": official.close,
+                    "volume": official.volume
+                })
+            else:
+                # Flat bar would require previous close state; for now just log warning
+                logger.warning("No data for bar emission", symbol=symbol, ts=bar_timestamp)
+                return
+
         bar_data = {
             "timestamp": bar_timestamp,
             "symbol": symbol,
@@ -577,9 +672,11 @@ class TwsDaemon:
             "high": str(state["high"]),
             "low": str(state["low"]),
             "close": str(state["close"]),
-            "volume": str(state["volume"]),   # float, e.g. "1200.0" — consistent with RealTimeBar
+            "volume": str(state["volume"]),
             "source": "authoritative",
-            "bar_close_ts": bar_timestamp,    # minute-start timestamp (IBKR 1m convention)
+            "bar_close_ts": bar_timestamp,
+            "is_reconciled": bool(official),
+            "drift_detected": drift_detected
         }
         await self._kafka_producer.publish(
             topic_market_bars(self.env_name),
@@ -588,9 +685,15 @@ class TwsDaemon:
         )
         self.bars_processed += 1
         self.m_bars.inc()
-        logger.info("1m bar emitted", symbol=symbol, close=state["close"], volume=state["volume"])
+        logger.info(
+            "1m bar emitted",
+            symbol=symbol,
+            close=state["close"],
+            vol=state["volume"],
+            reconciled=bool(official)
+        )
 
-        # Roll monitor (futures only) — base_symbol required (e.g. "ES" not "ESM6")
+        # Roll monitor (futures only)
         base_symbol = self._symbol_to_base.get(symbol, symbol)
         bar_utc = (bar_minute if bar_minute.tzinfo is not None
                    else bar_minute.replace(tzinfo=UTC))
@@ -598,7 +701,6 @@ class TwsDaemon:
         if self._roll_monitor.check_roll(base_symbol, bar_utc):
             await self._roll_monitor._on_roll_confirmed(
                 base_symbol=base_symbol, old_symbol=symbol,
-                roll_gap=0.0, roll_direction="unknown",
                 kafka_producer=self._kafka_producer, env_name=self.env_name,
             )
 
@@ -651,6 +753,8 @@ class TwsDaemon:
 
         if self.loop:
             self._rtb_task = asyncio.run_coroutine_threadsafe(self._rtb_loop(), self.loop)
+            self._official_task = asyncio.run_coroutine_threadsafe(self._official_bars_loop(), self.loop)
+            self._heartbeat_task = asyncio.run_coroutine_threadsafe(self._heartbeat_loop(), self.loop)
 
         self.running = True
         self.start_time = datetime.now()
@@ -670,6 +774,12 @@ class TwsDaemon:
                         if self.loop:
                             self._rtb_task = asyncio.run_coroutine_threadsafe(
                                 self._rtb_loop(), self.loop
+                            )
+                            self._official_task = asyncio.run_coroutine_threadsafe(
+                                self._official_bars_loop(), self.loop
+                            )
+                            self._heartbeat_task = asyncio.run_coroutine_threadsafe(
+                                self._heartbeat_loop(), self.loop
                             )
                         self.m_reconnects.inc()
                         self.reconnects += 1
@@ -702,9 +812,10 @@ class TwsDaemon:
         logger.warning("TWS disconnected event received")
         self.connected = False
         self.g_connected.set(0)
-        if self._rtb_task is not None and not self._rtb_task.done():
-            self._rtb_task.cancel()
-            logger.info("RTB loop task cancelled for reconnect")
+        for task in [self._rtb_task, self._official_task, self._heartbeat_task]:
+            if task is not None and not task.done():
+                task.cancel()
+        logger.info("Background tasks cancelled for reconnect")
 
     def cleanup(self) -> None:
         logger.info("Cleaning up TWS Daemon...")
