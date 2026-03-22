@@ -28,7 +28,7 @@ from typing import Any
 
 from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -212,7 +212,9 @@ class CrossAssetDivergencePlugin:
         if xa.get("data_quality_score") is not None:
             supporting_factors.append(f"data_quality_score={xa['data_quality_score']:.3f}")
 
-        return {
+        # exhaustion: not applicable — spike/divergence signals are regime-independent;
+        # Phase 49 will learn gate behavior from shadow data
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "confidence": confidence,
@@ -224,6 +226,10 @@ class CrossAssetDivergencePlugin:
             "setup_variant": setup_variant,
             "supporting_factors": supporting_factors,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "microstructure", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

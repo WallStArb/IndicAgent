@@ -17,7 +17,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -96,7 +97,6 @@ class OFIContinuationPlugin:
         entry = float(df["close"].iloc[-1])
 
         direction = current_dir
-        confidence = compose_confidence(0.50 + abs(ofi_ewma) * 0.001)
 
         sig_type = signal_type_for_direction("ofi_continuation", direction)
         tf_result = frame_trade(sig_type, direction, entry, features, atr)
@@ -114,7 +114,11 @@ class OFIContinuationPlugin:
             f"consecutive_bars={state['count']}",
         ]
 
-        return {
+        raw_conf = 0.50 + abs(ofi_ewma) * 0.001
+        raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
+        signal = {
             "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -124,6 +128,10 @@ class OFIContinuationPlugin:
             "regime_context": regime_context,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "microstructure", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -93,7 +93,9 @@ class CVDSpikePlugin:
             f"cvd_spike_z={cvd_spike_z:.3f}",
         ]
 
-        return {
+        # exhaustion: not applicable — spike/divergence signals are regime-independent;
+        # Phase 49 will learn gate behavior from shadow data
+        signal = {
             "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -103,6 +105,10 @@ class CVDSpikePlugin:
             "regime_context": regime_context,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "microstructure", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
