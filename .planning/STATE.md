@@ -4,11 +4,11 @@ milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
 status: unknown
 stopped_at: Completed 46.1-02-PLAN.md (Phase 46.1 fully complete)
-last_updated: "2026-03-22T11:05:16.857Z"
+last_updated: "2026-03-22T11:55:47.505Z"
 progress:
   total_phases: 16
   completed_phases: 12
-  total_plans: 52
+  total_plans: 56
   completed_plans: 52
 ---
 
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 46.1 — vix-cross-asset-to-i4
+**Current focus:** Phase 47 — shadow-mode-graduation
 
 ## Current Position
 
-Phase: 47
-Plan: Not started
+Phase: 47 (shadow-mode-graduation) — EXECUTING
+Plan: 1 of 4
 
 ## Performance Metrics
 
@@ -171,7 +171,7 @@ Full spec: `docs/ideas/i7-quant-audit-2026-03-16.md` (reviewed + corrected 2026-
 
 ### Pending Todos
 
-**34 pending todos** accumulated across development sessions — use `/gsd:check-todos` to select and work through them.
+**36 pending todos** accumulated across development sessions — use `/gsd:check-todos` to select and work through them.
 
 Recent additions (2026-03-19):
 
