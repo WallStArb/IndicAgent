@@ -2,7 +2,7 @@
 
 Version: 5.28.0
 Last Updated: 2026-03-22
-Status: v2.0 IN PROGRESS — Phases 39-47 complete, Phase 48 (Auth + External Access) is final phase; Phases 49-50 (ML/Observability) deferred to v2.1
+Status: v2.1 IN PROGRESS — v2.0 shipped 2026-03-22 (phases 39-47). Phase 48 (Tick Aggregation — bars_processed freeze fix) is next. Auth moved to Phase 53 (v2.2). ML deferred to v2.3 (phases 54-55).
 
 ## Decision Framework: What Would Jim Simons Do?
 
@@ -305,7 +305,7 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
 - **Redpanda**: Kafka-compatible streaming backbone (replaced DragonflyDB). Use TimescaleDB for time series (no Redpanda time series modules). Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
-- **TWS `bars_processed` freeze — KNOWN BUG, #1 PRIORITY**: `reqHistoricalDataAsync` on the IBKR paper account always returns the previous session's close bars (e.g. yesterday 16:57-16:59 EDT) regardless of `endDateTime`. Nothing about `endDateTime` formatting fixes this — the paper account does not serve live intraday 1m bars via the historical API. `bars_processed` freezes at exactly N×61 (3 bars × 61 symbols from the startup poll), cached by `seen_bar_timestamps`, never updated. **System is running on stale bar data 24/7.** Restart does NOT fix it. `endDateTime=""`, `" UTC"` suffix, timezone conversion — all fail. Ticks ARE live (`development.market.ticks` has real prices). **Fix required: tick aggregation** — build 1m OHLCV bars from the live tick stream instead of polling historical data API. Key files: `services/tws_daemon.py` (`poll_1m_bars`, `_fetch_bars_for_symbol`), `src/providers/ibkr.py` (`fetch_historical_bars`). Tick data: `development.market.ticks` topic, published by `_tick_loop()` in tws_daemon. Tick fields: `symbol`, `price`, `size`, `timestamp`. Aggregation logic: bucket ticks by 1-minute windows (floor timestamp to minute), track open/high/low/close/volume, emit completed bar when the next minute starts. Publish completed bars to `development.market.bars` (same schema as current: `timestamp`, `symbol`, `timeframe="1m"`, `open`, `high`, `low`, `close`, `volume`, `source="authoritative"`). Remove or bypass `_fetch_bars_for_symbol` for live polling; keep `fetch_historical_bars` for backfill scripts only.
+- **TWS `bars_processed` freeze — KNOWN BUG, PHASE 48 FIX**: `reqHistoricalDataAsync` on the IBKR paper account always returns the previous session's close bars (e.g. yesterday 16:57-16:59 EDT) regardless of `endDateTime`. Nothing about `endDateTime` formatting fixes this — the paper account does not serve live intraday 1m bars via the historical API. `bars_processed` freezes at exactly N×61 (3 bars × 61 symbols from the startup poll), cached by `seen_bar_timestamps`, never updated. **System is running on stale bar data 24/7.** Restart does NOT fix it. `endDateTime=""`, `" UTC"` suffix, timezone conversion — all fail. Ticks ARE live (`development.market.ticks` has real prices). **Fix required: tick aggregation** — build 1m OHLCV bars from the live tick stream instead of polling historical data API. Key files: `services/tws_daemon.py` (`poll_1m_bars`, `_fetch_bars_for_symbol`), `src/providers/ibkr.py` (`fetch_historical_bars`). Tick data: `development.market.ticks` topic, published by `_tick_loop()` in tws_daemon. Tick fields: `symbol`, `price`, `size`, `timestamp`. Aggregation logic: bucket ticks by 1-minute windows (floor timestamp to minute), track open/high/low/close/volume, emit completed bar when the next minute starts. Publish completed bars to `development.market.bars` (same schema as current: `timestamp`, `symbol`, `timeframe="1m"`, `open`, `high`, `low`, `close`, `volume`, `source="authoritative"`). Remove or bypass `_fetch_bars_for_symbol` for live polling; keep `fetch_historical_bars` for backfill scripts only.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
 
@@ -344,6 +344,13 @@ When investigating "service not writing to database":
 
 ## Roadmap
 
-**v2.0 IN PROGRESS** — Phase 39.1 complete (SignalStatus/SignalOutcome enums, pre-commit hooks, bug fixes, topic cleanup). Phase 40 next: Machine Hardening.
+**v2.0 SHIPPED 2026-03-22** — Phases 39-47 complete. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation.
+**v2.1 IN PROGRESS** — Phase 48 next: tick aggregation (bars_processed freeze fix). Phases 48-52: data foundation, DB hardening, roll monitor graduation, signal validation, infra hardening.
+**v2.2 PLANNED** — Phase 53: auth + external access (deferred until pipeline proven). Plans exist in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
+**v2.3 DEFERRED** — Phases 54-55: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.1.
+
+**Phase 43 gaps (close in Phase 49):** `test_concurrent_lock_behavior.py::test_held_lock_blocks_concurrent_waiter` uses `async with` on a `threading.Lock` — broken since Phase 43 changed from asyncio.Lock. Fix: update test to use threading.Lock directly. Also: REQUIREMENTS.md PERF IDs are mismatched vs delivered work — update traceability.
+
+**Shadow modes (post Phase 47):** `CROSS_ASSET_ENABLED` flag removed — cross-asset unconditionally active. `ROLL_MONITOR_ENABLED=false` — awaiting D-21 re-validation + market_data_5m backfill + migration 049_roll_premium_pct.sql. `trad_DualDivergence IS_SHADOW=True` — awaiting D-07 gate (N>=100, 95% CI lower bound E[PnL_R] > 0).
 
 Full history: `.planning/ROADMAP.md`
