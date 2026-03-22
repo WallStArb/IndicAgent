@@ -44,6 +44,10 @@ class CrossTimeframeConfluencePlugin:
             "i6_fvg_tf_alignment",
             "i6_ob_tf_alignment",
             "i6_i2_event_score",
+            # Phase 45-01: ctf_* aliases for FVG/OB alignment — consistent naming
+            # with all other ctf_* fields consumed by I7 plugins via features.get()
+            "ctf_fvg_alignment",
+            "ctf_ob_alignment",
         }
     )
     min_lookback: int = 1
@@ -121,6 +125,10 @@ class CrossTimeframeConfluencePlugin:
             "i6_fvg_tf_alignment": fvg_score,
             "i6_ob_tf_alignment": ob_score,
             "i6_i2_event_score": round(i2_score, 4),
+            # Phase 45-01: ctf_* aliases carry same values as i6_fvg/ob_tf_alignment.
+            # i6_* names preserved for backward compat; ctf_* names for I7 plugin consistency.
+            "ctf_fvg_alignment": fvg_score,
+            "ctf_ob_alignment": ob_score,
             # Per-TF FVG and OB contributions — Renaissance standard: every score is decomposable
             **{f"i6_fvg_tf_{tf}": v for tf, v in fvg_tf_contribs.items()},
             **{f"i6_ob_tf_{tf}": v for tf, v in ob_tf_contribs.items()},

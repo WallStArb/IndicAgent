@@ -697,6 +697,11 @@ class I6Confluence(BaseModel):
     i6_fvg_tf_alignment: float | None = None
     i6_ob_tf_alignment: float | None = None
 
+    # Phase 45-01: ctf_* aliases for FVG/OB alignment — consistent naming for I7 plugins.
+    # Same values as i6_fvg_tf_alignment / i6_ob_tf_alignment; i6_* preserved for compat.
+    ctf_fvg_alignment: float | None = None
+    ctf_ob_alignment: float | None = None
+
     # I2 event signal score
     i6_i2_event_score: float | None = None
 
