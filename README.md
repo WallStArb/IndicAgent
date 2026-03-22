@@ -1,24 +1,16 @@
 # IndicAgent Market Intelligence Platform
 
-**v2.0 · 121 plugins · 2641 tests · 60 instruments · <10ms end-to-end**
+**v2.0 · 123 plugins · 2641 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
 ---
 
-![IndicAgent](hero-readme.png)
+**IndicAgent is a high-frequency, institutional-grade market intelligence platform engineered with the architectural rigor of a top-tier quantitative hedge fund.** We apply rigorous engineering principles—event-driven microservices, dependency-aware DAG orchestration, and sub-millisecond hot-path isolation—to transform raw market data into evidence-graded trading signals. 
 
-![IndicAgent Dashboard](dashboard-readme.png)
+Designed for resilience, reproducibility, and massive scale, our pipeline processes 123+ plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
 
 ---
-
-## What It Is
-
-IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, drift-corrected — in under 10ms. 121 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream. Any HTTP client subscribes to live intelligence over SSE or pulls over REST with no pipeline changes required.
-
-Built on an **event-driven microservices architecture**: each of the 8 pipeline services owns a single responsibility (Separation of Concerns) and communicates exclusively through a Redpanda event stream — no service calls another directly. Services are deployed, restarted, and scaled independently. The stream is the only contract.
-
-Signals don't fire on a single indicator. The CIS scorer requires cross-tier agreement from at least 3 of 6 independent evidence buckets. Regime conflicts veto. Signals that age lose confidence explicitly. Every winner and every counterfactual lands in the feature store with its full I1–I8 context — the system accumulates its own labeled training dataset with every bar it processes.
 
 ---
 
