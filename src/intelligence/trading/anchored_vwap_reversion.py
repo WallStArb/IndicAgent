@@ -18,6 +18,8 @@ from typing import Any
 from ..plugins import InputSpec
 from ..utils import guard_intraday_only
 from .atr_utils import get_atr
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -161,7 +163,6 @@ class AnchoredVWAPReversionPlugin:
             + 0.25 * hurst_quality
             + 0.20 * vol_stability
         )
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
 
         # ── Supporting factors ────────────────────────────────────────────────
         supporting: list[str] = [
@@ -174,9 +175,12 @@ class AnchoredVWAPReversionPlugin:
         if sigma_magnitude > 0.5:
             supporting.append("sigma_extreme")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         regime_ctx = "ranging"
 
-        return {
+        signal = {
             "signal_type": setup_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -186,6 +190,10 @@ class AnchoredVWAPReversionPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "mean_reversion", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
