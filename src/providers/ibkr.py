@@ -578,6 +578,57 @@ class IBKRProvider:
         finally:
             self._ib.pendingTickersEvent -= self._handle_pending_tickers
 
+    async def stream_real_time_bars(
+        self, symbols: list[str]
+    ) -> AsyncIterator[tuple[str, object]]:
+        """Async iterator yielding (symbol, RealTimeBar) tuples as 5-second bars arrive.
+
+        Bridges ib_insync's sync updateEvent callbacks to asyncio via a bounded Queue.
+        whatToShow per asset class: CASH -> MIDPOINT, all others -> TRADES.
+        useRTH=False: include all sessions (pre/post market, 24h crypto/FX).
+
+        Note: AGGTRADES is only valid for reqHistoricalData, not reqRealTimeBars.
+        Crypto (PAXOS) uses TRADES here; verify BTCUSD/ETHUSD on paper account.
+        """
+        self._loop = asyncio.get_event_loop()
+        self._rtb_queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
+
+        subscribed: list = []
+        for symbol in symbols:
+            contract = self._qualified_contracts.get(symbol)
+            if not contract or not self._ib:
+                continue
+            sec_type = getattr(contract, "secType", "")
+            what = "MIDPOINT" if sec_type == "CASH" else "TRADES"
+            bars = self._ib.reqRealTimeBars(contract, barSize=5, whatToShow=what, useRTH=False)
+
+            def _on_bar(bars_list, has_new_bar, *, _symbol=symbol):
+                """ib_insync callback — runs on ib_insync thread; bridge to asyncio queue."""
+                if not has_new_bar or not bars_list:
+                    return
+                bar = bars_list[-1]
+                try:
+                    self._loop.call_soon_threadsafe(
+                        self._rtb_queue.put_nowait, (_symbol, bar)
+                    )
+                except Exception:
+                    pass  # drop on full queue — backpressure
+
+            bars.updateEvent += _on_bar
+            subscribed.append((bars, _on_bar))
+
+        try:
+            while True:
+                item = await self._rtb_queue.get()
+                yield item
+        finally:
+            for bars, cb in subscribed:
+                bars.updateEvent -= cb
+                try:
+                    self._ib.cancelRealTimeBars(bars)
+                except Exception:
+                    pass
+
     async def resolve_instrument(self, query: str) -> Instrument | None:
         """Resolve a symbol query to an Instrument via IBKR contract details."""
         if not self._ib:

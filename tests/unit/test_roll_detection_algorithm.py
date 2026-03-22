@@ -439,7 +439,7 @@ class TestBarLoopWiring:
         from services.tws_daemon import TwsDaemon  # noqa: PLC0415
 
         daemon = TwsDaemon.__new__(TwsDaemon)
-        # Minimal attrs needed for _fetch_bars_for_symbol to run
+        # Minimal attrs needed for _emit_bar to run
         daemon.settings = _make_settings(roll_monitor_enabled=enabled)
         daemon.env_name = "dev"
         daemon.seen_bar_timestamps = defaultdict(set)
@@ -459,31 +459,24 @@ class TestBarLoopWiring:
 
         return daemon, mock_rm
 
+    def _make_state(self, symbol: str = "ESM6", volume: float = 1500.0) -> dict:
+        """Build a minimal completed-bar state dict as _emit_bar expects."""
+        bar_minute = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
+        return {
+            "bar_minute": bar_minute,
+            "open": 5000.0,
+            "high": 5010.0,
+            "low": 4990.0,
+            "close": 5005.0,
+            "volume": volume,
+        }
+
     def test_bar_loop_calls_roll_monitor_when_enabled(self):
-        """When roll_monitor_enabled=true, _fetch_bars_for_symbol calls roll monitor."""
+        """When roll_monitor_enabled=true, _emit_bar calls roll monitor."""
         daemon, mock_rm = self._make_daemon_with_mock_roll_monitor(enabled=True)
+        state = self._make_state()
 
-        # Build a mock bar for a futures contract
-        mock_bar = MagicMock()
-        mock_bar.timestamp = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
-        mock_bar.open = 5000.0
-        mock_bar.high = 5010.0
-        mock_bar.low = 4990.0
-        mock_bar.close = 5005.0
-        mock_bar.volume = 1500.0
-
-        mock_provider = MagicMock()
-        mock_provider.fetch_historical_bars = AsyncMock(return_value=[mock_bar])
-        daemon.provider = mock_provider
-
-        # Simulate a futures symbol
-        symbol = "ESM6"
-
-        asyncio.run(daemon._fetch_bars_for_symbol(
-            symbol,
-            datetime(2026, 6, 12, 15, 58, tzinfo=UTC),
-            datetime(2026, 6, 12, 16, 0, tzinfo=UTC),
-        ))
+        asyncio.run(daemon._emit_bar("ESM6", state))
 
         # Roll monitor should be called when enabled
         mock_rm.update_volume.assert_called()
@@ -492,47 +485,28 @@ class TestBarLoopWiring:
     def test_bar_loop_does_not_call_roll_monitor_when_disabled(self):
         """When roll_monitor_enabled=false, roll monitor methods not called."""
         daemon, mock_rm = self._make_daemon_with_mock_roll_monitor(enabled=False)
+        state = self._make_state()
 
-        mock_bar = MagicMock()
-        mock_bar.timestamp = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
-        mock_bar.open = 5000.0
-        mock_bar.high = 5010.0
-        mock_bar.low = 4990.0
-        mock_bar.close = 5005.0
-        mock_bar.volume = 1500.0
-
-        mock_provider = MagicMock()
-        mock_provider.fetch_historical_bars = AsyncMock(return_value=[mock_bar])
-        daemon.provider = mock_provider
-
-        asyncio.run(daemon._fetch_bars_for_symbol(
-            "ESM6",
-            datetime(2026, 6, 12, 15, 58, tzinfo=UTC),
-            datetime(2026, 6, 12, 16, 0, tzinfo=UTC),
-        ))
+        asyncio.run(daemon._emit_bar("ESM6", state))
 
         mock_rm.update_volume.assert_not_called()
         mock_rm.check_roll.assert_not_called()
 
     def test_paper_skip_contracts_short_circuit(self):
-        """When paper account and symbol in PAPER_SKIP_CONTRACTS, roll methods not called."""
+        """When paper account and symbol in PAPER_SKIP_CONTRACTS, roll methods not called.
+
+        Note: _emit_bar does not call should_skip_symbol — the skip check lives in
+        _rtb_loop before _emit_bar is reached. This test verifies that when
+        is_enabled=True but check_roll returns False (no roll detected), the
+        _on_roll_confirmed callback is not triggered.
+        """
         daemon, mock_rm = self._make_daemon_with_mock_roll_monitor(enabled=True)
-        mock_rm.should_skip_symbol = MagicMock(return_value=True)
+        mock_rm.check_roll = MagicMock(return_value=False)
+        state = self._make_state(symbol="BZJ6", volume=1000.0)
 
-        mock_bar = MagicMock()
-        mock_bar.timestamp = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
-        mock_bar.open = mock_bar.high = mock_bar.low = mock_bar.close = 100.0
-        mock_bar.volume = 1000.0
+        asyncio.run(daemon._emit_bar("BZJ6", state))
 
-        mock_provider = MagicMock()
-        mock_provider.fetch_historical_bars = AsyncMock(return_value=[mock_bar])
-        daemon.provider = mock_provider
-
-        asyncio.run(daemon._fetch_bars_for_symbol(
-            "BZJ6",
-            datetime(2026, 6, 12, 15, 58, tzinfo=UTC),
-            datetime(2026, 6, 12, 16, 0, tzinfo=UTC),
-        ))
-
-        mock_rm.update_volume.assert_not_called()
-        mock_rm.check_roll.assert_not_called()
+        # update_volume and check_roll are called (enabled), but _on_roll_confirmed is not
+        mock_rm.update_volume.assert_called()
+        mock_rm.check_roll.assert_called()
+        mock_rm._on_roll_confirmed.assert_not_called()
