@@ -1009,13 +1009,15 @@ async def test_process_event_calls_all_pipeline_stages():
     ts = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
     raw_signals = [_make_minimal_signal()]
 
+    svc_mod = "services.signal_generator_service"
     with (
-        patch("services.signal_generator_service.apply_quality_gate", return_value=raw_signals) as mock_qg,
-        patch("services.signal_generator_service.apply_regime_gate", return_value=raw_signals) as mock_rg,
-        patch("services.signal_generator_service.apply_tod_adjustment", return_value=raw_signals) as mock_tod,
-        patch("services.signal_generator_service.apply_calibration", return_value=raw_signals) as mock_cal,
-        patch("services.signal_generator_service.rank_signals", return_value=raw_signals) as mock_rank,
-        patch("services.signal_generator_service.select_winner", return_value=(None, raw_signals, "no_signals")) as mock_win,
+        patch(f"{svc_mod}.apply_quality_gate", return_value=raw_signals) as mock_qg,
+        patch(f"{svc_mod}.apply_regime_gate", return_value=raw_signals) as mock_rg,
+        patch(f"{svc_mod}.apply_tod_adjustment", return_value=raw_signals) as mock_tod,
+        patch(f"{svc_mod}.apply_calibration", return_value=raw_signals) as mock_cal,
+        patch(f"{svc_mod}.rank_signals", return_value=raw_signals) as mock_rank,
+        patch(f"{svc_mod}.select_winner", return_value=(None, raw_signals, "no_signals"))
+        as mock_win,
     ):
         await svc._process_event(
             event=None,

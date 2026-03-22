@@ -211,7 +211,7 @@ def test_feature_writer_writes_timing_columns_none_when_absent():
 
     record = _make_record(source="backfill")
     params = _record_to_insert_params(record)
-    # bar_close_ts at $16 (index 15), i1_computed_at at $17 (index 16), computed_at at $18 (index 17)
+    # bar_close_ts at $16 (idx 15), i1_computed_at at $17 (idx 16), computed_at at $18 (idx 17)
     assert params[15] is None  # bar_close_ts
     assert params[16] is None  # i1_computed_at
     assert params[17] is None  # computed_at
@@ -224,7 +224,9 @@ def test_feature_writer_writes_timing_columns_present_for_live():
     bct = datetime(2026, 1, 15, 13, 0, 0, tzinfo=UTC)
     i1_at = datetime(2026, 1, 15, 13, 0, 0, 450000, tzinfo=UTC)
     comp_at = datetime(2026, 1, 15, 13, 0, 1, 120000, tzinfo=UTC)
-    record = _make_record(source="live", bar_close_ts=bct, i1_computed_at=i1_at, computed_at=comp_at)
+    record = _make_record(
+        source="live", bar_close_ts=bct, i1_computed_at=i1_at, computed_at=comp_at
+    )
     params = _record_to_insert_params(record)
     assert params[15] == bct
     assert params[16] == i1_at

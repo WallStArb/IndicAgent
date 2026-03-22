@@ -17,7 +17,6 @@ import asyncio
 import os
 from unittest.mock import MagicMock
 
-
 # ---------------------------------------------------------------------------
 # Test 1: Plugin state write-back
 # ---------------------------------------------------------------------------
@@ -55,7 +54,7 @@ def test_plugin_state_writeback():
     # Simulate _sync_compute closure from _run_analysis_pipeline
     lock = svc._get_state_lock(state_key)
 
-    def _sync_compute(_p=mock_plugin, _lock=lock, _key=state_key, _frames={}):
+    def _sync_compute(_p=mock_plugin, _lock=lock, _key=state_key, _frames=None):
         with _lock:
             _p._state = svc._plugin_states.setdefault(_key, {})
             _out = _p.compute_full(_frames)
@@ -72,8 +71,6 @@ def test_plugin_state_writeback():
     assert svc._plugin_states[state_key] == {"garch_variance": 0.0025, "fitted": True}
 
     # Run again — state should be loaded from _plugin_states (not {})
-    loaded_state_before = svc._plugin_states[state_key].copy()
-
     def _garch_compute_full_bar2(frames):
         # Bar 2: state should contain bar 1's fitted values
         assert mock_plugin._state == {"garch_variance": 0.0025, "fitted": True}, \
@@ -229,6 +226,7 @@ def test_roll_event_handling():
 
     # Seed some bars for old_symbol in BarHistory
     from datetime import UTC, datetime
+
     from src.core.schemas.bar_message import BarMessage, SessionType
 
     for i in range(5):
@@ -425,7 +423,7 @@ def test_flush_ohlcv_calls_executemany():
 
     svc = FeaturePipelineService.__new__(FeaturePipelineService)
     svc._ohlcv_buffer = [
-        (datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC), "ES", "1m", 5100.0, 5105.0, 5098.0, 5103.0, 1234),
+        (datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC), "ES", "1m", 5100.0, 5105.0, 5098.0, 5103.0, 1234),  # noqa: E501
     ]
     svc._ohlcv_last_flush = 0.0
     svc.logger = MagicMock()
@@ -437,7 +435,12 @@ def test_flush_ohlcv_calls_executemany():
 
     # Mock pool (accessed as svc._db.pool per implementation)
     mock_pool = MagicMock()
-    mock_pool.acquire = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=False)))
+    mock_pool.acquire = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
     svc._db = MagicMock()
     svc._db.pool = mock_pool
@@ -460,8 +463,8 @@ def test_flush_ohlcv_clears_buffer_on_success():
 
     svc = FeaturePipelineService.__new__(FeaturePipelineService)
     svc._ohlcv_buffer = [
-        (datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC), "ES", "1m", 5100.0, 5105.0, 5098.0, 5103.0, 1234),
-        (datetime(2026, 3, 21, 14, 1, 0, tzinfo=UTC), "ES", "1m", 5103.0, 5108.0, 5101.0, 5106.0, 987),
+        (datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC), "ES", "1m", 5100.0, 5105.0, 5098.0, 5103.0, 1234),  # noqa: E501
+        (datetime(2026, 3, 21, 14, 1, 0, tzinfo=UTC), "ES", "1m", 5103.0, 5108.0, 5101.0, 5106.0, 987),  # noqa: E501
     ]
     svc._ohlcv_last_flush = 0.0
     svc.logger = MagicMock()
@@ -494,7 +497,10 @@ def test_flush_ohlcv_retains_buffer_on_failure():
     from services.feature_pipeline_service import FeaturePipelineService
 
     svc = FeaturePipelineService.__new__(FeaturePipelineService)
-    original_row = (datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC), "ES", "1m", 5100.0, 5105.0, 5098.0, 5103.0, 1234)
+    original_row = (
+        datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC),
+        "ES", "1m", 5100.0, 5105.0, 5098.0, 5103.0, 1234,
+    )
     svc._ohlcv_buffer = [original_row]
     svc._ohlcv_last_flush = 0.0
     svc.logger = MagicMock()
