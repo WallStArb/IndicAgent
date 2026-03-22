@@ -488,9 +488,10 @@ class FeatureWriterService:
         try:
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
             # Explicitly commit offsets after successful DB persistence
-            if self._kafka_consumer:
+            if getattr(self, "_kafka_consumer", None):
                 await self._kafka_consumer.commit()
             
+            # Remove all items from buffer after successful batch
             self._buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()
@@ -698,6 +699,7 @@ class FeatureWriterService:
 
         # Flush remaining buffered records before closing
         await self._maybe_flush(force=True)
+        self._buffer.clear()
 
         if self._kafka_consumer:
             await self._kafka_consumer.stop()

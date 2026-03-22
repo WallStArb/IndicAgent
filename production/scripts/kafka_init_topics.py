@@ -32,20 +32,33 @@ from aiokafka.errors import TopicAlreadyExistsError
 _TOPIC_SPECS = [
     ("market.ticks", 1, "604800000"),
     ("market.bars", 1, "604800000"),
+    ("market.bars.htf", 1, "604800000"),
     ("indicators", 1, "604800000"),
     ("intelligence", 1, "604800000"),
-    ("intelligence.i7", 1, "86400000"),  # 1 day — high-volume enrichment
-    ("intelligence.i8", 1, "86400000"),  # 1 day — high-volume enrichment
+    ("intelligence.i7", 1, "86400000"),
+    ("intelligence.i8", 1, "86400000"),
     ("signals", 1, "604800000"),
     ("signals.aggregated", 1, "604800000"),
     ("narratives", 1, "604800000"),
-    ("llm.calls", 1, "604800000"),
-    ("llm.outcomes", 1, "604800000"),
+    ("narratives.group", 1, "604800000"),
+    ("llm.calls", 1, "86400000"),
+    ("llm.outcomes", 1, "86400000"),
+    ("system.events", 1, "604800000"),
+    ("cross_asset", 1, "604800000"),
+    ("pipeline.attribution", 1, "604800000"),
+    ("pipeline.quality_gated", 1, "604800000"),
+    ("pipeline.regime_gated", 1, "604800000"),
+    ("pipeline.tod_adjusted", 1, "604800000"),
+    ("pipeline.calibrated", 1, "604800000"),
+    ("pipeline.ranked", 1, "604800000"),
+    ("pipeline.winner", 1, "604800000"),
+    ("pipeline.data_quality", 1, "604800000"),
+    ("intelligence.record", 1, "604800000"),
 ]
 
 
 async def create_topics(bootstrap_servers: str, env_name: str = "dev") -> None:
-    """Create all 11 IndicAgent topics idempotently.
+    """Create all 24 IndicAgent topics idempotently.
 
     Args:
         bootstrap_servers: Kafka/Redpanda bootstrap address (e.g. "localhost:19092").

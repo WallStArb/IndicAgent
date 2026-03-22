@@ -10,7 +10,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..core import DatabaseManager, RedisStreamsManager
+from ..core import DatabaseManager
 from . import dependencies
 from .routes import drift, features, health, indicators, instruments, market_data, signals, sse
 
@@ -110,8 +110,6 @@ async def lifespan(app: FastAPI):
                 await _sse_consumer.stop()
             except Exception:
                 pass
-        if dependencies.redis_manager:
-            await dependencies.redis_manager.stop()
         if dependencies.db_manager:
             await dependencies.db_manager.close()
         logger.info("Application shutdown complete")
