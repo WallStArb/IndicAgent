@@ -108,6 +108,11 @@ _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
 _OHLCV_BATCH_SIZE: int = 50
 _OHLCV_FLUSH_INTERVAL: float = 5.0
 
+# VIX regime context always uses 1h bars — fixed window regardless of trading TF.
+# 20 x 1h = ~20 trading hours: captures session-scale fear elevation.
+# Complementary to GARCH (multi-week structural vol regime).
+VIX_REGIME_TF: str = "1h"
+
 _INSERT_OHLCV_SQL: str = """
 INSERT INTO market_data_ohlcv (timestamp, symbol, timeframe, open, high, low, close, volume)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -657,7 +662,7 @@ class FeaturePipelineService:
 
         # Phase 46: Inject VIX context for ALL symbols (per D-04, D-11)
         if self._vix_symbol:
-            vix_deque = self._bar_history.get(self._vix_symbol, tf)
+            vix_deque = self._bar_history.get(self._vix_symbol, VIX_REGIME_TF)
             frames["vix"] = compute_vix_context(vix_deque)
         else:
             frames["vix"] = {"ready": False}
