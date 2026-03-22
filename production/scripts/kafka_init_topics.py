@@ -5,7 +5,7 @@ Version: 1.0.0
 Last Updated: 2026-03-14
 Status: Current ✅
 
-Creates all 11 Redpanda/Kafka topics idempotently. Run once at startup (or
+Creates all 24 Redpanda/Kafka topics idempotently. Run once at startup (or
 whenever a new environment is provisioned). Topic names are prefixed by
 env_name (e.g. "dev.market.ticks" for env_name="dev"; "market.ticks" for
 env_name="" in production).
@@ -78,14 +78,18 @@ async def create_topics(bootstrap_servers: str, env_name: str = "dev") -> None:
     client = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
     await client.start()
     try:
-        await client.create_topics(new_topics)
-    except TopicAlreadyExistsError:
-        pass  # idempotent — topics already created
-    except Exception as e:
-        if "already exists" in str(e).lower():
-            pass  # catch string-match fallback for edge cases
-        else:
-            raise
+        # Create topics one-by-one so a pre-existing topic doesn't silently
+        # prevent new topics from being created (batch failure is all-or-nothing).
+        for topic in new_topics:
+            try:
+                await client.create_topics([topic])
+            except TopicAlreadyExistsError:
+                pass
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    pass
+                else:
+                    raise
     finally:
         await client.close()
 

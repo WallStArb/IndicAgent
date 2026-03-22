@@ -302,10 +302,10 @@ class FeatureWriterService:
         self._error_count = 0
         self._expiry_map: dict[str, date] = {}
 
+        self.logger = structlog.get_logger(__name__)
+
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-
-        self.logger = structlog.get_logger(__name__)
         metrics_port = self.config.get("service", {}).get("metrics_port", 9116)
         start_metrics_server(port=metrics_port)
 
@@ -418,11 +418,13 @@ class FeatureWriterService:
     ) -> bool:
         """Parse one Kafka message payload (BarIntelligenceRecord), buffer insert params."""
         try:
-            # Extract raw JSON from payload dict (Kafka message value)
-            # intelligence.record messages arrive as raw JSON (str or bytes)
-            raw = payload if not isinstance(payload, dict) else json.dumps(payload).encode()
-            if isinstance(raw, str):
-                raw = raw.encode()
+            # intelligence.record messages arrive as raw JSON (str, bytes, or dict)
+            if isinstance(payload, dict):
+                raw: bytes = json.dumps(payload).encode()
+            elif isinstance(payload, str):
+                raw = payload.encode()
+            else:
+                raw = payload
 
             record = self._parse_intelligence_record(raw)
             if record is None:
@@ -465,10 +467,14 @@ class FeatureWriterService:
         - time since last flush >= FLUSH_INTERVAL_SECS (time-based flush)
         - len(buffer) >= BATCH_SIZE (size-based safety net)
         """
-        should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS) or len(self._buffer) >= BATCH_SIZE
-
         if not self._buffer:
             return
+
+        should_flush = (
+            force
+            or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
+            or len(self._buffer) >= BATCH_SIZE
+        )
 
         if not should_flush:
             return
@@ -483,6 +489,8 @@ class FeatureWriterService:
             self._last_flush = time.monotonic()
             return
 
+        # Snapshot the buffer so execute_batch has a stable list; on failure
+        # the original self._buffer is unchanged and will retry on the next flush.
         params = list(self._buffer)
 
         try:
@@ -490,8 +498,7 @@ class FeatureWriterService:
             # Explicitly commit offsets after successful DB persistence
             if getattr(self, "_kafka_consumer", None):
                 await self._kafka_consumer.commit()
-            
-            # Remove all items from buffer after successful batch
+
             self._buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()

@@ -39,8 +39,6 @@ from src.core.timeframe_builder import (
     _update_accumulator,
 )
 
-logger = structlog.get_logger(__name__)
-
 
 class TimeframeBuilderService:
     """Kafka consumer+producer for higher-timeframe bar aggregation."""
@@ -161,7 +159,7 @@ class TimeframeBuilderService:
                 payload,
                 key=message_key(symbol, timeframe),
             )
-            self._bars_built[timeframe] = self._bars_built.get(timeframe, 0) + 1
+            self._bars_built[timeframe] += 1
             self._last_emitted.setdefault(symbol, {})[timeframe] = period_ts
             self.logger.debug(
                 "Emitted aggregated bar",
