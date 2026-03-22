@@ -56,12 +56,15 @@ from src.core.service_utils import (
 )
 from src.core.stream_keys import (
     message_key,
+    topic_cross_asset,
     topic_intelligence,
     topic_market_bars,
     topic_market_bars_htf,
     topic_market_ticks,
     topic_system_events,
 )
+from src.intelligence.context.vix_context import compute_vix_context
+from src.intelligence.cross_asset_features import resolve_eq_index_base
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import (
     TIER_I1,
@@ -98,6 +101,9 @@ from src.observability.metrics import (
 
 # Canonical timeframe ordering for I1-I6 pipeline.
 _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
+
+# Valid timeframes for cross-asset cache — own constant, not imported from signal_generator
+_CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 
 # OHLCV batch write — buffer 50 rows or flush every 5 seconds.
 # Only 1m bars written; HTF bars derived by TimescaleDB continuous aggregates.
@@ -217,6 +223,17 @@ class FeaturePipelineService:
 
         # BarHistory — typed deque store (replaces raw dict[str, deque])
         self._bar_history = BarHistory(maxlen=200)
+
+        # Phase 46: Cross-asset cache and VIX symbol resolution
+        self._cross_asset_cache: dict[str, dict] = {}  # tf -> cross_asset payload
+        self._cross_asset_enabled: bool = self._settings.cross_asset_enabled
+
+        # Resolve VIX contract symbol for bar history lookup — D-10
+        self._vix_symbol: str | None = None
+        for _instr in self._contracts:
+            if _instr.symbol in ("VX", "VIX"):
+                self._vix_symbol = _instr.symbol
+                break
 
         # BarAccumulator — session-aware 1m→HTF aggregator (replaces timeframes_builder_service)
         self._bar_accumulator = BarAccumulator(timeframes=["5m", "15m", "1h"])
@@ -635,6 +652,18 @@ class FeaturePipelineService:
         # Inject previous bar's I1 features for I2 crossover detection
         frames["prev_features"] = self._prev_i1_features.get(key, {})
 
+        # Phase 46: Inject cross-asset frames for EQ_INDEX symbols (per D-12, D-13)
+        if self._cross_asset_enabled and resolve_eq_index_base(symbol) is not None:
+            frames["cross_asset"] = self._cross_asset_cache.get(tf, {"ready": False})
+            frames["cross_asset_5m"] = self._cross_asset_cache.get("5m", {"ready": False})
+
+        # Phase 46: Inject VIX context for ALL symbols (per D-04, D-11)
+        if self._vix_symbol:
+            vix_deque = self._bar_history.get(self._vix_symbol, tf)
+            frames["vix"] = compute_vix_context(vix_deque)
+        else:
+            frames["vix"] = {"ready": False}
+
         i1_result = await self._run_i1(frames, symbol, tf)
         frames["features"] = dict(i1_result)
 
@@ -971,6 +1000,8 @@ class FeaturePipelineService:
         assert self._consumer is not None
         env = self._settings.env_name
         _sys_events_topic = topic_system_events(env)
+        # Phase 46: Route cross_asset messages to cache
+        _cross_asset_topic = topic_cross_asset(env) if self._cross_asset_enabled else ""
 
         async for topic, key, payload in self._consumer.messages():
             if self.shutdown_requested:
@@ -979,6 +1010,16 @@ class FeaturePipelineService:
                 # Route system.events to roll handler
                 if topic == _sys_events_topic:
                     await self._handle_roll_event(payload)
+                    continue
+
+                # Phase 46: Cache cross-asset snapshot by timeframe
+                if self._cross_asset_enabled and topic == _cross_asset_topic:
+                    try:
+                        tf = payload.get("tf", "")
+                        if tf in _CROSS_ASSET_VALID_TFS and payload.get("ready"):
+                            self._cross_asset_cache[tf] = payload
+                    except Exception as _xa_err:
+                        self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
                     continue
 
                 # Parse BarMessage from Kafka payload
@@ -1092,6 +1133,8 @@ class FeaturePipelineService:
             env = self._settings.env_name
             topics: list[str] = [topic_market_bars(env)]
             topics.append(topic_system_events(env))
+            if self._cross_asset_enabled:
+                topics.append(topic_cross_asset(env))
 
             # 5. Start Kafka consumer subscribed to market.bars + system.events
             self._consumer = KafkaConsumerClient(
