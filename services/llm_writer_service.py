@@ -487,7 +487,7 @@ class LLMWriterService:
             self.error_count_total.inc()
             self._error_count += 1
             self.buffer_size_gauge.set(len(self._calls_buffer))
-        else:
+        finally:
             await self._flush_i8()
 
     def _parsed_to_insert_tuple(self, parsed: dict) -> tuple:
@@ -612,8 +612,8 @@ class LLMWriterService:
         tf = tf_raw.decode() if isinstance(tf_raw, bytes) else str(tf_raw)
 
         def _field(key: str) -> str:
-            val = payload.get(key)
-            return str(val) if val else ""
+            val = payload.get(key) or payload.get(key.encode(), b"")
+            return val.decode() if isinstance(val, bytes) else str(val) if val else ""
 
         i8_dict = {
             "model": _field("model") or "unknown",
