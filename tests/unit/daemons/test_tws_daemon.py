@@ -22,7 +22,10 @@ async def test_rtb_loop_publishes_5s_price_tick_for_display():
     daemon.m_ticks = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    daemon._roll_monitor = MagicMock(is_enabled=False)
+    mock_rm = MagicMock()
+    mock_rm.check_roll = MagicMock(return_value=False)
+    mock_rm.should_skip_symbol = MagicMock(return_value=False)
+    daemon._roll_monitor = mock_rm
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
@@ -64,7 +67,10 @@ async def test_emit_bar_dedup_guard_prevents_double_publish():
     daemon.m_bars = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    daemon._roll_monitor = MagicMock(is_enabled=False)
+    mock_rm = MagicMock()
+    mock_rm.check_roll = MagicMock(return_value=False)
+    mock_rm.should_skip_symbol = MagicMock(return_value=False)
+    daemon._roll_monitor = mock_rm
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
@@ -188,7 +194,10 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     daemon.m_ticks = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    daemon._roll_monitor = MagicMock(is_enabled=False)
+    mock_rm = MagicMock()
+    mock_rm.check_roll = MagicMock(return_value=False)
+    mock_rm.should_skip_symbol = MagicMock(return_value=False)
+    daemon._roll_monitor = mock_rm
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()

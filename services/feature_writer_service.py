@@ -266,12 +266,10 @@ class FeatureWriterService:
             _s = Settings()
             self._env_name: str = _s.env_name or ""
             self._kafka_bootstrap: str = getattr(_s, "kafka_bootstrap_servers", "localhost:19092")
-            self._roll_monitor_enabled: bool = getattr(_s, "roll_monitor_enabled", False)
         except Exception as e:
             self.logger.warning("Settings() failed — defaulting env/kafka to ''", error=str(e))
             self._env_name = ""
             self._kafka_bootstrap = "localhost:19092"
-            self._roll_monitor_enabled = False
 
         # Prometheus metrics
         self.events_consumed_total = counter(
@@ -378,15 +376,14 @@ class FeatureWriterService:
             self.logger.warning("Failed to build expiry map", error=str(e))
             self._expiry_map = {}
 
-        # Build topics list — single intelligence.record source + optional side channels
+        # Build topics list
         topics = [
             topic_intelligence_record(self._env_name),
+            topic_system_events(self._env_name),
+            topic_cross_asset(self._env_name),
         ]
-        if self._roll_monitor_enabled:
-            topics.append(topic_system_events(self._env_name))
-        topics.append(topic_cross_asset(self._env_name))
 
-        # Single consumer subscribed to intelligence.record (and optionally system.events)
+        # Single consumer subscribed to intelligence.record, system.events, and cross_asset
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
             bootstrap_servers=self._kafka_bootstrap,

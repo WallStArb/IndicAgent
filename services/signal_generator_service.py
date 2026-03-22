@@ -433,7 +433,6 @@ class SignalGeneratorService:
         self.env_name = settings.env_name or ""
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
         self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
-        self._roll_monitor_enabled = getattr(settings, "roll_monitor_enabled", False)
         # SHADOW-01: Regime gate safety floors (configurable via env vars)
         self._regime_prob_min: float = getattr(settings, "regime_prob_min", 0.30)
         self._regime_dur_min: int = getattr(settings, "regime_dur_min", 1)
@@ -763,10 +762,9 @@ class SignalGeneratorService:
         topics: list[str] = [
             topic_intelligence(self.env_name),
             topic_market_ticks(self.env_name),
+            topic_system_events(self.env_name),
+            topic_cross_asset(self.env_name),
         ]
-        if self._roll_monitor_enabled:
-            topics.append(topic_system_events(self.env_name))
-        topics.append(topic_cross_asset(self.env_name))
 
         self._kafka_consumer = KafkaConsumerClient(
             *topics,

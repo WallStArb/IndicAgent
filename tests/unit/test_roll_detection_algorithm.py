@@ -29,7 +29,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 def _make_settings(
     *,
-    roll_monitor_enabled: bool = True,
     ib_host: str = "192.168.1.158",  # live TWS by default
     window_size: int = 100,
     threshold_default: float = 1.2,
@@ -40,7 +39,6 @@ def _make_settings(
     env_name: str = "dev",
 ) -> MagicMock:
     s = MagicMock()
-    s.roll_monitor_enabled = roll_monitor_enabled
     s.ib_host = ib_host
     s.roll_monitor_window_size = window_size
     s.roll_monitor_threshold_default = threshold_default
@@ -402,7 +400,7 @@ class TestCallSiteBugFix:
         from services.tws_daemon import TwsDaemon  # noqa: PLC0415
 
         daemon = TwsDaemon.__new__(TwsDaemon)
-        daemon.settings = _make_settings(roll_monitor_enabled=True)
+        daemon.settings = _make_settings()
         daemon.env_name = "dev"
         daemon.seen_bar_timestamps = defaultdict(set)
         daemon.seen_bar_timestamps_order = defaultdict(list)
@@ -412,7 +410,6 @@ class TestCallSiteBugFix:
         daemon._kafka_producer.publish = AsyncMock()
 
         mock_rm = MagicMock()
-        mock_rm.is_enabled = True
         mock_rm.should_skip_symbol = MagicMock(return_value=False)
         mock_rm.update_volume = MagicMock()
         mock_rm.check_roll = MagicMock(return_value=False)
@@ -457,24 +454,23 @@ class TestRollMonitorInit:
         assert rm._confirmation_required == 5
         assert rm._cooldown_minutes == 15
 
-    def test_enabled_flag_read_from_settings(self):
-        s_on = _make_settings(roll_monitor_enabled=True)
-        s_off = _make_settings(roll_monitor_enabled=False)
-        rm_on = _make_roll_monitor(s_on)
-        rm_off = _make_roll_monitor(s_off)
-        assert rm_on._enabled is True
-        assert rm_off._enabled is False
+    def test_always_active_no_enabled_flag(self):
+        """Roll monitor is always active — no _enabled flag on RollMonitor."""
+        rm = _make_roll_monitor()
+        assert not hasattr(rm, "_enabled"), "RollMonitor must not have _enabled (SHADOW-03 graduated)"
+        assert not hasattr(rm, "is_enabled"), "is_enabled property must not exist (SHADOW-03 graduated)"
 
 
 class TestFeatureFlag:
-    def test_disabled_check_roll_is_noop(self):
-        s = _make_settings(roll_monitor_enabled=False)
-        rm = _make_roll_monitor(s)
+    def test_roll_monitor_always_active_calendar_gate_still_applies(self):
+        """Roll monitor is always active — calendar gate still prevents false positives outside windows."""
+        rm = _make_roll_monitor()
         for _ in range(30):
             rm.update_volume("ES", 1000.0)
-        utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
+        # Use a date well outside any ES roll window to confirm calendar gate works
+        utc_now = datetime(2026, 8, 1, 16, 0, tzinfo=UTC)  # August — not a roll month for ES
         result = rm.check_roll("ES", utc_now)
-        assert result is False
+        assert result is False, "Calendar gate should still return False outside roll window"
 
 
 class TestPaperAccountDetection:
@@ -525,12 +521,12 @@ class TestPaperSkipContracts:
 
 
 class TestBarLoopWiring:
-    def _make_daemon_with_mock_roll_monitor(self, enabled: bool):
+    def _make_daemon_with_mock_roll_monitor(self):
         """Build a TwsDaemon via __new__ to test wiring without full init."""
         from services.tws_daemon import TwsDaemon  # noqa: PLC0415
 
         daemon = TwsDaemon.__new__(TwsDaemon)
-        daemon.settings = _make_settings(roll_monitor_enabled=enabled)
+        daemon.settings = _make_settings()
         daemon.env_name = "dev"
         daemon.seen_bar_timestamps = defaultdict(set)
         daemon.seen_bar_timestamps_order = defaultdict(list)
@@ -540,7 +536,6 @@ class TestBarLoopWiring:
         daemon._kafka_producer.publish = AsyncMock()
 
         mock_rm = MagicMock()
-        mock_rm.is_enabled = enabled
         mock_rm.should_skip_symbol = MagicMock(return_value=False)
         mock_rm.update_volume = MagicMock()
         mock_rm.check_roll = MagicMock(return_value=False)
@@ -560,9 +555,9 @@ class TestBarLoopWiring:
             "volume": volume,
         }
 
-    def test_bar_loop_calls_roll_monitor_when_enabled(self):
-        """When roll_monitor_enabled=true, _emit_bar calls roll monitor."""
-        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor(enabled=True)
+    def test_bar_loop_always_calls_roll_monitor(self):
+        """Roll monitor always active — _emit_bar unconditionally calls roll monitor."""
+        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor()
         state = self._make_state()
 
         asyncio.run(daemon._emit_bar("ESM6", state))
@@ -570,19 +565,9 @@ class TestBarLoopWiring:
         mock_rm.update_volume.assert_called()
         mock_rm.check_roll.assert_called()
 
-    def test_bar_loop_does_not_call_roll_monitor_when_disabled(self):
-        """When roll_monitor_enabled=false, roll monitor methods not called."""
-        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor(enabled=False)
-        state = self._make_state()
-
-        asyncio.run(daemon._emit_bar("ESM6", state))
-
-        mock_rm.update_volume.assert_not_called()
-        mock_rm.check_roll.assert_not_called()
-
     def test_paper_skip_contracts_short_circuit(self):
         """When check_roll returns False, _on_roll_confirmed not called."""
-        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor(enabled=True)
+        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor()
         mock_rm.check_roll = MagicMock(return_value=False)
         state = self._make_state(symbol="BZJ6", volume=1000.0)
 
@@ -591,3 +576,4 @@ class TestBarLoopWiring:
         mock_rm.update_volume.assert_called()
         mock_rm.check_roll.assert_called()
         mock_rm._on_roll_confirmed.assert_not_called()
+

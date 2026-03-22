@@ -91,8 +91,7 @@ class Settings(BaseSettings):
     # Computed contracts list
     contracts: list[Instrument] = Field(default_factory=list)
 
-    # Roll monitoring (shadow mode by default — ROLL_MONITOR_ENABLED=false)
-    roll_monitor_enabled: bool = Field(default=False, validation_alias="ROLL_MONITOR_ENABLED")
+    # Roll monitoring runtime config (tuning knobs — not feature flags)
     roll_monitor_window_size: int = Field(default=100, validation_alias="ROLL_MONITOR_WINDOW_SIZE")
     roll_monitor_threshold_default: float = Field(
         default=1.2, validation_alias="ROLL_MONITOR_THRESHOLD_DEFAULT"
@@ -825,7 +824,7 @@ class Settings(BaseSettings):
 
 _settings_singleton: Settings | None = None
 
-# Cache for DB-backed active contracts (used when roll_monitor_enabled=True)
+# Cache for DB-backed active contracts
 _active_contracts_cache: list[Instrument] | None = None
 _active_contracts_last_refresh: float = 0.0
 _ACTIVE_CONTRACTS_TTL = 60.0  # seconds
@@ -872,21 +871,15 @@ def _build_instrument_from_db_row(
 def get_active_contracts(settings: Settings | None = None) -> list[Instrument]:
     """Return active contract Instruments (e.g. [Instrument(symbol='ESM6'), ...]).
 
-    When ROLL_MONITOR_ENABLED=false (default): returns Settings().contracts unchanged.
-    When ROLL_MONITOR_ENABLED=true:
-        - Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures'
-        - Reconstructs Instrument objects inheriting config-file defaults (point_value,
-          tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol
-        - Merges DB-sourced futures Instruments + config-file non-futures Instruments
-        - Caches result for 60 seconds
-        - Falls back to config-file contracts on DB error (logs WARNING)
+    Queries contract_metadata WHERE is_front_month = true AND asset_class = 'futures',
+    reconstructs Instrument objects inheriting config-file defaults (point_value,
+    tick_size, session_id, exchange, sector, name, provider_meta) by base_symbol,
+    merges DB-sourced futures Instruments + config-file non-futures Instruments,
+    caches result for 60 seconds, and falls back to config-file contracts on DB error.
     """
     global _active_contracts_cache, _active_contracts_last_refresh  # noqa: PLW0603
 
     s = settings or _default_settings()
-
-    if not s.roll_monitor_enabled:
-        return list(s.contracts)
 
     # Check cache
     now = time.monotonic()
