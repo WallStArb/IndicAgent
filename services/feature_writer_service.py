@@ -461,10 +461,11 @@ class FeatureWriterService:
         """Write buffered events to intelligence_features if conditions are met.
 
         Flushes when:
-        - force=True (explicit flush, e.g. on BATCH_SIZE reached or shutdown)
+        - force=True (explicit flush, e.g. on shutdown)
         - time since last flush >= FLUSH_INTERVAL_SECS (time-based flush)
+        - len(buffer) >= BATCH_SIZE (size-based safety net)
         """
-        should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS)
+        should_flush = force or (time.monotonic() - self._last_flush >= FLUSH_INTERVAL_SECS) or len(self._buffer) >= BATCH_SIZE
 
         if not self._buffer:
             return
@@ -489,6 +490,7 @@ class FeatureWriterService:
             # Explicitly commit offsets after successful DB persistence
             if self._kafka_consumer:
                 await self._kafka_consumer.commit()
+            
             self._buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()
