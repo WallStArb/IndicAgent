@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
 status: unknown
-stopped_at: Completed 46-03-PLAN.md
-last_updated: "2026-03-22T05:39:41.041Z"
+stopped_at: Completed 46.1-01-PLAN.md
+last_updated: "2026-03-22T07:00:05.070Z"
 progress:
-  total_phases: 15
+  total_phases: 16
   completed_phases: 11
-  total_plans: 50
-  completed_plans: 50
+  total_plans: 52
+  completed_plans: 51
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both internal and external consumers can trust.
-**Current focus:** Phase 46 — i6-confluence-expansion
+**Current focus:** Phase 46.1 — vix-cross-asset-to-i4
 
 ## Current Position
 
-Phase: 46 (i6-confluence-expansion) — EXECUTING
-Plan: 4 of 4
+Phase: 46.1 (vix-cross-asset-to-i4) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -37,6 +37,8 @@ Plan: 4 of 4
 ## Accumulated Context
 
 ### Roadmap Evolution
+
+- **Phase 46.1 inserted after Phase 46**: vix-cross-asset-to-i4 (URGENT) — 2026-03-22. Move VIX and cross-asset context from I6 to two separate I4 plugins (VIXRegimePlugin + CrossAssetContextPlugin). Fixes data quality defect (per-TF VIX z-score poisoning ML training data) and layer violation (macro regime belongs in I4, not cross-TF alignment).
 
 - **Phase 47 added**: Signal Pipeline DAG Refactor (Option B: clean architecture first) — 2026-03-19
   - Current: Monolithic signal_generator_service.py + aggregator.py do everything
@@ -173,7 +175,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-22T05:39:41.037Z
-Stopped at: Completed 46-03-PLAN.md
+Last session: 2026-03-22T07:00:05.066Z
+Stopped at: Completed 46.1-01-PLAN.md
 Resume file: None
 Next action: Run `/gsd:discuss-phase 44` to plan Phase 44 (I7 DAG Refactor)
