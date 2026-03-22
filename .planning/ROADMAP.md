@@ -620,7 +620,7 @@ Plans:
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
 **Goal**: All 36 I7 plugins capture I6 ctf_* sub-scores and exhaustion fields into a standardized `_shadow` dict per signal — zero confidence modification (Option C: Phase 49 learns weights). Expose `ctf_fvg_alignment` + `ctf_ob_alignment` from I6 (currently computed but silently discarded). `capture_confluence_features()` + `ConfluenceWeightProfile` (all weights=0.0 placeholders) land in `confidence_utils.py` as the standard interface. Phase 47 graduation flips one flag once Phase 49 weights are validated.
 **Depends on**: Phase 44 (confidence_utils in place, make_signal() factory wired), Phase 44.3 (FeaturePipelineService sole OHLCV writer confirmed)
-**Requirements**: CONF-01, CONF-02, CONF-03, PERF-01, PERF-04
+**Requirements**: CONF-01, CONF-02, CONF-03, PERF-04
 
 **Plugin family assignments:**
 - `"trend"` → TrendFollowing, MTFAlignment, MomentumBreakout, SqueezeExpansion, VCP, SecondLegContinuation, RegimeTransition
@@ -637,14 +637,13 @@ Plans:
   4. Shadow dict contains: `{profile, existing_confidence, ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement, ctf_fvg_alignment, ctf_ob_alignment, exhaustion_score, exhaustion_side, exhaustion_bars}`
   5. Live `calibrated_confidence` in `signal_ledger` is unchanged — query 24h window confirms zero score distribution change
   6. (PERF-04) SignalLifecycleService active-signal lookup is O(1) via `{(symbol, tf): [sids]}` index dict; chandelier state written only when stop price changes ≥ 0.01%
-**Plans**: 5 plans
+**Plans**: 4 plans
 
 Plans:
 - [ ] 45-01-PLAN.md — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py (CONF-01)
 - [ ] 45-02-PLAN.md — wire capture_confluence_features() + exhaustion to trend/mean-reversion/session family plugins (CONF-02)
 - [ ] 45-03-PLAN.md — wire capture_confluence_features() + exhaustion to SMC + microstructure families (CONF-03)
-- [ ] 45-04-PLAN.md — OHLCV hypertable 7-day chunk interval verification (PERF-01)
-- [ ] 45-05-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard regression tests (PERF-04)
+- [ ] 45-04-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard regression tests (PERF-04)
 
 ### Phase 41: Intelligence Gap Fill
 **COMPLETED 2026-03-20** — see phase list for delivered items.
