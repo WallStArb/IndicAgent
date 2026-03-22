@@ -109,7 +109,7 @@ def capture_confluence_features(
         existing_confidence: The plugin's current confidence value (unchanged by this call).
 
     Returns:
-        Shadow dict with 11 keys matching D-07 schema.
+        Shadow dict with 15 keys (11 original + 4 Phase 46 VIX/EQ_INDEX fields).
     """
     shadow: dict[str, Any] = {
         "profile": profile_name,
@@ -120,6 +120,12 @@ def capture_confluence_features(
         "ctf_regime_agreement": float(features.get("ctf_regime_agreement", 0.0)),
         "ctf_fvg_alignment": float(features.get("ctf_fvg_alignment", 0.0)),
         "ctf_ob_alignment": float(features.get("ctf_ob_alignment", 0.0)),
+        # Phase 46: VIX regime + EQ_INDEX sector rotation raw measurements.
+        # Per D-06: None means data unavailable — never substitute 0.0 (valid z-score value).
+        "ctf_vix_level": features.get("ctf_vix_level"),  # float | None
+        "ctf_vix_z": features.get("ctf_vix_z"),  # float | None
+        "ctf_eq_spread_z": features.get("ctf_eq_spread_z"),  # float | None
+        "ctf_eq_pairs_confirming": features.get("ctf_eq_pairs_confirming"),  # float | None
     }
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)
     if profile_name != "exempt_exhaustion":
