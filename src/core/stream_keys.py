@@ -61,6 +61,7 @@ def topic_intelligence(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence"
 
 
+# DEPRECATED: retired after Phase 44.3 — dashboard SSE now consumes intelligence.record
 def topic_intelligence_i7(env_name: str) -> str:
     """Kafka topic for I7 signal scorecard (all_ranked per bar)."""
     return f"{env_prefix(env_name)}intelligence.i7"
