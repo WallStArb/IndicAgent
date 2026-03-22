@@ -640,7 +640,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 45-01-PLAN.md — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py (CONF-01)
+- [x] 45-01-PLAN.md — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py (CONF-01)
 - [ ] 45-02-PLAN.md — wire capture_confluence_features() + exhaustion to trend/mean-reversion/session family plugins (CONF-02)
 - [ ] 45-03-PLAN.md — wire capture_confluence_features() + exhaustion to SMC + microstructure families (CONF-03)
 - [x] 45-04-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard regression tests (PERF-04)
@@ -849,7 +849,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 42. Candlestick Pattern Expansion | v2.0 | 5/5 | Complete | 2026-03-20 |
 | 43. Performance & Stability Emergency | v2.0 | 2/3 | In Progress | — |
 | 44. I7 DAG Refactor | v2.0 | 5/5 | Complete   | 2026-03-22 |
-| 45. I6 → I7 Confluence Wiring | v2.0 | 1/4 | In Progress|  |
+| 45. I6 → I7 Confluence Wiring | v2.0 | 2/4 | In Progress|  |
 | 46. I6 Confluence Expansion | v2.0 | 0/TBD | Not started | — |
 | 47. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 48. Auth + External Access | v2.0 | 0/TBD | Not started | — |
