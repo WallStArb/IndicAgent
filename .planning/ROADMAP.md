@@ -733,7 +733,12 @@ Plans:
   4. Login, logout, token refresh, and authentication failure events are logged as structured records — `grep "auth_event" logs/api.log` shows timestamped entries for each event type.
   5. The Next.js dashboard runs as a standalone production build managed by a systemd unit — `systemctl status indicagent-dashboard` shows `active (running)` and the build serves from the compiled output directory.
   6. Auth endpoints (login, refresh) enforce rate limiting — more than 10 failed login attempts within 60 seconds returns HTTP 429 for subsequent attempts.
-**Plans**: TBD (plan during Phase 47)
+**Plans**: 3 plans
+
+Plans:
+- [ ] 48-01-PLAN.md — JWT auth backend: auth module, CORS hardening, rate limiting, event logging (AUTH-01, AUTH-02, AUTH-03, AUTH-06)
+- [ ] 48-02-PLAN.md — Next.js standalone build + systemd unit + Cloudflare Tunnel SSE fix (AUTH-04, AUTH-05)
+- [ ] 48-03-PLAN.md — Dashboard auth integration: withCredentials, login page, auth guard (AUTH-02, AUTH-03)
 
 ### Phase 49: ML Scoring Model
 **Goal**: A LightGBM model scores every new signal in shadow mode, trained on signal_features with stationarity gates and regime segmentation, with walk-forward retraining and SHAP attribution. LLM call audit trail completes the training data feed (token counts, retry chain, outcome back-fill).
