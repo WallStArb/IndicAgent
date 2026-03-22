@@ -8,11 +8,6 @@ interface PriceHeroProps {
   activeTf: string;
 }
 
-function clampRatio(value: number, lo: number, hi: number): number | null {
-  if (hi <= lo) return null;
-  return Math.min(1, Math.max(0, (value - lo) / (hi - lo)));
-}
-
 function fmtTime(ts: string | number | undefined): string {
   if (!ts) return "";
   try {
@@ -24,18 +19,56 @@ function fmtTime(ts: string | number | undefined): string {
   }
 }
 
-/** Compact inline range bar — dot showing price position within session envelope */
-function InlineRangeBar({ ratio }: { ratio: number | null }) {
+/** Session range bar — colored fill between open and price, glowing price dot */
+function SessionRangeBar({
+  low,
+  high,
+  open,
+  price,
+}: {
+  low: number;
+  high: number;
+  open: number;
+  price: number;
+}) {
+  if (high <= low || price === 0) return null;
+
+  const ratio = (v: number) => Math.min(1, Math.max(0, (v - low) / (high - low)));
+  const priceR = ratio(price);
+  const openR = ratio(open);
+  const isUp = price >= open;
+
+  const fillLeft = Math.min(priceR, openR);
+  const fillWidth = Math.abs(priceR - openR);
+  const glowColor = isUp ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)";
+  const fillClass = isUp ? "bg-[var(--green)]" : "bg-[var(--red)]";
+
   return (
-    <div className="relative flex-1 h-1 rounded-full bg-[var(--border-subtle)] overflow-visible">
-      {ratio === null ? (
-        <div className="absolute inset-0 rounded-full bg-[var(--border-default)] opacity-40" />
-      ) : (
+    <div className="flex items-center gap-1.5 font-data text-[0.5rem] text-[var(--text-secondary)] flex-1 min-w-0">
+      <span className="tabular-nums shrink-0">{fmtPrice(low)}</span>
+      <div className="relative flex-1 h-1.5 rounded-full bg-[var(--border-subtle)]">
+        {/* Colored fill: open → price */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[var(--text-accent)] shadow-sm"
-          style={{ left: `calc(${ratio * 100}% - 3px)` }}
+          className={`absolute top-0 h-full rounded-full ${fillClass} opacity-35`}
+          style={{ left: `${fillLeft * 100}%`, width: `${fillWidth * 100}%` }}
         />
-      )}
+        {/* Open marker */}
+        {open > 0 && (
+          <div
+            className="absolute top-0 h-full w-px bg-[var(--text-muted)] opacity-40"
+            style={{ left: `${openR * 100}%` }}
+          />
+        )}
+        {/* Price dot — glowing */}
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${fillClass}`}
+          style={{
+            left: `calc(${priceR * 100}% - 4px)`,
+            boxShadow: `0 0 5px 1px ${glowColor}`,
+          }}
+        />
+      </div>
+      <span className="tabular-nums shrink-0">{fmtPrice(high)}</span>
     </div>
   );
 }
@@ -46,66 +79,62 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
 
   const isEmpty = tick.price === 0 || tick.lastUpdate === 0;
   const price = isEmpty ? 0 : tick.price;
-  const bid = isEmpty ? 0 : tick.bid;
-  const ask = isEmpty ? 0 : tick.ask;
 
-  const sessionRatio =
-    isEmpty || session.high <= session.low
-      ? null
-      : clampRatio(price, session.low, session.high);
+  const changeFromOpen =
+    !isEmpty && session.open > 0 && price > 0
+      ? ((price - session.open) / session.open) * 100
+      : null;
+  const isUp = changeFromOpen !== null ? changeFromOpen >= 0 : null;
 
-  // "as of" — show when data was last received in the browser (Date.now()), not the server bar
-  // timestamp, which can lag by minutes during low-liquidity periods.
-  const displayTime = data.lastUpdate > 0 ? fmtTime(data.lastUpdate) : (fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp));
+  const displayTime =
+    data.lastUpdate > 0
+      ? fmtTime(data.lastUpdate)
+      : fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp);
+
+  const hasRange = session.high > 0 && session.low > 0;
 
   return (
-    <div className="px-3 pt-1.5 pb-2 space-y-1.5">
-      {/* Line 1: Price + Bid / Ask / spread + timestamp */}
-      <div className="flex items-baseline gap-3 font-data text-[0.6rem]">
+    <div className="px-3 py-1.5 flex items-center gap-2.5 font-data bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
+      {/* Price + flash */}
+      <span
+        key={data.tickFlash ?? "base"}
+        className={`text-xl font-semibold leading-none tracking-tight text-[var(--text-primary)] shrink-0 ${
+          data.tickFlash === "up"
+            ? "price-flash-up"
+            : data.tickFlash === "down"
+              ? "price-flash-down"
+              : ""
+        }`}
+      >
+        {price > 0 ? fmtPrice(price) : "—"}
+      </span>
+
+      {/* % change from session open */}
+      {changeFromOpen !== null && (
         <span
-          key={data.tickFlash ?? "base"}
-          className={`text-xl font-semibold leading-none tracking-tight text-[var(--text-primary)] ${
-            data.tickFlash === "up"
-              ? "price-flash-up"
-              : data.tickFlash === "down"
-                ? "price-flash-down"
-                : ""
+          className={`text-[0.55rem] font-medium tabular-nums leading-none shrink-0 ${
+            isUp ? "text-[var(--green)]" : "text-[var(--red)]"
           }`}
         >
-          {price > 0 ? fmtPrice(price) : "—"}
+          {isUp ? "▲" : "▼"}&nbsp;{Math.abs(changeFromOpen).toFixed(2)}%
         </span>
-        <span>
-          <span className="text-[var(--text-muted)]">Bid </span>
-          <span className="text-[var(--red)] tabular-nums">
-            {isEmpty || bid === 0 ? "—" : fmtPrice(bid)}
-          </span>
-        </span>
-        <span>
-          <span className="text-[var(--text-muted)]">Ask </span>
-          <span className="text-[var(--green)] tabular-nums">
-            {isEmpty || ask === 0 ? "—" : fmtPrice(ask)}
-          </span>
-        </span>
-        {!isEmpty && bid > 0 && ask > 0 && (
-          <span className="text-[var(--text-muted)] tabular-nums">
-            spd {fmtPrice(ask - bid)}
-          </span>
-        )}
-        {displayTime && (
-          <span className="ml-auto text-[0.5rem] text-[var(--text-muted)] opacity-70">
-            as of {displayTime}
-          </span>
-        )}
-      </div>
+      )}
 
-      {/* Line 2: Session O/H/L + compact inline range bar */}
-      {session.high > 0 && (
-        <div className="flex items-center gap-2 font-data text-[0.5rem] text-[var(--text-muted)]">
-          <span>O&nbsp;{fmtPrice(session.open)}</span>
-          <span className="text-[var(--green)]">H&nbsp;{fmtPrice(session.high)}</span>
-          <span className="text-[var(--red)]">L&nbsp;{fmtPrice(session.low)}</span>
-          <InlineRangeBar ratio={sessionRatio} />
-        </div>
+      {/* Timestamp — adjacent to price */}
+      {displayTime && (
+        <span className="text-[0.5rem] font-data text-[var(--text-secondary)] shrink-0">
+          {displayTime}
+        </span>
+      )}
+
+      {/* Session range bar — fills remaining space */}
+      {hasRange && (
+        <SessionRangeBar
+          low={session.low}
+          high={session.high}
+          open={session.open}
+          price={price}
+        />
       )}
     </div>
   );

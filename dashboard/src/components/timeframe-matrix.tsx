@@ -11,6 +11,8 @@ interface TimeframeMatrixProps {
   activeTf: string;
   onSelectTf: (tf: string) => void;
   onDrillDown?: () => void;
+  /** Compact mode: no wrapper border/padding, no drill-down, no TF label */
+  compact?: boolean;
 }
 
 const STALE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -21,16 +23,52 @@ export function TimeframeMatrix({
   activeTf,
   onSelectTf,
   onDrillDown,
+  compact = false,
 }: TimeframeMatrixProps) {
   const aligned = confluence?.ctf_timeframes_aligned ?? 0;
   const showConfluence = aligned >= 4;
 
   const handleMatrixClick = (e: React.MouseEvent) => {
-    // Only trigger drill-down if not clicking directly on a TF button
+    if (compact) return;
     if (!(e.target as HTMLElement).closest('[data-tf-button]')) {
       onDrillDown?.();
     }
   };
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-1">
+        {TIMEFRAMES.map(({ value, short }) => {
+          const sig = tfSignals[value];
+          const isStale = sig && Date.now() - sig.updatedAt > STALE_THRESHOLD_MS;
+          const direction = sig && !isStale ? sig.direction : null;
+          const isActive = activeTf === value;
+          const bgColor =
+            direction === "long" ? "var(--green-dim)" :
+            direction === "short" ? "var(--red-dim)" : "var(--bg-base)";
+          const textColor =
+            direction === "long" ? "var(--green)" :
+            direction === "short" ? "var(--red)" : "var(--text-muted)";
+          return (
+            <button
+              key={value}
+              data-tf-button="true"
+              onClick={(e) => { e.stopPropagation(); onSelectTf(value); }}
+              className="rounded px-1.5 py-0.5 text-[0.5rem] font-bold uppercase tracking-wider cursor-pointer transition-all duration-150"
+              style={{
+                backgroundColor: bgColor,
+                color: textColor,
+                outline: isActive ? `1px solid ${textColor}` : "none",
+                opacity: isStale ? 0.4 : 1,
+              }}
+            >
+              {short}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div
