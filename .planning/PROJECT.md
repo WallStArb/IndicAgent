@@ -164,11 +164,12 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.0 Phase 44.2 complete 2026-03-21)
+### Current State (v2.0 Phase 44.3 complete 2026-03-22)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 6 active systemd services (6 DAG stage microservices retired in Phase 44.2): feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api
 - Signal pipeline: in-process 6-stage pipeline in SignalGeneratorService (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar to `development.intelligence.record`; bounded async audit queue for stage snapshots
+- Persistence: single atomic INSERT per bar from `BarIntelligenceRecord` (31-col tuple); i8 patched via LLMWriterService UPDATE; live 1m OHLCV written by FeaturePipelineService; `development.intelligence.i7` retired; SSE broadcaster reads from `development.intelligence.record`
 - `signal_ledger` extended to 58 fields: raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire
 - `confidence_calibration` table: isotonic regression curves per (plugin, tf), trained alongside CIS weights
 - `signal_features` hypertable: mid-bar feature snapshots at signal fire time (ML training dataset)
@@ -257,4 +258,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ML scoring model (XGBoost/LightGBM, regime-specific classifiers, walk-forward retraining)
 
 ---
-*Last updated: 2026-03-21 after phase 44 (v2.0 I7 DAG refactor — 36/36 plugins wired to shared utilities)**
+*Last updated: 2026-03-22 after phase 44.3 (v2.0 atomic persistence + OHLCV unification — single INSERT per bar, i7 topic retired)*
