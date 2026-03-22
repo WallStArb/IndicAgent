@@ -122,6 +122,68 @@ def test_tws_daemon_no_redis_asyncio_import():
     assert not redis_asyncio_imports, f"redis.asyncio imports found: {redis_asyncio_imports}"
 
 
+@pytest.mark.asyncio
+async def test_ibkr_stream_real_time_bars_yields_symbol_bar_tuple():
+    """stream_real_time_bars must yield (symbol, bar) tuples via async iterator."""
+    import asyncio
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+
+    class FakeRTB:
+        time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=timezone.utc)
+        open_ = 5500.0
+        high = 5505.0
+        low = 5498.0
+        close = 5503.0
+        volume = 50.0
+        wap = 5501.5
+        count = 12
+
+    # FakeEvent correctly captures the callback registered via +=
+    class FakeEvent:
+        def __init__(self):
+            self._cb = None
+        def __iadd__(self, cb):
+            self._cb = cb
+            return self
+        def __isub__(self, cb):
+            return self
+
+    fake_event = FakeEvent()
+    fake_bars = MagicMock()
+    fake_bars.updateEvent = fake_event
+
+    ib_mock = MagicMock()
+    ib_mock.reqRealTimeBars.return_value = fake_bars
+
+    from src.providers.ibkr import IBKRProvider
+    provider = IBKRProvider.__new__(IBKRProvider)
+    provider._ib = ib_mock
+    provider._qualified_contracts = {"ES": MagicMock(secType="FUT")}
+    provider._rtb_queue = None
+    provider._loop = None
+
+    results = []
+
+    async def consume():
+        async for sym, bar in provider.stream_real_time_bars(["ES"]):
+            results.append((sym, bar))
+            break  # consume one then stop
+
+    task = asyncio.create_task(consume())
+    await asyncio.sleep(0)  # let iterator start and register callback
+
+    # Simulate IBKR pushing a 5s bar via the registered callback
+    assert fake_event._cb is not None, "updateEvent callback not registered"
+    fake_event._cb([FakeRTB()], True)  # (bars_list, hasNewBar)
+
+    await asyncio.wait_for(task, timeout=1.0)
+    assert len(results) == 1
+    sym, bar = results[0]
+    assert sym == "ES"
+    assert bar.close == 5503.0
+
+
 def test_timeframes_builder_no_redis_asyncio_import():
     """services/timeframes_builder_service.py must not import redis.asyncio after migration."""
     import ast
