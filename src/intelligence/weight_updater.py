@@ -27,6 +27,7 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 
 import numpy as np
@@ -443,7 +444,139 @@ async def run_weight_update(db_manager: Any) -> WeightUpdateResult | None:
     except Exception:
         logger.error("Pattern reliability calibration failed", exc_info=True)
 
+    # SHADOW-04: Shadow plugin stats monitoring — independent failure domain.
+    # Runs after pattern calibration; failure does not affect weight update completion.
+    try:
+        await compute_shadow_plugin_stats(db_manager)
+    except Exception:
+        logger.error("Shadow plugin stats update failed", exc_info=True)
+
     return global_result
+
+
+def _bootstrap_ci_lower(
+    pnl_r_values: list[float],
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+) -> float:
+    """95% CI lower bound on E[PnL_R] via bootstrap.
+
+    Returns float('-inf') if fewer than 10 samples (insufficient for reliable estimate).
+    Uses a fixed RNG seed for reproducibility in tests.
+    """
+    if len(pnl_r_values) < 10:
+        return float("-inf")
+    rng = np.random.default_rng(42)  # reproducible for testing
+    arr = np.array(pnl_r_values)
+    boot_means = np.array([
+        rng.choice(arr, size=len(arr), replace=True).mean()
+        for _ in range(n_boot)
+    ])
+    return float(np.percentile(boot_means, alpha / 2 * 100))
+
+
+async def compute_shadow_plugin_stats(db_manager: Any) -> None:
+    """Compute and emit Prometheus metrics for shadow-mode plugins (SHADOW-04, D-06).
+
+    Called by run_weight_update() on existing 30-min cadence. Queries signal_ledger
+    for resolved shadow signals, computes stats, and emits 6 Prometheus gauges per plugin.
+
+    Gate conditions for promotion_ready=1:
+      - N >= 100 resolved signals
+      - 95% bootstrap CI lower bound on E[PnL_R] > 0
+    """
+    from datetime import datetime
+
+    from src.observability.metrics import (
+        SHADOW_DAYS_TO_GATE,
+        SHADOW_EV_CI_LOWER,
+        SHADOW_EV_R,
+        SHADOW_N_RESOLVED,
+        SHADOW_PROMOTION_READY,
+        SHADOW_WIN_RATE,
+    )
+
+    SHADOW_PLUGINS = ("trad_DualDivergence",)
+    WIN_OUTCOMES = {"target_1", "target_1_2", "target_full"}
+    N_GATE = 100  # per D-07
+
+    rows = await db_manager.execute_query(
+        """
+        SELECT setup_plugin, outcome, pnl_r, signal_computed_at
+        FROM signal_ledger
+        WHERE is_shadow = TRUE
+          AND outcome IS NOT NULL
+          AND outcome NOT IN ('never_activated', 'ttl_expired_behind')
+        ORDER BY signal_computed_at DESC
+        LIMIT 10000
+        """
+    )
+
+    now = datetime.now(UTC)
+
+    for plugin_name in SHADOW_PLUGINS:
+        plugin_rows = [r for r in rows if r["setup_plugin"] == plugin_name]
+        n_resolved = len(plugin_rows)
+
+        SHADOW_N_RESOLVED.labels(plugin=plugin_name).set(n_resolved)
+
+        if n_resolved == 0:
+            logger.info(
+                "%s: 0 resolved shadow signals — normal on empty ledger; "
+                "tracking will populate over time",
+                plugin_name,
+            )
+            SHADOW_WIN_RATE.labels(plugin=plugin_name).set(0)
+            SHADOW_EV_R.labels(plugin=plugin_name).set(0)
+            SHADOW_EV_CI_LOWER.labels(plugin=plugin_name).set(float("-inf"))
+            SHADOW_DAYS_TO_GATE.labels(plugin=plugin_name).set(float("inf"))
+            SHADOW_PROMOTION_READY.labels(plugin=plugin_name).set(0)
+            continue
+
+        # Win rate
+        wins = sum(1 for r in plugin_rows if r["outcome"] in WIN_OUTCOMES)
+        win_rate = wins / n_resolved
+        SHADOW_WIN_RATE.labels(plugin=plugin_name).set(round(win_rate, 4))
+
+        # E[PnL_R] and bootstrap CI
+        pnl_values = [float(r["pnl_r"]) for r in plugin_rows if r.get("pnl_r") is not None]
+        ev_r = sum(pnl_values) / len(pnl_values) if pnl_values else 0.0
+        ci_lower = _bootstrap_ci_lower(pnl_values) if pnl_values else float("-inf")
+        SHADOW_EV_R.labels(plugin=plugin_name).set(round(ev_r, 4))
+        ci_lower_display = round(ci_lower, 4) if ci_lower != float("-inf") else float("-inf")
+        SHADOW_EV_CI_LOWER.labels(plugin=plugin_name).set(ci_lower_display)
+
+        # Days to gate (per D-10)
+        recent_30d = [
+            r for r in plugin_rows
+            if r.get("signal_computed_at") is not None
+            and (now - r["signal_computed_at"]).days <= 30
+        ]
+        fire_rate_30d = len(recent_30d)
+        if fire_rate_30d > 0:
+            remaining = max(0, N_GATE - n_resolved)
+            days_to_gate = (remaining / fire_rate_30d) * 30
+        else:
+            days_to_gate = float("inf")
+        days_display = round(days_to_gate, 1) if days_to_gate != float("inf") else float("inf")
+        SHADOW_DAYS_TO_GATE.labels(plugin=plugin_name).set(days_display)
+
+        # Promotion gate (per D-07): N >= 100 AND CI lower > 0
+        promotion_ready = 1 if (n_resolved >= N_GATE and ci_lower > 0) else 0
+        SHADOW_PROMOTION_READY.labels(plugin=plugin_name).set(promotion_ready)
+
+        # WARNING log when promotion conditions met (per D-09)
+        if promotion_ready:
+            logger.warning(
+                "shadow_promotion_ready=1 for %s: N=%d, win_rate=%.3f, ev_r=%.4f, "
+                "ci_lower=%.4f — human action required: set IS_SHADOW=False in "
+                "dual_divergence.py",
+                plugin_name,
+                n_resolved,
+                win_rate,
+                ev_r,
+                ci_lower,
+            )
 
 
 if __name__ == "__main__":
