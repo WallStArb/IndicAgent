@@ -21,7 +21,7 @@ not captured here. These two consumers serve different purposes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..plugins import InputSpec
@@ -42,7 +42,6 @@ class CrossAssetContextPlugin:
     supports_incremental: bool = False
     capability_tags: frozenset[str] = frozenset({"context", "macro"})
     inputs: tuple[InputSpec, ...] = ()
-    _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         xa = frames.get("cross_asset") or {}
