@@ -206,7 +206,7 @@ class LVNBreakoutPlugin:
             "supporting_factors": supporting,
         }
         signal["_shadow"] = capture_signal_features(
-            features, direction, "smc", signal["confidence"],
+            features, direction, "lvn", signal["confidence"],
         )
         return signal
 

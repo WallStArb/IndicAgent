@@ -18,7 +18,7 @@ def test_i4_context_has_eq_fields():
     assert ctx.eq_pairs_confirming is None
 
 
-def test_i6_confluence_does_not_have_vix_fields():
+def test_i6_confluence_does_not_have_vix_or_eq_fields():
     conf = I6Confluence()
     assert not hasattr(conf, "ctf_vix_level")
     assert not hasattr(conf, "ctf_vix_z")

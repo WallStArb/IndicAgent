@@ -18,11 +18,9 @@ Phase 47 Plan 02 — TDD (replaces broken ratio logic from Phase 38-02)
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict, deque
-from datetime import UTC, date, datetime, timedelta
+from collections import defaultdict
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import numpy as np
 
 # ---------------------------------------------------------------------------
 # Helpers: build a minimal Settings mock
@@ -272,16 +270,10 @@ class TestCheckRollOutsideWindow:
 
         # Mock get_roll_window to return None (outside roll period)
         with patch("src.config.contracts.get_roll_window", return_value=None):
-            from services.tws_daemon import RollMonitor  # noqa: PLC0415
             utc_now = datetime(2026, 1, 15, 16, 0, tzinfo=UTC)
-            # Patch the import inside the module
-            import services.tws_daemon as tws_mod
-            orig = tws_mod.get_roll_window if hasattr(tws_mod, 'get_roll_window') else None
             result = rm.check_roll("ES", utc_now)
             # With get_roll_window returning None, should be False
-            # (actual check depends on whether tws_daemon imports get_roll_window at module level)
-            # Test the _confirmation_counts behavior instead
-            assert isinstance(result, bool)
+            assert result is False
 
 
 class TestCheckRollZScoreConfirmation:
@@ -311,7 +303,7 @@ class TestCheckRollZScoreConfirmation:
         mock_window = (date(2026, 3, 6), date(2026, 3, 17))
 
         confirmed = False
-        for i in range(10):
+        for _ in range(10):
             rm.update_volume("ES", 100.0)  # Very low — should be z < -2.0
             with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
                 if rm.check_roll("ES", utc_now):
@@ -327,10 +319,10 @@ class TestCheckRollZScoreConfirmation:
         """
         rm = _make_roll_monitor()
         # Fill baseline with a mean of 1000.0, std ~100
+        import random
+        rnd = random.Random(42)
         for _ in range(80):
-            import random
-            random.seed(42)
-            rm.update_volume("ES", 1000.0 + random.gauss(0, 100))
+            rm.update_volume("ES", 1000.0 + rnd.gauss(0, 100))
 
         # Add a bar at ~850 — about 1.5 std below mean
         rm.update_volume("ES", 850.0)
@@ -339,11 +331,9 @@ class TestCheckRollZScoreConfirmation:
         mock_window = (date(2026, 3, 6), date(2026, 3, 17))
 
         with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
-            result = rm.check_roll("ES", utc_now)
+            rm.check_roll("ES", utc_now)
 
-        # z ~ -1.5 should not produce confirmation
-        # We don't assert result is False because after many iterations the window changes,
-        # but we verify confirmation count stays low
+        # z ~ -1.5 should not produce confirmation — verify count stays low
         assert rm._confirmation_counts.get("ES", 0) <= 1, (
             f"Confirmation count too high for z~-1.5: {rm._confirmation_counts.get('ES', 0)}"
         )
