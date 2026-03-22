@@ -24,9 +24,6 @@ _REGIME_MAP: dict[str, list[int]] = {
     "any": [0, 1, 2],
 }
 
-_REGIME_PROB_MIN = 0.55  # minimum confidence to trust regime label
-_REGIME_DUR_MIN = 3  # minimum bars before regime is considered stable
-
 # Plugin priority: higher value = higher priority
 SETUP_PRIORITY: dict[str, int] = {
     "trad_MeanReversion": 1,
@@ -83,6 +80,9 @@ def _pick_with_method(group: list[dict]) -> dict:
 def _regime_gate_signals(
     signals: list[dict],
     regime_data: dict[str, Any] | None,
+    *,
+    prob_min: float = 0.30,
+    dur_min: int = 1,
 ) -> None:
     """Tag each signal dict with regime_eligible and suppression_reason in-place.
 
@@ -90,10 +90,12 @@ def _regime_gate_signals(
     and marks all signals as eligible. This avoids suppressing on absent data.
 
     Gate priority order:
-    1. prob check: if hmm_regime_prob < _REGIME_PROB_MIN → suppression_reason="regime_prob"
-    2. duration check: hmm_regime_duration < _REGIME_DUR_MIN → suppression_reason="regime_duration"
+    1. prob check: if hmm_regime_prob < prob_min → suppression_reason="regime_prob"
+    2. duration check: hmm_regime_duration < dur_min → suppression_reason="regime_duration"
     3. type check: if int(hmm_regime) not in allowed → suppression_reason="regime_type"
     4. else: eligible=True
+
+    Defaults (0.30/1) are safety floors per SHADOW-01/D-02 — not quality filters.
     """
     if regime_data is None:
         for sig in signals:
@@ -110,10 +112,10 @@ def _regime_gate_signals(
         allowed = _REGIME_MAP.get(plugin_regime_type, [0, 1, 2])
 
         # Priority: prob check first, then duration, then type
-        if hmm_regime_prob < _REGIME_PROB_MIN:
+        if hmm_regime_prob < prob_min:
             sig["regime_eligible"] = False
             sig["suppression_reason"] = "regime_prob"
-        elif hmm_regime_duration < _REGIME_DUR_MIN:
+        elif hmm_regime_duration < dur_min:
             sig["regime_eligible"] = False
             sig["suppression_reason"] = "regime_duration"
         elif hmm_regime is not None and int(hmm_regime) not in allowed:

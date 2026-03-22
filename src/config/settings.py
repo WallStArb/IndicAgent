@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     cross_asset_window_bars: int = Field(default=20, validation_alias="CROSS_ASSET_WINDOW_BARS")
     cross_asset_metrics_port: int = Field(default=9118, validation_alias="CROSS_ASSET_METRICS_PORT")
 
+    # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
+    # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
+    # maximize labeled training data for Phase 49 ML. Phase 49 learns optimal thresholds
+    # from accumulated regime-suppressed outcomes.
+    regime_prob_min: float = Field(default=0.30, validation_alias="REGIME_PROB_MIN")
+    regime_dur_min: int = Field(default=1, validation_alias="REGIME_DUR_MIN")
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 
     @property

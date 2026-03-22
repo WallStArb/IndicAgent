@@ -353,17 +353,15 @@ class TestRegimeEligibilityFilter:
 
     @pytest.mark.unit
     def test_gate_bypassed_when_regime_prob_low(self):
-        """Gate is skipped when hmm_regime_prob < 0.60 — uncertain regime.
+        """Gate is skipped when hmm_regime_prob < 0.30 (safety floor) — uncertain regime.
 
-        Probe value 0.54 is below new threshold of 0.60.
-        Signal marked regime_eligible=False only due to prob, not type.
-        When prob is low, suppression_reason="regime_prob" — signal still fires.
+        Probe value 0.20 is below the safety floor of 0.30 (SHADOW-01/D-02).
+        Signal marked regime_eligible=False due to prob (regime_prob check fires first).
         """
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        result = aggregate([sig], regime_data=_regime_features(0, prob=0.54))
-        # Gate fires (regime_data present) but reason is regime_prob → suppressed, not filtered
-        # num_signals_fired counts only eligible signals passing the gate
+        result = aggregate([sig], regime_data=_regime_features(0, prob=0.20))
+        # Gate fires (regime_data present) but reason is regime_prob → suppressed
         assert result.num_signals_fired == 0
         # Signal appears as shadow in all_ranked
         assert len(result.all_ranked) == 1
@@ -371,14 +369,14 @@ class TestRegimeEligibilityFilter:
 
     @pytest.mark.unit
     def test_gate_bypassed_when_regime_duration_short(self):
-        """Gate is skipped when hmm_regime_duration < 3 — newly-started regime.
+        """Gate is skipped when hmm_regime_duration < 1 (safety floor) — newly-started regime.
 
-        Probe value 2 is below threshold of 3.
+        Probe value 0 is below the safety floor of 1 (SHADOW-01/D-02).
         Signal is suppressed with reason='regime_duration'.
         """
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        result = aggregate([sig], regime_data=_regime_features(0, duration=2))
+        result = aggregate([sig], regime_data=_regime_features(0, duration=0))
         assert result.num_signals_fired == 0
         assert len(result.all_ranked) == 1
         assert result.all_ranked[0]["suppression_reason"] == "regime_duration"
@@ -481,30 +479,30 @@ class TestShadowSignals:
 
     @pytest.mark.unit
     def test_regime_prob_below_threshold_suppresses_all(self):
-        """Trend signal with prob=0.50 (below threshold 0.55) is suppressed."""
+        """Trend signal with prob=0.20 (below safety floor 0.30) is suppressed (SHADOW-01)."""
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        # prob=0.50 is below threshold of 0.55
-        result = aggregate([sig], regime_data=_regime_features(1, prob=0.50, duration=10))
+        # prob=0.20 is below safety floor of 0.30 (SHADOW-01/D-02)
+        result = aggregate([sig], regime_data=_regime_features(1, prob=0.20, duration=10))
         assert result.all_ranked, "all_ranked must not be empty"
         assert (
             result.all_ranked[0].get("regime_eligible") is False
-        ), "Signal with prob=0.50 must be suppressed under threshold of 0.55"
+        ), "Signal with prob=0.20 must be suppressed under safety floor of 0.30"
         assert (
             result.all_ranked[0].get("suppression_reason") == "regime_prob"
         ), "Suppression due to low regime probability must set reason='regime_prob'"
 
     @pytest.mark.unit
     def test_regime_duration_below_threshold_suppresses_all(self):
-        """Trend signal with duration=2 (below threshold 3) is suppressed."""
+        """Trend signal with duration=0 (below safety floor 1) is suppressed (SHADOW-01)."""
         sig = _signal("trad_TrendFollowing", 1)
         sig["regime_type"] = "trend"
-        # duration=2 is below threshold of 3
-        result = aggregate([sig], regime_data=_regime_features(1, prob=0.80, duration=2))
+        # duration=0 is below safety floor of 1 (SHADOW-01/D-02)
+        result = aggregate([sig], regime_data=_regime_features(1, prob=0.80, duration=0))
         assert result.all_ranked, "all_ranked must not be empty"
         assert (
             result.all_ranked[0].get("regime_eligible") is False
-        ), "Signal with duration=2 must be suppressed under threshold of 3"
+        ), "Signal with duration=0 must be suppressed under safety floor of 1"
         assert (
             result.all_ranked[0].get("suppression_reason") == "regime_duration"
         ), "Suppression due to short duration must set reason='regime_duration'"
