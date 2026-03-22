@@ -510,6 +510,11 @@ class FeatureWriterService:
         Writes {"roll_boundary": "ESM6->ESU6"} into the i7 JSONB column at the
         roll detection timestamp. Uses ON CONFLICT ... DO UPDATE to merge into any
         existing i7 data for that (ts, symbol, tf) row.
+
+        INTEL-04: Also writes roll_premium_pct to the intelligence_features column
+        when the event payload includes it. roll_premium_pct is 0.0 at detection time
+        (price comparison unavailable) — Phase 49 ML training treats this as
+        "roll detected, gap unknown" vs NULL for "no roll context".
         """
         result = parse_roll_event(event, self.logger)
         if result is None:
@@ -517,6 +522,15 @@ class FeatureWriterService:
         old_symbol, new_symbol = result
         detected_at_raw: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
         detected_at = _parse_ts(detected_at_raw)
+
+        # INTEL-04: Extract roll_premium_pct from event payload (default None for backward compat)
+        roll_premium_pct_raw = event.get("roll_premium_pct")
+        roll_premium_pct: float | None = None
+        if roll_premium_pct_raw is not None:
+            try:
+                roll_premium_pct = float(roll_premium_pct_raw)
+            except (TypeError, ValueError):
+                pass
 
         if not self.db_manager:
             self.logger.warning(
@@ -532,11 +546,29 @@ class FeatureWriterService:
                 _UPSERT_ROLL_BOUNDARY_SQL,
                 [(detected_at, new_symbol, _ROLL_BOUNDARY_TF, marker)],
             )
+
+            # INTEL-04: Persist roll_premium_pct to intelligence_features column
+            if roll_premium_pct is not None:
+                await self.db_manager.execute_query(
+                    """
+                    UPDATE intelligence_features
+                       SET roll_premium_pct = $1
+                     WHERE symbol = $2
+                       AND ts = $3
+                       AND tf = $4
+                    """,
+                    roll_premium_pct,
+                    new_symbol,
+                    detected_at,
+                    _ROLL_BOUNDARY_TF,
+                )
+
             self.logger.info(
                 "roll_boundary_written",
                 old=old_symbol,
                 new=new_symbol,
                 detected_at=detected_at,
+                roll_premium_pct=roll_premium_pct,
             )
         except Exception as e:
             self.logger.error("roll_boundary_write_failed", error=str(e))
