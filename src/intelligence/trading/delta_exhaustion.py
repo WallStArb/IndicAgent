@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -34,7 +34,8 @@ class DeltaExhaustionPlugin:
     - abs(price_change) < 0.3 * atr (price fails to follow CVD direction)
 
     Direction: opposite of CVD spike direction (exhaustion → reversal)
-    Confidence: compose_confidence(0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10)
+    Confidence: compose_confidence(
+    0.45 + abs(cvd_spike_z) * 0.05 + (1.0 - price_follow_ratio) * 0.10)
     """
 
     name: str = "trad_DeltaExhaustion"
@@ -118,7 +119,8 @@ class DeltaExhaustionPlugin:
             f"atr={atr:.2f}",
         ]
 
-        return {
+        # exempt from exhaustion shadow: this plugin IS the exhaustion detector (D-09)
+        signal = {
             "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -128,6 +130,10 @@ class DeltaExhaustionPlugin:
             "regime_context": regime_context,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "exempt_exhaustion", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
