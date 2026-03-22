@@ -98,7 +98,6 @@ class RollMonitor:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._enabled = settings.roll_monitor_enabled
         self._is_paper = self._is_paper_account()
         self._window_size = settings.roll_monitor_window_size          # 100
         self._confirmation_required = settings.roll_confirmation_bars   # 3
@@ -126,11 +125,6 @@ class RollMonitor:
     def _is_paper_account(self) -> bool:
         """Detect paper account via ib_host setting."""
         return self._settings.ib_host in self.PAPER_ACCOUNT_HOSTS
-
-    @property
-    def is_enabled(self) -> bool:
-        """Return True when roll monitoring is active."""
-        return self._enabled
 
     def should_skip_symbol(self, symbol: str) -> bool:
         """Return True if symbol should be skipped (paper account + unavailable contract)."""
@@ -199,9 +193,6 @@ class RollMonitor:
         Side-effects: increments/resets _confirmation_counts; sets _cooldown_until.
         Caller must schedule _on_roll_confirmed() when this returns True.
         """
-        if not self._enabled:
-            return False
-
         # Calendar gate: only detect during known roll windows
         try:
             roll_window = get_roll_window(base_symbol, utc_now.date())
@@ -596,17 +587,16 @@ class TwsDaemon:
         self.m_bars.inc()
         logger.info("1m bar emitted", symbol=symbol, close=state["close"], volume=state["volume"])
 
-        # Roll monitor (futures only, when enabled)
-        if self._roll_monitor.is_enabled:
-            bar_utc = (bar_minute if bar_minute.tzinfo is not None
-                       else bar_minute.replace(tzinfo=UTC))
-            self._roll_monitor.update_volume(symbol, float(state["volume"]))
-            if self._roll_monitor.check_roll(symbol, bar_utc):
-                await self._roll_monitor._on_roll_confirmed(
-                    base_symbol=symbol, old_symbol=symbol,
-                    roll_gap=0.0, roll_direction="unknown",
-                    kafka_producer=self._kafka_producer, env_name=self.env_name,
-                )
+        # Roll monitor (futures only)
+        bar_utc = (bar_minute if bar_minute.tzinfo is not None
+                   else bar_minute.replace(tzinfo=UTC))
+        self._roll_monitor.update_volume(symbol, float(state["volume"]))
+        if self._roll_monitor.check_roll(symbol, bar_utc):
+            await self._roll_monitor._on_roll_confirmed(
+                base_symbol=symbol, old_symbol=symbol,
+                roll_gap=0.0, roll_direction="unknown",
+                kafka_producer=self._kafka_producer, env_name=self.env_name,
+            )
 
     def health_check(self) -> None:
         if not self.running or not self.start_time:

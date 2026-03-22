@@ -686,16 +686,15 @@ class IndicatorService:
             # populated immediately without waiting for the first live bar.
             await self._publish_seeded_state()
 
-            # Build topics list — conditionally add system.events when roll_monitor_enabled
+            # Build topics list
             _settings = Settings()
             topics: list[str] = [
                 topic_market_bars(self.env_name),
                 topic_market_bars_htf(self.env_name),
+                topic_system_events(self.env_name),
             ]
-            if _settings.roll_monitor_enabled:
-                topics.append(topic_system_events(self.env_name))
 
-            # Start Kafka consumer subscribed to market.bars topic (and optionally system.events)
+            # Start Kafka consumer subscribed to market.bars and system.events topics
             self._kafka_consumer = KafkaConsumerClient(
                 *topics,
                 bootstrap_servers=self.config.get(

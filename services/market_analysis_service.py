@@ -765,13 +765,14 @@ class MarketAnalysisService:
             await self._kafka_producer.start()
             await self._warmup_bar_history()
 
-            # Build topics list — conditionally add system.events when roll_monitor_enabled
+            # Build topics list
             _settings = Settings()
-            topics: list[str] = [topic_indicators(self.env_name)]
-            if _settings.roll_monitor_enabled:
-                topics.append(topic_system_events(self.env_name))
+            topics: list[str] = [
+                topic_indicators(self.env_name),
+                topic_system_events(self.env_name),
+            ]
 
-            # Start Kafka consumer subscribed to indicators topic (and optionally system.events)
+            # Start Kafka consumer subscribed to indicators and system.events topics
             self._kafka_consumer = KafkaConsumerClient(
                 *topics,
                 bootstrap_servers=self.config.get(
