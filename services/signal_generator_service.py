@@ -52,7 +52,6 @@ from src.core.stream_keys import (
     topic_calibrated,
     topic_cross_asset,
     topic_intelligence,
-    topic_intelligence_i7,
     topic_intelligence_record,
     topic_market_ticks,
     topic_quality_gated,
@@ -1355,34 +1354,6 @@ class SignalGeneratorService:
         # Build and publish BarIntelligenceRecord to intelligence.record
         pipeline_latency_ms = (time.monotonic() - pipeline_start) * 1000
         ranked_signal_models = [self._to_ranked_signal(s, winner) for s in all_ranked]
-
-        # Backward-compat: publish I7 scorecard to intelligence.i7
-        if all_ranked and self._kafka_producer:
-            try:
-                scorecard_payload = {
-                    "ts": timestamp.isoformat(),
-                    "symbol": symbol,
-                    "tf": timeframe,
-                    "data": json.dumps(
-                        [
-                            {
-                                "plugin": s.plugin,
-                                "direction": s.direction,
-                                "calibrated_confidence": s.calibrated_confidence,
-                                "adjusted_rank": s.adjusted_rank,
-                                "is_winner": s.is_winner,
-                            }
-                            for s in ranked_signal_models
-                        ]
-                    ),
-                }
-                await self._kafka_producer.publish(
-                    topic_intelligence_i7(self.env_name),
-                    scorecard_payload,
-                    key=message_key(symbol, timeframe),
-                )
-            except Exception as _i7_err:
-                self.logger.warning("i7_scorecard_publish_failed", error=str(_i7_err))
 
         if event is not None and self._kafka_producer:
             try:
