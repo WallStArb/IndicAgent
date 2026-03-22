@@ -1,4 +1,9 @@
-"""Tests for CrossTimeframeConfluencePlugin VIX and cross-asset field emission (Phase 46)."""
+"""Tests for CrossTimeframeConfluencePlugin core behavior.
+
+Phase 46.1 note: VIX and cross-asset fields were moved from I6Confluence
+to I4Context (VIXRegimePlugin and CrossAssetContextPlugin). Tests for
+those fields are in test_vix_regime.py and test_cross_asset_context.py.
+"""
 
 import pytest
 
@@ -19,90 +24,16 @@ def _base_frames() -> dict:
     }
 
 
-# ─── VIX field tests ────────────────────────────────────────────────────────
-
-
-def test_vix_ready_populates_level_and_z(plugin):
-    """frames['vix'] with ready=True → ctf_vix_level and ctf_vix_z populated."""
-    frames = _base_frames()
-    frames["vix"] = {"ready": True, "level": 18.5, "z_score": -0.32}
-    result = plugin.compute_full(frames)
-    assert result["ctf_vix_level"] == 18.5
-    assert result["ctf_vix_z"] == -0.32
-
-
-def test_vix_not_ready_returns_none(plugin):
-    """frames['vix'] with ready=False → ctf_vix_level=None, ctf_vix_z=None."""
-    frames = _base_frames()
-    frames["vix"] = {"ready": False}
-    result = plugin.compute_full(frames)
-    assert result["ctf_vix_level"] is None
-    assert result["ctf_vix_z"] is None
-
-
-def test_vix_key_absent_returns_none(plugin):
-    """No frames['vix'] key → ctf_vix_level=None, ctf_vix_z=None."""
-    frames = _base_frames()
-    # Do NOT add 'vix' key
-    result = plugin.compute_full(frames)
-    assert result["ctf_vix_level"] is None
-    assert result["ctf_vix_z"] is None
-
-
-# ─── Cross-asset field tests ─────────────────────────────────────────────────
-
-
-def test_cross_asset_es_nq_pair_populates_fields(plugin):
-    """frames['cross_asset'] with active_pair='ES_NQ' → ctf_eq_spread_z from es_nq_spread_z."""
-    frames = _base_frames()
-    frames["cross_asset"] = {
-        "ready": True,
-        "active_pair": "ES_NQ",
-        "es_nq_spread_z": 2.3,
-        "pairs_confirming": 1,
-    }
-    result = plugin.compute_full(frames)
-    assert result["ctf_eq_spread_z"] == 2.3
-    assert result["ctf_eq_pairs_confirming"] == 1.0
-
-
-def test_cross_asset_es_rty_pair_populates_fields(plugin):
-    """frames['cross_asset'] with active_pair='ES_RTY' → ctf_eq_spread_z from es_rty_spread_z."""
-    frames = _base_frames()
-    frames["cross_asset"] = {
-        "ready": True,
-        "active_pair": "ES_RTY",
-        "es_rty_spread_z": -1.8,
-        "pairs_confirming": 2,
-    }
-    result = plugin.compute_full(frames)
-    assert result["ctf_eq_spread_z"] == -1.8
-    assert result["ctf_eq_pairs_confirming"] == 2.0
-
-
-def test_cross_asset_not_ready_returns_none(plugin):
-    """frames['cross_asset'] with ready=False → ctf_eq_spread_z=None, ctf_eq_pairs_confirming=None."""
-    frames = _base_frames()
-    frames["cross_asset"] = {"ready": False}
-    result = plugin.compute_full(frames)
-    assert result["ctf_eq_spread_z"] is None
-    assert result["ctf_eq_pairs_confirming"] is None
-
-
-def test_cross_asset_key_absent_returns_none(plugin):
-    """No frames['cross_asset'] key → ctf_eq_spread_z=None, ctf_eq_pairs_confirming=None."""
-    frames = _base_frames()
-    # Do NOT add 'cross_asset' key
-    result = plugin.compute_full(frames)
-    assert result["ctf_eq_spread_z"] is None
-    assert result["ctf_eq_pairs_confirming"] is None
-
-
 # ─── ctf_score stability test ────────────────────────────────────────────────
 
 
-def test_ctf_score_unchanged_with_vix_and_cross_asset(plugin):
-    """ctf_score is bit-for-bit identical with and without VIX/cross-asset frames."""
+def test_ctf_score_unchanged_with_extra_frames(plugin):
+    """ctf_score is identical whether or not extra frames (vix, cross_asset) are present.
+
+    VIX and cross-asset data now flow through I4 plugins (VIXRegimePlugin,
+    CrossAssetContextPlugin), not through I6. Passing them in frames should
+    have no effect on the ctf_score output.
+    """
     frames_without = _base_frames()
     result_without = plugin.compute_full(frames_without)
 
@@ -120,3 +51,24 @@ def test_ctf_score_unchanged_with_vix_and_cross_asset(plugin):
     assert result_with["ctf_trend_alignment"] == result_without["ctf_trend_alignment"]
     assert result_with["ctf_structure_alignment"] == result_without["ctf_structure_alignment"]
     assert result_with["ctf_regime_agreement"] == result_without["ctf_regime_agreement"]
+
+
+def test_vix_and_cross_asset_not_in_i6_output(plugin):
+    """VIX and cross-asset fields must NOT appear in CrossTimeframeConfluencePlugin output.
+
+    These fields belong to I4 (Phase 46.1 migration) — they should not be
+    emitted by I6.
+    """
+    frames = _base_frames()
+    frames["vix"] = {"ready": True, "level": 18.5, "z_score": -0.32}
+    frames["cross_asset"] = {
+        "ready": True,
+        "active_pair": "ES_NQ",
+        "es_nq_spread_z": 2.3,
+        "pairs_confirming": 1,
+    }
+    result = plugin.compute_full(frames)
+    assert "ctf_vix_level" not in result
+    assert "ctf_vix_z" not in result
+    assert "ctf_eq_spread_z" not in result
+    assert "ctf_eq_pairs_confirming" not in result
