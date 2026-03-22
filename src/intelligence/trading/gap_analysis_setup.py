@@ -7,7 +7,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 
 
@@ -128,7 +129,6 @@ class GapAnalysisSetupPlugin:
         base = min(1.0, gap_size_atr / 2.0)
         if high_volume:
             base += 0.15
-        confidence = compose_confidence(base)
 
         # Supporting factors
         supporting: list[str] = []
@@ -138,10 +138,13 @@ class GapAnalysisSetupPlugin:
             supporting.append("volume_confirm")
         supporting.append(f"{bias}_bias")
 
+        base, supporting = apply_exhaustion_boost(features, direction, base, supporting)
+        confidence = compose_confidence(base)
+
         bias_abbr = "cont" if bias == "continuation" else "fade"
         signal_type = f"gap_{bias_abbr}_{'long' if direction == 1 else 'short'}"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "bias": bias,
@@ -154,6 +157,10 @@ class GapAnalysisSetupPlugin:
             "regime_context": "gap_open",
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "session", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
