@@ -7,7 +7,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -77,9 +78,7 @@ class MTFAlignmentPlugin:
         targets = [round(t.price, 2) for t in tf.targets]
 
         # Confidence directly from abs(ctf_score)
-        confidence = compose_confidence(abs(ctf_score))
-
-        # Supporting factors
+        raw_conf = abs(ctf_score)
         supporting = [f"{int(ctf_timeframes_aligned)}_timeframes_aligned"]
 
         highest_tf = features.get("ctf_highest_aligned_tf", None)
@@ -98,9 +97,12 @@ class MTFAlignmentPlugin:
         if ctf_regime >= 0.5:
             supporting.append("regime_agreement_strong")
 
+        raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -110,6 +112,8 @@ class MTFAlignmentPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(features, direction, "trend", confidence)
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

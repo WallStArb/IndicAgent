@@ -12,7 +12,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -104,12 +105,14 @@ class RegimeTransitionPlugin:
             raw_conf += 0.3
 
         raw_conf += 0.2 * choch_detected
-        confidence = compose_confidence(raw_conf)
 
         if cp_probability > 0.8:
             supporting.append("high_cp_probability")
 
-        return {
+        raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -119,6 +122,8 @@ class RegimeTransitionPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(features, direction, "trend", confidence)
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

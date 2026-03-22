@@ -21,7 +21,8 @@ from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -190,15 +191,11 @@ class VCPPlugin:
                 return no_signal()
 
             # ── Confidence ─────────────────────────────────────────────────
-            confidence = 0.50
+            raw_conf = 0.50
             if contraction_count >= 4:
-                confidence += 0.08
+                raw_conf += 0.08
             if hmm_regime_prob > 0.75:
-                confidence += 0.07
-            confidence = compose_confidence(confidence)
-
-            # ── Regime context ─────────────────────────────────────────────
-            regime_ctx = "bullish" if direction == 1 else "bearish"
+                raw_conf += 0.07
 
             supporting = [
                 f"contraction_count={contraction_count}",
@@ -207,12 +204,17 @@ class VCPPlugin:
                 f"last_contraction_vol={last_vol:.0f}",
                 "volume_expansion_confirmed",
             ]
+            raw_conf, supporting = apply_exhaustion_guard(features, raw_conf, supporting)
+            confidence = compose_confidence(raw_conf)
+
+            # ── Regime context ─────────────────────────────────────────────
+            regime_ctx = "bullish" if direction == 1 else "bearish"
 
             # ── Clear contractions after fire ──────────────────────────────
             state["contractions"] = []
             self._state[(symbol, tf)] = state
 
-            return {
+            signal = {
                 "signal_type": signal_type,
                 "direction": direction,
                 "entry_price": round(frame.entry, 2),
@@ -223,6 +225,10 @@ class VCPPlugin:
                 "supporting_factors": supporting,
                 "contraction_count": contraction_count,
             }
+            signal["_shadow"] = capture_confluence_features(
+                features, direction, "trend", confidence,
+            )
+            return signal
 
         else:
             # Not a contraction, not a valid expansion -> reset
