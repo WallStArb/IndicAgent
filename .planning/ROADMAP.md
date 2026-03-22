@@ -163,7 +163,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py; wire all 36 I7 plugins to capture raw ctf_* + exhaustion fields into standardized _shadow dict per signal (zero confidence modification — Option C; Phase 49 learns weights); lifecycle O(1) index + chandelier write guard (completed 2026-03-22)
 - [x] **Phase 46: I6 Confluence Expansion** — 4 new raw measurement fields in I6Confluence (ctf_vix_level, ctf_vix_z, ctf_eq_spread_z, ctf_eq_pairs_confirming); vix_context.py pure function module; FeaturePipelineService injects frames["cross_asset"] + frames["vix"]; ctf_score formula unchanged; Phase 49 learns weights (completed 2026-03-22, human UAT pending)
 - [ ] **Phase 47: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
-- [ ] **Phase 48: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
+- [ ] **Phase 48: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging
 - [ ] **Phase 49: ML Scoring Model** — feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution; LLM call audit trail complete (token counts, retry chain, outcome back-fill) as ML training data feed
 - [ ] **Phase 50: Renaissance Observability** — performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface (all I3/I4/I5/I6 fields inspectable in dashboard), staleness as first-class quality signal (confidence penalty + signal_ledger flag + display)
 
@@ -723,7 +723,7 @@ Plans:
 - [ ] 47-04-PLAN.md — Cross-asset graduation: enable + soak + scaffolding removal (SHADOW-02)
 
 ### Phase 48: Auth + External Access
-**Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer, and keyset pagination enables efficient large features export.
+**Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer. Keyset pagination deferred to v2.1 (INTEL-V2).
 **Depends on**: Phase 47 (pipeline stable and shadow modes resolved before exposing external access)
 **Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06
 **Success Criteria** (what must be TRUE):
