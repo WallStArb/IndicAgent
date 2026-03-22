@@ -47,7 +47,7 @@
 ### CONF — I6 Confluence Expansion
 
 - [x] **CONF-01**: `market_analysis_service` subscribes to `development.cross_asset` topic and injects cross-asset features into frames before I6 execution
-- [ ] **CONF-02**: `CrossTimeframeConfluencePlugin` scores VIX regime — high VIX suppresses mean-reversion setups, boosts volatility/breakout setups
+- [x] **CONF-02**: `CrossTimeframeConfluencePlugin` scores VIX regime — high VIX suppresses mean-reversion setups, boosts volatility/breakout setups
 - [x] **CONF-03**: `CrossTimeframeConfluencePlugin` scores equity index sector rotation — ES/NQ/RTY/YM alignment via injected cross-asset spread features
 - [ ] **CONF-04**: Cross-TF FVG + OB alignment fields (`i6_fvg_tf_alignment`, `i6_ob_tf_alignment`) contribute to I6 composite score with non-zero weights
 
