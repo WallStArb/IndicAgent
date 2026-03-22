@@ -14,6 +14,8 @@ Signals don't fire on a single indicator. Our CIS (Confluence Intelligence Score
 
 Designed for resilience, reproducibility, and massive scale, our pipeline processes 123+ plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
 
+IndicAgent enables you to build institutional-grade intelligence that is as self-correcting as it is transparent.
+
 ---
 
 ---
