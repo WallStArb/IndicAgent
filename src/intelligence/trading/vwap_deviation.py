@@ -9,7 +9,8 @@ import numpy as np
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 
 _VOL_THRESHOLDS: dict[int, float] = {0: 2.0, 1: 2.0, 2: 2.5, 3: 3.0}
@@ -122,7 +123,6 @@ class VWAPDeviationPlugin:
         vol_contraction = max(0.0, 1.0 - max(0.0, volume_ratio - 1.0))
 
         raw_conf = 0.40 * dev_score + 0.35 * regime_compat + 0.25 * vol_contraction
-        confidence = compose_confidence(raw_conf)
 
         # Supporting factors
         supporting = ["vwap_2sigma_breach", f"vwap_{sigma_deviation:.1f}sigma_deviation"]
@@ -133,10 +133,13 @@ class VWAPDeviationPlugin:
         if regime_aligns and abs(trend_regime) >= 0.3:
             supporting.append("regime_aligned")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         signal_type = "vwap_reversion_long" if direction == 1 else "vwap_reversion_short"
         regime_ctx = "vwap_extended_low" if direction == 1 else "vwap_extended_high"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -146,6 +149,10 @@ class VWAPDeviationPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "mean_reversion", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

@@ -16,6 +16,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -156,7 +158,6 @@ class POCRejectionPlugin:
             + 0.20 * vol_score
             + 0.20 * va_inverse
         )
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
 
         # ── Supporting factors ────────────────────────────────────────────────
         supporting: list[str] = [
@@ -170,10 +171,13 @@ class POCRejectionPlugin:
         if stoch_ok:
             supporting.append(f"stoch_extreme={stoch_k:.1f}")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         hmm = float(features.get("hmm_regime", 0.0))
         regime_ctx = "ranging" if hmm == 0 else ("trending_up" if hmm == 1 else "trending_down")
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -183,6 +187,10 @@ class POCRejectionPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "mean_reversion", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

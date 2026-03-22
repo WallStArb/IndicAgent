@@ -17,6 +17,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -198,7 +200,6 @@ class VWAPReclaimPlugin:
             + 0.20 * trend_align
             + 0.20 * sr_prox
         )
-        confidence = round(min(1.0, max(0.0, raw_conf)), 4)
 
         # ── Supporting factors ────────────────────────────────────────────────
         side_label = "bars_below_vwap" if direction == 1 else "bars_above_vwap"
@@ -209,11 +210,14 @@ class VWAPReclaimPlugin:
         if trend_align > 0.6:
             supporting.append("trend_regime_aligned")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         regime_ctx = "bullish" if direction == 1 else "bearish"
         if hmm == 0.0:
             regime_ctx = "ranging"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -223,6 +227,10 @@ class VWAPReclaimPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "mean_reversion", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
