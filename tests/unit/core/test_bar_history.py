@@ -7,9 +7,12 @@ These stubs define the behavioral contract that the implementation must satisfy.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-
+from typing import TYPE_CHECKING
 
 UTC = timezone.utc
+
+if TYPE_CHECKING:
+    from src.core.schemas.bar_message import BarMessage
 
 
 def _make_bar(

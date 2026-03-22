@@ -528,12 +528,7 @@ async def test_i8_summary_truncated_at_280_chars_deferred():
 
     import services.ai_narrative_service as mod
 
-    source = inspect.getsource(
-        mod._AINarrativeService__dict__
-        if hasattr(mod, "_AINarrativeService__dict__")
-        else mod.AINarrativeService._run_narrative_call
-    )  # noqa: E501
-    # Just verify the 280-char truncation constant is present in the service
+    # Verify the 280-char truncation constant is present in the service
     assert "280" in inspect.getsource(mod), "280-char i8 truncation must be present in service"
 
 

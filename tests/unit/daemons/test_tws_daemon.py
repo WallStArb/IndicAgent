@@ -9,8 +9,9 @@ import pytest
 async def test_rtb_loop_publishes_5s_price_tick_for_display():
     """_rtb_loop must publish each 5s bar close to market.ticks for dashboard display."""
     from collections import defaultdict
-    from services.tws_daemon import TwsDaemon
     from datetime import datetime, timezone
+
+    from services.tws_daemon import TwsDaemon
 
     daemon = TwsDaemon.__new__(TwsDaemon)
     daemon.env_name = "dev"
@@ -53,8 +54,9 @@ async def test_rtb_loop_publishes_5s_price_tick_for_display():
 async def test_emit_bar_dedup_guard_prevents_double_publish():
     """_emit_bar must not re-publish a bar with the same timestamp."""
     from collections import defaultdict
-    from services.tws_daemon import TwsDaemon
     from datetime import datetime, timezone
+
+    from services.tws_daemon import TwsDaemon
 
     daemon = TwsDaemon.__new__(TwsDaemon)
     daemon.env_name = "dev"
@@ -172,9 +174,10 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     at :05, last at :60 (= start of next minute, triggers emit of prior minute).
     """
     from collections import defaultdict
-    from services.tws_daemon import TwsDaemon
-    from unittest.mock import AsyncMock, MagicMock
     from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.tws_daemon import TwsDaemon
 
     daemon = TwsDaemon.__new__(TwsDaemon)
     daemon.env_name = "dev"
@@ -193,9 +196,9 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
 
     # 11 bars closing at :05..:55 in minute 14:00, then Bar60 (14:01:00) triggers emit
     class FakeRTB:
-        def __init__(self, minute, second, o, h, l, c, vol):
+        def __init__(self, minute, second, o, h, low, c, vol):
             self.time = datetime(2026, 3, 21, 14, minute, second, tzinfo=timezone.utc)
-            self.open_ = o; self.high = h; self.low = l
+            self.open_ = o; self.high = h; self.low = low
             self.close = c; self.volume = float(vol)
 
     bars_min0 = [FakeRTB(0, s, 5500.0, 5510.0, 5498.0, 5505.0, 100.0)

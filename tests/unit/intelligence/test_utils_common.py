@@ -13,7 +13,6 @@ from src.intelligence.utils.common import (
     track_bars_ago,
 )
 
-
 # --- import path ---
 
 def test_import_from_utils_common():

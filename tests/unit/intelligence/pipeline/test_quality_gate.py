@@ -1,7 +1,6 @@
 """Unit tests for apply_quality_gate pure function."""
 from __future__ import annotations
 
-
 from src.intelligence.pipeline.quality_gate import apply_quality_gate
 
 

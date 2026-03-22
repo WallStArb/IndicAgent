@@ -421,8 +421,15 @@ class TestDivergenceStack:
         With RSI=0.9 (0.30), MACD=0.9 (0.25), vol=0.9 (0.20) — 3 agreeing, score=0.675.
         Raw = 0.675 / 0.60 = 1.125, clamped to CONF_CEIL=0.95.
         """
-        from src.intelligence.trading.confidence_utils import CONF_CEIL, CONF_FLOOR, compose_confidence
-        from src.intelligence.trading.divergence_stack import DIVERGENCE_CONFIDENCE_NORM, DIVERGENCE_WEIGHTS
+        from src.intelligence.trading.confidence_utils import (
+            CONF_CEIL,
+            CONF_FLOOR,
+            compose_confidence,
+        )
+        from src.intelligence.trading.divergence_stack import (
+            DIVERGENCE_CONFIDENCE_NORM,
+            DIVERGENCE_WEIGHTS,
+        )
 
         plugin = self._plugin()
         rsi_val, macd_val, vol_val = 0.9, 0.9, 0.9

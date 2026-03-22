@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..utils import clamp, is_num
-from .confluence_weights import _TF_MINUTES, _proximity_decay, extract_trend_sign, _sign
+from .confluence_weights import _TF_MINUTES, _proximity_decay, _sign, extract_trend_sign
 
 
 def score_smc_bos_alignment(

@@ -283,6 +283,7 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
         rth_close_et -= timedelta(days=1)
     today_start = rth_open_et.astimezone(UTC)
     today_end = rth_close_et.astimezone(UTC)
+    now_utc = now_et.astimezone(UTC)
 
     # Cap to current time if market hasn't closed yet
     if now_utc < today_end:
@@ -517,7 +518,7 @@ Thresholds:
         # --- OHLCV COMPLETENESS ---
         missing_bars, chunk_count = check_ohlcv_completeness(conn, symbols)
         chunk_flag = "CRIT" if chunk_count > 5000 else "ok"
-        print(f"\nOHLCV COMPLETENESS")
+        print("\nOHLCV COMPLETENESS")
         print(f"  Chunk count: {chunk_count:,} {chunk_flag} (target < 200 after rebuild)")
         total_missing = sum(missing_bars.values())
         if total_missing > 0:
@@ -531,7 +532,7 @@ Thresholds:
         ic_scores, sig_frac = check_ic_health(conn)
         total_ic_plugins = len(ic_scores)
         sig_pct = sig_frac * 100
-        print(f"\nIC HEALTH")
+        print("\nIC HEALTH")
         print(f"  Plugins with IC computed: {total_ic_plugins}")
         print(f"  Significant (p<0.05, N>=30): {sig_pct:.0f}%")
 

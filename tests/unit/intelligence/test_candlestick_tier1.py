@@ -262,7 +262,7 @@ def _dark_cloud_cover(base: float = 100.0) -> dict:
     """Dark Cloud Cover: bullish pp, then c opens above pp_high and closes below pp midpoint."""
     pp_o, pp_c = base, base + 4.0
     pp_h = base + 4.2
-    midpoint = (pp_o + pp_c) / 2  # base + 2.0
+    # midpoint = (pp_o + pp_c) / 2 = base + 2.0 — used as reference in comments below
     return _frames(
         [
             # pp: bullish bar
@@ -296,7 +296,7 @@ def _piercing_line(base: float = 100.0) -> dict:
     """Piercing Line: bearish pp, then c opens below pp_low and closes above pp midpoint."""
     pp_o, pp_c = base + 4.0, base
     pp_l = base - 0.2
-    midpoint = (pp_o + pp_c) / 2  # base + 2.0
+    # midpoint = (pp_o + pp_c) / 2 = base + 2.0 — used as reference in comments below
     return _frames(
         [
             # pp: bearish bar

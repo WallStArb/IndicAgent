@@ -1,8 +1,7 @@
 """Unit tests for apply_tod_adjustment pure function."""
 from __future__ import annotations
 
-
-from src.intelligence.pipeline.tod_adjuster import apply_tod_adjustment, _TOD_SESSION_PRIORS
+from src.intelligence.pipeline.tod_adjuster import _TOD_SESSION_PRIORS, apply_tod_adjustment
 
 
 def make_signal(confidence=0.8, regime_type="trend"):

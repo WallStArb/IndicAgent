@@ -29,7 +29,7 @@ class TestOFIContinuation:
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         # Call compute_full 5 times to build up consecutive count
-        for i in range(4):
+        for _ in range(4):
             frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})
             plugin.compute_full(frames)
         frames = _make_frames(close, {"ofi_ewma_20": 150.0, "ofi_ewma_5": 120.0, "atr_14": 2.0})

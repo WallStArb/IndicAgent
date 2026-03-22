@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 import pytest_asyncio
+from unittest.mock import AsyncMock
 
 # Set test environment
 os.environ["INDICAGENT_ENV"] = "test"

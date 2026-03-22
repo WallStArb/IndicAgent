@@ -65,7 +65,7 @@ def test_rejects_when_shadow_worse(capsys):
 def test_prints_win_rates_in_rejection(capsys):
     prod = _make_signals(300, 0.40)
     shadow = _make_signals(300, 0.42)
-    code = run_promotion_test(prod, shadow)
+    run_promotion_test(prod, shadow)
     captured = capsys.readouterr().out
     assert "shadow_wr=" in captured
     assert "prod_wr=" in captured
