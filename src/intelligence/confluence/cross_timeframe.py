@@ -5,13 +5,6 @@ from typing import Any
 
 from ..plugins import InputSpec
 from ..utils import clamp
-from .confluence_weights import (
-    _TF_MINUTES,
-    _proximity_decay,  # noqa: F401 — re-exported for any existing callers
-    _sign,  # noqa: F401 — re-exported for any existing callers
-    extract_trend_sign,
-    get_recency_weight,
-)
 from .confluence_alignment import (
     score_i2_events,
     score_pattern_confirmation,
@@ -20,6 +13,13 @@ from .confluence_alignment import (
     score_trend_alignment,
 )
 from .confluence_smc import score_fvg_alignment, score_ob_alignment, score_smc_bos_alignment
+from .confluence_weights import (
+    _TF_MINUTES,
+    _proximity_decay,  # noqa: F401 — re-exported for any existing callers
+    _sign,  # noqa: F401 — re-exported for any existing callers
+    extract_trend_sign,
+    get_recency_weight,
+)
 
 
 @dataclass
@@ -44,8 +44,8 @@ class CrossTimeframeConfluencePlugin:
             "i6_fvg_tf_alignment",
             "i6_ob_tf_alignment",
             "i6_i2_event_score",
-            # Phase 45-01: ctf_* aliases for FVG/OB alignment — consistent naming
-            # with all other ctf_* fields consumed by I7 plugins via features.get()
+            # Aliases for i6_fvg/ob_tf_alignment using the ctf_* naming convention
+            # consistent with all other ctf_* fields consumed by I7 plugins.
             "ctf_fvg_alignment",
             "ctf_ob_alignment",
         }
@@ -88,8 +88,12 @@ class CrossTimeframeConfluencePlugin:
         regime_agreement = score_regime_agreement(features, other_intel, weights)
         pattern_confirmation = score_pattern_confirmation(features, other_intel)
         bos_alignment = score_smc_bos_alignment(features, other_intel, weights)
-        fvg_score, fvg_tf_contribs = score_fvg_alignment(features, other_intel, current_tf, cur_trend)
-        ob_score, ob_tf_contribs = score_ob_alignment(features, other_intel, current_tf, cur_trend)
+        fvg_score, fvg_tf_contribs = score_fvg_alignment(
+            features, other_intel, current_tf, cur_trend
+        )
+        ob_score, ob_tf_contribs = score_ob_alignment(
+            features, other_intel, current_tf, cur_trend
+        )
         i2_score = score_i2_events(features)
 
         # Weighted composite: positive = bullish confluence, negative = bearish
@@ -125,8 +129,8 @@ class CrossTimeframeConfluencePlugin:
             "i6_fvg_tf_alignment": fvg_score,
             "i6_ob_tf_alignment": ob_score,
             "i6_i2_event_score": round(i2_score, 4),
-            # Phase 45-01: ctf_* aliases carry same values as i6_fvg/ob_tf_alignment.
-            # i6_* names preserved for backward compat; ctf_* names for I7 plugin consistency.
+            # ctf_fvg/ob_alignment alias i6_fvg/ob_tf_alignment; i6_* keys preserved for
+            # backward compatibility with existing consumers of intelligence_features.
             "ctf_fvg_alignment": fvg_score,
             "ctf_ob_alignment": ob_score,
             # Per-TF FVG and OB contributions — Renaissance standard: every score is decomposable

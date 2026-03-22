@@ -6,12 +6,10 @@ compose_confidence(). Zero inline min()/max() clamping in plugin bodies.
 The contract: [CONF_FLOOR, CONF_CEIL] = [0.10, 0.95].
 Rounding: 4 decimal places for consistent ML feature representation.
 
-Phase 45 additions (D-03/D-06/D-07):
-- capture_confluence_features(): pure data capture, zero confidence modification.
-  Called just before compose_confidence() in I7 plugins.
-- ConfluenceWeightProfile: frozen dataclass with all 0.0 placeholder weights.
-  Phase 49 fills non-zero values once ML training produces learned weights.
-- FAMILY_PROFILES: 6-family registry mapping family names to weight profiles.
+capture_confluence_features() captures I6 ctf_* scores and exhaustion state into
+signal["_shadow"] for ML training — zero confidence modification.
+ConfluenceWeightProfile holds placeholder weights (all 0.0) for each plugin family.
+Phase 49 fills non-zero values once XGBoost/logistic training produces learned weights.
 """
 
 from __future__ import annotations
@@ -86,7 +84,7 @@ Family assignments (D-08):
                      DivergenceStack, DualDivergence, CrossAssetDivergence
 - "session"        → SessionExtremesSetup, FailedBreakout, ORB15, ORB30, PrevDayLevelTest,
                      GapAnalysisSetup, CandlestickPatternSetup
-- "exempt"         → DeltaExhaustion (IS the exhaustion detector — D-09)
+- "exempt_exhaustion" → DeltaExhaustion (IS the exhaustion detector — omit exhaustion fields)
 """
 
 
@@ -101,15 +99,8 @@ def capture_confluence_features(
     Returns a standardized dict stored as signal["_shadow"] in i7 JSONB.
     No confidence modification — pure data capture for Phase 49 ML.
 
-    Per D-03: This function does ZERO confidence modification.
-    Per D-07: All plugins emit the same structure.
-
-    The key mapping:
-      shadow["ctf_fvg_alignment"] ← features["i6_fvg_tf_alignment"]
-      shadow["ctf_ob_alignment"]  ← features["i6_ob_tf_alignment"]
-
-    Both also available as features["ctf_fvg_alignment"] / features["ctf_ob_alignment"]
-    after Plan 45-01 Task 2 exposes them from cross_timeframe.py.
+    Zero confidence modification — pure data capture for Phase 49 ML training.
+    All I7 plugins emit the same shadow structure regardless of family.
 
     Args:
         features:            frames["features"] dict from I7 plugin compute_full().
@@ -127,14 +118,8 @@ def capture_confluence_features(
         "ctf_trend_alignment": float(features.get("ctf_trend_alignment", 0.0)),
         "ctf_structure_alignment": float(features.get("ctf_structure_alignment", 0.0)),
         "ctf_regime_agreement": float(features.get("ctf_regime_agreement", 0.0)),
-        # ctf_fvg_alignment maps to i6_fvg_tf_alignment (existing I6 output key).
-        # Also available as ctf_fvg_alignment after Plan 45-01 Task 2.
-        "ctf_fvg_alignment": float(
-            features.get("ctf_fvg_alignment", features.get("i6_fvg_tf_alignment", 0.0))
-        ),
-        "ctf_ob_alignment": float(
-            features.get("ctf_ob_alignment", features.get("i6_ob_tf_alignment", 0.0))
-        ),
+        "ctf_fvg_alignment": float(features.get("ctf_fvg_alignment", 0.0)),
+        "ctf_ob_alignment": float(features.get("ctf_ob_alignment", 0.0)),
     }
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)
     if profile_name != "exempt_exhaustion":
