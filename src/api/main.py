@@ -4,6 +4,7 @@ IndicAgent FastAPI Main Application
 Clean, focused API for technical indicators and market data.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 import structlog
@@ -33,19 +34,6 @@ async def lifespan(app: FastAPI):
         dependencies.db_manager = DatabaseManager(settings.database_url)
         await dependencies.db_manager.initialize()
 
-        # Initialize Redis streams manager (kept through Plan 4 for non-SSE routes)
-        import redis.asyncio as redis
-
-        redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            db=settings.redis_db,
-            decode_responses=True,
-            max_connections=settings.redis_max_connections,
-        )
-        dependencies.redis_manager = RedisStreamsManager(redis_client)
-        await dependencies.redis_manager.start()
-
         # Initialize Kafka SSE broadcaster
         from src.core.kafka_utils import KafkaConsumerClient
         from src.core.stream_keys import (
@@ -63,7 +51,7 @@ async def lifespan(app: FastAPI):
 
         from .routes.sse import KafkaSSEBroadcaster
 
-        kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+        kafka_bootstrap = settings.kafka_bootstrap_servers
         env_name = settings.env_name or ""
 
         dependencies.kafka_broadcaster = KafkaSSEBroadcaster()
@@ -114,8 +102,6 @@ async def lifespan(app: FastAPI):
             await dependencies.db_manager.close()
         logger.info("Application shutdown complete")
 
-
-import asyncio  # noqa: E402 — needed inside lifespan above
 
 # Create FastAPI application
 app = FastAPI(
