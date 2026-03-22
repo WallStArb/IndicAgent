@@ -28,7 +28,7 @@ from typing import Any
 
 from ..cross_asset_features import resolve_eq_index_base
 from ..plugins import InputSpec
-from .confidence_utils import capture_confluence_features, compose_confidence
+from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
 
@@ -226,7 +226,7 @@ class CrossAssetDivergencePlugin:
             "setup_variant": setup_variant,
             "supporting_factors": supporting_factors,
         }
-        signal["_shadow"] = capture_confluence_features(
+        signal["_shadow"] = capture_signal_features(
             features, direction, "microstructure", signal["confidence"],
         )
         return signal

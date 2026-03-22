@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import capture_confluence_features, compose_confidence
+from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
@@ -253,7 +253,7 @@ class ORB30Plugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
-        signal["_shadow"] = capture_confluence_features(
+        signal["_shadow"] = capture_signal_features(
             features, direction, "session", signal["confidence"],
         )
         return signal

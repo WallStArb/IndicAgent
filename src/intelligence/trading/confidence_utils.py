@@ -6,8 +6,10 @@ compose_confidence(). Zero inline min()/max() clamping in plugin bodies.
 The contract: [CONF_FLOOR, CONF_CEIL] = [0.10, 0.95].
 Rounding: 4 decimal places for consistent ML feature representation.
 
-capture_confluence_features() captures I6 ctf_* scores and exhaustion state into
+capture_signal_features() captures I4 macro context + I6 ctf_* scores + exhaustion state into
 signal["_shadow"] for ML training — zero confidence modification.
+Shadow dict has 15 keys: 4 I4 macro context (vix_level, vix_z, eq_spread_z,
+eq_pairs_confirming) + 7 I6 confluence + exhaustion (3 fields).
 ConfluenceWeightProfile holds placeholder weights (all 0.0) for each plugin family.
 Phase 49 fills non-zero values once XGBoost/logistic training produces learned weights.
 """
@@ -88,13 +90,13 @@ Family assignments (D-08):
 """
 
 
-def capture_confluence_features(
+def capture_signal_features(
     features: dict[str, Any],
     direction: int,
     profile_name: str,
     existing_confidence: float,
 ) -> dict[str, Any]:
-    """Capture confluence + exhaustion feature snapshot for shadow logging.
+    """Capture signal features snapshot for shadow logging.
 
     Returns a standardized dict stored as signal["_shadow"] in i7 JSONB.
     No confidence modification — pure data capture for Phase 49 ML.
@@ -109,7 +111,7 @@ def capture_confluence_features(
         existing_confidence: The plugin's current confidence value (unchanged by this call).
 
     Returns:
-        Shadow dict with 15 keys (11 original + 4 Phase 46 VIX/EQ_INDEX fields).
+        Shadow dict with 15 keys: 4 I4 macro context + 7 I6 confluence + 3 exhaustion fields.
     """
     shadow: dict[str, Any] = {
         "profile": profile_name,
@@ -120,12 +122,12 @@ def capture_confluence_features(
         "ctf_regime_agreement": float(features.get("ctf_regime_agreement", 0.0)),
         "ctf_fvg_alignment": float(features.get("ctf_fvg_alignment", 0.0)),
         "ctf_ob_alignment": float(features.get("ctf_ob_alignment", 0.0)),
-        # Phase 46: VIX regime + EQ_INDEX sector rotation raw measurements.
+        # I4 macro context (Phase 46.1): VIX regime + EQ_INDEX sector rotation.
         # Per D-06: None means data unavailable — never substitute 0.0 (valid z-score value).
-        "ctf_vix_level": features.get("ctf_vix_level"),  # float | None
-        "ctf_vix_z": features.get("ctf_vix_z"),  # float | None
-        "ctf_eq_spread_z": features.get("ctf_eq_spread_z"),  # float | None
-        "ctf_eq_pairs_confirming": features.get("ctf_eq_pairs_confirming"),  # float | None
+        "vix_level": features.get("vix_level"),  # float | None
+        "vix_z": features.get("vix_z"),  # float | None
+        "eq_spread_z": features.get("eq_spread_z"),  # float | None
+        "eq_pairs_confirming": features.get("eq_pairs_confirming"),  # float | None
     }
     # Exhaustion fields — omit for plugins that ARE the exhaustion detector (D-09)
     if profile_name != "exempt_exhaustion":
