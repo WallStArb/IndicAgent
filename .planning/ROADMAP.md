@@ -615,7 +615,7 @@ Plans:
 - [x] 44.3-01-PLAN.md — DB migration + FeatureWriterService simplification: single-buffer atomic INSERT (PIPE-08, PIPE-09)
 - [x] 44.3-02-PLAN.md — LLMWriterService i8 UPSERT wiring: subscribe intelligence.i8, buffer, UPDATE intelligence_features (PIPE-09)
 - [x] 44.3-03-PLAN.md — FeaturePipelineService live OHLCV writes + post-cutover regression (PIPE-08, PIPE-10)
-- [ ] 44.3-04-PLAN.md — SSE broadcaster rewire: intelligence.record → dashboard signal_scorecard + retire intelligence.i7 topic (PIPE-08)
+- [x] 44.3-04-PLAN.md — SSE broadcaster rewire: intelligence.record → dashboard signal_scorecard + retire intelligence.i7 topic (PIPE-08)
 
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
 **Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation. Also fixes the two remaining infrastructure pain points: OHLCV chunk fragmentation and lifecycle O(N) scan.
