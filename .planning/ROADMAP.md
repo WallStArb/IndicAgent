@@ -715,7 +715,11 @@ Plans:
   3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
   4. `trad_DualDivergence` `IS_SHADOW` flag is removed; the plugin fires live signals that appear in `signal_ledger` with `is_shadow = FALSE` — N >= 50 resolved signals with win rate > 50% is confirmed before flag removal.
   5. `roll_premium_pct` (INTEL-04) is populated in `intelligence_features` for futures symbols during roll windows — `SELECT count(*) FROM intelligence_features WHERE roll_premium_pct IS NOT NULL AND ts > now() - interval '7 days'` returns > 0 after a roll event.
-**Plans**: TBD (plan during Phase 46)
+**Plans:** 3 plans
+Plans:
+- [ ] 47-01-PLAN.md — Regime gate Settings migration + shadow stats monitoring (SHADOW-01, SHADOW-04)
+- [ ] 47-02-PLAN.md — Roll detection bug fix + calendar extension + INTEL-04 migration (SHADOW-03, INTEL-04)
+- [ ] 47-03-PLAN.md — Cross-asset + roll monitor graduation cleanup (SHADOW-02, SHADOW-03)
 
 ### Phase 48: Auth + External Access
 **Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer, and keyset pagination enables efficient large features export.
