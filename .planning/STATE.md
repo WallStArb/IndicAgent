@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
 status: unknown
-stopped_at: Completed 46.1-01-PLAN.md
-last_updated: "2026-03-22T07:00:05.070Z"
+stopped_at: Completed 46.1-02-PLAN.md
+last_updated: "2026-03-22T07:07:20Z"
 progress:
   total_phases: 16
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 52
-  completed_plans: 51
+  completed_plans: 52
 ---
 
 # Project State
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 
 ## Current Position
 
-Phase: 46.1 (vix-cross-asset-to-i4) — EXECUTING
-Plan: 2 of 2
+Phase: 46.1 (vix-cross-asset-to-i4) — COMPLETE
+Plan: 2 of 2 (both plans done)
 
 ## Performance Metrics
 
@@ -145,6 +145,12 @@ Plan: 2 of 2
 - **Phase 45 seventh**: Auth before ML exposure — external access secured before ML scores are visible externally
 - **Phase 46 last**: ML model requires clean data (39), fast feature writes (40), and a stable auth layer (45) before shadow scores become externally visible
 
+### Phase 46.1 Decisions (2026-03-22)
+
+- **VIX_REGIME_TF="1h" constant**: All trading TFs read VIX from fixed 1h window — same market moment produces identical vix_z regardless of triggering bar TF. 20×1h bars = session-scale fear elevation window.
+- **Shadow dict keys match I4Context field names**: `vix_level/vix_z/eq_spread_z/eq_pairs_confirming` (not `ctf_*` prefixed) — ML training matrix in Phase 49 can JOIN shadow dict to I4Context without name aliasing.
+- **Pre-commit hook exclusion extended**: Added `Profile|Weight` to class naming exclusion pattern for `ConfluenceWeightProfile` (frozen dataclass, not a plugin).
+
 ### Phase 41-01 Decisions (2026-03-20)
 
 - **FVG/OB cross-TF alignment scoring**: `_proximity_decay()` pure function (1.0 within 1 ATR, linear to 0 at 3 ATR); higher-TF-only filter (cur_tf excluded); TF authority = raw _TF_MINUTES minutes, normalized; per-TF contributions spread into i6 JSONB return dict as `i6_fvg_tf_{tf}` keys
@@ -175,7 +181,7 @@ Recent additions (2026-03-19):
 
 ## Session Continuity
 
-Last session: 2026-03-22T07:00:05.066Z
-Stopped at: Completed 46.1-01-PLAN.md
+Last session: 2026-03-22T07:07:20Z
+Stopped at: Completed 46.1-02-PLAN.md (Phase 46.1 fully complete)
 Resume file: None
-Next action: Run `/gsd:discuss-phase 44` to plan Phase 44 (I7 DAG Refactor)
+Next action: Phase 47 (Shadow Mode Graduation) — context at .planning/phases/47-shadow-mode-graduation/47-CONTEXT.md
