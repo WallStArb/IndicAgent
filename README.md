@@ -24,15 +24,20 @@ Signals don't fire on a single indicator. The CIS scorer requires cross-tier agr
 
 ## Design Principles
 
-Every architectural decision in this platform maps back to five principles:
+Our platform is built on 8 foundational principles that ensure institutional-grade reliability, modularity, and operational simplicity.
 
-| | |
-|---|---|
-| **Instrument everything** | Every tick, bar, indicator value, signal, LLM call, and lifecycle outcome is captured. If it happened, it's measurable. Storage is cheaper than missing the pattern. |
-| **Signal with evidence** | No signal fires on a single indicator. CIS requires cross-tier agreement from at least 3 of 6 independent evidence buckets. A strong momentum reading cannot override a conflicting regime state. |
-| **Learn from every outcome** | Every signal — winner, loser, rejected counterfactual — lands in the feature store with its full I1–I8 context vector. The system trains on what actually happened, not what was expected. |
-| **Degrade gracefully, adapt automatically** | The pipeline monitors its own feature distributions and signal performance in real time. When drift is detected, scoring is adjusted without restart or code change. The system self-corrects. |
-| **Separation of Concerns** | The platform is built as **event-driven microservices** — each of the 8 services owns exactly one responsibility and communicates exclusively through the Redpanda event stream. No service calls another directly. Data collection, indicator computation, regime classification, signal generation, lifecycle tracking, persistence, AI narrative, and API delivery are all independently deployable processes. Restart one, the rest continue unaffected. Scale one, no other service changes. Replace one, the stream contract is the only interface to honour. SoC is not a coding guideline here — it is enforced at the process boundary. |
+**→ [Read the full Foundational Principles](docs/architecture/principles.md)**
+
+| Principle | Summary |
+| :--- | :--- |
+| **Plugin-Native Shell** | Modular intelligence: the system is an empty container for self-describing plugins. |
+| **Event-Driven Microservices** | No direct service calls; all communication is via durable, replayable Redpanda streams. |
+| **Hot Path Isolation** | Real-time pipelines never touch the DB directly; persistence is fully async. |
+| **Topological Orchestration** | Plugin dependencies are declared; execution order is derived automatically (DAG). |
+| **Incremental-First** | $O(1)$ computation per bar via `compute_next()` for sub-ms execution. |
+| **Data Contracts Over APIs** | Typed schemas (`IntelligenceEvent`) are the only contract; logic is opaque. |
+| **Institutional Rigor** | Evidence-graded signals require multi-bucket (CIS) consensus. |
+| **Self-Correcting Pipeline** | Live drift detection and CUSUM feedback loops ensure continuous integrity. |
 
 ---
 
