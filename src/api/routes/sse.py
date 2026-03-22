@@ -368,7 +368,11 @@ async def sse_events(
             # ── Live: await messages from broadcaster fan-out ──
             while True:
                 if await request.is_disconnected():
-                    logger.info("SSE client is_disconnected=True, breaking", symbols=symbols, timeframe=timeframe)
+                    logger.info(
+                        "SSE client is_disconnected=True, breaking",
+                        symbols=symbols,
+                        timeframe=timeframe,
+                    )
                     break
 
                 try:

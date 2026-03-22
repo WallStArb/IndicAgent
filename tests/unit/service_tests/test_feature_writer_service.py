@@ -93,9 +93,8 @@ def _make_valid_bar_intelligence_record():
 
 def test_parse_intelligence_record_returns_bar_intelligence_record():
     """Valid BarIntelligenceRecord JSON returns BarIntelligenceRecord instance."""
-    from src.intelligence.schemas import BarIntelligenceRecord
-
     from services.feature_writer_service import FeatureWriterService
+    from src.intelligence.schemas import BarIntelligenceRecord
 
     svc = FeatureWriterService.__new__(FeatureWriterService)
     svc.logger = MagicMock()
@@ -147,7 +146,7 @@ def test_record_to_insert_params_serializes_ranked_signals_to_json():
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    # i7 column is at index 14 (15th column: ts,sym,tf,platform,source,schema_ver,bar,i1,i2,i3,i4,i5,smc,i6,i7)
+    # i7 at index 14 (15th col: ts,sym,tf,platform,source,schema_ver,bar,i1,i2,i3,i4,i5,smc,i6,i7)
     i7_value = params[14]
     assert isinstance(i7_value, str), "i7 must be a JSON string for asyncpg"
     parsed = json.loads(i7_value)

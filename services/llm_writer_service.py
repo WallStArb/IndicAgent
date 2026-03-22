@@ -495,7 +495,9 @@ class LLMWriterService:
         try:
             called_at = _parse_ts(parsed["called_at"])
         except (ValueError, TypeError) as e:
-            self.logger.warning("Failed to parse called_at timestamp", error=str(e), value=parsed["called_at"])
+            self.logger.warning(
+                "Failed to parse called_at timestamp", error=str(e), value=parsed["called_at"]
+            )
             called_at = datetime.now(tz=UTC)
 
         return (
@@ -567,7 +569,11 @@ class LLMWriterService:
                 try:
                     outcome_at = _parse_ts(parsed["outcome_at"]) if parsed["outcome_at"] else None
                 except (ValueError, TypeError) as e:
-                    self.logger.warning("Failed to parse outcome_at timestamp", error=str(e), value=parsed["outcome_at"])
+                    self.logger.warning(
+                        "Failed to parse outcome_at timestamp",
+                        error=str(e),
+                        value=parsed["outcome_at"],
+                    )
                     outcome_at = None
                 params = (
                     parsed["signal_id"],  # $1
