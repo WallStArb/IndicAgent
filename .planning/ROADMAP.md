@@ -699,7 +699,7 @@ Plans:
 **Goal:** Move VIX regime and EQ cross-asset context from I6 pass-through to two new I4 plugins, fix per-TF VIX z-score data quality defect, rename capture_confluence_features to capture_signal_features
 **Requirements**: GAP-46.1-FOUNDATION, GAP-46.1-INTEGRATION
 **Depends on:** Phase 46
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 46.1-01-PLAN.md — Foundation: CROSS_ASSET_VALID_TFS consolidation, I4Context +4/I6Confluence -4, VIXRegimePlugin, CrossAssetContextPlugin, TIER_I4 registration
