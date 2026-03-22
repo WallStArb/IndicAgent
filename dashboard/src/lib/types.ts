@@ -294,15 +294,15 @@ export interface SignalData {
 // ── I7 Signal Scorecard (all_ranked from signal_generator_service) ──
 
 export interface RankedSignal {
-  setup_type: string;
-  confidence: number;
+  signal_id: string;
+  plugin: string;
   direction: number;        // 1 = long, -1 = short, 0 = none
+  raw_confidence: number;
+  calibrated_confidence: number;
   regime_eligible: boolean;
-  suppression_reason: string | null;
-  entry: number | null;
-  stop: number | null;
-  target: number | null;
-  composite_rank: number;
+  quality_score: number;
+  tod_multiplier: number;
+  adjusted_rank: number;
   is_winner: boolean;
 }
 
