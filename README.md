@@ -8,7 +8,11 @@
 
 **IndicAgent is a high-frequency, institutional-grade market intelligence platform engineered with the architectural rigor of a top-tier quantitative hedge fund.** We apply rigorous engineering principles—event-driven microservices, dependency-aware DAG orchestration, and sub-millisecond hot-path isolation—to transform raw market data into evidence-graded trading signals. 
 
-Designed for resilience, reproducibility, and massive scale, our pipeline processes 123+ plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
+IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, and drift-corrected — in under 10ms. 123+ plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
+
+Signals don't fire on a single indicator. Our CIS (Confluence Intelligence Score) requires cross-tier agreement from at least 3 of 6 independent evidence buckets; regime conflicts veto, and signals lose confidence explicitly as they age. Every winner and every rejected counterfactual lands in the feature store with its full I1–I8 context, ensuring the system accumulates its own high-fidelity labeled training dataset with every bar it processes.
+
+Designed for resilience, reproducibility, and massive scale, IndicAgent enables you to build institutional-grade intelligence that is as self-correcting as it is transparent.
 
 ---
 
