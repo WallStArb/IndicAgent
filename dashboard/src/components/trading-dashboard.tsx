@@ -442,18 +442,15 @@ function SymbolCard({
   const hasSignal = activeSignal !== null;
   const confidence = activeSignal?.confidence ?? null;
 
-  // Bar time from intelligence snapshot (most stable "last computed" indicator)
+  // Bar close time for active TF — used for staleness indicator
   const barTime = intel?.barTime ?? indicators?.timestamp ?? null;
-  // Age is measured from bar CLOSE (open + tf period), not open — otherwise a fresh 5m bar
-  // at 13:15 shows "7m ago" at 13:22 when the close was only 2m ago.
   const tfPeriodMs = (TF_OFFSETS[activeTf] ?? 60) * 1000;
   const barCloseMs = barTime ? new Date(barTime).getTime() + tfPeriodMs : null;
-  const barAgeMs = barCloseMs ? Date.now() - barCloseMs : null;
-  const barIsStale = barAgeMs !== null && barAgeMs > tfPeriodMs; // >1 full period past close
-  const fmtHHMM = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  const barOpenStr = barTime ? fmtHHMM(new Date(barTime).getTime()) : null;
-  const barCloseStr = barCloseMs ? fmtHHMM(barCloseMs) : null;
-  const barOhlcv = intel?.barOhlcv ?? null;
+  const barIsStale = barCloseMs !== null && Date.now() - barCloseMs > tfPeriodMs;
+  const barCloseStr = barCloseMs
+    ? new Date(barCloseMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+    : null;
+
 
   return (
     <div
@@ -468,17 +465,35 @@ function SymbolCard({
         transition: "box-shadow 0.5s ease",
       }}
     >
-      {/* Header: name + symbol + contract + signal badge */}
-      <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5 bg-[var(--bg-elevated)]">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
+      {/* Header: name + symbol | TF pills + signal badge */}
+      <div className="flex items-center justify-between px-3 pt-1.5 pb-1 bg-[var(--bg-elevated)]">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight truncate">
             {displayName}
           </span>
-          <span className="text-[0.6rem] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+          <span className="text-[0.6rem] font-semibold text-[var(--text-secondary)] uppercase tracking-wider shrink-0">
             {data.symbol}
           </span>
+          <span className="text-[0.55rem] font-medium text-[var(--text-muted)] shrink-0">
+            {contract}
+          </span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2 shrink-0">
+          {barCloseStr && (
+            <span
+              className="text-[0.5rem] font-data tabular-nums"
+              style={{ color: barIsStale ? "var(--red)" : "var(--text-secondary)" }}
+            >
+              {barCloseStr}{barIsStale && " ·stale"}
+            </span>
+          )}
+          <TimeframeMatrix
+            tfSignals={data.tfSignals}
+            confluence={confluence}
+            activeTf={activeTf}
+            onSelectTf={(tf) => setActiveTf(tf)}
+            compact
+          />
           {hasSignal && (
             <div className="flex items-center gap-1">
               <span
@@ -493,23 +508,13 @@ function SymbolCard({
                   <span className="ml-1 opacity-75">{Math.round(confidence * 100)}%</span>
                 )}
               </span>
-              {activeSignal.signal_computed_at && (
-                <span className="text-[0.5rem] font-data text-[var(--text-muted)] opacity-70">
-                  {fmtTimeHMS(activeSignal.signal_computed_at)}
-                </span>
-              )}
             </div>
           )}
-          <span className="text-[0.55rem] font-medium text-[var(--text-muted)] bg-[var(--bg-base)] px-1.5 py-0.5 rounded">
-            {contract}
-          </span>
         </div>
       </div>
 
-      {/* L0: Price hero — bid/ask, bar details, range bars */}
-      <div className="bg-[var(--bg-elevated)] border-b border-[var(--border-subtle)]">
-        <PriceHero data={data} activeTf={activeTf} />
-      </div>
+      {/* Price hero — single inline row */}
+      <PriceHero data={data} activeTf={activeTf} />
 
       {/* L0: High-confidence signal banner */}
       <SignalBanner signal={activeSignal} onDrillDown={() => setIsDrilling(true)} />
@@ -517,66 +522,6 @@ function SymbolCard({
       {/* L0: Elevated AI narrative (only when high confidence + fresh) */}
       <NarrativeElevated narrative={narrative} signal={activeSignal} />
 
-      {/* L1: Cross-TF matrix — clicking a TF switches card view, not sidebar */}
-      <div className="flex items-center justify-between px-2 py-0.5 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
-        {/* Bar time / lag indicator on left */}
-        {barCloseStr && (
-          <div className="group relative flex items-center gap-1.5 cursor-default">
-            <span className="text-[0.55rem] text-[var(--text-muted)] uppercase tracking-wider">
-              {activeTf} bar
-            </span>
-            <span
-              className="text-[0.55rem] font-data"
-              style={{ color: barIsStale ? "var(--red)" : "var(--text-muted)" }}
-            >
-              {barCloseStr}
-            </span>
-            {barIsStale && (
-              <span className="text-[0.5rem] text-[var(--red)] opacity-75">
-                {barAgeMs !== null ? `${Math.round(barAgeMs / 60000)}m ago` : "stale"}
-              </span>
-            )}
-            {/* OHLCV tooltip */}
-            {barOhlcv && (
-              <div
-                className="pointer-events-none absolute bottom-full left-0 mb-2 z-[9999]
-                           opacity-0 group-hover:opacity-100 transition-opacity duration-150
-                           rounded border shadow-xl px-2.5 py-2 flex flex-col gap-1 min-w-[10rem]"
-                style={{ backgroundColor: "var(--bg-base)", borderColor: "var(--border-default)" }}
-              >
-                <span className="text-[0.5rem] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">
-                  {activeTf} bar · {barOpenStr} → {barCloseStr}
-                </span>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                  {(["open", "high", "low", "close"] as const).map((k) => (
-                    <div key={k} className="flex justify-between gap-2">
-                      <span className="text-[0.5rem] text-[var(--text-muted)] uppercase">{k}</span>
-                      <span className="text-[0.5rem] font-data" style={{ color: "var(--text-primary)" }}>
-                        {barOhlcv[k].toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-between gap-2 border-t pt-1" style={{ borderColor: "var(--border-subtle)" }}>
-                  <span className="text-[0.5rem] text-[var(--text-muted)] uppercase">vol</span>
-                  <span className="text-[0.5rem] font-data" style={{ color: "var(--text-secondary)" }}>
-                    {barOhlcv.volume.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Timeframe pills on right */}
-        <TimeframeMatrix
-          tfSignals={data.tfSignals}
-          confluence={confluence}
-          activeTf={activeTf}
-          onSelectTf={(tf) => setActiveTf(tf)}
-          onDrillDown={() => setIsDrilling(true)}
-        />
-      </div>
 
       {/* L0: Regime ambiance wraps the tier stack */}
       <RegimeAmbiance context={context}>
