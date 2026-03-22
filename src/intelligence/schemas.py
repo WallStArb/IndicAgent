@@ -679,7 +679,7 @@ class I6Confluence(BaseModel):
     """I6 cross-timeframe confluence outputs.
 
     Plugins:
-    - CrossTimeframeConfluence (10 fields)
+    - CrossTimeframeConfluence (16 fields)
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -704,6 +704,14 @@ class I6Confluence(BaseModel):
 
     # I2 event signal score
     i6_i2_event_score: float | None = None
+
+    # Phase 46: VIX regime + EQ_INDEX sector rotation — raw measurements for Phase 49 ML.
+    # Per D-01: raw values, NOT normalized [0,1] scores. Phase 49 learns the transformation.
+    # Per D-02: independent columns, NOT folded into ctf_score.
+    ctf_vix_level: float | None = None       # raw VIX close level; all symbols
+    ctf_vix_z: float | None = None           # VIX z-score vs 20-bar rolling mean; all symbols
+    ctf_eq_spread_z: float | None = None     # dominant EQ pair spread z-score; EQ_INDEX only
+    ctf_eq_pairs_confirming: float | None = None  # 0.0-2.0 confirming pairs; EQ_INDEX only
 
 
 class IntelligenceEvent(BaseModel):
