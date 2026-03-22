@@ -17,7 +17,6 @@ Status: Current ✅
 from __future__ import annotations
 
 import asyncio
-import math
 import random
 import signal
 import sys
@@ -33,9 +32,11 @@ sys.path.insert(0, str(project_root))
 
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import structlog
 from prometheus_client import start_http_server
 
+from src.config.contracts import derive_roll_chain, get_roll_window
 from src.config.settings import Settings, get_active_contracts
 from src.core.kafka_utils import KafkaProducerClient
 from src.core.stream_keys import (
@@ -62,26 +63,27 @@ _ROLL_MIN_WINDOW = 20
 
 
 class RollMonitor:
-    """Volume-based futures roll detection with statistical validation.
+    """Calendar-driven futures roll detection with volume z-score confirmation.
 
-    Segmented thresholds (Renaissance: segment relentlessly):
-    - Equity index (ES/NQ/RTY/YM): 1.2 — high liquidity, sharp transitions
-    - Energy/metals (CL/GC/SI/HG): 1.5 — gradual shifts
-    - Rates (ZN/ZF/ZB/ZT): 1.4 — moderate liquidity
+    Algorithm (D-17, Phase 47):
+    1. Track per-base-symbol rolling window of current bar volumes
+    2. On each bar: check if today is inside the contract roll window
+       (get_roll_window() from contracts.py — calendar-driven, not volume-ratio-driven)
+    3. If inside roll window AND window has >= 20 bars:
+       compute z-score of current volume vs rolling mean/std
+    4. If z_score < -2.0 (volume DROP of 2+ std devs): increment confirmation counter
+    5. After 3 consecutive confirming bars: fire roll confirmed
+    6. 30-minute cooldown per base symbol after any confirmed roll
+    7. Time-of-day gating adjusts detection window by ET session
+    8. Paper account detection skips unavailable contracts
 
-    Algorithm:
-    1. Track per-base-symbol rolling window of (current_vol, next_vol) pairs
-    2. When window has >= 20 bars: compute volume ratio and z-score
-    3. If ratio > threshold AND z-score > 2.0: increment confirmation counter
-    4. After 3 consecutive confirming bars: fire roll confirmed
-    5. 30-minute cooldown per base symbol after any confirmed roll
-    6. Time-of-day gating adjusts thresholds by ET session
-    7. Paper account detection skips unavailable contracts
+    D-16 fix: update_volume() takes only current_vol (old two-vol ratio logic removed).
+    D-19: PAPER_SKIP_CONTRACTS guard preserved for paper account compatibility.
 
-    Feature flag ROLL_MONITOR_ENABLED=false: all methods are no-ops.
+    Feature flag ROLL_MONITOR_ENABLED=false: check_roll always returns False.
     """
 
-    # Segmented volume ratio thresholds
+    # Segmented volume ratio thresholds (kept for get_threshold() backward compat)
     VOLUME_THRESHOLDS: dict[str, float] = {
         "ES": 1.2, "NQ": 1.2, "RTY": 1.2, "YM": 1.2,   # equity index
         "CL": 1.5, "GC": 1.5, "SI": 1.5, "HG": 1.5,    # energy/metals
@@ -105,11 +107,17 @@ class RollMonitor:
         self._tod_gated = settings.roll_time_of_day_gated
 
         # Per-base-symbol rolling state
-        # base symbol -> deque of (current_vol, next_vol) pairs
+        # base symbol -> deque of float volumes (single value per bar — D-16 fix)
         self._volume_windows: dict[str, deque] = {}
-        self._confirmation_count: dict[str, int] = defaultdict(int)
+        # Per-base-symbol consecutive confirmation count for z-score < -2.0 bars
+        self._confirmation_counts: dict[str, int] = defaultdict(int)
         self._cooldown_until: dict[str, datetime] = {}
         self._postroll_remaining: dict[str, int] = {}
+
+    @property
+    def _confirmation_count(self) -> dict[str, int]:
+        """Backward-compat alias for _confirmation_counts (used in tests)."""
+        return self._confirmation_counts
 
     # ------------------------------------------------------------------
     # Paper account detection
@@ -161,11 +169,17 @@ class RollMonitor:
     # Volume window management
     # ------------------------------------------------------------------
 
-    def update_volume(self, base_symbol: str, current_vol: float, next_vol: float) -> None:
-        """Append (current_vol, next_vol) pair to rolling window."""
+    def update_volume(self, base_symbol: str, current_vol: float) -> None:
+        """Append current bar volume to rolling window.
+
+        D-16 fix: signature changed from (base_symbol, current_vol, next_vol) to
+        (base_symbol, current_vol). The old ratio logic used next_vol but the call
+        site always passed the same value for both, producing ratio=1.0 always.
+        The new z-score algorithm needs only the current bar's volume.
+        """
         if base_symbol not in self._volume_windows:
             self._volume_windows[base_symbol] = deque(maxlen=self._window_size)
-        self._volume_windows[base_symbol].append((current_vol, next_vol))
+        self._volume_windows[base_symbol].append(current_vol)
 
     # ------------------------------------------------------------------
     # Roll detection logic
@@ -174,11 +188,30 @@ class RollMonitor:
     def check_roll(self, base_symbol: str, utc_now: datetime) -> bool:
         """Check if roll conditions are met for base_symbol.
 
-        Returns True on confirmed roll (after N consecutive confirmation bars).
-        Side-effects: increments/resets _confirmation_count; sets _cooldown_until.
+        Calendar + z-score algorithm (D-17, Phase 47):
+        1. Gate on calendar roll window: get_roll_window() must return non-None
+        2. Require >= 20 bars in volume window
+        3. Compute z-score of current bar volume vs rolling history
+        4. If z_score < -2.0 (volume DROP): increment confirmation counter
+        5. Return True after N consecutive confirming bars; reset and cooldown
+
+        Returns True on confirmed roll.
+        Side-effects: increments/resets _confirmation_counts; sets _cooldown_until.
         Caller must schedule _on_roll_confirmed() when this returns True.
         """
         if not self._enabled:
+            return False
+
+        # Calendar gate: only detect during known roll windows
+        try:
+            roll_window = get_roll_window(base_symbol, utc_now.date())
+        except ValueError:
+            # base_symbol not in FUTURES_ROLL_CYCLES — no roll detection possible
+            return False
+
+        if roll_window is None:
+            # Outside any roll window — reset confirmation streak
+            self._confirmation_counts[base_symbol] = 0
             return False
 
         window = self._volume_windows.get(base_symbol)
@@ -190,49 +223,43 @@ class RollMonitor:
         if cooldown_until is not None and utc_now < cooldown_until:
             return False
 
-        # Time-of-day gating
-        threshold = self.get_threshold(base_symbol)
-        adj_threshold = self._apply_tod_adjustment(threshold, utc_now)
-        if adj_threshold is None:
+        # Time-of-day gating (optional)
+        if self._tod_gated:
+            threshold = self.get_threshold(base_symbol)
+            adj_threshold = self._apply_tod_adjustment(threshold, utc_now)
+            if adj_threshold is None:
+                return False
+
+        # Z-score: detect volume DROP below 2 std devs (front contract losing volume to back)
+        arr = np.array(window)
+        mean_vol = arr[:-1].mean()
+        std_vol = arr[:-1].std()
+        if std_vol < 1e-9:
+            # No variation in history — cannot compute meaningful z-score
             return False
 
-        # Compute statistics across the window
-        next_vols = [nv for _, nv in window]
-        n = len(next_vols)
-        mean_next = sum(next_vols) / n
-        variance = sum((v - mean_next) ** 2 for v in next_vols) / n
-        std_next = math.sqrt(variance) if variance > 0 else 0.0
+        current_vol = arr[-1]
+        z_score = (current_vol - mean_vol) / std_vol
 
-        # Latest bar values
-        current_vol, next_vol = window[-1]
-        safe_current = max(current_vol, 1.0)
-        ratio = next_vol / safe_current
-
-        # Z-score: how many std-devs above the rolling mean is the latest next_vol?
-        if std_next > 0:
-            z_score = (next_vol - mean_next) / std_next
+        if z_score < -2.0:
+            self._confirmation_counts[base_symbol] = (
+                self._confirmation_counts.get(base_symbol, 0) + 1
+            )
         else:
-            z_score = 0.0
+            self._confirmation_counts[base_symbol] = 0
 
-        # Both conditions must be met: ratio above threshold AND statistically significant
-        candidate = ratio >= adj_threshold and z_score > 2.0
-
-        if candidate:
-            self._confirmation_count[base_symbol] += 1
-        else:
-            self._confirmation_count[base_symbol] = 0
-
-        if self._confirmation_count[base_symbol] >= self._confirmation_required:
+        if self._confirmation_counts.get(base_symbol, 0) >= self._confirmation_required:
             # Confirmed roll — reset counter and start cooldown
-            self._confirmation_count[base_symbol] = 0
+            self._confirmation_counts[base_symbol] = 0
             self._cooldown_until[base_symbol] = utc_now + timedelta(
                 minutes=self._cooldown_minutes
             )
             logger.info(
                 "Roll detected",
                 base_symbol=base_symbol,
-                ratio=round(ratio, 3),
                 z_score=round(z_score, 3),
+                roll_window_start=str(roll_window[0]),
+                roll_window_end=str(roll_window[1]),
             )
             return True
 
@@ -246,25 +273,31 @@ class RollMonitor:
         self,
         base_symbol: str,
         old_symbol: str,
-        new_symbol: str,
-        roll_gap: float,
-        roll_direction: str,
+        roll_gap: float = 0.0,
+        roll_direction: str = "unknown",
         db_manager=None,
         kafka_producer=None,
         env_name: str = "",
     ) -> None:
         """Publish roll event to Kafka and update contract_metadata atomically.
 
+        D-20: new_symbol is now derived from derive_roll_chain(base_symbol) — the caller
+        no longer needs to pass it. Price comparison is unavailable at detection time,
+        so roll_gap defaults to 0.0 and roll_direction defaults to "unknown".
+
         Args:
             base_symbol: Base futures symbol (e.g. "ES")
             old_symbol:  Front-month contract being replaced (e.g. "ESM6")
-            new_symbol:  New front-month contract (e.g. "ESU6")
-            roll_gap:    Absolute price gap at roll boundary
-            roll_direction: "up" or "down"
+            roll_gap:    Price gap at roll boundary (0.0 when unknown at detection time)
+            roll_direction: "up", "down", or "unknown"
             db_manager:  DatabaseManager instance (optional — skipped if None)
             kafka_producer: KafkaProducerClient instance (optional — skipped if None)
             env_name:    Kafka env prefix
         """
+        # D-20: Derive new_symbol from roll chain — no next-contract subscription needed
+        chain = derive_roll_chain(base_symbol)
+        new_symbol = chain[0]["roll_to"] if chain else old_symbol
+
         detected_at = datetime.now(UTC)
         payload = {
             "event_type": "roll",
@@ -273,6 +306,7 @@ class RollMonitor:
             "new_symbol": new_symbol,
             "roll_gap": roll_gap,
             "roll_direction": roll_direction,
+            "roll_premium_pct": roll_gap,  # INTEL-04: roll_premium_pct flows through payload
             "detected_at": detected_at.isoformat(),
         }
 
@@ -566,10 +600,10 @@ class TwsDaemon:
         if self._roll_monitor.is_enabled:
             bar_utc = (bar_minute if bar_minute.tzinfo is not None
                        else bar_minute.replace(tzinfo=UTC))
-            self._roll_monitor.update_volume(symbol, float(state["volume"]), float(state["volume"]))
+            self._roll_monitor.update_volume(symbol, float(state["volume"]))
             if self._roll_monitor.check_roll(symbol, bar_utc):
                 await self._roll_monitor._on_roll_confirmed(
-                    base_symbol=symbol, old_symbol=symbol, new_symbol=symbol,
+                    base_symbol=symbol, old_symbol=symbol,
                     roll_gap=0.0, roll_direction="unknown",
                     kafka_producer=self._kafka_producer, env_name=self.env_name,
                 )

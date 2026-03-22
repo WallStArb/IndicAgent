@@ -4,18 +4,22 @@ Provides:
 - FUTURES_ROLL_CYCLES: per-symbol month code sequences
 - MONTH_CODE_TO_NUM: CME month code to calendar month number
 - derive_roll_chain(): derive 3-contract roll chain from a base symbol
+- get_expiry_date(): approximate expiry date per contract family
+- get_roll_window(): return active roll window (start, end) or None
 
 Usage:
-    from src.config.contracts import derive_roll_chain
+    from src.config.contracts import derive_roll_chain, get_expiry_date, get_roll_window
     chain = derive_roll_chain("ES")
     # [{"symbol": "ESM6", "base_symbol": "ES", "month_code": "M",
-    #   "expiry_month": 6, "expiry_year": 2026, "roll_from": None, "roll_to": "ESU6"},
+    #   "expiry_month": 6, "expiry_year": 2026, "roll_from": None, "roll_to": "ESU6",
+    #   "expiry_date": date(2026, 6, 19)},
     #  ...]
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import calendar as cal_mod
+from datetime import UTC, date, datetime, timedelta
 
 # ---------------------------------------------------------------------------
 # Month code mapping (CME standard)
@@ -71,6 +75,115 @@ FUTURES_ROLL_CYCLES: dict[str, list[str]] = {
     "ZS": ["H", "K", "N", "U", "Z"],  # Soybeans
     "ZW": ["H", "K", "N", "U", "Z"],  # Wheat
 }
+
+
+# ---------------------------------------------------------------------------
+# Contract family classification (for expiry date calculation)
+# ---------------------------------------------------------------------------
+
+#: Quarterly-expiry symbols: equity index, rates, VIX futures.
+#: Expiry = third Friday of the expiry month.
+_QUARTERLY_SYMBOLS: frozenset[str] = frozenset(
+    {"ES", "NQ", "RTY", "YM", "ZN", "ZF", "ZB", "ZT", "VX"}
+)
+
+#: Monthly energy and metals futures.
+#: Expiry = last business day of the month PRIOR to the expiry month.
+_ENERGY_METALS_SYMBOLS: frozenset[str] = frozenset(
+    {"CL", "GC", "SI", "HG", "NG", "BZ", "PL", "PA"}
+)
+
+#: Grain futures (CBOT grain cycle).
+#: Expiry = Friday closest to the 15th of the expiry month.
+_GRAIN_SYMBOLS: frozenset[str] = frozenset({"ZC", "ZS", "ZW"})
+
+
+def get_expiry_date(base_symbol: str, expiry_month: int, expiry_year: int) -> date:
+    """Return approximate expiry date for a futures contract.
+
+    Rules by contract family:
+    - Quarterly (equity index, rates, VIX): third Friday of expiry month
+    - Monthly energy/metals: last business day of month PRIOR to expiry month
+    - Monthly grain: Friday closest to 15th of expiry month
+    - Default (unknown): 25th of expiry month (conservative)
+
+    Args:
+        base_symbol: Futures base symbol, e.g. "ES", "CL", "ZC".
+        expiry_month: Calendar expiry month (1-12).
+        expiry_year: Full 4-digit expiry year.
+
+    Returns:
+        Approximate expiry date.
+    """
+    if base_symbol in _QUARTERLY_SYMBOLS:
+        # Third Friday of expiry month
+        first_day = date(expiry_year, expiry_month, 1)
+        weekday_of_first = first_day.weekday()  # 0=Mon, 4=Fri
+        days_to_first_friday = (4 - weekday_of_first) % 7
+        first_friday = first_day + timedelta(days=days_to_first_friday)
+        return first_friday + timedelta(weeks=2)
+
+    if base_symbol in _ENERGY_METALS_SYMBOLS:
+        # Last business day of month PRIOR to expiry month
+        prior_month = expiry_month - 1 if expiry_month > 1 else 12
+        prior_year = expiry_year if expiry_month > 1 else expiry_year - 1
+        last_day = date(
+            prior_year, prior_month, cal_mod.monthrange(prior_year, prior_month)[1]
+        )
+        # Walk back to a weekday (Mon-Fri)
+        while last_day.weekday() >= 5:  # Sat=5, Sun=6
+            last_day -= timedelta(days=1)
+        return last_day
+
+    if base_symbol in _GRAIN_SYMBOLS:
+        # Friday closest to 15th of expiry month
+        mid = date(expiry_year, expiry_month, 15)
+        days_to_friday = (4 - mid.weekday()) % 7
+        if days_to_friday > 3:
+            days_to_friday -= 7
+        return mid + timedelta(days=days_to_friday)
+
+    # Default: conservative 25th of expiry month (capped to last day of month)
+    last_day_of_month = cal_mod.monthrange(expiry_year, expiry_month)[1]
+    day = min(25, last_day_of_month)
+    return date(expiry_year, expiry_month, day)
+
+
+def get_roll_window(base_symbol: str, ref_date: date) -> tuple[date, date] | None:
+    """Return the active roll window for a futures symbol, or None.
+
+    Roll window: starts ~14 calendar days before expiry (≈10 trading days),
+    ends ~3 calendar days before expiry (≈2 trading days).
+
+    Also returns a window if the roll start is within 21 days in the future.
+
+    Args:
+        base_symbol: Futures base symbol, e.g. "ES".
+        ref_date: Reference date to check against.
+
+    Returns:
+        (roll_start, roll_end) if inside or approaching a roll window, else None.
+
+    Raises:
+        ValueError: If base_symbol is not in FUTURES_ROLL_CYCLES.
+    """
+    chain = derive_roll_chain(base_symbol)
+    if not chain:
+        return None
+
+    for entry in chain:
+        expiry = get_expiry_date(base_symbol, entry["expiry_month"], entry["expiry_year"])
+        roll_start = expiry - timedelta(days=14)   # ~10 trading days before
+        roll_end = expiry - timedelta(days=3)       # ~2 trading days before
+
+        if roll_start <= ref_date <= roll_end:
+            return (roll_start, roll_end)
+
+        # Also surface windows approaching within 21 days
+        if roll_start > ref_date and (roll_start - ref_date).days <= 21:
+            return (roll_start, roll_end)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +274,7 @@ def derive_roll_chain(
                 "month_code": code,
                 "expiry_month": exp_month,
                 "expiry_year": exp_year,
+                "expiry_date": get_expiry_date(base_symbol, exp_month, exp_year),
                 "roll_from": None,  # filled below
                 "roll_to": None,    # filled below
             }

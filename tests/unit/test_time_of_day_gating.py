@@ -195,22 +195,37 @@ class TestWeekendHandling:
 
 
 class TestTodAdjustmentIntegratedWithCheckRoll:
-    """Verify check_roll() respects TOD adjustment returning None."""
+    """Verify check_roll() respects TOD adjustment returning None.
 
-    def _make_window_with_spike(self, rm, base="ES", baseline_bars=30):
-        """Fill window with baseline then spike."""
+    Updated for Phase 47 calendar + z-score algorithm:
+    - update_volume() now takes single volume arg (D-16 fix)
+    - check_roll() now requires calendar roll window (get_roll_window) to be active
+    - _confirmation_counts replaces _confirmation_count (via backward-compat property)
+    """
+
+    def _make_window_high_then_low(self, rm, base="ES", baseline_bars=50):
+        """Fill window with high volumes (so subsequent low volumes trigger z < -2.0)."""
+        from unittest.mock import patch  # noqa: PLC0415
         for _ in range(baseline_bars):
-            rm.update_volume(base, 1000.0, 100.0)
-        for _ in range(5):
-            rm.update_volume(base, 1000.0, 50000.0)
+            rm.update_volume(base, 50000.0)
 
     def test_post_close_detection_skipped_entirely(self):
         """Post-close window (17:00 ET): check_roll returns False, no confirmation increment."""
+        from datetime import date  # noqa: PLC0415
+        from unittest.mock import patch  # noqa: PLC0415
+
         rm = _make_roll_monitor(tod_gated=True)
-        self._make_window_with_spike(rm)
+        self._make_window_high_then_low(rm)
+        # Add low volume bars that would normally trigger z < -2.0
+        for _ in range(5):
+            rm.update_volume("ES", 100.0)
+
         # 17:00 ET = 21:00 UTC — post-close
         utc_now = datetime(2026, 6, 12, 21, 0, tzinfo=UTC)
-        result = rm.check_roll("ES", utc_now)
+        # Patch get_roll_window to simulate inside roll period
+        mock_window = (date(2026, 6, 6), date(2026, 6, 17))
+        with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+            result = rm.check_roll("ES", utc_now)
         assert result is False
         assert rm._confirmation_count["ES"] == 0
 
@@ -218,24 +233,30 @@ class TestTodAdjustmentIntegratedWithCheckRoll:
         """Standard RTH (12:00 ET): check_roll processes the window (no post-close suppression).
 
         We verify that check_roll() does NOT suppress via TOD gating at 12:00 ET by
-        confirming that a threshold/z-score candidate correctly increments the confirmation
-        counter when given a fresh window with strong spike signal.
+        confirming that a z-score candidate correctly increments the confirmation
+        counter when given a fresh window with strong low-volume signal.
         """
+        from datetime import date  # noqa: PLC0415
+        from unittest.mock import patch  # noqa: PLC0415
+
         rm = _make_roll_monitor(tod_gated=True)
         # 12:00 ET = 16:00 UTC
         utc_now = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
 
-        # Build a strong baseline with very low next_vol, then spike to create high z-score
-        for _ in range(50):
-            rm.update_volume("ES", 1000.0, 50.0)   # baseline: next_vol ~50, std low
+        # Fill baseline with high volumes so low volumes produce z < -2.0
+        for _ in range(60):
+            rm.update_volume("ES", 50000.0)
 
-        # Drive 3 consecutive spike bars to confirm roll
+        mock_window = (date(2026, 6, 6), date(2026, 6, 17))
+
+        # Drive 3 consecutive low-volume bars to confirm roll during RTH
         confirmed = False
         for _ in range(6):
-            rm.update_volume("ES", 1000.0, 100000.0)  # extreme spike
-            if rm.check_roll("ES", utc_now):
-                confirmed = True
-                break
+            rm.update_volume("ES", 100.0)  # very low — z << -2.0
+            with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+                if rm.check_roll("ES", utc_now):
+                    confirmed = True
+                    break
 
         # TOD gating must not suppress standard RTH — roll should confirm or counter advance
         assert confirmed or rm._confirmation_count["ES"] > 0, (
