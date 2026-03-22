@@ -12,7 +12,7 @@ IndicAgent takes raw tick data from any real-time source and produces evidence-g
 
 Signals don't fire on a single indicator. Our CIS (Confluence Intelligence Score) requires cross-tier agreement from at least 3 of 6 independent evidence buckets; regime conflicts veto, and signals lose confidence explicitly as they age. Every winner and every rejected counterfactual lands in the feature store with its full I1–I8 context, ensuring the system accumulates its own high-fidelity labeled training dataset with every bar it processes.
 
-Designed for resilience, reproducibility, and massive scale, IndicAgent enables you to build institutional-grade intelligence that is as self-correcting as it is transparent.
+Designed for resilience, reproducibility, and massive scale, our pipeline processes 123+ plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
 
 ---
 
