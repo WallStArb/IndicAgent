@@ -42,6 +42,7 @@ from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
 from src.core.schemas.bar_message import BarMessage
 from src.core.service_utils import (
+    CROSS_ASSET_VALID_TFS,
     TF_SECONDS,
     TF_TTL_BARS,
     parse_roll_event,
@@ -213,9 +214,6 @@ def _cis_kalman_update(
 
 
 logger = structlog.get_logger(__name__)
-
-# Valid timeframes published by cross_asset_service — bounds _cross_asset_cache keys
-_CROSS_ASSET_VALID_TFS: frozenset[str] = frozenset({"1m", "5m", "15m", "1h"})
 
 # ---------------------------------------------------------------------------
 # Phase 42: pattern_reliability weight cache (15-min TTL)
@@ -1509,7 +1507,7 @@ class SignalGeneratorService:
                         # Cache latest cross-asset snapshot by timeframe
                         try:
                             tf = payload.get("tf", "")
-                            if tf in _CROSS_ASSET_VALID_TFS and payload.get("ready"):
+                            if tf in CROSS_ASSET_VALID_TFS and payload.get("ready"):
                                 self._cross_asset_cache[tf] = payload
                         except Exception as _xa_err:
                             self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
