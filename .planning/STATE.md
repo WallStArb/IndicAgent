@@ -4,11 +4,11 @@ milestone: v2.0
 milestone_name: Signal Integrity & ML Foundation
 status: unknown
 stopped_at: Completed 47-04-PLAN.md (cross-asset graduation — SHADOW-02 scaffolding removed)
-last_updated: "2026-03-22T12:44:44.906Z"
+last_updated: "2026-03-22T16:30:01.691Z"
 progress:
-  total_phases: 16
-  completed_phases: 13
-  total_plans: 59
+  total_phases: 14
+  completed_phases: 12
+  total_plans: 60
   completed_plans: 56
 ---
 
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-18)
 ## Current Position
 
 Phase: 47 (shadow-mode-graduation) — EXECUTING
-Plan: 4 of 4
+Plan: 1 of 5
 
 ## Performance Metrics
 

@@ -5,6 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+def _make_mock_roll_monitor():
+    """No-op RollMonitor mock — roll detection always active but no roll detected."""
+    mock_rm = MagicMock()
+    mock_rm.check_roll = MagicMock(return_value=False)
+    mock_rm.should_skip_symbol = MagicMock(return_value=False)
+    return mock_rm
+
+
 @pytest.mark.asyncio
 async def test_rtb_loop_publishes_5s_price_tick_for_display():
     """_rtb_loop must publish each 5s bar close to market.ticks for dashboard display."""
@@ -22,10 +30,7 @@ async def test_rtb_loop_publishes_5s_price_tick_for_display():
     daemon.m_ticks = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    mock_rm = MagicMock()
-    mock_rm.check_roll = MagicMock(return_value=False)
-    mock_rm.should_skip_symbol = MagicMock(return_value=False)
-    daemon._roll_monitor = mock_rm
+    daemon._roll_monitor = _make_mock_roll_monitor()
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
@@ -42,6 +47,7 @@ async def test_rtb_loop_publishes_5s_price_tick_for_display():
     provider_mock.stream_real_time_bars = fake_stream
     daemon.provider = provider_mock
     daemon.contracts = [{"symbol": "ES"}]
+    daemon._symbol_to_base = {"ES": "ES"}
 
     await daemon._rtb_loop()
 
@@ -67,10 +73,8 @@ async def test_emit_bar_dedup_guard_prevents_double_publish():
     daemon.m_bars = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    mock_rm = MagicMock()
-    mock_rm.check_roll = MagicMock(return_value=False)
-    mock_rm.should_skip_symbol = MagicMock(return_value=False)
-    daemon._roll_monitor = mock_rm
+    daemon._roll_monitor = _make_mock_roll_monitor()
+    daemon._symbol_to_base = {"ES": "ES"}
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
@@ -194,10 +198,7 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     daemon.m_ticks = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    mock_rm = MagicMock()
-    mock_rm.check_roll = MagicMock(return_value=False)
-    mock_rm.should_skip_symbol = MagicMock(return_value=False)
-    daemon._roll_monitor = mock_rm
+    daemon._roll_monitor = _make_mock_roll_monitor()
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
@@ -231,6 +232,7 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     provider_mock.stream_real_time_bars = fake_stream
     daemon.provider = provider_mock
     daemon.contracts = [{"symbol": "ES"}]
+    daemon._symbol_to_base = {"ES": "ES"}
 
     await daemon._rtb_loop()
 
