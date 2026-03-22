@@ -5,7 +5,7 @@ Tests:
 - signal_generator_service._handle_roll_event() updates bar_history keys
 - feature_writer_service._handle_roll_event() writes roll boundary marker to DB
 - All services: malformed events are logged and skipped
-- All services: with roll_monitor_enabled=False, no system.events consumer is started
+- All services: always subscribe to system.events unconditionally (SHADOW-03 graduated)
 """
 from __future__ import annotations
 
@@ -241,21 +241,17 @@ class TestFeatureWriterRollEvent:
         asyncio.run(svc._handle_roll_event({"event_type": "roll"}))
 
 
-# ── Roll monitor disabled behavior ─────────────────────────────────────────────
+# ── System events subscription ─────────────────────────────────────────────────
 
 
-class TestRollMonitorDisabled:
-    """When ROLL_MONITOR_ENABLED=false, services must not subscribe to system.events."""
+class TestSystemEventsSubscription:
+    """All services must unconditionally subscribe to system.events (SHADOW-03 graduated)."""
 
-    def test_indicator_service_no_system_events_consumer_when_disabled(self) -> None:
-        """IndicatorService.start() should not subscribe to system.events when disabled."""
-        # Verify the service reads roll_monitor_enabled from settings
-        # and only adds the system.events subscription conditionally.
-        # We do this by inspecting the start() or _setup_kafka method source.
+    def test_indicator_service_always_subscribes_to_system_events(self) -> None:
+        """IndicatorService.start() must always include topic_system_events in its consumer."""
         import inspect
 
         from services.indicator_service import IndicatorService
         source = inspect.getsource(IndicatorService.start)
-        # The topic_system_events subscription must be guarded by roll_monitor_enabled
-        assert "roll_monitor_enabled" in source or "topic_system_events" in source, \
-            "start() must reference roll_monitor_enabled or topic_system_events"
+        assert "topic_system_events" in source, \
+            "start() must unconditionally subscribe to topic_system_events"

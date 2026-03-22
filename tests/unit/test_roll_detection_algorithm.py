@@ -8,8 +8,7 @@ Tests the new calendar-driven + volume z-score confirmation algorithm (D-16 thro
 - _on_roll_confirmed() derives new_symbol from derive_roll_chain
 
 Also preserves existing tests for:
-- RollMonitor initialization
-- Feature flag ROLL_MONITOR_ENABLED=false no-op
+- RollMonitor initialization (always active — SHADOW-03 graduated)
 - Paper account detection / PAPER_SKIP_CONTRACTS
 - Bar loop wiring
 
@@ -415,6 +414,7 @@ class TestCallSiteBugFix:
         mock_rm.check_roll = MagicMock(return_value=False)
         mock_rm._on_roll_confirmed = AsyncMock()
         daemon._roll_monitor = mock_rm
+        daemon._symbol_to_base = {"ESM6": "ES"}
 
         bar_minute = datetime(2026, 3, 10, 16, 0, tzinfo=UTC)
         state = {
@@ -432,7 +432,7 @@ class TestCallSiteBugFix:
             f"update_volume called with {len(call_args)} positional args, expected 2. "
             f"Args: {call_args}"
         )
-        assert call_args[0] == "ESM6"
+        assert call_args[0] == "ES"  # base symbol, not contract code (ESM6 → ES via _symbol_to_base)
         assert call_args[1] == 1500.0
 
 
@@ -541,6 +541,7 @@ class TestBarLoopWiring:
         mock_rm.check_roll = MagicMock(return_value=False)
         mock_rm._on_roll_confirmed = AsyncMock()
         daemon._roll_monitor = mock_rm
+        daemon._symbol_to_base = {"ESM6": "ES"}
 
         return daemon, mock_rm
 

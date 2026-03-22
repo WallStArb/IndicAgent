@@ -381,6 +381,9 @@ class TwsDaemon:
         self.reconnects = 0
 
         self.contracts = [c.model_dump() for c in get_active_contracts(self.settings)]
+        self._symbol_to_base: dict[str, str] = {
+            c["symbol"]: c.get("base", c["symbol"]) for c in self.contracts
+        }
         self.health_check_interval = 30
 
         # Stream namespacing by environment (e.g., dev, prod)
@@ -587,13 +590,14 @@ class TwsDaemon:
         self.m_bars.inc()
         logger.info("1m bar emitted", symbol=symbol, close=state["close"], volume=state["volume"])
 
-        # Roll monitor (futures only)
+        # Roll monitor (futures only) — base_symbol required (e.g. "ES" not "ESM6")
+        base_symbol = self._symbol_to_base.get(symbol, symbol)
         bar_utc = (bar_minute if bar_minute.tzinfo is not None
                    else bar_minute.replace(tzinfo=UTC))
-        self._roll_monitor.update_volume(symbol, float(state["volume"]))
-        if self._roll_monitor.check_roll(symbol, bar_utc):
+        self._roll_monitor.update_volume(base_symbol, float(state["volume"]))
+        if self._roll_monitor.check_roll(base_symbol, bar_utc):
             await self._roll_monitor._on_roll_confirmed(
-                base_symbol=symbol, old_symbol=symbol,
+                base_symbol=base_symbol, old_symbol=symbol,
                 roll_gap=0.0, roll_direction="unknown",
                 kafka_producer=self._kafka_producer, env_name=self.env_name,
             )

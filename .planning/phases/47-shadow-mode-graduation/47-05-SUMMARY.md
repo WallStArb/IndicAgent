@@ -48,15 +48,15 @@ The data blocker is unrelated to roll detection correctness.
 (single-arg `update_volume`), z-score confirmation logic, calendar gate, paper account
 skip, and call-site wiring.
 
-**5-day soak**: Deferred — cannot soak without live bar data. `.env` must have
-`ROLL_MONITOR_ENABLED=true` added and services restarted once bars-freeze bug is resolved
-(or tick aggregation is implemented). The scaffolding removal is independent of soak timing.
+**5-day soak**: Deferred — cannot soak without live bar data. Roll monitor now runs
+unconditionally once bars-freeze bug is resolved (or tick aggregation is implemented).
+The scaffolding removal is independent of soak timing.
 
 **Full suite**: 2748/2748 unit tests pass post-scaffolding removal.
 
 ## Deferred
 
-- `.env` enablement (`ROLL_MONITOR_ENABLED=true`) + service restart: blocked by bars-freeze bug
+- Live roll detection validation: blocked by bars-freeze bug (roll monitor now runs unconditionally)
 - 5-day Prometheus soak: requires live 1m bar data flowing through pipeline
 
 ## Artifacts
