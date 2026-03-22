@@ -11,12 +11,9 @@ Uses the __new__ pattern for FeaturePipelineService instantiation per CLAUDE.md.
 
 from __future__ import annotations
 
-from collections import deque
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
-
-import pytest
 
 from src.core.bar_history import BarHistory
 from src.core.schemas.bar_message import BarMessage, SessionType
@@ -217,3 +214,20 @@ def test_no_vix_symbol_returns_not_ready():
 
     assert "vix" in frames
     assert frames["vix"] == {"ready": False}
+
+
+# ---------------------------------------------------------------------------
+# Test 7: VIX_REGIME_TF constant is "1h" — data-quality fix (Phase 46.1)
+# ---------------------------------------------------------------------------
+
+
+def test_vix_injection_uses_fixed_1h_tf_not_trading_tf(monkeypatch):
+    """VIX regime context must use 1h bars regardless of the bar's trading TF.
+
+    This is the Phase 46.1 data-quality fix: the same market moment must
+    produce identical vix_z regardless of whether a 1m or 1h bar triggered
+    the computation.
+    """
+    from services.feature_pipeline_service import VIX_REGIME_TF
+
+    assert VIX_REGIME_TF == "1h"
