@@ -690,7 +690,7 @@ Plans:
 
 Plans:
 - [x] 46-01-PLAN.md — `src/intelligence/context/vix_context.py` pure function module + unit tests
-- [ ] 46-02-PLAN.md — `I6Confluence` schema extension (4 new fields) + `cross_timeframe.py` reads frames["vix"] + frames["cross_asset"] and emits new fields
+- [x] 46-02-PLAN.md — `I6Confluence` schema extension (4 new fields) + `cross_timeframe.py` reads frames["vix"] + frames["cross_asset"] and emits new fields
 - [ ] 46-03-PLAN.md — FeaturePipelineService: subscribe to cross_asset topic, `_cross_asset_cache`, inject `frames["cross_asset"]` + `frames["vix"]`
 - [ ] 46-04-PLAN.md — extend `capture_confluence_features()` shadow dict + integration test: live I6 output contains new fields
 
@@ -861,7 +861,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 43. Performance & Stability Emergency | v2.0 | 2/3 | In Progress | — |
 | 44. I7 DAG Refactor | v2.0 | 5/5 | Complete   | 2026-03-22 |
 | 45. I6 → I7 Confluence Wiring | v2.0 | 4/4 | Complete    | 2026-03-22 |
-| 46. I6 Confluence Expansion | v2.0 | 1/4 | In Progress|  |
+| 46. I6 Confluence Expansion | v2.0 | 2/4 | In Progress|  |
 | 47. Shadow Mode Graduation | v2.0 | 0/TBD | Not started | — |
 | 48. Auth + External Access | v2.0 | 0/TBD | Not started | — |
 | 49. ML Scoring Model | v2.0 | 0/TBD | Not started | — |
