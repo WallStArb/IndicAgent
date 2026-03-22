@@ -6,102 +6,82 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_tws_daemon_publishes_bar_to_kafka():
-    """TwsDaemon._fetch_bars_for_symbol must publish bar to topic_market_bars via
-    KafkaProducerClient."""
+async def test_rtb_loop_publishes_5s_price_tick_for_display():
+    """_rtb_loop must publish each 5s bar close to market.ticks for dashboard display."""
+    from collections import defaultdict
     from services.tws_daemon import TwsDaemon
+    from datetime import datetime, timezone
 
     daemon = TwsDaemon.__new__(TwsDaemon)
-    daemon.settings = MagicMock()
-    daemon.settings.env_name = "dev"
-    daemon.settings.kafka_bootstrap_servers = "localhost:19092"
     daemon.env_name = "dev"
-    daemon.contracts = [{"symbol": "ES"}]
-    daemon.seen_bar_timestamps = {"ES": set()}
-    daemon.seen_bar_timestamps_order = {"ES": []}
+    daemon.running = True
     daemon.bars_processed = 0
+    daemon.ticks_processed = 0
     daemon.m_bars = MagicMock()
-    daemon.logger = MagicMock()
+    daemon.m_ticks = MagicMock()
+    daemon.seen_bar_timestamps = defaultdict(set)
+    daemon.seen_bar_timestamps_order = defaultdict(list)
+    daemon._roll_monitor = MagicMock(is_enabled=False)
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
     daemon._kafka_producer = kafka_producer
 
-    roll_monitor_mock = MagicMock()
-    roll_monitor_mock.is_enabled = False
-    daemon._roll_monitor = roll_monitor_mock
+    class FakeRTB:
+        time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=timezone.utc)
+        open_ = 5500.0; high = 5505.0; low = 5498.0; close = 5503.0; volume = 50.0
 
-    from datetime import datetime
+    async def fake_stream(symbols):
+        yield "ES", FakeRTB()
 
-    class FakeBar:
-        timestamp = datetime(2026, 3, 14, 10, 0, 0)
-        open = 5500.0
-        high = 5510.0
-        low = 5495.0
-        close = 5505.0
-        volume = 1000
-
-    provider_mock = AsyncMock()
-    provider_mock.fetch_historical_bars = AsyncMock(return_value=[FakeBar()])
+    provider_mock = MagicMock()
+    provider_mock.stream_real_time_bars = fake_stream
     daemon.provider = provider_mock
-    daemon.async_redis = None
+    daemon.contracts = [{"symbol": "ES"}]
 
-    await daemon._fetch_bars_for_symbol(
-        "ES", datetime(2026, 3, 14, 9, 58), datetime(2026, 3, 14, 10, 0)
-    )
+    await daemon._rtb_loop()
 
-    kafka_producer.publish.assert_called_once()
-    call_args = kafka_producer.publish.call_args
-    topic = call_args.args[0]
-    assert topic == "dev.market.bars", f"Expected dev.market.bars, got {topic!r}"
-    key = call_args.kwargs.get("key") or call_args.args[2]
-    assert key == "ES:1m", f"Expected key ES:1m, got {key!r}"
+    tick_calls = [c for c in kafka_producer.publish.call_args_list
+                  if "ticks" in str(c.args[0])]
+    assert len(tick_calls) == 1
+    tick_data = tick_calls[0].args[1]
+    assert tick_data["symbol"] == "ES"
+    assert tick_data["price"] == "5503.0"
 
 
 @pytest.mark.asyncio
-async def test_tws_daemon_publishes_tick_to_kafka():
-    """TwsDaemon._tick_loop must publish ticks to topic_market_ticks via KafkaProducerClient."""
+async def test_emit_bar_dedup_guard_prevents_double_publish():
+    """_emit_bar must not re-publish a bar with the same timestamp."""
+    from collections import defaultdict
     from services.tws_daemon import TwsDaemon
+    from datetime import datetime, timezone
 
     daemon = TwsDaemon.__new__(TwsDaemon)
-    daemon.settings = MagicMock()
-    daemon.settings.env_name = "dev"
     daemon.env_name = "dev"
-    daemon.contracts = [{"symbol": "ES"}]
-    daemon.running = True
-    daemon.ticks_processed = 0
-    daemon.dropped_ticks = 0
-    daemon.m_ticks = MagicMock()
-    daemon.m_dropped = MagicMock()
-    daemon.m_dropped_by_reason = MagicMock()
-    daemon.m_dropped_by_reason.labels = MagicMock(return_value=MagicMock())
-    daemon.logger = MagicMock()
+    daemon.bars_processed = 0
+    daemon.m_bars = MagicMock()
+    daemon.seen_bar_timestamps = defaultdict(set)
+    daemon.seen_bar_timestamps_order = defaultdict(list)
+    daemon._roll_monitor = MagicMock(is_enabled=False)
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
     daemon._kafka_producer = kafka_producer
 
-    class FakeTick:
-        symbol = "ES"
+    bar_minute = datetime(2026, 3, 21, 14, 0, 0, tzinfo=timezone.utc)
+    state = {
+        "bar_minute": bar_minute,
+        "open": 5500.0, "high": 5510.0, "low": 5498.0,
+        "close": 5505.0, "volume": 1000.0,
+    }
 
-        def model_dump(self, mode="python"):
-            return {"symbol": "ES", "price": 5505.0, "bid": 5504.0, "ask": 5506.0}
+    # First call — should publish
+    await daemon._emit_bar("ES", state)
+    assert kafka_producer.publish.call_count == 1
 
-    async def fake_stream_ticks(symbols):
-        yield FakeTick()
-
-    provider_mock = MagicMock()
-    provider_mock.stream_ticks = fake_stream_ticks
-    daemon.provider = provider_mock
-
-    await daemon._tick_loop()
-
-    kafka_producer.publish.assert_called_once()
-    call_args = kafka_producer.publish.call_args
-    topic = call_args.args[0]
-    assert topic == "dev.market.ticks", f"Expected dev.market.ticks, got {topic!r}"
-    key = call_args.kwargs.get("key") or call_args.args[2]
-    assert key == "ES", f"Expected key ES, got {key!r}"
+    # Second call with same timestamp — should NOT publish
+    await daemon._emit_bar("ES", state)
+    assert kafka_producer.publish.call_count == 1  # still 1
 
 
 def test_tws_daemon_no_redis_asyncio_import():
