@@ -184,6 +184,80 @@ async def test_ibkr_stream_real_time_bars_yields_symbol_bar_tuple():
     assert bar.close == 5503.0
 
 
+@pytest.mark.asyncio
+async def test_rtb_loop_aggregates_5s_bars_to_1m():
+    """_rtb_loop must emit a 1m bar to Kafka when a new minute starts.
+
+    IBKR RealTimeBar.time is the bar CLOSE time. First bar of a minute closes
+    at :05, last at :60 (= start of next minute, triggers emit of prior minute).
+    """
+    from collections import defaultdict
+    from services.tws_daemon import TwsDaemon
+    from unittest.mock import AsyncMock, MagicMock
+    from datetime import datetime, timezone
+
+    daemon = TwsDaemon.__new__(TwsDaemon)
+    daemon.env_name = "dev"
+    daemon.running = True
+    daemon.bars_processed = 0
+    daemon.ticks_processed = 0
+    daemon.m_bars = MagicMock()
+    daemon.m_ticks = MagicMock()
+    daemon.seen_bar_timestamps = defaultdict(set)
+    daemon.seen_bar_timestamps_order = defaultdict(list)
+    daemon._roll_monitor = MagicMock(is_enabled=False)
+
+    kafka_producer = AsyncMock()
+    kafka_producer.publish = AsyncMock()
+    daemon._kafka_producer = kafka_producer
+
+    # 11 bars closing at :05..:55 in minute 14:00, then Bar60 (14:01:00) triggers emit
+    class FakeRTB:
+        def __init__(self, minute, second, o, h, l, c, vol):
+            self.time = datetime(2026, 3, 21, 14, minute, second, tzinfo=timezone.utc)
+            self.open_ = o; self.high = h; self.low = l
+            self.close = c; self.volume = float(vol)
+
+    bars_min0 = [FakeRTB(0, s, 5500.0, 5510.0, 5498.0, 5505.0, 100.0)
+                 for s in range(5, 60, 5)]  # 11 bars at :05..:55
+
+    class Bar60:
+        time = datetime(2026, 3, 21, 14, 1, 0, tzinfo=timezone.utc)
+        open_ = 5505.0; high = 5510.0; low = 5498.0; close = 5506.0; volume = 100.0
+
+    class Bar65:
+        time = datetime(2026, 3, 21, 14, 1, 5, tzinfo=timezone.utc)
+        open_ = 5506.0; high = 5508.0; low = 5504.0; close = 5507.0; volume = 50.0
+
+    all_bars = bars_min0 + [Bar60(), Bar65()]
+
+    async def fake_stream(symbols):
+        for bar in all_bars:
+            yield "ES", bar
+
+    provider_mock = MagicMock()
+    provider_mock.stream_real_time_bars = fake_stream
+    daemon.provider = provider_mock
+    daemon.contracts = [{"symbol": "ES"}]
+
+    await daemon._rtb_loop()
+
+    # Exactly 1 bar published to market.bars (completed minute :00)
+    bar_publishes = [c for c in kafka_producer.publish.call_args_list
+                     if "bars" in str(c.args[0])]
+    assert len(bar_publishes) == 1
+
+    bar_data = bar_publishes[0].args[1]
+    assert bar_data["symbol"] == "ES"
+    assert bar_data["timeframe"] == "1m"
+    assert float(bar_data["open"]) == 5500.0    # first bar open
+    assert float(bar_data["high"]) == 5510.0    # max high
+    assert float(bar_data["low"]) == 5498.0     # min low
+    assert float(bar_data["close"]) == 5506.0   # last bar close (Bar60, which triggered the emit)
+    assert float(bar_data["volume"]) == 1200.0  # 11×100 + 100 (Bar60) = 1200
+    assert bar_data["source"] == "authoritative"
+
+
 def test_timeframes_builder_no_redis_asyncio_import():
     """services/timeframes_builder_service.py must not import redis.asyncio after migration."""
     import ast
