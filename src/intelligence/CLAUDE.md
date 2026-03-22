@@ -9,23 +9,23 @@ Trend, Momentum, Volatility, Volume. Full list: `TIER_I1` in `register_plugins.p
 MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration, DonchianPosition, OBVMomentum, DerivativeOscillator, ExhaustionScore, AccelerationRegime.
 Defined in `composites/`. Shared utilities in `composites/common.py`: `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`.
 
-### I3 Structure (7) · I4 Context (11)
+### I3 Structure (7) · I4 Context (13)
 - **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, FibonacciZones, SwingMomentum
-- **I4**: vol/trend/momentum regime, GARCH volatility, HurstExponent, ShannonEntropy, Kalman trend, SessionContext, MTFVolatility, AnchoredVWAP, VolumeProfile
+- **I4**: vol/trend/momentum regime, GARCH volatility, HurstExponent, ShannonEntropy, Kalman trend, SessionContext, MTFVolatility, AnchoredVWAP, VolumeProfile, VIXRegimePlugin, CrossAssetContextPlugin (added Phase 46.1)
 
 ### I5 Patterns (15) · I6 SMC (13) · I6 Confluence (1)
 - **I5**: RSI divergence, squeeze, vol divergence, MACD divergence, CMF divergence, confluence, trend confluence, DoubleTopBottom, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, KeyLevelReaction
 - **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
-- **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (10 output fields)
+- **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (14 output fields: ctf_score, ctf_trend_alignment, ctf_regime_agreement, ctf_structure_alignment, ctf_fvg_alignment, ctf_ob_alignment, ctf_confirming_tfs, ctf_conflicting_tfs, ctf_vix_level, ctf_vix_z, ctf_eq_spread_z, ctf_eq_pairs_confirming + 2 more; added in Phases 45-46)
 
 ### I7 Trading Setups (36) + Aggregation (2)
 TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup, CandlestickPatternSetup, SessionExtremesSetup, FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP, AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout, OFIContinuation, OFIDivergence, OFISpike, CVDDivergence, CVDSpike, DeltaExhaustion, DualDivergence, CrossAssetDivergence.
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
-**`regime_type` class attribute** (Phase 12, mandatory on all I7 plugins): `"trend"` | `"mean_reversion"` | `"any"`. Used by aggregator regime gate — trend plugins suppressed in ranging regime (hmm_regime=0), mean-reversion plugins suppressed in trending regime (hmm_regime=1/2). New I7 plugins must declare this or `validate_tier()` will not catch the omission but the gate will silently misfire.
+**`regime_type` class attribute** (mandatory on all I7 plugins): `"trend"` | `"mean_reversion"` | `"any"`. Used by aggregator regime gate — trend plugins suppressed in ranging regime (hmm_regime=0), mean-reversion plugins suppressed in trending regime (hmm_regime=1/2). New I7 plugins must declare this or `validate_tier()` will not catch the omission but the gate will silently misfire.
 
-**Aggregator `perf_multiplier`** (Phase 14): reads `setup_performance` table at startup and every 15 min. Setups with `sample_size < 30` use multiplier=1.0 (no effect). Outperforming setups rank higher in `all_ranked`. `active` must always be derived from `all_ranked`, not raw `signals` — see gotchas.
+**Aggregator `perf_multiplier`**: reads `setup_performance` table at startup and every 15 min. Setups with `sample_size < 30` use multiplier=1.0 (no effect). Outperforming setups rank higher in `all_ranked`. `active` must always be derived from `all_ranked`, not raw `signals` — see gotchas.
 
 ## Plugin Protocol
 
@@ -50,7 +50,7 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
 - Keys in `.env`: `openrouter_api_key` (empty string → chain skips, falls back to Ollama).
 
-**LLM audit streams** (Phase 16): every call → `llm_calls:stream` (maxlen=500); every signal exit → `llm_outcomes:stream` (maxlen=200). `llm_writer_service` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
+**LLM audit streams**: every call → `llm_calls:stream` (maxlen=500); every signal exit → `llm_outcomes:stream` (maxlen=200). `llm_writer_service` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 
 ## Signal Lifecycle (trading/)
 

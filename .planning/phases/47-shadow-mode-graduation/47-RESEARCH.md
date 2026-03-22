@@ -34,7 +34,7 @@
 - D-16: `update_volume(symbol, vol, vol)` bug at line 569 of `tws_daemon.py` confirmed — identical values produce ratio=1.0 always.
 - D-17: Fix: replace ratio-based detection with calendar-driven + volume anomaly confirmation. Primary: deterministic roll date lookup. Confirmation: front-month volume z-score drops below -2.0 SD from rolling window mean during calendar roll window.
 - D-18: Extend `src/config/contracts.py` in-place: add `get_expiry_date()`, `get_roll_window()`, extend `derive_roll_chain()` with `expiry_date` field. No new module.
-- D-19: `RollMonitor.update_volume()` signature changes to remove `next_vol` parameter. `PAPER_SKIP_CONTRACTS` guard may be unnecessary with calendar approach.
+- D-19: `RollMonitor.update_volume()` signature changes to remove `next_vol` parameter. Only `current_vol` needed — rolling window tracks front-month volume history for z-score. `PAPER_SKIP_CONTRACTS` guard may be unnecessary with calendar approach.
 - D-20: `_on_roll_confirmed` fixed: call `derive_roll_chain(base_symbol)` from `contracts.py`, read `chain[0]["roll_to"]` for `new_symbol`.
 - D-21: Offline validation against `market_data_5m` view for known historical roll dates. Accuracy gate: >= 90% detection, < 10% false positives.
 - D-22: Enable: `ROLL_MONITOR_ENABLED=true` in `.env`, restart 5 services.
