@@ -36,7 +36,7 @@
 - [x] **INTEL-01**: `i6_fvg_tf_alignment` computed from real cross-TF FVG alignment data (replaces hardcoded `0.0` stub in `cross_timeframe.py`)
 - [x] **INTEL-02**: `i6_ob_tf_alignment` computed from real cross-TF Order Block alignment data (replaces hardcoded `0.0` stub)
 - [x] **INTEL-03**: `trade_framer.py` uses POC, VAH, VAL from I4 `ctx_VolumeProfile` as primary T1/T2 targets when price is near value area boundary
-- [ ] **INTEL-04**: Roll premium/discount (`roll_premium_pct = front_price - back_price`) stored in `intelligence_features` for futures symbols near roll dates
+- [x] **INTEL-04**: Roll premium/discount (`roll_premium_pct = front_price - back_price`) stored in `intelligence_features` for futures symbols near roll dates
 - [ ] **INTEL-05**: Higher-timeframe S/R levels (1h POC/VAH/VAL + I6 CTF data) available to I7 plugins via `trade_framer` context for stop/target refinement
 
 ### CANDLE — Candlestick Pattern Expansion
@@ -57,7 +57,7 @@
 
 - [x] **SHADOW-01**: `hmm_regime` gating thresholds moved from hardcoded constants to Settings fields (`REGIME_PROB_MIN`, `REGIME_DUR_MIN`) with safety-floor defaults (0.30 / 1); empirical threshold optimization deferred to Phase 49 ML (D-03) — safety floor maximizes labeled training data (D-04); if signal_ledger contains N>=200 regime-suppressed outcomes, threshold bucket analysis documented
 - [ ] **SHADOW-02**: `CROSS_ASSET_ENABLED` set to `true` after shadow monitoring confirms data quality (7 days non-null cross-asset fields per D-11) and no unintended effects; `cross_asset_enabled` flag and all conditional branches removed from all 4 services after 5-day soak
-- [ ] **SHADOW-03**: `ROLL_MONITOR_ENABLED` set to `true` after offline validation confirms roll detection accuracy (>=90% detection, <10% FP per D-21); `roll_monitor_enabled` flag and all conditional branches removed from all 5 services after 5-day soak
+- [x] **SHADOW-03**: `ROLL_MONITOR_ENABLED` set to `true` after offline validation confirms roll detection accuracy (>=90% detection, <10% FP per D-21); `roll_monitor_enabled` flag and all conditional branches removed from all 5 services after 5-day soak
 - [x] **SHADOW-04**: `trad_DualDivergence` promoted from `IS_SHADOW=True` to live after statistical gate passes: N>=100 resolved shadow signals AND 95% CI lower bound on E[PnL_R] > 0 (D-07); monitoring infrastructure emits `shadow_*` Prometheus gauges per weight_updater cycle (D-08)
 
 ### AUTH — Auth + External Access
@@ -128,7 +128,7 @@
 | PERF-07 | Phase 44+ | Pending |
 | INTEL-01 through INTEL-03 | Phase 41 | Complete |
 | INTEL-05 | Phase 41 | Complete |
-| INTEL-04 | Phase 47 | Pending |
+| INTEL-04 | Phase 47 | Complete |
 | CANDLE-01 through CANDLE-02 | Phase 42 | Complete |
 | SHADOW-01 through SHADOW-04 | Phase 47 | Pending |
 | AUTH-01 through AUTH-06 | Phase 45 | Pending |
