@@ -13,7 +13,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
 
@@ -81,7 +82,6 @@ class FVGFillPlugin:
         # Confidence: 0.5 base + 0.3 * min(1.0, open_count/3.0)
         magnetism = min(1.0, fvg_open_count / 3.0)
         raw_conf = 0.5 + 0.3 * magnetism
-        confidence = compose_confidence(raw_conf)
 
         supporting = ["fvg_detected"]
         if fvg_open_count >= 3.0:
@@ -94,9 +94,12 @@ class FVGFillPlugin:
         if fvg_top > 0 and fvg_bottom > 0:
             supporting.append("fvg_bounds_present")
 
+        raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
+        confidence = compose_confidence(raw_conf)
+
         regime_ctx = "bullish" if direction == 1 else "bearish"
 
-        return {
+        signal = {
             "signal_type": signal_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -106,6 +109,10 @@ class FVGFillPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "smc", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
