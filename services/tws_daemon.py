@@ -490,6 +490,123 @@ class TwsDaemon:
         except asyncio.CancelledError:
             logger.info("Tick loop cancelled (disconnect or shutdown)")
 
+    async def _rtb_loop(self) -> None:
+        """Consume 5-second RealTimeBars from IBKRProvider and aggregate to 1m bars.
+
+        Maintains per-symbol OHLCV state. Emits a complete 1m bar to development.market.bars
+        when the minute boundary changes (RealTimeBar.time is bar close time).
+        Also publishes each 5s close to development.market.ticks for dashboard display.
+
+        Note: ticks_processed counter now counts 5s bar publishes, not order-book ticks.
+        """
+        if not self.provider:
+            return
+        symbols = [c["symbol"] for c in self.contracts]
+
+        def _init_state() -> dict:
+            return {
+                "bar_minute": None,
+                "open": None,
+                "high": None,
+                "low": None,
+                "close": None,
+                "volume": 0.0,
+            }
+
+        state: dict[str, dict] = {}
+
+        try:
+            async for symbol, rtb in self.provider.stream_real_time_bars(symbols):
+                if not self.running:
+                    break
+                try:
+                    bar_minute = rtb.time.replace(second=0, microsecond=0)
+                    s = state.setdefault(symbol, _init_state())
+
+                    # Accumulate 5s bar into current (or new) minute
+                    if s["open"] is None:
+                        s["open"] = rtb.open_
+                        s["bar_minute"] = bar_minute
+                    s["high"] = max(s["high"] or rtb.high, rtb.high)
+                    s["low"] = min(s["low"] or rtb.low, rtb.low)
+                    s["close"] = rtb.close
+                    s["volume"] += rtb.volume
+
+                    # Minute boundary crossed → emit completed 1m bar, reset state
+                    if s["bar_minute"] is not None and bar_minute != s["bar_minute"]:
+                        await self._emit_bar(symbol, s)
+                        s.update(_init_state())
+
+                    # Publish 5s close as price update for dashboard
+                    await self._kafka_producer.publish(
+                        topic_market_ticks(self.env_name),
+                        {
+                            "symbol": symbol,
+                            "price": str(rtb.close),
+                            "timestamp": rtb.time.isoformat(),
+                            "source": "ibkr",
+                        },
+                        key=symbol,
+                    )
+                    self.ticks_processed += 1
+                    self.m_ticks.inc()
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning("RTB loop error", symbol=symbol, error=str(e))
+
+        except asyncio.CancelledError:
+            logger.info("RTB loop cancelled (disconnect or shutdown)")
+
+    async def _emit_bar(self, symbol: str, state: dict) -> None:
+        """Publish completed 1m bar to development.market.bars."""
+        bar_minute = state["bar_minute"]
+        bar_timestamp = bar_minute.isoformat()
+
+        # Dedup guard (protects against double-emit on reconnect)
+        if bar_timestamp in self.seen_bar_timestamps[symbol]:
+            return
+        self.seen_bar_timestamps[symbol].add(bar_timestamp)
+        order = self.seen_bar_timestamps_order[symbol]
+        order.append(bar_timestamp)
+        if len(order) > 30:
+            evicted = order.pop(0)
+            self.seen_bar_timestamps[symbol].discard(evicted)
+
+        bar_data = {
+            "timestamp": bar_timestamp,
+            "symbol": symbol,
+            "timeframe": "1m",
+            "open": str(state["open"]),
+            "high": str(state["high"]),
+            "low": str(state["low"]),
+            "close": str(state["close"]),
+            "volume": str(state["volume"]),   # float, e.g. "1200.0" — consistent with RealTimeBar
+            "source": "authoritative",
+            "bar_close_ts": bar_timestamp,    # minute-start timestamp (IBKR 1m convention)
+        }
+        await self._kafka_producer.publish(
+            topic_market_bars(self.env_name),
+            bar_data,
+            key=message_key(symbol, "1m"),
+        )
+        self.bars_processed += 1
+        self.m_bars.inc()
+        logger.info("1m bar emitted", symbol=symbol, close=state["close"], volume=state["volume"])
+
+        # Roll monitor (futures only, when enabled)
+        if self._roll_monitor.is_enabled:
+            bar_utc = (bar_minute if bar_minute.tzinfo is not None
+                       else bar_minute.replace(tzinfo=UTC))
+            self._roll_monitor.update_volume(symbol, float(state["volume"]), float(state["volume"]))
+            if self._roll_monitor.check_roll(symbol, bar_utc):
+                await self._roll_monitor._on_roll_confirmed(
+                    base_symbol=symbol, old_symbol=symbol, new_symbol=symbol,
+                    roll_gap=0.0, roll_direction="unknown",
+                    kafka_producer=self._kafka_producer, env_name=self.env_name,
+                )
+
     def health_check(self) -> None:
         if not self.running or not self.start_time:
             return
