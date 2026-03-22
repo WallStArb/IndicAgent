@@ -988,6 +988,9 @@ def _make_svc_for_pipeline(extra_attrs: dict | None = None):
     svc.signals_selected_total = MagicMock()
     svc._total_signals = 0
     svc._regime_cache = collections.defaultdict(dict)
+    # SHADOW-01: Regime gate safety floors (configurable via env vars)
+    svc._regime_prob_min = 0.30
+    svc._regime_dur_min = 1
     if extra_attrs:
         for k, v in extra_attrs.items():
             setattr(svc, k, v)

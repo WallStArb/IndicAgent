@@ -434,6 +434,9 @@ class SignalGeneratorService:
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
         self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
         self._roll_monitor_enabled = getattr(settings, "roll_monitor_enabled", False)
+        # SHADOW-01: Regime gate safety floors (configurable via env vars)
+        self._regime_prob_min: float = getattr(settings, "regime_prob_min", 0.30)
+        self._regime_dur_min: int = getattr(settings, "regime_dur_min", 1)
 
         # In-process live quotes dict: symbol → {"bid": float, "ask": float}
         # Populated by ticks topic handler. Replaces Redis HGETALL for price:SYMBOL:latest.
@@ -1147,7 +1150,12 @@ class SignalGeneratorService:
 
         # Stage 2: Regime gate
         _PIPELINE_STAGE_INPUT.labels(stage="regime_gate").inc(len(quality_gated))
-        regime_gated = apply_regime_gate(quality_gated, regime_data)
+        regime_gated = apply_regime_gate(
+            quality_gated,
+            regime_data,
+            prob_min=self._regime_prob_min,
+            dur_min=self._regime_dur_min,
+        )
         regime_eligible_count = sum(1 for s in regime_gated if s.get("regime_eligible", True))
         _PIPELINE_STAGE_OUTPUT.labels(stage="regime_gate").inc(regime_eligible_count)
 

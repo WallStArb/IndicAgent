@@ -6,16 +6,15 @@ No Kafka, no DB, no service dependencies.
 
 from __future__ import annotations
 
-from src.intelligence.trading.aggregator import (
-    _REGIME_DUR_MIN,
-    _REGIME_MAP,
-    _REGIME_PROB_MIN,
-)
+from src.intelligence.trading.aggregator import _REGIME_MAP
 
 
 def apply_regime_gate(
     signals: list[dict],
     regime_data: dict | None,
+    *,
+    prob_min: float = 0.30,
+    dur_min: int = 1,
 ) -> list[dict]:
     """Apply regime gating to all signals.
 
@@ -26,6 +25,14 @@ def apply_regime_gate(
     regime_data:
         Dict with HMM regime info, or None for graceful degradation.
         Expected keys: "hmm_regime", "hmm_regime_prob", "hmm_regime_duration".
+    prob_min:
+        Minimum HMM regime probability to trust the regime label.
+        Default 0.30 is a safety floor (D-02, SHADOW-01) — not a quality filter.
+        Set via REGIME_PROB_MIN env var in Settings.
+    dur_min:
+        Minimum number of bars the regime must have been stable.
+        Default 1 is a safety floor (D-02, SHADOW-01).
+        Set via REGIME_DUR_MIN env var in Settings.
 
     Returns
     -------
@@ -56,10 +63,10 @@ def apply_regime_gate(
         regime_eligible = True
         suppression_reason = None
 
-        if hmm_regime_prob < _REGIME_PROB_MIN:
+        if hmm_regime_prob < prob_min:
             regime_eligible = False
             suppression_reason = "regime_prob"
-        elif hmm_regime_duration < _REGIME_DUR_MIN:
+        elif hmm_regime_duration < dur_min:
             regime_eligible = False
             suppression_reason = "regime_duration"
         elif hmm_regime is not None and int(hmm_regime) not in allowed:
