@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-TWS Daemon — Kafka-native bar and tick publisher (Phase 30: Redpanda migration)
+TWS Daemon - Kafka-native bar and tick publisher (Phase 30: Redpanda migration)
 
 Reads 1-minute bars from IBKR via IBKRProvider and publishes to Redpanda:
-  - Bars  → dev.market.bars  (key: SYMBOL:1m)
-  - Ticks → dev.market.ticks (key: SYMBOL)
+  - Bars  -> dev.market.bars  (key: SYMBOL:1m)
+  - Ticks -> dev.market.ticks (key: SYMBOL)
 
 Replaces production/daemons/high_frequency_tws_daemon.py Redis XADD calls.
 DragonflyDB writes are fully removed. ib_insync logic remains in src/providers/ibkr.py.
 
-Version: 1.0.0
-Last Updated: 2026-03-14
-Status: Current ✅
+Version: 1.0.1
+Last Updated: 2026-03-22
+Status: Current 
 """
 
 from __future__ import annotations

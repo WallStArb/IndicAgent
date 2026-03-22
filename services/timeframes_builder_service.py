@@ -97,9 +97,6 @@ class TimeframeBuilderService:
             self._accumulators[symbol] = {tf: None for tf in _TARGET_TIMEFRAMES}
 
         for tf, tf_minutes in _TARGET_TIMEFRAMES.items():
-            if volume == 0 and close == 0.0:
-                continue
-
             new_period_ts = _floor_to_period(ts_seconds, tf_minutes)
             acc = self._accumulators[symbol][tf]
 
@@ -114,6 +111,7 @@ class TimeframeBuilderService:
                 "close": close,
                 "volume": volume,
                 "period_ts": new_period_ts,
+                "is_flat_bar": volume == 0,
             }
             self._accumulators[symbol][tf] = _update_accumulator(acc, bar_data, new_period_ts)
 
@@ -139,6 +137,7 @@ class TimeframeBuilderService:
         close_ts = (period_ts_dt + timedelta(seconds=tf_secs)).isoformat()
         bar_count = acc.get("bar_count", 0)
         is_complete = bar_count == tf_minutes
+        is_flat_bar = acc.get("is_flat_bar", False)
 
         payload = {
             "symbol": symbol,
@@ -151,6 +150,7 @@ class TimeframeBuilderService:
             "volume": str(acc["volume"]),
             "bar_count": bar_count,
             "is_complete": is_complete,
+            "is_flat_bar": is_flat_bar,
             "source": "timeframe_builder",
             "bar_close_ts": close_ts,
         }

@@ -11,6 +11,4 @@ All components are production-ready and focused.
 
 from .database_manager import DatabaseManager
 from .models import DataSource, Timeframe
-from .redis_streams_manager import RedisStreamsManager
-
-__all__ = ["Timeframe", "DataSource", "DatabaseManager", "RedisStreamsManager"]
+__all__ = ["Timeframe", "DataSource", "DatabaseManager"]
