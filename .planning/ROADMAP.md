@@ -160,7 +160,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [ ] **Phase 44.1: Feature Pipeline Renaissance Refactor** — replace indicator_service + market_analysis_service + timeframes_builder_service with unified FeaturePipelineService; shared BarHistory + BarAccumulator modules; typed BarMessage schema; in-pipeline HTF derivation (no DB queries in hot path); 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99; SignalGeneratorService simplified (remove DB seed, wire BarHistory to IntelligenceEvent stream)
 - [ ] **Phase 44.2: SignalGeneratorService Consolidation** — absorb 6 pipeline stage microservices (quality_gate, regime_gate, tod_adjuster, calibrator, ranker, winner_selector) into in-process pure functions; `src/intelligence/pipeline/` module dir; bounded async audit queue; publish BarIntelligenceRecord to `development.intelligence.record`; 8 Kafka execution hops → 2; retire 6 systemd units
 - [ ] **Phase 44.3: Atomic Persistence + OHLCV Unification** — FeatureWriterService consumes `intelligence.record` only; single atomic INSERT per bar (no UPSERTs, no partial rows); DB migration for 10 new `intelligence_features` columns; i8 UPSERT migrated to LLMWriterService; FeaturePipelineService as sole live writer to `market_data_ohlcv`; 18 services → 9 pipeline complete
-- [ ] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — wire ctf_score + relevant I6 sub-scores into all 28 I7 plugin confidence calculations, weighted by setup family; wire exhaustion_utils (guard/boost) to all applicable I7 plugins (32/36 currently unwired — Renaissance violation); both ship in single shadow mode window (logs old vs new confidence, no live score change); prerequisite for Phase 46 amplification; ohlcv table rebuild (15,721 → ~365 chunks, fix 4-5s query timeouts); lifecycle O(N) loop + chandelier write guard
+- [ ] **Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization** — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py; wire all 36 I7 plugins to capture raw ctf_* + exhaustion fields into standardized _shadow dict per signal (zero confidence modification — Option C; Phase 49 learns weights); lifecycle O(1) index + chandelier write guard
 - [ ] **Phase 46: I6 Confluence Expansion** — cross-asset topic injection, VIX regime scoring, sector rotation scoring, FVG/OB alignment weights non-zero
 - [ ] **Phase 47: Shadow Mode Graduation** — hmm_regime threshold validation, enable cross-asset + roll monitor, promote trad_DualDivergence
 - [ ] **Phase 48: Auth + External Access** — JWT cookie auth, CORS hardening, Cloudflare Tunnel, standalone Next.js prod build, auth event logging; keyset pagination for features export + REST endpoint (before_ts cursor)
@@ -618,32 +618,33 @@ Plans:
 - [x] 44.3-04-PLAN.md — SSE broadcaster rewire: intelligence.record → dashboard signal_scorecard + retire intelligence.i7 topic (PIPE-08)
 
 ### Phase 45: I6 → I7 Confluence Wiring + Exhaustion Standardization
-**Goal**: All 28 I7 plugins incorporate I6 confluence scores AND exhaustion scoring into confidence calculations, weighted by setup family. Both ship in a single shadow mode window — old and new confidence logged side-by-side with no live score change until Phase 46 graduation. Exhaustion is computed signal being discarded by 32/36 I7 plugins today — Renaissance violation. Also fixes the two remaining infrastructure pain points: OHLCV chunk fragmentation and lifecycle O(N) scan.
-**Depends on**: Phase 44 (confidence_utils in place, BaseI7Plugin provides consistent confidence contract, make_signal() factory wired), Phase 44.3 (FeaturePipelineService is sole OHLCV writer before rebuild)
+**Goal**: All 36 I7 plugins capture I6 ctf_* sub-scores and exhaustion fields into a standardized `_shadow` dict per signal — zero confidence modification (Option C: Phase 49 learns weights). Expose `ctf_fvg_alignment` + `ctf_ob_alignment` from I6 (currently computed but silently discarded). `capture_confluence_features()` + `ConfluenceWeightProfile` (all weights=0.0 placeholders) land in `confidence_utils.py` as the standard interface. Phase 47 graduation flips one flag once Phase 49 weights are validated.
+**Depends on**: Phase 44 (confidence_utils in place, make_signal() factory wired), Phase 44.3 (FeaturePipelineService sole OHLCV writer confirmed)
 **Requirements**: CONF-01, CONF-02, CONF-03, PERF-01, PERF-04
 
-**Exhaustion wiring by setup family (applicability map built during planning):**
-- `apply_exhaustion_guard` (-0.15 penalty) → trend-following, momentum, breakout families (penalize chasing tired moves)
-- `apply_exhaustion_boost` (+0.10 reward) → sweep/reclaim, reversal, mean-reversion families (reward sweet completion)
-- Microstructure (OFI/CVD/delta) → evaluate per-plugin: exhaustion as gate (suppress) vs boost vs neither
-- Session/ORB/gap setups → evaluate per-plugin during planning
+**Plugin family assignments:**
+- `"trend"` → TrendFollowing, MTFAlignment, MomentumBreakout, SqueezeExpansion, VCP, SecondLegContinuation, RegimeTransition
+- `"mean_reversion"` → MeanReversion, VWAPDeviation, VWAPReclaim, AnchoredVWAPReversion, POCRejection, HVNRejection
+- `"smc"` → FVGFill, CHoCHReversal, SupplyDemandSetup, LiquiditySweepReclaim, LiquidityHunt, PatternCompletion, LVNBreakout
+- `"microstructure"` → OFIContinuation, OFIDivergence, OFISpike, CVDDivergence, CVDSpike, DivergenceStack, DualDivergence, CrossAssetDivergence
+- `"session"` → SessionExtremesSetup, FailedBreakout, ORB15, ORB30, PrevDayLevelTest, GapAnalysisSetup, CandlestickPatternSetup
+- `"exempt"` → DeltaExhaustion (IS the exhaustion signal — circular; captures ctf_* only)
 
 **Success Criteria** (what must be TRUE):
-  1. Every I7 plugin reads `ctf_score` (and ≥1 relevant sub-score) from `frames["features"]` — grep confirms no plugin body ignores all `ctf_*` fields
-  2. Every applicable I7 plugin calls `apply_exhaustion_guard` or `apply_exhaustion_boost` from `exhaustion_utils.py` — grep confirms zero plugins re-implement exhaustion logic inline; plugins with neither document why in a comment
-  3. Shadow logging in each plugin emits `{"old_confidence": X, "new_confidence": Y, "ctf_contribution": Z, "exhaustion_contribution": W}` per fired signal — visible in `intelligence_features.i7` JSONB
-  4. Live `calibrated_confidence` in `signal_ledger` is unchanged (shadow mode confirmed by querying a 24h window and verifying zero change in score distribution)
-  5. Each plugin family uses the correct I6 sub-score weight: trend-following → `ctf_trend_alignment`; mean-reversion → `ctf_regime_agreement`; SMC → `ctf_fvg_alignment` + `ctf_ob_alignment`; microstructure (OFI/CVD) → `ctf_score` as gate
-  6. (PERF-01) `market_data_ohlcv` chunk count ≤ 400 — `SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = 'market_data_ohlcv'` — time-only partitioning, 7-day intervals, rebuild performed after 44.3 confirms FeaturePipelineService is sole writer
-  7. (PERF-04) Signal lifecycle active-signal lookup is O(1) via `{(symbol, tf): [sids]}` index dict — chandelier state written to DB only when stop price changes by ≥ 0.01% (write guard eliminates redundant UPDATE churn)
+  1. `ctf_fvg_alignment` and `ctf_ob_alignment` emitted from `cross_timeframe.py` output dict, present in `I6Context` schema and `IntelligenceEvent` — grep confirms both fields in schemas.py
+  2. `capture_confluence_features(features, direction, profile_name, existing_confidence)` exists in `confidence_utils.py`, returns standardized `_shadow_dict` with zero confidence modification
+  3. Every I7 plugin assigns `signal["_shadow"]` via `capture_confluence_features()` — grep confirms all 36 plugins; DeltaExhaustion has explicit exemption comment
+  4. Shadow dict contains: `{profile, existing_confidence, ctf_score, ctf_trend_alignment, ctf_structure_alignment, ctf_regime_agreement, ctf_fvg_alignment, ctf_ob_alignment, exhaustion_score, exhaustion_side, exhaustion_bars}`
+  5. Live `calibrated_confidence` in `signal_ledger` is unchanged — query 24h window confirms zero score distribution change
+  6. (PERF-04) SignalLifecycleService active-signal lookup is O(1) via `{(symbol, tf): [sids]}` index dict; chandelier state written only when stop price changes ≥ 0.01%
 **Plans**: 5 plans
 
 Plans:
-- [ ] 45-01-PLAN.md — exhaustion_utils wiring applicability map + guard/boost wiring for trend/momentum/breakout families (CONF-01)
-- [ ] 45-02-PLAN.md — ctf_* wiring for trend/mean-reversion plugin families + exhaustion for reversal/sweep families (CONF-02)
-- [ ] 45-03-PLAN.md — ctf_* + exhaustion wiring for SMC + microstructure families + unified shadow logging (CONF-03)
-- [ ] 45-04-PLAN.md — OHLCV hypertable rebuild: drop space partitioning, 7-day chunk intervals, verify FeaturePipelineService sole writer (PERF-01)
-- [ ] 45-05-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard (PERF-04)
+- [ ] 45-01-PLAN.md — expose ctf_fvg_alignment + ctf_ob_alignment from I6; add capture_confluence_features() + ConfluenceWeightProfile to confidence_utils.py (CONF-01)
+- [ ] 45-02-PLAN.md — wire capture_confluence_features() + exhaustion to trend/mean-reversion/session family plugins (CONF-02)
+- [ ] 45-03-PLAN.md — wire capture_confluence_features() + exhaustion to SMC + microstructure families (CONF-03)
+- [ ] 45-04-PLAN.md — OHLCV hypertable 7-day chunk interval verification (PERF-01)
+- [ ] 45-05-PLAN.md — SignalLifecycleService O(1) active-signal index + chandelier write guard regression tests (PERF-04)
 
 ### Phase 41: Intelligence Gap Fill
 **COMPLETED 2026-03-20** — see phase list for delivered items.
