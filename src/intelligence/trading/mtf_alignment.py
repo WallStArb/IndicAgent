@@ -112,7 +112,9 @@ class MTFAlignmentPlugin:
             "regime_context": regime_ctx,
             "supporting_factors": supporting,
         }
-        signal["_shadow"] = capture_confluence_features(features, direction, "trend", confidence)
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "trend", signal["confidence"]
+        )
         return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:

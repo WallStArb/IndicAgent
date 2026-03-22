@@ -226,7 +226,7 @@ class VCPPlugin:
                 "contraction_count": contraction_count,
             }
             signal["_shadow"] = capture_confluence_features(
-                features, direction, "trend", confidence,
+                features, direction, "trend", signal["confidence"],
             )
             return signal
 

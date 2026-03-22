@@ -1,7 +1,4 @@
-"""Tests for capture_confluence_features() and ConfluenceWeightProfile in confidence_utils.py.
-
-Phase 45-01: shadow capture infrastructure for I6 → I7 confluence wiring.
-"""
+"""Tests for capture_confluence_features() and ConfluenceWeightProfile in confidence_utils.py."""
 
 from __future__ import annotations
 
@@ -25,8 +22,8 @@ def test_capture_confluence_features_all_fields_present() -> None:
         "ctf_trend_alignment": 0.74,
         "ctf_structure_alignment": 0.60,
         "ctf_regime_agreement": 0.55,
-        "i6_fvg_tf_alignment": 0.40,
-        "i6_ob_tf_alignment": 0.35,
+        "ctf_fvg_alignment": 0.40,
+        "ctf_ob_alignment": 0.35,
         "exhaustion_score": 0.45,
         "exhaustion_side": "bull",
         "exhaustion_bars": 2.0,
