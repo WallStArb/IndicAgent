@@ -2,7 +2,7 @@
 "use client";
 
 import type { SignalScorecardData } from "@/lib/types";
-import { stripPluginPrefix, suppressionLabel } from "@/lib/plugin-utils";
+import { stripPluginPrefix } from "@/lib/plugin-utils";
 
 export function SignalScorecard({ data }: { data: SignalScorecardData | undefined }) {
   if (!data || data.ranked.length === 0) {
@@ -17,7 +17,7 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
   const suppressedCount = data.ranked.filter((r) => !r.regime_eligible).length;
   const winner = data.ranked.find((r) => r.is_winner);
 
-  const sorted = [...data.ranked].sort((a, b) => a.composite_rank - b.composite_rank);
+  const sorted = [...data.ranked].sort((a, b) => b.adjusted_rank - a.adjusted_rank);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -25,14 +25,14 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
       <div className="text-[0.55rem] text-[var(--text-muted)]">
         {firedCount} fired · {suppressedCount} regime-gated · winner:{" "}
         <span className="text-[var(--text-secondary)]">
-          {winner ? stripPluginPrefix(winner.setup_type) : "none"}
+          {winner ? stripPluginPrefix(winner.plugin) : "none"}
         </span>
       </div>
 
       {/* Signal rows */}
       {sorted.map((signal, idx) => {
         const isWinner = signal.is_winner;
-        const isHighQuality = signal.confidence >= 0.40;
+        const isHighQuality = signal.calibrated_confidence >= 0.40;
         const dotColor = isWinner
           ? isHighQuality ? "var(--blue)" : "var(--amber)"
           : "var(--text-muted)";
@@ -44,13 +44,13 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
             : signal.direction < 0
               ? "var(--red)"
               : "var(--text-muted)";
-        const confPct = (signal.confidence * 100).toFixed(0) + "%";
-        const displayName = stripPrefix(signal.setup_type);
-        const rowOpacity = !isWinner && signal.confidence < 0.40 ? 0.6 : 1.0;
+        const confPct = (signal.calibrated_confidence * 100).toFixed(0) + "%";
+        const displayName = stripPluginPrefix(signal.plugin);
+        const rowOpacity = !isWinner && signal.calibrated_confidence < 0.40 ? 0.6 : 1.0;
 
         return (
           <div
-            key={`${signal.setup_type}-${idx}`}
+            key={`${signal.plugin}-${idx}`}
             className="flex items-center gap-2 text-[0.65rem]"
             style={{ opacity: rowOpacity }}
           >
@@ -88,7 +88,7 @@ export function SignalScorecard({ data }: { data: SignalScorecardData | undefine
               <span style={{ color: "var(--green)" }}>✓</span>
             ) : (
               <span style={{ color: "#f59e0b" }} className="whitespace-nowrap">
-                ✗ {suppressionLabel(signal.suppression_reason)}
+                ✗
               </span>
             )}
           </div>
