@@ -20,8 +20,8 @@ from ...core.stream_keys import system_events as sk_system_events
 from ...core.stream_keys import (
     topic_indicators,
     topic_intelligence,
-    topic_intelligence_i7,
     topic_intelligence_i8,
+    topic_intelligence_record,
     topic_market_bars,
     topic_market_bars_htf,
     topic_market_ticks,
@@ -60,12 +60,57 @@ class KafkaSSEBroadcaster:
         # how many seeded events were published before they connected.
         self._latest: dict[str, dict[str, dict]] = defaultdict(dict)
 
+    @staticmethod
+    def _extract_signal_scorecard_payload(topic: str, payload: dict | str) -> dict | str:
+        """Transform intelligence.record payload into signal_scorecard shape.
+
+        intelligence.record is published via KafkaProducerClient which double-serializes
+        the BarIntelligenceRecord JSON: json.dumps(record.model_dump_json()).encode().
+        After json.loads() in the consumer, payload is a JSON string. Parse it and
+        extract ranked_signals into the dashboard-expected shape.
+
+        Falls back to returning the raw payload unchanged on any parse failure.
+        """
+        # Accept string (double-serialized) or dict (single-serialized or already parsed)
+        if isinstance(payload, str):
+            try:
+                record_dict = json.loads(payload)
+            except (ValueError, TypeError):
+                return payload
+        elif isinstance(payload, dict):
+            record_dict = payload
+        else:
+            return payload
+
+        try:
+            ranked = record_dict.get("ranked_signals", [])
+            intelligence = record_dict.get("intelligence", {})
+            ts = intelligence.get("ts", "") if isinstance(intelligence, dict) else ""
+            symbol = intelligence.get("symbol", "") if isinstance(intelligence, dict) else ""
+            tf = intelligence.get("tf", "") if isinstance(intelligence, dict) else ""
+            return {
+                "ts": ts,
+                "symbol": symbol,
+                "tf": tf,
+                "data": json.dumps(ranked),
+            }
+        except Exception:
+            return payload if isinstance(payload, dict) else {}
+
     async def run(self, consumer: object) -> None:
         """Consume from KafkaConsumerClient and fan-out to all subscribed clients.
 
         Runs as a background task from lifespan. Stops when consumer stops.
         """
+        settings = _get_settings()
+        env_name = settings.env_name or ""
+        _intelligence_record_topic = topic_intelligence_record(env_name)
+
         async for topic, key, payload in consumer.messages():  # type: ignore[union-attr]
+            # Transform intelligence.record into signal_scorecard payload shape
+            # so downstream SSE clients receive the same format as before.
+            if topic == _intelligence_record_topic:
+                payload = self._extract_signal_scorecard_payload(topic, payload)
             item = {"topic": topic, "key": key, "payload": payload}
             # Latest-per-key: always keep the most recent message for each key.
             # Uses key or falls back to a monotonic counter for keyless messages.
@@ -115,7 +160,7 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
     topics.append(topic_market_bars_htf(env_name))
     topics.append(topic_indicators(env_name))
     topics.append(topic_intelligence(env_name))
-    topics.append(topic_intelligence_i7(env_name))
+    topics.append(topic_intelligence_record(env_name))
     topics.append(topic_intelligence_i8(env_name))
     topics.append(topic_signals_aggregated(env_name))
     topics.append(topic_narratives(env_name))
@@ -149,6 +194,7 @@ def _event_name_for_topic(topic: str) -> str:
         "market.ticks",
         "market.bars",
         "indicators",
+        "intelligence.record",
         "intelligence.i7",
         "intelligence.i8",
         "intelligence",
@@ -181,6 +227,8 @@ def _event_name_for_topic(topic: str) -> str:
         return "market_data"
     if candidate == "indicators" or candidate.startswith("indicators"):
         return "indicator_data"
+    if candidate == "intelligence.record" or candidate.startswith("intelligence.record"):
+        return "signal_scorecard"
     if candidate == "intelligence.i7" or candidate.startswith("intelligence.i7"):
         return "signal_scorecard"
     if candidate == "intelligence.i8" or candidate.startswith("intelligence.i8"):

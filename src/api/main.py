@@ -51,8 +51,8 @@ async def lifespan(app: FastAPI):
         from src.core.stream_keys import (
             topic_indicators,
             topic_intelligence,
-            topic_intelligence_i7,
             topic_intelligence_i8,
+            topic_intelligence_record,
             topic_market_bars,
             topic_market_bars_htf,
             topic_market_ticks,
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
             topic_market_bars_htf(env_name),
             topic_indicators(env_name),
             topic_intelligence(env_name),
-            topic_intelligence_i7(env_name),
+            topic_intelligence_record(env_name),
             topic_intelligence_i8(env_name),
             topic_signals_aggregated(env_name),
             topic_narratives(env_name),
