@@ -17,7 +17,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import capture_confluence_features, compose_confidence
+from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import default_compute_next, no_signal, signal_type_for_direction
 from .trade_framer import frame_trade
@@ -220,7 +220,7 @@ class DivergenceStackPlugin:
                 "regime_context": "any",
                 "ttl_bars": 10,
             }
-            signal["_shadow"] = capture_confluence_features(
+            signal["_shadow"] = capture_signal_features(
                 features, direction, "microstructure", signal["confidence"],
             )
             return signal
