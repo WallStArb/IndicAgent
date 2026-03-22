@@ -264,7 +264,7 @@ class CrossAssetService:
                                     computed_at
                                 FROM intelligence_features
                                 WHERE symbol LIKE $1 || '%'
-                                  AND timeframe = $2
+                                  AND tf = $2
                                 ORDER BY computed_at DESC
                                 LIMIT $3
                                 """,
@@ -307,7 +307,7 @@ class CrossAssetService:
         Routes close/vol to rolling windows, then attempts to publish
         cross-asset features if all conditions are met.
         """
-        tf = payload.get("timeframe", "")
+        tf = payload.get("tf", "")
         if not tf:
             return
 
