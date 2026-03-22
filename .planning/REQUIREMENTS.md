@@ -56,7 +56,7 @@
 ### SHADOW — Shadow Mode Graduation
 
 - [x] **SHADOW-01**: `hmm_regime` gating thresholds moved from hardcoded constants to Settings fields (`REGIME_PROB_MIN`, `REGIME_DUR_MIN`) with safety-floor defaults (0.30 / 1); empirical threshold optimization deferred to Phase 49 ML (D-03) — safety floor maximizes labeled training data (D-04); if signal_ledger contains N>=200 regime-suppressed outcomes, threshold bucket analysis documented
-- [ ] **SHADOW-02**: `CROSS_ASSET_ENABLED` set to `true` after shadow monitoring confirms data quality (7 days non-null cross-asset fields per D-11) and no unintended effects; `cross_asset_enabled` flag and all conditional branches removed from all 4 services after 5-day soak
+- [x] **SHADOW-02**: `CROSS_ASSET_ENABLED` set to `true` after shadow monitoring confirms data quality (7 days non-null cross-asset fields per D-11) and no unintended effects; `cross_asset_enabled` flag and all conditional branches removed from all 4 services after 5-day soak
 - [x] **SHADOW-03**: `ROLL_MONITOR_ENABLED` set to `true` after offline validation confirms roll detection accuracy (>=90% detection, <10% FP per D-21); `roll_monitor_enabled` flag and all conditional branches removed from all 5 services after 5-day soak
 - [x] **SHADOW-04**: `trad_DualDivergence` promoted from `IS_SHADOW=True` to live after statistical gate passes: N>=100 resolved shadow signals AND 95% CI lower bound on E[PnL_R] > 0 (D-07); monitoring infrastructure emits `shadow_*` Prometheus gauges per weight_updater cycle (D-08)
 
