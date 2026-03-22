@@ -213,6 +213,21 @@ BAR_TO_SIGNAL_LATENCY = Histogram(
 )
 
 
+# Shadow plugin monitoring (Phase 47 — SHADOW-04)
+SHADOW_N_RESOLVED = Gauge("shadow_n_resolved", "Resolved shadow signals", ["plugin"])
+SHADOW_WIN_RATE = Gauge("shadow_win_rate", "Shadow plugin win rate", ["plugin"])
+SHADOW_EV_R = Gauge("shadow_ev_r", "Shadow plugin E[PnL_R]", ["plugin"])
+SHADOW_EV_CI_LOWER = Gauge(
+    "shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]", ["plugin"]
+)
+SHADOW_DAYS_TO_GATE = Gauge(
+    "shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"]
+)
+SHADOW_PROMOTION_READY = Gauge(
+    "shadow_promotion_ready", "1 when all gate conditions met", ["plugin"]
+)
+
+
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""
     global _server_started
