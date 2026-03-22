@@ -710,16 +710,17 @@ Plans:
 **Depends on**: Phase 46 (I6 expansion complete; all shadow features accumulating data throughout v2.0 phases)
 **Requirements**: SHADOW-01, SHADOW-02, SHADOW-03, SHADOW-04, INTEL-04
 **Success Criteria** (what must be TRUE):
-  1. A query of `signal_ledger WHERE is_shadow = TRUE` for regime_suppressed signals produces enough rows (N >= 200) to compute empirical win rates by threshold bucket — the analysis result (confirm or adjust thresholds) is documented in a decision log entry.
+  1. Regime gate thresholds migrated to Settings fields with safety-floor defaults (0.30/1); if signal_ledger contains N>=200 regime-suppressed outcomes, threshold bucket analysis is documented — otherwise explicit deferral with safety-floor justification recorded.
   2. `CROSS_ASSET_ENABLED=true` is set in the production environment; `indicagent-cross-asset` publishes live data and `signal_generator_service` injects cross-asset frames for EQ_INDEX symbols — verifiable by querying `signal_ledger` for `trad_CrossAssetDivergence` signals after enablement.
   3. `ROLL_MONITOR_ENABLED=true` is set; with a real or simulated roll event, `contract_metadata.is_front_month` toggles and pipeline services receive the roll event without restarting — verifiable in `system_events` table.
-  4. `trad_DualDivergence` `IS_SHADOW` flag is removed; the plugin fires live signals that appear in `signal_ledger` with `is_shadow = FALSE` — N >= 50 resolved signals with win rate > 50% is confirmed before flag removal.
+  4. `trad_DualDivergence` shadow stats monitoring emits Prometheus gauges on every weight_updater cycle; promotion gate requires N>=100 resolved signals AND 95% CI lower bound on E[PnL_R] > 0 (D-07); human sets `IS_SHADOW=False` when gate passes.
   5. `roll_premium_pct` (INTEL-04) is populated in `intelligence_features` for futures symbols during roll windows — `SELECT count(*) FROM intelligence_features WHERE roll_premium_pct IS NOT NULL AND ts > now() - interval '7 days'` returns > 0 after a roll event.
-**Plans:** 3 plans
+**Plans:** 4 plans
 Plans:
 - [ ] 47-01-PLAN.md — Regime gate Settings migration + shadow stats monitoring (SHADOW-01, SHADOW-04)
 - [ ] 47-02-PLAN.md — Roll detection bug fix + calendar extension + INTEL-04 migration (SHADOW-03, INTEL-04)
-- [ ] 47-03-PLAN.md — Cross-asset + roll monitor graduation cleanup (SHADOW-02, SHADOW-03)
+- [ ] 47-03-PLAN.md — Roll monitor graduation: enable + soak + scaffolding removal (SHADOW-03)
+- [ ] 47-04-PLAN.md — Cross-asset graduation: enable + soak + scaffolding removal (SHADOW-02)
 
 ### Phase 48: Auth + External Access
 **Goal**: The API is protected by JWT authentication, the dashboard runs as a production build served over Cloudflare Tunnel, SSE works correctly through the auth layer, and keyset pagination enables efficient large features export.
