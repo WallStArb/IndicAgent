@@ -13,7 +13,8 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
+from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 
 
@@ -170,10 +171,11 @@ class SupplyDemandSetupPlugin:
             confidence += 0.05
             supporting.append("ctf_aligned")
 
+        confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
 
         sig_type = "supply_demand_long" if direction == 1 else "supply_demand_short"
-        return {
+        signal = {
             "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -182,6 +184,10 @@ class SupplyDemandSetupPlugin:
             "confidence": confidence,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "smc", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)

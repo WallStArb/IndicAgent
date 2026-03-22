@@ -13,7 +13,7 @@ from typing import Any
 
 from ..plugins import InputSpec
 from .atr_utils import get_atr
-from .confidence_utils import compose_confidence
+from .confidence_utils import capture_confluence_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import extract_ohlcv, no_signal
 
@@ -178,7 +178,7 @@ class LiquidityHuntPlugin:
         confidence = compose_confidence(confidence)
 
         sig_type = "liquidity_hunt_long" if direction == 1 else "liquidity_hunt_short"
-        return {
+        signal = {
             "signal_type": sig_type,
             "direction": direction,
             "entry_price": round(entry, 2),
@@ -187,6 +187,10 @@ class LiquidityHuntPlugin:
             "confidence": confidence,
             "supporting_factors": supporting,
         }
+        signal["_shadow"] = capture_confluence_features(
+            features, direction, "smc", signal["confidence"],
+        )
+        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
