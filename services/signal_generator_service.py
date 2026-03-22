@@ -489,7 +489,6 @@ class SignalGeneratorService:
         self._audit_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
         # Phase 037: Cross-asset intelligence cache (keyed by tf)
-        self._cross_asset_enabled: bool = getattr(settings, "cross_asset_enabled", False)
         self._cross_asset_cache: dict[str, dict] = {}  # tf -> latest cross_asset payload
 
         # Phase 041: Higher-timeframe intelligence cache for HTF context injection
@@ -767,8 +766,7 @@ class SignalGeneratorService:
         ]
         if self._roll_monitor_enabled:
             topics.append(topic_system_events(self.env_name))
-        if self._cross_asset_enabled:
-            topics.append(topic_cross_asset(self.env_name))
+        topics.append(topic_cross_asset(self.env_name))
 
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
@@ -1457,8 +1455,8 @@ class SignalGeneratorService:
                 "_event": event,  # Phase 44.2: passed to _process_event for BarIntelligenceRecord
             }
 
-            # Phase 037: Inject cross-asset frames for EQ_INDEX symbols when enabled
-            if self._cross_asset_enabled and resolve_eq_index_base(symbol) is not None:
+            # Phase 037: Inject cross-asset frames for EQ_INDEX symbols
+            if resolve_eq_index_base(symbol) is not None:
                 frames["cross_asset"] = self._cross_asset_cache.get(
                     timeframe, {"ready": False}
                 )
@@ -1503,7 +1501,7 @@ class SignalGeneratorService:
         _intel_topic = topic_intelligence(self.env_name)
         _ticks_topic = topic_market_ticks(self.env_name)
         _sys_events_topic = topic_system_events(self.env_name)
-        _cross_asset_topic = topic_cross_asset(self.env_name) if self._cross_asset_enabled else ""
+        _cross_asset_topic = topic_cross_asset(self.env_name)
         try:
             async for topic, key, payload in self._kafka_consumer.messages():
                 if self.shutdown_requested:
@@ -1511,7 +1509,7 @@ class SignalGeneratorService:
                 try:
                     if topic == _sys_events_topic:
                         await self._handle_roll_event(payload)
-                    elif self._cross_asset_enabled and topic == _cross_asset_topic:
+                    elif topic == _cross_asset_topic:
                         # Cache latest cross-asset snapshot by timeframe
                         try:
                             tf = payload.get("tf", "")

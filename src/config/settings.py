@@ -108,8 +108,7 @@ class Settings(BaseSettings):
         default=True, validation_alias="ROLL_TIME_OF_DAY_GATED"
     )
 
-    # Cross-asset intelligence (shadow mode by default)
-    cross_asset_enabled: bool = Field(default=False, validation_alias="CROSS_ASSET_ENABLED")
+    # Cross-asset intelligence (always active — feature flag removed Phase 47-04)
     cross_asset_window_bars: int = Field(default=20, validation_alias="CROSS_ASSET_WINDOW_BARS")
     cross_asset_metrics_port: int = Field(default=9118, validation_alias="CROSS_ASSET_METRICS_PORT")
 

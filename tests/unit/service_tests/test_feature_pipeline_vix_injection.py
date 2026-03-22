@@ -2,9 +2,11 @@
 
 Tests cover guard conditions for cross-asset and VIX frame injection:
 - EQ_INDEX vs non-EQ_INDEX cross_asset guard
-- cross_asset_enabled True vs False guard
 - VIX symbol resolved vs None
 - VIX bar count >= 20 vs < 20
+
+Note: cross_asset_enabled feature flag removed in Phase 47-04 — cross-asset injection
+is now unconditional for EQ_INDEX symbols. Test 3 (disabled flag test) removed.
 
 Uses the __new__ pattern for FeaturePipelineService instantiation per CLAUDE.md.
 """
@@ -37,7 +39,6 @@ def _make_bar(symbol: str, tf: str = "1m", close: float = 20.0) -> BarMessage:
 
 
 def _make_service(
-    cross_asset_enabled: bool = True,
     vix_symbol: str | None = "VXJ6",
     cross_asset_cache: dict | None = None,
 ) -> Any:
@@ -45,7 +46,6 @@ def _make_service(
     from services.feature_pipeline_service import FeaturePipelineService
 
     svc = FeaturePipelineService.__new__(FeaturePipelineService)
-    svc._cross_asset_enabled = cross_asset_enabled
     svc._cross_asset_cache = cross_asset_cache or {}
     svc._vix_symbol = vix_symbol
     svc._bar_history = BarHistory(maxlen=200)
@@ -57,6 +57,7 @@ def _build_injection(svc: Any, symbol: str, tf: str = "1m") -> dict:
     """Replicate the Phase 46 frame injection logic from _run_pipeline().
 
     Returns the frames dict after cross_asset and vix injection.
+    Note: cross_asset injection is unconditional for EQ_INDEX symbols (flag removed Phase 47-04).
     """
     from src.intelligence.context.vix_context import compute_vix_context
     from src.intelligence.cross_asset_features import resolve_eq_index_base
@@ -64,7 +65,7 @@ def _build_injection(svc: Any, symbol: str, tf: str = "1m") -> dict:
     frames: dict = {}
 
     # Phase 46: Inject cross-asset frames for EQ_INDEX symbols (per D-12, D-13)
-    if svc._cross_asset_enabled and resolve_eq_index_base(symbol) is not None:
+    if resolve_eq_index_base(symbol) is not None:
         frames["cross_asset"] = svc._cross_asset_cache.get(tf, {"ready": False})
         frames["cross_asset_5m"] = svc._cross_asset_cache.get("5m", {"ready": False})
 
@@ -102,7 +103,6 @@ def test_eq_index_gets_cross_asset_frames():
         "tf": "5m",
     }
     svc = _make_service(
-        cross_asset_enabled=True,
         cross_asset_cache={"1m": cached_1m, "5m": cached_5m},
     )
 
@@ -121,12 +121,11 @@ def test_eq_index_gets_cross_asset_frames():
 
 
 def test_non_eq_index_does_not_get_cross_asset_frames():
-    """Non-EQ_INDEX symbol (GCM6 = Gold) with cross_asset_enabled=True should NOT
-    have cross_asset or cross_asset_5m keys in frames.
+    """Non-EQ_INDEX symbol (GCM6 = Gold) should NOT have cross_asset or cross_asset_5m
+    keys in frames — EQ_INDEX guard is still active.
     """
     cached_1m = {"ready": True, "active_pair": "ES_NQ", "tf": "1m"}
     svc = _make_service(
-        cross_asset_enabled=True,
         cross_asset_cache={"1m": cached_1m, "5m": cached_1m},
     )
 
@@ -139,28 +138,7 @@ def test_non_eq_index_does_not_get_cross_asset_frames():
 
 
 # ---------------------------------------------------------------------------
-# Test 3: cross_asset_enabled=False — no cross_asset keys regardless of symbol
-# ---------------------------------------------------------------------------
-
-
-def test_cross_asset_disabled_no_cross_asset_frames():
-    """When cross_asset_enabled=False, EQ_INDEX symbol should still not receive
-    cross_asset frames regardless of cache contents.
-    """
-    cached_1m = {"ready": True, "active_pair": "ES_NQ", "tf": "1m"}
-    svc = _make_service(
-        cross_asset_enabled=False,
-        cross_asset_cache={"1m": cached_1m, "5m": cached_1m},
-    )
-
-    frames = _build_injection(svc, symbol="ESM6", tf="1m")
-
-    assert "cross_asset" not in frames, "Disabled cross_asset must not inject frames"
-    assert "cross_asset_5m" not in frames, "Disabled cross_asset must not inject frames"
-
-
-# ---------------------------------------------------------------------------
-# Test 4: VIX symbol resolved, bar_history has >= 20 VIX bars -> frames["vix"]["ready"] True
+# Test 3: VIX symbol resolved, bar_history has >= 20 VIX bars -> frames["vix"]["ready"] True
 # ---------------------------------------------------------------------------
 
 
@@ -182,7 +160,7 @@ def test_vix_ready_when_sufficient_bars():
 
 
 # ---------------------------------------------------------------------------
-# Test 5: VIX symbol resolved, bar_history has < 20 VIX bars -> frames["vix"]["ready"] False
+# Test 4: VIX symbol resolved, bar_history has < 20 VIX bars -> frames["vix"]["ready"] False
 # ---------------------------------------------------------------------------
 
 
@@ -202,7 +180,7 @@ def test_vix_not_ready_when_insufficient_bars():
 
 
 # ---------------------------------------------------------------------------
-# Test 6: No VIX symbol resolved (_vix_symbol=None) -> frames["vix"] = {"ready": False}
+# Test 5: No VIX symbol resolved (_vix_symbol=None) -> frames["vix"] = {"ready": False}
 # ---------------------------------------------------------------------------
 
 
@@ -217,7 +195,7 @@ def test_no_vix_symbol_returns_not_ready():
 
 
 # ---------------------------------------------------------------------------
-# Test 7: VIX_REGIME_TF constant is "1h" — data-quality fix (Phase 46.1)
+# Test 6: VIX_REGIME_TF constant is "1h" — data-quality fix (Phase 46.1)
 # ---------------------------------------------------------------------------
 
 
