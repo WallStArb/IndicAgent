@@ -283,7 +283,7 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 **Plans:** 1 plan
 
 Plans:
-- [ ] 49.1-01-PLAN.md — TDD: regime gate fix + regime label population (2 tasks)
+- [x] 49.1-01-PLAN.md — TDD: regime gate fix + regime label population (2 tasks)
 
 ### Phase 50: Roll Monitor & DualDivergence Graduation
 
