@@ -512,14 +512,16 @@ class TestHMMRegime:
         plugin = HMMRegimePlugin()
         with structlog.testing.capture_logs() as logs:
             plugin.compute_full({"main": df, "features": features})
-        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
-        event_names = [l.get("event") for l in warning_logs]
+        warning_logs = [entry for entry in logs if entry.get("log_level") == "warning"]
+        event_names = [entry.get("event") for entry in warning_logs]
         assert "hmm_fallback_2d" in event_names
-        fallback_log = next(l for l in warning_logs if l.get("event") == "hmm_fallback_2d")
+        fallback_log = next(
+            entry for entry in warning_logs if entry.get("event") == "hmm_fallback_2d"
+        )
         assert "adx_14" in fallback_log.get("missing_fields", [])
 
     def test_fallback_2d_warning_no_features_dict(self):
-        """When no 'features' key in frames, structlog warning 'hmm_fallback_2d_no_features' fires."""
+        """When no 'features' key in frames, 'hmm_fallback_2d_no_features' warning fires."""
         from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
 
         rng = np.random.default_rng(42)
@@ -528,8 +530,8 @@ class TestHMMRegime:
         plugin = HMMRegimePlugin()
         with structlog.testing.capture_logs() as logs:
             plugin.compute_full({"main": df})  # no "features" key
-        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
-        event_names = [l.get("event") for l in warning_logs]
+        warning_logs = [entry for entry in logs if entry.get("log_level") == "warning"]
+        event_names = [entry.get("event") for entry in warning_logs]
         assert "hmm_fallback_2d_no_features" in event_names
 
     def test_no_warning_when_5d(self):
@@ -543,8 +545,10 @@ class TestHMMRegime:
         plugin = HMMRegimePlugin()
         with structlog.testing.capture_logs() as logs:
             plugin.compute_full({"main": df, "features": features})
-        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
-        fallback_events = [l for l in warning_logs if "hmm_fallback_2d" in l.get("event", "")]
+        warning_logs = [entry for entry in logs if entry.get("log_level") == "warning"]
+        fallback_events = [
+            entry for entry in warning_logs if "hmm_fallback_2d" in entry.get("event", "")
+        ]
         assert len(fallback_events) == 0
 
     # ── HMM-02: hmm_n_dims output ────────────────────────────────
@@ -673,10 +677,11 @@ class TestSMCContextHMMFields:
     def test_schema_rejects_unknown_field(self):
         """SMCContext rejects unknown fields (extra='forbid')."""
         import pytest
+        from pydantic import ValidationError
 
         from src.intelligence.schemas import SMCContext
 
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(ValidationError):
             SMCContext(hmm_unknown_field=1.0)
 
 
