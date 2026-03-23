@@ -111,11 +111,9 @@ class KSDriftMonitor:
     The signal_generator reads these flags (via _refresh_drift_penalties_from_db())
     to automatically apply confidence penalties.
 
-    Phase 30: Redis dependency removed. drift_state table replaces Redis keys.
-
     Args:
         db_pool: asyncpg connection pool (from DatabaseManager.pool).
-        env_prefix: Environment prefix (retained for logging context; no Redis usage).
+        env_prefix: Environment prefix for logging context.
         timeframes: List of timeframes to monitor. Defaults to ["1m", "5m", "15m", "1h"].
         symbols: List of symbols to monitor. Populated at run_forever() call time
                  if not provided here.
@@ -127,8 +125,6 @@ class KSDriftMonitor:
         env_prefix: str,
         timeframes: list[str] | None = None,
         symbols: list[str] | None = None,
-        # redis_client kept for backwards compat but ignored (Phase 30 removed Redis)
-        redis_client: Any = None,
     ) -> None:
         self.db_pool = db_pool
         self.env_prefix = env_prefix

@@ -102,11 +102,28 @@ class KafkaConsumerClient:
               - key (str | None): Decoded message key (e.g. "ES:1m"), or None if no key.
               - payload (dict): Decoded JSON payload dict.
         """
+        # Import for diagnostic logging
+        import sys
+
         async for msg in self._consumer:
             topic = msg.topic
             key = msg.key.decode() if msg.key else None
             try:
                 payload = json.loads(msg.value)
-            except Exception:
+            except Exception as e:
+                # DIAGNOSTIC: Print to stderr (always visible) since logging might not be configured
+                print(
+                    f"[KAFKA_CONSUMER_ERROR] topic={topic}, key={key}, "
+                    f"value_type={type(msg.value).__name__}, "
+                    f"error={type(e).__name__}: {e}",
+                    file=sys.stderr,
+                    flush=True
+                )
+                if msg.value and len(msg.value) > 0:
+                    print(
+                        f"[KAFKA_CONSUMER_ERROR] value_preview (first 200 bytes): {msg.value[:200]}",
+                        file=sys.stderr,
+                        flush=True
+                    )
                 continue
             yield topic, key, payload

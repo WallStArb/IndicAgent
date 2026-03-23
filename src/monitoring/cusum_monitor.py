@@ -125,15 +125,13 @@ class CUSUMMonitor:
 
     Args:
         db_pool: asyncpg connection pool (from DatabaseManager.pool).
-        env_prefix: Environment prefix (retained for logging context; no Redis usage).
+        env_prefix: Environment prefix for logging context.
     """
 
     def __init__(
         self,
         db_pool: Any,
         env_prefix: str,
-        # redis_client kept for backwards compat but ignored (Phase 30 removed Redis)
-        redis_client: Any = None,
     ) -> None:
         self.db_pool = db_pool
         self.env_prefix = env_prefix
