@@ -1412,3 +1412,227 @@ async def test_signals_aggregated_published_on_winner():
         "signals.aggregated must NOT be published when no signals fire; "
         f"published topics: {publish_topics_no_winner}"
     )
+
+
+# ── DB warmup seed (Phase 48) ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_success():
+    """Test successful seeding populates BarHistory with bars from DB."""
+    from datetime import datetime
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.signal_generator_service import SignalGeneratorService
+    from src.core.bar_history import BarHistory
+    from src.config.settings import Instrument
+
+    # Mock DB response with 2 bars (DESC order from ORDER BY ts DESC)
+    mock_rows = [
+        {
+            "ts": datetime(2026, 3, 23, 14, 1, tzinfo=UTC),  # Newest (DESC order)
+            "bar": {"o": 4502.0, "h": 4506.0, "l": 4500.0, "c": 4504.0, "v": 1200},
+            "session_type": "rth"
+        },
+        {
+            "ts": datetime(2026, 3, 23, 14, 0, tzinfo=UTC),  # Oldest
+            "bar": {"o": 4500.0, "h": 4505.0, "l": 4498.0, "c": 4502.0, "v": 1000},
+            "session_type": "rth"
+        }
+    ]
+
+    # Create service instance
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._bar_history = BarHistory(maxlen=200)
+    svc.logger = MagicMock()
+
+    # Mock db_manager
+    mock_db = MagicMock()
+    mock_db.execute_query = AsyncMock(return_value=mock_rows)
+    svc.db_manager = mock_db
+
+    # Mock config with timeframes
+    svc.config = {
+        "service": {
+            "timeframes": ["1m", "5m"]
+        }
+    }
+
+    # Mock get_active_contracts to return test instrument
+    test_instrument = Instrument(
+        symbol="ES",
+        base="ES",
+        asset_class="futures",
+        point_value=50.0,
+        tick_size=0.25,
+        session_id="futures_24_5",
+        exchange="CME",
+        sector="equity_index",
+        name="E-mini S&P 500",
+        provider_meta={}
+    )
+
+    # Mock get_active_contracts at module level
+    import services.signal_generator_service as sgs_mod
+    original_get_active = sgs_mod.get_active_contracts
+    sgs_mod.get_active_contracts = lambda: [test_instrument]
+
+    try:
+        await svc._seed_bar_history_from_db()
+
+        # Verify DB query was called for each (symbol, tf) combination
+        assert mock_db.execute_query.call_count == 2  # 1 symbol × 2 timeframes
+
+        # Verify BarHistory populated
+        bars_1m = svc._bar_history.get("ES", "1m")
+        bars_5m = svc._bar_history.get("ES", "5m")
+
+        assert len(bars_1m) == 2
+        # After reversing DESC rows: oldest first (14:00 at index 0, 14:01 at index 1)
+        assert bars_1m[0].close == 4502.0
+        assert bars_1m[1].close == 4504.0
+        assert bars_1m[0].source == "ibkr_seed"
+
+        assert len(bars_5m) == 2
+        assert bars_5m[0].close == 4502.0
+        assert bars_5m[1].close == 4504.0
+
+        # Verify log message
+        svc.logger.info.assert_called_once()
+        assert "BarHistory seeded from database" in str(svc.logger.info.call_args)
+    finally:
+        # Restore original function
+        sgs_mod.get_active_contracts = original_get_active
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_no_db_manager():
+    """Test graceful fallback when db_manager is None."""
+    from services.signal_generator_service import SignalGeneratorService
+    from src.core.bar_history import BarHistory
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._bar_history = BarHistory(maxlen=200)
+    svc.db_manager = None  # No DB manager
+    svc.logger = MagicMock()
+
+    # Should not raise exception
+    await svc._seed_bar_history_from_db()
+
+    # Verify warning logged
+    svc.logger.warning.assert_called_once()
+    assert "DB seed failed - no db_manager" in str(svc.logger.warning.call_args)
+
+    # BarHistory should remain empty
+    bars = svc._bar_history.get("ES", "1m")
+    assert len(bars) == 0
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_exception_fallback():
+    """Test graceful fallback when DB query raises exception."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.signal_generator_service import SignalGeneratorService
+    from src.core.bar_history import BarHistory
+    from src.config.settings import Instrument
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._bar_history = BarHistory(maxlen=200)
+    svc.logger = MagicMock()
+
+    # Mock db_manager that raises exception
+    mock_db = MagicMock()
+    mock_db.execute_query = AsyncMock(side_effect=Exception("DB connection failed"))
+    svc.db_manager = mock_db
+
+    svc.config = {
+        "service": {
+            "timeframes": ["1m"]
+        }
+    }
+
+    # Mock get_active_contracts to return test instrument
+    test_instrument = Instrument(
+        symbol="ES",
+        base="ES",
+        asset_class="futures",
+        point_value=50.0,
+        tick_size=0.25,
+        session_id="futures_24_5",
+        exchange="CME",
+        sector="equity_index",
+        name="E-mini S&P 500",
+        provider_meta={}
+    )
+
+    import services.signal_generator_service as sgs_mod
+    original_get_active = sgs_mod.get_active_contracts
+    sgs_mod.get_active_contracts = lambda: [test_instrument]
+
+    try:
+        # Should not raise exception
+        await svc._seed_bar_history_from_db()
+
+        # Verify warning logged with error message
+        svc.logger.warning.assert_called()
+        assert "DB seed failed" in str(svc.logger.warning.call_args)
+    finally:
+        sgs_mod.get_active_contracts = original_get_active
+
+
+@pytest.mark.asyncio
+async def test_seed_bar_history_from_db_empty_result():
+    """Test seeding when DB returns no rows (no historical data)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.signal_generator_service import SignalGeneratorService
+    from src.core.bar_history import BarHistory
+    from src.config.settings import Instrument
+
+    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+    svc._bar_history = BarHistory(maxlen=200)
+    svc.logger = MagicMock()
+
+    # Mock DB response with empty rows
+    mock_db = MagicMock()
+    mock_db.execute_query = AsyncMock(return_value=[])
+    svc.db_manager = mock_db
+
+    svc.config = {
+        "service": {
+            "timeframes": ["1m"]
+        }
+    }
+
+    # Mock get_active_contracts to return test instrument
+    test_instrument = Instrument(
+        symbol="ES",
+        base="ES",
+        asset_class="futures",
+        point_value=50.0,
+        tick_size=0.25,
+        session_id="futures_24_5",
+        exchange="CME",
+        sector="equity_index",
+        name="E-mini S&P 500",
+        provider_meta={}
+    )
+
+    import services.signal_generator_service as sgs_mod
+    original_get_active = sgs_mod.get_active_contracts
+    sgs_mod.get_active_contracts = lambda: [test_instrument]
+
+    try:
+        # Should not raise exception
+        await svc._seed_bar_history_from_db()
+
+        # BarHistory should remain empty (no data to seed)
+        bars = svc._bar_history.get("ES", "1m")
+        assert len(bars) == 0
+
+        # Verify info logged (success, even though no rows)
+        svc.logger.info.assert_called_once()
+    finally:
+        sgs_mod.get_active_contracts = original_get_active
+

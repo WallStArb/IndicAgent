@@ -35,12 +35,12 @@ import structlog
 from prometheus_client import Counter as _PrometheusCounter
 from pydantic import ValidationError
 
-from src.config.settings import Settings, get_active_symbols
+from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
-from src.core.schemas.bar_message import BarMessage
+from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.service_utils import (
     CROSS_ASSET_VALID_TFS,
     TF_SECONDS,
@@ -296,11 +296,16 @@ def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
     # Try string key (Kafka JSON dict) first, then bytes key (legacy Redis)
     raw = fields.get("event") or fields.get(b"event", b"")
     if not raw:
+        logger.warning("Failed to parse IntelligenceEvent: no 'event' field", fields=fields)
         return None
     try:
         return IntelligenceEvent.model_validate_json(raw)
     except (ValidationError, ValueError) as e:
-        logger.warning("Failed to parse IntelligenceEvent", error=str(e))
+        logger.warning(
+            "Failed to parse IntelligenceEvent",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
         return None
 
 
@@ -725,6 +730,77 @@ class SignalGeneratorService:
         except Exception as e:
             self.logger.warning("Database unavailable, persistence disabled", error=str(e))
             self.db_manager = None
+
+    async def _seed_bar_history_from_db(self) -> None:
+        """Seed BarHistory from intelligence_features on startup.
+
+        Queries last 50 bars per (symbol, tf) from intelligence_features
+        and populates BarHistory to eliminate warmup delay.
+
+        Gracefully degrades if DB unavailable: logs WARNING and proceeds
+        with empty BarHistory (falls back to live warmup).
+        """
+        if not self.db_manager:
+            self.logger.warning("DB seed failed - no db_manager, falling back to live warmup")
+            return
+
+        active_contracts = get_active_contracts()
+        timeframes = self.config["service"]["timeframes"]  # ["1m", "5m", "15m", "1h"]
+
+        try:
+            for contract in active_contracts:
+                symbol = contract.symbol
+                for tf in timeframes:
+                    query = """
+                        SELECT ts, bar, session_type
+                        FROM intelligence_features
+                        WHERE symbol = $1 AND tf = $2
+                        ORDER BY ts DESC
+                        LIMIT 50
+                    """
+
+                    rows = await self.db_manager.execute_query(
+                        query, (symbol, tf)
+                    )
+
+                    if not rows:
+                        continue
+
+                    # Process rows in reverse (oldest first) to maintain chronological order
+                    for row in reversed(rows):
+                        ts = row["ts"]
+                        bar_data = row["bar"]  # JSONB: {"o": x, "h": y, "l": z, "c": w, "v": n}
+                        session_type = row.get("session_type", "rth")
+
+                        # Reconstruct BarMessage
+                        bar_msg = BarMessage(
+                            ts=ts,
+                            symbol=symbol,
+                            tf=tf,
+                            open=bar_data["o"],
+                            high=bar_data["h"],
+                            low=bar_data["l"],
+                            close=bar_data["c"],
+                            volume=bar_data["v"],
+                            source="ibkr_seed",  # Mark as seeded from DB
+                            session_type=SessionType(session_type) if session_type else SessionType.RTH,
+                            gap_preceding=False,
+                        )
+
+                        self._bar_history.append(bar_msg)
+
+            self.logger.info(
+                "BarHistory seeded from database",
+                symbols=len(active_contracts),
+                timeframes=len(timeframes)
+            )
+
+        except Exception as e:
+            self.logger.warning(
+                "DB seed failed - falling back to live warmup",
+                error=str(e)
+            )
+            # Proceed with empty BarHistory - service will warm up from live data
 
     async def _handle_ticks_message(self, symbol: str, payload: dict) -> None:
         """KAFKA-06: Update _live_quotes with latest tick for symbol.
@@ -1497,10 +1573,12 @@ class SignalGeneratorService:
         """Consume from intelligence, market.ticks, and optionally system.events topics."""
         if not self._kafka_consumer:
             return
+
         _intel_topic = topic_intelligence(self.env_name)
         _ticks_topic = topic_market_ticks(self.env_name)
         _sys_events_topic = topic_system_events(self.env_name)
         _cross_asset_topic = topic_cross_asset(self.env_name)
+
         try:
             async for topic, key, payload in self._kafka_consumer.messages():
                 if self.shutdown_requested:
@@ -1530,10 +1608,12 @@ class SignalGeneratorService:
                         else:
                             symbol = payload.get("symbol", "")
                             timeframe = payload.get("timeframe", "")
+
                         if symbol and timeframe:
                             await self._process_single_message(
                                 symbol, timeframe, payload, topic, None
                             )
+
                         await self._kafka_consumer.commit()
                     elif topic == _ticks_topic:
                         # key = "SYMBOL"
@@ -1806,19 +1886,28 @@ class SignalGeneratorService:
 
     async def start(self) -> None:
         self.logger.info("Starting Signal Generator Service", config=self.config["service"])
+
         try:
             await self._connect_database()
+
+            # SEED BAR HISTORY BEFORE CONSUMER STARTS
+            await self._seed_bar_history_from_db()
+
             await self._setup_kafka_clients()
+
             self.running = True
             # Load perf weights at startup so first bar already has weights
             await self._load_perf_weights()
+
             # Load drift penalties at startup from drift_state DB table
             await self._refresh_drift_penalties_from_db()
             # Load CIS weights at startup — first bar uses learned weights immediately
             await self._load_cis_weights_from_db()
+
             # Phase 35: Load calibration curves and TOD multipliers at startup
             await self._load_calibration_curves_from_db()
             await self._load_tod_multipliers_from_db()
+
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
