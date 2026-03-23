@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Ready to plan
-last_updated: "2026-03-23T19:01:41.398Z"
+status: Phase complete — ready for verification
+last_updated: "2026-03-23T19:38:18.541Z"
 progress:
-  total_phases: 7
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 3
+  total_phases: 8
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 4
 ---
 
 # Project State
@@ -18,15 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 49.1 — regime-gate-fix-write-all-signals-to-signal-ledger
+**Current focus:** Phase 49 — DB performance optimization (next after 49.2 complete)
 
 ## Current Position
 
-Phase: 50
-Plan: Not started
-
-**Last session:** 2026-03-23 — Completed 49.1-01-PLAN.md
-**Commits:** 081ddef (RED tests), 037eed6 (GREEN implementation)
+Phase: 49.2 (hmm-operational-fixes-observability-fallback-logging-warm-up-noise) — COMPLETE
+Plan: 1 of 1 — DONE
 
 ## v2.1 Milestone Goal
 
@@ -79,3 +76,9 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Phase 48 COMPLETE (2026-03-23): Tick aggregation + I7 refactoring — 550+ lines eliminated, 3 shared utilities created, 4 I6 confluence violations fixed, aggregator calibration optimized
 - Phase 49.1 inserted after Phase 49: Regime Gate Fix — Write All Signals to Signal Ledger (URGENT)
 - Phase 49.1 COMPLETE (2026-03-23): signal_ledger writes decoupled from winner selection; regime_type_at_fire + hmm_regime_at_fire populated on every LedgerEntry; 6 new TDD tests, 57 total passing
+- Phase 49.2 COMPLETE (2026-03-23): HMM observability — structlog 2D fallback warning, hmm_n_dims + hmm_warmed_up fields, warm-up prob suppression; 11 new TDD tests, 19 total HMM tests passing
+
+### Decisions (Phase 49.2)
+- Warm-up suppression zeroes all 4 hmm_prob_* fields for audit trail consistency when bars_processed < min_lookback
+- structlog module-level logger = structlog.get_logger(__name__) in hmm_regime.py for 2D fallback observability
+- n_dims stored in _state after _reset_state() so it persists into _build_output() without argument threading
