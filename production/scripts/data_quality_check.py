@@ -334,6 +334,10 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
 def check_ic_health(conn: Any) -> tuple[dict[tuple[str, str], float], float]:
     """Read signal_performance_segmented for latest IC scores per (plugin, tf).
 
+    NOTE: Table dropped in migration 050 (never used in production).
+    IC health tracking is deferred until Renaissance observability phase.
+    Returns empty dict and 0.0 when table doesn't exist.
+
     Returns:
         (ic_scores, significant_fraction)
         ic_scores maps (plugin, tf) -> ic_score
@@ -343,24 +347,29 @@ def check_ic_health(conn: Any) -> tuple[dict[tuple[str, str], float], float]:
     total_eligible = 0
     total_significant = 0
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        # Get latest IC per (setup_plugin, timeframe) — use max(computed_at) per group
-        cur.execute(
-            """
-            SELECT DISTINCT ON (setup_plugin, timeframe)
-                setup_plugin,
-                timeframe,
-                ic_score,
-                ic_p_value,
-                ic_n,
-                ic_significant,
-                sample_size
-            FROM signal_performance_segmented
-            WHERE ic_score IS NOT NULL
-            ORDER BY setup_plugin, timeframe, computed_at DESC
-            """
-        )
-        rows = cur.fetchall()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Get latest IC per (setup_plugin, timeframe) — use max(computed_at) per group
+            cur.execute(
+                """
+                SELECT DISTINCT ON (setup_plugin, timeframe)
+                    setup_plugin,
+                    timeframe,
+                    ic_score,
+                    ic_p_value,
+                    ic_n,
+                    ic_significant,
+                    sample_size
+                FROM signal_performance_segmented
+                WHERE ic_score IS NOT NULL
+                ORDER BY setup_plugin, timeframe, computed_at DESC
+                """
+            )
+            rows = cur.fetchall()
+    except psycopg2.errors.UndefinedTable:
+        # Table dropped in migration 050 - IC health not available
+        DQ_IC_SIGNIFICANT_FRACTION.set(0.0)
+        return {}, 0.0
 
     for row in rows:
         plugin = row["setup_plugin"]
@@ -533,8 +542,11 @@ Thresholds:
         total_ic_plugins = len(ic_scores)
         sig_pct = sig_frac * 100
         print("\nIC HEALTH")
-        print(f"  Plugins with IC computed: {total_ic_plugins}")
-        print(f"  Significant (p<0.05, N>=30): {sig_pct:.0f}%")
+        if total_ic_plugins == 0:
+            print("  IC health tracking disabled (table dropped, see migration 050)")
+        else:
+            print(f"  Plugins with IC computed: {total_ic_plugins}")
+            print(f"  Significant (p<0.05, N>=30): {sig_pct:.0f}%")
 
         # --- RESULT ---
         print("\n" + "-" * 60)
