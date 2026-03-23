@@ -20,16 +20,10 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
+from .volume_profile_utils import check_reversal_gate, format_reversal_supporting_factors
 
 # Maximum ATR distance from POC to qualify as "testing" the level
 _POC_PROXIMITY_ATR = 0.3
-
-# Minimum divergence confidence to count as reversal
-_DIV_THRESHOLD = 0.3
-
-# Stochastic overbought/oversold thresholds
-_STOCH_OVERSOLD = 30.0
-_STOCH_OVERBOUGHT = 70.0
 
 
 @dataclass
@@ -98,27 +92,17 @@ class POCRejectionPlugin:
         direction = 1 if entry < poc_price else -1
 
         # ── Momentum reversal gate ────────────────────────────────────────────
-        rsi_div_bullish = float(features.get("rsi_div_bullish", 0.0))
-        rsi_div_bearish = float(features.get("rsi_div_bearish", 0.0))
-        stoch_k = float(features.get("stoch_k_14_3", 50.0))
-
-        if direction == 1:
-            rsi_div_ok = rsi_div_bullish > _DIV_THRESHOLD
-            stoch_ok = stoch_k < _STOCH_OVERSOLD
-            reversal_ok = rsi_div_ok or stoch_ok
-            reversal_strength = max(
-                rsi_div_bullish, (30.0 - stoch_k) / 30.0 if stoch_k < 30 else 0.0
-            )
-        else:
-            rsi_div_ok = rsi_div_bearish > _DIV_THRESHOLD
-            stoch_ok = stoch_k > _STOCH_OVERBOUGHT
-            reversal_ok = rsi_div_ok or stoch_ok
-            reversal_strength = max(
-                rsi_div_bearish, (stoch_k - 70.0) / 30.0 if stoch_k > 70 else 0.0
-            )
+        reversal_ok, reversal_strength = check_reversal_gate(features, direction)
 
         if not reversal_ok:
             return no_signal()
+
+        # Extract RSI/stoch flags for supporting factors
+        rsi_div_bullish = float(features.get("rsi_div_bullish", 0.0))
+        rsi_div_bearish = float(features.get("rsi_div_bearish", 0.0))
+        stoch_k = float(features.get("stoch_k_14_3", 50.0))
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > 0.3) or (direction == -1 and rsi_div_bearish > 0.3)
+        stoch_ok = (direction == 1 and stoch_k < 30.0) or (direction == -1 and stoch_k > 70.0)
 
         # ── Trade frame ───────────────────────────────────────────────────────
         signal_type = "poc_rejection_long" if direction == 1 else "poc_rejection_short"
@@ -165,11 +149,7 @@ class POCRejectionPlugin:
             f"poc_distance_atr={abs(entry - poc_price) / atr:.3f}",
             f"poc_test_volume_ratio={poc_test_volume_ratio:.2f}",
         ]
-        if rsi_div_ok:
-            div_label = "rsi_div_bullish" if direction == 1 else "rsi_div_bearish"
-            supporting.append(div_label)
-        if stoch_ok:
-            supporting.append(f"stoch_extreme={stoch_k:.1f}")
+        supporting.extend(format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok))
 
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
