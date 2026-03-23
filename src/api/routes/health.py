@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..dependencies import get_db_manager, get_redis_manager
+from ..dependencies import get_db_manager
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -45,27 +45,8 @@ async def database_health(db_manager=Depends(get_db_manager)):
         raise HTTPException(status_code=503, detail=f"Database unhealthy: {str(e)}") from e
 
 
-@router.get("/redis")
-async def redis_health(redis_manager=Depends(get_redis_manager)):
-    """Redis health check."""
-    try:
-        # Test Redis connection
-        await redis_manager.redis_client.ping()
-
-        return {
-            "status": "healthy",
-            "redis": "connected",
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-    except Exception as e:
-        logger.error("Redis health check failed", error=str(e))
-        raise HTTPException(status_code=503, detail=f"Redis unhealthy: {str(e)}") from e
-
-
 @router.get("/full")
-async def full_health_check(
-    db_manager=Depends(get_db_manager), redis_manager=Depends(get_redis_manager)
-):
+async def full_health_check(db_manager=Depends(get_db_manager)):
     """Comprehensive health check."""
     health_status = {
         "service": "IndicAgent API",
@@ -74,7 +55,6 @@ async def full_health_check(
         "components": {},
     }
 
-    # Check database
     try:
         conn = await db_manager.connection_manager.get_connection()
         await conn.fetchval("SELECT 1")
@@ -83,14 +63,6 @@ async def full_health_check(
     except Exception as e:
         health_status["components"]["database"] = f"unhealthy: {str(e)}"
 
-    # Check Redis
-    try:
-        await redis_manager.redis_client.ping()
-        health_status["components"]["redis"] = "healthy"
-    except Exception as e:
-        health_status["components"]["redis"] = f"unhealthy: {str(e)}"
-
-    # Overall status
     all_healthy = all(status == "healthy" for status in health_status["components"].values())
     health_status["status"] = "healthy" if all_healthy else "degraded"
 
