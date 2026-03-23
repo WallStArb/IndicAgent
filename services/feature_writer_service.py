@@ -684,6 +684,22 @@ class FeatureWriterService:
                 self.error_count_total.inc()
                 self._error_count += 1
 
+    async def _periodic_flush_loop(self) -> None:
+        """Flush buffered events every FLUSH_INTERVAL_SECS regardless of message rate.
+
+        Without this, the time-based flush in _maybe_flush only triggers when a new
+        message arrives. If the intelligence.record topic goes quiet, buffered events
+        never reach the database until the next message arrives.
+        """
+        while self.running and not self.shutdown_requested:
+            try:
+                await asyncio.sleep(FLUSH_INTERVAL_SECS)
+                await self._maybe_flush(force=False)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in periodic flush loop", error=str(e))
+
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
             try:
@@ -734,6 +750,7 @@ class FeatureWriterService:
             self.running = True
             tasks = [
                 asyncio.create_task(self._process_loop()),
+                asyncio.create_task(self._periodic_flush_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
             self.logger.info("Feature Writer Service started")

@@ -1995,10 +1995,13 @@ async def main() -> None:
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
-    # Register plugins first so the validator sees a populated registry
-    register_all_plugins()
+    # Initialize service first — _setup_logging() in __init__ must run before
+    # register_all_plugins() to prevent plugin module imports from configuring
+    # the root logger before logging.basicConfig() is called (which would make
+    # it a no-op and silence all structlog output).
+    svc = SignalGeneratorService(args.config)
 
-    # Run plugin validation before starting service
+    # Run plugin validation (plugins already registered by __init__)
     validator = PluginValidator()
     try:
         validator.validate_all()
@@ -2006,8 +2009,6 @@ async def main() -> None:
     except RuntimeError as e:
         print(f"❌ Plugin validation failed: {e}")
         sys.exit(1)
-
-    svc = SignalGeneratorService(args.config)
     try:
         await svc.start()
     except KeyboardInterrupt:
