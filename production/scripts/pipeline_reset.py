@@ -303,16 +303,29 @@ def verify_dataset(conn: Any, seed_mode: bool = False) -> tuple[bool, str]:
     return ok, "\n".join(lines)
 
 
-def _pause_for_services(action: str, services: list[str]) -> None:
-    """Print service commands and wait for user to press Enter."""
+def _pause_for_services(action: str, services: list[str], auto_confirm: bool = False) -> None:
+    """Print service commands and wait for user to press Enter, or auto-execute if auto_confirm=True."""
     verb = "stop" if action == "stop" else "start"
     print(f"\n{'='*50}")
-    print(f"{action.upper()} pipeline services before continuing:")
-    print()
-    for svc in services:
-        print(f"  sudo systemctl {verb} {svc}")
-    print()
-    input(f"Press Enter when services are {verb}ped...")
+    if auto_confirm:
+        print(f"{action.upper()} pipeline services automatically (--yes flag):")
+        import subprocess
+        for svc in services:
+            cmd = ["sudo", "systemctl", verb, svc]
+            print(f"  {' '.join(cmd)}")
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print(f"    Warning: {result.stderr.strip()}")
+            except Exception as e:
+                print(f"    Error: {e}")
+    else:
+        print(f"{action.UPPER()} pipeline services before continuing:")
+        print()
+        for svc in services:
+            print(f"  sudo systemctl {verb} {svc}")
+        print()
+        input(f"Press Enter when services are {verb}ped...")
 
 
 def main() -> None:
@@ -383,7 +396,7 @@ def main() -> None:
     )
 
     # --- Stage 1: Stop services ---
-    _pause_for_services("stop", _STOP_SERVICES)
+    _pause_for_services("stop", _STOP_SERVICES, auto_confirm=args.yes)
 
     # --- Stage 2: Clear Kafka topics ---
     kafka_env_prefix = settings.env_name or ""
@@ -524,7 +537,7 @@ def main() -> None:
     db_conn.close()
 
     # --- Restart services ---
-    _pause_for_services("start", _START_SERVICES)
+    _pause_for_services("start", _START_SERVICES, auto_confirm=args.yes)
 
     # --- Summary ---
     elapsed = time.time() - t_start
