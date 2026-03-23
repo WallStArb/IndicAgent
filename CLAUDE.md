@@ -121,19 +121,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 ### Active Service Map
 
-| Concept | Systemd unit | Log file | Output topic | DB table |
-|---------|-------------|----------|-------------|----------|
-| `tws` | `indicagent-tws` | `tws_daemon.log` | `market.bars`, `market.ticks` | `market_data_ohlcv` |
-| `feature_pipeline` | `indicagent-feature-pipeline` | `feature_pipeline_service.log` | `intelligence` | → `intelligence_features` (via feature_writer) |
-| `signal_generator` | `indicagent-signal-generator` | `signal_generator_service.log` | `signals.aggregated` | `signal_ledger` |
-| `signal_lifecycle` | `indicagent-signal-lifecycle` | `signal_lifecycle_service.log` | `llm.outcomes` | `signal_ledger` (updates) |
-| `ai_narrative` | `indicagent-ai-narrative` | `ai_narrative_service.log` | `narratives` | → `llm_calls` (via llm_writer) |
-| `feature_writer` | `indicagent-feature-writer` | `feature_writer_service.log` | — (DB writer) | `intelligence_features` |
-| `llm_writer` | `indicagent-llm-writer` | `llm_writer_service.log` | — (DB writer) | `llm_calls`, `llm_model_scores` |
-| `cross_asset` | `indicagent-cross-asset` | `cross_asset_service.log` | `cross_asset` | `development.cross_asset` |
-| `api` | `indicagent-api` | — | SSE on :8000 | — |
-
-Source service files: `services/*.service`. Installed: `/etc/systemd/system/`. `production/systemd/` is a reference template — NOT what's installed.
+See "Active Services" table in Key Components section below. Source service files: `services/*.service`. Installed: `/etc/systemd/system/`. `production/systemd/` is a reference template — NOT what's installed.
 
 ### Per-Layer Naming Rules
 
@@ -188,7 +176,7 @@ IBKR TWS → feature_pipeline_service (I1-I6 unified) →
 ### Active Services
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
-| TWS Daemon | `indicagent-tws` | IBKR 5s real-time bar push → 1m OHLCV aggregation; 5s close → market.ticks for live pricing | — |
+| TWS Daemon | `indicagent-tws` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
 | Feature Pipeline | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
@@ -226,23 +214,13 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - Aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 - **Volume Profile field selection**: `poc_price`/`vah`/`val` = session VP (resets daily — use for 1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (structural — use for 15m/1h). `price_in_value_area`, `distance_to_vah_atr`, `distance_to_val_atr` already computed in I4Context — no recalculation needed downstream.
 
-### TimescaleDB Gotchas
+### TimescaleDB Gotchas (Common)
 - **DB shell:** `docker exec timescaledb psql -U postgres -d indicagent` — container is `timescaledb`
-- **VACUUM:** Cannot run inside a transaction block — use a standalone `psql -c "VACUUM ..."` command
-- **VACUUM loop pattern:** `for table in t1 t2 t3; do docker exec timescaledb psql -U postgres -d indicagent -c "VACUUM ANALYZE $table;"; done` — one psql call per table required
-- **Autovacuum on hypertables:** `ALTER TABLE hypertable SET (autovacuum_...)` only applies to new chunks. Cover existing chunks by iterating `timescaledb_information.chunks`: `FOR r IN SELECT chunk_schema, chunk_name FROM timescaledb_information.chunks WHERE hypertable_name = '...' AND hypertable_schema = 'public' LOOP EXECUTE format('ALTER TABLE %I.%I SET (...)', r.chunk_schema, r.chunk_name); END LOOP` — use `record` type (not `text`) to avoid ambiguous column name conflicts with `chunk_name`
-- **TRUNCATE removes all chunks** — after `TRUNCATE`, `timescaledb_information.chunks` returns 0 rows. Autovacuum settings on parent automatically apply to all future chunks; no need to iterate existing chunks.
-- **`set_chunk_time_interval()` applies to new chunks only** — best done while table is empty after TRUNCATE: `SELECT set_chunk_time_interval('table', INTERVAL '1 month');`
-- **`signal_stats_daily` is a materialized view** — appears in `pg_stat_user_tables` but cannot be TRUNCATEd; use `REFRESH MATERIALIZED VIEW signal_stats_daily;` to empty it after clearing `signal_ledger`.
-- **`signal_performance_segmented` not in `pipeline_reset.py`** — must TRUNCATE separately when doing a full clear.
-- **`compression_enabled=true` ≠ policy exists** — `timescaledb_information.hypertables` shows compression_enabled but doesn't tell you if a job is scheduled. Always verify: `SELECT hypertable_name, config FROM timescaledb_information.jobs WHERE application_name LIKE 'Columnstore%';`
-- **pg_stat_statements:** Enabled (2026-03-05). Slow query analysis: `SELECT calls, round(mean_exec_time::numeric,2) AS mean_ms, query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10`
-- **`pg_stat_user_indexes.idx_scan` is always 0 for hypertable parents** — chunk-level indexes are tracked separately. Never use idx_scan=0 to identify unused indexes on hypertables; use pg_stat_statements and EXPLAIN instead.
-- **`pg_class` shows near-zero size for hypertable parents** — use `hypertable_size('table')` for real sizes and `timescaledb_information.hypertables` for num_chunks.
-- **Applying psql migrations via `docker exec`**: `docker exec timescaledb psql ... -f /dev/stdin <<'EOF'` does NOT work. Always `docker cp file.sql timescaledb:/tmp/file.sql` then `docker exec timescaledb psql -U postgres -d indicagent -f /tmp/file.sql`.
-- **`market_data_ohlcv` missing index**: `CREATE INDEX ON market_data_ohlcv (symbol, timeframe, timestamp DESC);` — without this, ORDER BY DESC LIMIT queries scan all 10k chunks and time out. Omit CONCURRENTLY (not supported on hypertables).
+- **VACUUM:** Cannot run inside a transaction block — use standalone `psql -c "VACUUM ..."`
 - **`instruments` table key is base symbol**: `symbol` column stores base (e.g., `PL`, `SOL`, `ES`), NOT the contract code. Contract code lives inside `contract_details->>'symbol'`. The API spreads `json.loads(contract_details)` so the JSONB `symbol` key overrides the DB key in API responses. To deactivate: `UPDATE instruments SET is_active = FALSE WHERE symbol IN ('PL', 'SOL')`.
 - **`instruments.contract_details` is stored as a JSON string**: `jsonb` column stores a serialized string value, not a JSON object. `jsonb_typeof(contract_details)` returns `"string"`, so `->>'field'` operators don't work directly in SQL. Use Python `json.loads()` to parse, or in SQL: `(contract_details #>> '{}')::jsonb->>'field'`.
+- **`market_data_ohlcv` missing index**: `CREATE INDEX ON market_data_ohlcv (symbol, timeframe, timestamp DESC);` — without this, ORDER BY DESC LIMIT queries scan all 10k chunks and time out. Omit CONCURRENTLY (not supported on hypertables).
+- **Advanced patterns:** See `docs/operations/timescaledb-gotchas.md` for autovacuum, chunk iteration, materialized views, compression jobs, pg_stat_statements, and migration patterns.
 
 ## Plugin System
 
@@ -321,33 +299,17 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
-**External Systems**
+**Dashboard:** See `docs/dashboard/GOTCHAS.md` for SSE re-render optimization, payload parsing, Next.js HMR, layout modes, and runtime API detection.
+
+## Infrastructure
+
+- **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
+- **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **TWS bar source**: `tws_daemon.py` uses `stream_real_time_bars()` — IBKR pushes 5-second bars, accumulated into 1m OHLCV and published to `development.market.bars`. Each 5s close is also published to `development.market.ticks` for live dashboard pricing. `fetch_historical_bars` in `src/providers/ibkr.py` is kept for backfill scripts only.
 - **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
-
-**Dashboard**
-- **Dashboard 1s re-render tick**: `signal-card.tsx` calls `setInterval(1s)` via `useFormattedTimestamp` — any derived values (formatted strings, timestamps) must use `useMemo` to avoid per-second recomputation.
-- **`format.ts` timing utils**: `fmtTimeHMS(iso)` → `HH:MM:SS` or null (guards invalid dates); `fmtLagSeconds(lagS)` → `"+1.2s"` or null (guards NaN).
-- **SSE broadcaster `_latest` rebuild**: `KafkaSSEBroadcaster` uses stable `group_id="sse_broadcaster"` + `seek_to_beginning()` on startup so all topic history replays on each API restart, fully populating the snapshot cache. If dashboard shows "-" after an API restart, restart the API again — the broadcaster needs ~5s to replay.
-- **`intelligence_i7` SSE domain**: `intelligence_i7:SYMBOL:TF` stream is subscribed in `_build_stream_list()` (alongside `intelligence:`); event name is `signal_scorecard`. Check must appear before `intelligence:` startswith check to prevent shadowing.
-- **`signal_scorecard` event payload**: `{"ts": "...", "symbol": "ES", "tf": "1m", "data": "[{...}]"}` where `data` is a JSON-encoded string of `RankedSignal[]`. Parse with `JSON.parse(String(payload.data || "[]"))`.
-- **`GET /api/signals/recent`**: `?symbol=&timeframe=&limit=` — returns `signal_ledger` rows with `setup_performance` LEFT JOIN, ordered by `computed_at DESC`. Drill panel fetches on mount and merges with SSE history deduplicated by `signal_id` (SSE version wins on conflict).
-- **Dashboard layout modes**: `trading-dashboard.tsx` has two modes — `"focus"` (left `WatchlistRail` + single `SymbolCard`) and `"grid"` (`GroupedSymbolGrid` grouped by sector). Auto-switches to focus when profile > 12 instruments. Toggle in header.
-- **Skeleton cards**: `SkeletonCard` renders a shimmer placeholder while `symbolData[sym]` is null on page load/SSE reconnect. Prevents blank card flash.
-- **`symbol-config.ts` `loadConfig()`**: Fetches all asset classes from `/api/instruments` (not just `futures`). ETFs have `asset_class: "equity"` in the DB. `SymbolInfo.sector` is `string` (not a union) to accommodate all ETF sectors.
-- **Signal alert strip**: `SignalAlertStrip` renders above content when any instrument has a signal ≥ 0.65 confidence. Scans all TFs per symbol; deduplicates to one pill per symbol (highest confidence).
-- **`allowedDevOrigins` (Next.js dev)**: Next.js 16+ blocks cross-origin `/_next/*` HMR requests by default — causes full page reload every ~30-80s when accessing dev server from a non-localhost host. Fix: add all access origins (local IP, CF domains) to `allowedDevOrigins` in `next.config.ts`. Current: `["dash.indicagent.com", "www.indicagent.com", "192.168.1.158"]`.
-- **`getApiBase()` runtime detection** (`src/lib/api.ts`): Returns the correct API base URL at runtime based on `window.location.hostname`. LAN/localhost → `http://<hostname>:8000`; any other host → `https://api.indicagent.com`. Use this instead of `NEXT_PUBLIC_API_BASE_URL` so both direct LAN access and CloudFlare tunnel work without config changes. `NEXT_PUBLIC_API_BASE_URL` still overrides if set.
-- **SSE `Cache-Control` / `X-Accel-Buffering`**: `sse_events` StreamingResponse includes `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers — prevents reverse proxies (nginx, CF) from buffering the stream.
-
-## System Access
-
-- **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
-- **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
 
 ## Data Pipeline Debugging
 
