@@ -7,6 +7,7 @@ Evidence contributor for CIS bucket scorer — Phase B input.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -102,6 +103,34 @@ class CHoCHReversalPlugin:
             regime_ctx = "bearish"
 
         raw_conf += 0.3 * abs(direction)
+
+        # I6 confluence: Cross-timeframe structure alignment (Renaissance principle)
+        ctf_structure = float(features.get("ctf_structure_alignment", 0.0))
+        if ctf_structure > 0.3:
+            # Weight by magnitude: stronger multi-TF CHoCH/BOS alignment = higher confidence
+            structure_boost = 0.08 * min(1.0, ctf_structure / 0.7)
+            raw_conf += structure_boost
+            if structure_boost > 0.04:
+                supporting.append("multi_tf_structure_aligned")
+
+        # I6 confluence: Cross-timeframe trend alignment
+        ctf_trend = float(features.get("ctf_trend_alignment", 0.0))
+        if ctf_trend > 0.3:
+            # Weight by magnitude: trend direction agreement across TFs
+            trend_boost = 0.06 * min(1.0, ctf_trend / 0.7)
+            raw_conf += trend_boost
+            if trend_boost > 0.03:
+                supporting.append("multi_tf_trend_aligned")
+
+        # I6 confluence: Overall cross-timeframe score (directional confirmation)
+        ctf_score = float(features.get("ctf_score", 0.0))
+        if abs(ctf_score) > 0.3 and math.copysign(1, ctf_score) == direction:
+            # Weight by magnitude: stronger overall alignment
+            overall_boost = 0.05 * min(1.0, abs(ctf_score) / 0.7)
+            raw_conf += overall_boost
+            if overall_boost > 0.03:
+                supporting.append("ctf_directionally_aligned")
+
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
