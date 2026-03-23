@@ -277,13 +277,13 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 
 ### Phase 49.1: Regime Gate Fix — Write All Signals to Signal Ledger (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** Decouple signal_ledger writes from winner selection — write ALL ranked signals unconditionally. Populate regime_type_at_fire and hmm_regime_at_fire for ML training segmentation.
+**Requirements**: [SHADOW-01, DATA-11]
 **Depends on:** Phase 49
-**Plans:** 0 plans
+**Plans:** 1 plan
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 49.1 to break down)
+- [ ] 49.1-01-PLAN.md — TDD: regime gate fix + regime label population (2 tasks)
 
 ### Phase 50: Roll Monitor & DualDivergence Graduation
 
