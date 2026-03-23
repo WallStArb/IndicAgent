@@ -44,21 +44,24 @@ class TrendFollowingPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        features = frames.get("features") or {}
+
+        # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
+        trend_regime = features.get("trend_regime", 0.0)
+        trend_conf = features.get("trend_confidence", 0.0)
+
+        if abs(trend_regime) < self.regime_threshold or trend_conf < self.confidence_threshold:
+            return no_signal()
+
+        # Regime gate passed - now extract OHLCV (expensive numpy conversion)
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
         open_, high, low, close = result
 
-        features = frames.get("features") or {}
-
-        trend_regime = features.get("trend_regime", 0.0)
-        trend_conf = features.get("trend_confidence", 0.0)
         swing_pattern = features.get("swing_pattern", 0.0)
         trend_strength = features.get("trend_strength", 0.0)
         ctf_score = features.get("ctf_score", 0.0)
-
-        if abs(trend_regime) < self.regime_threshold or trend_conf < self.confidence_threshold:
-            return no_signal()
 
         direction = 1 if trend_regime > 0 else -1
         if direction == 1 and swing_pattern <= 0:
