@@ -1315,29 +1315,25 @@ class SignalGeneratorService:
             _regime_type_label: str | None = None
             if regime_data is not None:
                 _hmm_raw = regime_data.get("hmm_regime")
-                if _hmm_raw is not None:
-                    try:
-                        _hmm_regime_int = int(_hmm_raw)
-                        _regime_type_label = _HMM_REGIME_LABEL.get(_hmm_regime_int)
-                    except (TypeError, ValueError):
-                        pass
+                if isinstance(_hmm_raw, (int, float)):
+                    _hmm_regime_int = int(_hmm_raw)
+                    _regime_type_label = _HMM_REGIME_LABEL.get(_hmm_regime_int)
 
             entries: list[LedgerEntry] = []
+            selected_count = 0
             for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
                 _ranked_id = str(ranked_sig.get("signal_id") or "")
                 # was_selected is True only for the entry that matches the (non-gated) winner.
-                # When _winner_signal_id is empty (no winner or gate fired), all are False.
                 _is_winner_entry = (
                     (
                         _ranked_id == _winner_signal_id
                         or (
                             not _ranked_id
-                            and winner is not None
                             and ranked_sig.get("setup_plugin") == winner.get("setup_plugin")
                             and ranked_sig.get("regime_eligible", True)
                         )
                     )
-                    if _winner_signal_id != ""
+                    if winner is not None
                     else False
                 )
                 _status = (
@@ -1382,6 +1378,8 @@ class SignalGeneratorService:
                         regime_type_at_fire=_regime_type_label,
                     )
                 )
+                if _is_winner_entry:
+                    selected_count += 1
 
             # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
             for entry in entries:
@@ -1397,7 +1395,6 @@ class SignalGeneratorService:
                     await insert_signals_with_features(
                         self.db_manager.pool, entries, {}
                     )
-                    selected_count = sum(1 for e in entries if e.was_selected)
                     self.signals_generated_total.inc(len(entries))
                     self.signals_selected_total.inc(selected_count)
                     self._total_signals += len(entries)
@@ -1466,7 +1463,6 @@ class SignalGeneratorService:
                     )
 
             if published_signal:
-                _winner_direction = int(winner.get("direction", 0))
                 self._update_gate(
                     symbol, timeframe, _winner_direction, timestamp, _winner_signal_id
                 )
