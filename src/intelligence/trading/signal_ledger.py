@@ -390,13 +390,45 @@ WHERE signal_id = $1::uuid
 """
 
 _SELECT_ACTIVE_SQL = """
-SELECT * FROM signal_ledger
+SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direction,
+       entry_price, stop_loss, targets, confidence, confluence_score, regime_context,
+       supporting_factors, was_selected, num_signals_bar, num_agreeing, num_conflicting,
+       resolution_method, composite_rank, market_context, status, activated_at,
+       exit_at, exit_price, exit_reason, pnl_ticks, pnl_r, pnl_dollars, created_at,
+       updated_at, feature_ts, feature_tf, cis_score, bucket_scores, weights_version,
+       signal_quality, signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
+       market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
+       activation_price, zone_entry_pct, bars_to_activation, mae, mfe, bars_in_trade,
+       outcome, cis_attribution, market_entry_price, market_entry_exit_price,
+       market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade,
+       market_entry_outcome, market_entry_gap_bars, market_entry_at, market_entry_exit_at,
+       is_shadow, stop_basis, stop_structure_type, stop_structure_age_bars,
+       structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
+       chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
+       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+FROM signal_ledger
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
 
 _SELECT_ACTIVE_BY_SYMBOL_SQL = """
-SELECT * FROM signal_ledger
+SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direction,
+       entry_price, stop_loss, targets, confidence, confluence_score, regime_context,
+       supporting_factors, was_selected, num_signals_bar, num_agreeing, num_conflicting,
+       resolution_method, composite_rank, market_context, status, activated_at,
+       exit_at, exit_price, exit_reason, pnl_ticks, pnl_r, pnl_dollars, created_at,
+       updated_at, feature_ts, feature_tf, cis_score, bucket_scores, weights_version,
+       signal_quality, signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
+       market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
+       activation_price, zone_entry_pct, bars_to_activation, mae, mfe, bars_in_trade,
+       outcome, cis_attribution, market_entry_price, market_entry_exit_price,
+       market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade,
+       market_entry_outcome, market_entry_gap_bars, market_entry_at, market_entry_exit_at,
+       is_shadow, stop_basis, stop_structure_type, stop_structure_age_bars,
+       structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
+       chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
+       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+FROM signal_ledger
 WHERE status IN ('pending', 'active', 'regime_suppressed') AND symbol = $1 AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
