@@ -178,7 +178,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 
 **Milestone Goal:** Earn the right to trust the numbers. Fix the live data foundation (tick aggregation), close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
 
-- [ ] **Phase 48: Tick Aggregation** — replace broken `reqHistoricalDataAsync` bar polling with live 1m OHLCV bars built from the tick stream; eliminate the bars_processed freeze (#1 known bug); all downstream indicators run on live data
+- [ ] **Phase 48: Tick Aggregation & I7 Quality** — verify tick aggregation (5s→1m bars, eliminate bars_processed freeze); I7 refactoring: extract 3 shared utilities (450-600 line savings), fix I6 confluence violations in 4 SMC/FVG plugins, optimize aggregator calibration batching
 - [ ] **Phase 49: DB Performance & Signal Ledger Hardening** — signal_ledger composite index + query optimization; CIS null repair (blocked PostgreSQL shared memory fix); close Phase 43 test gap (threading.Lock characterization test); REQUIREMENTS.md requirement ID traceability fix
 - [ ] **Phase 50: Roll Monitor & DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration 049_roll_premium_pct.sql; enable ROLL_MONITOR_ENABLED; trad_DualDivergence promotion once D-07 gate passes
 - [ ] **Phase 51: Signal & Indicator Validation Framework** — per-layer sanity checks (I1→I7 output values statistically sensible); signal outcome completeness audit; setup_performance gate verification; automated validation that runs on each deploy
