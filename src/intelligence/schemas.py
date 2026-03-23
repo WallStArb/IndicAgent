@@ -621,6 +621,8 @@ class SMCContext(BaseModel):
     hmm_prob_trending_up: float | None = None
     hmm_prob_trending_down: float | None = None
     hmm_regime_duration: float | None = None
+    hmm_n_dims: int | None = None       # 2 or 5 — emission dimensionality this bar
+    hmm_warmed_up: bool | None = None   # False during convergence window post-reset
 
     # LiquidityPoolsPlugin outputs
     bsl_level: float | None = None
