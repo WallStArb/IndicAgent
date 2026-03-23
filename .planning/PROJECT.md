@@ -255,4 +255,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 52: Infrastructure Hardening — Docker restart policies, log rotation, health checks, no manual steps
 
 ---
-*Last updated: 2026-03-22 after v2.0 milestone completion (Signal Integrity & ML Foundation — 14 phases, 60 plans, 18→9 services, _shadow dict foundation established)*
+*Last updated: 2026-03-23 — Phase 49.1 complete: regime gate fix — signal_ledger writes now unconditional on all_ranked (Renaissance principle: never drop labeled training data). regime_type_at_fire + hmm_regime_at_fire populated on every LedgerEntry for Phase 53+ ML per-regime segmentation.*
