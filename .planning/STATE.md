@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Phase complete — ready for verification
-last_updated: "2026-03-23T19:38:18.541Z"
+status: Ready to plan
+last_updated: "2026-03-23T19:45:33.998Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -22,8 +22,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 ## Current Position
 
-Phase: 49.2 (hmm-operational-fixes-observability-fallback-logging-warm-up-noise) — COMPLETE
-Plan: 1 of 1 — DONE
+Phase: 50
+Plan: Not started
 
 ## v2.1 Milestone Goal
 
@@ -79,6 +79,7 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Phase 49.2 COMPLETE (2026-03-23): HMM observability — structlog 2D fallback warning, hmm_n_dims + hmm_warmed_up fields, warm-up prob suppression; 11 new TDD tests, 19 total HMM tests passing
 
 ### Decisions (Phase 49.2)
+
 - Warm-up suppression zeroes all 4 hmm_prob_* fields for audit trail consistency when bars_processed < min_lookback
 - structlog module-level logger = structlog.get_logger(__name__) in hmm_regime.py for 2D fallback observability
 - n_dims stored in _state after _reset_state() so it persists into _build_output() without argument threading
