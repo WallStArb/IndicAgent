@@ -42,9 +42,6 @@ Design notes:
           market_entry_bars_in_trade=NULL, market_entry_outcome=NULL,
           market_entry_gap_bars=NULL
         WHERE symbol IN (...) AND outcome IS NOT NULL;
-
-TODO:
-    - (resolved) market_entry_at + market_entry_exit_at added in migration 033.
 """
 
 from __future__ import annotations

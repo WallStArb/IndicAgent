@@ -442,14 +442,22 @@ function SymbolCard({
   const hasSignal = activeSignal !== null;
   const confidence = activeSignal?.confidence ?? null;
 
-  // Bar close time for active TF — used for staleness indicator
-  const barTime = intel?.barTime ?? indicators?.timestamp ?? null;
+  // Bar window for active TF — data timestamp when available, clock-aligned fallback
   const tfPeriodMs = (TF_OFFSETS[activeTf] ?? 60) * 1000;
-  const barCloseMs = barTime ? new Date(barTime).getTime() + tfPeriodMs : null;
-  const barIsStale = barCloseMs !== null && Date.now() - barCloseMs > tfPeriodMs;
-  const barCloseStr = barCloseMs
-    ? new Date(barCloseMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
-    : null;
+  const barTime = intel?.barTime || indicators?.timestamp || null;
+  const dataBarOpenMs = barTime ? new Date(barTime).getTime() : NaN;
+  const now = Date.now();
+  const barOpenMs = !isNaN(dataBarOpenMs) ? dataBarOpenMs : Math.floor(now / tfPeriodMs) * tfPeriodMs - tfPeriodMs;
+  const barCloseMs = barOpenMs + tfPeriodMs;
+  const fmt = (ms: number): string => {
+    const d = new Date(ms);
+    if (isNaN(d.getTime())) return "??:??";
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  };
+  const barWindowStr = `${fmt(barOpenMs)}→${fmt(barCloseMs)}`;
+  // Staleness: last received bar is more than one full period behind the expected close
+  const dataBarCloseMs = !isNaN(dataBarOpenMs) ? dataBarOpenMs + tfPeriodMs : null;
+  const barIsStale = dataBarCloseMs !== null && now - dataBarCloseMs > tfPeriodMs;
 
 
   return (
@@ -479,14 +487,12 @@ function SymbolCard({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {barCloseStr && (
-            <span
-              className="text-[0.5rem] font-data tabular-nums"
-              style={{ color: barIsStale ? "var(--red)" : "var(--text-secondary)" }}
-            >
-              {barCloseStr}{barIsStale && " ·stale"}
-            </span>
-          )}
+          <span
+            className="text-[0.5rem] font-data tabular-nums"
+            style={{ color: barIsStale ? "var(--red)" : "var(--text-secondary)" }}
+          >
+            {barWindowStr}{barIsStale && " ·stale"}
+          </span>
           <TimeframeMatrix
             tfSignals={data.tfSignals}
             confluence={confluence}

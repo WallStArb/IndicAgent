@@ -167,7 +167,7 @@ def _make_service() -> SignalGeneratorService:
         "hmm_regime_prob": 0.80,
         "hmm_regime_duration": 10,
     }
-    
+
     # SHADOW-01: Regime gate safety floors
     svc._regime_prob_min = 0.30
     svc._regime_dur_min = 1

@@ -7,7 +7,7 @@ import and validate against a stable contract.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -17,7 +17,7 @@ from src.core.schemas.bar_message import BarMessage, SessionType
 def _make_bar(**overrides) -> dict:
     """Return a valid BarMessage dict, allowing field overrides."""
     base = {
-        "ts": datetime(2026, 3, 21, 14, 30, 0, tzinfo=timezone.utc),
+        "ts": datetime(2026, 3, 21, 14, 30, 0, tzinfo=UTC),
         "symbol": "ES",
         "tf": "1m",
         "open": 5250.25,
@@ -72,7 +72,7 @@ class TestBarMessageRoundTrip:
 
     def test_ts_preserved_as_utc_datetime(self):
         """ts field survives round-trip as UTC-aware datetime."""
-        original_ts = datetime(2026, 3, 21, 9, 30, 0, tzinfo=timezone.utc)
+        original_ts = datetime(2026, 3, 21, 9, 30, 0, tzinfo=UTC)
         bar = BarMessage(**_make_bar(ts=original_ts))
         json_str = bar.model_dump_json()
         bar2 = BarMessage.model_validate_json(json_str)

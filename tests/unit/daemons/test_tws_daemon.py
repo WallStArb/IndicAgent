@@ -1,5 +1,6 @@
 """Tests for services/tws_daemon — Kafka-native TWS daemon (Phase 30, Plan 02)."""
 
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -42,12 +43,12 @@ def _make_rtb_loop_daemon():
 @pytest.mark.asyncio
 async def test_rtb_loop_publishes_5s_price_tick_for_display():
     """_rtb_loop must publish each 5s bar close to market.ticks for dashboard display."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     daemon, kafka_producer = _make_rtb_loop_daemon()
 
     class FakeRTB:
-        time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=timezone.utc)
+        time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=UTC)
         open_ = 5500.0; high = 5505.0; low = 5498.0; close = 5503.0; volume = 50.0
 
     async def fake_stream(symbols):
@@ -73,7 +74,7 @@ async def test_rtb_loop_publishes_5s_price_tick_for_display():
 async def test_emit_bar_dedup_guard_prevents_double_publish():
     """_emit_bar must not re-publish a bar with the same timestamp."""
     from collections import defaultdict
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from services.tws_daemon import TwsDaemon
 
@@ -91,7 +92,7 @@ async def test_emit_bar_dedup_guard_prevents_double_publish():
     kafka_producer.publish = AsyncMock()
     daemon._kafka_producer = kafka_producer
 
-    bar_minute = datetime(2026, 3, 21, 14, 0, 0, tzinfo=timezone.utc)
+    bar_minute = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
     state = {
         "bar_minute": bar_minute,
         "open": 5500.0, "high": 5510.0, "low": 5498.0,
@@ -129,11 +130,11 @@ def test_tws_daemon_no_redis_asyncio_import():
 async def test_ibkr_stream_real_time_bars_yields_symbol_bar_tuple():
     """stream_real_time_bars must yield (symbol, bar) tuples via async iterator."""
     import asyncio
-    from datetime import datetime, timezone
+    from datetime import datetime
     from unittest.mock import MagicMock
 
     class FakeRTB:
-        time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=timezone.utc)
+        time = datetime(2026, 3, 21, 14, 0, 5, tzinfo=UTC)
         open_ = 5500.0
         high = 5505.0
         low = 5498.0
@@ -194,14 +195,14 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
     IBKR RealTimeBar.time is the bar CLOSE time. First bar of a minute closes
     at :05, last at :60 (= start of next minute, triggers emit of prior minute).
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     daemon, kafka_producer = _make_rtb_loop_daemon()
 
     # 11 bars closing at :05..:55 in minute 14:00, then Bar60 (14:01:00) triggers emit
     class FakeRTB:
         def __init__(self, minute, second, o, h, low, c, vol):
-            self.time = datetime(2026, 3, 21, 14, minute, second, tzinfo=timezone.utc)
+            self.time = datetime(2026, 3, 21, 14, minute, second, tzinfo=UTC)
             self.open_ = o; self.high = h; self.low = low
             self.close = c; self.volume = float(vol)
 
@@ -209,11 +210,11 @@ async def test_rtb_loop_aggregates_5s_bars_to_1m():
                  for s in range(5, 60, 5)]  # 11 bars at :05..:55
 
     class Bar60:
-        time = datetime(2026, 3, 21, 14, 1, 0, tzinfo=timezone.utc)
+        time = datetime(2026, 3, 21, 14, 1, 0, tzinfo=UTC)
         open_ = 5505.0; high = 5510.0; low = 5498.0; close = 5506.0; volume = 100.0
 
     class Bar65:
-        time = datetime(2026, 3, 21, 14, 1, 5, tzinfo=timezone.utc)
+        time = datetime(2026, 3, 21, 14, 1, 5, tzinfo=UTC)
         open_ = 5506.0; high = 5508.0; low = 5504.0; close = 5507.0; volume = 50.0
 
     all_bars = bars_min0 + [Bar60(), Bar65()]

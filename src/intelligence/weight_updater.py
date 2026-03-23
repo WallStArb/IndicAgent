@@ -166,8 +166,8 @@ async def _calibrate_pattern_reliability(
 
         # Only update if statistically significant (p < 0.05)
         if p_value < 0.05:
-            # ic_score placeholder — Phase 46 ML analysis will populate
-            ic_score = None  # TODO: Phase 46 ML analysis
+            # ic_score placeholder — ML analysis will populate when available
+            ic_score = None
 
             await db_manager.execute_command(
                 """

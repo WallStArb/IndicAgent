@@ -19,17 +19,20 @@ function fmtTime(ts: string | number | undefined): string {
   }
 }
 
-/** Session range bar — colored fill between open and price, glowing price dot */
+
+/** Session range bar — colored fill between open and price, glowing price dot, optional SMA20 marker */
 function SessionRangeBar({
   low,
   high,
   open,
   price,
+  sma20,
 }: {
   low: number;
   high: number;
   open: number;
   price: number;
+  sma20?: number;
 }) {
   if (high <= low || price === 0) return null;
 
@@ -42,6 +45,8 @@ function SessionRangeBar({
   const fillWidth = Math.abs(priceR - openR);
   const glowColor = isUp ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)";
   const fillClass = isUp ? "bg-[var(--green)]" : "bg-[var(--red)]";
+
+  const sma20R = sma20 != null ? ratio(sma20) : null;
 
   return (
     <div className="flex items-center gap-1.5 font-data text-[0.5rem] text-[var(--text-secondary)] flex-1 min-w-0">
@@ -57,6 +62,13 @@ function SessionRangeBar({
           <div
             className="absolute top-0 h-full w-px bg-[var(--text-muted)] opacity-40"
             style={{ left: `${openR * 100}%` }}
+          />
+        )}
+        {/* SMA20 marker — blue tick */}
+        {sma20R !== null && (
+          <div
+            className="absolute top-0 h-full w-px opacity-70"
+            style={{ left: `${sma20R * 100}%`, backgroundColor: "var(--blue)" }}
           />
         )}
         {/* Price dot — glowing */}
@@ -86,10 +98,7 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
       : null;
   const isUp = changeFromOpen !== null ? changeFromOpen >= 0 : null;
 
-  const displayTime =
-    data.lastUpdate > 0
-      ? fmtTime(data.lastUpdate)
-      : fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp);
+  const displayTime = fmtTime(indicators?.timestamp) || fmtTime(bar.timestamp);
 
   const hasRange = session.high > 0 && session.low > 0;
 
@@ -120,7 +129,7 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
         </span>
       )}
 
-      {/* Timestamp — adjacent to price */}
+      {/* Last bar timestamp */}
       {displayTime && (
         <span className="text-[0.5rem] font-data text-[var(--text-secondary)] shrink-0">
           {displayTime}
@@ -134,6 +143,7 @@ export function PriceHero({ data, activeTf }: PriceHeroProps) {
           high={session.high}
           open={session.open}
           price={price}
+          sma20={indicators?.sma_20}
         />
       )}
     </div>
