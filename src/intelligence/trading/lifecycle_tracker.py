@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from src.intelligence.trading.signal_ledger import SignalStatus
 from src.intelligence.trading.signal_outcome import SignalOutcome
 
 # Quick-stop threshold: signals stopped within 2 bars classified as stopped_at_entry
@@ -202,7 +203,7 @@ def evaluate_signal(
         pnl_ticks = (exit_price - entry) * direction
         pnl_r = round(pnl_ticks / risk, 4) if risk > 0 else 0.0
         pnl_dollars = round(pnl_ticks * point_value, 2)
-        if status == "pending":
+        if status == SignalStatus.PENDING:
             outcome = SignalOutcome.NEVER_ACTIVATED
         elif current_mfe > 0:
             outcome = SignalOutcome.TTL_EXPIRED_AHEAD
@@ -221,10 +222,10 @@ def evaluate_signal(
             outcome=outcome,
         )
 
-    if status == "pending":
+    if status == SignalStatus.PENDING:
         return _check_zone_activation(sid, direction, zone_low, zone_high, high, low, bars)
 
-    if status == "active":
+    if status == SignalStatus.ACTIVE:
         # --- Chandelier trailing stop check (before standard stop/target) ---
         if chandelier_state is not None:
             trailing_stop = chandelier_state.get("trailing_stop")
@@ -361,7 +362,7 @@ def _check_zone_activation(
 
     return Transition(
         signal_id=sid,
-        new_status="active",
+        new_status=SignalStatus.ACTIVE,
         activation_price=round(activation_price, 4),
         zone_entry_pct=zone_entry_pct,
         bars_to_activation=bars_elapsed,

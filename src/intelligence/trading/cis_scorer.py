@@ -251,11 +251,11 @@ class CISScorer:
 
         score = c_trend_regime + c_kalman_slope + c_smc_trend + c_ctf_trend + c_trend_confluence
         contrib = {
-            "trend_regime": float(c_trend_regime),
-            "kalman_slope": float(c_kalman_slope),
-            "smc_trend_direction": float(c_smc_trend),
-            "ctf_trend_alignment": float(c_ctf_trend),
-            "trend_confluence_score": float(c_trend_confluence),
+            "trend_regime": c_trend_regime,
+            "kalman_slope": c_kalman_slope,
+            "smc_trend_direction": c_smc_trend,
+            "ctf_trend_alignment": c_ctf_trend,
+            "trend_confluence_score": c_trend_confluence,
         }
         return clamp(score), contrib
 
