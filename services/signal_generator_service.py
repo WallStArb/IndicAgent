@@ -792,7 +792,9 @@ class SignalGeneratorService:
                             close=bar_data["c"],
                             volume=bar_data["v"],
                             source="ibkr_seed",  # Mark as seeded from DB
-                            session_type=SessionType(session_type) if session_type else SessionType.RTH,
+                            session_type=(
+                                SessionType(session_type) if session_type else SessionType.RTH
+                            ),
                             gap_preceding=False,
                         )
 
