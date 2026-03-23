@@ -15,12 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..plugins import InputSpec
-from .atr_utils import get_atr
-from .confidence_utils import capture_signal_features, compose_confidence
-from .plugin_utils import no_signal, signal_type_for_direction
-from .trade_framer import frame_trade
-
-_SPIKE_THRESHOLD: float = 2.0
+from .microstructure_utils import detect_spike_signal
 
 
 @dataclass
@@ -53,59 +48,12 @@ class OFISpikePlugin:
     regime_type: str = "any"
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
-        df = frames.get("main")
-        features = frames.get("features") or {}
-        if df is None or len(df) < self.min_lookback:
-            return no_signal()
-
-        ofi_spike_z = features.get("ofi_spike_z")
-        if ofi_spike_z is None:
-            return no_signal()
-
-        ofi_spike_z = float(ofi_spike_z)
-        if abs(ofi_spike_z) <= _SPIKE_THRESHOLD:
-            return no_signal()
-
-        atr = get_atr(features)
-        if atr is None:
-            return no_signal()
-
-        close = df["close"].to_numpy(dtype=float)
-        entry = float(close[-1])
-
-        direction = 1 if ofi_spike_z > 0 else -1
-        confidence = compose_confidence(0.50 + abs(ofi_spike_z) * 0.05)
-
-        sig_type = signal_type_for_direction("ofi_spike", direction)
-        tf = frame_trade(sig_type, direction, entry, features, atr)
-        if not tf.viable:
-            return no_signal()
-
-        stop_loss = tf.stop
-        targets = [t.price for t in tf.targets]
-
-        hmm_regime = features.get("hmm_regime")
-        regime_context = f"hmm_{hmm_regime}" if hmm_regime is not None else "any"
-        supporting: list[str] = [
-            f"ofi_spike_z={ofi_spike_z:.3f}",
-        ]
-
-        # exhaustion: not applicable — spike/divergence signals are regime-independent;
-        # Phase 49 will learn gate behavior from shadow data
-        signal = {
-            "signal_type": sig_type,
-            "direction": direction,
-            "entry_price": round(entry, 2),
-            "stop_loss": float(stop_loss),
-            "targets": [float(t) for t in targets],
-            "confidence": confidence,
-            "regime_context": regime_context,
-            "supporting_factors": supporting,
-        }
-        signal["_shadow"] = capture_signal_features(
-            features, direction, "microstructure", signal["confidence"],
+        return detect_spike_signal(
+            frames,
+            spike_feature_key="ofi_spike_z",
+            signal_name_prefix="ofi_spike",
+            min_lookback=self.min_lookback,
         )
-        return signal
 
     def compute_next(self, windows: dict[str, Any]) -> dict[str, Any]:
         return self.compute_full(windows)
