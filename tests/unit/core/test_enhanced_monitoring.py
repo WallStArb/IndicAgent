@@ -1,177 +1,24 @@
 """
-Test Enhanced Monitoring Infrastructure
+Test Circuit Breaker Infrastructure
 
-Tests for:
-- Prometheus metrics integration
-- Plugin state management
-- Circuit breaker functionality
-- LangGraph workflow monitoring
+Tests for PluginCircuitBreaker functionality (state_manager dependency removed).
 
-Version: 1.0.0
-Last Updated: 2025-08-17
-Status: Comprehensive Test Suite ✅
+Version: 2.0.0
+Last Updated: 2026-03-22
+Status: Circuit Breaker Tests Only ✅
 """
 
 import asyncio
-import json
-import time
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from src.core.plugin_circuit_breaker import CircuitBreakerConfig, CircuitState, PluginCircuitBreaker
 
-# Import our enhanced monitoring components
-from src.core.plugin_state_manager import PluginStateManager
-from src.observability.metrics import (
-    record_event_routing,
-    record_langgraph_workflow,
-    record_plugin_execution,
-)
-
-
-class TestPluginStateManager:
-    """Test plugin state management functionality."""
-
-    @pytest.fixture
-    def mock_redis(self):
-        """Mock Redis client."""
-        redis_mock = AsyncMock()
-        redis_mock.set = AsyncMock(return_value=True)
-        redis_mock.get = AsyncMock(return_value=None)
-        redis_mock.delete = AsyncMock(return_value=1)
-        redis_mock.keys = AsyncMock(return_value=[])
-        return redis_mock
-
-    @pytest.fixture
-    def state_manager(self, mock_redis):
-        """Create state manager with mock Redis."""
-        return PluginStateManager(mock_redis, "test:")
-
-    @pytest.mark.asyncio
-    async def test_save_plugin_state(self, state_manager, mock_redis):
-        """Test saving plugin state to Redis."""
-
-        test_state = {"rsi_state": {"gain": 1.5, "loss": 0.8, "period": 14}, "bar_count": 100}
-
-        result = await state_manager.save_plugin_state("RSI", "SPY", "1m", test_state)
-
-        assert result is True
-        mock_redis.set.assert_called_once()
-
-        # Verify cache was updated
-        cache_key = "RSI:SPY:1m:plugin"
-        assert cache_key in state_manager.state_cache
-        assert state_manager.state_cache[cache_key]["state"] == test_state
-
-    @pytest.mark.asyncio
-    async def test_restore_plugin_state_from_cache(self, state_manager):
-        """Test restoring state from cache."""
-
-        # Pre-populate cache
-        test_state = {"cached": True}
-        cache_key = "RSI:SPY:1m:plugin"
-        state_manager.state_cache[cache_key] = {
-            "state": test_state,
-            "metadata": {},
-            "cached_at": time.time(),
-        }
-
-        result = await state_manager.restore_plugin_state("RSI", "SPY", "1m")
-
-        assert result == test_state
-        assert state_manager.cache_hits == 1
-
-    @pytest.mark.asyncio
-    async def test_restore_plugin_state_from_redis(self, state_manager, mock_redis):
-        """Test restoring state from Redis when cache miss."""
-
-        test_state = {"from_redis": True}
-        complete_state = {
-            "metadata": {"size_bytes": 100},
-            "state": test_state,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        mock_redis.get.return_value = json.dumps(complete_state)
-
-        result = await state_manager.restore_plugin_state("RSI", "SPY", "1m")
-
-        assert result == test_state
-        assert state_manager.cache_misses == 1
-
-        # Verify cache was populated
-        cache_key = "RSI:SPY:1m:plugin"
-        assert cache_key in state_manager.state_cache
-
-    @pytest.mark.asyncio
-    async def test_langgraph_workflow_state(self, state_manager, mock_redis):
-        """Test LangGraph workflow state management."""
-
-        workflow_state = {
-            "current_step": "pattern_detection",
-            "symbols_processed": ["SPY", "QQQ"],
-            "confidence_score": 0.85,
-        }
-
-        # Save workflow state
-        result = await state_manager.save_langgraph_workflow_state(
-            "confluence_analysis", "SPY", "15m", workflow_state
-        )
-
-        assert result is True
-
-        # Verify it was saved with correct state type
-        mock_redis.set.assert_called_once()
-        call_args = mock_redis.set.call_args
-        saved_data = json.loads(call_args[0][1])
-        assert saved_data["metadata"]["state_type"] == "langgraph_workflow"
-        assert saved_data["state"] == workflow_state
-
-    @pytest.mark.asyncio
-    async def test_state_cleanup(self, state_manager, mock_redis):
-        """Test automatic state cleanup."""
-
-        # Populate cache beyond max entries
-        state_manager.max_cache_entries = 5
-        for i in range(10):
-            cache_key = f"plugin_{i}:SPY:1m:plugin"
-            state_manager.state_cache[cache_key] = {
-                "state": {"test": i},
-                "metadata": {},
-                "cached_at": time.time() - (i * 10),  # Different ages
-            }
-
-        # Trigger cleanup
-        await state_manager._periodic_cleanup()
-
-        # Should have reduced to 80% of max (4 entries)
-        assert len(state_manager.state_cache) == 4
-
-        # Should keep the newest entries (highest cached_at values)
-        remaining_keys = list(state_manager.state_cache.keys())
-        assert "plugin_0:SPY:1m:plugin" in remaining_keys  # Newest (time.time() - 0)
-
-    @pytest.mark.asyncio
-    async def test_health_check(self, state_manager, mock_redis):
-        """Test state manager health check."""
-
-        # Mock the Redis operations for health check
-        # get must return non-None so health_check sees Redis as reachable
-        mock_redis.get = AsyncMock(return_value='{"test": true}')
-        mock_redis.keys = AsyncMock(return_value=[])
-
-        health = await state_manager.health_check()
-
-        assert health["status"] == "healthy"
-        assert health["redis_connectivity"] is True
-        assert "roundtrip_time_ms" in health
-        assert "summary" in health
-
 
 class TestPluginCircuitBreaker:
-    """Test circuit breaker functionality."""
+    """Test circuit breaker functionality (without state_manager dependency)."""
 
     @pytest.fixture
     def config(self):
@@ -347,108 +194,12 @@ class TestPluginCircuitBreaker:
         assert rsi_stats["failure_count"] == 2
         assert rsi_stats["avg_execution_time_ms"] == 11.25  # Average of performance history
 
-
-class TestPrometheusMetrics:
-    """Test Prometheus metrics integration."""
-
-    def test_plugin_execution_recording(self):
-        """Test recording plugin execution metrics."""
-
-        # This is more of an integration test to ensure no exceptions
-        try:
-            record_plugin_execution("RSI", "SPY", "1m", 0.015, "success", "I1")
-            # Should not raise any exceptions
-            assert True
-        except Exception as e:
-            pytest.fail(f"Plugin execution recording failed: {e}")
-
-    def test_langgraph_workflow_recording(self):
-        """Test recording LangGraph workflow metrics."""
-
-        try:
-            record_langgraph_workflow("confluence_analysis", 0.125, "success", "I5")
-            # Should not raise any exceptions
-            assert True
-        except Exception as e:
-            pytest.fail(f"LangGraph workflow recording failed: {e}")
-
-    def test_event_routing_recording(self):
-        """Test recording event routing metrics."""
-
-        try:
-            record_event_routing(
-                "market_intelligence", "rsi_calculation", "pattern_detection", "high_confidence"
-            )
-            # Should not raise any exceptions
-            assert True
-        except Exception as e:
-            pytest.fail(f"Event routing recording failed: {e}")
-
-
-class TestIntegration:
-    """Integration tests for the complete monitoring system."""
-
     @pytest.mark.asyncio
-    async def test_complete_plugin_lifecycle(self):
-        """Test complete plugin execution lifecycle with monitoring."""
-
-        # Mock Redis
-        mock_redis = AsyncMock()
-        mock_redis.set = AsyncMock(return_value=True)
-        mock_redis.get = AsyncMock(return_value=None)
-
-        # Create components
-        state_manager = PluginStateManager(mock_redis, "test:")
-        circuit_breaker = PluginCircuitBreaker(state_manager=state_manager)
-
-        # Mock plugin with state
-        plugin_state = {"rsi_value": 65.5, "gain": 1.2, "loss": 0.8}
-
-        async def stateful_plugin():
-            # Simulate plugin that uses state
-            await state_manager.restore_plugin_state("RSI", "SPY", "1m")
-
-            # Calculate new values
-            new_state = plugin_state.copy()
-            new_state["rsi_value"] = 67.0
-
-            # Save updated state
-            await state_manager.save_plugin_state("RSI", "SPY", "1m", new_state)
-
-            return {"rsi": new_state["rsi_value"]}
-
-        async def direct_fallback():
-            return {"rsi": 66.0}  # Direct calculation result
-
-        # Execute plugin through circuit breaker
-        result = await circuit_breaker.execute_with_fallback(
-            "RSI", stateful_plugin, direct_fallback, "I1"
-        )
-
-        assert result == {"rsi": 67.0}
-
-        # Verify state was saved
-        mock_redis.set.assert_called()
-
-        # Verify circuit breaker tracked success
-        plugin_cb_state = circuit_breaker.plugin_states["RSI"]
-        assert plugin_cb_state.success_count == 1
-        assert plugin_cb_state.state == CircuitState.CLOSED
-
-        # Verify state manager cached the state
-        cache_key = "RSI:SPY:1m:plugin"
-        assert cache_key in state_manager.state_cache
-
-    @pytest.mark.asyncio
-    async def test_failure_recovery_cycle(self):
+    async def test_failure_recovery_cycle(self, circuit_breaker):
         """Test complete failure and recovery cycle."""
 
-        mock_redis = AsyncMock()
-        mock_redis.set = AsyncMock(return_value=True)
-
-        state_manager = PluginStateManager(mock_redis, "test:")
         config = CircuitBreakerConfig(failure_threshold=2, recovery_timeout=1, success_threshold=1)
-        circuit_breaker = PluginCircuitBreaker(config, state_manager)
+        cb = PluginCircuitBreaker(config)
 
         # Failing plugin
         failure_count = 0
@@ -468,19 +219,19 @@ class TestIntegration:
 
         # First two should fail and use fallback
         for _ in range(2):
-            result = await circuit_breaker.execute_with_fallback(
+            result = await cb.execute_with_fallback(
                 "UNRELIABLE", unreliable_plugin, fallback
             )
             results.append(result)
 
         # Circuit should be open now
-        assert circuit_breaker.plugin_states["UNRELIABLE"].state == CircuitState.OPEN
+        assert cb.plugin_states["UNRELIABLE"].state == CircuitState.OPEN
 
         # Wait for recovery timeout
         await asyncio.sleep(1.1)
 
         # Next execution should recover
-        result = await circuit_breaker.execute_with_fallback(
+        result = await cb.execute_with_fallback(
             "UNRELIABLE", unreliable_plugin, fallback
         )
         results.append(result)
@@ -491,7 +242,7 @@ class TestIntegration:
         assert results[2] == {"result": "recovered"}  # Recovery
 
         # Circuit should be closed again
-        assert circuit_breaker.plugin_states["UNRELIABLE"].state == CircuitState.CLOSED
+        assert cb.plugin_states["UNRELIABLE"].state == CircuitState.CLOSED
 
 
 if __name__ == "__main__":

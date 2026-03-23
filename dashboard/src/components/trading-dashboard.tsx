@@ -487,12 +487,6 @@ function SymbolCard({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span
-            className="text-[0.5rem] font-data tabular-nums"
-            style={{ color: barIsStale ? "var(--red)" : "var(--text-secondary)" }}
-          >
-            {barWindowStr}{barIsStale && " ·stale"}
-          </span>
           <TimeframeMatrix
             tfSignals={data.tfSignals}
             confluence={confluence}
@@ -520,7 +514,7 @@ function SymbolCard({
       </div>
 
       {/* Price hero — single inline row */}
-      <PriceHero data={data} activeTf={activeTf} />
+      <PriceHero data={data} activeTf={activeTf} barWindowStr={barWindowStr} barIsStale={barIsStale} />
 
       {/* L0: High-confidence signal banner */}
       <SignalBanner signal={activeSignal} onDrillDown={() => setIsDrilling(true)} />

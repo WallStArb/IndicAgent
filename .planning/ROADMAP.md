@@ -275,6 +275,16 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 
 **Plans**: TBD (4-5 plans estimated)
 
+### Phase 49.1: Regime Gate Fix — Write All Signals to Signal Ledger (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 49
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 49.1 to break down)
+
 ### Phase 50: Roll Monitor & DualDivergence Graduation
 
 **Goal**: Graduate roll monitor and trad_DualDivergence from shadow mode after empirical validation.

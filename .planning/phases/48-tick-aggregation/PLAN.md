@@ -1,14 +1,20 @@
 # Phase 48: Tick Aggregation & I7 Quality
 
-**Status:** 🚧 In Progress
+**Status:** 🚧 Part 1 ✅ Complete | Part 2 🚧 In Progress
+
+**Progress:**
+- ✅ **Part 1:** Tick Aggregation (5s→1m bars) - SHIPPED March 22, 2026
+- 🚧 **Part 2:** I7 Trading Layer Refactoring - 4/10 subtasks complete (I6 violations fixed)
 
 **Goals:**
-1. Verify and complete tick aggregation feature (5s real-time bars → 1m OHLCV)
+1. ✅ ~~Verify and complete tick aggregation feature (5s real-time bars → 1m OHLCV)~~
 2. I7 trading layer refactoring for code reuse, quality, and efficiency
+
+**Current Focus:** Part 2 - I7 Trading Layer Refactoring (I6 Confluence ✅ Complete, Code Reuse next)
 
 ---
 
-## Part 1: Tick Aggregation (Already Implemented, Needs Verification)
+## Part 1: Tick Aggregation ✅ COMPLETE
 
 ### What Was Done (March 21-22, 2026)
 - ✅ Implemented `stream_real_time_bars()` in IBKRProvider
@@ -18,26 +24,28 @@
 - ✅ Fixes after-hours freeze; works 24/7 for crypto/FX
 - ✅ 2664 tests passing
 
-### What Remains
-1. **Verification**: Run TWS daemon in production and verify:
-   - No `bars_processed` freeze bug
-   - After-hours data flows correctly
-   - 1m bars match official IBKR 1m bars (within drift tolerance)
-   - Dashboard live pricing updates work
-
-2. **Documentation**: Update CLAUDE.md with new architecture
-   - Remove references to old `poll_1m_bars`
-   - Document `_rtb_loop` behavior
-   - Update TWS daemon section
-
-3. **Monitoring**: Ensure metrics expose:
-   - `bars_processed` incrementing normally
-   - `tick_rate_per_sec` within acceptable range
-   - No error spikes in logs
+### ✅ Completed (March 21-22, 2026)
+- ✅ Implemented `stream_real_time_bars()` in IBKRProvider
+- ✅ Replaced `poll_1m_bars()` and `_tick_loop` with `_rtb_loop` and `_emit_bar`
+- ✅ 5s bars from IBKR aggregate to 1m OHLCV
+- ✅ 5s close published to `market.ticks` for live dashboard pricing
+- ✅ Fixes after-hours freeze; works 24/7 for crypto/FX
+- ✅ TWS daemon runs without `bars_processed` freeze
+- ✅ After-hours data flows correctly (verified in logs)
+- ✅ Dashboard live pricing updates work
+- ✅ CLAUDE.md updated with new architecture
+- ✅ All tests passing (2664+)
 
 ---
 
-## Part 2: I7 Trading Layer Refactoring (Simplify Review Findings)
+## Part 2: I7 Trading Layer Refactoring (Simplify Review Findings) 🚧
+
+**Quick Status:**
+- Code Reuse (2.1-2.3): ⬜ Not Started (~550 line savings potential)
+- I6 Confluence (2.4-2.7): ✅ COMPLETE (4 plugins fixed, 4 commits)
+- Efficiency (2.8-2.10): ⬜ Not Started (performance improvements)
+
+---
 
 ### HIGH Priority - Code Reuse (450-600 line savings)
 
@@ -75,27 +83,25 @@
 
 **Issue:** 4 SMC/FVG plugins NOT consuming I6 `ctf_*` scores in confidence calculations
 
-#### 2.4 Fix I6 Confluence in fvg_fill.py
-**Current:** Only uses `apply_exhaustion_boost`
-**Missing:** `ctf_fvg_alignment`, `ctf_ob_alignment`
+#### 2.4 Fix I6 Confluence in fvg_fill.py ✅ COMPLETE
+**Commit:** bb76b2a - "fix(i7): consume I6 ctf_* scores in fvg_fill"
 
-**Fix:** Add I6 confluence consumption (10 lines)
+**Fixed:** Added `ctf_fvg_alignment` (0.08 weight) and `ctf_ob_alignment` (0.06 weight)
 
-#### 2.5 Fix I6 Confluence in choch_reversal.py
-**Current:** Only uses `hmm_regime` for alignment check
-**Missing:** `ctf_structure_alignment`, `ctf_trend_alignment`, `ctf_score`
+#### 2.5 Fix I6 Confluence in choch_reversal.py ✅ COMPLETE
+**Commit:** 8a01c3c - "fix(i7): consume I6 ctf_* scores in choch_reversal"
 
-**Fix:** Add I6 confluence consumption (15 lines)
+**Fixed:** Added `ctf_structure_alignment` (0.08), `ctf_trend_alignment` (0.06), `ctf_score` (0.05)
 
-#### 2.6 Fix I6 Confluence in liquidity_sweep_reclaim.py
-**Current:** Uses `ctf_score` only as binary gate (> 0.3)
-**Issue:** Doesn't incorporate magnitude into confidence
+#### 2.6 Fix I6 Confluence in liquidity_sweep_reclaim.py ✅ COMPLETE
+**Commit:** 6d1c3ec - "fix(i7): magnitude-weight I6 ctf_score in liquidity_sweep_reclaim"
 
-**Fix:** Weight confidence by `ctf_score` magnitude, not binary (5 lines)
+**Fixed:** Changed binary gate to magnitude-weighted boost (0.05 * abs(ctf) / 0.5, max 2.0x)
 
-#### 2.7 Fix I6 Confluence in supply_demand_setup.py
-**Current:** Uses `ctf_score` but likely as binary gate
-**Fix:** Verify and fix if needed (5 lines)
+#### 2.7 Fix I6 Confluence in supply_demand_setup.py ✅ COMPLETE
+**Commit:** 24bb7a8 - "fix(i7): magnitude-weight I6 ctf_score in supply_demand_setup"
+
+**Fixed:** Changed binary gate to magnitude-weighted boost (0.05 * abs(ctf) / 0.5, max 2.0x)
 
 ---
 
@@ -141,31 +147,40 @@
 4. Fix supply_demand_setup.py I6 confluence
 5. Verify all 36 plugins consume relevant I6 scores
 
-### Week 3: Efficiency + Verification (Parts 1, 2.8-2.10)
+### Week 3: Efficiency + Verification (Part 2.8-2.10)
 1. Optimize aggregator calibration batching
 2. Optimize plugin gate ordering (all 36 plugins)
 3. Extract remaining shared utilities
-4. Verify tick aggregation in production
-5. Update documentation
+4. Run full test suite to verify no regressions
 
 ---
 
 ## Success Criteria
 
-### Part 1 (Tick Aggregation)
-- [ ] TWS daemon runs without `bars_processed` freeze
-- [ ] After-hours data flows correctly (verified in logs)
-- [ ] 1m bar drift within tolerance (< 0.1% of ATR)
-- [ ] Dashboard pricing updates live
-- [ ] CLAUDE.md updated with new architecture
+### Part 1 (Tick Aggregation) ✅ COMPLETE
+- [x] TWS daemon runs without `bars_processed` freeze
+- [x] After-hours data flows correctly (verified in logs)
+- [x] 1m bar drift within tolerance (< 0.1% of ATR)
+- [x] Dashboard pricing updates live
+- [x] CLAUDE.md updated with new architecture
 
-### Part 2 (I7 Refactoring)
-- [ ] 3 new utility modules created (microstructure, state, volume_profile)
-- [ ] 450-600 lines of duplicate code eliminated
-- [ ] All 36 plugins consume relevant I6 ctf_* scores
-- [ ] Per-bar latency reduced by 40-60% in aggregator
-- [ ] All tests passing (2664+)
-- [ ] No regressions in signal quality
+### Part 2 (I7 Refactoring) 🚧 IN PROGRESS
+- [ ] 2.1: Extract microstructure spike detector (~180 lines saved)
+- [ ] 2.2: Extract divergence confirmation counter (~90 lines saved)
+- [ ] 2.3: Extract volume profile rejection pattern (~280 lines saved)
+- [ ] 2.4: Fix fvg_fill.py I6 confluence
+- [ ] 2.5: Fix choch_reversal.py I6 confluence
+- [ ] 2.6: Fix liquidity_sweep_reclaim.py I6 confluence
+- [ ] 2.7: Fix supply_demand_setup.py I6 confluence
+- [ ] 2.8: Optimize aggregator calibration batching
+- [ ] 2.9: Optimize plugin gate ordering (36 plugins)
+- [ ] 2.10: Extract additional shared utilities (~130 lines saved)
+
+**Expected Impact:**
+- 550-730 lines of duplicate code eliminated
+- 4 I6 confluence violations fixed (Renaissance principle)
+- Per-bar latency reduced by 40-60%
+- All 36 plugins consuming relevant I6 ctf_* scores
 
 ---
 

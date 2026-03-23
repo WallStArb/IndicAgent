@@ -19,15 +19,10 @@ from src.monitoring.ks_drift_monitor import (
 
 
 def _make_monitor() -> KSDriftMonitor:
-    """Return a KSDriftMonitor with mocked DB pool and Redis."""
+    """Return a KSDriftMonitor with mocked DB pool."""
     db_pool = MagicMock()
-    redis_client = AsyncMock()
-    redis_client.get = AsyncMock(return_value=None)
-    redis_client.set = AsyncMock(return_value=True)
-    redis_client.delete = AsyncMock(return_value=1)
     return KSDriftMonitor(
         db_pool=db_pool,
-        redis_client=redis_client,
         env_prefix="development:",
     )
 

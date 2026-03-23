@@ -666,9 +666,18 @@ class FeatureWriterService:
                     continue
                 symbol, timeframe = parts
 
+                # SAFETY: Skip raw intelligence events from development.intelligence topic
+                # These have {"event": "..."} wrapper from feature_pipeline
+                if isinstance(payload, dict) and "event" in payload:
+                    continue
+
                 if kafka_topic == intelligence_record_topic:
                     await self._process_single_message(symbol, timeframe, payload)
                     await self._maybe_flush(force=False)
+                elif kafka_topic == topic_intelligence(self._env_name):
+                    # SAFETY: Skip raw intelligence events - we only process BarIntelligenceRecord
+                    # These messages have {"event": "..."} wrapper from feature_pipeline
+                    continue
 
             except asyncio.CancelledError:
                 break

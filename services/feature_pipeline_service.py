@@ -644,7 +644,16 @@ class FeaturePipelineService:
                 frames[f"tf_{other_tf}"] = self._bar_history.to_dataframe(symbol, other_tf)
             cached_evt = self._last_events.get(other_key)
             if cached_evt:
-                frames[f"intel_{other_tf}"] = cached_evt.model_dump().get("i6", {})
+                # Flatten nested tier structure for CrossTimeframeConfluencePlugin
+                # which expects top-level keys like trend_direction, swing_pattern, etc.
+                intel_dict = cached_evt.model_dump()
+                flattened = {}
+                for tier_name, tier_data in intel_dict.items():
+                    if tier_name in ["i1", "i2", "i3", "i4", "i5", "smc", "i6"] and isinstance(tier_data, dict):
+                        flattened.update(tier_data)
+                    else:
+                        flattened[tier_name] = tier_data
+                frames[f"intel_{other_tf}"] = flattened
 
         instrument = self._instrument_map.get(symbol)
         if instrument:
