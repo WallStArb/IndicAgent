@@ -9,8 +9,11 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import structlog
 
 from ..plugins import InputSpec
+
+logger = structlog.get_logger(__name__)
 
 # Default parameters — sensible starting points for 1m futures bars.
 # Override via config/hmm_parameters.json if trained on your data.
@@ -92,6 +95,8 @@ class HMMRegimePlugin:
             "hmm_prob_trending_up",
             "hmm_prob_trending_down",
             "hmm_regime_duration",
+            "hmm_n_dims",
+            "hmm_warmed_up",
         }
     )
     min_lookback: int = 20
@@ -127,6 +132,7 @@ class HMMRegimePlugin:
 
         # Initialize state
         self._reset_state()
+        self._state["n_dims"] = n_dims
 
         # Process all bars through forward algorithm
         for i in range(len(returns)):
@@ -163,6 +169,7 @@ class HMMRegimePlugin:
 
         features = windows.get("features")
         n_dims = self._resolve_dims(features)
+        self._state["n_dims"] = n_dims
         buf = list(self._state["return_buffer"])
         obs = self._build_observation(ret, buf, features, n_dims)
         self._forward_step(obs, n_dims)
@@ -174,6 +181,7 @@ class HMMRegimePlugin:
     def _resolve_dims(self, features: Any) -> int:
         """Determine how many emission dimensions to use."""
         if not isinstance(features, dict):
+            logger.warning("hmm_fallback_2d_no_features")
             return 2  # Fallback: log return + realized vol only
         rsi = features.get("rsi_14")
         adx = features.get("adx_14")
@@ -181,6 +189,17 @@ class HMMRegimePlugin:
         macd_hist = features.get("macd_histogram_12_26_9")
         if rsi is not None and adx is not None and atr is not None and macd_hist is not None:
             return 5
+        missing = [
+            name
+            for name, val in [
+                ("rsi_14", rsi),
+                ("adx_14", adx),
+                ("atr_14", atr),
+                ("macd_histogram_12_26_9", macd_hist),
+            ]
+            if val is None
+        ]
+        logger.warning("hmm_fallback_2d", missing_fields=missing)
         return 2
 
     def _build_observation(
@@ -242,6 +261,7 @@ class HMMRegimePlugin:
             self._state["prev_regime"] = new_regime
 
         self._state["alpha"] = alpha_new
+        self._state["bars_processed"] = self._state.get("bars_processed", 0) + 1
 
     def _reset_state(self) -> None:
         """Initialize forward algorithm state."""
@@ -251,19 +271,26 @@ class HMMRegimePlugin:
             "return_buffer": deque(maxlen=self.vol_window),
             "prev_regime": 0,
             "regime_duration": 1,
+            "bars_processed": 0,
+            "n_dims": 2,
         }
 
     def _build_output(self) -> dict[str, Any]:
         """Build output dict from current state."""
         alpha = self._state["alpha"]
         regime = int(np.argmax(alpha))
+        bars_processed = self._state.get("bars_processed", 0)
+        warmed_up = bars_processed >= self.min_lookback
+        regime_prob = round(float(alpha[regime]), 6)
         return {
             "hmm_regime": float(regime),
-            "hmm_regime_prob": round(float(alpha[regime]), 6),
-            "hmm_prob_ranging": round(float(alpha[0]), 6),
-            "hmm_prob_trending_up": round(float(alpha[1]), 6),
-            "hmm_prob_trending_down": round(float(alpha[2]), 6),
+            "hmm_regime_prob": regime_prob if warmed_up else 0.0,
+            "hmm_prob_ranging": round(float(alpha[0]), 6) if warmed_up else 0.0,
+            "hmm_prob_trending_up": round(float(alpha[1]), 6) if warmed_up else 0.0,
+            "hmm_prob_trending_down": round(float(alpha[2]), 6) if warmed_up else 0.0,
             "hmm_regime_duration": float(self._state["regime_duration"]),
+            "hmm_n_dims": self._state.get("n_dims", 2),
+            "hmm_warmed_up": warmed_up,
         }
 
 
