@@ -21,16 +21,10 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
+from .volume_profile_utils import check_reversal_gate, format_reversal_supporting_factors
 
 # Maximum ATR distance from HVN to qualify as "testing" the level
 _HVN_PROXIMITY_ATR = 0.3
-
-# Minimum divergence confidence to count as reversal
-_DIV_THRESHOLD = 0.3
-
-# Stochastic thresholds
-_STOCH_OVERSOLD = 30.0
-_STOCH_OVERBOUGHT = 70.0
 
 
 @dataclass
@@ -109,10 +103,10 @@ class HVNRejectionPlugin:
 
         # Determine candidate directions
         can_long = near_hvn_below and (
-            rsi_div_bullish > _DIV_THRESHOLD or stoch_k < _STOCH_OVERSOLD
+            rsi_div_bullish > 0.3 or stoch_k < 30.0
         )
         can_short = near_hvn_above and (
-            rsi_div_bearish > _DIV_THRESHOLD or stoch_k > _STOCH_OVERBOUGHT
+            rsi_div_bearish > 0.3 or stoch_k > 70.0
         )
 
         if not can_long and not can_short:
@@ -126,21 +120,19 @@ class HVNRejectionPlugin:
         else:
             direction = -1
 
-        # Pick the active HVN level
+        # Pick the active HVN level and check reversal
         if direction == 1:
             hvn_level = hvn_below
             dist_atr = dist_below
-            reversal_strength = max(
-                rsi_div_bullish,
-                (30.0 - stoch_k) / 30.0 if stoch_k < _STOCH_OVERSOLD else 0.0,
-            )
+            reversal_ok, reversal_strength = check_reversal_gate(features, 1)
+            if not reversal_ok:
+                return no_signal()
         else:
             hvn_level = hvn_above
             dist_atr = dist_above
-            reversal_strength = max(
-                rsi_div_bearish,
-                (stoch_k - 70.0) / 30.0 if stoch_k > _STOCH_OVERBOUGHT else 0.0,
-            )
+            reversal_ok, reversal_strength = check_reversal_gate(features, -1)
+            if not reversal_ok:
+                return no_signal()
 
         # ── Trade frame ───────────────────────────────────────────────────────
         signal_type = "hvn_rejection_long" if direction == 1 else "hvn_rejection_short"
@@ -177,19 +169,15 @@ class HVNRejectionPlugin:
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > 0.3) or (direction == -1 and rsi_div_bearish > 0.3)
+        stoch_ok = (direction == 1 and stoch_k < 30.0) or (direction == -1 and stoch_k > 70.0)
+
         supporting: list[str] = [
             f"hvn_level={hvn_level:.2f}",
             f"hvn_distance_entered_atr={dist_atr:.3f}",
             "hvn_volume_rank=0.0",  # placeholder — volume rank not yet computed
         ]
-        if direction == 1 and rsi_div_bullish > _DIV_THRESHOLD:
-            supporting.append("rsi_div_bullish")
-        elif direction == -1 and rsi_div_bearish > _DIV_THRESHOLD:
-            supporting.append("rsi_div_bearish")
-        if (direction == 1 and stoch_k < _STOCH_OVERSOLD) or (
-            direction == -1 and stoch_k > _STOCH_OVERBOUGHT
-        ):
-            supporting.append(f"stoch_extreme={stoch_k:.1f}")
+        supporting.extend(format_reversal_supporting_factors(features, direction, rsi_div_ok, stoch_ok))
 
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
