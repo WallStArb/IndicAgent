@@ -98,8 +98,14 @@ class LiquiditySweepReclaimPlugin:
 
         ctf_score = features.get("ctf_score", 0.0)
         if abs(ctf_score) > 0.3:
-            confidence += 0.05
-            supporting.append("cross_timeframe_aligned")
+            # Renaissance principle: weight by magnitude, not binary gate
+            # Stronger CTF alignment = larger boost (0.0 to 0.10 range)
+            ctf_boost = 0.05 * min(2.0, abs(ctf_score) / 0.5)
+            confidence += ctf_boost
+            if ctf_boost > 0.04:
+                supporting.append("strong_cross_timeframe_aligned")
+            else:
+                supporting.append("cross_timeframe_aligned")
 
         # Named pool significance boost
         sweep_type_val = features.get("sweep_type", 0.0)
