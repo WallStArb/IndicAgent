@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import structlog
 
 from tests.unit.intelligence.helpers import make_ohlcv, make_ohlcv_from_hl
 
@@ -496,6 +497,187 @@ class TestHMMRegime:
         # Fewer than min_lookback (20) bars
         df = make_ohlcv(np.full(10, 5000.0))
         assert plugin.compute_full({"main": df}) == {}
+
+    # ── HMM-01: 2D fallback warning ──────────────────────────────
+
+    def test_fallback_2d_emits_warning(self):
+        """When features dict is missing adx_14, structlog warning 'hmm_fallback_2d' fires."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        # Missing adx_14 — should trigger fallback warning
+        features = {"rsi_14": 65.0, "macd_histogram_12_26_9": 2.0, "atr_14": 10.0}
+        plugin = HMMRegimePlugin()
+        with structlog.testing.capture_logs() as logs:
+            plugin.compute_full({"main": df, "features": features})
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        event_names = [l.get("event") for l in warning_logs]
+        assert "hmm_fallback_2d" in event_names
+        fallback_log = next(l for l in warning_logs if l.get("event") == "hmm_fallback_2d")
+        assert "adx_14" in fallback_log.get("missing_fields", [])
+
+    def test_fallback_2d_warning_no_features_dict(self):
+        """When no 'features' key in frames, structlog warning 'hmm_fallback_2d_no_features' fires."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        plugin = HMMRegimePlugin()
+        with structlog.testing.capture_logs() as logs:
+            plugin.compute_full({"main": df})  # no "features" key
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        event_names = [l.get("event") for l in warning_logs]
+        assert "hmm_fallback_2d_no_features" in event_names
+
+    def test_no_warning_when_5d(self):
+        """When all 4 features present, no 'hmm_fallback_2d' warning fires."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        features = {"rsi_14": 65.0, "adx_14": 30.0, "macd_histogram_12_26_9": 2.0, "atr_14": 10.0}
+        plugin = HMMRegimePlugin()
+        with structlog.testing.capture_logs() as logs:
+            plugin.compute_full({"main": df, "features": features})
+        warning_logs = [l for l in logs if l.get("log_level") == "warning"]
+        fallback_events = [l for l in warning_logs if "hmm_fallback_2d" in l.get("event", "")]
+        assert len(fallback_events) == 0
+
+    # ── HMM-02: hmm_n_dims output ────────────────────────────────
+
+    def test_n_dims_5d_output(self):
+        """With all features present, result['hmm_n_dims'] == 5."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        features = {"rsi_14": 65.0, "adx_14": 30.0, "macd_histogram_12_26_9": 2.0, "atr_14": 10.0}
+        plugin = HMMRegimePlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+        assert "hmm_n_dims" in result
+        assert result["hmm_n_dims"] == 5
+
+    def test_n_dims_2d_output(self):
+        """With features missing, result['hmm_n_dims'] == 2."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        plugin = HMMRegimePlugin()
+        result = plugin.compute_full({"main": df})  # no features
+        assert "hmm_n_dims" in result
+        assert result["hmm_n_dims"] == 2
+
+    def test_n_dims_in_compute_next(self):
+        """compute_next() output also contains hmm_n_dims."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        features = {"rsi_14": 65.0, "adx_14": 30.0, "macd_histogram_12_26_9": 2.0, "atr_14": 10.0}
+        plugin = HMMRegimePlugin()
+        plugin.compute_full({"main": df, "features": features})
+        result = plugin.compute_next({"main": df, "features": features})
+        assert "hmm_n_dims" in result
+
+    # ── HMM-03: hmm_warmed_up output ─────────────────────────────
+
+    def test_warmed_up_true_full_history(self):
+        """compute_full() with 200 bars returns hmm_warmed_up == True."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        features = {"rsi_14": 65.0, "adx_14": 30.0, "macd_histogram_12_26_9": 2.0, "atr_14": 10.0}
+        plugin = HMMRegimePlugin()
+        result = plugin.compute_full({"main": df, "features": features})
+        assert "hmm_warmed_up" in result
+        assert result["hmm_warmed_up"] is True
+
+    def test_warmed_up_in_output_keys(self):
+        """result dict contains 'hmm_warmed_up' key."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        rng = np.random.default_rng(42)
+        close = 5000.0 + np.cumsum(np.abs(rng.normal(0.5, 0.3, 200)))
+        df = make_ohlcv(close)
+        plugin = HMMRegimePlugin()
+        result = plugin.compute_full({"main": df})
+        assert "hmm_warmed_up" in result
+
+    # ── HMM-04: warm-up prob suppression ─────────────────────────
+
+    def test_warmup_false_when_bars_processed_low(self):
+        """_build_output() zeroes all prob fields when bars_processed < min_lookback."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        plugin = HMMRegimePlugin()
+        plugin._reset_state()
+        plugin._state["bars_processed"] = 5  # < min_lookback=20
+        plugin._state["alpha"] = np.array([0.33, 0.33, 0.34])
+        result = plugin._build_output()
+        assert result["hmm_warmed_up"] is False
+        assert result["hmm_regime_prob"] == 0.0
+        assert result["hmm_prob_ranging"] == 0.0
+        assert result["hmm_prob_trending_up"] == 0.0
+        assert result["hmm_prob_trending_down"] == 0.0
+
+    def test_warmup_suppression_compute_next_after_reset(self):
+        """After _reset_state(), _build_output with bars_processed=1 zeroes probs."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        plugin = HMMRegimePlugin()
+        plugin._reset_state()
+        # Simulate state after 1 bar processed (still in warm-up)
+        plugin._state["bars_processed"] = 1
+        plugin._state["alpha"] = np.array([0.4, 0.35, 0.25])
+        result = plugin._build_output()
+        assert result["hmm_warmed_up"] is False
+        assert result["hmm_regime_prob"] == 0.0
+
+    def test_warmup_probs_nonzero_when_warmed_up(self):
+        """After sufficient bars processed, probs are nonzero."""
+        from src.intelligence.smart_money.hmm_regime import HMMRegimePlugin
+
+        plugin = HMMRegimePlugin()
+        plugin._reset_state()
+        # Simulate state after min_lookback bars
+        plugin._state["bars_processed"] = 20  # == min_lookback
+        plugin._state["alpha"] = np.array([0.4, 0.35, 0.25])
+        result = plugin._build_output()
+        assert result["hmm_warmed_up"] is True
+        assert result["hmm_regime_prob"] > 0.0
+        assert result["hmm_prob_ranging"] > 0.0
+
+
+# ─── SMCContext schema HMM fields ─────────────────────────────────
+
+
+class TestSMCContextHMMFields:
+    def test_schema_accepts_hmm_n_dims_and_warmed_up(self):
+        """SMCContext accepts hmm_n_dims and hmm_warmed_up without error."""
+        from src.intelligence.schemas import SMCContext
+
+        ctx = SMCContext(hmm_n_dims=5, hmm_warmed_up=True)
+        assert ctx.hmm_n_dims == 5
+        assert ctx.hmm_warmed_up is True
+
+    def test_schema_rejects_unknown_field(self):
+        """SMCContext rejects unknown fields (extra='forbid')."""
+        import pytest
+
+        from src.intelligence.schemas import SMCContext
+
+        with pytest.raises(Exception):  # ValidationError
+            SMCContext(hmm_unknown_field=1.0)
 
 
 # ─── Liquidity Pools ──────────────────────────────────────────────
