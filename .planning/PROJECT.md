@@ -255,4 +255,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 52: Infrastructure Hardening — Docker restart policies, log rotation, health checks, no manual steps
 
 ---
-*Last updated: 2026-03-23 — Phase 49.1 complete: regime gate fix — signal_ledger writes now unconditional on all_ranked (Renaissance principle: never drop labeled training data). regime_type_at_fire + hmm_regime_at_fire populated on every LedgerEntry for Phase 53+ ML per-regime segmentation.*
+*Last updated: 2026-03-23 — Phase 49.2 complete: HMM observability and warm-up suppression — structlog fallback warnings, hmm_n_dims + hmm_warmed_up fields in intelligence_features.smc JSONB, warm-up prob zeroing via existing regime_gate prob_min floor. 19 HMM tests green, zero changes to regime_gate or signal_generator.*
