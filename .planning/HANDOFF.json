@@ -1,0 +1,38 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-03-23T14:41:39.311Z",
+  "phase": "debugging",
+  "phase_name": "Signal Generator Debugging",
+  "phase_dir": "memory/signal_generator_debug_2026-03-23.md",
+  "plan": null,
+  "task": 1,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Trace Kafka consumer data flow", "status": "done", "commit": "none"},
+    {"id": 2, "name": "Identify event parsing works perfectly", "status": "done", "commit": "none"},
+    {"id": 3, "name": "Find code execution stops after parse", "status": "in_progress", "progress": "Added diagnostic after regime cache update, need to verify if code continues"}
+  ],
+  "remaining_tasks": [
+    {"id": 4, "name": "Verify regime cache update executes", "status": "not_started"},
+    {"id": 5, "name": "Trace if _process_bar() is called", "status": "not_started"},
+    {"id": 6, "name": "Fix root cause and test", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Logger broken - structlog writes nowhere", "type": "technical", "workaround": "Using stderr prints for diagnostics"},
+    {"description": "No visibility into _process_bar() execution", "type": "technical", "workaround": "Need to add diagnostics there"}
+  ],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "Use stderr for all diagnostics instead of structlog", "rationale": "Logger created before setup_service_logging() returns broken logger", "phase": "debugging"},
+    {"decision": "Not committing diagnostic changes yet", "rationale": "Can revert once bug found, keeps git clean", "phase": "debugging"},
+    {"decision": "Systematic data flow tracing over guessing", "rationale": "Following systematic-debugging skill protocol", "phase": "debugging"}
+  ],
+  "uncommitted_files": [
+    "services/signal_generator_service.py",
+    "src/core/kafka_utils.py",
+    "memory/signal_generator_debug_2026-03-23.md"
+  ],
+  "next_action": "Check journald for [PROCESS_SINGLE] output to verify if code executes after regime cache update",
+  "context_notes": "This is ad-hoc debugging, not a GSD phase. Following systematic-debugging skill protocol to trace data flow: Kafka → parse → process → counter. Event parsing works perfectly, but counter stays at 0.0. Need to find where code path breaks."
+}
