@@ -45,17 +45,18 @@ class MeanReversionPlugin:
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
+        features = frames.get("features") or {}
+
+        # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
+        trend_regime = features.get("trend_regime", 0.0)
+        if abs(trend_regime) >= self.regime_threshold:
+            return no_signal()
+
+        # Regime gate passed - now extract OHLCV (expensive numpy conversion)
         result = extract_ohlcv(frames, self.min_lookback)
         if result is None:
             return no_signal()
         open_, high, low, close = result
-
-        features = frames.get("features") or {}
-
-        # ── Gate: must be ranging (not trending) ──
-        trend_regime = features.get("trend_regime", 0.0)
-        if abs(trend_regime) >= self.regime_threshold:
-            return no_signal()
 
         # ── Gate: price must be displaced from Kalman fair value ──
         kalman_pos = features.get("kalman_price_position")
