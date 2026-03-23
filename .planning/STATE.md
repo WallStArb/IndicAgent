@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: In progress
-last_updated: "2026-03-23T16:30:00Z"
+status: Phase 49.1 COMPLETE — 49.1-01 executed
+last_updated: "2026-03-23T19:01:00.000Z"
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 1
-  total_plans: 0
-  completed_plans: 2
+  total_plans: 1
+  completed_plans: 3
 ---
 
 # Project State
@@ -18,12 +18,15 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 49 — DB Performance & Signal Ledger Hardening
+**Current focus:** Phase 49.1 — regime-gate-fix-write-all-signals-to-signal-ledger
 
 ## Current Position
 
-Phase: 49
-Plan: Not started
+Phase: 49.1 (regime-gate-fix-write-all-signals-to-signal-ledger) — COMPLETE
+Plan: 1 of 1 (DONE)
+
+**Last session:** 2026-03-23 — Completed 49.1-01-PLAN.md
+**Commits:** 081ddef (RED tests), 037eed6 (GREEN implementation)
 
 ## v2.1 Milestone Goal
 
@@ -74,3 +77,4 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Phase 48.1 added: Signal Generator Warmup Seed (2026-03-23) — fix bars_processed=0, restore DB seed from startup
 - Phase 48 COMPLETE (2026-03-23): Tick aggregation + I7 refactoring — 550+ lines eliminated, 3 shared utilities created, 4 I6 confluence violations fixed, aggregator calibration optimized
 - Phase 49.1 inserted after Phase 49: Regime Gate Fix — Write All Signals to Signal Ledger (URGENT)
+- Phase 49.1 COMPLETE (2026-03-23): signal_ledger writes decoupled from winner selection; regime_type_at_fire + hmm_regime_at_fire populated on every LedgerEntry; 6 new TDD tests, 57 total passing
