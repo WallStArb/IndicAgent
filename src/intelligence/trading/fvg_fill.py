@@ -94,6 +94,24 @@ class FVGFillPlugin:
         if fvg_top > 0 and fvg_bottom > 0:
             supporting.append("fvg_bounds_present")
 
+        # I6 confluence: FVG alignment across timeframes (Renaissance principle)
+        ctf_fvg = float(features.get("ctf_fvg_alignment", 0.0))
+        if ctf_fvg > 0.3:
+            # Weight by magnitude: stronger multi-TF FVG confluence = higher confidence
+            fvg_boost = 0.08 * min(1.0, ctf_fvg / 0.7)
+            raw_conf += fvg_boost
+            if fvg_boost > 0.04:
+                supporting.append("multi_tf_fvg_aligned")
+
+        # I6 confluence: Order block alignment across timeframes
+        ctf_ob = float(features.get("ctf_ob_alignment", 0.0))
+        if ctf_ob > 0.3:
+            # Weight by magnitude: stronger multi-TF OB confluence = higher confidence
+            ob_boost = 0.06 * min(1.0, ctf_ob / 0.7)
+            raw_conf += ob_boost
+            if ob_boost > 0.03:
+                supporting.append("multi_tf_ob_aligned")
+
         raw_conf, supporting = apply_exhaustion_boost(features, direction, raw_conf, supporting)
         confidence = compose_confidence(raw_conf)
 
