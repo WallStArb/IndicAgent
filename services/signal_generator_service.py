@@ -138,6 +138,11 @@ MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 # Day-trading focus: 1m=3 bars (3 min), higher TFs=2 bars (matches MIN_BARS_BETWEEN_SIGNALS).
 _SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
 
+# HMM regime integer -> semantic label for ML training segmentation (D-02).
+# Collapses trend direction intentionally — consistent with aggregator._REGIME_MAP.
+# Used by _process_event() to populate regime_type_at_fire on every LedgerEntry.
+_HMM_REGIME_LABEL: dict[int, str] = {0: "ranging", 1: "trending", 2: "trending"}
+
 # QUAL-02: alpha decay half-life — bars after which a repeated same-setup/direction signal
 # has its confidence multiplied by max(0.0, 1.0 - bars_since / half_life).
 # Starting values — replace with learned values after 90 days of outcome data.
@@ -510,6 +515,10 @@ class SignalGeneratorService:
         self.signals_selected_total = counter(
             "generator_signals_selected_total",
             "Total signals where was_selected=True",
+        )
+        self.signals_written_total = counter(
+            "generator_signals_written_total",
+            "Total signal_ledger rows written on suppressed-only bars (no winner)",
         )
         self.calculation_duration_ms = gauge(
             "generator_calculation_duration_ms",
@@ -1273,15 +1282,16 @@ class SignalGeneratorService:
              "data": {"signals": ranked, **_audit_meta}},
         ])
 
-        # Gate check + ledger write (was in the old DAG winner consumer loop)
+        # --- Stage 6: Winner gate + persist (DECOUPLED per D-01) ---
         ledger_written = False
         signal_computed_at = datetime.now(tz=UTC)
         _winner_signal_id: str = ""
 
+        # 6a: Winner gate check (unchanged logic, just scoped correctly)
         if winner:
             _winner_direction = int(winner.get("direction", 0))
             if self._check_gate(symbol, timeframe, _winner_direction, timestamp):
-                # Gate suppresses (cooldown or direction flip) — publish record but no DB
+                # Gate suppresses (cooldown or direction flip) — persist still happens below
                 self.logger.debug(
                     "winner_signal_gated",
                     symbol=symbol,
@@ -1290,145 +1300,178 @@ class SignalGeneratorService:
                 )
                 winner = None
             else:
-                # Build LedgerEntry list from all_ranked (same pattern as old DAG path)
                 _winner_signal_id = str(winner.get("signal_id", "") or uuid4())
                 # Set signal_id on winner dict so it matches the ledger entry
                 winner["signal_id"] = _winner_signal_id
-                entries: list[LedgerEntry] = []
-                for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
-                    _ranked_id = str(ranked_sig.get("signal_id") or "")
-                    _is_winner_entry = _ranked_id == _winner_signal_id or (
-                        not _ranked_id
-                        and ranked_sig.get("setup_plugin") == winner.get("setup_plugin")
-                        and ranked_sig.get("regime_eligible", True)
-                    )
-                    _status = (
-                        SignalStatus.PENDING
-                        if ranked_sig.get("regime_eligible", True)
-                        else SignalStatus.REGIME_SUPPRESSED
-                    )
-                    _ranked_dir = int(ranked_sig.get("direction", 0))
-                    entries.append(
-                        LedgerEntry(
-                            signal_id=_ranked_id or str(uuid4()),
-                            timestamp=timestamp,
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            setup_plugin=str(ranked_sig.get("setup_plugin", "unknown")),
-                            signal_type=str(ranked_sig.get("signal_type", "unknown")),
-                            direction=_ranked_dir,
-                            entry_price=float(ranked_sig.get("entry_price", 0.0)),
-                            stop_loss=float(ranked_sig.get("stop_loss", 0.0)),
-                            targets=[
-                                float(t) for t in (ranked_sig.get("targets") or [])
-                            ],
-                            confidence=float(ranked_sig.get("confidence", 0.0)),
-                            confluence_score=float(
-                                ranked_sig.get("confluence_score", 0.0)
-                            ),
-                            regime_context=str(ranked_sig.get("regime_context", "")),
-                            supporting_factors=list(
-                                ranked_sig.get("supporting_factors", [])
-                            ),
-                            was_selected=_is_winner_entry,
-                            num_signals_bar=len(all_ranked),
-                            num_agreeing=0,
-                            num_conflicting=0,
-                            resolution_method=str(resolution_method or "in_process"),
-                            composite_rank=rank_idx,
-                            status=_status,
-                            feature_ts=timestamp,
-                            feature_tf=timeframe,
-                            signal_computed_at=signal_computed_at,
-                        )
-                    )
 
-                # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
-                for entry in entries:
-                    plugin_instance = registry.patterns.get(entry.setup_plugin)
-                    if plugin_instance is not None and getattr(
-                        plugin_instance, "IS_SHADOW", False
-                    ):
-                        entry.is_shadow = True
-
-                # Publish winner to signals + signals.aggregated (backward compat)
-                sig = winner
-                msg_key = message_key(symbol, timeframe)
-                message: dict = {
-                    k: str(v)
-                    for k, v in sig.items()
-                    if isinstance(v, (str, int, float, bool))
-                }
-                targets = sig.get("targets") or []
-                target_labels = sig.get("target_labels") or []
-                if targets:
-                    message["profit_target"] = str(float(targets[0]))
-                    if len(targets) > 1:
-                        message["profit_target_2"] = str(float(targets[1]))
-                    if len(targets) > 2:
-                        message["profit_target_3"] = str(float(targets[2]))
-                message["target_labels"] = json.dumps(target_labels)
-                message["target_types"] = json.dumps(sig.get("target_types") or [])
-                entry_p = float(sig.get("entry_price", 0))
-                stop_p = float(sig.get("stop_loss", 0))
-                risk = abs(entry_p - stop_p)
-                if risk > 0 and targets:
-                    message["risk_reward_ratio"] = str(
-                        round(abs(float(targets[0]) - entry_p) / risk, 2)
-                    )
-                message["timestamp"] = timestamp.isoformat()
-                message["symbol"] = symbol
-                message["timeframe"] = timeframe
-                message["signal_computed_at"] = signal_computed_at.isoformat()
-                message["signal_id"] = _winner_signal_id
-                message["was_selected"] = "1"
-
-                published_signal = False
-                if self._kafka_producer:
+        # 6b: Build LedgerEntry list from ALL ranked signals (UNCONDITIONAL on all_ranked).
+        # Renaissance principle: never drop data that could contain signal.
+        # Regime-suppressed signals are labeled training data for ML scoring (Phase 53+).
+        if all_ranked:
+            # Resolve regime fields once (available for all entries)
+            _hmm_regime_int: int | None = None
+            _regime_type_label: str | None = None
+            if regime_data is not None:
+                _hmm_raw = regime_data.get("hmm_regime")
+                if _hmm_raw is not None:
                     try:
-                        await self._kafka_producer.publish(
-                            topic_signals(self.env_name), message, key=msg_key
-                        )
-                        await self._kafka_producer.publish(
-                            topic_signals_aggregated(self.env_name), message, key=msg_key
-                        )
-                        published_signal = True
-                    except Exception as _pub_err:
-                        self.logger.warning(
-                            "winner_kafka_publish_failed",
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            error=str(_pub_err),
-                        )
+                        _hmm_regime_int = int(_hmm_raw)
+                        _regime_type_label = _HMM_REGIME_LABEL.get(_hmm_regime_int)
+                    except (TypeError, ValueError):
+                        pass
 
-                if published_signal:
-                    self._update_gate(
-                        symbol, timeframe, _winner_direction, timestamp, _winner_signal_id
+            entries: list[LedgerEntry] = []
+            for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
+                _ranked_id = str(ranked_sig.get("signal_id") or "")
+                # was_selected is True only for the entry that matches the (non-gated) winner.
+                # When _winner_signal_id is empty (no winner or gate fired), all are False.
+                _is_winner_entry = (
+                    (
+                        _ranked_id == _winner_signal_id
+                        or (
+                            not _ranked_id
+                            and winner is not None
+                            and ranked_sig.get("setup_plugin") == winner.get("setup_plugin")
+                            and ranked_sig.get("regime_eligible", True)
+                        )
                     )
-                    _pub_plugin = sig.get("setup_plugin", "")
-                    if _pub_plugin:
-                        _decay_key = (symbol, timeframe, _pub_plugin, _winner_direction)
-                        self._setup_last_fire[_decay_key] = {"bars_since": 0}
+                    if _winner_signal_id != ""
+                    else False
+                )
+                _status = (
+                    SignalStatus.PENDING
+                    if ranked_sig.get("regime_eligible", True)
+                    else SignalStatus.REGIME_SUPPRESSED
+                )
+                _ranked_dir = int(ranked_sig.get("direction", 0))
+                entries.append(
+                    LedgerEntry(
+                        signal_id=_ranked_id or str(uuid4()),
+                        timestamp=timestamp,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        setup_plugin=str(ranked_sig.get("setup_plugin", "unknown")),
+                        signal_type=str(ranked_sig.get("signal_type", "unknown")),
+                        direction=_ranked_dir,
+                        entry_price=float(ranked_sig.get("entry_price", 0.0)),
+                        stop_loss=float(ranked_sig.get("stop_loss", 0.0)),
+                        targets=[
+                            float(t) for t in (ranked_sig.get("targets") or [])
+                        ],
+                        confidence=float(ranked_sig.get("confidence", 0.0)),
+                        confluence_score=float(
+                            ranked_sig.get("confluence_score", 0.0)
+                        ),
+                        regime_context=str(ranked_sig.get("regime_context", "")),
+                        supporting_factors=list(
+                            ranked_sig.get("supporting_factors", [])
+                        ),
+                        was_selected=_is_winner_entry,
+                        num_signals_bar=len(all_ranked),
+                        num_agreeing=0,
+                        num_conflicting=0,
+                        resolution_method=str(resolution_method or "in_process"),
+                        composite_rank=rank_idx,
+                        status=_status,
+                        feature_ts=timestamp,
+                        feature_tf=timeframe,
+                        signal_computed_at=signal_computed_at,
+                        hmm_regime_at_fire=_hmm_regime_int,
+                        regime_type_at_fire=_regime_type_label,
+                    )
+                )
 
-                # DB INSERT (cold tier)
-                if entries and self.db_manager:
-                    try:
-                        await insert_signals_with_features(
-                            self.db_manager.pool, entries, {}
-                        )
-                        selected_count = sum(1 for e in entries if e.was_selected)
-                        self.signals_generated_total.inc(len(entries))
-                        self.signals_selected_total.inc(selected_count)
-                        self._total_signals += len(entries)
-                        ledger_written = True
-                    except Exception as _db_err:
-                        self.logger.error(
-                            "signal_ledger_write_failed",
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            error=str(_db_err),
-                        )
-                        _LEDGER_WRITE_FAILURES.inc()
+            # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
+            for entry in entries:
+                plugin_instance = registry.patterns.get(entry.setup_plugin)
+                if plugin_instance is not None and getattr(
+                    plugin_instance, "IS_SHADOW", False
+                ):
+                    entry.is_shadow = True
+
+            # 6c: DB INSERT (unconditional when entries exist — D-01)
+            if entries and self.db_manager:
+                try:
+                    await insert_signals_with_features(
+                        self.db_manager.pool, entries, {}
+                    )
+                    selected_count = sum(1 for e in entries if e.was_selected)
+                    self.signals_generated_total.inc(len(entries))
+                    self.signals_selected_total.inc(selected_count)
+                    self._total_signals += len(entries)
+                    ledger_written = True
+                    if not winner:
+                        # Track suppressed-only bar writes separately for observability
+                        self.signals_written_total.inc(len(entries))
+                except Exception as _db_err:
+                    self.logger.error(
+                        "signal_ledger_write_failed",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        error=str(_db_err),
+                    )
+                    _LEDGER_WRITE_FAILURES.inc()
+
+        # 6d: Kafka publish winner (only if winner passed gate)
+        if winner:
+            sig = winner
+            msg_key = message_key(symbol, timeframe)
+            message: dict = {
+                k: str(v)
+                for k, v in sig.items()
+                if isinstance(v, (str, int, float, bool))
+            }
+            targets = sig.get("targets") or []
+            target_labels = sig.get("target_labels") or []
+            if targets:
+                message["profit_target"] = str(float(targets[0]))
+                if len(targets) > 1:
+                    message["profit_target_2"] = str(float(targets[1]))
+                if len(targets) > 2:
+                    message["profit_target_3"] = str(float(targets[2]))
+            message["target_labels"] = json.dumps(target_labels)
+            message["target_types"] = json.dumps(sig.get("target_types") or [])
+            entry_p = float(sig.get("entry_price", 0))
+            stop_p = float(sig.get("stop_loss", 0))
+            risk = abs(entry_p - stop_p)
+            if risk > 0 and targets:
+                message["risk_reward_ratio"] = str(
+                    round(abs(float(targets[0]) - entry_p) / risk, 2)
+                )
+            message["timestamp"] = timestamp.isoformat()
+            message["symbol"] = symbol
+            message["timeframe"] = timeframe
+            message["signal_computed_at"] = signal_computed_at.isoformat()
+            message["signal_id"] = _winner_signal_id
+            message["was_selected"] = "1"
+
+            published_signal = False
+            if self._kafka_producer:
+                try:
+                    await self._kafka_producer.publish(
+                        topic_signals(self.env_name), message, key=msg_key
+                    )
+                    await self._kafka_producer.publish(
+                        topic_signals_aggregated(self.env_name), message, key=msg_key
+                    )
+                    published_signal = True
+                except Exception as _pub_err:
+                    self.logger.warning(
+                        "winner_kafka_publish_failed",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        error=str(_pub_err),
+                    )
+
+            if published_signal:
+                _winner_direction = int(winner.get("direction", 0))
+                self._update_gate(
+                    symbol, timeframe, _winner_direction, timestamp, _winner_signal_id
+                )
+                _pub_plugin = sig.get("setup_plugin", "")
+                if _pub_plugin:
+                    _decay_key = (symbol, timeframe, _pub_plugin, _winner_direction)
+                    self._setup_last_fire[_decay_key] = {"bars_since": 0}
 
         # Build and publish BarIntelligenceRecord to intelligence.record
         pipeline_latency_ms = (time.monotonic() - pipeline_start) * 1000
