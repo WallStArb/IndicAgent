@@ -30,6 +30,12 @@ All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
 
 Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200. NG/BZ valid in live account.
 
+### Adding New Contracts
+1. INSERT into `instruments` table with appropriate `contract_details` JSONB
+2. Add to `get_active_contracts()` in `src/config/settings.py`
+3. Restart `indicagent-{feature-pipeline,signal-generator,feature-writer}`
+4. Backfill historical data: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days 30`
+
 ### Troubleshooting
 - **TWS connection refused**: IBKR TWS at `192.168.1.157` — check trusted IPs in TWS API settings if connection fails.
 - **`bars_processed` freeze**: TWS daemon gets stuck — IBKR paper account returns stale RTH bars regardless of `endDateTime` format. `seen_bar_timestamps` dedup caches all timestamps from initial poll; counter sticks at N×61 forever. **Restart does NOT fix it.** Root fix: build 1m OHLCV bars from live tick stream (`development.market.ticks`) instead of polling historical API.
