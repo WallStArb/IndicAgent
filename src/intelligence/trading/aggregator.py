@@ -456,18 +456,33 @@ def _build_all_ranked(
     #     Applied as FINAL step after all quality multipliers (Hurst, entropy, drift).
     #     Only the winning signal's calibrated_confidence is stored in signal_ledger;
     #     non-winner entries get NULL there. Here we set it for ranking purposes only.
+    #
+    #     OPTIMIZATION (Phase 48): Batch interpolate per plugin instead of per-signal.
+    #     Reduces np.interp calls from 36 to ~6 per bar (group by plugin_name).
     if calibration_curves and timeframe:
+        # Group signals by plugin for batch interpolation
+        signals_by_plugin: dict[str, list[dict[str, Any]]] = {}
         for sig in with_ranks:
             plugin_name = sig.get("setup_plugin", "")
+            if plugin_name not in signals_by_plugin:
+                signals_by_plugin[plugin_name] = []
+            signals_by_plugin[plugin_name].append(sig)
+
+        # Apply calibration per plugin (one np.interp per plugin instead of per signal)
+        for plugin_name, plugin_signals in signals_by_plugin.items():
             curve = calibration_curves.get((plugin_name, timeframe))
             if curve is not None:
                 breakpoints, values = curve
-                raw_conf = float(sig.get("confidence", 0.0))
-                sig["calibrated_confidence"] = round(
-                    float(np.interp(raw_conf, breakpoints, values)), 4
-                )
+                # Batch interpolate all signals for this plugin
+                raw_confs = np.array([float(sig.get("confidence", 0.0)) for sig in plugin_signals])
+                calibrated_confs = np.interp(raw_confs, breakpoints, values)
+                # Assign back to signals
+                for sig, cal_conf in zip(plugin_signals, calibrated_confs):
+                    sig["calibrated_confidence"] = round(float(cal_conf), 4)
             else:
-                sig["calibrated_confidence"] = None
+                # No calibration curve for this plugin
+                for sig in plugin_signals:
+                    sig["calibrated_confidence"] = None
     else:
         for sig in with_ranks:
             sig["calibrated_confidence"] = None
