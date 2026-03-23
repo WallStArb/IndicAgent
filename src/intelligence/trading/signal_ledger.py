@@ -6,7 +6,6 @@ lifecycle status, and querying active signals.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -140,8 +139,8 @@ class LedgerEntry:
         """Return a 58-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores,
-        trailing_stop_price) are serialized to JSON strings so asyncpg can cast
-        them via ``::jsonb``.
+        trailing_stop_price) are passed as Python dicts/lists; asyncpg serializes
+        them to jsonb natively via codec.
         """
         return (
             self.signal_id,
@@ -153,23 +152,23 @@ class LedgerEntry:
             self.direction,
             self.entry_price,
             self.stop_loss,
-            json.dumps(self.targets),
+            self.targets,
             self.confidence,
             self.confluence_score,
             self.regime_context,
-            json.dumps(self.supporting_factors),
+            self.supporting_factors,
             self.was_selected,
             self.num_signals_bar,
             self.num_agreeing,
             self.num_conflicting,
             self.resolution_method,
             self.composite_rank,
-            json.dumps(self.market_context),
+            self.market_context,
             self.status,
             self.feature_ts,  # $23 — TIMESTAMPTZ, nullable
             self.feature_tf,  # $24 — TEXT, nullable
             self.cis_score,  # $25 — FLOAT, nullable
-            json.dumps(self.bucket_scores) if self.bucket_scores is not None else None,  # $26
+            self.bucket_scores,  # $26
             self.weights_version,  # $27 — INTEGER, nullable
             self.signal_quality,  # $28 — FLOAT, nullable
             self.signal_computed_at,  # $29 — TIMESTAMPTZ, nullable
@@ -180,7 +179,7 @@ class LedgerEntry:
             self.entry_zone_low,  # $34
             self.entry_zone_high,  # $35
             self.zone_valid_at_signal,  # $36
-            json.dumps(self.cis_attribution) if self.cis_attribution is not None else None,  # $37
+            self.cis_attribution,  # $37
             self.market_entry_price,  # $38 — FLOAT, nullable
             self.is_shadow,  # $39 — BOOLEAN
             # Phase 32: stop basis fields
@@ -192,9 +191,7 @@ class LedgerEntry:
             self.garch_sigma_at_fire,           # $45
             self.chandelier_vol_source,         # $46
             # $47::jsonb — trailing stop path [{ts, price}]
-            json.dumps(self.trailing_stop_price)
-            if self.trailing_stop_price is not None
-            else None,
+            self.trailing_stop_price,
             self.trailing_stop_tightening_rate, # $48
             self.staleness_score,               # $49
             self.staleness_trigger_reason,      # $50

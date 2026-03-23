@@ -778,7 +778,9 @@ class SignalGeneratorService:
                     # Process rows in reverse (oldest first) to maintain chronological order
                     for row in reversed(rows):
                         ts = row["ts"]
-                        bar_data = row["bar"]  # JSONB: {"o": x, "h": y, "l": z, "c": w, "v": n}
+                        bar_data = row["bar"]  # stored as JSON string in intelligence_features
+                        if isinstance(bar_data, str):
+                            bar_data = json.loads(bar_data)
                         session_type = row.get("session_type", "rth")
 
                         # Reconstruct BarMessage

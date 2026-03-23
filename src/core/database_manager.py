@@ -114,8 +114,6 @@ class DatabaseManager:
         Returns:
             Number of contracts upserted.
         """
-        import json
-
         sql = """
             INSERT INTO instruments (symbol, contract_details, is_active, updated_at)
             VALUES ($1, $2::jsonb, $3, NOW())
@@ -125,7 +123,7 @@ class DatabaseManager:
                     updated_at = NOW()
         """
 
-        params = [(c.base, json.dumps(c.model_dump()), True) for c in contracts]
+        params = [(c.base, c.model_dump(), True) for c in contracts]
         await self.execute_batch(sql, params)
         logger.info("Upserted instruments", count=len(params))
         return len(params)
