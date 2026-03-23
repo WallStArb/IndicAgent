@@ -275,6 +275,16 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 
 **Plans**: TBD (4-5 plans estimated)
 
+### Phase 49.2: HMM Operational Fixes — observability, fallback logging, warm-up noise (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 49
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 49.2 to break down)
+
 ### Phase 49.1: Regime Gate Fix — Write All Signals to Signal Ledger (INSERTED)
 
 **Goal:** Decouple signal_ledger writes from winner selection — write ALL ranked signals unconditionally. Populate regime_type_at_fire and hmm_regime_at_fire for ML training segmentation.
@@ -444,9 +454,10 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 45. I6 → I7 Confluence Wiring | v2.0 | 4/4 | Complete    | 2026-03-22 |
 | 46. I6 Confluence Expansion | v2.0 | 4/4 | Complete   | 2026-03-22 |
 | 47. Shadow Mode Graduation | v2.0 | 4/4 | Complete   | 2026-03-22 |
-| 48. Tick Aggregation & I7 Quality | v2.1 | 1/1 | Complete   | 2026-03-23 |
-| 48.1. Signal Generator Warmup Seed | v2.1 | 0/1 | Not started | — |
+| 48. Tick Aggregation & I7 Quality | v2.1 | 2/2 | Complete   | 2026-03-23 |
 | 49. DB Performance | v2.1 | 0/TBD | Not started | — |
+| 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
+| 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 0/TBD | Not started | — |
 | 50. Roll Monitor Graduation | v2.1 | 0/TBD | Not started | — |
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Not started | — |
 | 52. Infrastructure Hardening | v2.1 | 0/TBD | Not started | — |
