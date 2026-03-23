@@ -937,6 +937,7 @@ def _make_minimal_signal(
     plugin: str = "trad_TrendFollowing",
     direction: int = 1,
     confidence: float = 0.75,
+    eligible: bool = True,
 ) -> dict:
     """Build a minimal signal dict resembling make_signal() output."""
     from uuid import uuid4
@@ -956,6 +957,7 @@ def _make_minimal_signal(
         "confluence_score": 0.5,
         "supporting_factors": [],
         "invalidation_conditions": [],
+        "regime_eligible": eligible,
     }
 
 
@@ -986,6 +988,7 @@ def _make_svc_for_pipeline(extra_attrs: dict | None = None):
     svc.db_manager = None
     svc.signals_generated_total = MagicMock()
     svc.signals_selected_total = MagicMock()
+    svc.signals_written_total = MagicMock()
     svc._total_signals = 0
     svc._regime_cache = collections.defaultdict(dict)
     # SHADOW-01: Regime gate safety floors (configurable via env vars)
@@ -1526,6 +1529,390 @@ async def test_seed_bar_history_from_db_no_db_manager():
     # BarHistory should remain empty
     bars = svc._bar_history.get("ES", "1m")
     assert len(bars) == 0
+
+
+# ── Regime gate fix — write all signals to ledger (Phase 49.1) ───────────────
+
+
+@pytest.mark.asyncio
+async def test_all_suppressed_signals_still_write_to_ledger():
+    """When all signals are regime-suppressed (winner=None), DB INSERT is still called.
+
+    All LedgerEntry rows should have status=SignalStatus.REGIME_SUPPRESSED.
+    This is the core fix: suppressed-only bars are labeled training data.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from src.intelligence.trading.signal_ledger import LedgerEntry
+    from src.intelligence.enums import SignalStatus
+
+    ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
+    suppressed_signals = [
+        _make_minimal_signal("trad_TrendFollowing", 1, eligible=False),
+        _make_minimal_signal("trad_MeanReversion", -1, eligible=False),
+    ]
+    # Mark regime_eligible=False on all signals
+    for s in suppressed_signals:
+        s["regime_eligible"] = False
+
+    mock_db = MagicMock()
+    mock_db.pool = MagicMock()
+    svc = _make_svc_for_pipeline({"db_manager": mock_db})
+
+    svc_mod = "services.signal_generator_service"
+    mock_insert = AsyncMock()
+
+    with (
+        patch(f"{svc_mod}.apply_quality_gate", return_value=suppressed_signals),
+        patch(f"{svc_mod}.apply_regime_gate", return_value=suppressed_signals),
+        patch(f"{svc_mod}.apply_tod_adjustment", return_value=suppressed_signals),
+        patch(f"{svc_mod}.apply_calibration", return_value=suppressed_signals),
+        patch(f"{svc_mod}.rank_signals", return_value=suppressed_signals),
+        patch(
+            f"{svc_mod}.select_winner",
+            return_value=(None, suppressed_signals, "no_signal"),
+        ),
+        patch(f"{svc_mod}.insert_signals_with_features", mock_insert),
+    ):
+        await svc._process_event(
+            event=None,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            bar_close_ts=None,
+            source="live",
+            raw_signals=suppressed_signals,
+            regime_data={"hmm_regime": 0, "hmm_regime_prob": 0.8, "hmm_regime_duration": 5},
+            drift_penalty=1.0,
+            features={},
+        )
+
+    mock_insert.assert_called_once()
+    entries = mock_insert.call_args[0][1]
+    assert len(entries) == 2
+    for entry in entries:
+        assert entry.status == SignalStatus.REGIME_SUPPRESSED, (
+            f"Expected REGIME_SUPPRESSED, got {entry.status}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_regime_type_at_fire_populated_from_hmm_regime():
+    """regime_type_at_fire is 'ranging' for hmm_regime=0, 'trending' for 1 or 2."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
+    signals = [_make_minimal_signal("trad_TrendFollowing", 1, eligible=False)]
+    signals[0]["regime_eligible"] = False
+
+    mock_db = MagicMock()
+    mock_db.pool = MagicMock()
+    svc = _make_svc_for_pipeline({"db_manager": mock_db})
+
+    svc_mod = "services.signal_generator_service"
+    mock_insert = AsyncMock()
+
+    for hmm_val, expected_label in [(0, "ranging"), (1, "trending"), (2, "trending")]:
+        mock_insert.reset_mock()
+        with (
+            patch(f"{svc_mod}.apply_quality_gate", return_value=signals),
+            patch(f"{svc_mod}.apply_regime_gate", return_value=signals),
+            patch(f"{svc_mod}.apply_tod_adjustment", return_value=signals),
+            patch(f"{svc_mod}.apply_calibration", return_value=signals),
+            patch(f"{svc_mod}.rank_signals", return_value=signals),
+            patch(
+                f"{svc_mod}.select_winner",
+                return_value=(None, signals, "no_signal"),
+            ),
+            patch(f"{svc_mod}.insert_signals_with_features", mock_insert),
+        ):
+            await svc._process_event(
+                event=None,
+                symbol="ES",
+                timeframe="5m",
+                timestamp=ts,
+                bar_close_ts=None,
+                source="live",
+                raw_signals=signals,
+                regime_data={
+                    "hmm_regime": hmm_val,
+                    "hmm_regime_prob": 0.8,
+                    "hmm_regime_duration": 5,
+                },
+                drift_penalty=1.0,
+                features={},
+            )
+
+        mock_insert.assert_called_once()
+        entries = mock_insert.call_args[0][1]
+        assert len(entries) == 1
+        assert entries[0].regime_type_at_fire == expected_label, (
+            f"hmm_regime={hmm_val}: expected '{expected_label}', "
+            f"got '{entries[0].regime_type_at_fire}'"
+        )
+
+
+@pytest.mark.asyncio
+async def test_regime_type_at_fire_none_when_regime_data_missing():
+    """When regime_data=None, regime_type_at_fire=None on all LedgerEntry rows."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
+    signals = [_make_minimal_signal("trad_TrendFollowing", 1, eligible=False)]
+    signals[0]["regime_eligible"] = False
+
+    mock_db = MagicMock()
+    mock_db.pool = MagicMock()
+    svc = _make_svc_for_pipeline({"db_manager": mock_db})
+
+    svc_mod = "services.signal_generator_service"
+    mock_insert = AsyncMock()
+
+    with (
+        patch(f"{svc_mod}.apply_quality_gate", return_value=signals),
+        patch(f"{svc_mod}.apply_regime_gate", return_value=signals),
+        patch(f"{svc_mod}.apply_tod_adjustment", return_value=signals),
+        patch(f"{svc_mod}.apply_calibration", return_value=signals),
+        patch(f"{svc_mod}.rank_signals", return_value=signals),
+        patch(
+            f"{svc_mod}.select_winner",
+            return_value=(None, signals, "no_signal"),
+        ),
+        patch(f"{svc_mod}.insert_signals_with_features", mock_insert),
+    ):
+        await svc._process_event(
+            event=None,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            bar_close_ts=None,
+            source="live",
+            raw_signals=signals,
+            regime_data=None,  # No regime data
+            drift_penalty=1.0,
+            features={},
+        )
+
+    mock_insert.assert_called_once()
+    entries = mock_insert.call_args[0][1]
+    assert len(entries) == 1
+    assert entries[0].regime_type_at_fire is None, (
+        f"Expected None, got '{entries[0].regime_type_at_fire}'"
+    )
+    assert entries[0].hmm_regime_at_fire is None
+
+
+@pytest.mark.asyncio
+async def test_gate_suppressed_winner_still_writes_to_ledger():
+    """When _check_gate returns True, winner is suppressed but entries still written.
+
+    All entries have was_selected=False (gate nulled the winner before entries built).
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
+    winner_signal = _make_minimal_signal("trad_TrendFollowing", 1, eligible=True)
+    other_signal = _make_minimal_signal("trad_MeanReversion", -1, eligible=True)
+    all_ranked = [winner_signal, other_signal]
+
+    mock_db = MagicMock()
+    mock_db.pool = MagicMock()
+    svc = _make_svc_for_pipeline({"db_manager": mock_db})
+    # Make gate always fire (cooldown active)
+    svc._check_gate = MagicMock(return_value=True)
+
+    svc_mod = "services.signal_generator_service"
+    mock_insert = AsyncMock()
+
+    with (
+        patch(f"{svc_mod}.apply_quality_gate", return_value=all_ranked),
+        patch(f"{svc_mod}.apply_regime_gate", return_value=all_ranked),
+        patch(f"{svc_mod}.apply_tod_adjustment", return_value=all_ranked),
+        patch(f"{svc_mod}.apply_calibration", return_value=all_ranked),
+        patch(f"{svc_mod}.rank_signals", return_value=all_ranked),
+        patch(
+            f"{svc_mod}.select_winner",
+            return_value=(winner_signal, all_ranked, "highest_confidence"),
+        ),
+        patch(f"{svc_mod}.insert_signals_with_features", mock_insert),
+    ):
+        await svc._process_event(
+            event=None,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            bar_close_ts=None,
+            source="live",
+            raw_signals=all_ranked,
+            regime_data=None,
+            drift_penalty=1.0,
+            features={},
+        )
+
+    # DB INSERT must have been called despite gate suppressing winner
+    mock_insert.assert_called_once()
+    entries = mock_insert.call_args[0][1]
+    assert len(entries) == 2
+    # All entries should have was_selected=False (gate nulled the winner)
+    for entry in entries:
+        assert entry.was_selected is False, (
+            f"Expected was_selected=False (gate fired), got {entry.was_selected}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_ledger_written_true_on_suppressed_only_bar():
+    """BarIntelligenceRecord published with ledger_written=True on suppressed-only bars."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    import json as _json
+
+    from src.intelligence.schemas import (
+        I1Indicators,
+        I3Structure,
+        I4Context,
+        I5Patterns,
+        I6Confluence,
+        IntelligenceEvent,
+        OHLCVBar,
+        SMCContext,
+    )
+
+    ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
+    event = IntelligenceEvent(
+        ts=ts,
+        symbol="ES",
+        tf="5m",
+        bar=OHLCVBar(o=5100.0, h=5105.0, l=5098.0, c=5103.0, v=10000),
+        i1=I1Indicators(rsi_14=55.0, atr_14=10.0),
+        i3=I3Structure(trend_strength=0.7, swing_pattern=1.0),
+        i4=I4Context(
+            trend_regime=0.6,
+            trend_confidence=0.75,
+            vol_regime=0.3,
+            vol_percentile=55.0,
+        ),
+        i5=I5Patterns(),
+        smc=SMCContext(hmm_regime=0.0),
+        i6=I6Confluence(ctf_score=0.8),
+    )
+
+    suppressed = [_make_minimal_signal("trad_TrendFollowing", 1, eligible=False)]
+    suppressed[0]["regime_eligible"] = False
+
+    published_payloads = []
+
+    async def _mock_publish(topic, payload, key=None):
+        published_payloads.append((topic, payload))
+
+    mock_producer = MagicMock()
+    mock_producer.publish = _mock_publish
+
+    mock_db = MagicMock()
+    mock_db.pool = MagicMock()
+
+    svc = _make_svc_for_pipeline({
+        "_kafka_producer": mock_producer,
+        "db_manager": mock_db,
+    })
+
+    svc_mod = "services.signal_generator_service"
+    mock_insert = AsyncMock()
+
+    with (
+        patch(f"{svc_mod}.apply_quality_gate", return_value=suppressed),
+        patch(f"{svc_mod}.apply_regime_gate", return_value=suppressed),
+        patch(f"{svc_mod}.apply_tod_adjustment", return_value=suppressed),
+        patch(f"{svc_mod}.apply_calibration", return_value=suppressed),
+        patch(f"{svc_mod}.rank_signals", return_value=suppressed),
+        patch(
+            f"{svc_mod}.select_winner",
+            return_value=(None, suppressed, "no_signal"),
+        ),
+        patch(f"{svc_mod}.insert_signals_with_features", mock_insert),
+    ):
+        await svc._process_event(
+            event=event,
+            symbol="ES",
+            timeframe="5m",
+            timestamp=ts,
+            bar_close_ts=None,
+            source="live",
+            raw_signals=suppressed,
+            regime_data={"hmm_regime": 0, "hmm_regime_prob": 0.8, "hmm_regime_duration": 5},
+            drift_penalty=1.0,
+            features={},
+        )
+
+    # Find the intelligence_record publish
+    record_publishes = [
+        (topic, payload)
+        for topic, payload in published_payloads
+        if "intelligence.record" in topic or "record" in topic
+    ]
+    assert len(record_publishes) >= 1, (
+        f"Expected at least 1 intelligence.record publish; topics: "
+        f"{[t for t, _ in published_payloads]}"
+    )
+    record_payload = _json.loads(record_publishes[0][1])
+    assert record_payload.get("ledger_written") is True, (
+        f"Expected ledger_written=True on suppressed-only bar; got {record_payload.get('ledger_written')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_hmm_regime_at_fire_populated():
+    """hmm_regime_at_fire equals the raw integer from regime_data on every LedgerEntry."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
+    signals = [_make_minimal_signal("trad_TrendFollowing", 1, eligible=False)]
+    signals[0]["regime_eligible"] = False
+
+    mock_db = MagicMock()
+    mock_db.pool = MagicMock()
+    svc = _make_svc_for_pipeline({"db_manager": mock_db})
+
+    svc_mod = "services.signal_generator_service"
+    mock_insert = AsyncMock()
+
+    for hmm_val in (0, 2):
+        mock_insert.reset_mock()
+        with (
+            patch(f"{svc_mod}.apply_quality_gate", return_value=signals),
+            patch(f"{svc_mod}.apply_regime_gate", return_value=signals),
+            patch(f"{svc_mod}.apply_tod_adjustment", return_value=signals),
+            patch(f"{svc_mod}.apply_calibration", return_value=signals),
+            patch(f"{svc_mod}.rank_signals", return_value=signals),
+            patch(
+                f"{svc_mod}.select_winner",
+                return_value=(None, signals, "no_signal"),
+            ),
+            patch(f"{svc_mod}.insert_signals_with_features", mock_insert),
+        ):
+            await svc._process_event(
+                event=None,
+                symbol="ES",
+                timeframe="5m",
+                timestamp=ts,
+                bar_close_ts=None,
+                source="live",
+                raw_signals=signals,
+                regime_data={
+                    "hmm_regime": hmm_val,
+                    "hmm_regime_prob": 0.75,
+                    "hmm_regime_duration": 3,
+                },
+                drift_penalty=1.0,
+                features={},
+            )
+
+        mock_insert.assert_called_once()
+        entries = mock_insert.call_args[0][1]
+        assert len(entries) == 1
+        assert entries[0].hmm_regime_at_fire == hmm_val, (
+            f"Expected hmm_regime_at_fire={hmm_val}, "
+            f"got {entries[0].hmm_regime_at_fire}"
+        )
 
 
 @pytest.mark.asyncio
