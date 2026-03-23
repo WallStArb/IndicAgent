@@ -22,7 +22,7 @@ def track_consecutive_state(
     Returns the (current_value, count) tuple.
 
     Args:
-        frames: Frame dict (for symbol/timeframe extraction)
+        frames: Frame dict (currently unused, kept for API consistency with reset_consecutive_state)
         state: Plugin's internal state dict (e.g., self._state)
         state_key: Unique key for this (symbol, timeframe) combo
         current_value: Current value to track (e.g., direction sign)
@@ -78,9 +78,9 @@ def reset_consecutive_state(
     (e.g., disagreement between signals, zero value).
 
     Args:
-        frames: Frame dict (for symbol/timeframe extraction)
+        frames: Frame dict - used ONLY when state_key is None to derive f"{symbol}_{tf}"
         state: Plugin's internal state dict (e.g., self._state)
-        state_key: Specific key to reset, or None to derive from frames
+        state_key: Specific key to reset, or None to derive from frames using symbol/timeframe
     """
     if state_key is None:
         symbol = frames.get("__symbol__", "_")

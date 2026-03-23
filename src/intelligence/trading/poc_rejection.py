@@ -20,7 +20,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
-from .volume_profile_utils import check_reversal_gate, format_reversal_supporting_factors
+from .volume_profile_utils import DIV_THRESHOLD, STOCH_OVERBOUGHT, STOCH_OVERSOLD, check_reversal_gate, format_reversal_supporting_factors
 
 # Maximum ATR distance from POC to qualify as "testing" the level
 _POC_PROXIMITY_ATR = 0.3
@@ -101,8 +101,8 @@ class POCRejectionPlugin:
         rsi_div_bullish = float(features.get("rsi_div_bullish", 0.0))
         rsi_div_bearish = float(features.get("rsi_div_bearish", 0.0))
         stoch_k = float(features.get("stoch_k_14_3", 50.0))
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > 0.3) or (direction == -1 and rsi_div_bearish > 0.3)
-        stoch_ok = (direction == 1 and stoch_k < 30.0) or (direction == -1 and stoch_k > 70.0)
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (direction == -1 and rsi_div_bearish > DIV_THRESHOLD)
+        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (direction == -1 and stoch_k > STOCH_OVERBOUGHT)
 
         # ── Trade frame ───────────────────────────────────────────────────────
         signal_type = "poc_rejection_long" if direction == 1 else "poc_rejection_short"

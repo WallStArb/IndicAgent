@@ -48,6 +48,10 @@ class MeanReversionPlugin:
         features = frames.get("features") or {}
 
         # OPTIMIZATION (Phase 48): Check regime gate BEFORE expensive OHLCV extraction
+        # TODO: Apply this pattern to remaining 34/36 I7 plugins (2/36 optimized: trend_following, mean_reversion)
+        # Pattern: Check cheap regime gates (dict lookups) before expensive extract_ohlcv() (numpy conversion)
+        # Estimated benefit: Skip ~144 numpy conversions per bar (80% early exit rate)
+        # Remaining plugins to optimize: All other I7 plugins except trend_following.py and this file
         trend_regime = features.get("trend_regime", 0.0)
         if abs(trend_regime) >= self.regime_threshold:
             return no_signal()
