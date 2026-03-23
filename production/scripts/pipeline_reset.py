@@ -54,21 +54,15 @@ from src.config.settings import Settings
 _ALWAYS_CLEAR = [
     "signal_ledger",
     "intelligence_features",
-    "intelligence",           # Pipeline events
     "setup_performance",      # no symbol column — always truncated in full
     "drift_state",
     "drift_monitor",
-    "signal_features",        # per-signal ML snapshots — derived from signal_ledger
     "confidence_calibration", # isotonic regression curves — fit on signal outcomes
     "cis_weights",            # CIS aggregator weights — learned from signal outcomes
     "system_events",          # roll/pipeline event log — ephemeral operational data
     "instruments",            # Active traded instruments
     "contract_metadata",      # Contract-specific metadata
-    "technical_indicators",   # Persisted indicator outputs
-    "trading_signals",        # Legacy signals table
     "pattern_reliability",    # Historical pattern reliability
-    "signal_performance_segmented", # Segmented signal performance
-    "features",               # Raw/derived feature store
     "llm_calls",              # LLM call audit log
     "llm_model_scores",       # LLM performance scores
 ]
@@ -76,17 +70,11 @@ _ALWAYS_CLEAR = [
 # Tables in _ALWAYS_CLEAR that have no symbol column (always TRUNCATE, never per-symbol DELETE)
 _ALWAYS_TRUNCATE = {
     "setup_performance",
-    "signal_features",
     "confidence_calibration",
     "cis_weights",
     "system_events",
     "instruments",
-    "technical_indicators",
-    "trading_signals",
     "pattern_reliability",
-    "signal_performance_segmented",
-    "features",
-    "intelligence",
     "contract_metadata",
     "llm_calls",
     "llm_model_scores",

@@ -168,15 +168,15 @@ def _record_to_insert_params(
       $4  platform                 — str
       $5  source                   — str
       $6  schema_version           — str (from BarIntelligenceRecord)
-      $7  bar                      — JSON string (jsonb)
-      $8  i1                       — JSON string (jsonb)
-      $9  i2                       — JSON string (jsonb)
-      $10 i3                       — JSON string (jsonb)
-      $11 i4                       — JSON string (jsonb)
-      $12 i5                       — JSON string (jsonb)
-      $13 smc                      — JSON string (jsonb)
-      $14 i6                       — JSON string (jsonb)
-      $15 i7                       — JSON string (jsonb) — full ranked_signals array
+      $7  bar                      — dict (jsonb)
+      $8  i1                       — dict (jsonb)
+      $9  i2                       — dict (jsonb)
+      $10 i3                       — dict (jsonb)
+      $11 i4                       — dict (jsonb)
+      $12 i5                       — dict (jsonb)
+      $13 smc                      — dict (jsonb)
+      $14 i6                       — dict (jsonb)
+      $15 i7                       — list[dict] (jsonb) — full ranked_signals array
       $16 bar_close_ts             — datetime | None
       $17 i1_computed_at           — datetime | None
       $18 computed_at              — datetime | None
@@ -209,15 +209,15 @@ def _record_to_insert_params(
         event.platform,  # $4 platform
         event.source,  # $5 source
         record.schema_version,  # $6 schema_version
-        json.dumps(event.bar.model_dump()),  # $7 bar jsonb
-        json.dumps(event.i1.model_dump()),  # $8 i1 jsonb
-        json.dumps(event.i2.model_dump(exclude_none=True)),  # $9 i2 jsonb
-        json.dumps(event.i3.model_dump(exclude_none=True)),  # $10 i3 jsonb
-        json.dumps(event.i4.model_dump(exclude_none=True)),  # $11 i4 jsonb
-        json.dumps(event.i5.model_dump(exclude_none=True)),  # $12 i5 jsonb
-        json.dumps(event.smc.model_dump(exclude_none=True)),  # $13 smc jsonb
-        json.dumps(event.i6.model_dump(exclude_none=True)),  # $14 i6 jsonb
-        json.dumps([s.model_dump() for s in record.ranked_signals]),  # $15 i7 jsonb
+        event.bar.model_dump(),  # $7 bar jsonb
+        event.i1.model_dump(),  # $8 i1 jsonb
+        event.i2.model_dump(exclude_none=True),  # $9 i2 jsonb
+        event.i3.model_dump(exclude_none=True),  # $10 i3 jsonb
+        event.i4.model_dump(exclude_none=True),  # $11 i4 jsonb
+        event.i5.model_dump(exclude_none=True),  # $12 i5 jsonb
+        event.smc.model_dump(exclude_none=True),  # $13 smc jsonb
+        event.i6.model_dump(exclude_none=True),  # $14 i6 jsonb
+        [s.model_dump() for s in record.ranked_signals],  # $15 i7 jsonb
         event.bar_close_ts,  # $16 bar_close_ts
         event.i1_computed_at,  # $17 i1_computed_at
         event.computed_at,  # $18 computed_at
@@ -548,7 +548,7 @@ class FeatureWriterService:
             )
             return
 
-        marker = json.dumps({"roll_boundary": f"{old_symbol}->{new_symbol}"})
+        marker = {"roll_boundary": f"{old_symbol}->{new_symbol}"}
         try:
             await self.db_manager.execute_batch(
                 _UPSERT_ROLL_BOUNDARY_SQL,
@@ -602,20 +602,18 @@ class FeatureWriterService:
             if not tf or not ts_raw or not payload.get("ready"):
                 return
             ts_dt = _parse_ts(ts_raw)
-            cross_asset_data = json.dumps(
-                {
-                    "cross_asset": {
-                        "es_nq_spread_z": payload.get("es_nq_spread_z"),
-                        "es_rty_spread_z": payload.get("es_rty_spread_z"),
-                        "eq_corr_break": payload.get("eq_corr_break"),
-                        "eq_vol_imbalance": payload.get("eq_vol_imbalance"),
-                        "active_pair": payload.get("active_pair"),
-                        "pairs_confirming": payload.get("pairs_confirming"),
-                        "data_quality_score": payload.get("data_quality_score"),
-                        "low_vol_flag": payload.get("low_vol_flag"),
-                    }
+            cross_asset_data = {
+                "cross_asset": {
+                    "es_nq_spread_z": payload.get("es_nq_spread_z"),
+                    "es_rty_spread_z": payload.get("es_rty_spread_z"),
+                    "eq_corr_break": payload.get("eq_corr_break"),
+                    "eq_vol_imbalance": payload.get("eq_vol_imbalance"),
+                    "active_pair": payload.get("active_pair"),
+                    "pairs_confirming": payload.get("pairs_confirming"),
+                    "data_quality_score": payload.get("data_quality_score"),
+                    "low_vol_flag": payload.get("low_vol_flag"),
                 }
-            )
+            }
             # Persist cross-asset snapshot for each EQ_INDEX group member symbol
             params = [(ts_dt, sym, tf, cross_asset_data) for sym in _EQ_INDEX_BASES]
             await self.db_manager.execute_batch(_UPSERT_CROSS_ASSET_SQL, params)

@@ -29,14 +29,16 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import TopicAlreadyExistsError
 
 # (suffix, partitions, retention_ms)
+# v2.1: Pruned legacy topics (intelligence.i7 retired Phase 44.3;
+#      pipeline.attribution/winner/data_quality unused)
 _TOPIC_SPECS = [
     ("market.ticks", 1, "604800000"),
     ("market.bars", 1, "604800000"),
     ("market.bars.htf", 1, "604800000"),
     ("indicators", 1, "604800000"),
     ("intelligence", 1, "604800000"),
-    ("intelligence.i7", 1, "86400000"),
     ("intelligence.i8", 1, "86400000"),
+    ("intelligence.record", 1, "604800000"),
     ("signals", 1, "604800000"),
     ("signals.aggregated", 1, "604800000"),
     ("narratives", 1, "604800000"),
@@ -45,15 +47,11 @@ _TOPIC_SPECS = [
     ("llm.outcomes", 1, "86400000"),
     ("system.events", 1, "604800000"),
     ("cross_asset", 1, "604800000"),
-    ("pipeline.attribution", 1, "604800000"),
     ("pipeline.quality_gated", 1, "604800000"),
     ("pipeline.regime_gated", 1, "604800000"),
     ("pipeline.tod_adjusted", 1, "604800000"),
     ("pipeline.calibrated", 1, "604800000"),
     ("pipeline.ranked", 1, "604800000"),
-    ("pipeline.winner", 1, "604800000"),
-    ("pipeline.data_quality", 1, "604800000"),
-    ("intelligence.record", 1, "604800000"),
 ]
 
 
