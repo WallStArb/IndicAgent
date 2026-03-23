@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -25,7 +25,7 @@ from src.core.schemas.bar_message import BarMessage, SessionType
 def _make_bar(close: float, ts_offset: int = 0) -> BarMessage:
     """Helper to create a minimal BarMessage with a given close price."""
     return BarMessage(
-        ts=datetime(2026, 3, 22, 10, ts_offset % 60, 0, tzinfo=timezone.utc),
+        ts=datetime(2026, 3, 22, 10, ts_offset % 60, 0, tzinfo=UTC),
         symbol="VIX",
         tf="1m",
         open=close,

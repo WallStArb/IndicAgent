@@ -9,9 +9,10 @@ from pathlib import Path
 # Ensure the project root is on sys.path so services/ is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock
 
 # Set test environment
 os.environ["INDICAGENT_ENV"] = "test"

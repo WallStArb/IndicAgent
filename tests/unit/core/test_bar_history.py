@@ -6,10 +6,10 @@ These stubs define the behavioral contract that the implementation must satisfy.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-UTC = timezone.utc
+UTC = UTC
 
 if TYPE_CHECKING:
     from src.core.schemas.bar_message import BarMessage
@@ -21,7 +21,7 @@ def _make_bar(
     ts: datetime | None = None,
     close: float = 5250.0,
     volume: int = 1000,
-) -> "BarMessage":
+) -> BarMessage:
     from src.core.schemas.bar_message import BarMessage, SessionType
 
     return BarMessage(

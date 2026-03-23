@@ -6,7 +6,7 @@ These stubs define the behavioral contract that the implementation must satisfy.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,7 +14,7 @@ import pytest
 if TYPE_CHECKING:
     from src.core.schemas.bar_message import BarMessage
 
-UTC = timezone.utc
+UTC = UTC
 
 # Base timestamp: 2026-03-21 14:00:00 UTC (09:00 ET — during RTH pre-open)
 BASE_TS = datetime(2026, 3, 21, 14, 0, 0, tzinfo=UTC)
@@ -29,7 +29,7 @@ def _make_1m_bar(
     close: float = 5251.0,
     volume: int = 1000,
     session_type=None,
-) -> "BarMessage":
+) -> BarMessage:
     from src.core.schemas.bar_message import BarMessage, SessionType
 
     return BarMessage(

@@ -7,11 +7,11 @@ fields. They also verify the new fields serialize and deserialize correctly.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def _make_base_event_kwargs() -> dict:

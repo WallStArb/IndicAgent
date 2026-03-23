@@ -4,18 +4,16 @@ Tests compute_shadow_plugin_stats() and _bootstrap_ci_lower() from weight_update
 """
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-UTC = timezone.utc
+UTC = UTC
 NOW = datetime(2026, 3, 22, 12, 0, 0, tzinfo=UTC)
 
 

@@ -1,5 +1,6 @@
 """Tests for CrossAssetContextPlugin - I4 macro context plugin."""
 import pytest
+
 from src.intelligence.context.cross_asset_context import CrossAssetContextPlugin
 
 

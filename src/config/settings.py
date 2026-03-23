@@ -6,7 +6,7 @@ Last Updated: 2025-08-09
 Status: Current ✅
 
 Centralizes configuration using pydantic-settings. Provides typed access to IBKR,
-Redis, and daemon flags with sensible defaults and environment variable
+Kafka, and daemon flags with sensible defaults and environment variable
 overrides.
 """
 
@@ -34,12 +34,6 @@ class Settings(BaseSettings):
         default="postgresql://postgres:postgres@localhost:5432/indicagent",
         validation_alias="DATABASE_URL",
     )
-
-    # Redis (kept through Phase 30 Plan 4 dual-run; removed in Plan 5)
-    redis_host: str = Field(default="localhost")
-    redis_port: int = Field(default=6379)
-    redis_db: int = Field(default=0)
-    redis_max_connections: int = Field(default=20)
 
     # Kafka / Redpanda
     kafka_bootstrap_servers: str = Field(

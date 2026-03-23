@@ -632,7 +632,9 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       touch();
     });
 
-    // --- Intelligence data (I3/I4/I5 combined) ---
+    // --- Intelligence data (I1 + I3/I4/I5 combined) ---
+    // NOTE: indicator_service is retired — I1 is now carried inside IntelligenceEvent.i1.
+    // Extract both I1 (→ indicatorsByTf) and I3–I6 (→ intelligenceByTf) here.
     es.addEventListener("intelligence_data", (evt) => {
       const { payload } = JSON.parse(evt.data);
       // Symbol and timeframe are nested inside payload.event (IntelligenceEvent JSON)
@@ -659,6 +661,44 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         receivedAt: Date.now(),
       };
 
+      // Extract I1 indicators from event.i1 (same field names as old indicator_service)
+      const i1 = event.i1 && typeof event.i1 === "object" ? event.i1 : {};
+      const n1 = (k: string): number | undefined => {
+        const v = i1[k];
+        if (v == null) return undefined;
+        const f = parseFloat(String(v));
+        return isNaN(f) ? undefined : f;
+      };
+      const i1Mapped: Partial<IndicatorData> = {
+        rsi: n1("rsi_14"),
+        macd: n1("macd_12_26_9"),
+        macd_signal: n1("macd_signal_12_26_9"),
+        macd_histogram: n1("macd_histogram_12_26_9"),
+        stoch_k: n1("stoch_k_14_3"),
+        stoch_d: n1("stoch_d_14_3"),
+        williams_r: n1("williams_r_14"),
+        cci: n1("cci_14"),
+        atr: n1("atr_14"),
+        bb_upper: n1("bb_20_2_upper"),
+        bb_middle: n1("bb_20_2_mid"),
+        bb_lower: n1("bb_20_2_lower"),
+        sma_20: n1("sma_20"),
+        sma_50: n1("sma_50"),
+        ema_13: n1("ema_13"),
+        ema_21: n1("ema_21"),
+        obv: n1("obv"),
+        mfi: n1("mfi_14"),
+        vwap: n1("vwap"),
+        adx: n1("adx_14"),
+        plus_di: n1("plus_di_14"),
+        minus_di: n1("minus_di_14"),
+        supertrend_dir: n1("supertrend_dir"),
+        supertrend_value: n1("supertrend_value"),
+        roc: n1("roc_14"),
+        ao: n1("ao"),
+        ac: n1("ac"),
+      };
+
       // Keep ref in sync so signal_data handler can read synchronously
       if (!intelligenceSnapshotRef.current[sym]) intelligenceSnapshotRef.current[sym] = {};
       intelligenceSnapshotRef.current[sym][tf] = intelligenceSnapshot;
@@ -666,11 +706,20 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
+        const existingInd = old.indicatorsByTf[tf] ?? { symbol: sym, timeframe: tf, timestamp: "" };
+        const mergedInd: IndicatorData = {
+          ...existingInd,
+          ...i1Mapped,
+          symbol: sym,
+          timeframe: tf,
+          timestamp: String(event.ts || ""),
+        };
         return {
           ...prev,
           [sym]: {
             ...old,
             intelligenceByTf: { ...old.intelligenceByTf, [tf]: intelligenceSnapshot },
+            indicatorsByTf: { ...old.indicatorsByTf, [tf]: mergedInd },
             lastUpdate: Date.now(),
           },
         };
