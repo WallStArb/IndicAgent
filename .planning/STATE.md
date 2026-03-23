@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Phase 49.1 COMPLETE — 49.1-01 executed
-last_updated: "2026-03-23T19:01:00.000Z"
+status: Ready to plan
+last_updated: "2026-03-23T19:01:41.398Z"
 progress:
   total_phases: 7
   completed_phases: 1
@@ -22,8 +22,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 ## Current Position
 
-Phase: 49.1 (regime-gate-fix-write-all-signals-to-signal-ledger) — COMPLETE
-Plan: 1 of 1 (DONE)
+Phase: 50
+Plan: Not started
 
 **Last session:** 2026-03-23 — Completed 49.1-01-PLAN.md
 **Commits:** 081ddef (RED tests), 037eed6 (GREEN implementation)
