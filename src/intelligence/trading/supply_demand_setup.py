@@ -168,8 +168,14 @@ class SupplyDemandSetupPlugin:
 
         ctf = float(features.get("ctf_score", 0.0))
         if abs(ctf) > 0.3 and math.copysign(1, ctf) == direction:
-            confidence += 0.05
-            supporting.append("ctf_aligned")
+            # Renaissance principle: weight by magnitude, not binary gate
+            # Stronger CTF alignment = larger boost (0.0 to 0.10 range)
+            ctf_boost = 0.05 * min(2.0, abs(ctf) / 0.5)
+            confidence += ctf_boost
+            if ctf_boost > 0.04:
+                supporting.append("strong_ctf_aligned")
+            else:
+                supporting.append("ctf_aligned")
 
         confidence, supporting = apply_exhaustion_boost(features, direction, confidence, supporting)
         confidence = compose_confidence(confidence)
