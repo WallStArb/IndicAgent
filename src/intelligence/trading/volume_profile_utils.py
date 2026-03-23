@@ -10,11 +10,13 @@ from typing import Any
 
 
 # Minimum divergence confidence to count as reversal
-_DIV_THRESHOLD = 0.3
+# Exported for use in plugins (avoid magic number duplication)
+DIV_THRESHOLD = 0.3
 
 # Stochastic thresholds
-_STOCH_OVERSOLD = 30.0
-_STOCH_OVERBOUGHT = 70.0
+# Exported for use in plugins (avoid magic number duplication)
+STOCH_OVERSOLD = 30.0
+STOCH_OVERBOUGHT = 70.0
 
 
 def check_reversal_gate(
@@ -33,7 +35,7 @@ def check_reversal_gate(
     Returns:
         Tuple of (reversal_ok, reversal_strength)
         - reversal_ok: True if reversal conditions met
-        - reversal_strength: Float 0-1 indicating reversal conviction
+        - reversal_strength: Float 0-1 indicating reversal conviction (reserved for future ML scoring features)
 
     Long reversal (direction=1):
         - rsi_div_bullish > 0.3 OR stoch_k < 30
@@ -48,20 +50,20 @@ def check_reversal_gate(
     stoch_k = float(features.get("stoch_k_14_3", 50.0))
 
     if direction == 1:
-        rsi_div_ok = rsi_div_bullish > _DIV_THRESHOLD
-        stoch_ok = stoch_k < _STOCH_OVERSOLD
+        rsi_div_ok = rsi_div_bullish > DIV_THRESHOLD
+        stoch_ok = stoch_k < STOCH_OVERSOLD
         reversal_ok = rsi_div_ok or stoch_ok
         reversal_strength = max(
             rsi_div_bullish,
-            (30.0 - stoch_k) / 30.0 if stoch_k < _STOCH_OVERSOLD else 0.0,
+            (30.0 - stoch_k) / 30.0 if stoch_k < STOCH_OVERSOLD else 0.0,
         )
     else:  # direction == -1
-        rsi_div_ok = rsi_div_bearish > _DIV_THRESHOLD
-        stoch_ok = stoch_k > _STOCH_OVERBOUGHT
+        rsi_div_ok = rsi_div_bearish > DIV_THRESHOLD
+        stoch_ok = stoch_k > STOCH_OVERBOUGHT
         reversal_ok = rsi_div_ok or stoch_ok
         reversal_strength = max(
             rsi_div_bearish,
-            (stoch_k - 70.0) / 30.0 if stoch_k > _STOCH_OVERBOUGHT else 0.0,
+            (stoch_k - 70.0) / 30.0 if stoch_k > STOCH_OVERBOUGHT else 0.0,
         )
 
     return reversal_ok, min(1.0, max(0.0, reversal_strength))

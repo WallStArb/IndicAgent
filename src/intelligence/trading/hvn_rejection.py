@@ -21,7 +21,7 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
-from .volume_profile_utils import check_reversal_gate, format_reversal_supporting_factors
+from .volume_profile_utils import DIV_THRESHOLD, STOCH_OVERBOUGHT, STOCH_OVERSOLD, check_reversal_gate, format_reversal_supporting_factors
 
 # Maximum ATR distance from HVN to qualify as "testing" the level
 _HVN_PROXIMITY_ATR = 0.3
@@ -103,10 +103,10 @@ class HVNRejectionPlugin:
 
         # Determine candidate directions
         can_long = near_hvn_below and (
-            rsi_div_bullish > 0.3 or stoch_k < 30.0
+            rsi_div_bullish > DIV_THRESHOLD or stoch_k < STOCH_OVERSOLD
         )
         can_short = near_hvn_above and (
-            rsi_div_bearish > 0.3 or stoch_k > 70.0
+            rsi_div_bearish > DIV_THRESHOLD or stoch_k > STOCH_OVERBOUGHT
         )
 
         if not can_long and not can_short:
@@ -169,8 +169,8 @@ class HVNRejectionPlugin:
         )
 
         # ── Supporting factors ────────────────────────────────────────────────
-        rsi_div_ok = (direction == 1 and rsi_div_bullish > 0.3) or (direction == -1 and rsi_div_bearish > 0.3)
-        stoch_ok = (direction == 1 and stoch_k < 30.0) or (direction == -1 and stoch_k > 70.0)
+        rsi_div_ok = (direction == 1 and rsi_div_bullish > DIV_THRESHOLD) or (direction == -1 and rsi_div_bearish > DIV_THRESHOLD)
+        stoch_ok = (direction == 1 and stoch_k < STOCH_OVERSOLD) or (direction == -1 and stoch_k > STOCH_OVERBOUGHT)
 
         supporting: list[str] = [
             f"hvn_level={hvn_level:.2f}",
