@@ -420,7 +420,10 @@ def _build_all_ranked(
         key=lambda s: SETUP_PRIORITY.get(s.get("setup_plugin", ""), 0),
         reverse=True,
     )
-    with_ranks = [{**sig, "composite_rank": i + 1} for i, sig in enumerate(priority_sorted)]
+    # EFF-01: In-place mutation avoids creating 36+ new dict objects per bar
+    for i, sig in enumerate(priority_sorted):
+        sig["composite_rank"] = i + 1
+    with_ranks = priority_sorted
 
     # 1b. Apply quality multiplier before adjusted_rank assignment.
     #     Uses min(hurst_q, entropy_q) instead of multiplication — both Hurst and entropy
@@ -430,13 +433,14 @@ def _build_all_ranked(
     #     CRITICAL: applied BEFORE step 2 so confident signals still compete first,
     #     just with reduced absolute confidence (per RESEARCH.md Pitfall 2).
     if features:
+        # Cache feature access before loop (EFF-02: eliminates 180+ lookups/bar)
+        hurst_trend_q = float(features.get("hurst_trend_quality", 1.0))
+        hurst_mr_q = float(features.get("hurst_mr_quality", 1.0))
+        entropy_q = float(features.get("entropy_quality", 1.0))
+
         for sig in with_ranks:
             plugin_name = sig.get("setup_plugin", "")
-            hurst_field = (
-                "hurst_trend_quality" if plugin_name in TREND_SETUPS else "hurst_mr_quality"
-            )
-            hurst_q = float(features.get(hurst_field, 1.0))
-            entropy_q = float(features.get("entropy_quality", 1.0))
+            hurst_q = hurst_trend_q if plugin_name in TREND_SETUPS else hurst_mr_q
             quality = min(hurst_q, entropy_q)
             sig["confidence"] = round(float(sig.get("confidence", 0.0)) * quality, 4)
 
