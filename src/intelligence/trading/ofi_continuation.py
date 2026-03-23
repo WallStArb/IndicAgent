@@ -20,6 +20,7 @@ from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_guard
 from .plugin_utils import no_signal, signal_type_for_direction
+from .state_utils import track_consecutive_state
 from .trade_framer import frame_trade
 
 _MIN_CONSECUTIVE_BARS: int = 5
@@ -78,16 +79,12 @@ class OFIContinuationPlugin:
         current_dir = 1 if ofi_ewma > 0 else -1
 
         # Update consecutive direction count
-        state = self._state.get(state_key, {"dir": 0, "count": 0})
-        if state["dir"] == current_dir:
-            state["count"] += 1
-        else:
-            state["dir"] = current_dir
-            state["count"] = 1
-        self._state[state_key] = state
+        direction, count = track_consecutive_state(
+            frames, self._state, state_key, current_dir, "dir"
+        )
 
         # Gate: require N consecutive bars in same direction
-        if state["count"] < _MIN_CONSECUTIVE_BARS:
+        if count < _MIN_CONSECUTIVE_BARS:
             return no_signal()
 
         atr = get_atr(features)
@@ -95,8 +92,6 @@ class OFIContinuationPlugin:
             return no_signal()
 
         entry = float(df["close"].iloc[-1])
-
-        direction = current_dir
 
         sig_type = signal_type_for_direction("ofi_continuation", direction)
         tf_result = frame_trade(sig_type, direction, entry, features, atr)
@@ -111,7 +106,7 @@ class OFIContinuationPlugin:
 
         supporting: list[str] = [
             f"ofi_ewma_20={ofi_ewma:.1f}",
-            f"consecutive_bars={state['count']}",
+            f"consecutive_bars={count}",
         ]
 
         raw_conf = 0.50 + abs(ofi_ewma) * 0.001

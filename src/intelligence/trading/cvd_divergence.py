@@ -19,6 +19,7 @@ from ..plugins import InputSpec
 from .atr_utils import get_atr
 from .confidence_utils import capture_signal_features, compose_confidence
 from .plugin_utils import no_signal, signal_type_for_direction
+from .state_utils import reset_consecutive_state, track_consecutive_state
 from .trade_framer import frame_trade
 
 _CONFIRMATION_BARS: int = 3
@@ -79,8 +80,7 @@ class CVDDivergencePlugin:
         cvd_div = float(cvd_div)
         if cvd_div == 0.0:
             # Zero CVD divergence invalidates any accumulated confirmation count
-            state_key = f"{frames.get('__symbol__', '_')}_{frames.get('__timeframe__', '_')}"
-            self._state.pop(state_key, None)
+            reset_consecutive_state(frames, self._state)
             return no_signal()
 
         symbol = frames.get("__symbol__", "_")
@@ -88,17 +88,12 @@ class CVDDivergencePlugin:
         state_key = f"{symbol}_{tf}"
 
         cvd_div_sign = 1 if cvd_div > 0 else -1
-        state = self._state.get(state_key, {"div_sign": 0, "count": 0})
-
-        if state["div_sign"] == cvd_div_sign:
-            state["count"] += 1
-        else:
-            state["div_sign"] = cvd_div_sign
-            state["count"] = 1
-        self._state[state_key] = state
+        _, count = track_consecutive_state(
+            frames, self._state, state_key, cvd_div_sign, "div_sign"
+        )
 
         # Gate: require N confirmation bars
-        if state["count"] < _CONFIRMATION_BARS:
+        if count < _CONFIRMATION_BARS:
             return no_signal()
 
         atr = get_atr(features)
@@ -122,7 +117,7 @@ class CVDDivergencePlugin:
         )
 
         # Confidence
-        extra_bars = max(0, state["count"] - _CONFIRMATION_BARS)
+        extra_bars = max(0, count - _CONFIRMATION_BARS)
         raw_conf = 0.55
         if dual_divergence:
             raw_conf += 0.10
@@ -142,7 +137,7 @@ class CVDDivergencePlugin:
 
         supporting: list[str] = [
             f"cvd_divergence={cvd_div:.3f}",
-            f"confirmation_bars={state['count']}",
+            f"confirmation_bars={count}",
         ]
         if cvd_slope is not None:
             supporting.append(f"cvd_slope_5bar={float(cvd_slope):.1f}")
