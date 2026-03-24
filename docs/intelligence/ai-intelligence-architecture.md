@@ -80,6 +80,30 @@ from src.core.stream_keys import (
 )
 ```
 
+### Renaissance Principle: LLMs Research-Only
+
+Per the Renaissance validation framework (`docs/ideas/renaissance-alpha-pipeline.md`), LLMs are **research-only** in our architecture:
+
+- **Beta Pipeline (Offline):** LLMs analyze historical patterns, discover heuristics, generate insights → compiled to deterministic code
+- **Alpha Pipeline (Production):** No LLM calls in the hot path. Real-time signal enrichment uses only deterministic Python/C++/Rust feature extractors
+
+The I8 AI Narrative layer is the exception (generates human-readable explanations), but its outputs never directly affect position sizing without passing through the validation gates first.
+
+**See also:** `docs/ideas/ml-ai-palette.md` — Why we chose LightGBM over PyTorch/TF (tabular data dominance), and `docs/ideas/ml-agent-architecture.md` — The multi-agent learning machine that implements this research/production separation.
+
+### MLAgent Learning Machine
+
+**MLAgent** (v1.9+) — Multi-agent learning machine implementing Renaissance validation:
+
+- Discovery Agent (LLM-guided) → Finds patterns in historical data
+- Training Agent (deterministic) → Builds LightGBM models
+- Monitoring Agent (deterministic) → Drift detection, auto-retrain
+- Shadow mode gates → No model affects capital until p < 0.05
+
+See: `docs/ideas/ml-agent-architecture.md` (full design) and `docs/ideas/ml-ai-palette.md` (technology choices)
+
+---
+
 ## Services Reference
 
 | Service | Unit | Metrics |

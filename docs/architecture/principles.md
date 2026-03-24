@@ -23,5 +23,9 @@ The schema (Pydantic/JSONB) is the API. Service internal logic is opaque; the `I
 ## 7. Institutional Rigor
 Every signal is evidence-graded. No signal fires without cross-tier confluence (CIS score). We prioritize cross-tier agreement from at least 3 of 6 independent evidence buckets.
 
+**See also:** `docs/ideas/renaissance-alpha-pipeline.md` — The Renaissance validation framework that enforces shadow-first statistical testing (ρ > 0.4, p < 0.05) before any alpha source affects position sizing.
+
 ## 8. Self-Correcting Pipeline
 Drift detection (KS/CUSUM), performance monitoring, and model-weight backfilling are baked into the live loop. The system validates its own integrity and self-adjusts without human intervention.
+
+**See also:** `docs/ideas/ml-ai-palette.md` — Drift detection tools (evidently), automated degradation triggers, and the feedback loop architecture.

@@ -22,5 +22,17 @@ To scale to 5,000+ symbols and reduce cumulative latency (50ms per hop), we prop
 2. **Sidecar Development:** Implement the `InternalEventBus` and `EgressManager` within `FeaturePipelineService`.
 3. **Phase Migration:** Gradually collapse the DAG tiers into the Engine, one tier at a time, using the internal bus.
 
+### Next Phase: Renaissance Validation Framework
+
+The In-Process Intelligence Engine provides the performance foundation. The next evolution is the **Renaissance Alpha Pipeline** (`docs/ideas/renaissance-alpha-pipeline.md`) — a validation framework that ensures all alpha contributors (ML models, rule-based heuristics, LLM-derived patterns) earn the right through statistical proof:
+
+- Shadow-first validation (14-day correlation gate)
+- Automated promotion/demotion based on Pearson r
+- IAlphaContributor interface for all signal sources
+- LLMs in research-only, offline (no real-time calls in hot path)
+
+This transforms the system from "feature factory" to "validated alpha engine."
+
 ---
 *Analysis Date: 2026-03-22*
+*Updated: 2026-03-24*
