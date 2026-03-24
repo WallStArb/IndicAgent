@@ -211,7 +211,7 @@ def evaluate_signal(
             outcome = SignalOutcome.TTL_EXPIRED_BEHIND
         return Transition(
             signal_id=sid,
-            new_status="expired",
+            new_status=SignalStatus.EXPIRED,
             exit_reason="ttl_expired",
             exit_price=exit_price,
             pnl_ticks=round(pnl_ticks, 4),
@@ -238,7 +238,7 @@ def evaluate_signal(
                     final_mfe = max(current_mfe, pnl_r)
                     return Transition(
                         signal_id=sid,
-                        new_status="resolved",
+                        new_status=SignalStatus.EXPIRED,
                         exit_reason="chandelier_stop",
                         exit_price=trailing_stop,
                         pnl_ticks=round(pnl_ticks, 4),
@@ -256,7 +256,7 @@ def evaluate_signal(
                     final_mfe = max(current_mfe, pnl_r)
                     return Transition(
                         signal_id=sid,
-                        new_status="resolved",
+                        new_status=SignalStatus.EXPIRED,
                         exit_reason="chandelier_stop",
                         exit_price=trailing_stop,
                         pnl_ticks=round(pnl_ticks, 4),
@@ -279,7 +279,7 @@ def evaluate_signal(
             final_mfe = max(current_mfe, pnl_r)
             return Transition(
                 signal_id=sid,
-                new_status="resolved",
+                new_status=SignalStatus.EXPIRED,
                 exit_reason="condition_expired",
                 exit_price=close,
                 pnl_ticks=round(pnl_ticks, 4),
@@ -388,7 +388,7 @@ def _check_active_exit(
     if direction == 1 and low <= stop:
         return _make_exit(
             sid,
-            "stopped_out",
+            SignalStatus.EXPIRED,
             "stop_loss",
             stop,
             entry,
@@ -401,7 +401,7 @@ def _check_active_exit(
     if direction == -1 and high >= stop:
         return _make_exit(
             sid,
-            "stopped_out",
+            SignalStatus.EXPIRED,
             "stop_loss",
             stop,
             entry,

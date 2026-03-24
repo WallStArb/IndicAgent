@@ -1,8 +1,15 @@
 import logging
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 from uuid import UUID
+
 from pydantic import ValidationError
-from src.intelligence.schemas.alpha_multiplier import AlphaMultiplier, MIN_MULTIPLIER, MAX_MULTIPLIER
+
+from src.intelligence.schemas.alpha_multiplier import (
+    MAX_MULTIPLIER,
+    MIN_MULTIPLIER,
+    AlphaMultiplier,
+)
 
 logger = logging.getLogger(__name__)
 

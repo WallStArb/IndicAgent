@@ -342,6 +342,7 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 - **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
+- **TWS contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-tws`. Verify: `journalctl -u indicagent-tws | grep "KafkaProducerClient started"`
 - **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
 
 ## Data Pipeline Debugging
@@ -352,6 +353,9 @@ When investigating "service not writing to database":
 3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
 4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
 5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
+6. **Kafka topic verification** — `docker exec redpanda rpk topic consume development.market.bars --offset 32985` (read specific offset). `--from-end` reads tail, `-o N` from beginning. Manual test: `echo '{"test":1}' | docker exec -i redpanda rpk topic produce development.market.bars --key "TEST"`
+7. **TWS bar emissions** — `journalctl -u indicagent-tws --since "2 minutes ago" | grep "1m bar emitted"` shows emitted bars. If logs show bars but Kafka is stale, check: `journalctl -u indicagent-tws | grep "Published to Kafka successfully"`
+8. **Contract expiration check** — `.venv/bin/python3 -c "from src.config.settings import get_active_contracts; print([c.symbol for c in get_active_contracts()])"` to verify current contracts vs TWS daemon (may have old expired contracts)
 
 ## Environment Variables
 

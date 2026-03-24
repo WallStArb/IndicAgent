@@ -67,7 +67,14 @@ class BarHistory:
         bars = self._data.get(f"{symbol}:{tf}")
         columns = ["timestamp", "open", "high", "low", "close", "volume"]
         if not bars:
-            return pd.DataFrame(columns=columns)
+            return pd.DataFrame({
+                "timestamp": pd.Series(dtype="datetime64[ns, UTC]"),
+                "open": pd.Series(dtype="float64"),
+                "high": pd.Series(dtype="float64"),
+                "low": pd.Series(dtype="float64"),
+                "close": pd.Series(dtype="float64"),
+                "volume": pd.Series(dtype="int64"),
+            })
         rows = [
             {
                 "timestamp": bar.ts,
@@ -79,7 +86,12 @@ class BarHistory:
             }
             for bar in bars
         ]
-        return pd.DataFrame(rows, columns=columns)
+        df = pd.DataFrame(rows, columns=columns)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        for col in ["open", "high", "low", "close"]:
+            df[col] = df[col].astype("float64")
+        df["volume"] = df["volume"].astype("int64")
+        return df
 
     def is_warm(self, symbol: str, tf: str, min_bars: int) -> bool:
         """Return True when the deque for (symbol, tf) has at least min_bars entries.

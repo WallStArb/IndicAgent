@@ -1,0 +1,34 @@
+{
+  "contributors": [
+    {
+      "name": "DeterministicTrendContributor",
+      "module": "src.intelligence.swarm.dummy_contributors",
+      "class": "DeterministicTrendContributor"
+    },
+    {
+      "name": "TrendVolatilityContributor",
+      "module": "src.intelligence.swarm.agents.trend_vol",
+      "class": "TrendVolatilityContributor"
+    },
+    {
+      "name": "CorrelationContagionAgent",
+      "module": "src.intelligence.swarm.agents.contagion_agent",
+      "class": "CorrelationContagionAgent"
+    },
+    {
+      "name": "LiquiditySweepHunter",
+      "module": "src.intelligence.swarm.agents.sweep_hunter",
+      "class": "LiquiditySweepHunter"
+    },
+    {
+      "name": "SwarmSMCContributor",
+      "module": "src.intelligence.swarm.dummy_contributors",
+      "class": "SwarmSMCContributor"
+    },
+    {
+      "name": "NarrativeMarketAgent",
+      "module": "src.intelligence.swarm.agents.narrative_agent",
+      "class": "NarrativeMarketAgent"
+    }
+  ]
+}

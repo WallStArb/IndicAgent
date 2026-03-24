@@ -414,19 +414,18 @@ class FeatureWriterService:
         self,
         symbol: str,
         timeframe: str,
-        payload: dict,
+        payload: dict | str | bytes,
     ) -> bool:
         """Parse one Kafka message payload (BarIntelligenceRecord), buffer insert params."""
         try:
-            # intelligence.record messages arrive as raw JSON (str, bytes, or dict)
+            # Payload may be dict (auto-deserialized), str, or bytes (raw Kafka)
+            # Pydantic's model_validate() handles datetime objects natively
             if isinstance(payload, dict):
-                raw: bytes = json.dumps(payload).encode()
+                record = BarIntelligenceRecord.model_validate(payload)
             elif isinstance(payload, str):
-                raw = payload.encode()
+                record = self._parse_intelligence_record(payload.encode())
             else:
-                raw = payload
-
-            record = self._parse_intelligence_record(raw)
+                record = self._parse_intelligence_record(payload)
             if record is None:
                 self.logger.warning(
                     "Malformed BarIntelligenceRecord — skipped",

@@ -1,6 +1,18 @@
 # Intelligence Swarm Manifest: "The Renaissance Loop"
 
+---
+
+## 7. POC: Dual-Path Integration (Deterministic DAG vs. LLM-Swarm)
+To ensure Renaissance-grade reliability, we are implementing a dual-path POC to validate intelligence contributions:
+
+*   **Path A (Deterministic DAG):** High-performance, numeric feature extractors (Rust/Python) for real-time confidence modulation.
+*   **Path B (LLM-Swarm):** Asynchronous, reasoning-based context analysis (PydanticAI) logging to `alpha_multiplier_shadow` for correlation analysis against realized PnL.
+
+All contributors follow the `IAlphaContributor` protocol. Real-time signal execution will prioritize Path A, while Path B is validated in shadow mode to measure the alpha decay reduction before potential production promotion.
+---
+
 ## 1. Overview
+...
 The Intelligence Swarm (The "Observer") is a collection of asynchronous agents tasked with quantifying market state friction and providing predictive alpha multipliers to the Signal Lifecycle. The goal is to move from descriptive narratives to ex-ante risk-adjusted scaling.
 
 ## 2. Core Principles
