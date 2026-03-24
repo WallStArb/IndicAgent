@@ -8,6 +8,7 @@ The Intelligence Swarm (The "Observer") is a collection of asynchronous agents t
 - **Differentiable Intelligence:** Every agent output must be a quantifiable vector (e.g., multiplier, probability score, friction index).
 - **Shadow-First Validation:** No agent impacts position sizing in production until it has passed 14 days of shadow-tracking correlation analysis.
 - **Rigid Schemas:** All agent outputs must adhere to strict `PydanticAI` models.
+- **Defense-in-Depth:** Use deterministic guardrails (Pydantic/Range checks) to prevent prompt injection or hallucinated sizing.
 
 ---
 
@@ -59,13 +60,13 @@ To ensure alpha stability, every agent follows this lifecycle:
 3.  **Promotion:** Only agents with `ρ > 0.4` over a 14-day rolling window are eligible for `AlphaMultiplier` production injection.
 4.  **Decay/Retraining:** Agents are re-trained (or weights reset) if their correlation drops below `0.2`.
 
-### B. High-Alpha Nuance: SMC "Trap" Quantification
-The SMC Validator does not just look for support/resistance. It looks for **"Absorption Patterns."**
-- **Pattern:** When a signal is generated *inside* a large Order Block, if the volume profile is *declining* (decreasing absorption), it suggests the price is about to "slide" through the block.
-- **Action:** If the validator detects this "low-absorption slide," it will set a `multiplier: 0.0` (Kill switch) for that specific signal, even if the base model says BUY.
+### B. Defensive Security (Guardrails)
+To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pattern:
+- **Hard-Shell (Deterministic):** `PydanticAI` models enforce strict JSON schema for all outputs. Invalid JSON causes an immediate "Neutral/1.0" multiplier default.
+- **Soft-Shell (Heuristic):** The `SafeSwarmWrapper` applies a range-clamp `[0.0, 2.0]` on the final `AlphaMultiplier`.
+- **Telemetry:** All agent operations are traced via `LangSmith` (reasoning/context) and `OpenTelemetry` (infrastructure/latency).
 
 ### C. Cross-Asset Contagion Logic
-We don't just watch correlation. We watch for **"Lead-Lag Divergence."**
 - **Insight:** High-frequency alpha often appears in the NQ before it moves into the ES.
 - **Agent Logic:** If the NQ is showing a "Liquidity Decay" while the ES signal is active, the agent predicts that the ES will catch the "decay contagion" within 3 bars. It preemptively reduces the ES signal size.
 
@@ -73,7 +74,7 @@ We don't just watch correlation. We watch for **"Lead-Lag Divergence."**
 
 ## 6. Implementation Roadmap
 1.  **Manifest Approval:** Review and refine the registry.
-2.  **Schema Definition:** Formalize `PydanticAI` schemas for the agents.
-3.  **Hook Implementation:** Inject `AlphaMultiplier` logic into `signal_lifecycle_service.py`.
+2.  **Schema Definition:** Formalize `PydanticAI` schemas for the agents (include telemetry fields).
+3.  **Hook Implementation:** Inject `AlphaMultiplier` logic (with `SafeSwarmWrapper` checks) into `signal_lifecycle_service.py`.
 4.  **Shadow Deployment:** Deploy all agents in "shadow mode" (log outputs to Postgres, don't execute).
 5.  **Correlation Audit:** Analyze shadow performance; tune weights; enable production.
