@@ -29,6 +29,7 @@ class SignalStatus(str, Enum):
     PENDING = "pending"
     ACTIVE = "active"
     REGIME_SUPPRESSED = "regime_suppressed"
+    EXPIRED = "expired"
 
 
 # ---------------------------------------------------------------------------

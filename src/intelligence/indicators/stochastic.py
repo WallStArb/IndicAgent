@@ -29,19 +29,23 @@ class StochasticPlugin:
 
     def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         df = frames.get("main")
-        if df is None:
+        if df is None or len(df) == 0:
             return {}
-        high = df["high"]
-        low = df["low"]
-        close = df["close"]
+        # Convert to numpy arrays first to avoid pandas 3.x "No numeric types to aggregate" errors
+        # when Series has object dtype (can happen even with numeric values)
+        # Convert once to float64 Series to avoid pandas 3.x dtype inference issues
+        high_series = pd.Series(df["high"].to_numpy(copy=False), dtype="float64")
+        low_series = pd.Series(df["low"].to_numpy(copy=False), dtype="float64")
+        close_series = pd.Series(df["close"].to_numpy(copy=False), dtype="float64")
         out: dict[str, Any] = {}
         for k_period, d_period in self.configs:
             if len(df) < k_period + d_period:
                 continue
-            lowest_low = low.rolling(window=k_period, min_periods=k_period).min()
-            highest_high = high.rolling(window=k_period, min_periods=k_period).max()
+
+            lowest_low = low_series.rolling(window=k_period, min_periods=k_period).min()
+            highest_high = high_series.rolling(window=k_period, min_periods=k_period).max()
             denom = (highest_high - lowest_low).replace(0, pd.NA)
-            k = 100 * (close - lowest_low) / denom
+            k = 100 * (close_series - lowest_low) / denom
             d = k.rolling(window=d_period, min_periods=d_period).mean()
             out[f"stoch_k_{k_period}_{d_period}"] = (
                 float(k.iloc[-1]) if pd.notna(k.iloc[-1]) else 0.0
@@ -49,25 +53,25 @@ class StochasticPlugin:
             out[f"stoch_d_{k_period}_{d_period}"] = (
                 float(d.iloc[-1]) if pd.notna(d.iloc[-1]) else 0.0
             )
-        self._seed_state(frames)
+        self._seed_state(high_series, low_series, close_series)
         return out
 
-    def _seed_state(self, frames: dict[str, pd.DataFrame]) -> None:
+    def _seed_state(
+        self,
+        high_col: pd.Series,
+        low_col: pd.Series,
+        close_col: pd.Series,
+    ) -> None:
         """Extract rolling high/low/K state for incremental Stochastic updates."""
-        df = frames.get("main")
-        if df is None:
-            return
+        n = len(high_col)
         for k_period, d_period in self.configs:
-            if len(df) < k_period + d_period:
+            if n < k_period + d_period:
                 continue
             # Keep last k_period highs and lows for rolling min/max
-            highs = df["high"].iloc[-k_period:].tolist()
-            lows = df["low"].iloc[-k_period:].tolist()
+            highs = high_col.iloc[-k_period:].tolist()
+            lows = low_col.iloc[-k_period:].tolist()
 
             # Compute last d_period %K values for %D SMA
-            high_col = df["high"]
-            low_col = df["low"]
-            close_col = df["close"]
             lowest_low = low_col.rolling(window=k_period, min_periods=k_period).min()
             highest_high = high_col.rolling(window=k_period, min_periods=k_period).max()
             denom = (highest_high - lowest_low).replace(0, pd.NA)

@@ -17,7 +17,10 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator
 
+import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+logger = structlog.get_logger(__name__)
 
 
 class KafkaProducerClient:
@@ -29,8 +32,10 @@ class KafkaProducerClient:
 
     async def start(self) -> None:
         """Create and start the underlying AIOKafkaProducer."""
+        logger.info("KafkaProducerClient starting", bootstrap_servers=self._bootstrap)
         self._producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
         await self._producer.start()
+        logger.info("KafkaProducerClient started successfully")
 
     async def stop(self) -> None:
         """Flush pending sends and close the producer connection."""
@@ -45,9 +50,18 @@ class KafkaProducerClient:
             msg: Message dict — serialized to JSON bytes internally.
             key: Optional partition routing key (e.g. "ES:1m") — encoded to bytes.
         """
+        if self._producer is None:
+            logger.error("KafkaProducerClient.publish called but producer is None!", topic=topic)
+            raise RuntimeError("Kafka producer not started")
+
         value = json.dumps(msg).encode()
         key_bytes = key.encode() if key else None
-        await self._producer.send_and_wait(topic, value=value, key=key_bytes)  # type: ignore[union-attr]
+
+        try:
+            await self._producer.send_and_wait(topic, value=value, key=key_bytes)  # type: ignore[union-attr]
+        except Exception as e:
+            logger.error("Kafka publish failed", topic=topic, key=key, error=str(e))
+            raise
 
 
 class KafkaConsumerClient:
@@ -102,28 +116,19 @@ class KafkaConsumerClient:
               - key (str | None): Decoded message key (e.g. "ES:1m"), or None if no key.
               - payload (dict): Decoded JSON payload dict.
         """
-        # Import for diagnostic logging
-        import sys
-
         async for msg in self._consumer:
             topic = msg.topic
             key = msg.key.decode() if msg.key else None
             try:
                 payload = json.loads(msg.value)
             except Exception as e:
-                # DIAGNOSTIC: Print to stderr (always visible) since logging might not be configured
-                print(
-                    f"[KAFKA_CONSUMER_ERROR] topic={topic}, key={key}, "
-                    f"value_type={type(msg.value).__name__}, "
-                    f"error={type(e).__name__}: {e}",
-                    file=sys.stderr,
-                    flush=True
+                logger.error(
+                    "Kafka message decode failed",
+                    topic=topic,
+                    key=key,
+                    value_type=type(msg.value).__name__,
+                    error=str(e),
+                    value_preview=msg.value[:200] if msg.value else None,
                 )
-                if msg.value and len(msg.value) > 0:
-                    print(
-                        f"[KAFKA_CONSUMER_ERROR] value_preview (first 200 bytes): {msg.value[:200]}",
-                        file=sys.stderr,
-                        flush=True
-                    )
                 continue
             yield topic, key, payload

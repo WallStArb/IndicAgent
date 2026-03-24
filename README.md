@@ -6,7 +6,14 @@
 
 ---
 
-**IndicAgent is a high-frequency, institutional-grade market intelligence platform engineered with the architectural rigor of a top-tier quantitative hedge fund.** We apply rigorous engineering principles—event-driven microservices, dependency-aware DAG orchestration, and sub-millisecond hot-path isolation—to transform raw market data into evidence-graded trading signals. 
+**IndicAgent is a high-frequency, institutional-grade market intelligence platform engineered with the architectural rigor of a top-tier quantitative hedge fund.** We apply rigorous engineering principles—event-driven microservices, dependency-aware DAG orchestration, and sub-millisecond hot-path isolation—to transform raw market data into evidence-graded trading signals.
+
+## Intelligence Swarm (The Observer)
+We have implemented a breakthrough "Renaissance-style" dual-path intelligence architecture:
+- **Path A (Deterministic DAG):** High-performance, low-latency kernel for real-time confidence modulation.
+- **Path B (LLM-Swarm):** Asynchronous, reasoning-based "Observer" agents that continuously evaluate market narratives and cross-asset contagion in shadow-mode.
+
+This architecture ensures that all production trades are backed by a verified research process, with automated promotion of experimental findings into the deterministic kernel.
 
 IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, and drift-corrected — in under 10ms. 123+ plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
 

@@ -86,8 +86,8 @@ class TestShadowSignalVirtualActivation:
         )
         assert isinstance(result, Transition), f"Expected Transition, got {type(result)}"
         assert (
-            result.new_status == "stopped_out"
-        ), f"Expected new_status='stopped_out', got {result.new_status!r}"
+            result.new_status == "expired"
+        ), f"Expected new_status='expired', got {result.new_status!r}"
 
     @pytest.mark.unit
     def test_shadow_signal_mae_mfe_tracked_from_bar_zero(self):

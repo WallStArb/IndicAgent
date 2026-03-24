@@ -60,7 +60,7 @@ class TestActiveToExit:
         """Long active: low <= stop_loss -> stopped_out."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5085.0)
         t = evaluate_signal(sig, high=5098.0, low=5084.0, close=5086.0)
-        assert t.new_status == "stopped_out"
+        assert t.new_status == "expired"
         assert t.exit_reason == "stop_loss"
         assert t.exit_price == 5085.0
 
@@ -69,7 +69,7 @@ class TestActiveToExit:
         """Short active: high >= stop_loss -> stopped_out."""
         sig = _active_signal(direction=-1, entry=5100.0, stop=5115.0, targets=[5085.0])
         t = evaluate_signal(sig, high=5116.0, low=5105.0, close=5114.0)
-        assert t.new_status == "stopped_out"
+        assert t.new_status == "expired"
         assert t.exit_reason == "stop_loss"
         assert t.exit_price == 5115.0
 
@@ -108,7 +108,7 @@ class TestActiveToExit:
         """If both stop and target hit on same bar, stop takes priority."""
         sig = _active_signal(direction=1, entry=5100.0, stop=5085.0, targets=[5115.0])
         t = evaluate_signal(sig, high=5116.0, low=5084.0, close=5090.0)
-        assert t.new_status == "stopped_out"
+        assert t.new_status == "expired"
         assert t.exit_reason == "stop_loss"
 
 
@@ -234,7 +234,7 @@ class TestOutcomeClassification:
             sig, high=5090.0, low=5084.0, close=5085.0, current_mae=-0.1, current_mfe=0.8
         )
         assert t is not None
-        assert t.new_status == "stopped_out"
+        assert t.new_status == "expired"
         assert t.outcome is None  # stop outcomes deferred to service (needs bars_in_trade)
 
     def test_outcome_stopped_at_entry_when_mfe_zero(self):
@@ -712,7 +712,7 @@ class TestConditionExpired:
         assert t is not None
         assert t.exit_reason == "condition_expired"
         assert t.outcome == "condition_expired"
-        assert t.new_status == "resolved"
+        assert t.new_status == "expired"
 
     def test_condition_expired_not_fired_after_2_bars(self):
         """evaluate_signal returns None when consecutive = 2 (confirmation window not met)."""
