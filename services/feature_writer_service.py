@@ -29,7 +29,7 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import parse_roll_event, setup_service_logging
+from src.core.service_utils import normalize_session_type, parse_roll_event, setup_service_logging
 from src.core.stream_keys import (
     topic_cross_asset,
     topic_intelligence_record,
@@ -200,11 +200,7 @@ def _record_to_insert_params(
     # winner_direction: int in schema, stored as text in DB
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
 
-    st = record.session_type or "rth"
-    # Normalize legacy "SessionType.RTH" format written before enum fix
-    if st.startswith("SessionType."):
-        st = st.split(".")[-1].lower()
-    session_type_val = st
+    session_type_val = normalize_session_type(record.session_type)
 
     return (
         event.ts,  # $1 ts
