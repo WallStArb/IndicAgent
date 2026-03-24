@@ -45,6 +45,7 @@ from src.core.service_utils import (
     CROSS_ASSET_VALID_TFS,
     TF_SECONDS,
     TF_TTL_BARS,
+    normalize_session_type,
     parse_roll_event,
     setup_service_logging,
 )
@@ -781,10 +782,7 @@ class SignalGeneratorService:
                         bar_data = row["bar"]  # stored as JSON string in intelligence_features
                         if isinstance(bar_data, str):
                             bar_data = json.loads(bar_data)
-                        session_type = row.get("session_type", "rth")
-                        # Normalize legacy "SessionType.RTH" format written before this fix
-                        if session_type and session_type.startswith("SessionType."):
-                            session_type = session_type.split(".")[-1].lower()
+                        session_type = normalize_session_type(row.get("session_type"))
 
                         # Reconstruct BarMessage
                         bar_msg = BarMessage(
