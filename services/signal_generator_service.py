@@ -943,6 +943,11 @@ class SignalGeneratorService:
                             "cmf_div_score": result.get("cmf_div_score"),
                         }
                 if result and result.get("direction", 0) != 0:
+                    # Extract I6 confluence_score from features (Renaissance: always consume I6 output)
+                    i6_ctf_score = frames.get("features", {}).get("ctf_score", 0.0)
+                    if i6_ctf_score is None:
+                        i6_ctf_score = 0.0
+
                     # Per D-29: construct canonical signal.v1 via make_signal() factory
                     try:
                         signal = make_signal(
@@ -957,7 +962,7 @@ class SignalGeneratorService:
                             targets=result["targets"],
                             confidence=result["confidence"],
                             regime_context=result.get("regime_context", "any"),
-                            confluence_score=result.get("confluence_score", 0.0),
+                            confluence_score=i6_ctf_score,
                             supporting_factors=result.get("supporting_factors", []),
                             invalidation_conditions=result.get("invalidation_conditions", []),
                             ttl_bars=result.get("ttl_bars", ttl_bars),
