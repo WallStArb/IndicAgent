@@ -178,6 +178,34 @@ Signal Scoring (ml_win_prob → signal_ledger)
 
 **When we'd add PyTorch:** Unstructured data (news sentiment → NLP, options chain surface → CNN)
 
+### 4.2 What About "Tensors"? (NumPy vs PyTorch)
+
+**We DO use tensors** — just via **NumPy arrays**, not PyTorch:
+
+```python
+# Real-time inference (<5ms)
+import numpy as np
+
+features = np.array([rsi_14, atr_14, hmm_regime, ...])  # This IS a tensor
+multiplier = model.predict(features)  # LightGBM handles it
+```
+
+**Why NumPy over PyTorch tensors?**
+
+| Aspect | NumPy | PyTorch |
+|--------|-------|---------|
+| Already everywhere | ✅ LightGBM, scipy, sklearn all use it | ❌ Additional dependency |
+| CPU performance | ✅ Faster for CPU operations | ❌ Overhead unless GPU-bound |
+| Integration | ✅ Works with entire stack | ❌ Requires conversion |
+| Simplicity | ✅ Just arrays | ❌ Autograd, grads not needed |
+
+**When we'd use PyTorch tensors:**
+- GPU acceleration for real-time inference (if latency becomes critical)
+- Neural network training (if we add deep learning for unstructured data)
+- Automatic differentiation (if we need gradient-based optimization)
+
+**Bottom line:** NumPy arrays ARE tensors. No need for PyTorch overhead unless we're doing deep learning or GPU acceleration.
+
 ### 4.2 Polars Over Pandas
 
 | Operation | Polars | Pandas |
