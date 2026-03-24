@@ -29,7 +29,9 @@ from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.timeframe_builder import _floor_to_period
 
 # Module-level constant: timeframe string → minutes
-_TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
+_TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+# Cached tuple of all timeframe keys (avoids list() conversion on every BarAccumulator init)
+_ALL_TFS: tuple[str, ...] = tuple(_TF_MINUTES.keys())
 
 _ET = ZoneInfo("America/New_York")
 _RTH_OPEN_ET = time(9, 30)
@@ -98,7 +100,7 @@ class BarAccumulator:
 
     Args:
         timeframes: List of target timeframe strings to accumulate into.
-                    Defaults to ["5m", "15m", "1h"].
+                    Defaults to all supported HTF timeframes.
         session:    TradingSession for session-break detection. Defaults to
                     TradingSession(SessionType.RTH).
     """
@@ -108,7 +110,7 @@ class BarAccumulator:
         timeframes: list[str] | None = None,
         session: TradingSession | None = None,
     ) -> None:
-        self._timeframes = timeframes or ["5m", "15m", "1h"]
+        self._timeframes = timeframes or _ALL_TFS
         self._session = session or TradingSession()
         self._accumulators: dict[str, dict] = {}  # key = "{symbol}:{tf}"
 

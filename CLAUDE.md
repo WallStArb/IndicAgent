@@ -25,6 +25,33 @@ Apply this framing when: designing new features, choosing between approaches, de
 
 Real-time market intelligence platform with plugin-native architecture, Redpanda event-driven pipeline, and production-grade monitoring infrastructure.
 
+## Quick Start
+
+```bash
+# Setup
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Run tests
+.venv/bin/pytest tests/unit/ -v
+
+# Code quality
+.venv/bin/ruff check . --fix    # Lint
+.venv/bin/black .                # Format
+
+# Start services
+sudo systemctl start indicagent-feature-pipeline  # or other services
+sudo systemctl status indicagent-signal-generator
+
+# Dashboard
+cd dashboard && npm run dev  # Runs on http://localhost:3000
+
+# Pre-commit workflow (mandatory before committing)
+/simplify                    # Review for reuse/quality/efficiency
+/coderabbit:code-review      # Run AI code review
+```
+
 ## Knowledge Hierarchy
 
 | Level | Location | Description |
@@ -92,6 +119,8 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 ## Core Commands
 
 > Full reference: `docs/cheatsheet.md` (pipeline reset, backfill scripts, service management, metrics ports)
+
+**Consumer debugging:** `docker exec redpanda rpk group describe feature_pipeline -t` — shows consumer lag per topic. `docker exec redpanda rpk topic consume development.market.bars.htf` — verify HTF bars are being published correctly.
 
 **Roadmap consistency check:** `node gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Run after any phase completion.
 
@@ -284,6 +313,8 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 
 **Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
+- **feature_pipeline_service subscribes to:** `topic_market_bars` (1m bars) ONLY. The service PRODUCES HTF bars via `BarAccumulator` and publishes them to `topic_market_bars_htf` for downstream services (e.g., signal_generator_service). Subscribing to both would create a feedback loop.
+- **HTF bar flow:** TWS → 1m bars → market.bars → feature_pipeline (BarAccumulator aggregates) → publishes to market.bars.htf → signal_generator consumes → I7 → intelligence_features.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`. **All service logs go to `logs/<service>.log` via `setup_service_logging()` — NOT to journald.** journalctl only shows `print()` output. Read log files directly for structured service output.
 - **`PYTHONUNBUFFERED=1` required** in all systemd service unit files — without it, Python buffers stdout and journald sees nothing even from print().
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
@@ -293,6 +324,8 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 **Data & Database**
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
+- **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `feature_pipeline_service.py` line 104 `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
+- **Canonical bar enforcement:** With continuous 1m bar flow (60 bars/hour), BarAccumulator emits: 24× 1h/day, 6× 4h/day, 1× 1d/day. Session break logic at RTH close prevents cross-session contamination. Overnight gaps don't skip bars—period boundary crossing on next 1m bar triggers emission of accumulated HTF bar.
 
 **Signal Logic**
 - **Terminal event payload**: `_publish_terminal_event` sends both `status` and `outcome` fields (identical values). Dashboard must read `payload.outcome` — `payload.status` works today but is semantically wrong and fragile if the two ever diverge.
