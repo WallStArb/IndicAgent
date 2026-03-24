@@ -83,3 +83,10 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Warm-up suppression zeroes all 4 hmm_prob_* fields for audit trail consistency when bars_processed < min_lookback
 - structlog module-level logger = structlog.get_logger(__name__) in hmm_regime.py for 2D fallback observability
 - n_dims stored in _state after _reset_state() so it persists into _build_output() without argument threading
+
+### Pending Todos
+
+**31 pending todos** (see `.planning/todos/pending/`)
+
+Recent additions:
+- 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
