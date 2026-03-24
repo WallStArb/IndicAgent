@@ -769,7 +769,7 @@ class SignalGeneratorService:
                     """
 
                     rows = await self.db_manager.execute_query(
-                        query, (symbol, tf)
+                        query, symbol, tf
                     )
 
                     if not rows:
@@ -782,6 +782,9 @@ class SignalGeneratorService:
                         if isinstance(bar_data, str):
                             bar_data = json.loads(bar_data)
                         session_type = row.get("session_type", "rth")
+                        # Normalize legacy "SessionType.RTH" format written before this fix
+                        if session_type and session_type.startswith("SessionType."):
+                            session_type = session_type.split(".")[-1].lower()
 
                         # Reconstruct BarMessage
                         bar_msg = BarMessage(
@@ -1494,7 +1497,7 @@ class SignalGeneratorService:
                     signals_after_tod=len(tod_adjusted),
                     signals_after_calibration=len(calibrated),
                     ledger_written=ledger_written,
-                    session_type=str(getattr(event, "session_type", "rth")),
+                    session_type=getattr(event, "session_type", SessionType.RTH).value,
                     days_to_expiry=None,
                     i7_computed_at=signal_computed_at,
                     pipeline_latency_ms=pipeline_latency_ms,

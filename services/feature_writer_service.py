@@ -200,7 +200,11 @@ def _record_to_insert_params(
     # winner_direction: int in schema, stored as text in DB
     winner_dir = str(record.winner_direction) if record.winner_direction is not None else None
 
-    session_type_val = str(record.session_type)
+    st = record.session_type or "rth"
+    # Normalize legacy "SessionType.RTH" format written before enum fix
+    if st.startswith("SessionType."):
+        st = st.split(".")[-1].lower()
+    session_type_val = st
 
     return (
         event.ts,  # $1 ts
