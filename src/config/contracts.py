@@ -63,9 +63,11 @@ FUTURES_ROLL_CYCLES: dict[str, list[str]] = {
     "ZB": ["H", "M", "U", "Z"],   # 30-Year T-Bond
     "ZT": ["H", "M", "U", "Z"],   # 2-Year T-Note
     # ---- Volatility (CFE quarterly) ----
-    "VX": ["H", "M", "U", "Z"],  # CBOE VIX Futures (IBKR symbol: VX)
+    "VX": ["H", "M", "U", "Z"],   # CBOE VIX Futures (IBKR trading_class: VX)
+    "VIX": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # CBOE VIX Futures (IBKR base=VIX, contract prefix=VX, monthly)
     # ---- Energy (NYMEX monthly) ----
     "CL": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Crude Oil WTI
+    "NG": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Natural Gas
     # ---- Precious & Industrial Metals (COMEX monthly) ----
     "GC": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Gold
     "SI": ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"],  # Silver
@@ -83,6 +85,11 @@ FUTURES_ROLL_CYCLES: dict[str, list[str]] = {
 
 #: Quarterly-expiry symbols: equity index, rates, VIX futures.
 #: Expiry = third Friday of the expiry month.
+# Some base symbols differ from their contract prefix (e.g. IBKR base "VIX" → contracts "VXJ6")
+_CONTRACT_PREFIX_MAP: dict[str, str] = {
+    "VIX": "VX",
+}
+
 _QUARTERLY_SYMBOLS: frozenset[str] = frozenset(
     {"ES", "NQ", "RTY", "YM", "ZN", "ZF", "ZB", "ZT", "VX"}
 )
@@ -266,7 +273,8 @@ def derive_roll_chain(
     for _i, (exp_year, code) in enumerate(contracts_raw):
         exp_month = MONTH_CODE_TO_NUM[code]
         year_digit = str(exp_year)[-1]  # 1-digit year suffix (IBKR format)
-        symbol = f"{base_symbol}{code}{year_digit}"
+        prefix = _CONTRACT_PREFIX_MAP.get(base_symbol, base_symbol)
+        symbol = f"{prefix}{code}{year_digit}"
         result.append(
             {
                 "symbol": symbol,

@@ -60,15 +60,20 @@ To ensure alpha stability, every agent follows this lifecycle:
 3.  **Promotion:** Only agents with `ρ > 0.4` over a 14-day rolling window are eligible for `AlphaMultiplier` production injection.
 4.  **Decay/Retraining:** Agents are re-trained (or weights reset) if their correlation drops below `0.2`.
 
-### B. Defensive Security (Guardrails)
-To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pattern:
-- **Hard-Shell (Deterministic):** `PydanticAI` models enforce strict JSON schema for all outputs. Invalid JSON causes an immediate "Neutral/1.0" multiplier default.
-- **Soft-Shell (Heuristic):** The `SafeSwarmWrapper` applies a range-clamp `[0.0, 2.0]` on the final `AlphaMultiplier`.
-- **Telemetry:** All agent operations are traced via `LangSmith` (reasoning/context) and `OpenTelemetry` (infrastructure/latency).
+### B. High-Alpha Nuance: SMC "Trap" Quantification
+The SMC Validator does not just look for support/resistance. It looks for **"Absorption Patterns."**
+- **Pattern:** When a signal is generated *inside* a large Order Block, if the volume profile is *declining* (decreasing absorption), it suggests the price is about to "slide" through the block.
+- **Action:** If the validator detects this "low-absorption slide," it will set a `multiplier: 0.0` (Kill switch) for that specific signal, even if the base model says BUY.
 
 ### C. Cross-Asset Contagion Logic
 - **Insight:** High-frequency alpha often appears in the NQ before it moves into the ES.
 - **Agent Logic:** If the NQ is showing a "Liquidity Decay" while the ES signal is active, the agent predicts that the ES will catch the "decay contagion" within 3 bars. It preemptively reduces the ES signal size.
+
+### D. Defensive Security (Guardrails)
+To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pattern:
+- **Hard-Shell (Deterministic):** `PydanticAI` models enforce strict JSON schema for all outputs. Invalid JSON causes an immediate "Neutral/1.0" multiplier default.
+- **Soft-Shell (Heuristic):** The `SafeSwarmWrapper` applies a range-clamp `[0.0, 2.0]` on the final `AlphaMultiplier`.
+- **Telemetry:** All agent operations are traced via `LangSmith` (reasoning/context) and `OpenTelemetry` (infrastructure/latency).
 
 ---
 
