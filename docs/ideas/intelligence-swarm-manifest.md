@@ -50,7 +50,28 @@ The Intelligence Swarm (The "Observer") is a collection of asynchronous agents t
 
 ---
 
-## 5. Implementation Roadmap
+## 5. Architectural Deep Dives & Alpha Insights
+
+### A. The "Shadow-to-Production" Pipeline
+To ensure alpha stability, every agent follows this lifecycle:
+1.  **Shadow Mode:** Emits `AlphaMultiplier` predictions to a dedicated PostgreSQL table without touching `SignalLifecycle`.
+2.  **Correlation Analysis:** An automated daily job computes `Pearson(Agent_Confidence, Realized_PnL_R)`.
+3.  **Promotion:** Only agents with `ρ > 0.4` over a 14-day rolling window are eligible for `AlphaMultiplier` production injection.
+4.  **Decay/Retraining:** Agents are re-trained (or weights reset) if their correlation drops below `0.2`.
+
+### B. High-Alpha Nuance: SMC "Trap" Quantification
+The SMC Validator does not just look for support/resistance. It looks for **"Absorption Patterns."**
+- **Pattern:** When a signal is generated *inside* a large Order Block, if the volume profile is *declining* (decreasing absorption), it suggests the price is about to "slide" through the block.
+- **Action:** If the validator detects this "low-absorption slide," it will set a `multiplier: 0.0` (Kill switch) for that specific signal, even if the base model says BUY.
+
+### C. Cross-Asset Contagion Logic
+We don't just watch correlation. We watch for **"Lead-Lag Divergence."**
+- **Insight:** High-frequency alpha often appears in the NQ before it moves into the ES.
+- **Agent Logic:** If the NQ is showing a "Liquidity Decay" while the ES signal is active, the agent predicts that the ES will catch the "decay contagion" within 3 bars. It preemptively reduces the ES signal size.
+
+---
+
+## 6. Implementation Roadmap
 1.  **Manifest Approval:** Review and refine the registry.
 2.  **Schema Definition:** Formalize `PydanticAI` schemas for the agents.
 3.  **Hook Implementation:** Inject `AlphaMultiplier` logic into `signal_lifecycle_service.py`.
