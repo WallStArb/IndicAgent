@@ -320,7 +320,90 @@ class IAlphaContributor:
 
 ---
 
-## 5. Practical Handbook
+## 5. Technology Stack — Renaissance-Aligned Choices
+
+**Why this matters:** Tech stack IS architecture. Library choices determine performance boundaries, scalability limits, and what's even possible. Renaissance demands: proven tools, minimal dependencies, nothing over-engineered for the problem at hand.
+
+### 5.1 Core ML Infrastructure (Already Decided in tech-stack.md)
+
+| Package | Purpose | Renaissance Alignment |
+|---------|---------|----------------------|
+| `lightgbm` | The model — tabular data champion | Fast training, handles categoricals natively, dominates benchmarks |
+| `scikit-learn` | Feature selection, preprocessing, cross-validation | Already in stack for CISScorer |
+| `scipy` | Pearson correlation, p-values, significance tests | Phase 2 validator foundation |
+| `statsmodels` | Stationarity tests (ADF), CUSUM changepoint, time series stats | Ensures features aren't spurious |
+| `polars` | Rust dataframes, 10-100× faster than pandas | Feature matrix generation without bottleneck |
+| `numpy` | Already in use — tensor operations | Foundational |
+
+### 5.2 Feature Discovery & Validation (Beta Pipeline)
+
+| Package | Purpose | Renaissance Alignment |
+|---------|---------|----------------------|
+| `alphalens-reloaded` | Quant-standard IC/ICIR analysis | Measures predictive power per feature — "show me the data" |
+| `tsfresh` | Auto time series feature extraction (700+ features) | Let data speak, don't hand-engineer |
+| `evidently` | Drift detection (KS/PSI/Wasserstein) | Automated degradation detection |
+| `shap` | TreeSHAP explainability | Why did model score this signal? Attribution matters |
+
+### 5.3 Model Training & Tuning
+
+| Package | Purpose | Renaissance Alignment |
+|---------|---------|----------------------|
+| `optuna` | Bayesian hyperparameter optimization | Auto-tune without manual knob-turning |
+| `MLflow` (self-hosted) | Experiment tracking, model registry | Version every model, compare 20 runs |
+
+### 5.4 What We're NOT Adding (And Why)
+
+| Technology | Why NOT | Renaissance Principle |
+|------------|---------|----------------------|
+| **PyTorch/TensorFlow** | Overkill for tabular scoring; tree ensembles dominate | Use the simplest tool that works |
+| **Ray/Dask** | Overkill for data volume; polars is sufficient | Don't add complexity before proven need |
+| **Feast** | TimescaleDB IS our feature store | Consolidate before expanding |
+| **Weights & Biases** | Cloud, paid; MLflow is open-source | No vendor lock-in |
+| **Temporal** | Institutional-scale; LangGraph sufficient for now | Add when trigger is real, not before |
+
+### 5.5 Architecture Implications
+
+**Model Choice → Feature Engineering:**
+- LightGBM handles categoricals natively → No one-hot encoding needed for regime/setup/TF
+- Tree-based → No feature scaling required (unlike SVM/NN)
+- SHAP values → Per-signal attribution is cheap, not expensive post-hoc analysis
+
+**Performance → Data Flow:**
+- Polars for batch jobs (feature matrix building, retraining)
+- NumPy for real-time (single-signal inference, <5ms SLA)
+- No "convert to pandas then back" — choose one and stay there
+
+**Observability → Debugging:**
+- MLflow run IDs logged to `ml_models` table → Full reproducibility
+- SHAP values stored per-signal in JSONB → "Why was this signal boosted?" is answerable
+- Evidently reports persisted → Drift history is queryable
+
+**Scalability Boundaries:**
+- LightGBM trains on 100K rows in <30 seconds (single machine)
+- Polars processes 1M features × 10K signals in <2 minutes
+- River (online learning) for Phase 3 — continuous adaptation without full retrain
+
+### 5.6 Integration Points
+
+**Phase 2 (The Validator) uses:**
+- `scipy.stats.pearsonr` — correlation coefficient
+- `scipy.stats.linregress` — p-value, confidence interval
+- `asyncpg` — query shadow table, compute stats in SQL where possible
+
+**Phase 54 (ML Scoring Model) uses:**
+- `polars.DataFrame` — build feature matrix from `intelligence_features`
+- `lightgbm.train()` — fit per-regime × per-setup × per-TF models
+- `shap.TreeExplainer` — compute feature attributions
+- MLflow model registry — version and track all trained models
+
+**Beta Pipeline (Discovery) uses:**
+- `tsfresh.extract_features()` — auto-generate candidate features
+- `alphalens-reloaded` — compute IC/ICIR per feature
+- `evidently.DriftDetector` — catch distribution shifts before they corrupt models
+
+---
+
+## 6. Practical Handbook
 
 ### 5.1 Contributor Template
 
@@ -398,7 +481,7 @@ class RegimeSentinelContributor(IAlphaContributor):
 
 ---
 
-## 6. CI/CD & Automation
+## 7. CI/CD & Automation
 
 ### 6.1 Pipeline Gates
 
@@ -487,7 +570,7 @@ class RegimeSentinelContributor(IAlphaContributor):
 
 ---
 
-## 7. Renaissance Principles Deep Dive
+## 8. Renaissance Principles Deep Dive
 
 ### 7.1 Information Bottleneck
 
@@ -557,7 +640,7 @@ class RegimeSentinelContributor(IAlphaContributor):
 
 ---
 
-## 8. Next Steps
+## 9. Next Steps
 
 ### Immediate Actions:
 1. **Review and refine this document** — Challenge assumptions, add missing requirements
