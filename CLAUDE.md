@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Version: 5.29.0
-Last Updated: 2026-03-22
+Version: 5.30.0
+Last Updated: 2026-03-23
 Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Decision Framework: What Would Jim Simons Do?
@@ -189,7 +189,7 @@ IBKR TWS → feature_pipeline_service (I1-I6 unified) →
 ### Core Runtime Files
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
-- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `PLUGIN_METRICS_SAMPLE_RATE`
+- `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `normalize_session_type()`, `PLUGIN_METRICS_SAMPLE_RATE`
 - `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_insync logic (no imports outside this file)
@@ -207,7 +207,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 ### TimescaleDB Tables
 - `market_data_ohlcv` — raw OHLCV (backfill only; keep forever — ground truth). Live data flows through Redpanda topics only.
 - `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever). Column name is `ts` not `feature_ts`.
-- `signal_ledger` — I7 signals + lifecycle outcomes; JOIN via `(symbol, feature_ts, feature_tf)` (keep forever)
+- `signal_ledger` — ALL I7 signals per bar (not just winner) + lifecycle outcomes; JOIN via `(symbol, feature_ts, feature_tf)` (keep forever). Phase 49.1: signal_generator_service writes every signal to the ledger regardless of regime eligibility — winner published to stream separately.
 - `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer_service` (keep forever)
 - `llm_model_scores` — per-model win rate / avg pnl_r / p-value; refreshed every 15 min
 - `setup_performance` — per-setup rolling 30d stats (win_rate, avg_pnl_r, sharpe); drives aggregator `perf_multiplier`; only rows with `sample_size >= 30` are written (FEED-02 gate)
@@ -232,7 +232,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **`order_blocks.py` pre-filters to unmitigated OBs**: `_check_mitigated()` runs before output — `ob_type/top/bottom` always represents an unmitigated block. Downstream scoring (I6, trade_framer) does not need to re-check mitigation status.
 - **`cross_timeframe.py` already has multi-TF data**: `compute_full(frames)` iterates `intel_<tf>` keys (lines 89-92) — FVG/OB/VP outputs from all active TFs flow through automatically. Cross-TF scoring only needs the scoring function, no new data routing.
 - **HTF frame injection pattern**: `signal_generator_service._cross_asset_cache: dict[str, dict]` (tf → payload) is the canonical pattern for injecting per-TF external data into plugin frames before `compute_full()`. Replicate for any new per-TF source (e.g., `_htf_intel_cache`). Zero new subscriptions — populate cache from existing stream, inject into `frames` dict.
-- **I7 utilities** (check before creating new): `exhaustion_utils.py` (`apply_exhaustion_boost`, `apply_exhaustion_guard`); `signal_schema.py` (`make_signal`, `validate_signal`). `composites/common.py` utilities (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`) are I2-only — evaluate before using in I7.
+- **I7 utilities** (check before creating new): `exhaustion_utils.py` (`apply_exhaustion_boost`, `apply_exhaustion_guard`); `signal_schema.py` (`make_signal`, `validate_signal`); `plugin_utils.py` (`no_signal`, `extract_ohlcv`, `signal_type_for_direction`); `atr_utils.py` (`get_atr` — null-safe I1 accessor, never recompute ATR in I7); `state_utils.py` (`track_consecutive_state`, `reset_consecutive_state`); `confidence_utils.py` (`compose_confidence` — ALL I7 confidence values must route through this; `capture_signal_features` — writes shadow dict for ML training); `microstructure_utils.py` (`detect_spike_signal` — shared OFI/CVD spike logic); `volume_profile_utils.py` (`check_reversal_gate`, `format_reversal_supporting_factors`). `composites/common.py` utilities (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`) are I2-only — evaluate before using in I7.
 
 ### Signal Identity Preservation (Renaissance Principle)
 
@@ -326,7 +326,7 @@ When investigating "service not writing to database":
 
 ## Roadmap
 
-**v2.0 SHIPPED 2026-03-22** — Phases 39-48. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation, 5s real-time bar aggregation.
-**v2.1 IN PROGRESS** — Phases 49-52. See `.planning/ROADMAP.md` for active phase details.
+**v2.0 SHIPPED 2026-03-22** — Phases 39-47. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation.
+**v2.1 IN PROGRESS** — Phases 48-52. Phase 48 complete (tick aggregation + I7 refactor); 49.1 complete (write all signals to ledger); 49.2 complete (HMM observability + warm-up suppression). See `.planning/ROADMAP.md` for active phase details.
 **v2.2 PLANNED** — Phase 53: auth + external access. Plans in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
 **v2.3 DEFERRED** — Phases 54-55: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.1.

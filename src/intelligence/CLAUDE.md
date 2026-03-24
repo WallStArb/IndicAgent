@@ -23,6 +23,20 @@ TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpan
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
+**I7 shared utilities (check before writing any I7 code):**
+All live in `src/intelligence/trading/`:
+
+| File | Key exports | Purpose |
+|------|-------------|---------|
+| `plugin_utils.py` | `no_signal()`, `extract_ohlcv()`, `signal_type_for_direction()` | Canonical no-signal dict, OHLCV extraction, signal type naming |
+| `atr_utils.py` | `get_atr(features)` | Null-safe I1 ATR accessor — never recompute ATR in I7 |
+| `state_utils.py` | `track_consecutive_state()`, `reset_consecutive_state()` | Consecutive bar state counting |
+| `confidence_utils.py` | `compose_confidence(raw)`, `capture_signal_features()`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.10, 0.95], rounds to 4dp). `capture_signal_features()` writes `_shadow` dict (15 keys: 2 metadata, 6 I6 CTF, 4 I4 macro, 3 exhaustion) for ML training — zero confidence modification. Phase 49 will fill non-zero `ConfluenceWeightProfile` weights from XGBoost training. |
+| `microstructure_utils.py` | `detect_spike_signal()` | Shared spike detection for OFI/CVD — preserves signal identity (Renaissance) |
+| `volume_profile_utils.py` | `check_reversal_gate()`, `format_reversal_supporting_factors()` | POC/HVN reversal detection logic |
+| `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` | Exhaustion-based confidence modifiers |
+| `signal_schema.py` | `make_signal()`, `validate_signal()` | Signal dict construction + validation |
+
 **`regime_type` class attribute** (mandatory on all I7 plugins): `"trend"` | `"mean_reversion"` | `"any"`. Used by aggregator regime gate — trend plugins suppressed in ranging regime (hmm_regime=0), mean-reversion plugins suppressed in trending regime (hmm_regime=1/2). New I7 plugins must declare this or `validate_tier()` will not catch the omission but the gate will silently misfire.
 
 **Aggregator `perf_multiplier`**: reads `setup_performance` table at startup and every 15 min. Setups with `sample_size < 30` use multiplier=1.0 (no effect). Outperforming setups rank higher in `all_ranked`. `active` must always be derived from `all_ranked`, not raw `signals` — see gotchas.
