@@ -447,6 +447,8 @@ class TwsDaemon:
         self._rtb_state: dict[str, dict] = {}
         # Reconciliation state: symbol -> {ts: OHLCVBar}
         self._official_bars_cache: dict[str, dict[str, Any]] = defaultdict(dict)
+        # Sentinel for unset prev_close (distinguishes None from 0.0 price)
+        self._UNSET = object()
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -511,7 +513,7 @@ class TwsDaemon:
             return
         symbols = [c["symbol"] for c in self.contracts]
 
-        def _init_state(minute=None) -> dict:
+        def _init_state(minute=None, prev_close=None) -> dict:
             return {
                 "bar_minute": minute,
                 "open": None,
@@ -520,7 +522,8 @@ class TwsDaemon:
                 "close": None,
                 "volume": 0.0,
                 "last_update": time.time(),
-                "emitted": False
+                "emitted": False,
+                "prev_close": prev_close if prev_close is not None else self._UNSET
             }
 
         try:
@@ -538,7 +541,9 @@ class TwsDaemon:
                         if not s["emitted"]:
                             # Force emit the stale bar if the heartbeat was late
                             await self._emit_bar(symbol, s)
-                        s.update(_init_state(bar_minute))
+                        # Carry forward close price for flat bar emission if next minute has no 5s ticks
+                        prev_close = s.get("prev_close", self._UNSET)
+                        s.update(_init_state(bar_minute, prev_close))
 
                     if s["bar_minute"] is None or bar_minute >= s["bar_minute"]:
                         if s["open"] is None:
@@ -668,9 +673,39 @@ class TwsDaemon:
                     "volume": official.volume
                 })
             else:
-                # Flat bar would require previous close state; for now just log warning
-                logger.warning("No data for bar emission", symbol=symbol, ts=bar_timestamp)
-                return
+                # Emit flat bar using previous close (canonical 1440-bar grid)
+                prev_close = state.get("prev_close", self._UNSET)
+                if prev_close is not self._UNSET:
+                    flat_price = float(prev_close)
+                    flat_bar_data = {
+                        "timestamp": bar_timestamp,
+                        "symbol": symbol,
+                        "timeframe": "1m",
+                        "open": str(flat_price),
+                        "high": str(flat_price),
+                        "low": str(flat_price),
+                        "close": str(flat_price),
+                        "volume": "0.0",
+                        "source": "authoritative",
+                        "bar_close_ts": bar_timestamp,
+                        "is_reconciled": False,
+                        "drift_detected": False
+                    }
+                    await self._kafka_producer.publish(
+                        topic_market_bars(self.env_name),
+                        flat_bar_data,
+                        key=message_key(symbol, "1m"),
+                    )
+                    self.bars_processed += 1
+                    self.m_bars.inc()
+                    # Track close price for next flat bar
+                    state["prev_close"] = flat_price
+                    logger.info("Flat bar emitted", symbol=symbol, close=flat_price, ts=bar_timestamp)
+                    return  # Early exit after flat bar emission
+                else:
+                    # No previous close available - skip this bar
+                    logger.warning("No data for bar emission and no prev_close", symbol=symbol, ts=bar_timestamp)
+                    return
 
         bar_data = {
             "timestamp": bar_timestamp,
@@ -693,6 +728,10 @@ class TwsDaemon:
         )
         self.bars_processed += 1
         self.m_bars.inc()
+
+        # Track close price for next flat bar
+        state["prev_close"] = float(state["close"])
+
         logger.info(
             "1m bar emitted",
             symbol=symbol,

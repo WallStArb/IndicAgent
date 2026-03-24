@@ -47,8 +47,11 @@ sys.path.insert(0, str(Path(__file__).parents[2]))
 from production.scripts.historical_backfill import (  # noqa: E402
     connect_db,
     replay_symbol,
+    seed_roll_chain,
 )
+from src.intelligence.register_plugins import register_all_plugins
 from src.config.settings import Settings
+from src.core.database_manager import DatabaseManager
 
 # Tables cleared on every reset (always)
 _ALWAYS_CLEAR = [
@@ -418,6 +421,16 @@ def main() -> None:
     for t in cleared:
         print(f"      {verb} {t}")
 
+    # Re-seed contract_metadata — truncate_tables() wipes it, so tws_daemon would
+    # pick up 0 futures from get_active_contracts() and never subscribe to them.
+    print("      re-seeding contract_metadata (front-month roll chain)...")
+    async def _seed_contract_metadata() -> None:
+        _dm = DatabaseManager(settings.database_url)
+        await _dm.initialize()
+        await seed_roll_chain(settings, _dm)
+        await _dm.close()
+    asyncio.run(_seed_contract_metadata())
+
     # --- Stage 4: Fetch OHLCV ---
     contracts = settings.contracts
     if args.symbols:
@@ -509,6 +522,7 @@ def main() -> None:
         print("\n[3/5] Skipping IBKR fetch (--keep-ohlcv)")
 
     # --- Stage 5: Replay pipeline ---
+    register_all_plugins()
     if args.no_backfill:
         print("\n[4/5] Replaying I1→I6 (seed mode — intelligence_features only, no signals)...")
     else:
