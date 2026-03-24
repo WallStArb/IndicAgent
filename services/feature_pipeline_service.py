@@ -101,7 +101,7 @@ from src.observability.metrics import (
 # ---------------------------------------------------------------------------
 
 # Canonical timeframe ordering for I1-I6 pipeline.
-_STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h")
+_STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
 # OHLCV batch write — buffer 50 rows or flush every 5 seconds.
 # Only 1m bars written; HTF bars derived by TimescaleDB continuous aggregates.
@@ -238,7 +238,7 @@ class FeaturePipelineService:
                 break
 
         # BarAccumulator — session-aware 1m→HTF aggregator (replaces timeframes_builder_service)
-        self._bar_accumulator = BarAccumulator(timeframes=["5m", "15m", "1h"])
+        self._bar_accumulator = BarAccumulator()
 
         # Per-symbol tick buffer — flushed at bar close; capped at 10k ticks
         self._tick_buffers: dict[str, list[dict]] = defaultdict(list)
@@ -1145,7 +1145,9 @@ class FeaturePipelineService:
             # 3. Seed BarHistory from intelligence_features
             await self._seed_bar_history()
 
-            # 4. Build topics list — always subscribe to system.events and cross_asset
+            # 4. Build topics list — subscribe to consumer topics only
+            # Note: feature_pipeline_service PRODUCES HTF bars via BarAccumulator
+            # and publishes them to topic_market_bars_htf for downstream services.
             env = self._settings.env_name
             topics: list[str] = [topic_market_bars(env)]
             topics.append(topic_system_events(env))

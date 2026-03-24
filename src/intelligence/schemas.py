@@ -715,6 +715,27 @@ class I6Confluence(BaseModel):
     # I2 event signal score
     i6_i2_event_score: float | None = None
 
+    # Per-timeframe FVG/OB alignment scores — Renaissance standard (Phase 46)
+    # Each TF score is a separate ML training feature (not dict) to satisfy:
+    # "Every score must be decomposable" — ML layer needs per-TF coefficients
+    # Written by CrossTimeframeConfluencePlugin when multiple TFs contribute
+    # DESIGN NOTE: Using flat fields not dict[str,float] because:
+    # 1. ML feature matrix expects columns, not nested structures
+    # 2. Per-TF feature importance analysis requires separable fields
+    # 3. SQL queries can filter/index specific TF scores efficiently
+    i6_fvg_tf_1m: float | None = None
+    i6_fvg_tf_5m: float | None = None
+    i6_fvg_tf_15m: float | None = None
+    i6_fvg_tf_1h: float | None = None
+    i6_fvg_tf_4h: float | None = None
+    i6_fvg_tf_1d: float | None = None
+    i6_ob_tf_1m: float | None = None
+    i6_ob_tf_5m: float | None = None
+    i6_ob_tf_15m: float | None = None
+    i6_ob_tf_1h: float | None = None
+    i6_ob_tf_4h: float | None = None
+    i6_ob_tf_1d: float | None = None
+
 
 
 class IntelligenceEvent(BaseModel):
