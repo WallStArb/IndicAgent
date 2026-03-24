@@ -398,6 +398,67 @@ class FeaturePipelineService:
                 min_bars = min_bars_for_tf(tf) * 2
                 tf_secs = TF_SECONDS.get(tf, 60)
                 lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
+
+                if tf != "1m":
+                    tf_minutes = tf_secs // 60
+                    lookback_1m = min_bars * tf_minutes * 2
+                    try:
+                        rows_1m = await self._db.execute_query(  # type: ignore[union-attr]
+                            f"""
+                            SELECT timestamp, open, high, low, close, volume
+                            FROM market_data_ohlcv
+                            WHERE symbol = $1 AND timeframe = '1m'
+                              AND timestamp > NOW() - INTERVAL '{lookback_1m * 60} seconds'
+                            ORDER BY timestamp ASC
+                            LIMIT {lookback_1m}
+                            """,
+                            symbol,
+                        )
+                    except Exception as e:
+                        self.logger.warning(
+                            "Fallback HTF seed query failed", symbol=symbol, tf=tf, error=str(e)
+                        )
+                        return
+                    if not rows_1m:
+                        return
+                    buckets: dict[int, list] = defaultdict(list)
+                    for row in rows_1m:
+                        ts = row["timestamp"]
+                        if isinstance(ts, str):
+                            ts = datetime.fromisoformat(ts)
+                        period = int(ts.timestamp()) // (tf_minutes * 60) * (tf_minutes * 60)
+                        buckets[period].append((ts, row))
+                    bars_fb: list[BarMessage] = []
+                    for period_ts, bucket in buckets.items():
+                        try:
+                            bars_fb.append(
+                                BarMessage(
+                                    ts=datetime.fromtimestamp(period_ts, tz=UTC),
+                                    symbol=symbol,
+                                    tf=tf,
+                                    open=float(bucket[0][1]["open"]),
+                                    high=max(float(b[1]["high"]) for b in bucket),
+                                    low=min(float(b[1]["low"]) for b in bucket),
+                                    close=float(bucket[-1][1]["close"]),
+                                    volume=sum(int(b[1]["volume"]) for b in bucket),
+                                    source="ibkr_seed",
+                                    session_type=SessionType.RTH,
+                                    gap_preceding=False,
+                                )
+                            )
+                            fallback_bars += 1
+                        except Exception as e:
+                            self.logger.warning(
+                                "HTF bar construction failed",
+                                symbol=symbol,
+                                tf=tf,
+                                period_ts=period_ts,
+                                error=str(e),
+                            )
+                    if bars_fb:
+                        self._bar_history.seed(symbol, tf, bars_fb)
+                    return
+
                 try:
                     ohlcv_rows = await self._db.execute_query(  # type: ignore[union-attr]
                         f"""
@@ -418,7 +479,7 @@ class FeaturePipelineService:
                     return
                 if not ohlcv_rows:
                     return
-                bars_fb: list[BarMessage] = []
+                bars_fb = []
                 for row in reversed(ohlcv_rows):
                     try:
                         ts = row["timestamp"]
@@ -440,8 +501,13 @@ class FeaturePipelineService:
                             )
                         )
                         fallback_bars += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.logger.warning(
+                            "1m bar construction failed",
+                            symbol=symbol,
+                            tf=tf,
+                            error=str(e),
+                        )
                 if bars_fb:
                     self._bar_history.seed(symbol, tf, bars_fb)
 
