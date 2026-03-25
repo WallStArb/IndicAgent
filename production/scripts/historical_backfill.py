@@ -1363,6 +1363,64 @@ def _replay_worker(args: tuple) -> tuple[str, int, dict[str, int]]:
 
 
 # ---------------------------------------------------------------------------
+# Normalization pass
+# ---------------------------------------------------------------------------
+
+
+def run_normalize(
+    db_conn: Any,
+    contracts: list[Any],
+    timeframes: list[str],
+) -> None:
+    """One-time pass: fill gaps in existing market_data_ohlcv with synthetic
+    flat bars so the table holds a complete canonical grid.
+
+    Idempotent — existing rows are never overwritten (ON CONFLICT DO NOTHING).
+    """
+    print("\nNormalization pass — filling gaps in market_data_ohlcv")
+    print(f"  Symbols   : {[c.symbol for c in contracts]}")
+    print(f"  Timeframes: {timeframes}")
+
+    total_inserted = 0
+
+    for instrument in contracts:
+        for tf in timeframes:
+            rows = fetch_bars(db_conn, instrument.symbol, tf)
+            if not rows:
+                print(f"  {instrument.symbol}/{tf}: no existing rows — skipping")
+                continue
+
+            start = min(b["timestamp"] for b in rows)
+            end   = max(b["timestamp"] for b in rows)
+
+            canonical = normalize_bars(
+                rows,
+                symbol=instrument.symbol,
+                timeframe=tf,
+                session_id=instrument.session_id,
+                exchange=instrument.exchange,
+                start=start,
+                end=end,
+            )
+
+            existing_ts = {b["timestamp"] for b in rows}
+            new_bars = [b for b in canonical if b["timestamp"] not in existing_ts]
+
+            if not new_bars:
+                print(f"  {instrument.symbol}/{tf}: already canonical ({len(rows)} rows)")
+                continue
+
+            n = store_bars(db_conn, new_bars, instrument.symbol, tf)
+            total_inserted += n
+            print(
+                f"  {instrument.symbol}/{tf}: inserted {n} synthetic fills "
+                f"(was {len(rows)} rows, now {len(rows) + n})"
+            )
+
+    print(f"\nNormalization complete: {total_inserted} synthetic fills inserted")
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -1420,6 +1478,13 @@ def main() -> None:
              "symbol. Sets is_front_month=True for the current front-month contract. "
              "Idempotent — safe to run multiple times.",
     )
+    parser.add_argument(
+        "--normalize",
+        action="store_true",
+        default=False,
+        help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
+             "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -1471,6 +1536,11 @@ def main() -> None:
     print()
 
     db_conn = connect_db(settings)
+
+    if args.normalize:
+        run_normalize(db_conn, contracts, timeframes)
+        db_conn.close()
+        return
 
     # --------------- Stage 1: IBKR Fetch ---------------
     if not args.replay_only:
