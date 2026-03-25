@@ -43,20 +43,16 @@ Use `isort` via ruff (`[tool.ruff.lint.isort]` in pyproject.toml) with `known-fi
 
 **Classes:**
 - `PascalCase` for all classes (e.g., `CCIPlugin`, `IndicatorService`, `TradeFrame`).
+- Dataclasses: use `@dataclass` decorator with `default_factory=dict` or `field()` for mutable defaults.
+- Protocol classes: define with `class SomethingPlugin(Protocol):` in `src/intelligence/plugins.py`.
 - **Persistence Pattern:** All database I/O MUST use `src/persistence/repository/` classes. All asynchronous persistence consumers MUST use the `DataWriterAgent` pattern defined in `src/persistence/writer/`.
-
 
 **Variables:**
 - `snake_case` for all variables, parameters, module names
 - Abbreviations allowed when standard: `df` (DataFrame), `tf` (timeframe), `ts` (timestamp), `msg` (message), `svc` (service)
 - Multi-symbol tuples: `(plugin_name, symbol, timeframe)` — always in this order in state keys
 - Dictionary keys: `snake_case` consistently (e.g., `bar_history`, `_df_cache`, `feature_ts`)
-- Redis stream keys: constructed via `src/core/stream_keys.py` functions, NEVER hardcoded
-
-**Classes:**
-- `PascalCase` for all classes (e.g., `CCIPlugin`, `IndicatorService`, `TradeFrame`)
-- Dataclasses: use `@dataclass` decorator with `default_factory=dict` or `field()` for mutable defaults
-- Protocol classes: define with `class SomethingPlugin(Protocol):` in `src/intelligence/plugins.py`
+- Kafka topic keys: constructed via `src/core/stream_keys.py` functions, NEVER hardcoded
 
 **Constants:**
 - `UPPERCASE_SNAKE_CASE` for module-level constants (e.g., `PLUGIN_METRICS_SAMPLE_RATE`, `TF_SECONDS`)
@@ -158,19 +154,7 @@ except Exception as e:
 - Log at `error` level for unexpected exceptions with `exc_info=True`
 - Always include `error=str(e)` in log context for structured logging
 - Include context fields: `symbol=symbol, timeframe=timeframe, plugin=name`
-- Consumer group setup: catch `redis.ResponseError` specifically for BUSYGROUP detection
-
-**Example (from stream_utils.py):**
-```python
-try:
-    await client.xgroup_create(stream, group, "$", mkstream=True)
-    return True
-except redis.ResponseError as e:
-    if "BUSYGROUP" in str(e):
-        await client.xgroup_setid(stream, group, "$")
-        return False
-    raise
-```
+- Kafka publish failures: catch at the call site with topic/key context; do not swallow silently.
 
 ## Logging
 
@@ -236,26 +220,34 @@ def compute_full(self, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
 - Comment obvious code (bad: "x = 5  # set x to 5")
 - Stale comments (outdated comments are worse than no comments)
 
-## Redis Stream Keys
+## Kafka Topic Keys
 
-**Construction:** NEVER hardcode stream names. Use functions from `src/core/stream_keys.py`:
+**Construction:** NEVER hardcode topic names. Use functions from `src/core/stream_keys.py`:
 ```python
-from src.core.stream_keys import market as sk_market, indicators as sk_indicators
+from src.core import stream_keys as sk
 
-stream_name = sk_market(env_prefix, symbol, timeframe)  # "market:ESH6:1m"
-stream_name = sk_indicators(env_prefix, symbol, timeframe)  # "indicators:ESH6:1m"
+topic = sk.topic_market_bars(settings.env)          # "development.market.bars"
+topic = sk.topic_intelligence(settings.env)          # "development.intelligence"
+topic = sk.topic_signals_aggregated(settings.env)    # "development.signals.aggregated"
 ```
 
-**Key Patterns:**
-- `market:SYMBOL:TF` — raw OHLCV bars
-- `indicators:SYMBOL:TF` — I1 technical indicators
-- `intelligence:SYMBOL:TF` — full IntelligenceEvent (I1–I8)
-- `signals:SYMBOL:TF:aggregated` — final I7 signal selection
-- `narratives:SYMBOL:TF` — I8 LLM narrative
-- `llm_calls:stream` — audit log of all LLM calls
-- `llm_outcomes:stream` — signal exits with outcome/PnL
-- `ticks:SYMBOL:live` — live tick updates (not bars)
-- `price:SYMBOL:latest` — hash key for latest bid/ask
+**Topic Patterns** (dots only — never colons):
+- `{env}.market.ticks` — live tick updates
+- `{env}.market.bars` — 1m OHLCV bars from TWS
+- `{env}.market.bars.htf` — aggregated HTF bars (5m/15m/1h/4h/1d)
+- `{env}.indicators` — I1 technical indicator outputs
+- `{env}.intelligence` — full IntelligenceEvent (I1–I8)
+- `{env}.intelligence.i7` — I7 signal tier only
+- `{env}.intelligence.i8` — I8 LLM narrative tier only
+- `{env}.signals` — raw I7 signals
+- `{env}.signals.aggregated` — final aggregated signal selection
+- `{env}.narratives` — I8 LLM narratives
+- `{env}.llm.calls` — audit log of all LLM calls
+- `{env}.llm.outcomes` — signal exits with outcome/PnL
+- `{env}.cross_asset` — cross-asset spread dynamics
+- `{env}.system.events` — lifecycle / control plane events
+
+**Consumer groups:** `<concept>_consumer` (idempotent on restart, e.g. `feature_pipeline_consumer`)
 
 ## Plugin Protocol
 
@@ -303,8 +295,15 @@ class MyPlugin:
 ```python
 async def start(self) -> None:
     try:
-        await self._connect_redis()
-        asyncio.create_task(self._process_market_data())
+        self._consumer = KafkaConsumerClient(
+            sk.topic_market_bars(self._settings.env),
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            group_id="my_service_consumer",
+        )
+        await self._consumer.start()
+        self._producer = KafkaProducerClient(self._settings.kafka_bootstrap_servers)
+        await self._producer.start()
+        asyncio.create_task(self._process_loop())
         asyncio.create_task(self._health_monitor_loop())
     except Exception as e:
         self.logger.error("Failed to start", error=str(e))
@@ -312,19 +311,30 @@ async def start(self) -> None:
 
 async def stop(self) -> None:
     self.running = False
-    await asyncio.sleep(0.1)  # let tasks finish
-    await self.redis_client.close()
+    if self._consumer:
+        await self._consumer.stop()
+    if self._producer:
+        await self._producer.stop()
 ```
 
-**Consumer Groups (xreadgroup):**
+**Kafka Consumer Loop:**
 ```python
-all_streams = {name: ">" for name in self._stream_map}
-messages = await self.redis_client.xreadgroup(
-    group, consumer, all_streams, count=10, block=1000
+async def _process_loop(self) -> None:
+    assert self._consumer is not None
+    async for topic, key, payload in self._consumer.messages():
+        try:
+            await self._handle_message(topic, key, payload)
+        except Exception as e:
+            self.logger.error("Message processing failed", topic=topic, key=key, error=str(e))
+```
+
+**Kafka Producer Publish:**
+```python
+await self._producer.publish(
+    sk.topic_intelligence(self._settings.env),
+    msg=event_dict,
+    key=f"{symbol}:{timeframe}",
 )
-for stream_bytes, msgs in messages:
-    stream_name = stream_bytes.decode() if isinstance(stream_bytes, bytes) else stream_bytes
-    # process msgs
 ```
 
 **Signal Handler:**
