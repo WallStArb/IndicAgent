@@ -45,6 +45,54 @@ def _generate_session_slots(
     start: datetime,
     end: datetime,
 ) -> list[datetime]:
+    """Return every expected bar timestamp within [start, end] for this session."""
+    interval = timedelta(minutes=_TF_MINUTES[timeframe])
+
+    if session_id == "crypto_24_7":
+        return _slots_always_open(start, end, interval)
+
+    if session_id == "fx_24_5":
+        return _slots_fx(start, end, interval)
+
+    if session_id == "nyse":
+        return _slots_nyse(start, end, interval)
+
+    if session_id == "futures_24_5":
+        return _slots_futures(exchange, start, end, interval)
+
+    raise ValueError(f"Unknown session_id: {session_id!r}")
+
+
+def _slots_always_open(start: datetime, end: datetime, interval: timedelta) -> list[datetime]:
+    slots = []
+    t = start
+    while t <= end:
+        slots.append(t)
+        t += interval
+    return slots
+
+
+def _slots_fx(start: datetime, end: datetime, interval: timedelta) -> list[datetime]:
+    """Mon 00:00 UTC through Fri 24:00 UTC (weekday == 0..4)."""
+    slots = []
+    t = start
+    while t <= end:
+        if t.weekday() < 5:  # Mon=0 .. Fri=4
+            slots.append(t)
+        t += interval
+    return slots
+
+
+def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[datetime]:
+    raise NotImplementedError
+
+
+def _slots_futures(
+    exchange: str,
+    start: datetime,
+    end: datetime,
+    interval: timedelta,
+) -> list[datetime]:
     raise NotImplementedError
 
 
