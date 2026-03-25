@@ -13,6 +13,7 @@ class ProvenanceChain(BaseModel):
     plugin_stack: list[str]
     compute_budget_ms: float
 
+
 class IntelligenceJournal(BaseModel):
     """Atomic IntelligenceJournal record for Unified Intelligence Journaling."""
     ts: datetime = Field(..., description="Journaling timestamp (UTC)")

@@ -501,7 +501,7 @@ class SignalLedgerRepository:
     def __init__(self, db_manager: Any):
         self._db_manager = db_manager
 
-    async def insertSignals(self, entries: list[LedgerEntry]) -> None:
+    async def insert_signals(self, entries: list[LedgerEntry]) -> None:
         """Batch-insert ledger entries. No-op when *entries* is empty."""
         if not entries:
             return
@@ -509,7 +509,7 @@ class SignalLedgerRepository:
         await self._db_manager.execute_batch(_INSERT_SQL, params)
         logger.info("Inserted signals into ledger", count=len(entries))
 
-    async def insertSignalsWithFeatures(
+    async def insert_signals_with_features(
         self, entries: list[LedgerEntry], features: dict, cis_result: Any = None
     ) -> None:
         """Atomic write: signal_ledger + signal_features in one transaction per bar."""
@@ -529,7 +529,7 @@ class SignalLedgerRepository:
                         await conn.executemany(_INSERT_FEATURES_SQL, feature_rows)
         logger.info("Wrote signals + features atomically", count=len(entries))
 
-    async def updateSignalStatus(
+    async def update_signal_status(
         self, signal_id: str, **kwargs: Any
     ) -> None:
         """Update a signal's lifecycle status and optional exit fields."""
@@ -555,13 +555,13 @@ class SignalLedgerRepository:
         )
         logger.info("Updated signal status", signal_id=signal_id, status=kwargs.get("status"))
 
-    async def getActiveSignals(self, symbol: str | None = None) -> list[dict]:
+    async def get_active_signals(self, symbol: str | None = None) -> list[dict]:
         """Return pending/active signals, optionally filtered by *symbol*."""
         if symbol is not None:
             return await self._db_manager.execute_query(_SELECT_ACTIVE_BY_SYMBOL_SQL, symbol)
         return await self._db_manager.execute_query(_SELECT_ACTIVE_SQL)
 
-    async def recordActivation(self, signal_id: str, **kwargs: Any) -> None:
+    async def record_activation(self, signal_id: str, **kwargs: Any) -> None:
         """Write zone-track activation fields. Sets status='active'. Phase 2."""
         await self._db_manager.execute_command(
             _RECORD_ACTIVATION_SQL,
@@ -572,7 +572,7 @@ class SignalLedgerRepository:
             kwargs.get("bars_to_activation"),
         )
 
-    async def recordZoneResolution(self, signal_id: str, **kwargs: Any) -> None:
+    async def record_zone_resolution(self, signal_id: str, **kwargs: Any) -> None:
         """Write zone-track resolution fields. Phase 3, zone track only."""
         await self._db_manager.execute_command(
             _RECORD_ZONE_RESOLUTION_SQL,
@@ -590,7 +590,7 @@ class SignalLedgerRepository:
             kwargs.get("outcome"),
         )
 
-    async def recordMarketResolution(self, signal_id: str, **kwargs: Any) -> None:
+    async def record_market_resolution(self, signal_id: str, **kwargs: Any) -> None:
         """Write market-track resolution fields. Phase 3, market track only."""
         await self._db_manager.execute_command(
             _RECORD_MARKET_RESOLUTION_SQL,
@@ -606,7 +606,7 @@ class SignalLedgerRepository:
             kwargs.get("market_entry_gap_bars"),
         )
 
-    async def recordZoneResolutionWithActivation(self, signal_id: str, **kwargs: Any) -> None:
+    async def record_zone_resolution_with_activation(self, signal_id: str, **kwargs: Any) -> None:
         """Atomically write activation + zone exit on same bar. Prevents status stuck in 'active'."""
         await self._db_manager.execute_command(
             _RECORD_ZONE_WITH_ACTIVATION_SQL,

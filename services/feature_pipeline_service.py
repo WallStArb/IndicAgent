@@ -963,16 +963,17 @@ class FeaturePipelineService:
         key = f"{symbol}:{tf}"
         self._last_events[key] = event
 
-        # ---------------------------------------------------------------------------
-        # JOURNALING (Feature Historian Agent)
-        # ---------------------------------------------------------------------------
+        now = datetime.now(UTC)
+        msg_key = message_key(symbol, tf)
+        event_dict = event.model_dump()
+
         try:
             feature_journal = IntelligenceJournal(
-                ts=datetime.now(UTC),
+                ts=now,
                 sid=f"feat_{symbol}_{tf}",
-                payload=event.model_dump(),
+                payload=event_dict,
                 provenance=ProvenanceChain(
-                    origin_ts=datetime.now(UTC),
+                    origin_ts=now,
                     pipeline_id=f"feat_{symbol}_{tf}",
                     plugin_stack=["feature_pipeline_service"],
                     compute_budget_ms=0.0,
@@ -981,18 +982,15 @@ class FeaturePipelineService:
             await self._producer.publish(
                 topic_feature_processed(self._settings.env_name),
                 value=feature_journal.model_dump_json(),
-                key=message_key(symbol, tf),
+                key=msg_key,
             )
         except Exception as e:
             self.logger.warning("Feature journal publish failed", error=str(e))
 
-        # ---------------------------------------------------------------------------
-        # AGGREGATED INTELLIGENCE PUBLISH (Legacy Path)
-        # ---------------------------------------------------------------------------
         await self._producer.publish(
             topic_intelligence(self._settings.env_name),
             {"event": event.model_dump_json()},
-            key=message_key(symbol, tf),
+            key=msg_key,
         )
 
     # ---------------------------------------------------------------------------

@@ -55,8 +55,8 @@ from src.core.stream_keys import (
     topic_calibrated,
     topic_cross_asset,
     topic_intelligence,
+    topic_feature_processed,
     topic_intelligence_journal,
-    topic_intelligence_record,
     topic_market_ticks,
     topic_quality_gated,
     topic_ranked,
@@ -1408,16 +1408,17 @@ class SignalGeneratorService:
             if entries:
                 try:
                     env = self.env_name
+                    now = datetime.now(UTC)
                     journal = IntelligenceJournal(
-                        ts=datetime.now(UTC),
+                        ts=now,
                         sid=entries[0].signal_id,
                         payload={
                             "entries": [e.__dict__ for e in entries],
-                            "features": {},
+                            "features": features,
                             "selected_count": selected_count,
                         },
                         provenance=ProvenanceChain(
-                            origin_ts=datetime.now(UTC),
+                            origin_ts=now,
                             pipeline_id=f"gen_{symbol}_{timeframe}",
                             plugin_stack=[e.setup_plugin for e in entries],
                             compute_budget_ms=0.0,
@@ -1531,7 +1532,7 @@ class SignalGeneratorService:
                     pipeline_latency_ms=pipeline_latency_ms,
                 )
                 await self._kafka_producer.publish(
-                    topic_intelligence_record(self.env_name),
+                    topic_feature_processed(self.env_name),
                     record.model_dump_json(),
                     key=message_key(symbol, timeframe),
                 )
