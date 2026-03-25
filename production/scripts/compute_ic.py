@@ -3,35 +3,36 @@
 Information Coefficient (IC) computation — compute_ic.py
 
 Computes Pearson r(confidence, binary_outcome) per plugin per regime.
-Writes results to signal_performance_segmented table.
 
 Renaissance principle: "Earn the right through proof."
 IC is the quantifiable measure of whether a signal's confidence score has
 predictive power over realized outcomes. Plugins below threshold are flagged.
 
+Note: signal_performance_segmented table was dropped in v2.1.
+This script now operates in dry-run mode only — results printed to stdout.
+
 Usage:
     .venv/bin/python production/scripts/compute_ic.py --window-days 30
-    .venv/bin/python production/scripts/compute_ic.py --window-days 30 --write
-    .venv/bin/python production/scripts/compute_ic.py --symbols ES,NQ --write
-    .venv/bin/python production/scripts/compute_ic.py --regime trend --write
+    .venv/bin/python production/scripts/compute_ic.py --symbols ES,NQ
+    .venv/bin/python production/scripts/compute_ic.py --regime trend
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
+import asyncpg
 
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.config.settings import Settings  # noqa: E402
-from src.intelligence.ml.information_coefficient import (  # noqa: E402
+from src.config.settings import Settings
+from src.intelligence.ml.information_coefficient import (
     IC_MIN_SAMPLE_SIZE,
     IC_NOISE_THRESHOLD,
     IC_P_VALUE_THRESHOLD,
@@ -39,7 +40,7 @@ from src.intelligence.ml.information_coefficient import (  # noqa: E402
     compute_ic,
     is_ic_significant,
 )
-from src.intelligence.trading.signal_outcome import WIN_OUTCOMES  # noqa: E402
+from src.intelligence.trading.signal_outcome import WIN_OUTCOMES
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -74,11 +75,6 @@ def _parse_args() -> argparse.Namespace:
         help="Filter by regime_context group (default: all)",
     )
     parser.add_argument(
-        "--write",
-        action="store_true",
-        help="Write results to signal_performance_segmented (default: dry-run)",
-    )
-    parser.add_argument(
         "--min-ic",
         type=float,
         default=IC_NOISE_THRESHOLD,
@@ -93,12 +89,8 @@ def _parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 
-def _get_conn(settings: Settings) -> psycopg2.extensions.connection:
-    return psycopg2.connect(settings.database_url)
-
-
-def _fetch_signals(
-    conn: psycopg2.extensions.connection,
+async def _fetch_signals(
+    conn: asyncpg.Connection,
     window_days: int,
     symbols: list[str] | None,
 ) -> list[tuple]:
@@ -106,9 +98,12 @@ def _fetch_signals(
     # Use calibrated_confidence if available (migration 038), fall back to confidence
     # We detect availability at query time using a safe COALESCE with sub-select
     symbol_filter = ""
+    params: list[str | int] = [f"{window_days} days"]
+
     if symbols:
-        placeholders = ", ".join(["%s"] * len(symbols))
+        placeholders = ", ".join([f"${i + 2}" for i in range(len(symbols))])
         symbol_filter = f"AND symbol IN ({placeholders})"
+        params.extend(symbols)
 
     sql = f"""
         SELECT
@@ -121,72 +116,14 @@ def _fetch_signals(
             COALESCE(sl.regime_context, 'any')              AS regime_type,
             sl.feature_ts::date                             AS bar_date
         FROM signal_ledger sl
-        WHERE sl.feature_ts >= NOW() - INTERVAL %s
+        WHERE sl.feature_ts >= NOW() - INTERVAL $1
           AND sl.outcome IS NOT NULL
           {symbol_filter}
         ORDER BY sl.setup_plugin, sl.timeframe, sl.symbol, sl.feature_ts
     """
 
-    with conn.cursor() as cur:
-        cur.execute(sql, [f"{window_days} days"] + (symbols or []))
-        return cur.fetchall()
-
-
-def _write_results(
-    conn: psycopg2.extensions.connection,
-    results: list[ICResult],
-    window_days: int,
-    window_start: date,
-    window_end: date,
-) -> int:
-    """Insert IC results into signal_performance_segmented. Returns rows written."""
-    if not results:
-        return 0
-
-    rows = [
-        (
-            r.setup_plugin,
-            r.timeframe,
-            r.regime_type,
-            r.symbol,
-            datetime.now(UTC),
-            window_days,
-            window_start,
-            window_end,
-            r.sample_size,
-            r.wins,
-            r.win_rate,
-            r.avg_pnl_r,
-            r.ic_score,
-            r.ic_p_value,
-            r.ic_n,
-            r.ic_significant,
-        )
-        for r in results
-        if r.sample_size >= IC_MIN_SAMPLE_SIZE  # DB CHECK enforces this too
-    ]
-
-    if not rows:
-        return 0
-
-    sql = """
-        INSERT INTO signal_performance_segmented (
-            setup_plugin, timeframe, regime_type, symbol,
-            computed_at, window_days, window_start, window_end,
-            sample_size, wins, win_rate, avg_pnl_r,
-            ic_score, ic_p_value, ic_n, ic_significant
-        ) VALUES (
-            %s, %s, %s, %s,
-            %s, %s, %s, %s,
-            %s, %s, %s, %s,
-            %s, %s, %s, %s
-        )
-    """
-
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_batch(cur, sql, rows)
-    conn.commit()
-    return len(rows)
+    rows = await conn.fetch(sql, *params)
+    return [tuple(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -324,9 +261,7 @@ def _print_table(results: list[ICResult], min_ic: float) -> None:
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
-    args = _parse_args()
-
+async def _amain(args: argparse.Namespace) -> int:
     settings = Settings()
     symbols: list[str] | None = None
     if args.symbols:
@@ -336,14 +271,13 @@ def main() -> int:
     window_start = window_end - timedelta(days=args.window_days)
 
     print(f"IC Computation — window: {args.window_days}d ({window_start} to {window_end})")
-    print(f"Symbols: {symbols or 'all'} | Regime: {args.regime} | Write: {args.write}")
+    print(f"Symbols: {symbols or 'all'} | Regime: {args.regime}")
     print()
 
-    conn = None
+    conn = await asyncpg.connect(settings.database_url)
     try:
-        conn = _get_conn(settings)
         print("Fetching resolved signals from signal_ledger...")
-        rows = _fetch_signals(conn, args.window_days, symbols)
+        rows = await _fetch_signals(conn, args.window_days, symbols)
         print(f"  Fetched {len(rows):,} resolved signals")
 
         if not rows:
@@ -361,13 +295,6 @@ def main() -> int:
         print()
         _print_table(results, args.min_ic)
 
-        if args.write:
-            print(f"\nWriting {len(results)} results to signal_performance_segmented...")
-            n_written = _write_results(conn, results, args.window_days, window_start, window_end)
-            print(f"  Written: {n_written} rows")
-        else:
-            print("\n[DRY RUN] Use --write to persist results.")
-
         # Exit 1 if any plugin with N >= 30 is noise (monitoring integration)
         noise_count = sum(
             1 for r in results
@@ -380,8 +307,12 @@ def main() -> int:
         return 0
 
     finally:
-        if conn is not None:
-            conn.close()
+        await conn.close()
+
+
+def main() -> int:
+    args = _parse_args()
+    return asyncio.run(_amain(args))
 
 
 if __name__ == "__main__":

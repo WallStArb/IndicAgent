@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import re
 import shutil
@@ -38,8 +39,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import psycopg2
-import psycopg2.extras
+import asyncpg
 from scipy.stats import pearsonr
 from statsmodels.tsa.stattools import adfuller
 
@@ -49,55 +49,132 @@ from statsmodels.tsa.stattools import adfuller
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.config.settings import Settings  # noqa: E402
+from src.config.settings import Settings
 
 # ---------------------------------------------------------------------------
-# Plugin registry — maps --plugin name to DB column, field, tier, signal_type
+# Plugin auto-discovery
 # ---------------------------------------------------------------------------
-PLUGIN_REGISTRY: dict[str, dict[str, Any]] = {
+
+
+# Manual hints for plugins that can't be auto-detected
+# signal_type: 'binary', 'zero_cross', or 'directional'
+# n_bars_by_tf: default N bars for forward return window
+PLUGIN_HINTS: dict[str, dict[str, Any]] = {
     "ind_ACOscillator": {
-        "column": "i1",
-        "field": "ac",
-        "tier": "I1",
-        "register_fn": "register_indicator",
-        "import_path": ".indicators.ac_oscillator",
-        "import_alias": "ac_osc_plugin",
-        "signal_type": "zero_cross",  # ac crosses 0 = signal
+        "signal_type": "zero_cross",
         "n_bars_by_tf": {"1m": 5, "default": 3},
     },
     "cmp_DerivativeOscillator": {
-        "column": "i2",
-        "field": "deriv_osc_cross_bullish",
-        "tier": "I2",
-        "register_fn": "register_pattern",
-        "import_path": ".composites.derivative_oscillator",
-        "import_alias": "deriv_osc_plugin",
         "signal_type": "binary",
         "n_bars_by_tf": {"1m": 5, "default": 3},
     },
     "patt_CandlestickPatterns": {
-        "column": "i5",
-        "field": None,  # --field flag required
-        "tier": "I5",
-        "register_fn": "register_pattern",
-        "import_path": ".patterns.candlestick_patterns",
-        "import_alias": "candlestick_plugin",
         "signal_type": "binary",
         "n_bars_by_tf": {"1m": 5, "default": 3},
-        # secondary_patch: also patch candlestick_pattern_setup.py on --promote
         "secondary_patch": "candlestick_pattern_setup",
     },
     "evt_MACDEvents": {
-        "column": "i2",
-        "field": "macd_hist_accel",
-        "tier": "I2",
-        "register_fn": "register_pattern",
-        "import_path": ".composites.macd_events",
-        "import_alias": "macd_events_plugin",
-        "signal_type": "directional",  # positive = bullish
+        "signal_type": "directional",
         "n_bars_by_tf": {"1m": 5, "default": 3},
     },
 }
+
+
+def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
+    """
+    Auto-discover plugin metadata by importing and inspecting.
+
+    Returns dict with: column, tier, signal_type, n_bars_by_tf, import_path, import_alias, register_fn
+    Returns None if plugin not found.
+    """
+    # Map tier prefix to JSONB column
+    tier_to_column: dict[str, str] = {
+        "I1": "i1", "I2": "i2", "I3": "i3", "I4": "i4",
+        "I5": "i5", "I6": "i6", "I7": "i7", "SMC": "smc"
+    }
+
+    # Try to find plugin by name in tier lists
+    from src.intelligence.register_plugins import (
+        TIER_I1, TIER_I2, TIER_I3, TIER_I4, TIER_I5, TIER_I6, TIER_I7
+    )
+
+    all_tiers = {
+        "I1": TIER_I1, "I2": TIER_I2, "I3": TIER_I3, "I4": TIER_I4,
+        "I5": TIER_I5, "I6": TIER_I6, "I7": TIER_I7
+    }
+
+    # Find which tier this plugin belongs to
+    tier = None
+    for tier_name, tier_list in all_tiers.items():
+        if plugin_name in tier_list:
+            tier = tier_name
+            break
+
+    if not tier:
+        return None
+
+    # Determine import path by searching for the plugin file
+    # Try intelligence subdirectories
+    for subdir in ["indicators", "composites", "patterns", "trading", "events"]:
+        # Convert plugin_name to snake_case for file search
+        # e.g., cmp_DerivativeOscillator -> derivative_oscillator
+        name_parts = plugin_name.split("_", 1)
+        if len(name_parts) < 2:
+            continue
+
+        base_name = name_parts[1].lower()
+        # Convert camelCase to snake_case
+        import re
+        base_name = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
+
+        # Try module import
+        module_path = f"src.intelligence.{subdir}.{base_name}"
+
+        try:
+            # Try to determine if it uses register_indicator or register_pattern
+            # Indicators use register_indicator, patterns use register_pattern
+            if subdir == "indicators":
+                register_fn = "register_indicator"
+            else:
+                register_fn = "register_pattern"
+
+            # Create import alias
+            import_alias = f"{base_name}_plugin"
+
+            return {
+                "column": tier_to_column[tier],
+                "tier": tier,
+                "register_fn": register_fn,
+                "import_path": f".{subdir}.{base_name}",
+                "import_alias": import_alias,
+                # Will be filled from hints or defaults
+                "signal_type": PLUGIN_HINTS.get(plugin_name, {}).get("signal_type", "directional"),
+                "n_bars_by_tf": PLUGIN_HINTS.get(plugin_name, {}).get("n_bars_by_tf", {"1m": 5, "default": 3}),
+                "secondary_patch": PLUGIN_HINTS.get(plugin_name, {}).get("secondary_patch"),
+            }
+        except (ImportError, AttributeError):
+            continue
+
+    return None
+
+
+def list_known_plugins() -> dict[str, dict[str, Any]]:
+    """List all discoverable plugins from register_plugins tier lists."""
+    from src.intelligence.register_plugins import (
+        TIER_I1, TIER_I2, TIER_I3, TIER_I4, TIER_I5, TIER_I6, TIER_I7
+    )
+
+    all_plugins = {}
+    for tier_name, tier_list in [
+        ("I1", TIER_I1), ("I2", TIER_I2), ("I3", TIER_I3), ("I4", TIER_I4),
+        ("I5", TIER_I5), ("I6", TIER_I6), ("I7", TIER_I7)
+    ]:
+        for plugin_name in tier_list:
+            metadata = _discover_plugin_metadata(plugin_name)
+            if metadata:
+                all_plugins[plugin_name] = metadata
+
+    return all_plugins
 
 
 # ---------------------------------------------------------------------------
@@ -248,62 +325,62 @@ def _compute_stats(
 # ---------------------------------------------------------------------------
 
 
-def _count_qualifying_rows(
-    conn: Any,
+async def _count_qualifying_rows(
+    conn: asyncpg.Connection,
     column: str,
     field: str,
     days: int,
     symbol_filter: list[str] | None,
 ) -> int:
     """Return count of rows where the plugin field is present and non-null."""
-    with conn.cursor() as cur:
-        base_sql = f"""
-            SELECT COUNT(*)
-            FROM intelligence_features
-            WHERE ts >= NOW() - INTERVAL '{days} days'
-            AND {column} ? %s
-            AND ({column}->%s) IS NOT NULL
-        """
-        params: list[Any] = [field, field]
-        if symbol_filter:
-            placeholders = ", ".join(["%s"] * len(symbol_filter))
-            base_sql += f" AND symbol IN ({placeholders})"
-            params.extend(symbol_filter)
-        cur.execute(base_sql, params)
-        row = cur.fetchone()
-        return int(row[0]) if row else 0
+    base_sql = f"""
+        SELECT COUNT(*)
+        FROM intelligence_features
+        WHERE ts >= NOW() - INTERVAL '{days} days'
+        AND {column} ? $1
+        AND ({column}->>$2) IS NOT NULL
+    """
+    params: list[Any] = [field, field]
+
+    if symbol_filter:
+        placeholders = ", ".join([f"${i + 3}" for i in range(len(symbol_filter))])
+        base_sql += f" AND symbol IN ({placeholders})"
+        params.extend(symbol_filter)
+
+    return await conn.fetchval(base_sql, *params)
 
 
-def _fetch_rows(
-    conn: Any,
+async def _fetch_rows(
+    conn: asyncpg.Connection,
     column: str,
     field: str,
     days: int,
     symbol_filter: list[str] | None,
 ) -> list[tuple[Any, ...]]:
     """Fetch (symbol, tf, ts, close, column_jsonb) rows."""
-    with conn.cursor() as cur:
+    base_sql = f"""
+        SELECT symbol, tf, ts, (bar->>'close')::float, {column}
+        FROM intelligence_features
+        WHERE ts >= NOW() - INTERVAL '{days} days'
+        AND {column} ? $1
+        ORDER BY symbol, tf, ts
+    """
+    params: list[Any] = [field]
+
+    if symbol_filter:
+        placeholders = ", ".join([f"${i + 2}" for i in range(len(symbol_filter))])
         base_sql = f"""
             SELECT symbol, tf, ts, (bar->>'close')::float, {column}
             FROM intelligence_features
             WHERE ts >= NOW() - INTERVAL '{days} days'
-            AND {column} ? %s
+            AND {column} ? $1
+            AND symbol IN ({placeholders})
             ORDER BY symbol, tf, ts
         """
-        params: list[Any] = [field]
-        if symbol_filter:
-            placeholders = ", ".join(["%s"] * len(symbol_filter))
-            base_sql = f"""
-                SELECT symbol, tf, ts, (bar->>'close')::float, {column}
-                FROM intelligence_features
-                WHERE ts >= NOW() - INTERVAL '{days} days'
-                AND {column} ? %s
-                AND symbol IN ({placeholders})
-                ORDER BY symbol, tf, ts
-            """
-            params = [field] + symbol_filter
-        cur.execute(base_sql, params)
-        return cur.fetchall()
+        params = [field] + symbol_filter
+
+    rows = await conn.fetch(base_sql, *params)
+    return [tuple(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +620,7 @@ def _patch_candlestick_setup(
 # ---------------------------------------------------------------------------
 
 
-def run_validation(
+async def run_validation(
     plugin: str,
     days: int,
     symbol_filter: list[str] | None,
@@ -557,15 +634,35 @@ def run_validation(
     Returns the report dict. Writes report to report_dir.
     Exits non-zero on gate failure (when promote=True) or if gates fail.
     """
-    if plugin not in PLUGIN_REGISTRY:
-        print(f"ERROR: Unknown plugin '{plugin}'. Known plugins: {list(PLUGIN_REGISTRY)}")
+    # Auto-discover plugin metadata
+    all_plugins = list_known_plugins()
+
+    if plugin not in all_plugins:
+        print(f"ERROR: Unknown plugin '{plugin}'.")
+        print(f"Known plugins: {sorted(all_plugins.keys())}")
         sys.exit(1)
 
-    plugin_meta = PLUGIN_REGISTRY[plugin]
-    effective_field = field or plugin_meta["field"]
+    plugin_meta = all_plugins[plugin]
+
+    # For multi-field plugins (like candlestick patterns), field must be specified
+    if plugin == "patt_CandlestickPatterns" and field is None:
+        print(f"ERROR: Plugin '{plugin}' requires --field <field_name> (multi-field plugin).")
+        sys.exit(1)
+
+    effective_field = field or plugin_meta.get("field")
+
+    # For single-field plugins without explicit field, use plugin name as field
+    if effective_field is None:
+        # Try to derive field from plugin name
+        # e.g., ind_ACOscillator -> ac
+        name_parts = plugin.split("_", 1)
+        if len(name_parts) == 2:
+            # Convert CamelCase to snake_case for field
+            base_name = name_parts[1]
+            effective_field = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
 
     if effective_field is None:
-        print(f"ERROR: Plugin '{plugin}' requires --field <field_name> (multi-field plugin).")
+        print(f"ERROR: Cannot determine field for plugin '{plugin}'. Use --field <field_name>.")
         sys.exit(1)
 
     column = plugin_meta["column"]
@@ -574,11 +671,11 @@ def run_validation(
 
     # --- Connect to DB ---
     settings = Settings()
-    conn = psycopg2.connect(settings.database_url)
+    conn = await asyncpg.connect(settings.database_url)
 
     try:
         # --- Data sufficiency check ---
-        row_count = _count_qualifying_rows(conn, column, effective_field, days, symbol_filter)
+        row_count = await _count_qualifying_rows(conn, column, effective_field, days, symbol_filter)
 
         if row_count < 30:
             print(f"  Insufficient data: {row_count} bars. Triggering historical replay...")
@@ -588,20 +685,20 @@ def run_validation(
                 check=False,
             )
             # Re-count after backfill
-            row_count = _count_qualifying_rows(conn, column, effective_field, days, symbol_filter)
+            row_count = await _count_qualifying_rows(conn, column, effective_field, days, symbol_filter)
             print(f"  After backfill: {row_count} qualifying bars.")
 
         # --- Fetch data ---
-        raw_rows = _fetch_rows(conn, column, effective_field, days, symbol_filter)
+        raw_rows = await _fetch_rows(conn, column, effective_field, days, symbol_filter)
 
     finally:
-        conn.close()
+        await conn.close()
 
     # Build DataFrame from raw rows
     records = []
     symbols_seen: set[str] = set()
     for sym, tf, ts, close, col_json in raw_rows:
-        # col_json comes as dict (with psycopg2 extras) or string
+        # col_json comes as dict (asyncpg returns JSONB as dict)
         if isinstance(col_json, str):
             col_json = json.loads(col_json)
         val = col_json.get(effective_field) if col_json else None
@@ -731,7 +828,7 @@ def main() -> None:
     parser.add_argument(
         "--plugin",
         required=True,
-        help=f"Plugin name to validate. Known: {list(PLUGIN_REGISTRY)}",
+        help="Plugin name to validate.",
     )
     parser.add_argument(
         "--days",
@@ -766,8 +863,22 @@ def main() -> None:
             "Use when plugin is newly registered and has no historical data yet."
         ),
     )
+    parser.add_argument(
+        "--list-plugins",
+        action="store_true",
+        help="List all discoverable plugins and exit.",
+    )
 
     args = parser.parse_args()
+
+    # List plugins and exit
+    if args.list_plugins:
+        all_plugins = list_known_plugins()
+        print("Discoverable plugins:")
+        for name in sorted(all_plugins.keys()):
+            meta = all_plugins[name]
+            print(f"  {name} (tier={meta['tier']}, column={meta['column']})")
+        sys.exit(0)
 
     symbol_filter: list[str] | None = None
     if args.symbol_filter:
@@ -778,12 +889,21 @@ def main() -> None:
 
     # Bootstrap path: write audit trail without running statistical gates or DB queries.
     if args.bootstrap:
-        if args.plugin not in PLUGIN_REGISTRY:
-            print(f"ERROR: Unknown plugin '{args.plugin}'. Known plugins: {list(PLUGIN_REGISTRY)}")
+        all_plugins = list_known_plugins()
+        if args.plugin not in all_plugins:
+            print(f"ERROR: Unknown plugin '{args.plugin}'.")
+            print(f"Use --list-plugins to see discoverable plugins.")
             sys.exit(1)
 
-        plugin_meta = PLUGIN_REGISTRY[args.plugin]
-        effective_field = args.field or plugin_meta["field"]
+        plugin_meta = all_plugins[args.plugin]
+
+        # Determine field similar to main validation
+        effective_field = args.field
+        if effective_field is None:
+            name_parts = args.plugin.split("_", 1)
+            if len(name_parts) == 2:
+                base_name = name_parts[1]
+                effective_field = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
 
         if effective_field is None:
             print(
@@ -830,14 +950,14 @@ def main() -> None:
         )
         sys.exit(0)
 
-    result = run_validation(
+    result = asyncio.run(run_validation(
         plugin=args.plugin,
         days=args.days,
         symbol_filter=symbol_filter,
         promote=args.promote,
         field=args.field,
         report_dir=report_dir,
-    )
+    ))
 
     # Exit code: 0 = PASS, 1 = FAIL
     if result["verdict"] != "PASS":
