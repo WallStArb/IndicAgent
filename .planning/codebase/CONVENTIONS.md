@@ -34,12 +34,17 @@ Use `isort` via ruff (`[tool.ruff.lint.isort]` in pyproject.toml) with `known-fi
 
 ## Naming Conventions
 
-**Functions:**
-- `camelCase` for all functions and methods
-- Verb-first for actions: `compute_full()`, `publish_ohlcv_bar()`, `ensure_consumer_group_with_reset()`
-- Getter-like: `get_active_contracts()`, `min_bars_for_tf()`
-- Boolean predicates: `is_*()` or `has_*()` (e.g., `is_num()`, `has_context()`)
-- Internal: `_private_method()` with leading underscore
+**Functions & Methods:**
+- `snake_case` (PEP 8) for all functions and methods (e.g., `insert_signals()`, `record_activation()`). 
+- Verb-first for actions: `compute_full()`, `publish_ohlcv_bar()`.
+- Getter-like: `get_active_contracts()`, `min_bars_for_tf()`.
+- Boolean predicates: `is_*()` or `has_*()` (e.g., `is_num()`, `has_context()`).
+- Internal: `_private_method()` with leading underscore.
+
+**Classes:**
+- `PascalCase` for all classes (e.g., `CCIPlugin`, `IndicatorService`, `TradeFrame`).
+- **Persistence Pattern:** All database I/O MUST use `src/persistence/repository/` classes. All asynchronous persistence consumers MUST use the `DataWriterAgent` pattern defined in `src/persistence/writer/`.
+
 
 **Variables:**
 - `snake_case` for all variables, parameters, module names
