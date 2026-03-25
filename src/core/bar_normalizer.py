@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone  # noqa: F401
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import pandas_market_calendars as mcal  # noqa: F401
+import pandas_market_calendars as mcal
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 ET = ZoneInfo("America/New_York")
-UTC = UTC
+
+SOURCE_SYNTHETIC_FILL = "synthetic_fill"
 
 # Minutes per timeframe
 _TF_MINUTES: dict[str, int] = {
@@ -33,9 +34,18 @@ _FUTURES_EXCHANGE_TO_PMC: dict[str, str] = {
     "CFE": "CFE",           # VIX futures
 }
 
+# Module-level calendar cache — PMC calendar instantiation is expensive.
+# Cached once per calendar name, reused across all calls in the same process.
+_NYSE_CAL: mcal.MarketCalendar | None = None
+_FUTURES_CAL_CACHE: dict[str, mcal.MarketCalendar] = {}
+
+# NYSE session window in ET (pre-market through after-hours)
+_NYSE_SESSION_OPEN_HOUR = 4
+_NYSE_SESSION_CLOSE_HOUR = 20
+
 
 # ---------------------------------------------------------------------------
-# Internal helpers (implemented in later tasks)
+# Internal helpers
 # ---------------------------------------------------------------------------
 
 def _generate_session_slots(
@@ -88,34 +98,31 @@ def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[dat
     Half-days: session ends at early_close time instead of 20:00 ET.
     Holidays: entire day excluded.
     """
-    cal = mcal.get_calendar("NYSE")
+    global _NYSE_CAL
+    if _NYSE_CAL is None:
+        _NYSE_CAL = mcal.get_calendar("NYSE")
 
     start_date = start.astimezone(ET).date()
     end_date = end.astimezone(ET).date()
     # IMPORTANT: tz="America/New_York" is mandatory.
     # Without it, market_close is returned as UTC and the half-day check
     # (pmc_close_et.hour < 16) silently fails.
-    schedule = cal.schedule(
+    schedule = _NYSE_CAL.schedule(
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
         tz="America/New_York",
     )
 
-    SESSION_OPEN_ET  = {"hour": 4,  "minute": 0}
-    SESSION_CLOSE_ET = {"hour": 20, "minute": 0}
-
     trading_windows: list[tuple[datetime, datetime]] = []
     for _, row in schedule.iterrows():
         day_et = row["market_open"].date()
         day_open = datetime(day_et.year, day_et.month, day_et.day,
-                            SESSION_OPEN_ET["hour"], SESSION_OPEN_ET["minute"],
-                            tzinfo=ET)
+                            _NYSE_SESSION_OPEN_HOUR, 0, tzinfo=ET)
         pmc_close_et = row["market_close"].astimezone(ET)
         full_close_et = datetime(day_et.year, day_et.month, day_et.day,
-                                 SESSION_CLOSE_ET["hour"], SESSION_CLOSE_ET["minute"],
-                                 tzinfo=ET)
-        is_half_day = pmc_close_et.hour < 16
-        day_close = pmc_close_et if is_half_day else full_close_et
+                                 _NYSE_SESSION_CLOSE_HOUR, 0, tzinfo=ET)
+        # PMC market_close < 16:00 ET means it's a half-day — honour early close
+        day_close = pmc_close_et if pmc_close_et.hour < 16 else full_close_et
         trading_windows.append((day_open, day_close))
 
     slots = []
@@ -139,10 +146,13 @@ def _slots_futures(
     """CME/CBOT/COMEX/NYMEX/CFE Globex sessions via pandas_market_calendars.
 
     PMC encodes Globex hours including the Sunday maintenance window.
-    Falls back gracefully: if PMC returns no schedule, returns empty list.
+    Returns empty list if PMC has no schedule for the date range.
     """
     pmc_name = _FUTURES_EXCHANGE_TO_PMC[exchange]  # KeyError on unknown exchange
-    cal = mcal.get_calendar(pmc_name)
+
+    if pmc_name not in _FUTURES_CAL_CACHE:
+        _FUTURES_CAL_CACHE[pmc_name] = mcal.get_calendar(pmc_name)
+    cal = _FUTURES_CAL_CACHE[pmc_name]
 
     start_date = start.astimezone(UTC).date()
     end_date = end.astimezone(UTC).date()
@@ -152,7 +162,7 @@ def _slots_futures(
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
         )
-    except Exception:
+    except ValueError:
         return []
 
     if schedule.empty:
@@ -214,30 +224,21 @@ def normalize_bars(
         Synthetic bars have source="synthetic_fill".
     """
     expected_slots = _generate_session_slots(session_id, exchange, timeframe, start, end)
+    if not expected_slots:
+        return list(bars)
 
-    # Normalize real bars by timestamp (UTC, sub-second stripped)
-    normalized_bars: list[dict] = []
+    slot_set: set[datetime] = {s.replace(microsecond=0) for s in expected_slots}
+
+    # Single pass: build timestamp index and collect out-of-session real bars
     bar_index: dict[datetime, dict] = {}
+    out_of_session: list[dict] = []
     for b in bars:
         t = b["timestamp"]
         if t.tzinfo is None:
             t = t.replace(tzinfo=UTC)
         t = t.replace(microsecond=0)
         bar_index[t] = b
-        normalized_bars.append(b)
-
-    if not expected_slots:
-        return normalized_bars
-
-    slot_set: set[datetime] = {s.replace(microsecond=0) for s in expected_slots}
-
-    # Bars that fall outside any session slot are passed through unchanged
-    out_of_session: list[dict] = []
-    for b in normalized_bars:
-        t = b["timestamp"]
-        if t.tzinfo is None:
-            t = t.replace(tzinfo=UTC)
-        if t.replace(microsecond=0) not in slot_set:
+        if t not in slot_set:
             out_of_session.append(b)
 
     result: list[dict] = []
@@ -260,9 +261,8 @@ def normalize_bars(
                 "low":    prev_close,
                 "close":  prev_close,
                 "volume": 0,
-                "source": "synthetic_fill",
+                "source": SOURCE_SYNTHETIC_FILL,
             })
-            # prev_close stays the same for chained flat bars
 
     # Merge out-of-session real bars back in, sorted by timestamp
     if out_of_session:

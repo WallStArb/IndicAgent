@@ -72,7 +72,7 @@ import pandas as pd
 
 from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
 from src.config.settings import Settings
-from src.core.bar_normalizer import normalize_bars
+from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL, normalize_bars
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
@@ -1403,8 +1403,7 @@ def run_normalize(
                 end=end,
             )
 
-            existing_ts = {b["timestamp"] for b in rows}
-            new_bars = [b for b in canonical if b["timestamp"] not in existing_ts]
+            new_bars = [b for b in canonical if b["source"] == SOURCE_SYNTHETIC_FILL]
 
             if not new_bars:
                 print(f"  {instrument.symbol}/{tf}: already canonical ({len(rows)} rows)")
