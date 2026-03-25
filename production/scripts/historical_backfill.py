@@ -75,6 +75,7 @@ from src.config.settings import Settings
 from src.core.bar_normalizer import (
     SOURCE_DERIVED_1M,
     SOURCE_SYNTHETIC_FILL,
+    generate_session_slots,
     normalize_bars,
 )
 from src.core.database_manager import DatabaseManager
@@ -1031,39 +1032,52 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 
 
 def detect_gaps(
-    db_conn: Any, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+    db_conn: Any,
+    symbol: str,
+    timeframe: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    session_id: str,
+    exchange: str,
 ) -> list[tuple[datetime, datetime]]:
-    """Detect gaps in OHLCV data within the specified range."""
-    # Find all existing bars in the range
-    query = """
-        SELECT timestamp FROM market_data_ohlcv
-        WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
-        ORDER BY timestamp ASC
+    """Detect gaps in OHLCV data, restricted to expected session slots.
+
+    Uses session-aware slot generation so maintenance windows and market
+    closures are not reported as gaps.  Returns contiguous missing ranges
+    ready for use as IBKR fetch windows.
     """
+    expected = generate_session_slots(session_id, exchange, timeframe, start_dt, end_dt)
+    if not expected:
+        return []
+
     with db_conn.cursor() as cur:
-        cur.execute(query, (symbol, timeframe, start_dt, end_dt))
-        timestamps = [r[0] for r in cur.fetchall()]
+        cur.execute(
+            """SELECT timestamp FROM market_data_ohlcv
+               WHERE symbol = %s AND timeframe = %s
+                 AND timestamp >= %s AND timestamp <= %s""",
+            (symbol, timeframe, start_dt, end_dt),
+        )
+        rows = cur.fetchall()
+        actual: set[datetime] = {
+            r[0].replace(tzinfo=UTC) if r[0].tzinfo is None else r[0] for r in rows
+        }
 
-    if not timestamps:
-        return [(start_dt, end_dt)]
+    missing = [ts for ts in expected if ts not in actual]
+    if not missing:
+        return []
 
-    gaps = []
-
-    # Check start
-    if timestamps[0] > start_dt:
-        gaps.append((start_dt, timestamps[0]))
-
-    # Check intervals between bars
-    interval = timedelta(minutes=_TF_MINUTES.get(timeframe, 1))
-    for i in range(len(timestamps) - 1):
-        if timestamps[i+1] - timestamps[i] > interval:
-            gaps.append((timestamps[i] + interval, timestamps[i+1]))
-
-    # Check end
-    if timestamps[-1] < end_dt:
-        gaps.append((timestamps[-1] + interval, end_dt))
-
-    return gaps
+    interval = timedelta(minutes=_TF_MINUTES[timeframe])
+    ranges: list[tuple[datetime, datetime]] = []
+    run_start = missing[0]
+    run_end = missing[0]
+    for ts in missing[1:]:
+        if ts - run_end == interval:
+            run_end = ts
+        else:
+            ranges.append((run_start, run_end))
+            run_start = run_end = ts
+    ranges.append((run_start, run_end))
+    return ranges
 
 
 def connect_db(settings: Settings) -> Any:
@@ -1605,7 +1619,11 @@ def main() -> None:
                             hour=0, minute=0, second=0, microsecond=0
                         )
 
-                        gaps = detect_gaps(db_conn, instrument.symbol, tf, start_dt, end_dt)
+                        gaps = detect_gaps(
+                            db_conn, instrument.symbol, tf, start_dt, end_dt,
+                            session_id=instrument.session_id,
+                            exchange=instrument.exchange,
+                        )
                         if not gaps:
                             print(f"  {instrument.symbol}/{tf}: no gaps found.")
                             fetched_tfs.add(tf)
