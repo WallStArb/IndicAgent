@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.schemas.bar_message import BarMessage, SessionType
 
 
@@ -33,7 +34,7 @@ def _make_bar(close: float, ts_offset: int = 0) -> BarMessage:
         low=close - 0.1,
         close=close,
         volume=1000,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
         gap_preceding=False,
     )

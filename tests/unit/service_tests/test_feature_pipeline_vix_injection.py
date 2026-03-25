@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from src.core.bar_history import BarHistory
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.schemas.bar_message import BarMessage, SessionType
 
 
@@ -32,7 +33,7 @@ def _make_bar(symbol: str, tf: str = "1m", close: float = 20.0) -> BarMessage:
         low=close - 0.5,
         close=close,
         volume=100,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
         gap_preceding=False,
     )

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from src.core.bar_normalizer import SOURCE_HTF_DERIVED, SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
 from src.core.schemas.bar_message import BarMessage, SessionType
 
 
@@ -25,7 +26,7 @@ def _make_bar(**overrides) -> dict:
         "low": 5248.75,
         "close": 5251.00,
         "volume": 1500,
-        "source": "ibkr_named",
+        "source": SOURCE_IBKR_NAMED,
         "session_type": SessionType.RTH,
     }
     base.update(overrides)
@@ -99,7 +100,7 @@ class TestBarMessageValidation:
 
     def test_valid_sources_accepted(self):
         """All three valid source literals are accepted."""
-        for src in ("ibkr_named", "ibkr_seed", "htf_derived"):
+        for src in (SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED):
             bar = BarMessage(**_make_bar(source=src))
             assert bar.source == src
 

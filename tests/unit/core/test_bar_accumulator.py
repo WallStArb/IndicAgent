@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from src.core.bar_normalizer import SOURCE_HTF_DERIVED, SOURCE_IBKR_NAMED
+
 if TYPE_CHECKING:
     from src.core.schemas.bar_message import BarMessage
 
@@ -41,7 +43,7 @@ def _make_1m_bar(
         low=low,
         close=close,
         volume=volume,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=session_type or SessionType.RTH,
     )
 
@@ -153,7 +155,7 @@ def test_ohlcv_aggregation():
             low=low,
             close=c,
             volume=v,
-            source="ibkr_named",
+            source=SOURCE_IBKR_NAMED,
             session_type=SessionType.RTH,
         )
         result = acc.update(bar)
@@ -184,7 +186,7 @@ def test_htf_derived_source():
 
     five_m_bars = [b for b in emitted if b.tf == "5m"]
     assert len(five_m_bars) == 1
-    assert five_m_bars[0].source == "htf_derived"
+    assert five_m_bars[0].source == SOURCE_HTF_DERIVED
 
 
 def test_no_1m_no_output():
@@ -202,7 +204,7 @@ def test_no_1m_no_output():
         low=5248.0,
         close=5251.0,
         volume=5000,
-        source="htf_derived",
+        source=SOURCE_HTF_DERIVED,
         session_type=SessionType.RTH,
     )
     result = acc.update(bar_5m)
@@ -235,7 +237,7 @@ def test_session_break_closes_partial():
         low=5238.0,
         close=5241.0,
         volume=300,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.ETH,
     )
     bar_rth = BarMessage(
@@ -247,7 +249,7 @@ def test_session_break_closes_partial():
         low=5248.0,
         close=5251.0,
         volume=1500,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
     )
 

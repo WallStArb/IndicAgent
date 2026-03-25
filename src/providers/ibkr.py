@@ -19,6 +19,12 @@ from ib_insync import IB, ContFuture, Contract, Forex, Future, Stock
 nest_asyncio.apply()
 
 from src.config.settings import Settings  # noqa: E402
+from src.core.bar_normalizer import (  # noqa: E402
+    SOURCE_IBKR_CONTINUOUS,
+    SOURCE_IBKR_GENERIC,
+    SOURCE_IBKR_NAMED,
+    SOURCE_IBKR_OFFICIAL,
+)
 from src.core.models import AssetClass, Instrument  # noqa: E402
 
 # Circuit breaker and retry
@@ -290,7 +296,7 @@ class IBKRProvider:
             exchange = getattr(named_contract, "exchange", "CME")
             contract = ContFuture(symbol=base, exchange=exchange)
             what_to_show = "ADJUSTED_LAST"
-            source_tag = "ibkr_continuous_adj"
+            source_tag = SOURCE_IBKR_CONTINUOUS
             use_rth = False
         else:
             contract = named_contract
@@ -301,7 +307,7 @@ class IBKRProvider:
                 what_to_show = "AGGTRADES"
             else:
                 what_to_show = "TRADES"
-            source_tag = "ibkr_named"
+            source_tag = SOURCE_IBKR_NAMED
             use_rth = sec_type == "STK"
 
         all_bars: list[OHLCVBar] = []
@@ -533,7 +539,7 @@ class IBKRProvider:
             ask=_pos_float(getattr(ticker, "ask", None)),
             bid_size=_pos_int(getattr(ticker, "bidSize", None)),
             ask_size=_pos_int(getattr(ticker, "askSize", None)),
-            source="ibkr",
+            source=SOURCE_IBKR_GENERIC,
         )
 
     def _handle_pending_tickers(self, tickers) -> None:
@@ -691,7 +697,7 @@ class IBKRProvider:
                         low=float(bar.low),
                         close=float(bar.close),
                         volume=int(bar.volume),
-                        source="ibkr_official",
+                        source=SOURCE_IBKR_OFFICIAL,
                     )
                     self._loop.call_soon_threadsafe(
                         official_queue.put_nowait, (_symbol, normalized)

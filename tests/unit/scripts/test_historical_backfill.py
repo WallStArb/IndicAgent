@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
+from src.core.bar_normalizer import SOURCE_DERIVED_1M
+
 
 def test_aggregate_bars_from_1m_5m_groups_correctly():
     """Five 1m bars in the same 5m window produce one aggregated bar."""
@@ -33,7 +35,7 @@ def test_aggregate_bars_from_1m_5m_groups_correctly():
     assert agg["high"] == max(b["high"] for b in bars)
     assert agg["low"] == min(b["low"] for b in bars)
     assert agg["volume"] == 50
-    assert agg["source"] == "derived_1m"
+    assert agg["source"] == SOURCE_DERIVED_1M
 
 
 def test_aggregate_bars_from_1m_splits_across_windows():

@@ -21,6 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from src.core.bar_normalizer import SOURCE_HTF_DERIVED, SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
+
 
 class SessionType(str, Enum):
     """Trading session classification for a bar.
@@ -67,6 +69,6 @@ class BarMessage(BaseModel):
     low: float
     close: float
     volume: int
-    source: Literal["ibkr_named", "ibkr_seed", "htf_derived"]
+    source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED]
     session_type: SessionType
     gap_preceding: bool = False

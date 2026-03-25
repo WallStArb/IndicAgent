@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED
+
 UTC = UTC
 
 if TYPE_CHECKING:
@@ -33,7 +35,7 @@ def _make_bar(
         low=close - 2.0,
         close=close,
         volume=volume,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
     )
 
@@ -63,7 +65,7 @@ def _make_bars_sequence(
                 low=5248.0 + i,
                 close=5251.0 + i,
                 volume=1000 + i * 100,
-                source="ibkr_named",
+                source=SOURCE_IBKR_NAMED,
                 session_type=SessionType.RTH,
             )
         )
@@ -195,7 +197,7 @@ def test_migrate_symbol():
             low=5248.0,
             close=5251.0,
             volume=1000,
-            source="ibkr_named",
+            source=SOURCE_IBKR_NAMED,
             session_type=SessionType.RTH,
         )
         bh.append(bar)

@@ -2,7 +2,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.core.bar_normalizer import _generate_session_slots, normalize_bars
+from src.core.bar_normalizer import (
+    SOURCE_DERIVED_1M,
+    SOURCE_SYNTHETIC_FILL,
+    _generate_session_slots,
+    normalize_bars,
+)
 
 UTC = UTC
 
@@ -138,7 +143,7 @@ class TestNormalizeBars:
             make_bar("2026-03-10 14:02:00", 102.0),
         ]
         result = normalize_bars(
-            bars, "SPY", "1m", "nyse", "SMART",
+            bars, "SPY", "1m",
             ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
         )
         assert len(result) == 3
@@ -151,7 +156,7 @@ class TestNormalizeBars:
             make_bar("2026-03-10 14:02:00", 102.0),
         ]
         result = normalize_bars(
-            bars, "SPY", "1m", "nyse", "SMART",
+            bars, "SPY", "1m",
             ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
         )
         assert len(result) == 3
@@ -162,13 +167,13 @@ class TestNormalizeBars:
         assert synthetic["low"]    == 100.0
         assert synthetic["close"]  == 100.0
         assert synthetic["volume"] == 0
-        assert synthetic["source"] == "synthetic_fill"
+        assert synthetic["source"] == SOURCE_SYNTHETIC_FILL
 
     def test_no_prev_close_gap_at_start_skipped(self):
         # First two bars missing — no prev_close to fill from
         bars = [make_bar("2026-03-10 14:02:00", 102.0)]
         result = normalize_bars(
-            bars, "SPY", "1m", "nyse", "SMART",
+            bars, "SPY", "1m",
             ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
         )
         # 14:00 and 14:01 have no prev_close — skipped
@@ -177,29 +182,32 @@ class TestNormalizeBars:
 
     def test_source_preserved_on_real_bars(self):
         bars = [
-            make_bar("2026-03-10 14:00:00", 100.0, source="derived_1m"),
+            make_bar("2026-03-10 14:00:00", 100.0, source=SOURCE_DERIVED_1M),
             make_bar("2026-03-10 14:01:00", 101.0, source="historical_backfill"),
         ]
         result = normalize_bars(
-            bars, "SPY", "1m", "nyse", "SMART",
+            bars, "SPY", "1m",
             ts("2026-03-10 14:00:00"), ts("2026-03-10 14:01:00"),
         )
-        assert result[0]["source"] == "derived_1m"
+        assert result[0]["source"] == SOURCE_DERIVED_1M
         assert result[1]["source"] == "historical_backfill"
 
-    def test_overnight_gap_not_filled(self):
-        # Spans weekend — no session slots, no synthetic fills
-        # Mar 2026 is EDT (UTC-4): 01:00 UTC = 21:00 EDT Thu Mar 12; 09:00 UTC = 05:00 EDT Mon
+    def test_weekend_gap_filled_with_synthetic(self):
+        # Canonical grid: every slot filled regardless of session — synthetic_fill marks non-trading
         bars = [
-            make_bar("2026-03-13 01:00:00", 100.0),  # 21:00 EDT Thursday Mar 12
-            make_bar("2026-03-16 09:00:00", 101.0),  # 05:00 EDT Monday Mar 16
+            make_bar("2026-03-13 01:00:00", 100.0),
+            make_bar("2026-03-16 09:00:00", 101.0),
         ]
         result = normalize_bars(
-            bars, "SPY", "1m", "nyse", "SMART",
+            bars, "SPY", "1m",
             ts("2026-03-13 01:00:00"), ts("2026-03-16 09:00:00"),
         )
-        # Only the two real bars — no synthetic fills across session boundary
-        assert len(result) == 2
+        # All 1m slots filled — real bars at start/end, synthetic in between
+        expected_slots = int((ts("2026-03-16 09:00:00") - ts("2026-03-13 01:00:00")).total_seconds() / 60) + 1
+        assert len(result) == expected_slots
+        assert result[0]["source"] == "historical_backfill"
+        assert result[-1]["source"] == "historical_backfill"
+        assert result[1]["source"] == SOURCE_SYNTHETIC_FILL
 
     def test_idempotent(self):
         bars = [
@@ -207,11 +215,11 @@ class TestNormalizeBars:
             make_bar("2026-03-10 14:02:00", 102.0),
         ]
         result1 = normalize_bars(
-            bars, "SPY", "1m", "nyse", "SMART",
+            bars, "SPY", "1m",
             ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
         )
         result2 = normalize_bars(
-            result1, "SPY", "1m", "nyse", "SMART",
+            result1, "SPY", "1m",
             ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
         )
         assert len(result1) == len(result2)
@@ -219,15 +227,14 @@ class TestNormalizeBars:
             assert b1["timestamp"] == b2["timestamp"]
             assert b1["source"] == b2["source"]
 
-    def test_crypto_fills_across_weekend(self):
-        # 2026-03-14 Sat → crypto always open
+    def test_fills_across_weekend(self):
         bars = [
             make_bar("2026-03-14 12:00:00", 50000.0),
             make_bar("2026-03-14 12:02:00", 50010.0),
         ]
         result = normalize_bars(
-            bars, "BTC", "1m", "crypto_24_7", "PAXOS",
+            bars, "BTC", "1m",
             ts("2026-03-14 12:00:00"), ts("2026-03-14 12:02:00"),
         )
         assert len(result) == 3
-        assert result[1]["source"] == "synthetic_fill"
+        assert result[1]["source"] == SOURCE_SYNTHETIC_FILL

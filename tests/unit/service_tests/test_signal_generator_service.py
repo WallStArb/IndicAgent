@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.core.bar_history import BarHistory
+from src.core.bar_normalizer import SOURCE_IBKR_SEED
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1494,7 +1495,7 @@ async def test_seed_bar_history_from_db_success():
         # After reversing DESC rows: oldest first (14:00 at index 0, 14:01 at index 1)
         assert bars_1m[0].close == 4502.0
         assert bars_1m[1].close == 4504.0
-        assert bars_1m[0].source == "ibkr_seed"
+        assert bars_1m[0].source == SOURCE_IBKR_SEED
 
         assert len(bars_5m) == 2
         assert bars_5m[0].close == 4502.0
@@ -1543,7 +1544,6 @@ async def test_all_suppressed_signals_still_write_to_ledger():
     """
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from src.intelligence.trading.signal_ledger import LedgerEntry
     from src.intelligence.enums import SignalStatus
 
     ts = datetime(2026, 3, 23, 14, 0, 0, tzinfo=UTC)
