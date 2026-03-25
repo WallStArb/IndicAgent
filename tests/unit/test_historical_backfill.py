@@ -162,7 +162,7 @@ class TestFetchAndStoreBars:
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
         mock_cursor.fetchall.return_value = [
-            (datetime(2026, 2, 1, 9, 30, tzinfo=UTC), 100.0, 101.0, 99.0, 100.5, 1000)
+            (datetime(2026, 2, 1, 9, 30, tzinfo=UTC), 100.0, 101.0, 99.0, 100.5, 1000, "historical_backfill")
         ]
         rows = fetch_bars(mock_conn, "ESH6", "1m")
         assert len(rows) == 1
