@@ -4,20 +4,21 @@ Version: 5.31.0
 Last Updated: 2026-03-25
 Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
-## Decision Framework: What Would Jim Simons Do?
-
-When evaluating any design, feature, or architectural decision, apply this filter:
-
-> **What would Jim Simons and Renaissance Capital demand?**
-
-Renaissance principles that govern this codebase:
+## Renaissance Foundation Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
 - **Let the system run.** Don't override data with intuition. Build the automation, then trust it.
 - **Earn the right through proof.** No model, strategy, or feature gets promoted to production without statistically significant evidence (p < 0.05, sufficient N). Shadow mode first, always.
 - **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
 - **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
 - **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
-- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered. The only data we drop is confirmed-unused legacy tables with no signal value.
+- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered.
+
+## Renaissance Agentic DAG Principles (v2.1)
+- **Agentic DAG Architecture:** All pipeline nodes must be autonomous, event-driven Agents. Compute Agents (I1-I6) are DB-ignorant and publish to domain-specific Tiered Topics (`intelligence.i{N}`). DataWriterAgents manage all persistence.
+- **The Persistence DAG:** WriterAgents must use the "Convergence Gate" (StreamMerger) to join tiered streams into a single, unified journal entry before persistence, ensuring atomic data integrity.
+- **Resilience & Observability:** All agents must be instrumented with `persistence_batch_latency` and `persistence_consumer_lag` metrics.
+- **Lifecycle Management:** Agents must implement `SIGTERM` handlers for graceful drain and maintain a DLQ for unprocessable payloads.
+- **Taxonomy:** All persistence logic resides in `src/persistence/repository/` (Repositories) and `src/persistence/writer/` (WriterAgents).
 
 Apply this framing when: designing new features, choosing between approaches, deciding what to log, evaluating model/strategy performance, or questioning whether something is "good enough."
 

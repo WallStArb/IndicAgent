@@ -157,6 +157,21 @@ REDIS_STREAM_LAG_GAUGE = Gauge(
     "Redis Stream consumer lag in messages",
     ["stream_name", "consumer_group"],
 )
+
+# Persistence Agent Metrics
+PERSISTENCE_BATCH_LATENCY = Histogram(
+    "persistence_batch_latency_seconds",
+    "Time taken to persist batch to database in seconds",
+    ["agent_id"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
+)
+
+PERSISTENCE_CONSUMER_LAG = Gauge(
+    "persistence_consumer_lag_records",
+    "Current consumer lag in records",
+    ["agent_id"],
+)
+
 EVENT_PROCESSING_DURATION = Histogram(
     "event_processing_duration_seconds",
     "Time to process Redis Stream events",

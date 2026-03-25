@@ -1428,8 +1428,8 @@ async def test_seed_bar_history_from_db_success():
     from unittest.mock import AsyncMock, MagicMock
 
     from services.signal_generator_service import SignalGeneratorService
-    from src.core.bar_history import BarHistory
     from src.config.settings import Instrument
+    from src.core.bar_history import BarHistory
 
     # Mock DB response with 2 bars (DESC order from ORDER BY ts DESC)
     mock_rows = [
@@ -1763,8 +1763,8 @@ async def test_gate_suppressed_winner_still_writes_to_ledger():
 @pytest.mark.asyncio
 async def test_ledger_written_true_on_suppressed_only_bar():
     """BarIntelligenceRecord published with ledger_written=True on suppressed-only bars."""
-    from unittest.mock import AsyncMock, MagicMock, patch
     import json as _json
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     from src.intelligence.schemas import (
         I1Indicators,
@@ -1921,8 +1921,8 @@ async def test_seed_bar_history_from_db_exception_fallback():
     from unittest.mock import AsyncMock, MagicMock
 
     from services.signal_generator_service import SignalGeneratorService
-    from src.core.bar_history import BarHistory
     from src.config.settings import Instrument
+    from src.core.bar_history import BarHistory
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
     svc._bar_history = BarHistory(maxlen=200)
@@ -1974,8 +1974,8 @@ async def test_seed_bar_history_from_db_empty_result():
     from unittest.mock import AsyncMock, MagicMock
 
     from services.signal_generator_service import SignalGeneratorService
-    from src.core.bar_history import BarHistory
     from src.config.settings import Instrument
+    from src.core.bar_history import BarHistory
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
     svc._bar_history = BarHistory(maxlen=200)

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Minimum divergence confidence to count as reversal
 # Exported for use in plugins (avoid magic number duplication)
 DIV_THRESHOLD = 0.3

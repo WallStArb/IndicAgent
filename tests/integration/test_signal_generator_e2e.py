@@ -19,7 +19,7 @@ import sys
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -374,37 +374,29 @@ async def test_e2e_ledger_written_true_on_success(
     event: IntelligenceEvent,
     raw_signals: list[dict],
 ) -> None:
-    """Mock DB write succeeds → ledger_written=True in the published record."""
-    # Attach a mock db_manager so the write path is exercised
-    mock_db = MagicMock()
-    mock_db.pool = MagicMock()
-    svc.db_manager = mock_db
+    """Mock Kafka journal success → ledger_written=True in the published record."""
+    # Ensure Kafka producer is mocked
+    svc._kafka_producer = AsyncMock()
 
-    with patch(
-        "services.signal_generator_service.insert_signals_with_features",
-        new_callable=AsyncMock,
-    ) as mock_insert:
-        mock_insert.return_value = None
-        features: dict = {}
-        await svc._process_event(
-            event=event,
-            symbol="ES",
-            timeframe="1m",
-            timestamp=event.ts,
-            bar_close_ts=event.ts,
-            source="live",
-            raw_signals=raw_signals,
-            regime_data={"hmm_regime": 1, "hmm_regime_prob": 0.80, "hmm_regime_duration": 10},
-            drift_penalty=1.0,
-            features=features,
-        )
+    features: dict = {}
+    await svc._process_event(
+        event=event,
+        symbol="ES",
+        timeframe="1m",
+        timestamp=event.ts,
+        bar_close_ts=event.ts,
+        source="live",
+        raw_signals=raw_signals,
+        regime_data={"hmm_regime": 1, "hmm_regime_prob": 0.80, "hmm_regime_duration": 10},
+        drift_penalty=1.0,
+        features=features,
+    )
 
     record = _capture_record(svc)
     assert record is not None
-    # ledger_written=True only when a winner passes the gate and DB succeeds
     if record.winner_plugin is not None:
         assert record.ledger_written is True, (
-            f"Expected ledger_written=True when winner={record.winner_plugin!r} and DB succeeds"
+            f"Expected ledger_written=True when winner={record.winner_plugin!r} and Journal succeeds"
         )
 
 
@@ -414,33 +406,30 @@ async def test_e2e_ledger_written_false_on_failure(
     event: IntelligenceEvent,
     raw_signals: list[dict],
 ) -> None:
-    """Mock DB write raises → ledger_written=False, record still published."""
-    mock_db = MagicMock()
-    mock_db.pool = MagicMock()
-    svc.db_manager = mock_db
+    """Mock Kafka journal raises → ledger_written=False, record still published."""
+    svc._kafka_producer = AsyncMock()
+    # Simulate journal publish failure
+    svc._kafka_producer.publish.side_effect = Exception("Kafka down")
 
-    with patch(
-        "services.signal_generator_service.insert_signals_with_features",
-        new_callable=AsyncMock,
-        side_effect=Exception("DB connection refused"),
-    ):
-        features: dict = {}
-        await svc._process_event(
-            event=event,
-            symbol="ES",
-            timeframe="1m",
-            timestamp=event.ts,
-            bar_close_ts=event.ts,
-            source="live",
-            raw_signals=raw_signals,
-            regime_data={"hmm_regime": 1, "hmm_regime_prob": 0.80, "hmm_regime_duration": 10},
-            drift_penalty=1.0,
-            features=features,
-        )
+    features: dict = {}
+    # We need to temporarily force ledger_written to False by injecting failure
+    # The record should still be published, but ledger_written should be False.
+    await svc._process_event(
+        event=event,
+        symbol="ES",
+        timeframe="1m",
+        timestamp=event.ts,
+        bar_close_ts=event.ts,
+        source="live",
+        raw_signals=raw_signals,
+        regime_data={"hmm_regime": 1, "hmm_regime_prob": 0.80, "hmm_regime_duration": 10},
+        drift_penalty=1.0,
+        features=features,
+    )
 
-    # Record must still be published even when DB fails
+    # Record must still be published even when Journal fails
     record = _capture_record(svc)
-    assert record is not None, "BarIntelligenceRecord must be published even when DB fails"
+    assert record is not None, "BarIntelligenceRecord must be published even when Journal fails"
     assert record.ledger_written is False
 
 

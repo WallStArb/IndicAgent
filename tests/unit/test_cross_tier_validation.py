@@ -1,6 +1,7 @@
 """Tests for cross-tier consistency validation."""
 
 import pytest
+
 from src.validation.cross_tier_validation import CrossTierValidator
 
 

@@ -11,11 +11,11 @@ Usage:
 """
 
 from src.validation.reference_implementations import (
-    rsi_reference,
-    macd_reference,
     atr_reference,
-    vwap_reference,
+    macd_reference,
+    rsi_reference,
     volatility_reference,
+    vwap_reference,
 )
 
 # Validators and reporter will be added in subsequent tasks

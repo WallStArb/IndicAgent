@@ -21,7 +21,13 @@ from .confidence_utils import capture_signal_features, compose_confidence
 from .exhaustion_utils import apply_exhaustion_boost
 from .plugin_utils import no_signal
 from .trade_framer import frame_trade
-from .volume_profile_utils import DIV_THRESHOLD, STOCH_OVERBOUGHT, STOCH_OVERSOLD, check_reversal_gate, format_reversal_supporting_factors
+from .volume_profile_utils import (
+    DIV_THRESHOLD,
+    STOCH_OVERBOUGHT,
+    STOCH_OVERSOLD,
+    check_reversal_gate,
+    format_reversal_supporting_factors,
+)
 
 # Maximum ATR distance from HVN to qualify as "testing" the level
 _HVN_PROXIMITY_ATR = 0.3

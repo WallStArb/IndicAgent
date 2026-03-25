@@ -45,17 +45,9 @@ from src.intelligence.trading.lifecycle_tracker import (
     evaluate_market_entry,
     evaluate_signal,
 )
-from src.intelligence.trading.signal_ledger import (
-    SignalStatus,
-    get_active_signals,
-    record_activation,
-    record_market_resolution,
-    record_zone_resolution,
-    record_zone_resolution_with_activation,  # noqa: F401 — used via mock.patch in tests
-    update_signal_status,
-)
 from src.intelligence.trading.signal_outcome import SignalOutcome
 from src.observability.metrics import counter, gauge, start_metrics_server
+from src.persistence.repository.signal_ledger_repository import SignalLedgerRepository, SignalStatus
 
 # ---------------------------------------------------------------------------
 # Chandelier + staleness DB update helpers
@@ -172,14 +164,16 @@ def _build_outcome_payload(
 class SignalLifecycleService:
     """Zone-aware institutional signal lifecycle tracker."""
 
-    def __init__(self, config_file: str | None = None):
+    def __init__(self, config_file: str | None = None, db_manager: DatabaseManager | None = None):
         self.running = False
         self.shutdown_requested = False
         self.start_time = datetime.now(tz=UTC)
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.db_manager: DatabaseManager | None = None
+        self.db_manager = db_manager
+        self._ledger_repo = SignalLedgerRepository(db_manager) if db_manager else None
+
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None
 

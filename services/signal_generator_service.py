@@ -55,6 +55,7 @@ from src.core.stream_keys import (
     topic_calibrated,
     topic_cross_asset,
     topic_intelligence,
+    topic_intelligence_journal,
     topic_intelligence_record,
     topic_market_ticks,
     topic_quality_gated,
@@ -81,13 +82,14 @@ from src.intelligence.pipeline.tod_adjuster import (
 )
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I7, register_all_plugins
-from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent, RankedSignal
-from src.intelligence.trading.cis_scorer import CISScorer
-from src.intelligence.trading.signal_ledger import (
-    LedgerEntry,
-    SignalStatus,
-    insert_signals_with_features,
+from src.intelligence.schemas import (
+    BarIntelligenceRecord,
+    IntelligenceEvent,
+    IntelligenceJournal,
+    ProvenanceChain,
+    RankedSignal,
 )
+from src.intelligence.trading.cis_scorer import CISScorer
 from src.intelligence.trading.signal_schema import make_signal, validate_signal
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
@@ -96,6 +98,10 @@ from src.observability.metrics import (
     gauge,
     record_plugin_execution,
     start_metrics_server,
+)
+from src.persistence.repository.signal_ledger_repository import (
+    LedgerEntry,
+    SignalStatus,
 )
 
 # I7 plugin names — imported from register_plugins (single source of truth)
@@ -1398,27 +1404,45 @@ class SignalGeneratorService:
                 ):
                     entry.is_shadow = True
 
-            # 6c: DB INSERT (unconditional when entries exist — D-01)
-            if entries and self.db_manager:
+            # 6c: ASYNC KAFKA JOURNAL (Latency audit requirement)
+            if entries:
                 try:
-                    await insert_signals_with_features(
-                        self.db_manager.pool, entries, {}
+                    env = self.env_name
+                    journal = IntelligenceJournal(
+                        ts=datetime.now(UTC),
+                        sid=entries[0].signal_id,
+                        payload={
+                            "entries": [e.__dict__ for e in entries],
+                            "features": {},
+                            "selected_count": selected_count,
+                        },
+                        provenance=ProvenanceChain(
+                            origin_ts=datetime.now(UTC),
+                            pipeline_id=f"gen_{symbol}_{timeframe}",
+                            plugin_stack=[e.setup_plugin for e in entries],
+                            compute_budget_ms=0.0,
+                        ),
+                    )
+                    await self._kafka_producer.publish(
+                        topic_intelligence_journal(env),
+                        key=message_key(symbol, timeframe),
+                        value=journal.model_dump_json(),
                     )
                     self.signals_generated_total.inc(len(entries))
                     self.signals_selected_total.inc(selected_count)
                     self._total_signals += len(entries)
                     ledger_written = True
                     if not winner:
-                        # Track suppressed-only bar writes separately for observability
                         self.signals_written_total.inc(len(entries))
-                except Exception as _db_err:
+                except Exception as _journal_err:
                     self.logger.error(
-                        "signal_ledger_write_failed",
+                        "signal_journal_publish_failed",
                         symbol=symbol,
                         timeframe=timeframe,
-                        error=str(_db_err),
+                        error=str(_journal_err),
                     )
                     _LEDGER_WRITE_FAILURES.inc()
+                    ledger_written = False
 
         # 6d: Kafka publish winner (only if winner passed gate)
         if winner:
