@@ -17,6 +17,8 @@ import asyncio
 import os
 from unittest.mock import MagicMock
 
+from src.core.bar_normalizer import SOURCE_HTF_DERIVED, SOURCE_IBKR_NAMED
+
 # ---------------------------------------------------------------------------
 # Test 1: Plugin state write-back
 # ---------------------------------------------------------------------------
@@ -239,7 +241,7 @@ def test_roll_event_handling():
             low=4999.0 + i,
             close=5000.5 + i,
             volume=1000 + i,
-            source="ibkr_named",
+            source=SOURCE_IBKR_NAMED,
             session_type=SessionType.RTH,
         )
         svc._bar_history.append(bar)
@@ -337,7 +339,7 @@ def test_queue_ohlcv_write_1m_bar():
         low=5098.0,
         close=5103.0,
         volume=1234,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
     )
     svc._queue_ohlcv_write(bar)
@@ -366,7 +368,7 @@ def test_queue_ohlcv_write_skips_htf():
             low=5098.0,
             close=5103.0,
             volume=1234,
-            source="htf_derived",
+            source=SOURCE_HTF_DERIVED,
             session_type=SessionType.RTH,
         )
         svc._queue_ohlcv_write(bar)
@@ -395,7 +397,7 @@ def test_queue_ohlcv_write_tuple_structure():
         low=5098.0,
         close=5103.0,
         volume=1234,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
     )
     svc._queue_ohlcv_write(bar)

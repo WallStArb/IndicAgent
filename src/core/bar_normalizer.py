@@ -11,7 +11,16 @@ import pandas_market_calendars as mcal
 
 ET = ZoneInfo("America/New_York")
 
-SOURCE_SYNTHETIC_FILL = "synthetic_fill"
+# Bar provenance — stored in market_data_ohlcv.source for every bar written.
+# Always use these constants; never write raw string literals.
+SOURCE_IBKR_NAMED      = "ibkr_named"          # Named-contract direct IBKR fetch
+SOURCE_IBKR_CONTINUOUS = "ibkr_continuous_adj"  # Continuous back-adjusted IBKR fetch
+SOURCE_IBKR_OFFICIAL   = "ibkr_official"        # Official 1m bars from TWS reconciliation
+SOURCE_IBKR_GENERIC    = "ibkr"                 # Generic IBKR fetch (RTB / fallback)
+SOURCE_IBKR_SEED       = "ibkr_seed"            # Historical seed bar from DB backfill (BarMessage bus)
+SOURCE_HTF_DERIVED     = "htf_derived"          # Aggregated from 1m bars by BarAccumulator (BarMessage bus)
+SOURCE_DERIVED_1M      = "derived_1m"           # Aggregated from 1m bars in DB (market_data_ohlcv)
+SOURCE_SYNTHETIC_FILL  = "synthetic_fill"       # Flat fill for canonical grid gaps
 
 # Minutes per timeframe
 _TF_MINUTES: dict[str, int] = {
@@ -198,79 +207,62 @@ def normalize_bars(
     bars: list[dict],
     symbol: str,
     timeframe: str,
-    session_id: str,
-    exchange: str,
     start: datetime,
     end: datetime,
+    session_id: str = "",
+    exchange: str = "",
 ) -> list[dict]:
-    """Return bars with synthetic flat fills for every open-session slot missing
-    from the input.
+    """Return bars with synthetic flat fills for every interval slot in [start, end].
 
+    Canonical grid: every interval boundary gets a bar — real or synthetic.
     Synthetic bars: OHLC = prev_close, volume = 0, source = "synthetic_fill".
-    If no prev_close is available at the start of a gap, that gap is skipped —
+    If no prev_close is available at the start of a gap, that slot is skipped —
     prices are never fabricated from nothing.
 
     Args:
-        bars:       Sorted list of OHLCV dicts. Each must have keys:
-                    timestamp (datetime, UTC-aware), open, high, low, close,
-                    volume, source.
-        symbol:     Base symbol (e.g. "ES", "SPY"). Used for logging only.
-        timeframe:  "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
-        session_id: Instrument session type. Valid values:
-                    "futures_24_5", "nyse", "crypto_24_7", "fx_24_5"
-        exchange:   IBKR exchange string from Instrument.exchange
-                    (e.g. "CME", "CBOT", "SMART", "IDEALPRO", "PAXOS").
-                    Required for futures to select the right PMC calendar.
-        start:      Range start, UTC-aware.
-        end:        Range end, UTC-aware.
+        bars:      Sorted list of OHLCV dicts. Each must have keys:
+                   timestamp (datetime, UTC-aware), open, high, low, close,
+                   volume, source.
+        symbol:    Base symbol. Used for logging only.
+        timeframe: "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
+        start:     Range start, UTC-aware.
+        end:       Range end, UTC-aware.
+        session_id, exchange: Unused — kept for call-site compatibility.
 
     Returns:
         Complete list ordered by timestamp. Real bars preserve source.
         Synthetic bars have source="synthetic_fill".
     """
-    expected_slots = _generate_session_slots(session_id, exchange, timeframe, start, end)
-    if not expected_slots:
-        return list(bars)
+    interval = timedelta(minutes=_TF_MINUTES[timeframe])
 
-    slot_set: set[datetime] = {s.replace(microsecond=0) for s in expected_slots}
-
-    # Single pass: build timestamp index and collect out-of-session real bars
+    # Build index of incoming bars
     bar_index: dict[datetime, dict] = {}
-    out_of_session: list[dict] = []
     for b in bars:
         t = b["timestamp"]
         if t.tzinfo is None:
             t = t.replace(tzinfo=UTC)
-        t = t.replace(microsecond=0)
-        bar_index[t] = b
-        if t not in slot_set:
-            out_of_session.append(b)
+        bar_index[t.replace(microsecond=0)] = b
 
     result: list[dict] = []
     prev_close: float | None = None
+    slot = start.replace(microsecond=0)
 
-    for slot in expected_slots:
-        slot_utc = slot.replace(microsecond=0)
-        if slot_utc in bar_index:
-            bar = bar_index[slot_utc]
+    while slot <= end:
+        if slot in bar_index:
+            bar = bar_index[slot]
             result.append(bar)
             prev_close = float(bar["close"])
         else:
-            if prev_close is None:
-                # No price context yet — skip
-                continue
-            result.append({
-                "timestamp": slot_utc,
-                "open":   prev_close,
-                "high":   prev_close,
-                "low":    prev_close,
-                "close":  prev_close,
-                "volume": 0,
-                "source": SOURCE_SYNTHETIC_FILL,
-            })
-
-    # Merge out-of-session real bars back in, sorted by timestamp
-    if out_of_session:
-        result = sorted(result + out_of_session, key=lambda b: b["timestamp"])
+            if prev_close is not None:
+                result.append({
+                    "timestamp": slot,
+                    "open":   prev_close,
+                    "high":   prev_close,
+                    "low":    prev_close,
+                    "close":  prev_close,
+                    "volume": 0,
+                    "source": SOURCE_SYNTHETIC_FILL,
+                })
+        slot += interval
 
     return result

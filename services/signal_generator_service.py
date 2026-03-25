@@ -37,6 +37,7 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.bar_history import BarHistory
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
@@ -1554,7 +1555,7 @@ class SignalGeneratorService:
                 self._htf_intel_cache[f"{symbol}:1h"] = features
 
             # Map IntelligenceEvent source (live/backfill) → BarMessage source taxonomy
-            bar_source = "ibkr_named" if event.source == "live" else "ibkr_seed"
+            bar_source = SOURCE_IBKR_NAMED if event.source == "live" else SOURCE_IBKR_SEED
             bar_msg = BarMessage(
                 ts=event.ts,
                 symbol=symbol,

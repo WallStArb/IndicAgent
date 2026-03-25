@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.providers.base import DataProvider
 from src.providers.ibkr import IBKRProvider
 
@@ -88,7 +89,7 @@ class TestFetchHistoricalBars:
         assert bars[0].timeframe == "1m"
         assert bars[0].open == 5100.0
         assert bars[0].high == 5105.0
-        assert bars[0].source == "ibkr_named"
+        assert bars[0].source == SOURCE_IBKR_NAMED
 
     @pytest.mark.asyncio
     async def test_unknown_timeframe_raises(self, provider, mock_ib):

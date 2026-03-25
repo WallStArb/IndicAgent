@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
@@ -58,7 +60,7 @@ def _append_bar(svc: Any, symbol: str, tf: str, close: float) -> None:
         low=close - 1,
         close=close,
         volume=100,
-        source="ibkr_named",
+        source=SOURCE_IBKR_NAMED,
         session_type=SessionType.RTH,
     )
     svc._bar_history.append(bar)

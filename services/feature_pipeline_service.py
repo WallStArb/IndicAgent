@@ -42,6 +42,7 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts
 from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_history import BarHistory
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
@@ -1127,7 +1128,7 @@ class FeaturePipelineService:
                             low=float(payload.get("low", 0)),
                             close=float(payload.get("close", 0)),
                             volume=int(float(payload.get("volume", 0))),
-                            source="ibkr_named",
+                            source=SOURCE_IBKR_NAMED,
                             session_type=SessionType(payload.get("session_type", "rth")),
                             gap_preceding=bool(payload.get("gap_preceding", False)),
                         )

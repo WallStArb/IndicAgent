@@ -72,7 +72,11 @@ import pandas as pd
 
 from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
 from src.config.settings import Settings
-from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL, normalize_bars
+from src.core.bar_normalizer import (
+    SOURCE_DERIVED_1M,
+    SOURCE_SYNTHETIC_FILL,
+    normalize_bars,
+)
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
@@ -1099,7 +1103,7 @@ def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
                 "low": min(b["low"] for b in w),
                 "close": w[-1]["close"],
                 "volume": sum(b.get("volume", 0) or 0 for b in w),
-                "source": "derived_1m",
+                "source": SOURCE_DERIVED_1M,
             }
         )
     return result
@@ -1399,8 +1403,6 @@ def run_normalize(
                 rows,
                 symbol=instrument.symbol,
                 timeframe=tf,
-                session_id=instrument.session_id,
-                exchange=instrument.exchange,
                 start=start,
                 end=end,
             )
@@ -1644,8 +1646,6 @@ def main() -> None:
                                     bar_dicts,
                                     symbol=instrument.symbol,
                                     timeframe=tf,
-                                    session_id=instrument.session_id,
-                                    exchange=instrument.exchange,
                                     start=gap_start,
                                     end=gap_end,
                                 )
@@ -1699,8 +1699,6 @@ def main() -> None:
                                     deep_dicts,
                                     symbol=instrument.symbol,
                                     timeframe="1m",
-                                    session_id=instrument.session_id,
-                                    exchange=instrument.exchange,
                                     start=deep_start,
                                     end=end_dt,
                                 )
@@ -1723,6 +1721,16 @@ def main() -> None:
                         else:
                             sym = instrument.symbol
                             print(f"  {sym}: all TFs fetched from IBKR — skipping derivation")
+
+                    # All asset classes: derive 4h from 1m (4h is never fetched directly).
+                    bars_1m = fetch_bars(db_conn, instrument.symbol, "1m")
+                    if bars_1m:
+                        aggregated_4h = aggregate_bars_from_1m(bars_1m, "4h")
+                        n = store_bars(db_conn, aggregated_4h, instrument.symbol, "4h")
+                        total_bars += n
+                        print(f"  {instrument.symbol}/4h (derived from 1m): {n} bars")
+                    else:
+                        print(f"  {instrument.symbol}/4h: no 1m bars — skipping 4h derivation")
 
                 except Exception as e:
                     print(f"  {instrument.symbol}: error — {e}")
