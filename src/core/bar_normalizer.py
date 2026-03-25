@@ -213,4 +213,59 @@ def normalize_bars(
         Complete list ordered by timestamp. Real bars preserve source.
         Synthetic bars have source="synthetic_fill".
     """
-    raise NotImplementedError
+    expected_slots = _generate_session_slots(session_id, exchange, timeframe, start, end)
+
+    # Normalize real bars by timestamp (UTC, sub-second stripped)
+    normalized_bars: list[dict] = []
+    bar_index: dict[datetime, dict] = {}
+    for b in bars:
+        t = b["timestamp"]
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=UTC)
+        t = t.replace(microsecond=0)
+        bar_index[t] = b
+        normalized_bars.append(b)
+
+    if not expected_slots:
+        return normalized_bars
+
+    slot_set: set[datetime] = {s.replace(microsecond=0) for s in expected_slots}
+
+    # Bars that fall outside any session slot are passed through unchanged
+    out_of_session: list[dict] = []
+    for b in normalized_bars:
+        t = b["timestamp"]
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=UTC)
+        if t.replace(microsecond=0) not in slot_set:
+            out_of_session.append(b)
+
+    result: list[dict] = []
+    prev_close: float | None = None
+
+    for slot in expected_slots:
+        slot_utc = slot.replace(microsecond=0)
+        if slot_utc in bar_index:
+            bar = bar_index[slot_utc]
+            result.append(bar)
+            prev_close = float(bar["close"])
+        else:
+            if prev_close is None:
+                # No price context yet — skip
+                continue
+            result.append({
+                "timestamp": slot_utc,
+                "open":   prev_close,
+                "high":   prev_close,
+                "low":    prev_close,
+                "close":  prev_close,
+                "volume": 0,
+                "source": "synthetic_fill",
+            })
+            # prev_close stays the same for chained flat bars
+
+    # Merge out-of-session real bars back in, sorted by timestamp
+    if out_of_session:
+        result = sorted(result + out_of_session, key=lambda b: b["timestamp"])
+
+    return result
