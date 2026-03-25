@@ -52,3 +52,40 @@ class TestFx24_5:
         end   = ts("2026-03-15 10:05:00")
         slots = _generate_session_slots("fx_24_5", "IDEALPRO", "1m", start, end)
         assert slots == []
+
+
+class TestNyse:
+    def test_regular_trading_day_premarket_filled(self):
+        # 2026-03-10 is a Tuesday — regular trading day
+        # 09:00 UTC = 04:00 ET — pre-market window starts
+        start = ts("2026-03-10 09:00:00")
+        end   = ts("2026-03-10 09:02:00")
+        slots = _generate_session_slots("nyse", "SMART", "1m", start, end)
+        assert len(slots) == 3
+
+    def test_regular_trading_day_afterhours_filled(self):
+        # 22:00 UTC = 18:00 ET — within after-hours window (ends 20:00 ET = 01:00 UTC next day)
+        start = ts("2026-03-10 22:00:00")
+        end   = ts("2026-03-10 22:02:00")
+        slots = _generate_session_slots("nyse", "SMART", "1m", start, end)
+        assert len(slots) == 3
+
+    def test_overnight_gap_excluded(self):
+        # 02:00 UTC = 22:00 ET previous day — outside 4am-8pm ET window
+        start = ts("2026-03-10 02:00:00")
+        end   = ts("2026-03-10 02:05:00")
+        slots = _generate_session_slots("nyse", "SMART", "1m", start, end)
+        assert slots == []
+
+    def test_market_holiday_excluded(self):
+        # 2026-01-19 is MLK Day — NYSE closed
+        start = ts("2026-01-19 14:30:00")  # 9:30 ET — would be RTH open
+        end   = ts("2026-01-19 14:35:00")
+        slots = _generate_session_slots("nyse", "SMART", "1m", start, end)
+        assert slots == []
+
+    def test_weekend_excluded(self):
+        start = ts("2026-03-14 14:30:00")  # Saturday
+        end   = ts("2026-03-14 14:35:00")
+        slots = _generate_session_slots("nyse", "SMART", "1m", start, end)
+        assert slots == []
