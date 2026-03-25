@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone  # noqa: F401
+from datetime import UTC, datetime, timedelta, timezone  # noqa: F401
 from zoneinfo import ZoneInfo
 
 import pandas_market_calendars as mcal  # noqa: F401
@@ -10,7 +10,7 @@ import pandas_market_calendars as mcal  # noqa: F401
 # ---------------------------------------------------------------------------
 
 ET = ZoneInfo("America/New_York")
-UTC = timezone.utc
+UTC = UTC
 
 # Minutes per timeframe
 _TF_MINUTES: dict[str, int] = {
