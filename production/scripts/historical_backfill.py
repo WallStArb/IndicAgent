@@ -1067,6 +1067,8 @@ def connect_db(settings: Settings) -> Any:
     return psycopg2.connect(dsn=settings.database_url)
 
 
+# Note: "4h" is derived-only (aggregated from 1m bars via aggregate_bars_from_1m).
+# It is NOT in _TF_FETCH_CONFIG and cannot be fetched directly from IBKR.
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
