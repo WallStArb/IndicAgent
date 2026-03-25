@@ -1,8 +1,42 @@
 # Renaissance Pipeline Audit Framework — Design Document
 
 **Date:** 2026-03-25
-**Status:** Design Approved — Awaiting Implementation Plan
+**Status:** Design — REVISED (2026-03-25) — Awaiting Further Review
 **Priority:** Critical — Foundation for v2.1 Data Quality validation
+**Revision Notes:** Critical issues identified by code review — fixes in progress
+
+## Critical Revisions Required
+
+### 1. Database Schema
+- [x] Rename `intelligence_metrics` → `pipeline_audit_metrics` (avoid conflict)
+- [ ] Fix all table references in Components 3-5
+
+### 2. Field Name Mapping
+- [ ] Update SQL queries to use period-encoded field names:
+  - `rsi` → `rsi_14`, `rsi_21`, `rsi_30`
+  - `atr` → `atr_14`
+  - `macd` → `macd_12_26_9`
+- [ ] Update reference implementation validator to handle multiple periods
+
+### 3. Validation Logic Fixes
+- [ ] Fix I6→I7 completeness: Query `intelligence_features.i6` directly, not iterate I7 signals
+- [ ] Fix regime agreement: Use `signal["regime_type"]` not `regime_gate`
+- [ ] Fix I1→I4 correlation thresholds: Lower to ≥0.3 or validate empirically
+
+### 4. Latency Tracking
+- [ ] Add sampling (10% of bars) instead of per-bar tracking
+- [ ] Add in-memory aggregation with 60s flush
+
+### 5. External Validation
+- [ ] Defer to Phase 2 (API availability uncertain)
+
+### 6. Regime Segmentation
+- [ ] Add `WHERE i4->>'regime' = 'trending'` variants to all validation queries
+
+### 7. Index Recommendations
+- [ ] Add: `CREATE INDEX ON intelligence_features (symbol, tf, ts DESC)`
+
+**Status:** Partially revised. Full rewrite recommended before implementation planning.
 
 ## Overview
 
@@ -178,11 +212,13 @@ TWS → 5s ticks
 
 ## Database Schema
 
-### `intelligence_metrics` Hypertable
+### `pipeline_audit_metrics` Hypertable
+
+**Note:** Renamed from `intelligence_metrics` to avoid conflict with existing table.
 
 ```sql
 -- Every metric, every hop, tracked over time
-CREATE TABLE IF NOT EXISTS intelligence_metrics (
+CREATE TABLE IF NOT EXISTS pipeline_audit_metrics (
     id SERIAL PRIMARY KEY,
     measured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     symbol VARCHAR(10) NOT NULL,
@@ -233,14 +269,14 @@ CREATE TABLE IF NOT EXISTS intelligence_metrics (
 );
 
 -- Convert to hypertable for time-series optimization
-SELECT create_hypertable('intelligence_metrics', 'measured_at');
+SELECT create_hypertable('pipeline_audit_metrics', 'measured_at');
 
 -- Indexes for common queries
-CREATE INDEX idx_metrics_symbol_tf ON intelligence_metrics (symbol, timeframe, measured_at DESC);
-CREATE INDEX idx_metrics_measured_at ON intelligence_metrics (measured_at DESC);
+CREATE INDEX idx_audit_metrics_symbol_tf ON pipeline_audit_metrics (symbol, timeframe, measured_at DESC);
+CREATE INDEX idx_audit_metrics_measured_at ON pipeline_audit_metrics (measured_at DESC);
 
 -- Compression policy (compress data older than 30 days)
-SELECT add_compression_policy('intelligence_metrics', INTERVAL '30 days');
+SELECT add_compression_policy('pipeline_audit_metrics', INTERVAL '30 days');
 ```
 
 ---
