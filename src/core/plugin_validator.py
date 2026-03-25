@@ -299,15 +299,16 @@ class PluginValidator:
         content = register_plugins_path.read_text()
 
         # Extract all import statements from register_plugins.py
-        # Pattern matches: from .indicators.<name> import plugin
-        # NOT: from .composites.adx_events import plugin (subdirectory)
-        imported_plugins = re.findall(r"from \.(indicators|patterns)\.(\w+) import plugin", content)
+        # Pattern matches: from src.intelligence.features.<tier>.<name> import plugin
+        imported_plugins = re.findall(
+            r"from src\.intelligence\.features\.([\w]+)\.([\w]+) import plugin", content
+        )
 
         # Verify each imported module has a file
         missing_files = []
         for category, module_name in imported_plugins:
-            # Convert to file path: intelligence/indicators/<module_name>.py
-            module_file = plugin_dir / category / f"{module_name}.py"
+            # Convert to file path: intelligence/features/<tier>/<module_name>.py
+            module_file = plugin_dir / "features" / category / f"{module_name}.py"
             if not module_file.exists():
                 missing_files.append(
                     ValidationError(

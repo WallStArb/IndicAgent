@@ -1,4 +1,4 @@
-# src/intelligence/patterns/double_top_bottom.py
+# src/intelligence/features/i5_patterns/double_top_bottom.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field

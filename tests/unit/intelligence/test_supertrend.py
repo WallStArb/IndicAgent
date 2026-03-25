@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.supertrend import SupertrendPlugin
+from src.intelligence.features.i1_indicators.supertrend import SupertrendPlugin
 
 
 def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "up") -> pd.DataFrame:

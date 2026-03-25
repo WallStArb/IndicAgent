@@ -1,4 +1,4 @@
-# src/intelligence/patterns/triangle_wedge.py
+# src/intelligence/features/i5_patterns/triangle_wedge.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field

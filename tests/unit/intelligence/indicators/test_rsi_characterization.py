@@ -7,7 +7,7 @@ understanding the Wilder smoothing math.
 import pandas as pd
 import pytest
 
-from src.intelligence.indicators.rsi import RSIPlugin
+from src.intelligence.features.i1_indicators.rsi import RSIPlugin
 
 
 @pytest.mark.unit

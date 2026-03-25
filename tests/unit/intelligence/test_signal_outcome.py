@@ -60,7 +60,7 @@ def test_signal_outcome_is_str_compatible():
 
 def test_win_outcomes_backward_compat():
     """signal_ledger.py must re-export WIN_OUTCOMES for backward compatibility."""
-    from src.intelligence.trading.signal_ledger import WIN_OUTCOMES as ledger_win
+    from src.persistence.repository.signal_ledger_repository import WIN_OUTCOMES as ledger_win
 
     assert ledger_win == WIN_OUTCOMES
 

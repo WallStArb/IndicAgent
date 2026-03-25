@@ -318,7 +318,7 @@ def test_run_i7_and_persist_passes_features_kwarg_to_aggregate():
 def test_insert_signals_sync_writes_cis_fields():
     """_insert_signals_sync must NOT hardcode None for cis_score/bucket_scores/weights_version."""
     from production.scripts.historical_backfill import _insert_signals_sync
-    from src.intelligence.trading.signal_ledger import LedgerEntry
+    from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
     ts = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
     entry = LedgerEntry(

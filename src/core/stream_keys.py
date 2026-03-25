@@ -157,10 +157,6 @@ def topic_intelligence_journal(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.journal"
 
 
-def topic_feature_processed(env_name: str) -> str:
-    """Kafka topic for atomic FeatureSnapshot records (I1-I6 features)."""
-    return f"{env_prefix(env_name)}intelligence.feature.processed"
-
 
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.

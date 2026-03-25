@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from src.intelligence.trading.signal_ledger import SignalStatus
+from src.persistence.repository.signal_ledger_repository import SignalStatus
 from src.intelligence.trading.signal_outcome import SignalOutcome
 
 # Quick-stop threshold: signals stopped within 2 bars classified as stopped_at_entry

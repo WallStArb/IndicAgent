@@ -13,11 +13,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.intelligence.trading.signal_ledger import (
+from src.persistence.repository.signal_ledger_repository import (
     _INSERT_FEATURES_SQL,
     _INSERT_SQL,
     LedgerEntry,
-    insert_signals_with_features,
+    SignalLedgerRepository,
 )
 
 
@@ -65,7 +65,10 @@ def _make_pool_mock():
     pool_mock = MagicMock()
     pool_mock.acquire = MagicMock(return_value=acquire_ctx)
 
-    return conn_mock, txn_mock, pool_mock
+    db_manager = MagicMock()
+    db_manager.pool = pool_mock
+
+    return conn_mock, txn_mock, pool_mock, db_manager
 
 
 @pytest.mark.unit
@@ -73,34 +76,36 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_noop_when_entries_empty(self):
         """No DB calls when entries list is empty."""
-        conn_mock, txn_mock, pool_mock = _make_pool_mock()
-        await insert_signals_with_features(pool_mock, [], {})
+        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
+        await SignalLedgerRepository(db_manager).insert_signals_with_features([], {})
         pool_mock.acquire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_noop_when_pool_none(self):
         """No crash when pool is None."""
-        await insert_signals_with_features(None, [_make_entry()], {})
+        db_mock = MagicMock()
+        db_mock.pool = None
+        await SignalLedgerRepository(db_mock).insert_signals_with_features([_make_entry()], {})
         # Should not raise
 
     @pytest.mark.asyncio
     async def test_uses_transaction_context_manager(self):
         """Uses conn.transaction() wrapping the inserts."""
-        conn_mock, txn_mock, pool_mock = _make_pool_mock()
+        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
         features = {"rsi_14": 55.0, "adx_14": 30.0}
 
-        await insert_signals_with_features(pool_mock, [entry], features)
+        await SignalLedgerRepository(db_manager).insert_signals_with_features([entry], features)
 
         conn_mock.transaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_executes_insert_sql_for_signal_ledger(self):
         """conn.execute is called with _INSERT_SQL for each entry."""
-        conn_mock, txn_mock, pool_mock = _make_pool_mock()
+        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
 
-        await insert_signals_with_features(pool_mock, [entry], {})
+        await SignalLedgerRepository(db_manager).insert_signals_with_features([entry], {})
 
         assert conn_mock.execute.called
         call_args = conn_mock.execute.call_args_list[0]
@@ -109,11 +114,11 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_executemany_called_for_feature_rows(self):
         """conn.executemany is called with _INSERT_FEATURES_SQL when features present."""
-        conn_mock, txn_mock, pool_mock = _make_pool_mock()
+        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
         features = {"rsi_14": 55.0, "adx_14": 30.0}  # 2 numeric features
 
-        await insert_signals_with_features(pool_mock, [entry], features)
+        await SignalLedgerRepository(db_manager).insert_signals_with_features([entry], features)
 
         assert conn_mock.executemany.called
         call_args = conn_mock.executemany.call_args_list[0]
@@ -122,9 +127,9 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_no_executemany_when_no_numeric_features(self):
         """conn.executemany is NOT called when no numeric features found."""
-        conn_mock, txn_mock, pool_mock = _make_pool_mock()
+        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
 
-        await insert_signals_with_features(pool_mock, [entry], {})
+        await SignalLedgerRepository(db_manager).insert_signals_with_features([entry], {})
 
         conn_mock.executemany.assert_not_called()

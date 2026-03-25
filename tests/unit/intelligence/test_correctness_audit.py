@@ -17,7 +17,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 class TestRSICorrectness:
     def test_wilder_smoothing_not_simple_ma(self):
         """RSI must use Wilder's EWM (alpha=1/14), not simple average."""
-        from src.intelligence.indicators.rsi import RSIPlugin
+        from src.intelligence.features.i1_indicators.rsi import RSIPlugin
 
         # Steady uptrend then drop: RSI should NOT be 100 after 14 up bars
         close = np.array([100.0 + i for i in range(20)] + [115.0, 114.0, 113.0])
@@ -31,7 +31,7 @@ class TestRSICorrectness:
 
     def test_incremental_matches_full(self):
         """compute_next should match compute_full on the same data."""
-        from src.intelligence.indicators.rsi import RSIPlugin
+        from src.intelligence.features.i1_indicators.rsi import RSIPlugin
 
         close = np.linspace(100, 120, 40)
         df_full = make_ohlcv(close)
@@ -65,7 +65,7 @@ class TestRSICorrectness:
 class TestATRCorrectness:
     def test_wilder_not_rolling_mean(self):
         """ATR must use Wilder's smoothing (EWM α=1/14), not rolling mean."""
-        from src.intelligence.indicators.atr import ATRPlugin
+        from src.intelligence.features.i1_indicators.atr import ATRPlugin
 
         close = np.full(30, 5000.0)
         high = close + 10.0
@@ -91,7 +91,7 @@ class TestATRCorrectness:
 class TestMACDCorrectness:
     def test_histogram_sign_on_bullish_cross(self):
         """Histogram = MACD_line - signal_line. Positive when MACD above signal."""
-        from src.intelligence.indicators.macd import MACDPlugin
+        from src.intelligence.features.i1_indicators.macd import MACDPlugin
 
         close = np.concatenate([np.linspace(5000, 5000, 40), np.linspace(5000, 5200, 20)])
         df = make_ohlcv(close)
@@ -113,7 +113,7 @@ class TestMACDCorrectness:
 class TestVWAPCorrectness:
     def test_vwap_equals_price_on_first_bar(self):
         """VWAP of a single bar should equal that bar's typical price."""
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         df = pd.DataFrame(
             {
@@ -133,7 +133,7 @@ class TestVWAPCorrectness:
 
     def test_vwap_std_non_negative(self):
         """VWAP standard deviation must be non-negative."""
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         close = np.linspace(5000, 5100, 30)
         df = make_ohlcv(close)
@@ -151,7 +151,7 @@ class TestVWAPCorrectness:
 class TestStochasticCorrectness:
     def test_k_at_high_extreme(self):
         """When close == period high, %K should be 100."""
-        from src.intelligence.indicators.stochastic import StochasticPlugin
+        from src.intelligence.features.i1_indicators.stochastic import StochasticPlugin
 
         close = np.full(20, 5000.0)
         close[-1] = 5020.0  # New high
@@ -173,7 +173,7 @@ class TestStochasticCorrectness:
 
     def test_k_at_low_extreme(self):
         """When close == period low, %K should be near 0."""
-        from src.intelligence.indicators.stochastic import StochasticPlugin
+        from src.intelligence.features.i1_indicators.stochastic import StochasticPlugin
 
         close = np.full(20, 5000.0)
         close[-1] = 4980.0  # New low
@@ -201,7 +201,7 @@ class TestStochasticCorrectness:
 class TestSwingDetectorCorrectness:
     def test_swing_high_detected_with_clear_peak(self):
         """A clear 5-bar peak should be detected as swing high (need 60+ bars)."""
-        from src.intelligence.structure.swing_detector import SwingDetectorPlugin
+        from src.intelligence.features.i3_structure.swing_detector import SwingDetectorPlugin
 
         # Build 70 bars with a clear swing high in the middle
         flat = np.full(20, 100.0)
@@ -215,7 +215,7 @@ class TestSwingDetectorCorrectness:
 
     def test_swing_low_detected_in_downtrend(self):
         """A clear swing low should be detected."""
-        from src.intelligence.structure.swing_detector import SwingDetectorPlugin
+        from src.intelligence.features.i3_structure.swing_detector import SwingDetectorPlugin
 
         flat = np.full(20, 100.0)
         trough = np.array([95, 90, 85, 80, 75, 80, 85, 90, 95, 100.0])
@@ -264,7 +264,7 @@ class TestGARCHCorrectness:
 class TestBollingerBandsCorrectness:
     def test_bands_are_mean_plus_minus_2sigma(self):
         """Upper = SMA20 + 2σ, lower = SMA20 - 2σ (population std, ddof=0)."""
-        from src.intelligence.indicators.bollinger import BollingerPlugin
+        from src.intelligence.features.i1_indicators.bollinger import BollingerPlugin
 
         close = np.linspace(5000, 5100, 25)
         df = make_ohlcv(close)
@@ -280,7 +280,7 @@ class TestBollingerBandsCorrectness:
 
     def test_bands_widen_on_volatile_data(self):
         """Volatile data should produce wider bands than flat data."""
-        from src.intelligence.indicators.bollinger import BollingerPlugin
+        from src.intelligence.features.i1_indicators.bollinger import BollingerPlugin
 
         quiet = make_ohlcv(np.full(30, 5000.0))
         volatile_close = np.full(30, 5000.0)
@@ -296,7 +296,7 @@ class TestBollingerBandsCorrectness:
 class TestOBVCorrectness:
     def test_obv_increases_on_up_day(self):
         """On an up day (close > prev_close), OBV += volume."""
-        from src.intelligence.indicators.obv import OBVPlugin
+        from src.intelligence.features.i1_indicators.obv import OBVPlugin
 
         close = np.array([5000.0, 5010.0, 5020.0])
         volume = np.array([1000.0, 2000.0, 1500.0])
@@ -308,7 +308,7 @@ class TestOBVCorrectness:
 
     def test_obv_decreases_on_down_day(self):
         """On a down day (close < prev_close), OBV -= volume."""
-        from src.intelligence.indicators.obv import OBVPlugin
+        from src.intelligence.features.i1_indicators.obv import OBVPlugin
 
         close = np.array([5020.0, 5010.0, 5000.0])
         volume = np.array([1000.0, 2000.0, 1500.0])
@@ -327,7 +327,7 @@ class TestOBVCorrectness:
 class TestSRClusteringCorrectness:
     def test_sr_levels_within_price_range(self):
         """S/R levels should be near current price range."""
-        from src.intelligence.structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
@@ -341,7 +341,7 @@ class TestSRClusteringCorrectness:
 
     def test_support_dist_pct_is_percentage(self):
         """support_dist_pct is a percentage (0-100 scale), should be in plausible range."""
-        from src.intelligence.structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
@@ -355,7 +355,7 @@ class TestSRClusteringCorrectness:
 class TestTrendStructureCorrectness:
     def test_structure_integrity_bounded_0_to_1(self):
         """structure_integrity must be in [0, 1]."""
-        from src.intelligence.structure.trend_structure import TrendStructurePlugin
+        from src.intelligence.features.i3_structure.trend_structure import TrendStructurePlugin
 
         close = np.linspace(5000, 5200, 60)
         df = make_ohlcv(close)
@@ -366,7 +366,7 @@ class TestTrendStructureCorrectness:
 
     def test_trend_direction_uptrend(self):
         """Zigzag uptrend (HH/HL pattern) should produce positive trend_direction."""
-        from src.intelligence.structure.trend_structure import TrendStructurePlugin
+        from src.intelligence.features.i3_structure.trend_structure import TrendStructurePlugin
 
         # Use a zigzag uptrend so swing detection finds clear HH/HL peaks
         base = np.linspace(5000, 5200, 60)
@@ -475,7 +475,7 @@ class TestMomentumContextCorrectness:
 class TestBollingerSqueezeCorrectness:
     def test_squeeze_active_when_bb_inside_keltner(self):
         """BB inside Keltner = squeeze_active == 1."""
-        from src.intelligence.patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         features = {
             "bb_20_2_upper": 5020.0,
@@ -490,7 +490,7 @@ class TestBollingerSqueezeCorrectness:
 
     def test_no_squeeze_when_bb_outside_keltner(self):
         """BB outside Keltner = no squeeze."""
-        from src.intelligence.patterns.bollinger_squeeze import BollingerSqueezePlugin
+        from src.intelligence.features.i5_patterns.bollinger_squeeze import BollingerSqueezePlugin
 
         features = {
             "bb_20_2_upper": 5050.0,

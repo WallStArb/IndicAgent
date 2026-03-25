@@ -39,7 +39,7 @@ def _range_data(n: int = 120) -> np.ndarray:
 class TestSwingDetector:
     def test_uptrend_swings(self):
         """HH+HL sequence → swing_pattern == +1.0."""
-        from src.intelligence.structure.swing_detector import SwingDetectorPlugin
+        from src.intelligence.features.i3_structure.swing_detector import SwingDetectorPlugin
 
         close = _uptrend_data()
         df = make_ohlcv(close)
@@ -57,7 +57,7 @@ class TestSwingDetector:
 
     def test_downtrend_swings(self):
         """LH+LL sequence → swing_pattern == -1.0."""
-        from src.intelligence.structure.swing_detector import SwingDetectorPlugin
+        from src.intelligence.features.i3_structure.swing_detector import SwingDetectorPlugin
 
         close = _downtrend_data()
         df = make_ohlcv(close)
@@ -72,7 +72,7 @@ class TestSwingDetector:
 
     def test_flat_data_detected(self):
         """Sinusoidal data → swings detected but mixed pattern."""
-        from src.intelligence.structure.swing_detector import SwingDetectorPlugin
+        from src.intelligence.features.i3_structure.swing_detector import SwingDetectorPlugin
 
         close = _range_data()
         df = make_ohlcv(close)
@@ -84,7 +84,7 @@ class TestSwingDetector:
         assert "swing_low" in result
 
     def test_empty_frames(self):
-        from src.intelligence.structure.swing_detector import SwingDetectorPlugin
+        from src.intelligence.features.i3_structure.swing_detector import SwingDetectorPlugin
 
         plugin = SwingDetectorPlugin()
         assert plugin.compute_full({}) == {}
@@ -97,7 +97,7 @@ class TestSwingDetector:
 class TestSupportResistance:
     def test_repeated_level_touches(self):
         """Data oscillating around levels → strength > 1 for clustered pivots."""
-        from src.intelligence.structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
 
         # Oscillate between 4950 and 5050 repeatedly to build touches
         n = 120
@@ -116,7 +116,7 @@ class TestSupportResistance:
 
     def test_trending_sr_placement(self):
         """In uptrend, resistance above and support below current price."""
-        from src.intelligence.structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
 
         close = _uptrend_data()
         df = make_ohlcv(close)
@@ -128,7 +128,7 @@ class TestSupportResistance:
         assert result["nearest_support"] <= current or result["support_dist_pct"] >= 0
 
     def test_empty_frames(self):
-        from src.intelligence.structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
 
         plugin = SupportResistancePlugin()
         assert plugin.compute_full({}) == {}
@@ -141,7 +141,7 @@ class TestSupportResistance:
 class TestTrendStructure:
     def test_clean_uptrend(self):
         """Strong uptrend → direction == +1.0 and decent integrity."""
-        from src.intelligence.structure.trend_structure import TrendStructurePlugin
+        from src.intelligence.features.i3_structure.trend_structure import TrendStructurePlugin
 
         close = _uptrend_data()
         df = make_ohlcv(close)
@@ -156,7 +156,7 @@ class TestTrendStructure:
 
     def test_clean_downtrend(self):
         """Strong downtrend → direction == -1.0."""
-        from src.intelligence.structure.trend_structure import TrendStructurePlugin
+        from src.intelligence.features.i3_structure.trend_structure import TrendStructurePlugin
 
         close = _downtrend_data()
         df = make_ohlcv(close)
@@ -168,7 +168,7 @@ class TestTrendStructure:
 
     def test_range_bound(self):
         """Sideways oscillation → direction == 0.0."""
-        from src.intelligence.structure.trend_structure import TrendStructurePlugin
+        from src.intelligence.features.i3_structure.trend_structure import TrendStructurePlugin
 
         close = _range_data()
         df = make_ohlcv(close)
@@ -179,7 +179,7 @@ class TestTrendStructure:
         assert result["trend_duration_bars"] == 0.0
 
     def test_empty_frames(self):
-        from src.intelligence.structure.trend_structure import TrendStructurePlugin
+        from src.intelligence.features.i3_structure.trend_structure import TrendStructurePlugin
 
         plugin = TrendStructurePlugin()
         assert plugin.compute_full({}) == {}
@@ -193,9 +193,9 @@ class TestStructureRegistration:
     def test_all_structure_plugins_registered(self):
         """All 3 structure plugins appear in registry alongside I5 patterns."""
         from src.intelligence.plugins import PluginRegistry
-        from src.intelligence.structure.support_resistance import plugin as sr
-        from src.intelligence.structure.swing_detector import plugin as swing
-        from src.intelligence.structure.trend_structure import plugin as trend
+        from src.intelligence.features.i3_structure.support_resistance import plugin as sr
+        from src.intelligence.features.i3_structure.swing_detector import plugin as swing
+        from src.intelligence.features.i3_structure.trend_structure import plugin as trend
 
         reg = PluginRegistry()
         reg.register_pattern(swing)

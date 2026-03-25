@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.intelligence.structure.swing_momentum import SwingMomentumPlugin
+from src.intelligence.features.i3_structure.swing_momentum import SwingMomentumPlugin
 from tests.unit.intelligence.helpers import make_ohlcv
 
 

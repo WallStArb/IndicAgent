@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.ac_oscillator import plugin
+from src.intelligence.features.i1_indicators.ac_oscillator import plugin
 
 
 def make_ohlcv(n: int, base: float = 100.0, seed: int = 42) -> pd.DataFrame:

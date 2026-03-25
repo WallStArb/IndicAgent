@@ -69,7 +69,7 @@ def assert_values_close(incremental: dict, full: dict, plugin_name: str, rel_tol
 
 class TestOBVIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.obv import OBVPlugin
+        from src.intelligence.features.i1_indicators.obv import OBVPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = OBVPlugin()
@@ -90,7 +90,7 @@ class TestOBVIncremental:
 
 class TestVWAPIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = VWAPPlugin()
@@ -107,7 +107,7 @@ class TestVWAPIncremental:
 
 class TestRSIIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.rsi import RSIPlugin
+        from src.intelligence.features.i1_indicators.rsi import RSIPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = RSIPlugin()
@@ -124,7 +124,7 @@ class TestRSIIncremental:
 
 class TestATRIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.atr import ATRPlugin
+        from src.intelligence.features.i1_indicators.atr import ATRPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = ATRPlugin()
@@ -141,7 +141,7 @@ class TestATRIncremental:
 
 class TestMovingAveragesIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.moving_averages import MovingAveragesPlugin
+        from src.intelligence.features.i1_indicators.moving_averages import MovingAveragesPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = MovingAveragesPlugin()
@@ -163,7 +163,7 @@ class TestMovingAveragesIncremental:
 
 class TestMACDIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.macd import MACDPlugin
+        from src.intelligence.features.i1_indicators.macd import MACDPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = MACDPlugin()
@@ -180,7 +180,7 @@ class TestMACDIncremental:
 
 class TestBollingerIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.bollinger import BollingerPlugin
+        from src.intelligence.features.i1_indicators.bollinger import BollingerPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = BollingerPlugin()
@@ -197,7 +197,7 @@ class TestBollingerIncremental:
 
 class TestStochasticIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.stochastic import StochasticPlugin
+        from src.intelligence.features.i1_indicators.stochastic import StochasticPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = StochasticPlugin()
@@ -214,7 +214,7 @@ class TestStochasticIncremental:
 
 class TestWilliamsRIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.williams_r import WilliamsRPlugin
+        from src.intelligence.features.i1_indicators.williams_r import WilliamsRPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = WilliamsRPlugin()
@@ -231,7 +231,7 @@ class TestWilliamsRIncremental:
 
 class TestCCIIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.cci import CCIPlugin
+        from src.intelligence.features.i1_indicators.cci import CCIPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = CCIPlugin()
@@ -248,7 +248,7 @@ class TestCCIIncremental:
 
 class TestMFIIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.mfi import MFIPlugin
+        from src.intelligence.features.i1_indicators.mfi import MFIPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = MFIPlugin()
@@ -267,7 +267,7 @@ class TestFallbackBehavior:
     """Test that compute_next() falls back to compute_full() when state is empty."""
 
     def test_rsi_fallback(self):
-        from src.intelligence.indicators.rsi import RSIPlugin
+        from src.intelligence.features.i1_indicators.rsi import RSIPlugin
 
         df = generate_synthetic_ohlcv(50)
         plugin = RSIPlugin()
@@ -276,7 +276,7 @@ class TestFallbackBehavior:
         assert "rsi_14" in result
 
     def test_macd_fallback(self):
-        from src.intelligence.indicators.macd import MACDPlugin
+        from src.intelligence.features.i1_indicators.macd import MACDPlugin
 
         df = generate_synthetic_ohlcv(50)
         plugin = MACDPlugin()
@@ -284,7 +284,7 @@ class TestFallbackBehavior:
         assert "macd_12_26_9" in result
 
     def test_bollinger_fallback(self):
-        from src.intelligence.indicators.bollinger import BollingerPlugin
+        from src.intelligence.features.i1_indicators.bollinger import BollingerPlugin
 
         df = generate_synthetic_ohlcv(50)
         plugin = BollingerPlugin()
@@ -294,7 +294,7 @@ class TestFallbackBehavior:
 
 class TestADXIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.adx import ADXPlugin
+        from src.intelligence.features.i1_indicators.adx import ADXPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = ADXPlugin()
@@ -309,7 +309,7 @@ class TestADXIncremental:
         assert_values_close(result, full_result, "ADX")
 
     def test_compute_full_outputs(self):
-        from src.intelligence.indicators.adx import ADXPlugin
+        from src.intelligence.features.i1_indicators.adx import ADXPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = ADXPlugin()
@@ -323,14 +323,14 @@ class TestADXIncremental:
         assert 0 <= result["minus_di_14"] <= 100
 
     def test_empty_input(self):
-        from src.intelligence.indicators.adx import ADXPlugin
+        from src.intelligence.features.i1_indicators.adx import ADXPlugin
 
         plugin = ADXPlugin()
         assert plugin.compute_full({"main": None}) == {}
         assert plugin.compute_full({}) == {}
 
     def test_insufficient_data(self):
-        from src.intelligence.indicators.adx import ADXPlugin
+        from src.intelligence.features.i1_indicators.adx import ADXPlugin
 
         df = generate_synthetic_ohlcv(10)
         plugin = ADXPlugin()
@@ -339,7 +339,7 @@ class TestADXIncremental:
 
 class TestKeltnerIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.keltner import KeltnerChannelsPlugin
+        from src.intelligence.features.i1_indicators.keltner import KeltnerChannelsPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = KeltnerChannelsPlugin()
@@ -354,7 +354,7 @@ class TestKeltnerIncremental:
         assert_values_close(result, full_result, "Keltner")
 
     def test_compute_full_outputs(self):
-        from src.intelligence.indicators.keltner import KeltnerChannelsPlugin
+        from src.intelligence.features.i1_indicators.keltner import KeltnerChannelsPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = KeltnerChannelsPlugin()
@@ -368,7 +368,7 @@ class TestKeltnerIncremental:
         assert result["kc_mid_20"] > result["kc_lower_20"]
 
     def test_empty_input(self):
-        from src.intelligence.indicators.keltner import KeltnerChannelsPlugin
+        from src.intelligence.features.i1_indicators.keltner import KeltnerChannelsPlugin
 
         plugin = KeltnerChannelsPlugin()
         assert plugin.compute_full({"main": None}) == {}
@@ -376,7 +376,7 @@ class TestKeltnerIncremental:
 
 class TestDonchianIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.donchian import DonchianChannelsPlugin
+        from src.intelligence.features.i1_indicators.donchian import DonchianChannelsPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = DonchianChannelsPlugin()
@@ -391,7 +391,7 @@ class TestDonchianIncremental:
         assert_values_close(result, full_result, "Donchian")
 
     def test_compute_full_outputs(self):
-        from src.intelligence.indicators.donchian import DonchianChannelsPlugin
+        from src.intelligence.features.i1_indicators.donchian import DonchianChannelsPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = DonchianChannelsPlugin()
@@ -404,7 +404,7 @@ class TestDonchianIncremental:
         assert result["donchian_mid_20"] >= result["donchian_lower_20"]
 
     def test_empty_input(self):
-        from src.intelligence.indicators.donchian import DonchianChannelsPlugin
+        from src.intelligence.features.i1_indicators.donchian import DonchianChannelsPlugin
 
         plugin = DonchianChannelsPlugin()
         assert plugin.compute_full({"main": None}) == {}
@@ -412,7 +412,7 @@ class TestDonchianIncremental:
 
 class TestROCPPOIncremental:
     def test_compute_next_matches_full(self):
-        from src.intelligence.indicators.roc_ppo import ROCPPOPlugin
+        from src.intelligence.features.i1_indicators.roc_ppo import ROCPPOPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = ROCPPOPlugin()
@@ -427,7 +427,7 @@ class TestROCPPOIncremental:
         assert_values_close(result, full_result, "ROC_PPO")
 
     def test_compute_full_outputs(self):
-        from src.intelligence.indicators.roc_ppo import ROCPPOPlugin
+        from src.intelligence.features.i1_indicators.roc_ppo import ROCPPOPlugin
 
         df = generate_synthetic_ohlcv(TOTAL_BARS)
         plugin = ROCPPOPlugin()
@@ -442,7 +442,7 @@ class TestROCPPOIncremental:
         assert isinstance(result["ppo_12_26"], float)
 
     def test_empty_input(self):
-        from src.intelligence.indicators.roc_ppo import ROCPPOPlugin
+        from src.intelligence.features.i1_indicators.roc_ppo import ROCPPOPlugin
 
         plugin = ROCPPOPlugin()
         assert plugin.compute_full({"main": None}) == {}

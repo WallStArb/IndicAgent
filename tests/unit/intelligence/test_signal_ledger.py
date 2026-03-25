@@ -8,12 +8,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.intelligence.trading.signal_ledger import (
+from src.persistence.repository.signal_ledger_repository import (
     _SELECT_ACTIVE_SQL,
     LedgerEntry,
-    get_active_signals,
-    insert_signals,
-    update_signal_status,
+    SignalLedgerRepository,
 )
 
 # ---------------------------------------------------------------------------
@@ -250,7 +248,7 @@ class TestInsertSignals:
     async def test_insert_single_signal(self):
         db = AsyncMock()
         entry = _make_entry()
-        await insert_signals(db, [entry])
+        await SignalLedgerRepository(db).insert_signals([entry])
 
         db.execute_batch.assert_awaited_once()
         args = db.execute_batch.call_args
@@ -260,7 +258,7 @@ class TestInsertSignals:
     async def test_insert_multiple_signals(self):
         db = AsyncMock()
         entries = [_make_entry(signal_id=f"id-{i}") for i in range(3)]
-        await insert_signals(db, entries)
+        await SignalLedgerRepository(db).insert_signals(entries)
 
         db.execute_batch.assert_awaited_once()
         args = db.execute_batch.call_args
@@ -269,7 +267,7 @@ class TestInsertSignals:
     @pytest.mark.asyncio
     async def test_insert_empty_list_is_noop(self):
         db = AsyncMock()
-        await insert_signals(db, [])
+        await SignalLedgerRepository(db).insert_signals([])
         db.execute_batch.assert_not_awaited()
 
 
@@ -335,7 +333,7 @@ class TestGetActiveSignals:
             {"signal_id": "b", "status": "active"},
         ]
 
-        result = await get_active_signals(db, symbol="ES")
+        result = await SignalLedgerRepository(db).get_active_signals(symbol="ES")
 
         db.execute_query.assert_awaited_once()
         assert len(result) == 2
@@ -367,15 +365,11 @@ class TestRegimeSuppressedStatus:
 
 import asyncio  # noqa: E402
 
-from src.intelligence.trading.signal_ledger import (  # noqa: E402
+from src.persistence.repository.signal_ledger_repository import (  # noqa: E402
     _RECORD_ACTIVATION_SQL,
     _RECORD_MARKET_RESOLUTION_SQL,
     _RECORD_ZONE_RESOLUTION_SQL,
     _RECORD_ZONE_WITH_ACTIVATION_SQL,
-    record_activation,
-    record_market_resolution,
-    record_zone_resolution,
-    record_zone_resolution_with_activation,
 )
 
 
@@ -387,7 +381,7 @@ class TestRecordActivation:
         signal_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         activated_at = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        asyncio.run(record_activation(db, signal_id,
+        asyncio.run(SignalLedgerRepository(db).record_activation(signal_id,
                                       activated_at=activated_at,
                                       activation_price=5098.5,
                                       zone_entry_pct=0.25,
@@ -410,7 +404,7 @@ class TestRecordZoneResolution:
         db.execute_command = AsyncMock()
         exit_at = datetime(2026, 3, 14, 11, 0, 0, tzinfo=UTC)
 
-        asyncio.run(record_zone_resolution(db, "aaaa-bbbb",
+        asyncio.run(SignalLedgerRepository(db).record_zone_resolution("aaaa-bbbb",
                                            status="stopped_out",
                                            exit_at=exit_at,
                                            exit_price=5085.0,
@@ -435,7 +429,7 @@ class TestRecordMarketResolution:
         db = AsyncMock()
         db.execute_command = AsyncMock()
 
-        asyncio.run(record_market_resolution(db, "aaaa-bbbb",
+        asyncio.run(SignalLedgerRepository(db).record_market_resolution("aaaa-bbbb",
                                              market_entry_at=None,
                                              market_entry_exit_price=5084.0,
                                              market_entry_exit_at=None,
@@ -459,7 +453,7 @@ class TestRecordMarketResolution:
         """gap_bars=None is the default (live signals)."""
         db = AsyncMock()
         db.execute_command = AsyncMock()
-        asyncio.run(record_market_resolution(db, "aaaa",
+        asyncio.run(SignalLedgerRepository(db).record_market_resolution("aaaa",
                                              market_entry_at=None,
                                              market_entry_exit_price=5115.0,
                                              market_entry_exit_at=None,
@@ -479,8 +473,7 @@ class TestRecordZoneWithActivation:
         db.execute_command = AsyncMock()
         ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        asyncio.run(record_zone_resolution_with_activation(
-            db, "aaaa-bbbb",
+        asyncio.run(SignalLedgerRepository(db).record_zone_resolution_with_activation("aaaa-bbbb",
             activated_at=ts, activation_price=5098.0,
             zone_entry_pct=0.1, bars_to_activation=1,
             status="stopped_out", exit_at=ts,
@@ -508,7 +501,7 @@ class TestLedgerEntryMarketEntryPrice:
         assert 5101.25 in params
 
     def test_insert_sql_includes_market_entry_price(self):
-        from src.intelligence.trading.signal_ledger import _INSERT_SQL
+        from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
         assert "market_entry_price" in _INSERT_SQL
 
 
@@ -538,7 +531,7 @@ class TestIsShadowField:
         assert params[38] is True
 
     def test_insert_sql_contains_is_shadow_and_dollar39(self):
-        from src.intelligence.trading.signal_ledger import _INSERT_SQL
+        from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
         assert "is_shadow" in _INSERT_SQL
         assert "$39" in _INSERT_SQL
 
@@ -546,7 +539,7 @@ class TestIsShadowField:
 @pytest.mark.unit
 class TestBuildFeatureRows:
     def test_extracts_float_values(self):
-        from src.intelligence.trading.signal_ledger import _build_feature_rows
+        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
 
         ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
         rows = _build_feature_rows(
@@ -560,7 +553,7 @@ class TestBuildFeatureRows:
         assert names == {"rsi_14", "adx_14"}
 
     def test_maps_bucket_correctly(self):
-        from src.intelligence.trading.signal_ledger import _build_feature_rows
+        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
 
         ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
         rows = _build_feature_rows("sig-123", ts, {"rsi_14": 55.0})
@@ -570,7 +563,7 @@ class TestBuildFeatureRows:
         assert row[4] == "momentum"
 
     def test_skips_none_values(self):
-        from src.intelligence.trading.signal_ledger import _build_feature_rows
+        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
 
         ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
         rows = _build_feature_rows("sig-123", ts, {"rsi_14": None, "adx_14": 30.0})
@@ -578,21 +571,21 @@ class TestBuildFeatureRows:
         assert rows[0][2] == "adx_14"
 
     def test_skips_string_values(self):
-        from src.intelligence.trading.signal_ledger import _build_feature_rows
+        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
 
         ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
         rows = _build_feature_rows("sig-123", ts, {"hmm_regime": "trending"})
         assert rows == []
 
     def test_skips_dict_values(self):
-        from src.intelligence.trading.signal_ledger import _build_feature_rows
+        from src.persistence.repository.signal_ledger_repository import _build_feature_rows
 
         ts = datetime(2026, 3, 16, 10, 0, 0, tzinfo=UTC)
         rows = _build_feature_rows("sig-123", ts, {"i5": {"some": "dict"}})
         assert rows == []
 
     def test_insert_features_sql_has_on_conflict(self):
-        from src.intelligence.trading.signal_ledger import _INSERT_FEATURES_SQL
+        from src.persistence.repository.signal_ledger_repository import _INSERT_FEATURES_SQL
         assert "ON CONFLICT" in _INSERT_FEATURES_SQL
         assert "DO NOTHING" in _INSERT_FEATURES_SQL
 
@@ -659,7 +652,7 @@ class TestLedgerEntryPhase35CalibrationFields:
 
     def test_insert_sql_contains_calibration_columns(self):
         """_INSERT_SQL must reference all four Phase 35 calibration columns."""
-        from src.intelligence.trading.signal_ledger import _INSERT_SQL
+        from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
         assert "raw_cis_score" in _INSERT_SQL
         assert "filtered_cis_score" in _INSERT_SQL
         assert "calibrated_confidence" in _INSERT_SQL

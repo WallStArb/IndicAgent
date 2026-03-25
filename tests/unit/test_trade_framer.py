@@ -36,7 +36,7 @@ def test_tradeframe_has_stop_basis_fields():
 
 def test_ledger_entry_has_15_new_fields():
     """LedgerEntry should have all 15 new stop/lifecycle/divergence fields."""
-    from src.intelligence.trading.signal_ledger import LedgerEntry
+    from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
     entry = LedgerEntry(
         signal_id="abc",
@@ -84,7 +84,7 @@ def test_ledger_entry_has_15_new_fields():
 
 def test_ledger_entry_to_insert_params_returns_58_elements():
     """to_insert_params() must return a 58-element tuple (39 original + 15 Phase 32 + 4 Phase 35)."""
-    from src.intelligence.trading.signal_ledger import LedgerEntry
+    from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
     entry = LedgerEntry(
         signal_id="abc",
@@ -114,7 +114,7 @@ def test_ledger_entry_to_insert_params_returns_58_elements():
 
 def test_ledger_entry_to_insert_params_with_all_new_fields():
     """to_insert_params() should serialize new fields correctly."""
-    from src.intelligence.trading.signal_ledger import LedgerEntry
+    from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
     ts = datetime.now(tz=UTC)
     entry = LedgerEntry(
@@ -181,7 +181,7 @@ def test_ledger_entry_to_insert_params_with_all_new_fields():
 
 def test_ledger_entry_trailing_stop_none_serializes_to_none():
     """When trailing_stop_price is None, to_insert_params() should return None for $47."""
-    from src.intelligence.trading.signal_ledger import LedgerEntry
+    from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
     entry = LedgerEntry(
         signal_id="abc",
@@ -211,7 +211,7 @@ def test_ledger_entry_trailing_stop_none_serializes_to_none():
 
 def test_insert_sql_has_58_columns():
     """_INSERT_SQL must have 58 column names and $1 through $58."""
-    from src.intelligence.trading.signal_ledger import _INSERT_SQL
+    from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
 
     # Count $N placeholders — ensure $54-$58 all exist
     assert "$54" in _INSERT_SQL, "_INSERT_SQL must contain $54"

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.intelligence.indicators.chandelier import ChandelierPlugin
+from src.intelligence.features.i1_indicators.chandelier import ChandelierPlugin
 
 
 def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFrame:

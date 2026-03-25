@@ -476,7 +476,7 @@ class TestCISColumnsInSQL:
 
         from historical_backfill import _insert_signals_sync
 
-        from src.intelligence.trading.signal_ledger import LedgerEntry
+        from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
         entry = LedgerEntry(
             signal_id="00000000-0000-0000-0000-000000000001",

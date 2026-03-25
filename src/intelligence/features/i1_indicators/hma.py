@@ -1,4 +1,4 @@
-# src/intelligence/indicators/hma.py
+# src/intelligence/features/i1_indicators/hma.py
 """Hull Moving Average (HMA) I1 plugin.
 
 HMA(n=20) formula:

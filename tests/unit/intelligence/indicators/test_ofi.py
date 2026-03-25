@@ -26,7 +26,7 @@ def _make_df(n: int = 20, base_close: float = 100.0) -> pd.DataFrame:
 
 class TestOFIPlugin:
     def setup_method(self):
-        from src.intelligence.indicators.ofi import OFIPlugin
+        from src.intelligence.features.i1_indicators.ofi import OFIPlugin
 
         self.plugin = OFIPlugin()
 
@@ -120,6 +120,6 @@ class TestOFIPlugin:
 
     def test_plugin_module_export(self):
         """Module-level plugin singleton exists."""
-        from src.intelligence.indicators.ofi import plugin
+        from src.intelligence.features.i1_indicators.ofi import plugin
 
         assert plugin.name == "ind_OFI"

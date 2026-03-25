@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.intelligence.indicators.hma import HMAPlugin
+from src.intelligence.features.i1_indicators.hma import HMAPlugin
 from tests.unit.intelligence.helpers import make_ohlcv
 
 # ── plugin contract tests ─────────────────────────────────────────────────────

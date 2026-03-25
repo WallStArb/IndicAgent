@@ -55,7 +55,7 @@ from src.core.stream_keys import (
     topic_calibrated,
     topic_cross_asset,
     topic_intelligence,
-    topic_feature_processed,
+    topic_intelligence_journal,
     topic_intelligence_journal,
     topic_market_ticks,
     topic_quality_gated,
@@ -1532,7 +1532,7 @@ class SignalGeneratorService:
                     pipeline_latency_ms=pipeline_latency_ms,
                 )
                 await self._kafka_producer.publish(
-                    topic_feature_processed(self.env_name),
+                    topic_intelligence_journal(self.env_name),
                     record.model_dump_json(),
                     key=message_key(symbol, timeframe),
                 )
