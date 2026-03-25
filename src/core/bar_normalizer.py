@@ -84,7 +84,50 @@ def _slots_fx(start: datetime, end: datetime, interval: timedelta) -> list[datet
 
 
 def _slots_nyse(start: datetime, end: datetime, interval: timedelta) -> list[datetime]:
-    raise NotImplementedError
+    """NYSE trading days, 04:00–20:00 ET (pre-market through after-hours).
+    Half-days: session ends at early_close time instead of 20:00 ET.
+    Holidays: entire day excluded.
+    """
+    cal = mcal.get_calendar("NYSE")
+
+    start_date = start.astimezone(ET).date()
+    end_date = end.astimezone(ET).date()
+    # IMPORTANT: tz="America/New_York" is mandatory.
+    # Without it, market_close is returned as UTC and the half-day check
+    # (pmc_close_et.hour < 16) silently fails.
+    schedule = cal.schedule(
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        tz="America/New_York",
+    )
+
+    SESSION_OPEN_ET  = {"hour": 4,  "minute": 0}
+    SESSION_CLOSE_ET = {"hour": 20, "minute": 0}
+
+    trading_windows: list[tuple[datetime, datetime]] = []
+    for _, row in schedule.iterrows():
+        day_et = row["market_open"].date()
+        day_open = datetime(day_et.year, day_et.month, day_et.day,
+                            SESSION_OPEN_ET["hour"], SESSION_OPEN_ET["minute"],
+                            tzinfo=ET)
+        pmc_close_et = row["market_close"].astimezone(ET)
+        full_close_et = datetime(day_et.year, day_et.month, day_et.day,
+                                 SESSION_CLOSE_ET["hour"], SESSION_CLOSE_ET["minute"],
+                                 tzinfo=ET)
+        is_half_day = pmc_close_et.hour < 16
+        day_close = pmc_close_et if is_half_day else full_close_et
+        trading_windows.append((day_open, day_close))
+
+    slots = []
+    t = start
+    while t <= end:
+        t_et = t.astimezone(ET)
+        for win_open, win_close in trading_windows:
+            if win_open <= t_et <= win_close:
+                slots.append(t)
+                break
+        t += interval
+    return slots
 
 
 def _slots_futures(
