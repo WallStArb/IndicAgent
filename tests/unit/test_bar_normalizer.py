@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from src.core.bar_normalizer import _generate_session_slots
 
 UTC = UTC
@@ -89,3 +91,31 @@ class TestNyse:
         end   = ts("2026-03-14 14:35:00")
         slots = _generate_session_slots("nyse", "SMART", "1m", start, end)
         assert slots == []
+
+
+class TestFutures24_5:
+    def test_cme_weekday_session_filled(self):
+        # Tuesday 2026-03-10 02:00 UTC — CME Globex open
+        start = ts("2026-03-10 02:00:00")
+        end   = ts("2026-03-10 02:02:00")
+        slots = _generate_session_slots("futures_24_5", "CME", "1m", start, end)
+        assert len(slots) == 3
+
+    def test_cbot_weekday_session_filled(self):
+        start = ts("2026-03-10 02:00:00")
+        end   = ts("2026-03-10 02:02:00")
+        slots = _generate_session_slots("futures_24_5", "CBOT", "1m", start, end)
+        assert len(slots) == 3
+
+    def test_weekend_excluded(self):
+        # Saturday 2026-03-14 — Globex closed
+        start = ts("2026-03-14 12:00:00")
+        end   = ts("2026-03-14 12:05:00")
+        slots = _generate_session_slots("futures_24_5", "CME", "1m", start, end)
+        assert slots == []
+
+    def test_unknown_exchange_raises(self):
+        with pytest.raises((KeyError, ValueError)):
+            _generate_session_slots("futures_24_5", "UNKNOWN_XYZ", "1m",
+                                    ts("2026-03-10 02:00:00"),
+                                    ts("2026-03-10 02:05:00"))

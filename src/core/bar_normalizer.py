@@ -26,11 +26,11 @@ _TF_MINUTES: dict[str, int] = {
 # Only used for futures (session_id="futures_24_5") where exchange disambiguates.
 # Equities always use "SMART" exchange — handled by session_id="nyse" branch.
 _FUTURES_EXCHANGE_TO_PMC: dict[str, str] = {
-    "CME": "CME_Equity",   # ES, NQ, RTY
-    "CBOT": "CBOT",        # YM, ZB, ZT, ZN, ZF, ZC, ZS, ZW
-    "COMEX": "CME",        # GC, SI, HG  (COMEX is a CME division)
-    "NYMEX": "CME",        # CL, NG      (NYMEX is a CME division)
-    "CFE": "CBOE",         # VIX futures
+    "CME": "CME_Equity",    # ES, NQ, RTY
+    "CBOT": "CBOT_Equity",  # YM, ZB, ZT, ZN, ZF, ZC, ZS, ZW
+    "COMEX": "CME_Equity",  # GC, SI, HG  (COMEX is a CME division)
+    "NYMEX": "CME_Equity",  # CL, NG      (NYMEX is a CME division)
+    "CFE": "CFE",           # VIX futures
 }
 
 
@@ -136,7 +136,43 @@ def _slots_futures(
     end: datetime,
     interval: timedelta,
 ) -> list[datetime]:
-    raise NotImplementedError
+    """CME/CBOT/COMEX/NYMEX/CFE Globex sessions via pandas_market_calendars.
+
+    PMC encodes Globex hours including the Sunday maintenance window.
+    Falls back gracefully: if PMC returns no schedule, returns empty list.
+    """
+    pmc_name = _FUTURES_EXCHANGE_TO_PMC[exchange]  # KeyError on unknown exchange
+    cal = mcal.get_calendar(pmc_name)
+
+    start_date = start.astimezone(UTC).date()
+    end_date = end.astimezone(UTC).date()
+
+    try:
+        schedule = cal.schedule(
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+        )
+    except Exception:
+        return []
+
+    if schedule.empty:
+        return []
+
+    windows: list[tuple[datetime, datetime]] = []
+    for _, row in schedule.iterrows():
+        win_open  = row["market_open"].to_pydatetime().astimezone(UTC)
+        win_close = row["market_close"].to_pydatetime().astimezone(UTC)
+        windows.append((win_open, win_close))
+
+    slots = []
+    t = start
+    while t <= end:
+        for win_open, win_close in windows:
+            if win_open <= t <= win_close:
+                slots.append(t)
+                break
+        t += interval
+    return slots
 
 
 # ---------------------------------------------------------------------------
