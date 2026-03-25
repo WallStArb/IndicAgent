@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import asyncpg
 from scipy.stats import pearsonr
 from statsmodels.tsa.stattools import adfuller
 
@@ -50,6 +49,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.config.settings import Settings
+from src.core.database_manager import DatabaseManager
 
 # ---------------------------------------------------------------------------
 # Plugin auto-discovery
@@ -124,7 +124,6 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
 
         base_name = name_parts[1].lower()
         # Convert camelCase to snake_case
-        import re
         base_name = re.sub(r'(?<!^)(?=[A-Z])', '_', base_name).lower()
 
         # Try module import
@@ -326,61 +325,48 @@ def _compute_stats(
 
 
 async def _count_qualifying_rows(
-    conn: asyncpg.Connection,
+    db: DatabaseManager,
     column: str,
     field: str,
     days: int,
     symbol_filter: list[str] | None,
 ) -> int:
     """Return count of rows where the plugin field is present and non-null."""
-    base_sql = f"""
-        SELECT COUNT(*)
-        FROM intelligence_features
-        WHERE ts >= NOW() - INTERVAL '{days} days'
-        AND {column} ? $1
-        AND ({column}->>$2) IS NOT NULL
-    """
-    params: list[Any] = [field, field]
+    async with db.get_connection() as conn:
+        base_sql = f"""
+            SELECT COUNT(*)
+            FROM intelligence_features
+            WHERE ts >= NOW() - INTERVAL '{days} days'
+            AND {column} ? $1
+            AND ({column}->>$2) IS NOT NULL
+            AND ($3::text[] IS NULL OR symbol = ANY($3))
+        """
+        params: list[Any] = [field, field, symbol_filter]
 
-    if symbol_filter:
-        placeholders = ", ".join([f"${i + 3}" for i in range(len(symbol_filter))])
-        base_sql += f" AND symbol IN ({placeholders})"
-        params.extend(symbol_filter)
-
-    return await conn.fetchval(base_sql, *params)
+        return await conn.fetchval(base_sql, *params)
 
 
 async def _fetch_rows(
-    conn: asyncpg.Connection,
+    db: DatabaseManager,
     column: str,
     field: str,
     days: int,
     symbol_filter: list[str] | None,
 ) -> list[tuple[Any, ...]]:
     """Fetch (symbol, tf, ts, close, column_jsonb) rows."""
-    base_sql = f"""
-        SELECT symbol, tf, ts, (bar->>'close')::float, {column}
-        FROM intelligence_features
-        WHERE ts >= NOW() - INTERVAL '{days} days'
-        AND {column} ? $1
-        ORDER BY symbol, tf, ts
-    """
-    params: list[Any] = [field]
-
-    if symbol_filter:
-        placeholders = ", ".join([f"${i + 2}" for i in range(len(symbol_filter))])
+    async with db.get_connection() as conn:
         base_sql = f"""
             SELECT symbol, tf, ts, (bar->>'close')::float, {column}
             FROM intelligence_features
             WHERE ts >= NOW() - INTERVAL '{days} days'
             AND {column} ? $1
-            AND symbol IN ({placeholders})
+            AND ($2::text[] IS NULL OR symbol = ANY($2))
             ORDER BY symbol, tf, ts
         """
-        params = [field] + symbol_filter
+        params: list[Any] = [field, symbol_filter]
 
-    rows = await conn.fetch(base_sql, *params)
-    return [tuple(row) for row in rows]
+        rows = await conn.fetch(base_sql, *params)
+        return [tuple(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -670,12 +656,14 @@ async def run_validation(
     n_bars_by_tf = plugin_meta["n_bars_by_tf"]
 
     # --- Connect to DB ---
+    from src.core.script_utils import get_script_db
+
     settings = Settings()
-    conn = await asyncpg.connect(settings.database_url)
+    db = await get_script_db(settings)
 
     try:
         # --- Data sufficiency check ---
-        row_count = await _count_qualifying_rows(conn, column, effective_field, days, symbol_filter)
+        row_count = await _count_qualifying_rows(db, column, effective_field, days, symbol_filter)
 
         if row_count < 30:
             print(f"  Insufficient data: {row_count} bars. Triggering historical replay...")
@@ -685,22 +673,20 @@ async def run_validation(
                 check=False,
             )
             # Re-count after backfill
-            row_count = await _count_qualifying_rows(conn, column, effective_field, days, symbol_filter)
+            row_count = await _count_qualifying_rows(db, column, effective_field, days, symbol_filter)
             print(f"  After backfill: {row_count} qualifying bars.")
 
         # --- Fetch data ---
-        raw_rows = await _fetch_rows(conn, column, effective_field, days, symbol_filter)
+        raw_rows = await _fetch_rows(db, column, effective_field, days, symbol_filter)
 
     finally:
-        await conn.close()
+        await db.close()
 
     # Build DataFrame from raw rows
     records = []
     symbols_seen: set[str] = set()
     for sym, tf, ts, close, col_json in raw_rows:
-        # col_json comes as dict (asyncpg returns JSONB as dict)
-        if isinstance(col_json, str):
-            col_json = json.loads(col_json)
+        # DatabaseManager sets up JSONB codecs — col_json is already a dict
         val = col_json.get(effective_field) if col_json else None
         records.append(
             {

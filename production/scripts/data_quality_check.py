@@ -32,22 +32,23 @@ Design rationale (Renaissance principles):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-_ET = ZoneInfo("America/New_York")
-from pathlib import Path
-from typing import Any
-
-import psycopg2
-import psycopg2.extras
+import asyncpg
 from prometheus_client import REGISTRY, write_to_textfile
+
+_ET = ZoneInfo("America/New_York")
 
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config.settings import Settings
+from src.core.database_manager import DatabaseManager
+from src.core.script_utils import get_script_db
 from src.observability.data_quality_metrics import (
     DQ_IC_SCORE,
     DQ_IC_SIGNIFICANT_FRACTION,
@@ -80,22 +81,12 @@ PROM_OUTPUT = "/tmp/data_quality_metrics.prom"
 
 
 # ---------------------------------------------------------------------------
-# Database connection
-# ---------------------------------------------------------------------------
-
-
-def connect_db(settings: Settings) -> Any:
-    """Create a synchronous psycopg2 connection from Settings."""
-    return psycopg2.connect(settings.database_url)
-
-
-# ---------------------------------------------------------------------------
 # Check functions
 # ---------------------------------------------------------------------------
 
 
-def check_null_rates(
-    conn: Any, symbols: list[str]
+async def check_null_rates(
+    db: DatabaseManager, symbols: list[str]
 ) -> tuple[dict[str, float], dict[str, float], list[str]]:
     """Query signal_ledger for NULL cis_score and confidence rates per symbol.
 
@@ -103,12 +94,13 @@ def check_null_rates(
         (cis_null_rates, confidence_null_rates, critical_symbols)
         where rates are fractions (0.0–1.0) and critical_symbols has null_cis > threshold.
     """
-    cis_rates: dict[str, float] = {}
-    confidence_rates: dict[str, float] = {}
+    # Initialize defaults upfront — symbols with no data get 0% null rate
+    cis_rates: dict[str, float] = {s: 0.0 for s in symbols}
+    confidence_rates: dict[str, float] = {s: 0.0 for s in symbols}
     critical_syms: list[str] = []
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
+    async with db.get_connection() as conn:
+        rows = await conn.fetch(
             """
             SELECT
                 symbol,
@@ -116,14 +108,12 @@ def check_null_rates(
                 SUM(CASE WHEN cis_score IS NULL THEN 1 ELSE 0 END) AS null_cis,
                 SUM(CASE WHEN confidence IS NULL THEN 1 ELSE 0 END) AS null_confidence
             FROM signal_ledger
-            WHERE symbol = ANY(%s)
+            WHERE symbol = ANY($1)
             GROUP BY symbol
             """,
-            (symbols,),
+            symbols,
         )
-        rows = cur.fetchall()
 
-    seen: set[str] = {row["symbol"] for row in rows}
     for row in rows:
         symbol = row["symbol"]
         total = row["total"]
@@ -136,17 +126,11 @@ def check_null_rates(
         if cis_rate > CRITICAL_NULL_CIS_RATE:
             critical_syms.append(symbol)
 
-    # Symbols with no rows in signal_ledger — treat as 0% null
-    for symbol in symbols:
-        if symbol not in seen:
-            cis_rates[symbol] = 0.0
-            confidence_rates[symbol] = 0.0
-
     return cis_rates, confidence_rates, critical_syms
 
 
-def check_intelligence_staleness(
-    conn: Any, symbols: list[str], timeframes: list[str]
+async def check_intelligence_staleness(
+    db: DatabaseManager, symbols: list[str], timeframes: list[str]
 ) -> tuple[dict[tuple[str, str], float], list[tuple[str, str]]]:
     """Query intelligence_features for seconds-since-last-write per (symbol, tf).
 
@@ -158,19 +142,30 @@ def check_intelligence_staleness(
     critical_pairs: list[tuple[str, str]] = []
     now = datetime.now(UTC)
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT symbol, tf, MAX(ts) AS last_ts
-            FROM intelligence_features
-            WHERE symbol = ANY(%s)
-              AND tf = ANY(%s)
-              AND ts > NOW() - INTERVAL '24 hours'
-            GROUP BY symbol, tf
-            """,
-            (symbols, timeframes),
+    async with db.get_connection() as conn:
+        rows, sig_rows = await asyncio.gather(
+            conn.fetch(
+                """
+                SELECT symbol, tf, MAX(ts) AS last_ts
+                FROM intelligence_features
+                WHERE symbol = ANY($1)
+                  AND tf = ANY($2)
+                  AND ts > NOW() - INTERVAL '24 hours'
+                GROUP BY symbol, tf
+                """,
+                symbols, timeframes,
+            ),
+            conn.fetch(
+                """
+                SELECT symbol, MAX(timestamp) AS last_ts
+                FROM signal_ledger
+                WHERE symbol = ANY($1)
+                  AND timestamp > NOW() - INTERVAL '24 hours'
+                GROUP BY symbol
+                """,
+                symbols,
+            ),
         )
-        rows = cur.fetchall()
 
     seen: set[tuple[str, str]] = set()
     for row in rows:
@@ -194,20 +189,6 @@ def check_intelligence_staleness(
                 staleness[(sym, tf)] = float("inf")
                 DQ_INTELLIGENCE_STALENESS_SECONDS.labels(symbol=sym, timeframe=tf).set(99999)
 
-    # Check signal_ledger staleness too (per symbol)
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT symbol, MAX(timestamp) AS last_ts
-            FROM signal_ledger
-            WHERE symbol = ANY(%s)
-              AND timestamp > NOW() - INTERVAL '24 hours'
-            GROUP BY symbol
-            """,
-            (symbols,),
-        )
-        sig_rows = cur.fetchall()
-
     for row in sig_rows:
         sym = row["symbol"]
         last_ts = row["last_ts"]
@@ -220,8 +201,8 @@ def check_intelligence_staleness(
     return staleness, critical_pairs
 
 
-def check_pipeline_lag(
-    conn: Any, symbols: list[str]
+async def check_pipeline_lag(
+    db: DatabaseManager, symbols: list[str]
 ) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], float], list[tuple[str, str]]]:
     """Query signal_ledger.pipeline_lag_ms for P50/P95 per (symbol, tf) over last 1 hour.
 
@@ -232,8 +213,8 @@ def check_pipeline_lag(
     p95_map: dict[tuple[str, str], float] = {}
     critical_pairs: list[tuple[str, str]] = []
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
+    async with db.get_connection() as conn:
+        rows = await conn.fetch(
             """
             SELECT
                 symbol,
@@ -241,14 +222,13 @@ def check_pipeline_lag(
                 PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p50,
                 PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p95
             FROM signal_ledger
-            WHERE symbol = ANY(%s)
+            WHERE symbol = ANY($1)
               AND pipeline_lag_ms IS NOT NULL
               AND timestamp > NOW() - INTERVAL '1 hour'
             GROUP BY symbol, timeframe
             """,
-            (symbols,),
+            symbols,
         )
-        rows = cur.fetchall()
 
     for row in rows:
         sym = row["symbol"]
@@ -265,7 +245,7 @@ def check_pipeline_lag(
     return p50_map, p95_map, critical_pairs
 
 
-def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, int], int]:
+async def check_ohlcv_completeness(db: DatabaseManager, symbols: list[str]) -> tuple[dict[str, int], int]:
     """Check today's RTH 1m bar completeness and hypertable chunk count.
 
     Returns:
@@ -292,20 +272,29 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
     else:
         expected_bars = RTH_BARS_EXPECTED
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT symbol, COUNT(*) AS bar_count
-            FROM market_data_ohlcv
-            WHERE symbol = ANY(%s)
-              AND timeframe = '1m'
-              AND timestamp >= %s
-              AND timestamp < %s
-            GROUP BY symbol
-            """,
-            (symbols, today_start, today_end),
+    async with db.get_connection() as conn:
+        rows, chunk_row = await asyncio.gather(
+            conn.fetch(
+                """
+                SELECT symbol, COUNT(*) AS bar_count
+                FROM market_data_ohlcv
+                WHERE symbol = ANY($1)
+                  AND timeframe = '1m'
+                  AND timestamp >= $2
+                  AND timestamp < $3
+                GROUP BY symbol
+                """,
+                symbols, today_start, today_end,
+            ),
+            conn.fetchrow(
+                """
+                SELECT COUNT(*) AS chunk_count
+                FROM timescaledb_information.chunks
+                WHERE hypertable_name = 'market_data_ohlcv'
+                  AND hypertable_schema = 'public'
+                """
+            ),
         )
-        rows = cur.fetchall()
 
     bar_counts = {row["symbol"]: int(row["bar_count"]) for row in rows}
     for symbol in symbols:
@@ -314,24 +303,13 @@ def check_ohlcv_completeness(conn: Any, symbols: list[str]) -> tuple[dict[str, i
         missing[symbol] = missing_bars
         DQ_OHLCV_MISSING_BARS_DAILY.labels(symbol=symbol).set(missing_bars)
 
-    # Hypertable chunk count
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT COUNT(*) AS chunk_count
-            FROM timescaledb_information.chunks
-            WHERE hypertable_name = 'market_data_ohlcv'
-              AND hypertable_schema = 'public'
-            """
-        )
-        row = cur.fetchone()
-        chunk_count = int(row[0]) if row else 0
+    chunk_count = int(chunk_row["chunk_count"]) if chunk_row else 0
 
     DQ_OHLCV_CHUNK_COUNT.set(chunk_count)
     return missing, chunk_count
 
 
-def check_ic_health(conn: Any) -> tuple[dict[tuple[str, str], float], float]:
+async def check_ic_health(db: DatabaseManager) -> tuple[dict[tuple[str, str], float], float]:
     """Read signal_performance_segmented for latest IC scores per (plugin, tf).
 
     NOTE: Table dropped in migration 050 (never used in production).
@@ -348,9 +326,9 @@ def check_ic_health(conn: Any) -> tuple[dict[tuple[str, str], float], float]:
     total_significant = 0
 
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        async with db.get_connection() as conn:
             # Get latest IC per (setup_plugin, timeframe) — use max(computed_at) per group
-            cur.execute(
+            rows = await conn.fetch(
                 """
                 SELECT DISTINCT ON (setup_plugin, timeframe)
                     setup_plugin,
@@ -365,8 +343,7 @@ def check_ic_health(conn: Any) -> tuple[dict[tuple[str, str], float], float]:
                 ORDER BY setup_plugin, timeframe, computed_at DESC
                 """
             )
-            rows = cur.fetchall()
-    except psycopg2.errors.UndefinedTable:
+    except asyncpg.UndefinedTableError:
         # Table dropped in migration 050 - IC health not available
         DQ_IC_SIGNIFICANT_FRACTION.set(0.0)
         return {}, 0.0
@@ -420,7 +397,7 @@ def _fmt_lag(ms: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+async def main_async() -> None:
     parser = argparse.ArgumentParser(
         description="IndicAgent data quality audit — measures null rates, staleness, and pipeline lag",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -449,7 +426,7 @@ Thresholds:
     args = parser.parse_args()
 
     settings = Settings()
-    conn = connect_db(settings)
+    db = await get_script_db(settings)
 
     try:
         # Resolve symbols
@@ -467,8 +444,23 @@ Thresholds:
 
         critical_violations: list[str] = []
 
-        # --- NULL RATES ---
-        cis_rates, conf_rates, crit_syms = check_null_rates(conn, symbols)
+        # --- RUN ALL CHECKS IN PARALLEL ---
+        # All five checks are independent — run them concurrently
+        (
+            (cis_rates, conf_rates, crit_syms),
+            (staleness_map, crit_stale),
+            (p50_map, p95_map, crit_lag),
+            (missing_bars, chunk_count),
+            (ic_scores, sig_frac),
+        ) = await asyncio.gather(
+            check_null_rates(db, symbols),
+            check_intelligence_staleness(db, symbols, TIMEFRAMES),
+            check_pipeline_lag(db, symbols),
+            check_ohlcv_completeness(db, symbols),
+            check_ic_health(db),
+        )
+
+        # --- NULL RATES OUTPUT ---
         print("\nNULL RATES")
         for sym in symbols:
             cis_pct = cis_rates.get(sym, 0.0) * 100
@@ -481,8 +473,7 @@ Thresholds:
                     f"NULL cis_score rate {cis_rates[sym]*100:.1f}% > {CRITICAL_NULL_CIS_RATE*100:.0f}% for {sym}"
                 )
 
-        # --- STALENESS ---
-        staleness_map, crit_stale = check_intelligence_staleness(conn, symbols, TIMEFRAMES)
+        # --- STALENESS OUTPUT ---
         print("\nINTELLIGENCE STALENESS (seconds since last write)")
         for sym in symbols[:5]:  # Show first 5 to keep output readable
             parts = []
@@ -498,9 +489,6 @@ Thresholds:
                 critical_violations.append(
                     f"Intelligence stale {age:.0f}s > {CRITICAL_STALENESS_S}s for {sym}/{tf}"
                 )
-
-        # --- PIPELINE LAG ---
-        p50_map, p95_map, crit_lag = check_pipeline_lag(conn, symbols)
         print("\nPIPELINE LAG (last 1h window)")
         if p50_map:
             # Group by symbol, show 1m and 5m
@@ -525,7 +513,6 @@ Thresholds:
                 )
 
         # --- OHLCV COMPLETENESS ---
-        missing_bars, chunk_count = check_ohlcv_completeness(conn, symbols)
         chunk_flag = "CRIT" if chunk_count > 5000 else "ok"
         print("\nOHLCV COMPLETENESS")
         print(f"  Chunk count: {chunk_count:,} {chunk_flag} (target < 200 after rebuild)")
@@ -538,7 +525,6 @@ Thresholds:
             print("  All symbols: 0 missing 1m bars today (or pre-market)")
 
         # --- IC HEALTH ---
-        ic_scores, sig_frac = check_ic_health(conn)
         total_ic_plugins = len(ic_scores)
         sig_pct = sig_frac * 100
         print("\nIC HEALTH")
@@ -566,7 +552,12 @@ Thresholds:
             sys.exit(1)
 
     finally:
-        conn.close()
+        await db.close()
+
+
+def main() -> None:
+    """Entry point for async main."""
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
