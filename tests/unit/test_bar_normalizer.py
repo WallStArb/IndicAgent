@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from src.core.bar_normalizer import _generate_session_slots
 
-UTC = timezone.utc
+UTC = UTC
 
 
 def ts(s: str) -> datetime:
