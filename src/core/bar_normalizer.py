@@ -83,7 +83,12 @@ def _slots_always_open(start: datetime, end: datetime, interval: timedelta) -> l
 
 
 def _slots_fx(start: datetime, end: datetime, interval: timedelta) -> list[datetime]:
-    """Mon 00:00 UTC through Fri 24:00 UTC (weekday == 0..4)."""
+    """Mon 00:00 UTC through Fri 24:00 UTC (weekday == 0..4).
+
+    Intentional simplification: actual FX opens Sun ~22:00 UTC and closes Fri ~22:00 UTC,
+    but we use a day-of-week rule (no PMC calendar for FX). This slightly under-fills
+    Sun evening and slightly over-fills Fri evening — acceptable for backfill normalization.
+    """
     slots = []
     t = start
     while t <= end:

@@ -188,10 +188,11 @@ class TestNormalizeBars:
         assert result[1]["source"] == "historical_backfill"
 
     def test_overnight_gap_not_filled(self):
-        # 20:00 ET Friday → 04:00 ET Monday — overnight/weekend, no fills
+        # Spans weekend — no session slots, no synthetic fills
+        # Mar 2026 is EDT (UTC-4): 01:00 UTC = 21:00 EDT Thu Mar 12; 09:00 UTC = 05:00 EDT Mon
         bars = [
-            make_bar("2026-03-13 01:00:00", 100.0),  # 20:00 ET Friday
-            make_bar("2026-03-16 09:00:00", 101.0),  # 04:00 ET Monday
+            make_bar("2026-03-13 01:00:00", 100.0),  # 21:00 EDT Thursday Mar 12
+            make_bar("2026-03-16 09:00:00", 101.0),  # 05:00 EDT Monday Mar 16
         ]
         result = normalize_bars(
             bars, "SPY", "1m", "nyse", "SMART",
