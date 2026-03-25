@@ -8,7 +8,7 @@ def test_stream_merger_adversarial_fuzzing():
     """Adversarial Fuzzer: Randomly order and omit tiers to verify convergence."""
 
     for _ in range(100):  # Run 100 random scenarios
-        merger = StreamMerger()
+        merger = StreamMerger(ttl_seconds=0)
         sequence_id = f"ES:1m:{datetime.now(UTC).isoformat()}"
         all_tiers = list(merger.EXPECTED_TIERS)
 

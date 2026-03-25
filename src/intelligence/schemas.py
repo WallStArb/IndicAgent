@@ -24,6 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
 from src.core.schemas.bar_message import SessionType
 
 

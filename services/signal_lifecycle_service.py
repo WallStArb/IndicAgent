@@ -171,8 +171,10 @@ class SignalLifecycleService:
         self.config = self._load_config(config_file)
         self._setup_logging()
 
-        self.db_manager = db_manager
-        self._ledger_repo = SignalLedgerRepository(db_manager) if db_manager else None
+        self.db_manager: DatabaseManager | None = db_manager
+        self._ledger_repo: SignalLedgerRepository | None = (
+            SignalLedgerRepository(db_manager) if db_manager else None
+        )
 
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._kafka_producer: KafkaProducerClient | None = None

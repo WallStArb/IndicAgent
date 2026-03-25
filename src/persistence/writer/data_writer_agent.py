@@ -33,6 +33,7 @@ class DataWriterAgent:
         self._group_id = group_id
         self._merger = StreamMerger()
         self._consumer: KafkaConsumerClient | None = None
+        self._msg_count: int = 0
 
     async def start(self) -> None:
         """Start the consumer loop."""
@@ -43,7 +44,7 @@ class DataWriterAgent:
             auto_offset_reset="earliest",
         )
         await self._consumer.start()
-        logger.info(f"{self.__class__.__name__} started", topic=self._topic)
+        logger.info("DataWriterAgent started", topic=self._topic)
         await self._run_consumer_loop()
 
     async def _run_consumer_loop(self) -> None:
@@ -64,10 +65,15 @@ class DataWriterAgent:
                     await self._repo.insertBatch(merged_record)
                     await self._consumer.commit()
 
-                # 3. Handle expirations/partial states
-                expired = self._merger.check_expired()
-                for record in expired:
-                    await self._repo.insertBatch(record) # Log partial states
+                # 3. Check TTL expirations every 100 messages to avoid per-message overhead
+                self._msg_count += 1
+                if self._msg_count % 100 == 0:
+                    expired = self._merger.check_expired()
+                    for record in expired:
+                        try:
+                            await self._repo.insertBatch(record)
+                        except Exception as e:
+                            logger.error("Failed to persist expired record", error=str(e))
 
             except Exception as e:
                 logger.error("Persistence error", error=str(e), key=key)
