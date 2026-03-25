@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.31.0
+Version: 5.32.0
 Last Updated: 2026-03-25
 Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
@@ -159,6 +159,7 @@ See "Active Services" table in Key Components section below. Source service file
 - Services: `<concept>_service.py` file / `PascalCaseService` class
 - Plugins: `snake_case.py` file (short name) / `PascalCasePlugin` class — `adx.py` → `ADXPlugin`
 - Aggregators/results: `PascalCase` no suffix — `CISScorer`, `AggregatedResult`
+- Functions/methods: `snake_case` — `compute_full()`, `get_active_contracts()`, `publish_ohlcv_bar()`
 - Constants: `UPPER_SNAKE_CASE` — `TIER_I1`, `PLUGIN_METRICS_SAMPLE_RATE`
 - Private attrs: `_snake_case` — `_regime_cache`, `_plugin_states`
 
