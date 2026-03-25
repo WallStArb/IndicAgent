@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..plugins import InputSpec
@@ -44,7 +45,7 @@ class StochasticPlugin:
 
             lowest_low = low_series.rolling(window=k_period, min_periods=k_period).min()
             highest_high = high_series.rolling(window=k_period, min_periods=k_period).max()
-            denom = (highest_high - lowest_low).replace(0, pd.NA)
+            denom = (highest_high - lowest_low).replace(0, np.nan)
             k = 100 * (close_series - lowest_low) / denom
             d = k.rolling(window=d_period, min_periods=d_period).mean()
             out[f"stoch_k_{k_period}_{d_period}"] = (
@@ -74,7 +75,7 @@ class StochasticPlugin:
             # Compute last d_period %K values for %D SMA
             lowest_low = low_col.rolling(window=k_period, min_periods=k_period).min()
             highest_high = high_col.rolling(window=k_period, min_periods=k_period).max()
-            denom = (highest_high - lowest_low).replace(0, pd.NA)
+            denom = (highest_high - lowest_low).replace(0, np.nan)
             k_series = 100 * (close_col - lowest_low) / denom
             k_vals = k_series.iloc[-d_period:].tolist()
             k_vals = [v if pd.notna(v) else 0.0 for v in k_vals]
