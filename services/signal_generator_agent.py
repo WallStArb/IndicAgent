@@ -421,7 +421,7 @@ def _is_zone_valid(
         return market_price >= entry_zone_low
 
 
-class SignalGeneratorService:
+class SignalGeneratorAgent:
     """Execute I7 setup plugins, aggregate signals, and persist to signal_ledger."""
 
     # Class-level defaults — overridden per-instance in __init__.
@@ -2031,7 +2031,7 @@ async def main() -> None:
     # register_all_plugins() to prevent plugin module imports from configuring
     # the root logger before logging.basicConfig() is called (which would make
     # it a no-op and silence all structlog output).
-    svc = SignalGeneratorService(args.config)
+    svc = SignalGeneratorAgent(args.config)
 
     # Run plugin validation (plugins already registered by __init__)
     validator = PluginValidator()

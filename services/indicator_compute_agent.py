@@ -248,7 +248,7 @@ class IndicatorService:
             "Total market bars processed by indicator service",
         )
         self.service_uptime_seconds = gauge(
-            "indicator_service_uptime_seconds",
+            "indicator_compute_agent_uptime_seconds",
             "Indicator service uptime in seconds",
         )
         self.error_count_total = counter(
@@ -275,7 +275,7 @@ class IndicatorService:
             "metrics_port": 9109,
             "logging": {
                 "level": "INFO",
-                "file": "logs/indicator_service.log",
+                "file": "logs/indicator_compute_agent.log",
             },
         }
         if config_file and Path(config_file).exists():
@@ -701,7 +701,7 @@ class IndicatorService:
                     "kafka_bootstrap_servers",
                     _settings.kafka_bootstrap_servers,
                 ),
-                group_id="indicator_service",
+                group_id="indicator_compute_agent",
                 auto_offset_reset="latest",
             )
             await self._kafka_consumer.start()
@@ -713,7 +713,7 @@ class IndicatorService:
                     "kafka_bootstrap_servers",
                     _settings.kafka_bootstrap_servers,
                 ),
-                group_id="indicator_service_ticks",
+                group_id="indicator_compute_agent_ticks",
                 auto_offset_reset="latest",
             )
             await self._tick_consumer.start()

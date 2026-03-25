@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FeaturePipelineService — Unified I1-I6 in-process pipeline.
+FeatureComputeAgent — Unified I1-I6 in-process pipeline.
 
 Replaces indicator_service + market_analysis_service + timeframes_builder_service.
 Consumes 1m bars from development.market.bars, runs I1→I2→I3→I4→I5→SMC→I6
@@ -159,7 +159,7 @@ def _adjust_price_state(state: dict, roll_gap: float) -> dict:
     return result
 
 
-class FeaturePipelineService:
+class FeatureComputeAgent:
     """Unified I1-I6 pipeline service — replaces indicator + market_analysis + timeframes_builder.
 
     Startup sequence:
@@ -1218,7 +1218,7 @@ class FeaturePipelineService:
 
     async def start(self) -> None:
         """Start the feature pipeline service."""
-        self.logger.info("Starting FeaturePipelineService", symbols=self._symbols)
+        self.logger.info("Starting FeatureComputeAgent", symbols=self._symbols)
         try:
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGINT, signal.SIGTERM):
@@ -1269,17 +1269,17 @@ class FeaturePipelineService:
                 asyncio.create_task(self._process_tick_data()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
-            self.logger.info("FeaturePipelineService started")
+            self.logger.info("FeatureComputeAgent started")
             await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
-            self.logger.error("Failed to start FeaturePipelineService", error=str(e))
+            self.logger.error("Failed to start FeatureComputeAgent", error=str(e))
             raise
         finally:
             await self.stop()
 
     async def stop(self) -> None:
         """Graceful shutdown — drain consumer, flush producer, drain OHLCV buffer."""
-        self.logger.info("Stopping FeaturePipelineService")
+        self.logger.info("Stopping FeatureComputeAgent")
         self.running = False
         self.shutdown_requested = True
         if self._consumer:
@@ -1288,7 +1288,7 @@ class FeaturePipelineService:
             await self._tick_consumer.stop()
         await self._flush_ohlcv()  # drain remaining OHLCV buffer
         await self._producer.stop()
-        self.logger.info("FeaturePipelineService stopped")
+        self.logger.info("FeatureComputeAgent stopped")
 
 
 async def main() -> None:
@@ -1298,7 +1298,7 @@ async def main() -> None:
     parser.add_argument("--config", help="Configuration file path")
     _args = parser.parse_args()
 
-    service = FeaturePipelineService()
+    service = FeatureComputeAgent()
     try:
         await service.start()
     except KeyboardInterrupt:
