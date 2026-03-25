@@ -57,7 +57,7 @@ _NYSE_SESSION_CLOSE_HOUR = 20
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _generate_session_slots(
+def generate_session_slots(
     session_id: str,
     exchange: str,
     timeframe: str,
