@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.core.bar_normalizer import _generate_session_slots
+from src.core.bar_normalizer import _generate_session_slots, normalize_bars
 
 UTC = UTC
 
@@ -119,3 +119,114 @@ class TestFutures24_5:
             _generate_session_slots("futures_24_5", "UNKNOWN_XYZ", "1m",
                                     ts("2026-03-10 02:00:00"),
                                     ts("2026-03-10 02:05:00"))
+
+
+def make_bar(timestamp: str, close: float, source: str = "historical_backfill") -> dict:
+    t = datetime.fromisoformat(timestamp).replace(tzinfo=UTC)
+    return {
+        "timestamp": t, "open": close, "high": close,
+        "low": close, "close": close, "volume": 100,
+        "source": source,
+    }
+
+
+class TestNormalizeBars:
+    def test_no_gaps_returns_unchanged(self):
+        bars = [
+            make_bar("2026-03-10 14:00:00", 100.0),
+            make_bar("2026-03-10 14:01:00", 101.0),
+            make_bar("2026-03-10 14:02:00", 102.0),
+        ]
+        result = normalize_bars(
+            bars, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
+        )
+        assert len(result) == 3
+        assert all(b["source"] == "historical_backfill" for b in result)
+
+    def test_gap_filled_with_prev_close(self):
+        bars = [
+            make_bar("2026-03-10 14:00:00", 100.0),
+            # 14:01 missing
+            make_bar("2026-03-10 14:02:00", 102.0),
+        ]
+        result = normalize_bars(
+            bars, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
+        )
+        assert len(result) == 3
+        synthetic = result[1]
+        assert synthetic["timestamp"] == ts("2026-03-10 14:01:00")
+        assert synthetic["open"]   == 100.0
+        assert synthetic["high"]   == 100.0
+        assert synthetic["low"]    == 100.0
+        assert synthetic["close"]  == 100.0
+        assert synthetic["volume"] == 0
+        assert synthetic["source"] == "synthetic_fill"
+
+    def test_no_prev_close_gap_at_start_skipped(self):
+        # First two bars missing — no prev_close to fill from
+        bars = [make_bar("2026-03-10 14:02:00", 102.0)]
+        result = normalize_bars(
+            bars, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
+        )
+        # 14:00 and 14:01 have no prev_close — skipped
+        assert len(result) == 1
+        assert result[0]["timestamp"] == ts("2026-03-10 14:02:00")
+
+    def test_source_preserved_on_real_bars(self):
+        bars = [
+            make_bar("2026-03-10 14:00:00", 100.0, source="derived_1m"),
+            make_bar("2026-03-10 14:01:00", 101.0, source="historical_backfill"),
+        ]
+        result = normalize_bars(
+            bars, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-10 14:00:00"), ts("2026-03-10 14:01:00"),
+        )
+        assert result[0]["source"] == "derived_1m"
+        assert result[1]["source"] == "historical_backfill"
+
+    def test_overnight_gap_not_filled(self):
+        # 20:00 ET Friday → 04:00 ET Monday — overnight/weekend, no fills
+        bars = [
+            make_bar("2026-03-13 01:00:00", 100.0),  # 20:00 ET Friday
+            make_bar("2026-03-16 09:00:00", 101.0),  # 04:00 ET Monday
+        ]
+        result = normalize_bars(
+            bars, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-13 01:00:00"), ts("2026-03-16 09:00:00"),
+        )
+        # Only the two real bars — no synthetic fills across session boundary
+        assert len(result) == 2
+
+    def test_idempotent(self):
+        bars = [
+            make_bar("2026-03-10 14:00:00", 100.0),
+            make_bar("2026-03-10 14:02:00", 102.0),
+        ]
+        result1 = normalize_bars(
+            bars, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
+        )
+        result2 = normalize_bars(
+            result1, "SPY", "1m", "nyse", "SMART",
+            ts("2026-03-10 14:00:00"), ts("2026-03-10 14:02:00"),
+        )
+        assert len(result1) == len(result2)
+        for b1, b2 in zip(result1, result2, strict=True):
+            assert b1["timestamp"] == b2["timestamp"]
+            assert b1["source"] == b2["source"]
+
+    def test_crypto_fills_across_weekend(self):
+        # 2026-03-14 Sat → crypto always open
+        bars = [
+            make_bar("2026-03-14 12:00:00", 50000.0),
+            make_bar("2026-03-14 12:02:00", 50010.0),
+        ]
+        result = normalize_bars(
+            bars, "BTC", "1m", "crypto_24_7", "PAXOS",
+            ts("2026-03-14 12:00:00"), ts("2026-03-14 12:02:00"),
+        )
+        assert len(result) == 3
+        assert result[1]["source"] == "synthetic_fill"
