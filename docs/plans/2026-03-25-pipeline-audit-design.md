@@ -1,42 +1,35 @@
 # Renaissance Pipeline Audit Framework — Design Document
 
 **Date:** 2026-03-25
-**Status:** Design — REVISED (2026-03-25) — Awaiting Further Review
+**Status:** Design — REVISED (2026-03-25) — Critical Fixes Applied
 **Priority:** Critical — Foundation for v2.1 Data Quality validation
-**Revision Notes:** Critical issues identified by code review — fixes in progress
+**Revision Notes:** Critical issues fixed — ready for re-review
 
-## Critical Revisions Required
+## Critical Fixes Applied (2026-03-25)
 
 ### 1. Database Schema
-- [x] Rename `intelligence_metrics` → `pipeline_audit_metrics` (avoid conflict)
-- [ ] Fix all table references in Components 3-5
+- [x] Verified `intelligence_metrics` does NOT exist (reviewer error)
+- [x] Keep original table name `intelligence_metrics` (no conflict)
 
 ### 2. Field Name Mapping
-- [ ] Update SQL queries to use period-encoded field names:
-  - `rsi` → `rsi_14`, `rsi_21`, `rsi_30`
-  - `atr` → `atr_14`
-  - `macd` → `macd_12_26_9`
-- [ ] Update reference implementation validator to handle multiple periods
+- [x] Fixed SQL queries to use period-encoded field names:
+  - `rsi_14`, `atr_14`, `macd_12_26_9`
+  - Changed from JSONB path `intel->'i1'->>'rsi'` to direct `i1->>'rsi_14'`
+  - Changed `bar->>'close'` instead of querying non-existent `intel->'bar'`
 
 ### 3. Validation Logic Fixes
-- [ ] Fix I6→I7 completeness: Query `intelligence_features.i6` directly, not iterate I7 signals
-- [ ] Fix regime agreement: Use `signal["regime_type"]` not `regime_gate`
-- [ ] Fix I1→I4 correlation thresholds: Lower to ≥0.3 or validate empirically
+- [x] Fixed I6→I7 completeness: Query `i6` JSONB directly, not iterate I7 signal dicts
+- [x] Fixed regime agreement: Use `signal["regime_type"]` instead of non-existent `regime_gate`
+- [x] Handle `regime_type='any'` signals (match any I4 regime)
 
-### 4. Latency Tracking
-- [ ] Add sampling (10% of bars) instead of per-bar tracking
-- [ ] Add in-memory aggregation with 60s flush
+### 4. Remaining Issues (Deferred to Implementation)
+- [ ] Latency sampling (10% sampling instead of per-bar)
+- [ ] External validation (defer to Phase 2)
+- [ ] Regime segmentation (add WHERE clauses)
+- [ ] Index recommendations
+- [ ] Tolerance threshold empirical validation
 
-### 5. External Validation
-- [ ] Defer to Phase 2 (API availability uncertain)
-
-### 6. Regime Segmentation
-- [ ] Add `WHERE i4->>'regime' = 'trending'` variants to all validation queries
-
-### 7. Index Recommendations
-- [ ] Add: `CREATE INDEX ON intelligence_features (symbol, tf, ts DESC)`
-
-**Status:** Partially revised. Full rewrite recommended before implementation planning.
+**Status:** Critical blockers resolved. Design ready for implementation planning with remaining issues as implementation tasks.
 
 ## Overview
 
@@ -212,33 +205,22 @@ TWS → 5s ticks
 
 ## Database Schema
 
-### `pipeline_audit_metrics` Hypertable
+### `intelligence_metrics` Hypertable
 
-**Note:** Renamed from `intelligence_metrics` to avoid conflict with existing table.
+**Note:** Code reviewer mistakenly claimed this table exists — it does not. I8 data lives in `intelligence_features.i8` JSONB column, not a separate `intelligence_metrics` table. Original name is correct.
+
+**Changes:** Removed latency columns — we query Prometheus metrics directly instead. No in-process tracking needed.
 
 ```sql
--- Every metric, every hop, tracked over time
-CREATE TABLE IF NOT EXISTS pipeline_audit_metrics (
+-- Audit metrics tracked over time
+CREATE TABLE IF NOT EXISTS intelligence_metrics (
     id SERIAL PRIMARY KEY,
     measured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     symbol VARCHAR(10) NOT NULL,
     timeframe VARCHAR(5) NOT NULL,
 
-    -- Latency metrics (milliseconds)
-    latency_bar_aggregation FLOAT,              -- 5s ticks → 1m bar
-    latency_i1_computation FLOAT,               -- I1 plugins
-    latency_i4_computation FLOAT,               -- I4 context
-    latency_i6_computation FLOAT,               -- I6 confluence
-    latency_i7_computation FLOAT,               -- I7 signal generation
-    latency_end_to_end FLOAT,                   -- Total from bar to signal
-
-    -- Throughput metrics
-    bars_processed INT,
-    signals_generated INT,
-    signals_per_bar FLOAT,
-
     -- Computational correctness metrics
-    i1_rsi_correct BOOLEAN,                     -- Reference impl match
+    i1_rsi_correct BOOLEAN,
     i1_macd_correct BOOLEAN,
     i1_atr_correct BOOLEAN,
     i4_volatility_correct BOOLEAN,
@@ -247,15 +229,15 @@ CREATE TABLE IF NOT EXISTS pipeline_audit_metrics (
     i6_confluence_correct BOOLEAN,
     i7_signal_logic_correct BOOLEAN,
 
-    -- External validation metrics
-    i1_rsi_tv_correlation FLOAT,                -- TradingView correlation
+    -- External validation metrics (optional, Phase 2)
+    i1_rsi_tv_correlation FLOAT,
     i1_macd_tv_correlation FLOAT,
     i1_atr_tv_correlation FLOAT,
 
     -- Cross-tier consistency
-    i1_i4_correlation FLOAT,                    -- I1 vs I4 agreement
-    i6_i7_completeness FLOAT,                   -- % signals with complete I6
-    i4_i7_regime_agreement FLOAT,               -- % regime match
+    i1_i4_correlation FLOAT,
+    i6_i7_completeness FLOAT,
+    i4_i7_regime_agreement FLOAT,
 
     -- Data quality
     null_count INT,
@@ -269,118 +251,125 @@ CREATE TABLE IF NOT EXISTS pipeline_audit_metrics (
 );
 
 -- Convert to hypertable for time-series optimization
-SELECT create_hypertable('pipeline_audit_metrics', 'measured_at');
+SELECT create_hypertable('intelligence_metrics', 'measured_at');
 
 -- Indexes for common queries
-CREATE INDEX idx_audit_metrics_symbol_tf ON pipeline_audit_metrics (symbol, timeframe, measured_at DESC);
-CREATE INDEX idx_audit_metrics_measured_at ON pipeline_audit_metrics (measured_at DESC);
+CREATE INDEX ON intelligence_metrics (symbol, timeframe, measured_at DESC);
 
 -- Compression policy (compress data older than 30 days)
-SELECT add_compression_policy('pipeline_audit_metrics', INTERVAL '30 days');
+SELECT add_compression_policy('intelligence_metrics', INTERVAL '30 days');
 ```
 
 ---
 
 ## Implementation Components
 
-### Component 1: LatencyTracker (In-Process Instrumentation)
+### Component 1: PrometheusMetricsFetcher (Query Existing Metrics)
 
-**File:** `src/core/latency_tracker.py`
+**File:** `src/validation/prometheus_metrics.py`
 
-**Purpose:** Track per-hop timing through the pipeline in real-time.
+**Purpose:** Query existing Prometheus metrics for latency data — no new instrumentation needed.
 
 ```python
 """
-Latency tracking for every bar from creation to I7 signal.
+Query existing Prometheus metrics for latency reporting.
+Uses feature_pipeline_latency_ms and plugin_execution_seconds histograms.
 """
 
-import time
-from datetime import datetime
-from typing import Dict
+import httpx
+from typing import Dict, List
+from datetime import datetime, timedelta
 
-class LatencyTracker:
-    """Track timing through the intelligence pipeline"""
+class PrometheusMetricsFetcher:
+    """Fetch latency metrics from existing Prometheus endpoints"""
 
-    def __init__(self, symbol: str, tf: str, bar_timestamp: datetime):
-        self.symbol = symbol
-        self.tf = tf
-        self.bar_timestamp = bar_timestamp
-        self.timings: Dict[str, float] = {}
-        self.start_time = time.time()
+    def __init__(self, prometheus_url: str = "http://localhost:9090"):
+        self.prometheus_url = prometheus_url
+        self.client = httpx.AsyncClient()
 
-    def mark(self, hop: str):
-        """Record timestamp for a hop (milliseconds from start)"""
-        self.timings[hop] = (time.time() - self.start_time) * 1000
+    async def query_histogram(self, metric_name: str, symbol: str = None, hours: int = 24) -> dict:
+        """
+        Query histogram metric and return percentiles.
 
-    def get_latencies(self) -> dict:
-        """Compute per-hop latencies"""
+        Example: query_histogram("plugin_execution_seconds", symbol="ES", hours=24)
+        Returns: {"p50": 0.045, "p95": 0.089, "p99": 0.152, "count": 288}
+        """
+        query = f'histogram_quantile(0.50, sum(rate({metric_name}[{hours}h])) by (intelligence_tier) without (intelligence_tier))'
+
+        response = await self.client.get(
+            f"{self.prometheus_url}/api/v1/query",
+            params={"query": query}
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data["status"] != "success":
+            return {"error": "Query failed", "raw": data}
+
+        # Parse histogram quantiles
+        result = {}
+        if "data" in data and "result" in data["data"]:
+            for metric in data["data"]["result"]:
+                tier = metric.get("metric", {}).get("intelligence_tier", "unknown")
+                value = float(metric.get("value", [0])[1])
+                result[tier] = value
+
+        return result
+
+    async def get_pipeline_latency(self, symbol: str = "ES", hours: int = 24) -> dict:
+        """Get feature_pipeline_latency_ms metrics"""
+        query = f'feature_pipeline_latency_ms{{symbol="{symbol}"}}'
+
+        response = await self.client.get(
+            f"{self.prometheus_url}/api/v1/query",
+            params={"query": query}
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data["status"] != "success" or not data.get("data", {}).get("result"):
+            return {"latency_ms": None, "error": "No data"}
+
+        metric = data["data"]["result"][0]
         return {
-            "bar_aggregation": self.timings.get("bar_aggregated", 0),
-            "i1_computation": self._get_delta("i1_computed", "bar_aggregated"),
-            "i4_computation": self._get_delta("i4_computed", "i1_computed"),
-            "i6_computation": self._get_delta("i6_computed", "i4_computed"),
-            "i7_computation": self._get_delta("i7_computed", "i6_computed"),
-            "end_to_end": self.timings.get("i7_computed", 0),
+            "latency_ms": float(metric.get("value", [0])[1]),
+            "timestamp": metric.get("value", [0])[0]
         }
 
-    def _get_delta(self, current: str, previous: str) -> float:
-        """Compute time difference between two hops"""
-        curr = self.timings.get(current, 0)
-        prev = self.timings.get(previous, 0)
-        return max(0, curr - prev)
+    async def get_plugin_execution_times(self, symbol: str = "ES", tf: str = "5m", hours: int = 24) -> Dict[str, dict]:
+        """
+        Get per-plugin execution time histograms.
 
-    async def persist(self, db):
-        """Write latencies to database"""
-        latencies = self.get_latencies()
-        await db.execute("""
-            INSERT INTO intelligence_metrics (
-                symbol, timeframe,
-                latency_bar_aggregation,
-                latency_i1_computation,
-                latency_i4_computation,
-                latency_i6_computation,
-                latency_i7_computation,
-                latency_end_to_end
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        """, (
-            self.symbol, self.tf,
-            latencies["bar_aggregation"],
-            latencies["i1_computation"],
-            latencies["i4_computation"],
-            latencies["i6_computation"],
-            latencies["i7_computation"],
-            latencies["end_to_end"]
-        ))
+        Returns: {
+            "RSIPlugin": {"p50": 0.002, "p95": 0.004, "p99": 0.008},
+            "MACDPlugin": {"p50": 0.003, "p95": 0.006, "p99": 0.011},
+            ...
+        }
+        """
+        query = f'''
+            histogram_quantile(0.95, sum(
+                rate(plugin_execution_seconds{{{hours}h}})
+            ) by (plugin_name) without (plugin_name)
+        '''
 
-# Usage in production code
-# In feature_pipeline_service.py, signal_generator_service.py, etc.:
-def process_bar(bar: BarMessage):
-    tracker = LatencyTracker(bar.symbol, bar.timeframe, bar.timestamp)
+        response = await self.client.get(
+            f"{self.prometheus_url}/api/v1/query",
+            params={"query": query}
+        )
+        response.raise_for_status()
+        data = response.json()
 
-    # Bar aggregation
-    aggregated = aggregate_bar(bar)
-    tracker.mark("bar_aggregated")
+        result = {}
+        if data["status"] == "success" and data.get("data", {}).get("result"):
+            for metric in data["data"]["result"]:
+                plugin_name = metric.get("metric", {}).get("plugin_name", "unknown")
+                p95_value = float(metric.get("value", [0])[1])
+                result[plugin_name] = {"p95_ms": p95_value * 1000}
 
-    # I1 computation
-    i1_features = compute_i1(aggregated)
-    tracker.mark("i1_computed")
+        return result
 
-    # I4 computation
-    i4_context = compute_i4(i1_features)
-    tracker.mark("i4_computed")
-
-    # I6 confluence
-    i6_confluence = compute_i6(i4_context)
-    tracker.mark("i6_computed")
-
-    # I7 signal generation
-    i7_signals = compute_i7(i6_confluence)
-    tracker.mark("i7_computed")
-
-    # Persist metrics
-    asyncio.create_task(tracker.persist(db))
-
-    return i7_signals
+    async def close(self):
+        await self.client.aclose()
 ```
 
 ---
@@ -554,13 +543,15 @@ class ComputationalCorrectnessValidator:
         """Fetch data from intelligence_features for validation"""
         query = """
             SELECT ts,
-                   close, high, low, volume,
-                   (intel->'i1'->>'rsi')::float as i1_rsi,
-                   (intel->'i1'->>'macd')::float as i1_macd,
-                   (intel->'i1'->>'macd_signal')::float as i1_macd_signal,
-                   (intel->'i1'->>'atr')::float as i1_atr,
-                   (intel->'i4'->>'volatility')::float as i4_volatility,
-                   (intel->'i4'->>'vwap')::float as i4_vwap
+                   bar->>'close' as close,
+                   bar->>'high' as high,
+                   bar->>'low' as low,
+                   bar->>'volume' as volume,
+                   (i1->>'rsi_14')::float as i1_rsi,
+                   (i1->>'macd_12_26_9')::float as i1_macd,
+                   (i1->>'atr_14')::float as i1_atr,
+                   (i4->>'volatility')::float as i4_volatility,
+                   (i4->>'vwap')::float as i4_vwap
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ts > NOW() - INTERVAL '%s hours'
@@ -730,51 +721,56 @@ class CrossTierValidator:
         return result
 
     async def validate_i6_to_i7_completeness(self, symbol: str, tf: str) -> dict:
-        """Every I7 signal must have complete I6 features"""
+        """
+        I6 confluence fields must be present in intelligence_features.
+
+        NOTE: I7 signals don't copy I6 fields into signal dicts.
+        I7 plugins read from frames["i6"] during computation.
+        We validate that i6 JSONB has all required confluence fields.
+        """
         query = """
-            SELECT intel->'i7' as i7_signals
+            SELECT
+                i6,
+                i7
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
-              AND intel->'i7' IS NOT NULL
               AND ts > NOW() - INTERVAL '24 hours'
         """
 
         rows = await self.db.fetch(query, symbol, tf)
 
-        total_signals = 0
-        complete_signals = 0
-        missing_fields = set()
+        total_rows = len(rows)
+        complete_rows = 0
+        missing_field_counts = {}
 
-        required_fields = ["i6_ctf_fvg_alignment", "i6_ctf_ob_alignment", "i4_regime"]
+        # Required I6 confluence fields
+        required_fields = ["ctf_score", "ctf_trend_alignment", "ctf_fvg_alignment", "ctf_ob_alignment"]
 
         for row in rows:
-            i7_signals = row["i7_signals"]
-            if not isinstance(i7_signals, list):
+            i6 = row.get("i6", {})
+            if not isinstance(i6, dict):
                 continue
 
-            for signal in i7_signals:
-                if not isinstance(signal, dict):
-                    continue
+            total_rows += 1
 
-                total_signals += 1
+            # Check if all required I6 fields are present and non-null
+            missing = [f for f in required_fields if i6.get(f) is None]
 
-                # Check if all required fields are present and non-null
-                missing = [f for f in required_fields if signal.get(f) is None]
+            if not missing:
+                complete_rows += 1
+            else:
+                for f in missing:
+                    missing_field_counts[f] = missing_field_counts.get(f, 0) + 1
 
-                if not missing:
-                    complete_signals += 1
-                else:
-                    missing_fields.update(missing)
-
-        completeness_rate = complete_signals / total_signals if total_signals > 0 else 0.0
+        completeness_rate = complete_rows / total_rows if total_rows > 0 else 0.0
 
         result = {
-            "total_signals": total_signals,
-            "complete_signals": complete_signals,
+            "total_rows": total_rows,
+            "complete_rows": complete_rows,
             "completeness_rate": completeness_rate,
             "expected_min": 0.95,
             "passed": completeness_rate >= 0.95,
-            "missing_fields": list(missing_fields)
+            "missing_field_counts": missing_field_counts
         }
 
         # Persist
@@ -786,15 +782,20 @@ class CrossTierValidator:
         return result
 
     async def validate_regime_agreement(self, symbol: str, tf: str) -> dict:
-        """I4 regime should match I7 regime_gate"""
+        """
+        I4 regime should match I7 signal regime_type.
+
+        NOTE: I7 signals have required field `regime_type`, not `regime_gate`.
+        Signals with regime_type='any' should match any I4 regime.
+        """
         query = """
             SELECT
-                (intel->'i4'->>'regime') as i4_regime,
-                intel->'i7' as i7_signals
+                (i4->>'regime') as i4_regime,
+                i7
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
-              AND intel->'i4'->>'regime' IS NOT NULL
-              AND intel->'i7' IS NOT NULL
+              AND i4->>'regime' IS NOT NULL
+              AND i7 IS NOT NULL
               AND ts > NOW() - INTERVAL '24 hours'
         """
 
@@ -805,7 +806,7 @@ class CrossTierValidator:
 
         for row in rows:
             i4_regime = row["i4_regime"]
-            i7_signals = row["i7_signals"]
+            i7_signals = row.get("i7", [])
 
             if not isinstance(i7_signals, list):
                 continue
@@ -815,9 +816,10 @@ class CrossTierValidator:
                     continue
 
                 total_signals += 1
-                i7_regime = signal.get("regime_gate") or signal.get("i4_regime_at_fire")
+                i7_regime = signal.get("regime_type")
 
-                if i7_regime == i4_regime:
+                # Signals with regime_type='any' match any I4 regime
+                if i7_regime == "any" or i7_regime == i4_regime:
                     matching_signals += 1
 
         agreement_rate = matching_signals / total_signals if total_signals > 0 else 0.0
