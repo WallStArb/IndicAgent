@@ -19,10 +19,7 @@ Design notes:
       commits don't invalidate the cursor mid-stream.
     - Signals are processed forward in time: a signal fired at bar N is entered
       at bar N+1 open (market track) and evaluated on subsequent bars until exit.
-    - resolved_sids tracks zone-exited signals so they are never re-added to
-      live_sids on later bars. Without this, every resolved signal would be re-added
-      on the next bar and processed again, producing exponentially inflated counts
-      and overwritten (wrong) outcomes.
+    - Already-resolved signals (outcome != NULL) are skipped via outcome check.
     - Commits happen every commit_every resolved signals AND at pair completion.
       This ensures partial progress survives a kill — without it, a 7-hour run
       writes nothing if terminated before the pair finishes.
@@ -205,39 +202,39 @@ async def _process_symbol_tf(
              "zone": {}, "market": {}, "gaps": 0, "errors": 0}
 
     try:
-        # Use a transaction for this work item
+        # Use a connection for this work item (manual transaction control for incremental commits)
         async with db.pool.acquire() as conn:
-            async with conn.transaction():
-                # 1. Validate mode
-                if validate:
-                    await _run_validate(conn, symbol, timeframe, tf_secs, dry_run)
+            await conn.execute("BEGIN")  # Start transaction for manual control
+            # 1. Validate mode
+            if validate:
+                await _run_validate(conn, symbol, timeframe, tf_secs, dry_run)
 
-                # 2. Fetch all unresolved signals for this pair into memory
-                signals = await conn.fetch(
-                    """SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
-                              direction, entry_price, stop_loss, targets, confidence, confluence_score,
-                              regime_context, supporting_factors, was_selected, num_signals_bar,
-                              num_agreeing, num_conflicting, resolution_method, composite_rank,
-                              market_context, status, activated_at, exit_at, exit_price, exit_reason,
-                              pnl_ticks, pnl_r, pnl_dollars, created_at, updated_at, feature_ts,
-                              feature_tf, cis_score, bucket_scores, weights_version, signal_quality,
-                              signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
-                              market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
-                              activation_price, zone_entry_pct, bars_to_activation, mae, mfe,
-                              bars_in_trade, outcome, cis_attribution, market_entry_price,
-                              market_entry_exit_price, market_entry_pnl_r, market_entry_mae,
-                              market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome,
-                              market_entry_gap_bars, market_entry_at, market_entry_exit_at, is_shadow,
-                              stop_basis, stop_structure_type, stop_structure_age_bars,
-                              structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
-                              chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
-                              staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
-                       FROM signal_ledger
-                       WHERE status IN ('pending', 'regime_suppressed')
-                         AND symbol = $1 AND timeframe = $2
-                       ORDER BY timestamp ASC""",
-                    symbol, timeframe,
-                )
+            # 2. Fetch all unresolved signals for this pair into memory
+            signals = await conn.fetch(
+                """SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
+                          direction, entry_price, stop_loss, targets, confidence, confluence_score,
+                          regime_context, supporting_factors, was_selected, num_signals_bar,
+                          num_agreeing, num_conflicting, resolution_method, composite_rank,
+                          market_context, status, activated_at, exit_at, exit_price, exit_reason,
+                          pnl_ticks, pnl_r, pnl_dollars, created_at, updated_at, feature_ts,
+                          feature_tf, cis_score, bucket_scores, weights_version, signal_quality,
+                          signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
+                          market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
+                          activation_price, zone_entry_pct, bars_to_activation, mae, mfe,
+                          bars_in_trade, outcome, cis_attribution, market_entry_price,
+                          market_entry_exit_price, market_entry_pnl_r, market_entry_mae,
+                          market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome,
+                          market_entry_gap_bars, market_entry_at, market_entry_exit_at, is_shadow,
+                          stop_basis, stop_structure_type, stop_structure_age_bars,
+                          structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
+                          chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
+                          staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+                   FROM signal_ledger
+                   WHERE status IN ('pending', 'regime_suppressed')
+                     AND symbol = $1 AND timeframe = $2
+                   ORDER BY timestamp ASC""",
+                symbol, timeframe,
+            )
 
         if not signals:
             return stats
@@ -266,17 +263,22 @@ async def _process_symbol_tf(
         pending_writes: list[tuple] = []
         last_bar: dict | None = None
         live_sids: set[str] = set()   # signals currently being evaluated
-        resolved_sids: set[str] = set()  # zone-exited signals — must never re-enter live_sids
 
-        # 3. Fetch bars into memory
-        bars = await conn.fetch(
-            """SELECT timestamp, open, high, low, close
-               FROM market_data_ohlcv
-               WHERE symbol = $1 AND timeframe = $2
-                 AND timestamp >= $3
-               ORDER BY timestamp ASC""",
-            symbol, timeframe, min_ts,
-        )
+        # 3. Fetch bars into memory and run processing phase on a dedicated connection
+        conn = await db.pool.acquire()
+        try:
+            await conn.execute("BEGIN")
+            bars = await conn.fetch(
+                """SELECT timestamp, open, high, low, close
+                   FROM market_data_ohlcv
+                   WHERE symbol = $1 AND timeframe = $2
+                     AND timestamp >= $3
+                   ORDER BY timestamp ASC""",
+                symbol, timeframe, min_ts,
+            )
+        except Exception:
+            await db.pool.release(conn)
+            raise
 
         # 4. Stream bars and evaluate signals
         for bar_row in bars:
@@ -288,10 +290,9 @@ async def _process_symbol_tf(
             last_bar = bar
 
             # Activate signals that fired before this bar (signal fires on bar N close,
-            # first evaluable bar is N+1). Skip resolved_sids — a zone-exited signal
-            # must not re-enter live_sids on subsequent bars.
+            # first evaluable bar is N+1). Skip already-resolved signals (outcome set).
             for sid, sig in sig_map.items():
-                if sid not in live_sids and sid not in resolved_sids and sig["timestamp"] < bar_ts:
+                if sid not in live_sids and sig.get("outcome") is None and sig["timestamp"] < bar_ts:
                     live_sids.add(sid)
                     mep = sig.get("market_entry_price")
                     if mep is None:
@@ -431,7 +432,6 @@ async def _process_symbol_tf(
                         "outcome": z_outcome,
                     }))
                     resolved_this_bar.add(sid)
-                    resolved_sids.add(sid)  # prevents re-entry on subsequent bars
 
             live_sids -= resolved_this_bar
 
@@ -443,7 +443,8 @@ async def _process_symbol_tf(
                 # Incremental commit: durable progress every commit_every resolved signals.
                 # Without this, killing the process loses all work since pair start.
                 if not dry_run and stats["processed"] % commit_every < batch_size:
-                    conn.commit()
+                    await conn.execute("COMMIT")
+                    await conn.execute("BEGIN")
                     logger.info(
                         "%s %s: committed %d resolved so far",
                         symbol, timeframe, stats["processed"],
@@ -506,11 +507,16 @@ async def _process_symbol_tf(
         # 6. Final flush + commit
         if pending_writes and not dry_run:
             await _flush_writes(conn, pending_writes)
+        await db.pool.release(conn)
 
     except Exception as exc:
         logger.error("Error processing %s %s: %s", symbol, timeframe, exc)
         stats["errors"] += 1
-        # Transaction will be rolled back automatically by context manager
+        try:
+            await conn.execute("ROLLBACK")
+            await db.pool.release(conn)
+        except Exception:
+            pass  # Connection already released or failed
 
     return stats
 
@@ -632,11 +638,6 @@ async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
     )
     # Full re-simulation validation is not implemented — this confirms DB read consistency only.
     logger.info("VALIDATE %s %s: structural check passed", symbol, timeframe)
-
-
-def _worker(args):
-    symbol, tf, db_url, batch_size, commit_every, dry_run, validate = args
-    return _process_symbol_tf(symbol, tf, db_url, batch_size, commit_every, dry_run, validate)
 
 
 async def main_async():

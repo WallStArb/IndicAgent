@@ -97,15 +97,9 @@ async def _fetch_signals(
     """Fetch resolved signals from signal_ledger for IC computation."""
     # Use calibrated_confidence if available (migration 038), fall back to confidence
     # We detect availability at query time using a safe COALESCE with sub-select
-    symbol_filter = ""
-    params: list[str | int] = [f"{window_days} days"]
+    params: list[str | int | list[str] | None] = [f"{window_days} days"]
 
-    if symbols:
-        placeholders = ", ".join([f"${i + 2}" for i in range(len(symbols))])
-        symbol_filter = f"AND symbol IN ({placeholders})"
-        params.extend(symbols)
-
-    sql = f"""
+    sql = """
         SELECT
             sl.setup_plugin,
             sl.timeframe,
@@ -118,10 +112,11 @@ async def _fetch_signals(
         FROM signal_ledger sl
         WHERE sl.feature_ts >= NOW() - INTERVAL $1
           AND sl.outcome IS NOT NULL
-          {symbol_filter}
+          AND ($2::text[] IS NULL OR symbol = ANY($2))
         ORDER BY sl.setup_plugin, sl.timeframe, sl.symbol, sl.feature_ts
     """
 
+    params.append(symbols)  # type: ignore[arg-type]
     rows = await conn.fetch(sql, *params)
     return [tuple(row) for row in rows]
 
@@ -274,10 +269,13 @@ async def _amain(args: argparse.Namespace) -> int:
     print(f"Symbols: {symbols or 'all'} | Regime: {args.regime}")
     print()
 
-    conn = await asyncpg.connect(settings.database_url)
+    from src.core.database_manager import DatabaseManager
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
     try:
         print("Fetching resolved signals from signal_ledger...")
-        rows = await _fetch_signals(conn, args.window_days, symbols)
+        async with db.get_connection() as conn:
+            rows = await _fetch_signals(conn, args.window_days, symbols)
         print(f"  Fetched {len(rows):,} resolved signals")
 
         if not rows:
@@ -307,7 +305,7 @@ async def _amain(args: argparse.Namespace) -> int:
         return 0
 
     finally:
-        await conn.close()
+        await db.close()
 
 
 def main() -> int:

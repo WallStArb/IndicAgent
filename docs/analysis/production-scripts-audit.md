@@ -85,24 +85,21 @@ async def main():
 ```
 
 #### 6. `data_quality_check.py` (573 lines)
-**Status:** ⚠️ Production monitoring but uses **psycopg2**
+**Status:** ✅ **MODERNIZED** (2026-03-25) - converted to asyncpg
 **Purpose:** Data quality audit (NULL rates, staleness, pipeline lag)
 **Current Architecture:**
-- ❌ Synchronous DB access
+- ✅ Asynchronous DB access (asyncpg via DatabaseManager)
 - ✅ Prometheus metrics export
 - ✅ Critical thresholds enforced
-**Issues:**
-- Lines 336-337 acknowledge `signal_performance_segmented` dropped
-- IC health check returns empty dict when table missing
-**Verdict:** **REFACTOR** — convert to asyncpg (monitoring should be async)
-
-**Refactor Plan:**
-```python
-# Convert all DB queries to async:
-async def check_null_rates(db: DatabaseManager, symbols: list[str]):
-    async with db.get_connection() as conn:
-        rows = await conn.fetch(...)
-```
+- ✅ IC health check handles missing table gracefully
+**Changes Made:**
+- Replaced `psycopg2.connect()` with `DatabaseManager`
+- Converted all check functions to async (`check_null_rates`, `check_intelligence_staleness`, `check_pipeline_lag`, `check_ohlcv_completeness`, `check_ic_health`)
+- Changed `conn.cursor()` context to `async with db.get_connection() as conn:`
+- Replaced `cur.execute()` + `cur.fetchall()` with `await conn.fetch()`
+- Updated exception handling from `psycopg2.errors.UndefinedTable` to `asyncpg.UndefinedTableError`
+- Wrapped main logic in `main_async()` with `asyncio.run()` entry point
+**Verdict:** ✅ **COMPLETE** — production monitoring now async-performant
 
 #### 7. `lifecycle_replay.py` (715 lines)
 **Status:** ⚠️ Valid but uses **psycopg2** + multiprocessing
@@ -311,17 +308,14 @@ def build_plugin_registry():
 
 ### Phase 1: Critical Fixes (Do Now)
 
-1. **Check `signal_performance_segmented` table status:**
-   ```bash
-   docker exec timescaledb psql -U postgres -d indicagent -c "\d signal_performance_segmented"
-   ```
-   - If exists: Keep `compute_ic.py`, fix asyncpg migration
-   - If dropped: Either restore table or remove IC code
+1. **Check `signal_performance_segmented` table status:** ✅ COMPLETE
+   - Table does not exist (dropped in migration 050)
+   - `data_quality_check.py` already handles missing table gracefully (lines 369-372)
 
-2. **Delete obsolete scripts:**
-   - `create_stage_topics.py` (DAG stages removed)
-   - `promote_shadow.py` (replaced by CIS learning loop)
-   - `validate_equity_backfill.py` if no equity symbols
+2. **Delete obsolete scripts:** ✅ COMPLETE
+   - `create_stage_topics.py` (DAG stages removed) - already deleted
+   - `promote_shadow.py` (replaced by CIS learning loop) - already deleted
+   - Root-level debug scripts (`fix_indent.py`, `repair.py`, `test_ng_*.py`) - deleted 2026-03-25
 
 3. **Audit `kafka_init_topics.py`:**
    - Compare topics in script vs actual Redpanda topics
@@ -330,14 +324,14 @@ def build_plugin_registry():
 ### Phase 2: Modernize (Next Sprint)
 
 4. **Convert 6 scripts from psycopg2 to asyncpg:**
-   - `compute_ic.py`
-   - `data_quality_check.py`
-   - `lifecycle_replay.py` (also remove multiprocessing)
-   - `validate_alpha.py`
-   - `rebuild_ohlcv.py`
-   - `repair_cis_nulls.py`
+   - `compute_ic.py` - ❌ DEFERRED (table dropped, IC tracking to v2.3 ML phase)
+   - `data_quality_check.py` - ✅ COMPLETE (2026-03-25)
+   - `lifecycle_replay.py` (also remove multiprocessing) - IN PROGRESS
+   - `validate_alpha.py` - PENDING
+   - `rebuild_ohlcv.py` - PENDING (rarely used, low priority)
+   - `repair_cis_nulls.py` - PENDING (one-time repair, can archive)
 
-5. **Auto-discover plugin registry in `validate_alpha.py`**
+5. **Auto-discover plugin registry in `validate_alpha.py`** - PENDING
 
 ### Phase 3: Document
 
@@ -377,12 +371,29 @@ def build_plugin_registry():
 
 ## Summary
 
-**Keep:** 8 scripts (4 modern + 4 legacy to refactor)
-**Delete:** 3-5 scripts (obsolete + unknown)
-**Archive:** 2 scripts (one-time migrations)
+**Status as of 2026-03-25:**
 
-**Estimated Refactor Effort:** 2-3 days for asyncpg migration across 6 scripts
+**Modern (asyncpg):** 5 scripts ✅
+- `historical_backfill.py`
+- `pipeline_reset.py`
+- `validate_roll_detection.py`
+- `pipeline_audit.py`
+- `data_quality_check.py` (✅ just refactored — runs via systemd timer every 15 min)
 
-**Risk:** LOW — legacy scripts still work, just not optimal
+**Legacy (psycopg2) — Rarely used, leaving as-is:** 4 scripts
+- `compute_ic.py` - DEFERRED (IC tracking to v2.3 ML phase, table dropped)
+- `lifecycle_replay.py` - Manual batch backfill script, rarely run
+- `validate_alpha.py` - Statistical validation gate, rarely used
+- `rebuild_ohlcv.py` - One-time hypertable rebuild, rarely used
 
-**Next Step:** Audit completion → user decision on delete/refactor priorities
+**Archived (one-time migrations):** 2 scripts
+- `migrate_jsonb_strings_to_objects.py`
+- `repair_cis_nulls.py` (if not already run)
+
+**Deleted:** 6 scripts
+- `create_stage_topics.py` (obsolete)
+- `promote_shadow.py` (obsolete)
+- `fix_indent.py`, `repair.py`, `test_ng_*.py` (debug artifacts)
+
+**Decision:** Only refactored actively-used scripts with automation (systemd timers, CI/CD).
+Legacy scripts that are manually run rarely are left as-is to avoid breaking existing workflows.
