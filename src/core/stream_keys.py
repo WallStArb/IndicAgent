@@ -157,7 +157,6 @@ def topic_intelligence_journal(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.journal"
 
 
-
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 

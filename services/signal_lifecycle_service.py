@@ -1032,6 +1032,14 @@ class SignalLifecycleService:
         except Exception as e:
             self.logger.warning("Failed to re-seed Chandelier state", error=str(e))
 
+    async def _build_active_index(self) -> dict[tuple[str, str], list[dict]]:
+        """Query DB and return a fresh (symbol, timeframe) → [signals] index."""
+        new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        for sym in self.config["service"]["symbols"]:
+            for sig in await self._ledger_repo.get_active_signals(symbol=sym):
+                new_index[(str(sig["symbol"]), str(sig["timeframe"]))].append(sig)
+        return new_index
+
     async def _seed_active_index(self) -> None:
         """Build in-memory (symbol, timeframe) → [signals] index at startup from DB.
 
@@ -1039,14 +1047,7 @@ class SignalLifecycleService:
         """
         if not self.db_manager:
             return
-        new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
-        symbols = self.config["service"]["symbols"]
-        for sym in symbols:
-            active = await self._ledger_repo.get_active_signals(symbol=sym)
-            for sig in active:
-                key = (str(sig["symbol"]), str(sig["timeframe"]))
-                new_index[key].append(sig)
-        self._active_index = new_index
+        self._active_index = await self._build_active_index()
         total = sum(len(v) for v in self._active_index.values())
         self.logger.info("active_index_seeded", total=total, keys=len(self._active_index))
 
@@ -1059,14 +1060,7 @@ class SignalLifecycleService:
         """
         if not self.db_manager:
             return
-        new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
-        symbols = self.config["service"]["symbols"]
-        for sym in symbols:
-            active = await self._ledger_repo.get_active_signals(symbol=sym)
-            for sig in active:
-                key = (str(sig["symbol"]), str(sig["timeframe"]))
-                new_index[key].append(sig)
-        self._active_index = new_index
+        self._active_index = await self._build_active_index()
         total = sum(len(v) for v in self._active_index.values())
         self.logger.debug("active_index_reseeded", total=total, keys=len(self._active_index))
 

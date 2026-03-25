@@ -363,8 +363,6 @@ class TestRegimeSuppressedStatus:
 # New targeted DB write functions
 # ============================================================
 
-import asyncio  # noqa: E402
-
 from src.persistence.repository.signal_ledger_repository import (  # noqa: E402
     _RECORD_ACTIVATION_SQL,
     _RECORD_MARKET_RESOLUTION_SQL,
@@ -375,17 +373,18 @@ from src.persistence.repository.signal_ledger_repository import (  # noqa: E402
 
 @pytest.mark.unit
 class TestRecordActivation:
-    def test_calls_execute_command_with_activation_fields(self):
+    @pytest.mark.asyncio
+    async def test_calls_execute_command_with_activation_fields(self):
         db = AsyncMock()
         db.execute_command = AsyncMock()
         signal_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         activated_at = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        asyncio.run(SignalLedgerRepository(db).record_activation(signal_id,
+        await SignalLedgerRepository(db).record_activation(signal_id,
                                       activated_at=activated_at,
                                       activation_price=5098.5,
                                       zone_entry_pct=0.25,
-                                      bars_to_activation=3))
+                                      bars_to_activation=3)
 
         db.execute_command.assert_awaited_once()
         call_args = db.execute_command.call_args
@@ -399,12 +398,13 @@ class TestRecordActivation:
 
 @pytest.mark.unit
 class TestRecordZoneResolution:
-    def test_calls_execute_command(self):
+    @pytest.mark.asyncio
+    async def test_calls_execute_command(self):
         db = AsyncMock()
         db.execute_command = AsyncMock()
         exit_at = datetime(2026, 3, 14, 11, 0, 0, tzinfo=UTC)
 
-        asyncio.run(SignalLedgerRepository(db).record_zone_resolution("aaaa-bbbb",
+        await SignalLedgerRepository(db).record_zone_resolution("aaaa-bbbb",
                                            status="stopped_out",
                                            exit_at=exit_at,
                                            exit_price=5085.0,
@@ -415,7 +415,7 @@ class TestRecordZoneResolution:
                                            mae=-1.0,
                                            mfe=0.3,
                                            bars_in_trade=5,
-                                           outcome="stopped_in_trade"))
+                                           outcome="stopped_in_trade")
         db.execute_command.assert_awaited_once()
 
     def test_zone_resolution_sql_does_not_touch_market_columns(self):
@@ -425,11 +425,12 @@ class TestRecordZoneResolution:
 
 @pytest.mark.unit
 class TestRecordMarketResolution:
-    def test_calls_execute_command_with_market_fields(self):
+    @pytest.mark.asyncio
+    async def test_calls_execute_command_with_market_fields(self):
         db = AsyncMock()
         db.execute_command = AsyncMock()
 
-        asyncio.run(SignalLedgerRepository(db).record_market_resolution("aaaa-bbbb",
+        await SignalLedgerRepository(db).record_market_resolution("aaaa-bbbb",
                                              market_entry_at=None,
                                              market_entry_exit_price=5084.0,
                                              market_entry_exit_at=None,
@@ -438,7 +439,7 @@ class TestRecordMarketResolution:
                                              market_entry_mfe=0.2,
                                              market_entry_bars_in_trade=3,
                                              market_entry_outcome="stopped_in_trade",
-                                             market_entry_gap_bars=None))
+                                             market_entry_gap_bars=None)
         db.execute_command.assert_awaited_once()
 
     def test_market_resolution_sql_does_not_touch_zone_columns(self):
@@ -449,11 +450,12 @@ class TestRecordMarketResolution:
         for col in ["exit_at", "outcome"]:
             assert not re.search(rf"(?<!market_entry_)\b{col}\b", _RECORD_MARKET_RESOLUTION_SQL)
 
-    def test_gap_bars_defaults_to_none(self):
+    @pytest.mark.asyncio
+    async def test_gap_bars_defaults_to_none(self):
         """gap_bars=None is the default (live signals)."""
         db = AsyncMock()
         db.execute_command = AsyncMock()
-        asyncio.run(SignalLedgerRepository(db).record_market_resolution("aaaa",
+        await SignalLedgerRepository(db).record_market_resolution("aaaa",
                                              market_entry_at=None,
                                              market_entry_exit_price=5115.0,
                                              market_entry_exit_at=None,
@@ -461,26 +463,27 @@ class TestRecordMarketResolution:
                                              market_entry_mae=0.0,
                                              market_entry_mfe=1.0,
                                              market_entry_bars_in_trade=2,
-                                             market_entry_outcome="target_1"))
+                                             market_entry_outcome="target_1")
         db.execute_command.assert_awaited_once()
 
 
 @pytest.mark.unit
 class TestRecordZoneWithActivation:
-    def test_atomic_write_called_once(self):
+    @pytest.mark.asyncio
+    async def test_atomic_write_called_once(self):
         """Same-bar activation+exit must call execute_command exactly once."""
         db = AsyncMock()
         db.execute_command = AsyncMock()
         ts = datetime(2026, 3, 14, 10, 0, 0, tzinfo=UTC)
 
-        asyncio.run(SignalLedgerRepository(db).record_zone_resolution_with_activation("aaaa-bbbb",
+        await SignalLedgerRepository(db).record_zone_resolution_with_activation("aaaa-bbbb",
             activated_at=ts, activation_price=5098.0,
             zone_entry_pct=0.1, bars_to_activation=1,
             status="stopped_out", exit_at=ts,
             exit_price=5085.0, exit_reason="stop_loss",
             pnl_r=-0.87, pnl_dollars=-650.0,
             signal_quality=0.0, mae=-0.87, mfe=0.0,
-            bars_in_trade=0, outcome="stopped_at_entry"))
+            bars_in_trade=0, outcome="stopped_at_entry")
         db.execute_command.assert_awaited_once()
         assert db.execute_command.call_args[0][0] == _RECORD_ZONE_WITH_ACTIVATION_SQL
 
