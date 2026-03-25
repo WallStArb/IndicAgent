@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.stochastic_rsi import StochRSIPlugin
+from src.intelligence.features.i1_indicators.stochastic_rsi import StochRSIPlugin
 
 
 def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFrame:

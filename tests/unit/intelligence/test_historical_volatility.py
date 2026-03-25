@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.historical_volatility import HistoricalVolatilityPlugin
+from src.intelligence.features.i1_indicators.historical_volatility import HistoricalVolatilityPlugin
 
 
 def _make_ohlcv(n: int = 100, seed: int = 42, vol: float = 0.005) -> pd.DataFrame:

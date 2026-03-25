@@ -1,4 +1,4 @@
-# src/intelligence/patterns/head_shoulders.py
+# src/intelligence/features/i5_patterns/head_shoulders.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field

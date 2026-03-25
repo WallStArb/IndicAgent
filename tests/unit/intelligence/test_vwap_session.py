@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.vwap import VWAPPlugin
+from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
 
 def _make_df(n_bars: int, start_date: str = "2026-01-15 09:30:00") -> pd.DataFrame:

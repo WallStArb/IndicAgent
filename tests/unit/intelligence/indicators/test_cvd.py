@@ -26,7 +26,7 @@ def _make_df(n: int = 10, base_close: float = 100.0, start_hour: int = 14) -> pd
 
 class TestCVDPlugin:
     def setup_method(self):
-        from src.intelligence.indicators.cvd import CVDPlugin
+        from src.intelligence.features.i1_indicators.cvd import CVDPlugin
 
         self.plugin = CVDPlugin()
 
@@ -45,7 +45,7 @@ class TestCVDPlugin:
 
     def test_session_reset(self):
         """When bar timestamp crosses 09:30 ET on a new date, cvd resets to 0."""
-        from src.intelligence.indicators.cvd import CVDPlugin
+        from src.intelligence.features.i1_indicators.cvd import CVDPlugin
 
         plugin = CVDPlugin()
 
@@ -79,7 +79,7 @@ class TestCVDPlugin:
 
     def test_slope_sign(self):
         """When CVD is rising over 5 bars, cvd_slope_5bar is positive."""
-        from src.intelligence.indicators.cvd import CVDPlugin
+        from src.intelligence.features.i1_indicators.cvd import CVDPlugin
 
         plugin = CVDPlugin()
         df = _make_df(5)
@@ -139,7 +139,7 @@ class TestCVDPlugin:
 
     def test_plugin_module_export(self):
         """Module-level plugin singleton exists with correct name."""
-        from src.intelligence.indicators.cvd import plugin
+        from src.intelligence.features.i1_indicators.cvd import plugin
 
         assert plugin.name == "ind_CVD"
 

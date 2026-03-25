@@ -15,13 +15,13 @@ def _make_frames(close: np.ndarray, volume: np.ndarray | None = None) -> dict:
 
 class TestCMFDivergencePluginAttributes:
     def test_name(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         assert plugin.name == "patt_CMFDivergence"
 
     def test_outputs_contains_required_fields(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         assert "cmf_div_bullish" in plugin.outputs
@@ -29,13 +29,13 @@ class TestCMFDivergencePluginAttributes:
         assert "cmf_div_strength" in plugin.outputs
 
     def test_min_lookback(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         assert plugin.min_lookback == 30
 
     def test_capability_tags(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         assert "pattern" in plugin.capability_tags
@@ -44,7 +44,7 @@ class TestCMFDivergencePluginAttributes:
 
 class TestCMFDivergenceShortLookback:
     def test_returns_empty_when_insufficient_bars(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         close = np.linspace(5000, 5100, 20)
@@ -52,7 +52,7 @@ class TestCMFDivergenceShortLookback:
         assert result == {}
 
     def test_returns_empty_when_no_main_frame(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         assert plugin.compute_full({}) == {}
@@ -62,7 +62,7 @@ class TestCMFDivergenceShortLookback:
 class TestCMFDivergenceBullish:
     def test_detects_bullish_cmf_divergence(self):
         """Declining price + rising CMF → accumulation during decline (bullish divergence)."""
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         n = 60
@@ -87,7 +87,7 @@ class TestCMFDivergenceBullish:
         assert 0.0 <= result["cmf_div_strength"] <= 1.0
 
     def test_returns_three_keys(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         close = np.linspace(5000, 4900, 50)
@@ -98,7 +98,7 @@ class TestCMFDivergenceBullish:
 class TestCMFDivergenceBearish:
     def test_detects_bearish_cmf_divergence(self):
         """Rising price + declining CMF → distribution during rise (bearish divergence)."""
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         n = 60
@@ -128,7 +128,7 @@ class TestCMFDivergenceBearish:
 
 class TestCMFDivergenceComputeNext:
     def test_compute_next_delegates_to_compute_full(self):
-        from src.intelligence.patterns.cmf_divergence import CMFDivergencePlugin
+        from src.intelligence.features.i5_patterns.cmf_divergence import CMFDivergencePlugin
 
         plugin = CMFDivergencePlugin()
         close = np.linspace(5000, 4900, 60)

@@ -14,13 +14,13 @@ def _make_frames(close: np.ndarray, volume: np.ndarray | None = None) -> dict:
 
 class TestMACDDivergencePluginAttributes:
     def test_name(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         assert plugin.name == "patt_MACDDivergence"
 
     def test_outputs_contains_required_fields(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         assert "macd_div_bullish" in plugin.outputs
@@ -28,13 +28,13 @@ class TestMACDDivergencePluginAttributes:
         assert "macd_div_strength" in plugin.outputs
 
     def test_min_lookback(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         assert plugin.min_lookback == 50
 
     def test_capability_tags(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         assert "pattern" in plugin.capability_tags
@@ -43,7 +43,7 @@ class TestMACDDivergencePluginAttributes:
 
 class TestMACDDivergencePluginShortLookback:
     def test_returns_empty_when_insufficient_bars(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         # Less than min_lookback=50 bars
@@ -52,7 +52,7 @@ class TestMACDDivergencePluginShortLookback:
         assert result == {}
 
     def test_returns_empty_when_no_main_frame(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         assert plugin.compute_full({}) == {}
@@ -62,7 +62,7 @@ class TestMACDDivergencePluginShortLookback:
 class TestMACDDivergenceBullish:
     def test_detects_bullish_divergence(self):
         """Price makes lower low, MACD histogram makes higher low → bullish divergence."""
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         n = 120
@@ -94,7 +94,7 @@ class TestMACDDivergenceBullish:
 class TestMACDDivergenceBearish:
     def test_detects_bearish_divergence(self):
         """Price makes higher high, MACD histogram makes lower high → bearish divergence."""
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         n = 120
@@ -118,7 +118,7 @@ class TestMACDDivergenceBearish:
         assert 0.0 <= result["macd_div_bearish"] <= 1.0
 
     def test_no_divergence_in_steady_uptrend(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         close = np.linspace(5000, 5500, 100)
@@ -129,7 +129,7 @@ class TestMACDDivergenceBearish:
 
 class TestMACDDivergenceComputeNext:
     def test_compute_next_delegates_to_compute_full(self):
-        from src.intelligence.patterns.macd_divergence import MACDDivergencePlugin
+        from src.intelligence.features.i5_patterns.macd_divergence import MACDDivergencePlugin
 
         plugin = MACDDivergencePlugin()
         close = np.linspace(5000, 5500, 100)

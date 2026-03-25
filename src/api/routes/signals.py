@@ -17,8 +17,8 @@ from scipy import stats as _scipy_stats
 
 from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
-from ...intelligence.trading.signal_ledger import WIN_OUTCOMES as _WIN_OUTCOMES
-from ...intelligence.trading.signal_ledger import SignalStatus
+from ...persistence.repository.signal_ledger_repository import WIN_OUTCOMES as _WIN_OUTCOMES
+from ...persistence.repository.signal_ledger_repository import SignalStatus
 from ..dependencies import get_db_manager
 from ..utils import parse_jsonb as _parse_jsonb
 from ..utils import resolve_contract as _resolve_contract

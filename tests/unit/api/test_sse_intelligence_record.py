@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from src.api.routes.sse import _build_topic_list, _event_name_for_topic
 from src.core.stream_keys import (
     topic_intelligence_i7,
-    topic_intelligence_record,
+    topic_intelligence_journal,
 )
 
 
@@ -142,7 +142,7 @@ class TestStreamKeysDeprecation:
         result = topic_intelligence_i7("")
         assert result == "intelligence.i7"
 
-    def test_topic_intelligence_record_available(self):
-        """topic_intelligence_record must be importable and return correct topic."""
-        result = topic_intelligence_record("")
+    def test_topic_intelligence_journal_available(self):
+        """topic_intelligence_journal must be importable and return correct topic."""
+        result = topic_intelligence_journal("")
         assert result == "intelligence.record"

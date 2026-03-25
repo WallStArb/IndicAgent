@@ -21,7 +21,7 @@ from ...core.stream_keys import (
     topic_indicators,
     topic_intelligence,
     topic_intelligence_i8,
-    topic_intelligence_record,
+    topic_intelligence_journal,
     topic_market_bars,
     topic_market_bars_htf,
     topic_market_ticks,
@@ -104,7 +104,7 @@ class KafkaSSEBroadcaster:
         """
         settings = _get_settings()
         env_name = settings.env_name or ""
-        _intelligence_record_topic = topic_intelligence_record(env_name)
+        _intelligence_record_topic = topic_intelligence_journal(env_name)
 
         async for topic, key, payload in consumer.messages():  # type: ignore[union-attr]
             # Transform intelligence.record into signal_scorecard payload shape
@@ -160,7 +160,7 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
     topics.append(topic_market_bars_htf(env_name))
     topics.append(topic_indicators(env_name))
     topics.append(topic_intelligence(env_name))
-    topics.append(topic_intelligence_record(env_name))
+    topics.append(topic_intelligence_journal(env_name))
     topics.append(topic_intelligence_i8(env_name))
     topics.append(topic_signals_aggregated(env_name))
     topics.append(topic_narratives(env_name))

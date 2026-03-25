@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.cmf import CMFPlugin
+from src.intelligence.features.i1_indicators.cmf import CMFPlugin
 
 
 def _make_ohlcv(n: int = 100, seed: int = 42, trend: str = "flat") -> pd.DataFrame:

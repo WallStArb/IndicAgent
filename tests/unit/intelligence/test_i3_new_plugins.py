@@ -17,7 +17,7 @@ from tests.unit.intelligence.helpers import make_ohlcv
 
 class TestMarketProfile:
     def test_poc_within_price_range(self):
-        from src.intelligence.structure.market_profile import MarketProfilePlugin
+        from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -27,7 +27,7 @@ class TestMarketProfile:
         assert poc is None or (5000 <= poc <= 5100)
 
     def test_va_high_gte_va_low(self):
-        from src.intelligence.structure.market_profile import MarketProfilePlugin
+        from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -38,7 +38,7 @@ class TestMarketProfile:
             assert va_high >= va_low
 
     def test_poc_dist_atr_computed(self):
-        from src.intelligence.structure.market_profile import MarketProfilePlugin
+        from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -49,7 +49,7 @@ class TestMarketProfile:
             assert result["poc_dist_atr"] >= 0.0
 
     def test_price_flags_mutually_exclusive(self):
-        from src.intelligence.structure.market_profile import MarketProfilePlugin
+        from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
 
         close = np.linspace(5000, 5100, 50)
         df = make_ohlcv(close)
@@ -63,12 +63,12 @@ class TestMarketProfile:
             assert total == pytest.approx(1.0)
 
     def test_empty_returns_empty(self):
-        from src.intelligence.structure.market_profile import MarketProfilePlugin
+        from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
 
         assert MarketProfilePlugin().compute_full({}) == {}
 
     def test_insufficient_bars_returns_empty(self):
-        from src.intelligence.structure.market_profile import MarketProfilePlugin
+        from src.intelligence.features.i3_structure.market_profile import MarketProfilePlugin
 
         close = np.linspace(5000, 5010, 5)
         df = make_ohlcv(close)
@@ -82,7 +82,7 @@ class TestMarketProfile:
 
 class TestSessionLevels:
     def test_weekly_pivot_formula(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         close = np.linspace(5000, 5100, 200)
         df = make_ohlcv(close)
@@ -93,7 +93,7 @@ class TestSessionLevels:
             assert 4000 < pivot < 6000
 
     def test_weekly_pivot_with_enough_history(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         # 800 bars so prior session (390) exists and week_df can be formed
         close = np.linspace(5000, 5200, 800)
@@ -104,7 +104,7 @@ class TestSessionLevels:
         assert result.get("prior_session_low") is not None
 
     def test_pivot_levels_ordering(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         close = np.linspace(5000, 5200, 800)
         df = make_ohlcv(close)
@@ -116,12 +116,12 @@ class TestSessionLevels:
             assert r1 > wp > s1
 
     def test_empty_returns_empty(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         assert SessionLevelsPlugin().compute_full({}) == {}
 
     def test_asian_session_high_low_from_timestamps(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         # Build 60 bars: first 20 in Asia (02:00 UTC = 21:00 ET), rest in NY (15:00 UTC = 10:00 ET)
         _UTC = UTC
@@ -152,7 +152,7 @@ class TestSessionLevels:
         assert result.get("asian_session_low") == pytest.approx(1.0)
 
     def test_asian_session_none_without_timestamps(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)  # no timestamp column
@@ -161,7 +161,7 @@ class TestSessionLevels:
         assert result.get("asian_session_low") is None
 
     def test_asian_session_none_when_no_asia_bars(self):
-        from src.intelligence.structure.session_levels import SessionLevelsPlugin
+        from src.intelligence.features.i3_structure.session_levels import SessionLevelsPlugin
 
         # All bars at 15:00 UTC = 10:00 ET — fully in NY session, not Asia
         _UTC = UTC
@@ -244,7 +244,7 @@ class TestAnchoredVWAP:
 
 class TestFibonacciZones:
     def test_fib_618_between_high_and_low(self):
-        from src.intelligence.structure.fibonacci_zones import FibonacciZonesPlugin
+        from src.intelligence.features.i3_structure.fibonacci_zones import FibonacciZonesPlugin
 
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
@@ -255,7 +255,7 @@ class TestFibonacciZones:
             assert abs(fib618 - (5000 + 0.618 * 200)) < 1.0
 
     def test_all_fib_levels_between_high_and_low(self):
-        from src.intelligence.structure.fibonacci_zones import FibonacciZonesPlugin
+        from src.intelligence.features.i3_structure.fibonacci_zones import FibonacciZonesPlugin
 
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
@@ -267,7 +267,7 @@ class TestFibonacciZones:
                 assert 5000 <= level <= 5200
 
     def test_nearest_fib_ratio_valid(self):
-        from src.intelligence.structure.fibonacci_zones import FibonacciZonesPlugin
+        from src.intelligence.features.i3_structure.fibonacci_zones import FibonacciZonesPlugin
 
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
@@ -278,7 +278,7 @@ class TestFibonacciZones:
             assert ratio in (0.236, 0.382, 0.500, 0.618, 0.786)
 
     def test_discount_zone_at_50pct(self):
-        from src.intelligence.structure.fibonacci_zones import FibonacciZonesPlugin
+        from src.intelligence.features.i3_structure.fibonacci_zones import FibonacciZonesPlugin
 
         close = np.full(50, 5100.0)
         df = make_ohlcv(close)
@@ -288,7 +288,7 @@ class TestFibonacciZones:
         assert result.get("in_fib_discount_zone") == 1.0
 
     def test_fallback_when_no_swing_features(self):
-        from src.intelligence.structure.fibonacci_zones import FibonacciZonesPlugin
+        from src.intelligence.features.i3_structure.fibonacci_zones import FibonacciZonesPlugin
 
         close = np.linspace(5000, 5200, 50)
         df = make_ohlcv(close)
@@ -297,7 +297,7 @@ class TestFibonacciZones:
         assert isinstance(result, dict)
 
     def test_empty_returns_empty(self):
-        from src.intelligence.structure.fibonacci_zones import FibonacciZonesPlugin
+        from src.intelligence.features.i3_structure.fibonacci_zones import FibonacciZonesPlugin
 
         assert FibonacciZonesPlugin().compute_full({}) == {}
 

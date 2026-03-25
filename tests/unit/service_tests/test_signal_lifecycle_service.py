@@ -762,6 +762,7 @@ def _make_svc_for_index_tests():
     svc.shutdown_event = asyncio.Event()
     svc._active_index = defaultdict(list)
     svc.db_manager = None
+    svc._ledger_repo = None
     svc.config = {"service": {"symbols": ["ES", "NQ"], "timeframes": ["1m", "5m"]}}
     return svc
 
@@ -788,15 +789,10 @@ async def test_seed_active_index_populates_from_db():
     svc = _make_svc_for_index_tests()
     mock_db = MagicMock()
     svc.db_manager = mock_db
+    svc._ledger_repo = AsyncMock()
+    svc._ledger_repo.get_active_signals = AsyncMock(side_effect=[[_active_sig("sig-001", "ES", "1m")], [_active_sig("sig-002", "NQ", "5m")]])
 
-    sig_es_1m = _active_sig("sig-001", "ES", "1m")
-    sig_nq_5m = _active_sig("sig-002", "NQ", "5m")
-
-    with patch(
-        "services.signal_lifecycle_service.get_active_signals",
-        new=AsyncMock(side_effect=[[sig_es_1m], [sig_nq_5m]]),
-    ):
-        await svc._seed_active_index()
+    await svc._seed_active_index()
 
     assert ("ES", "1m") in svc._active_index
     assert len(svc._active_index[("ES", "1m")]) == 1
@@ -818,11 +814,9 @@ async def test_reseed_active_index_replaces_entire_index():
     svc._active_index[("ES", "1m")].append(_active_sig("old-sig-001", "ES", "1m"))
 
     new_sig = _active_sig("new-sig-001", "ES", "1m")
-    with patch(
-        "services.signal_lifecycle_service.get_active_signals",
-        new=AsyncMock(side_effect=[[new_sig], []]),
-    ):
-        await svc._reseed_active_index()
+    svc._ledger_repo = AsyncMock()
+    svc._ledger_repo.get_active_signals = AsyncMock(side_effect=[[new_sig], []])
+    await svc._reseed_active_index()
 
     # Old signal replaced by new signal
     assert len(svc._active_index[("ES", "1m")]) == 1

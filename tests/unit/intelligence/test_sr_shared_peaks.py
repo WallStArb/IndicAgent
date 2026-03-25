@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.structure.support_resistance import SupportResistancePlugin
+from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
 
 
 def _make_ohlcv(n: int = 120, seed: int = 42) -> pd.DataFrame:

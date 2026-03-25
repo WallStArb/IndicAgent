@@ -1004,7 +1004,7 @@ class SignalLifecycleService:
         try:
             symbols = self.config["service"]["symbols"]
             for sym in symbols:
-                active = await get_active_signals(self.db_manager, symbol=sym)
+                active = await self._ledger_repo.get_active_signals(symbol=sym)
                 for sig in active:
                     sid = str(sig["signal_id"])
                     if sig.get("status") != SignalStatus.ACTIVE:
@@ -1042,7 +1042,7 @@ class SignalLifecycleService:
         new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
         symbols = self.config["service"]["symbols"]
         for sym in symbols:
-            active = await get_active_signals(self.db_manager, symbol=sym)
+            active = await self._ledger_repo.get_active_signals(symbol=sym)
             for sig in active:
                 key = (str(sig["symbol"]), str(sig["timeframe"]))
                 new_index[key].append(sig)
@@ -1062,7 +1062,7 @@ class SignalLifecycleService:
         new_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
         symbols = self.config["service"]["symbols"]
         for sym in symbols:
-            active = await get_active_signals(self.db_manager, symbol=sym)
+            active = await self._ledger_repo.get_active_signals(symbol=sym)
             for sig in active:
                 key = (str(sig["symbol"]), str(sig["timeframe"]))
                 new_index[key].append(sig)

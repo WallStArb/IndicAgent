@@ -55,7 +55,7 @@ class TestVWAPTimezoneHandling:
         Regression test for: 'Tz-aware datetime.datetime cannot be converted
         to datetime64 unless utc=True' (fired on every bar for all 61 symbols).
         """
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         plugin = VWAPPlugin()
         frames = _make_tz_frames(n=30)
@@ -67,7 +67,7 @@ class TestVWAPTimezoneHandling:
     @pytest.mark.unit
     def test_compute_next_handles_tz_aware_timestamps(self):
         """VWAPPlugin.compute_next() must not raise on tz-aware timestamps."""
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         plugin = VWAPPlugin()
         frames = _make_tz_frames(n=30)
@@ -82,7 +82,7 @@ class TestVWAPTimezoneHandling:
     @pytest.mark.unit
     def test_compute_full_also_works_with_naive_timestamps(self):
         """VWAPPlugin.compute_full() still works with naive timestamps (regression guard)."""
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         plugin = VWAPPlugin()
         frames = _make_naive_frames(n=30)
@@ -93,7 +93,7 @@ class TestVWAPTimezoneHandling:
     @pytest.mark.unit
     def test_vwap_output_keys_present(self):
         """compute_full() returns all expected VWAP output keys."""
-        from src.intelligence.indicators.vwap import VWAPPlugin
+        from src.intelligence.features.i1_indicators.vwap import VWAPPlugin
 
         plugin = VWAPPlugin()
         frames = _make_tz_aware_frames_same_day(n=20)

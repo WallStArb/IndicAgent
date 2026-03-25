@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.intelligence.indicators.adx import ADXPlugin
+from src.intelligence.features.i1_indicators.adx import ADXPlugin
 
 
 def _make_ohlc(n: int = 200, seed: int = 42) -> pd.DataFrame:
