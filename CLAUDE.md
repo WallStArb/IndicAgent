@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-Version: 5.30.0
-Last Updated: 2026-03-23
+Version: 5.31.0
+Last Updated: 2026-03-25
 Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Decision Framework: What Would Jim Simons Do?
@@ -304,6 +304,7 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 **Core Patterns**
 - **Timestamps: always UTC.** All datetimes must be timezone-aware UTC — `datetime.now(UTC)` or `datetime.now(tz=UTC)`. Never `datetime.now()` (naive) or `datetime.utcnow()` (naive despite the name). When labeling a naive timestamp from an external source (e.g. IBKR bars), use `replace(tzinfo=UTC)` only if you are certain the source is already UTC — otherwise `astimezone(UTC)`. All DB columns are `timestamp with time zone`; all stream timestamps are UTC ISO-8601 (`Z` suffix).
 - **asyncpg batch inserts**: `execute_batch()` / `executemany()` requires Python `datetime` objects for `timestamptz` columns — ISO-8601 strings cause type mismatch. SQL `::timestamptz` casts work for single inserts but not batch mode. Use `_parse_ts()` from `feature_writer_service.py` or parse with `datetime.fromisoformat()` before inserting.
+- **Async Database Operations (Default)**: Use `asyncpg` for all new database code — never `psycopg2`. Connection: `conn = await asyncpg.connect(settings.database_url)` or pool context `async with asyncpg.create_pool(settings.database_url) as pool:`. Scripts: wrap entry point in `asyncio.run(_amain(args))`. All DB calls use `async/await`. JSONB: asyncpg returns Python `dict` (no `json.loads()` needed). Timestamps: asyncpg returns `datetime` objects (no parsing for `timestamptz`).
 - **Stream keys**: always via `src/core/stream_keys.py`. Include `env_prefix` from `Settings`.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **API route Settings cache**: `_resolve_contract()` in API routes must use `@lru_cache(maxsize=1)` on `_get_settings()` — not `Settings()` fresh per call. See `sse.py` for the canonical pattern.

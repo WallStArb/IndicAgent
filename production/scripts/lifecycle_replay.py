@@ -47,18 +47,16 @@ Design notes:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
-import multiprocessing
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
-
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from src.config.settings import Settings, get_active_contracts
+from src.core.database_manager import DatabaseManager
 from src.core.service_utils import TF_SECONDS, TF_TTL_BARS
 from src.intelligence.trading.lifecycle_tracker import (
     _classify_stop_outcome,
@@ -173,32 +171,26 @@ def validate_track_pair(zone_outcome: str, market_outcome: str | None) -> None:
 # ── Core replay logic ────────────────────────────────────────────────────────
 
 
-def _get_db_url() -> str:
-    return Settings().database_url
-
-
-def _fetch_work_queue(conn, symbols: list[str], timeframes: list[str]) -> list[tuple[str, str, int]]:
+async def _fetch_work_queue(db: DatabaseManager, symbols: list[str], timeframes: list[str]) -> list[tuple[str, str, int]]:
     """Build work queue ordered by estimated pending row count descending (largest first)."""
-    placeholders_sym = ",".join(["%s"] * len(symbols))
-    placeholders_tf = ",".join(["%s"] * len(timeframes))
-    with conn.cursor() as cur:
-        cur.execute(
-            f"""SELECT symbol, timeframe, COUNT(*) as cnt
+    async with db.get_connection() as conn:
+        rows = await conn.fetch(
+            """SELECT symbol, timeframe, COUNT(*) as cnt
                 FROM signal_ledger
                 WHERE status IN ('pending', 'regime_suppressed')
-                  AND symbol IN ({placeholders_sym})
-                  AND timeframe IN ({placeholders_tf})
+                  AND symbol = ANY($1)
+                  AND timeframe = ANY($2)
                 GROUP BY symbol, timeframe
                 ORDER BY cnt DESC""",
-            symbols + timeframes,
+            symbols, timeframes,
         )
-        return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+        return [(row["symbol"], row["timeframe"], row["cnt"]) for row in rows]
 
 
-def _process_symbol_tf(
+async def _process_symbol_tf(
+    db: DatabaseManager,
     symbol: str,
     timeframe: str,
-    db_url: str,
     batch_size: int,
     commit_every: int,
     dry_run: bool,
@@ -206,48 +198,46 @@ def _process_symbol_tf(
 ) -> dict:
     """Worker function: process all pending signals for one (symbol, timeframe).
 
-    Each worker opens its own DB connection. Bars are fetched into memory upfront
-    so incremental commits don't invalidate a server-side cursor mid-stream.
+    Each worker uses the shared DatabaseManager with its own transaction.
     """
-    conn = psycopg2.connect(db_url)
-    conn.autocommit = False
     tf_secs = TF_SECONDS.get(timeframe, 60)
     stats = {"symbol": symbol, "tf": timeframe, "processed": 0,
              "zone": {}, "market": {}, "gaps": 0, "errors": 0}
 
     try:
-        # 1. Validate mode
-        if validate:
-            _run_validate(conn, symbol, timeframe, tf_secs, dry_run)
+        # Use a transaction for this work item
+        async with db.pool.acquire() as conn:
+            async with conn.transaction():
+                # 1. Validate mode
+                if validate:
+                    await _run_validate(conn, symbol, timeframe, tf_secs, dry_run)
 
-        # 2. Fetch all unresolved signals for this pair into memory
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
-                          direction, entry_price, stop_loss, targets, confidence, confluence_score,
-                          regime_context, supporting_factors, was_selected, num_signals_bar,
-                          num_agreeing, num_conflicting, resolution_method, composite_rank,
-                          market_context, status, activated_at, exit_at, exit_price, exit_reason,
-                          pnl_ticks, pnl_r, pnl_dollars, created_at, updated_at, feature_ts,
-                          feature_tf, cis_score, bucket_scores, weights_version, signal_quality,
-                          signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
-                          market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
-                          activation_price, zone_entry_pct, bars_to_activation, mae, mfe,
-                          bars_in_trade, outcome, cis_attribution, market_entry_price,
-                          market_entry_exit_price, market_entry_pnl_r, market_entry_mae,
-                          market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome,
-                          market_entry_gap_bars, market_entry_at, market_entry_exit_at, is_shadow,
-                          stop_basis, stop_structure_type, stop_structure_age_bars,
-                          structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
-                          chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
-                          staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
-                   FROM signal_ledger
-                   WHERE status IN ('pending', 'regime_suppressed')
-                     AND symbol = %s AND timeframe = %s
-                   ORDER BY timestamp ASC""",
-                (symbol, timeframe),
-            )
-            signals = cur.fetchall()
+                # 2. Fetch all unresolved signals for this pair into memory
+                signals = await conn.fetch(
+                    """SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type,
+                              direction, entry_price, stop_loss, targets, confidence, confluence_score,
+                              regime_context, supporting_factors, was_selected, num_signals_bar,
+                              num_agreeing, num_conflicting, resolution_method, composite_rank,
+                              market_context, status, activated_at, exit_at, exit_price, exit_reason,
+                              pnl_ticks, pnl_r, pnl_dollars, created_at, updated_at, feature_ts,
+                              feature_tf, cis_score, bucket_scores, weights_version, signal_quality,
+                              signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
+                              market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
+                              activation_price, zone_entry_pct, bars_to_activation, mae, mfe,
+                              bars_in_trade, outcome, cis_attribution, market_entry_price,
+                              market_entry_exit_price, market_entry_pnl_r, market_entry_mae,
+                              market_entry_mfe, market_entry_bars_in_trade, market_entry_outcome,
+                              market_entry_gap_bars, market_entry_at, market_entry_exit_at, is_shadow,
+                              stop_basis, stop_structure_type, stop_structure_age_bars,
+                              structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
+                              chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
+                              staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+                       FROM signal_ledger
+                       WHERE status IN ('pending', 'regime_suppressed')
+                         AND symbol = $1 AND timeframe = $2
+                       ORDER BY timestamp ASC""",
+                    symbol, timeframe,
+                )
 
         if not signals:
             return stats
@@ -278,19 +268,15 @@ def _process_symbol_tf(
         live_sids: set[str] = set()   # signals currently being evaluated
         resolved_sids: set[str] = set()  # zone-exited signals — must never re-enter live_sids
 
-        # 3. Fetch bars into memory.
-        # NOTE: intentionally not a server-side (named) cursor — incremental commits
-        # would kill a named cursor mid-stream, losing all progress for that pair.
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """SELECT timestamp, open, high, low, close
-                   FROM market_data_ohlcv
-                   WHERE symbol = %s AND timeframe = %s
-                     AND timestamp >= %s
-                   ORDER BY timestamp ASC""",
-                (symbol, timeframe, min_ts),
-            )
-            bars = cur.fetchall()
+        # 3. Fetch bars into memory
+        bars = await conn.fetch(
+            """SELECT timestamp, open, high, low, close
+               FROM market_data_ohlcv
+               WHERE symbol = $1 AND timeframe = $2
+                 AND timestamp >= $3
+               ORDER BY timestamp ASC""",
+            symbol, timeframe, min_ts,
+        )
 
         # 4. Stream bars and evaluate signals
         for bar_row in bars:
@@ -452,7 +438,7 @@ def _process_symbol_tf(
             # Flush batch to DB (no commit yet — commit happens below on threshold)
             if len(pending_writes) >= batch_size:
                 if not dry_run:
-                    _flush_writes(conn, pending_writes)
+                    await _flush_writes(conn, pending_writes)
                 pending_writes.clear()
                 # Incremental commit: durable progress every commit_every resolved signals.
                 # Without this, killing the process loses all work since pair start.
@@ -519,23 +505,18 @@ def _process_symbol_tf(
 
         # 6. Final flush + commit
         if pending_writes and not dry_run:
-            _flush_writes(conn, pending_writes)
-
-        if not dry_run:
-            conn.commit()
+            await _flush_writes(conn, pending_writes)
 
     except Exception as exc:
-        conn.rollback()
         logger.error("Error processing %s %s: %s", symbol, timeframe, exc)
         stats["errors"] += 1
-    finally:
-        conn.close()
+        # Transaction will be rolled back automatically by context manager
 
     return stats
 
 
-def _flush_writes(conn, writes: list[tuple]) -> None:
-    """Execute pending DB writes using bulk UPDATE...FROM VALUES (one plan per kind).
+async def _flush_writes(conn, writes: list[tuple]) -> None:
+    """Execute pending DB writes using asyncpg.
 
     Three write kinds:
       - activation: signal entered the zone (sets activated_at, activation_price, etc.)
@@ -545,9 +526,6 @@ def _flush_writes(conn, writes: list[tuple]) -> None:
     All updates match on (signal_id, timestamp) — timestamp is included because
     signal_ledger is a TimescaleDB hypertable partitioned by timestamp, so including
     it in the WHERE clause enables chunk pruning and avoids full-table scans.
-
-    Type casts in the template are required — without them PostgreSQL infers types
-    from the VALUES literal and may guess wrong (e.g. NULL -> text, int -> unknown).
     """
     activations, zone_exits, markets = [], [], []
     for kind, sid, data in writes:
@@ -567,74 +545,82 @@ def _flush_writes(conn, writes: list[tuple]) -> None:
                              data["market_entry_bars_in_trade"], data["market_entry_outcome"],
                              data["market_entry_gap_bars"]))
 
-    with conn.cursor() as cur:
-        # Must be set per-transaction — timescaledb decompression limit is transaction-scoped.
-        cur.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
-        if zone_exits:
-            psycopg2.extras.execute_values(
-                cur,
-                """UPDATE signal_ledger AS sl
-                   SET status=v.status, exit_at=v.exit_at, exit_price=v.exit_price,
-                       exit_reason=v.exit_reason, pnl_ticks=v.pnl_ticks, pnl_r=v.pnl_r,
-                       pnl_dollars=v.pnl_dollars, signal_quality=v.signal_quality,
-                       mae=v.mae, mfe=v.mfe, bars_in_trade=v.bars_in_trade, outcome=v.outcome
-                   FROM (VALUES %s) AS v(signal_id, ts, status, exit_at, exit_price,
-                       exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
-                       mae, mfe, bars_in_trade, outcome)
-                   WHERE sl.signal_id = v.signal_id::uuid
-                     AND sl."timestamp" = v.ts::timestamptz""",
-                zone_exits,
-                template="(%s, %s, %s, %s::timestamptz, %s::float, %s, %s::float, %s::float, %s::float, %s::float, %s::float, %s::float, %s::int, %s)",
-                page_size=500,
-            )
-        if markets:
-            psycopg2.extras.execute_values(
-                cur,
-                """UPDATE signal_ledger AS sl
-                   SET market_entry_at=v.entry_at, market_entry_exit_price=v.exit_price,
-                       market_entry_exit_at=v.exit_at, market_entry_pnl_r=v.pnl_r,
-                       market_entry_mae=v.mae, market_entry_mfe=v.mfe,
-                       market_entry_bars_in_trade=v.bars_in_trade,
-                       market_entry_outcome=v.outcome, market_entry_gap_bars=v.gap_bars
-                   FROM (VALUES %s) AS v(signal_id, ts, entry_at, exit_price,
-                       exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
-                   WHERE sl.signal_id = v.signal_id::uuid
-                     AND sl."timestamp" = v.ts::timestamptz""",
-                markets,
-                # Explicit casts required — PostgreSQL infers NULL columns as text without them
-                template="(%s, %s, %s::timestamptz, %s::float, %s::timestamptz, %s::float, %s::float, %s::float, %s::int, %s, %s::int)",
-                page_size=500,
-            )
-        if activations:
-            psycopg2.extras.execute_values(
-                cur,
-                """UPDATE signal_ledger AS sl
-                   SET status='active', activated_at=v.activated_at,
-                       activation_price=v.activation_price, zone_entry_pct=v.zone_entry_pct,
-                       bars_to_activation=v.bars_to_activation
-                   FROM (VALUES %s) AS v(signal_id, ts, activated_at,
-                       activation_price, zone_entry_pct, bars_to_activation)
-                   WHERE sl.signal_id = v.signal_id::uuid
-                     AND sl."timestamp" = v.ts::timestamptz""",
-                activations,
-                template="(%s, %s, %s::timestamptz, %s, %s, %s)",
-                page_size=500,
-            )
+    # Must be set per-transaction — timescaledb decompression limit is transaction-scoped.
+    await conn.execute("SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0")
 
-
-def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
-    """Validate: confirm resolved signals exist and have outcome populated. Logs result."""
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """SELECT COUNT(*) as total,
-                      COUNT(outcome) as with_outcome,
-                      COUNT(market_entry_outcome) as with_market_outcome
-               FROM signal_ledger
-               WHERE status NOT IN ('pending', 'regime_suppressed')
-                 AND symbol = %s AND timeframe = %s""",
-            (symbol, timeframe),
+    if zone_exits:
+        # Build VALUES clause manually for zone_exits
+        values_clause = ",".join(
+            f"($${i}::uuid, $${i+1}::timestamptz, $${i+2}, $${i+3}::timestamptz, $${i+4}::float, $${i+5}, $${i+6}::float, $${i+7}::float, $${i+8}::float, $${i+9}::float, $${i+10}::float, $${i+11}::float, $${i+12}::int, $${i+13})"
+            for i in range(1, len(zone_exits) * 13 + 1, 13)
         )
-        row = cur.fetchone()
+        flat_values = [v for row in zone_exits for v in row]
+        await conn.execute(
+            f"""UPDATE signal_ledger AS sl
+               SET status=v.status, exit_at=v.exit_at, exit_price=v.exit_price,
+                   exit_reason=v.exit_reason, pnl_ticks=v.pnl_ticks, pnl_r=v.pnl_r,
+                   pnl_dollars=v.pnl_dollars, signal_quality=v.signal_quality,
+                   mae=v.mae, mfe=v.mfe, bars_in_trade=v.bars_in_trade, outcome=v.outcome
+               FROM (VALUES {values_clause}) AS v(signal_id, ts, status, exit_at, exit_price,
+                   exit_reason, pnl_ticks, pnl_r, pnl_dollars, signal_quality,
+                   mae, mfe, bars_in_trade, outcome)
+               WHERE sl.signal_id = v.signal_id
+                 AND sl."timestamp" = v.ts""",
+            flat_values,
+        )
+
+    if markets:
+        # Build VALUES clause manually for markets
+        values_clause = ",".join(
+            f"($${i}::uuid, $${i+1}::timestamptz, $${i+2}::timestamptz, $${i+3}::float, $${i+4}::timestamptz, $${i+5}::float, $${i+6}::float, $${i+7}::float, $${i+8}::int, $${i+9}, $${i+10}::int)"
+            for i in range(1, len(markets) * 10 + 1, 10)
+        )
+        flat_values = [v for row in markets for v in row]
+        await conn.execute(
+            f"""UPDATE signal_ledger AS sl
+               SET market_entry_at=v.entry_at, market_entry_exit_price=v.exit_price,
+                   market_entry_exit_at=v.exit_at, market_entry_pnl_r=v.pnl_r,
+                   market_entry_mae=v.mae, market_entry_mfe=v.mfe,
+                   market_entry_bars_in_trade=v.bars_in_trade,
+                   market_entry_outcome=v.outcome, market_entry_gap_bars=v.gap_bars
+               FROM (VALUES {values_clause}) AS v(signal_id, ts, entry_at, exit_price,
+                   exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
+               WHERE sl.signal_id = v.signal_id
+                 AND sl."timestamp" = v.ts""",
+            flat_values,
+        )
+
+    if activations:
+        # Build VALUES clause manually for activations
+        values_clause = ",".join(
+            f"($${i}::uuid, $${i+1}::timestamptz, $${i+2}::timestamptz, $${i+3}, $${i+4}, $${i+5})"
+            for i in range(1, len(activations) * 5 + 1, 5)
+        )
+        flat_values = [v for row in activations for v in row]
+        await conn.execute(
+            f"""UPDATE signal_ledger AS sl
+               SET status='active', activated_at=v.activated_at,
+                   activation_price=v.activation_price, zone_entry_pct=v.zone_entry_pct,
+                   bars_to_activation=v.bars_to_activation
+               FROM (VALUES {values_clause}) AS v(signal_id, ts, activated_at,
+                   activation_price, zone_entry_pct, bars_to_activation)
+               WHERE sl.signal_id = v.signal_id
+                 AND sl."timestamp" = v.ts""",
+            flat_values,
+        )
+
+
+async def _run_validate(conn, symbol, timeframe, tf_secs, dry_run) -> None:
+    """Validate: confirm resolved signals exist and have outcome populated. Logs result."""
+    row = await conn.fetchrow(
+        """SELECT COUNT(*) as total,
+                  COUNT(outcome) as with_outcome,
+                  COUNT(market_entry_outcome) as with_market_outcome
+           FROM signal_ledger
+           WHERE status NOT IN ('pending', 'regime_suppressed')
+             AND symbol = $1 AND timeframe = $2""",
+        symbol, timeframe,
+    )
 
     if not row or row["total"] == 0:
         logger.info("VALIDATE %s %s: no resolved signals found, skipping", symbol, timeframe)
@@ -653,7 +639,7 @@ def _worker(args):
     return _process_symbol_tf(symbol, tf, db_url, batch_size, commit_every, dry_run, validate)
 
 
-def main():
+async def main_async():
     parser = argparse.ArgumentParser(description="Lifecycle Replay — backfill historical signal outcomes")
     parser.add_argument("--symbols", help="Comma-separated symbols (default: all active)")
     parser.add_argument("--timeframes", help="Comma-separated timeframes (default: 1m,5m,15m,1h)")
@@ -661,38 +647,49 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Compute but don't write")
     parser.add_argument("--batch-size", type=int, default=500, help="DB flush every N pending writes")
     parser.add_argument("--commit-every", type=int, default=1000, help="Commit after every N resolved signals per pair")
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=4, help="Concurrency level (default: 4)")
     args = parser.parse_args()
 
     # Use -u (unbuffered) when redirecting output: python -u lifecycle_replay.py > log 2>&1 &
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
 
-    db_url = _get_db_url()
-    symbols = args.symbols.split(",") if args.symbols else get_active_contracts()
-    timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
 
-    # Build work queue
-    conn = psycopg2.connect(db_url)
-    work_queue = _fetch_work_queue(conn, symbols, timeframes)
-    conn.close()
+    try:
+        symbols = args.symbols.split(",") if args.symbols else [c.symbol for c in get_active_contracts()]
+        timeframes = args.timeframes.split(",") if args.timeframes else TIMEFRAMES
 
-    if not work_queue:
-        logger.info("No pending signals found. Nothing to do.")
-        return
+        # Build work queue
+        work_queue = await _fetch_work_queue(db, symbols, timeframes)
 
-    logger.info("Work queue: %d (symbol, tf) pairs, %d total pending signals",
-                len(work_queue),
-                sum(w[2] for w in work_queue))
+        if not work_queue:
+            logger.info("No pending signals found. Nothing to do.")
+            return
 
-    worker_args = [
-        (sym, tf, db_url, args.batch_size, args.commit_every, args.dry_run, args.validate)
-        for sym, tf, _ in work_queue
-    ]
+        logger.info("Work queue: %d (symbol, tf) pairs, %d total pending signals",
+                    len(work_queue),
+                    sum(w[2] for w in work_queue))
 
-    all_stats = []
-    with multiprocessing.Pool(processes=args.workers) as pool:
-        for stats in pool.imap_unordered(_worker, worker_args):
+        # Process all pairs concurrently using asyncio.gather with semaphore for concurrency control
+        semaphore = asyncio.Semaphore(args.workers)
+
+        async def process_with_limit(sym, tf):
+            async with semaphore:
+                return await _process_symbol_tf(
+                    db, sym, tf, args.batch_size, args.commit_every, args.dry_run, args.validate
+                )
+
+        tasks = [
+            process_with_limit(sym, tf)
+            for sym, tf, _ in work_queue
+        ]
+
+        all_stats = []
+        for future in asyncio.as_completed(tasks):
+            stats = await future
             all_stats.append(stats)
             sym, tf = stats["symbol"], stats["tf"]
             z = stats["zone"]
@@ -705,10 +702,17 @@ def main():
                 stats["gaps"], stats["errors"],
             )
 
-    total = sum(s["processed"] for s in all_stats)
-    logger.info("Done. Total processed: %d", total)
-    if args.dry_run:
-        logger.info("DRY RUN — no DB writes made.")
+        total = sum(s["processed"] for s in all_stats)
+        logger.info("Done. Total processed: %d", total)
+        if args.dry_run:
+            logger.info("DRY RUN — no DB writes made.")
+    finally:
+        await db.close()
+
+
+def main():
+    """Entry point for async main."""
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":
