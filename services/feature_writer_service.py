@@ -32,7 +32,7 @@ from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import normalize_session_type, parse_roll_event, setup_service_logging
 from src.core.stream_keys import (
     topic_cross_asset,
-    topic_intelligence_record,
+    topic_feature_processed,
     topic_system_events,
 )
 from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
@@ -378,7 +378,7 @@ class FeatureWriterService:
 
         # Build topics list
         topics = [
-            topic_intelligence_record(self._env_name),
+            topic_feature_processed(self._env_name),
             topic_system_events(self._env_name),
             topic_cross_asset(self._env_name),
         ]
@@ -668,7 +668,7 @@ class FeatureWriterService:
                 if isinstance(payload, dict) and "event" in payload:
                     continue
 
-                if kafka_topic == intelligence_record_topic:
+                if kafka_topic == feature_processed_topic:
                     await self._process_single_message(symbol, timeframe, payload)
                     await self._maybe_flush(force=False)
                 elif kafka_topic == topic_intelligence(self._env_name):

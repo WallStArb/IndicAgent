@@ -8,6 +8,6 @@ rather than reaching into the trading module directly.
 
 from __future__ import annotations
 
-from src.intelligence.trading.signal_ledger import SignalStatus
+from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 __all__ = ["SignalStatus"]

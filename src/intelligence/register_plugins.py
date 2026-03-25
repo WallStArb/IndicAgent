@@ -1,5 +1,73 @@
 from __future__ import annotations
 
+from src.intelligence.features.i1_indicators.ac_oscillator import plugin as ac_osc_plugin
+from src.intelligence.features.i1_indicators.adx import plugin as adx_plugin
+from src.intelligence.features.i1_indicators.aroon import plugin as aroon_plugin
+from src.intelligence.features.i1_indicators.atr import plugin as atr_plugin
+from src.intelligence.features.i1_indicators.bollinger import plugin as bb_plugin
+from src.intelligence.features.i1_indicators.cci import plugin as cci_plugin
+from src.intelligence.features.i1_indicators.chandelier import plugin as chandelier_plugin
+from src.intelligence.features.i1_indicators.cmf import plugin as cmf_plugin
+from src.intelligence.features.i1_indicators.cvd import plugin as cvd_plugin
+from src.intelligence.features.i1_indicators.donchian import plugin as donchian_plugin
+from src.intelligence.features.i1_indicators.historical_volatility import plugin as hv_plugin
+from src.intelligence.features.i1_indicators.hma import plugin as hma_plugin
+from src.intelligence.features.i1_indicators.keltner import plugin as keltner_plugin
+from src.intelligence.features.i1_indicators.macd import plugin as macd_plugin
+from src.intelligence.features.i1_indicators.mfi import plugin as mfi_plugin
+from src.intelligence.features.i1_indicators.moving_averages import plugin as ma_plugin
+from src.intelligence.features.i1_indicators.obv import plugin as obv_plugin
+from src.intelligence.features.i1_indicators.ofi import plugin as ofi_plugin
+from src.intelligence.features.i1_indicators.parabolic_sar import plugin as psar_plugin
+from src.intelligence.features.i1_indicators.roc_ppo import plugin as roc_ppo_plugin
+from src.intelligence.features.i1_indicators.rsi import plugin as rsi_plugin
+from src.intelligence.features.i1_indicators.stochastic import plugin as stoch_plugin
+from src.intelligence.features.i1_indicators.stochastic_rsi import plugin as stoch_rsi_plugin
+from src.intelligence.features.i1_indicators.supertrend import plugin as supertrend_plugin
+from src.intelligence.features.i1_indicators.vwap import plugin as vwap_plugin
+from src.intelligence.features.i1_indicators.williams_r import plugin as wr_plugin
+from src.intelligence.features.i3_structure.fibonacci_zones import plugin as fib_zones_plugin
+from src.intelligence.features.i3_structure.market_profile import plugin as market_profile_plugin
+from src.intelligence.features.i3_structure.session_levels import plugin as session_levels_plugin
+from src.intelligence.features.i3_structure.support_resistance import plugin as sr_plugin
+from src.intelligence.features.i3_structure.swing_detector import plugin as swing_plugin
+from src.intelligence.features.i3_structure.swing_momentum import plugin as swing_momentum_plugin
+from src.intelligence.features.i3_structure.trend_structure import plugin as trend_plugin
+from src.intelligence.features.i5_patterns.bollinger_squeeze import plugin as squeeze_plugin
+from src.intelligence.features.i5_patterns.candlestick_patterns import plugin as candlestick_plugin
+from src.intelligence.features.i5_patterns.cmf_divergence import plugin as cmf_div_plugin
+from src.intelligence.features.i5_patterns.confluence import plugin as confluence_plugin
+from src.intelligence.features.i5_patterns.cup_handle import plugin as cup_handle_plugin
+from src.intelligence.features.i5_patterns.double_top_bottom import plugin as double_tb_plugin
+from src.intelligence.features.i5_patterns.flag_pennant import plugin as flag_pennant_plugin
+from src.intelligence.features.i5_patterns.head_shoulders import plugin as head_shoulders_plugin
+from src.intelligence.features.i5_patterns.key_level_reaction import (
+    plugin as key_level_reaction_plugin,
+)
+from src.intelligence.features.i5_patterns.macd_divergence import plugin as macd_div_plugin
+from src.intelligence.features.i5_patterns.measured_move import plugin as measured_move_plugin
+from src.intelligence.features.i5_patterns.rsi_divergence import plugin as rsi_div_plugin
+from src.intelligence.features.i5_patterns.trend_confluence import plugin as trend_confluence_plugin
+from src.intelligence.features.i5_patterns.triangle_wedge import plugin as triangle_wedge_plugin
+from src.intelligence.features.i5_patterns.volume_divergence import plugin as vol_div_plugin
+from src.intelligence.features.smc_context.amd_cycle import plugin as amd_cycle_plugin
+from src.intelligence.features.smc_context.bocpd_changepoint import plugin as bocpd_plugin
+from src.intelligence.features.smc_context.bos_choch import plugin as bos_choch_plugin
+from src.intelligence.features.smc_context.breaker_blocks import plugin as breaker_blocks_plugin
+from src.intelligence.features.smc_context.fair_value_gap import plugin as fvg_plugin
+from src.intelligence.features.smc_context.hmm_regime import plugin as hmm_plugin
+from src.intelligence.features.smc_context.ict_killzones import plugin as ict_killzones_plugin
+from src.intelligence.features.smc_context.liquidity_pools import plugin as liquidity_pools_plugin
+from src.intelligence.features.smc_context.liquidity_sweeps import plugin as liq_sweep_plugin
+from src.intelligence.features.smc_context.mitigation_blocks import (
+    plugin as mitigation_blocks_plugin,
+)
+from src.intelligence.features.smc_context.order_blocks import plugin as ob_plugin
+from src.intelligence.features.smc_context.premium_discount import plugin as premium_discount_plugin
+from src.intelligence.features.smc_context.supply_demand_zones import (
+    plugin as supply_demand_zones_plugin,
+)
+
 from .composites.acceleration_regime import plugin as accel_regime_plugin
 from .composites.adx_events import plugin as adx_events_plugin
 from .composites.derivative_oscillator import plugin as deriv_osc_plugin
@@ -26,69 +94,8 @@ from .context.trend_regime import plugin as trend_regime_plugin
 from .context.vix_regime import plugin as vix_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
 from .context.volume_profile import plugin as volume_profile_plugin
-from .indicators.ac_oscillator import plugin as ac_osc_plugin
-from .indicators.adx import plugin as adx_plugin
-from .indicators.aroon import plugin as aroon_plugin
-from .indicators.atr import plugin as atr_plugin
-from .indicators.bollinger import plugin as bb_plugin
-from .indicators.cci import plugin as cci_plugin
-from .indicators.chandelier import plugin as chandelier_plugin
-from .indicators.cmf import plugin as cmf_plugin
-from .indicators.cvd import plugin as cvd_plugin
-from .indicators.donchian import plugin as donchian_plugin
-from .indicators.historical_volatility import plugin as hv_plugin
-from .indicators.hma import plugin as hma_plugin
-from .indicators.keltner import plugin as keltner_plugin
-from .indicators.macd import plugin as macd_plugin
-from .indicators.mfi import plugin as mfi_plugin
-from .indicators.moving_averages import plugin as ma_plugin
-from .indicators.obv import plugin as obv_plugin
-from .indicators.ofi import plugin as ofi_plugin
-from .indicators.parabolic_sar import plugin as psar_plugin
-from .indicators.roc_ppo import plugin as roc_ppo_plugin
-from .indicators.rsi import plugin as rsi_plugin
-from .indicators.stochastic import plugin as stoch_plugin
-from .indicators.stochastic_rsi import plugin as stoch_rsi_plugin
-from .indicators.supertrend import plugin as supertrend_plugin
-from .indicators.vwap import plugin as vwap_plugin
-from .indicators.williams_r import plugin as wr_plugin
-from .patterns.bollinger_squeeze import plugin as squeeze_plugin
-from .patterns.candlestick_patterns import plugin as candlestick_plugin
-from .patterns.cmf_divergence import plugin as cmf_div_plugin
-from .patterns.confluence import plugin as confluence_plugin
-from .patterns.cup_handle import plugin as cup_handle_plugin
-from .patterns.double_top_bottom import plugin as double_tb_plugin
-from .patterns.flag_pennant import plugin as flag_pennant_plugin
-from .patterns.head_shoulders import plugin as head_shoulders_plugin
-from .patterns.key_level_reaction import plugin as key_level_reaction_plugin
-from .patterns.macd_divergence import plugin as macd_div_plugin
-from .patterns.measured_move import plugin as measured_move_plugin
-from .patterns.rsi_divergence import plugin as rsi_div_plugin
-from .patterns.trend_confluence import plugin as trend_confluence_plugin
-from .patterns.triangle_wedge import plugin as triangle_wedge_plugin
-from .patterns.volume_divergence import plugin as vol_div_plugin
 from .plugins import registry
 from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
-from .smart_money.amd_cycle import plugin as amd_cycle_plugin
-from .smart_money.bocpd_changepoint import plugin as bocpd_plugin
-from .smart_money.bos_choch import plugin as bos_choch_plugin
-from .smart_money.breaker_blocks import plugin as breaker_blocks_plugin
-from .smart_money.fair_value_gap import plugin as fvg_plugin
-from .smart_money.hmm_regime import plugin as hmm_plugin
-from .smart_money.ict_killzones import plugin as ict_killzones_plugin
-from .smart_money.liquidity_pools import plugin as liquidity_pools_plugin
-from .smart_money.liquidity_sweeps import plugin as liq_sweep_plugin
-from .smart_money.mitigation_blocks import plugin as mitigation_blocks_plugin
-from .smart_money.order_blocks import plugin as ob_plugin
-from .smart_money.premium_discount import plugin as premium_discount_plugin
-from .smart_money.supply_demand_zones import plugin as supply_demand_zones_plugin
-from .structure.fibonacci_zones import plugin as fib_zones_plugin
-from .structure.market_profile import plugin as market_profile_plugin
-from .structure.session_levels import plugin as session_levels_plugin
-from .structure.support_resistance import plugin as sr_plugin
-from .structure.swing_detector import plugin as swing_plugin
-from .structure.swing_momentum import plugin as swing_momentum_plugin
-from .structure.trend_structure import plugin as trend_plugin
 from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin
 from .trading.candlestick_pattern_setup import plugin as candlestick_pattern_setup_plugin
 from .trading.choch_reversal import plugin as choch_reversal_plugin

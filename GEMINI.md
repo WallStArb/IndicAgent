@@ -62,12 +62,13 @@ Follow these strictly. If a concept is `alpha_signal`, all derived names are:
 
 ---
 
-## 4. Enhanced Intelligence Rules
+## Enhanced Intelligence Rules
+- **Agentic DAG Architecture:** The system uses autonomous, event-driven agents. Compute Agents (I1-I6) are DB-ignorant and publish to Tiered Topics (`intelligence.i{N}`). DataWriterAgents (consumers) manage persistence.
+- **The Persistence DAG:** WriterAgents must use the "Convergence Gate" (StreamMerger) to join tiered streams into a single, unified journal entry before persistence, ensuring atomic data integrity.
+- **Resilience & Observability:** All agents must be instrumented with `persistence_batch_latency` and `persistence_consumer_lag` metrics.
+- **Lifecycle Management:** Agents must implement `SIGTERM` handlers for graceful drain and maintain a DLQ for unprocessable payloads.
+- **Taxonomy:** All persistence logic resides in `src/persistence/repository/` (Repositories) and `src/persistence/writer/` (WriterAgents).
 
-- **Identity Preservation:** Never merge distinct signals (e.g., OFI vs CVD) into one class. They must be separable features for ML.
-- **Confluence Obligation:** Every I7 plugin MUST consume `ctf_*` scores from I6. If it doesn't, it must document WHY in the plugin's docstring.
-- **Validation-First:** New plugins must include a unit test in `tests/unit/intelligence/` that verifies expected output against a mocked 10-bar sequence.
-- **No Shadowing:** Ensure new SSE event names (e.g., `signal_scorecard`) are checked in `sse.py` BEFORE general domain checks.
 
 ---
 

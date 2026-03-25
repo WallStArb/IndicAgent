@@ -1,13 +1,15 @@
 """Tests for reference implementations from first principles."""
 
 import numpy as np
+
 from src.validation.reference_implementations import (
-    rsi_reference,
-    macd_reference,
     atr_reference,
-    vwap_reference,
+    macd_reference,
+    rsi_reference,
     volatility_reference,
+    vwap_reference,
 )
+
 
 def test_rsi_reference_simple_case():
     """Test RSI with known values."""

@@ -5,16 +5,16 @@ Compares production values from intelligence_features to reference
 implementations to detect calculation errors.
 """
 
+
 import asyncpg
 import numpy as np
-from typing import Dict, List
 
 from src.validation.reference_implementations import (
-    rsi_reference,
-    macd_reference,
     atr_reference,
-    vwap_reference,
+    macd_reference,
+    rsi_reference,
     volatility_reference,
+    vwap_reference,
 )
 
 
@@ -39,7 +39,7 @@ class ComputationalCorrectnessValidator:
 
     async def fetch_production_data(
         self, symbol: str, tf: str, hours: int = 24
-    ) -> Dict[str, List]:
+    ) -> dict[str, list]:
         """Fetch data from intelligence_features for validation.
 
         Args:
@@ -84,7 +84,7 @@ class ComputationalCorrectnessValidator:
 
     def validate_field(
         self, field_name: str, ref_values: np.ndarray, prod_values: np.ndarray
-    ) -> Dict:
+    ) -> dict:
         """Validate a single field against reference implementation.
 
         Args:
@@ -127,7 +127,7 @@ class ComputationalCorrectnessValidator:
 
     async def run_validation(
         self, symbol: str = "ES", tf: str = "5m", hours: int = 24
-    ) -> Dict[str, Dict]:
+    ) -> dict[str, dict]:
         """Run full computational correctness validation.
 
         Args:
@@ -173,7 +173,7 @@ class ComputationalCorrectnessValidator:
         return results
 
     async def persist_results(
-        self, symbol: str, tf: str, results: Dict[str, Dict]
+        self, symbol: str, tf: str, results: dict[str, dict]
     ) -> None:
         """Write validation results to database.
 

@@ -43,9 +43,9 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_history import BarHistory
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
-from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
+from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain
 from src.core.service_utils import (
     CROSS_ASSET_VALID_TFS,
     PLUGIN_METRICS_SAMPLE_RATE,
@@ -59,6 +59,7 @@ from src.core.service_utils import (
 from src.core.stream_keys import (
     message_key,
     topic_cross_asset,
+    topic_feature_processed,
     topic_intelligence,
     topic_market_bars,
     topic_market_bars_htf,
@@ -245,8 +246,7 @@ class FeaturePipelineService:
         self._tick_buffers: dict[str, list[dict]] = defaultdict(list)
         self._tick_buffer_max: int = 10_000
 
-        # DB + Kafka clients
-        self._db: DatabaseManager | None = DatabaseManager(self._settings.database_url)
+        # Kafka clients
         self._producer: KafkaProducerClient = KafkaProducerClient(
             bootstrap_servers=self._settings.kafka_bootstrap_servers
         )
@@ -963,6 +963,32 @@ class FeaturePipelineService:
         key = f"{symbol}:{tf}"
         self._last_events[key] = event
 
+        # ---------------------------------------------------------------------------
+        # JOURNALING (Feature Historian Agent)
+        # ---------------------------------------------------------------------------
+        try:
+            feature_journal = IntelligenceJournal(
+                ts=datetime.now(UTC),
+                sid=f"feat_{symbol}_{tf}",
+                payload=event.model_dump(),
+                provenance=ProvenanceChain(
+                    origin_ts=datetime.now(UTC),
+                    pipeline_id=f"feat_{symbol}_{tf}",
+                    plugin_stack=["feature_pipeline_service"],
+                    compute_budget_ms=0.0,
+                ),
+            )
+            await self._producer.publish(
+                topic_feature_processed(self._settings.env_name),
+                value=feature_journal.model_dump_json(),
+                key=message_key(symbol, tf),
+            )
+        except Exception as e:
+            self.logger.warning("Feature journal publish failed", error=str(e))
+
+        # ---------------------------------------------------------------------------
+        # AGGREGATED INTELLIGENCE PUBLISH (Legacy Path)
+        # ---------------------------------------------------------------------------
         await self._producer.publish(
             topic_intelligence(self._settings.env_name),
             {"event": event.model_dump_json()},

@@ -7,9 +7,9 @@ Validates that transformations between intelligence tiers are consistent:
 - I4 regime matches I7 regime_type
 """
 
+
 import asyncpg
 import numpy as np
-from typing import Dict
 
 
 class CrossTierValidator:
@@ -25,7 +25,7 @@ class CrossTierValidator:
 
     async def validate_i1_to_i4_consistency(
         self, symbol: str, tf: str
-    ) -> Dict:
+    ) -> dict:
         """Validate I1 features correlate with I4 context.
 
         I1 ATR should correlate with I4 volatility (both measure volatility).
@@ -91,7 +91,7 @@ class CrossTierValidator:
 
     async def validate_i6_to_i7_completeness(
         self, symbol: str, tf: str
-    ) -> Dict:
+    ) -> dict:
         """Validate I6 confluence fields are present for I7 signals.
 
         Required I6 fields: ctf_score, ctf_trend_alignment, ctf_fvg_alignment, ctf_ob_alignment
@@ -169,7 +169,7 @@ class CrossTierValidator:
 
     async def validate_regime_agreement(
         self, symbol: str, tf: str
-    ) -> Dict:
+    ) -> dict:
         """Validate I4 regime matches I7 signal regime_type.
 
         Signals with regime_type='any' match any I4 regime.

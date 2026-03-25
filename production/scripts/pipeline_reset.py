@@ -49,9 +49,9 @@ from production.scripts.historical_backfill import (  # noqa: E402
     replay_symbol,
     seed_roll_chain,
 )
-from src.intelligence.register_plugins import register_all_plugins
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
+from src.intelligence.register_plugins import register_all_plugins
 
 # Tables cleared on every reset (always)
 _ALWAYS_CLEAR = [

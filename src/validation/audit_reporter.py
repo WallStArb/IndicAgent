@@ -6,7 +6,6 @@ downstream systems, and tracks passed/failed checks.
 """
 
 from datetime import datetime
-from typing import Dict, List
 
 
 class AuditReporter:
@@ -14,9 +13,9 @@ class AuditReporter:
 
     def __init__(self):
         """Initialize reporter."""
-        self.passed: List[str] = []
-        self.failed: List[str] = []
-        self.warnings: List[str] = []
+        self.passed: list[str] = []
+        self.failed: list[str] = []
+        self.warnings: list[str] = []
 
     def print_header(self, symbol: str, tf: str, hours: int) -> None:
         """Print audit header.
@@ -43,7 +42,7 @@ class AuditReporter:
         print(f"\n{title}")
         print("-" * 60)
 
-    def print_computational_correctness(self, results: Dict[str, Dict]) -> None:
+    def print_computational_correctness(self, results: dict[str, dict]) -> None:
         """Print Layer 1: Computational Correctness results.
 
         Args:
@@ -70,9 +69,9 @@ class AuditReporter:
 
     def print_cross_tier_consistency(
         self,
-        i1_i4: Dict,
-        i6_i7: Dict,
-        regime: Dict,
+        i1_i4: dict,
+        i6_i7: dict,
+        regime: dict,
     ) -> None:
         """Print Layer 2: Cross-Tier Consistency results.
 

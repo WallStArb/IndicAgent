@@ -5,11 +5,11 @@ Use these to validate production code is mathematically correct.
 All implementations follow original paper formulas exactly.
 """
 
+
 import numpy as np
-from typing import List, Dict
 
 
-def rsi_reference(prices: List[float], period: int = 14) -> np.ndarray:
+def rsi_reference(prices: list[float], period: int = 14) -> np.ndarray:
     """
     Reference RSI implementation from Wilder's 1978 paper.
 
@@ -53,7 +53,7 @@ def rsi_reference(prices: List[float], period: int = 14) -> np.ndarray:
     return result
 
 
-def macd_reference(prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, np.ndarray]:
+def macd_reference(prices: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, np.ndarray]:
     """
     Reference MACD implementation.
 
@@ -96,7 +96,7 @@ def macd_reference(prices: List[float], fast: int = 12, slow: int = 26, signal: 
     }
 
 
-def atr_reference(high: List[float], low: List[float], close: List[float], period: int = 14) -> np.ndarray:
+def atr_reference(high: list[float], low: list[float], close: list[float], period: int = 14) -> np.ndarray:
     """
     Reference ATR implementation (Wilder's smoothing).
 
@@ -138,7 +138,7 @@ def atr_reference(high: List[float], low: List[float], close: List[float], perio
     return result
 
 
-def vwap_reference(high: List[float], low: List[float], close: List[float], volume: List[float]) -> np.ndarray:
+def vwap_reference(high: list[float], low: list[float], close: list[float], volume: list[float]) -> np.ndarray:
     """
     Reference VWAP implementation.
 
@@ -176,7 +176,7 @@ def vwap_reference(high: List[float], low: List[float], close: List[float], volu
     return vwap
 
 
-def volatility_reference(prices: List[float], period: int = 20) -> np.ndarray:
+def volatility_reference(prices: list[float], period: int = 20) -> np.ndarray:
     """
     Reference volatility implementation (std dev of returns, annualized).
 

@@ -95,7 +95,13 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
 
     # Try to find plugin by name in tier lists
     from src.intelligence.register_plugins import (
-        TIER_I1, TIER_I2, TIER_I3, TIER_I4, TIER_I5, TIER_I6, TIER_I7
+        TIER_I1,
+        TIER_I2,
+        TIER_I3,
+        TIER_I4,
+        TIER_I5,
+        TIER_I6,
+        TIER_I7,
     )
 
     all_tiers = {
@@ -160,7 +166,13 @@ def _discover_plugin_metadata(plugin_name: str) -> dict[str, Any] | None:
 def list_known_plugins() -> dict[str, dict[str, Any]]:
     """List all discoverable plugins from register_plugins tier lists."""
     from src.intelligence.register_plugins import (
-        TIER_I1, TIER_I2, TIER_I3, TIER_I4, TIER_I5, TIER_I6, TIER_I7
+        TIER_I1,
+        TIER_I2,
+        TIER_I3,
+        TIER_I4,
+        TIER_I5,
+        TIER_I6,
+        TIER_I7,
     )
 
     all_plugins = {}
@@ -878,7 +890,7 @@ def main() -> None:
         all_plugins = list_known_plugins()
         if args.plugin not in all_plugins:
             print(f"ERROR: Unknown plugin '{args.plugin}'.")
-            print(f"Use --list-plugins to see discoverable plugins.")
+            print("Use --list-plugins to see discoverable plugins.")
             sys.exit(1)
 
         plugin_meta = all_plugins[args.plugin]
