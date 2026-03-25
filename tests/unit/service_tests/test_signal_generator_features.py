@@ -68,7 +68,7 @@ def _make_pool_mock():
     db_manager = MagicMock()
     db_manager.pool = pool_mock
 
-    return conn_mock, txn_mock, pool_mock, db_manager
+    return conn_mock, db_manager
 
 
 @pytest.mark.unit
@@ -76,9 +76,9 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_noop_when_entries_empty(self):
         """No DB calls when entries list is empty."""
-        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
+        conn_mock, db_manager = _make_pool_mock()
         await SignalLedgerRepository(db_manager).insert_signals_with_features([], {})
-        pool_mock.acquire.assert_not_called()
+        db_manager.pool.acquire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_noop_when_pool_none(self):
@@ -91,7 +91,7 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_uses_transaction_context_manager(self):
         """Uses conn.transaction() wrapping the inserts."""
-        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
+        conn_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
         features = {"rsi_14": 55.0, "adx_14": 30.0}
 
@@ -102,7 +102,7 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_executes_insert_sql_for_signal_ledger(self):
         """conn.execute is called with _INSERT_SQL for each entry."""
-        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
+        conn_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
 
         await SignalLedgerRepository(db_manager).insert_signals_with_features([entry], {})
@@ -114,7 +114,7 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_executemany_called_for_feature_rows(self):
         """conn.executemany is called with _INSERT_FEATURES_SQL when features present."""
-        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
+        conn_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
         features = {"rsi_14": 55.0, "adx_14": 30.0}  # 2 numeric features
 
@@ -127,7 +127,7 @@ class TestInsertSignalsWithFeatures:
     @pytest.mark.asyncio
     async def test_no_executemany_when_no_numeric_features(self):
         """conn.executemany is NOT called when no numeric features found."""
-        conn_mock, txn_mock, pool_mock, db_manager = _make_pool_mock()
+        conn_mock, db_manager = _make_pool_mock()
         entry = _make_entry()
 
         await SignalLedgerRepository(db_manager).insert_signals_with_features([entry], {})

@@ -56,7 +56,6 @@ from src.core.stream_keys import (
     topic_cross_asset,
     topic_intelligence,
     topic_intelligence_journal,
-    topic_intelligence_journal,
     topic_market_ticks,
     topic_quality_gated,
     topic_ranked,
