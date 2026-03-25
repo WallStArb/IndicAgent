@@ -72,6 +72,7 @@ import pandas as pd
 
 from src.config.contracts import MONTH_CODE_TO_NUM, derive_roll_chain
 from src.config.settings import Settings
+from src.core.bar_normalizer import normalize_bars
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.service_utils import bar_close_ts as compute_bar_close_ts
@@ -989,28 +990,28 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
 # ---------------------------------------------------------------------------
 
 _FETCH_BARS_SQL = """
-SELECT timestamp, open, high, low, close, volume
+SELECT timestamp, open, high, low, close, volume, source
 FROM market_data_ohlcv
 WHERE symbol = %s AND timeframe = %s
 ORDER BY timestamp ASC
 """
 
 _FETCH_BARS_SINCE_SQL = """
-SELECT timestamp, open, high, low, close, volume
+SELECT timestamp, open, high, low, close, volume, source
 FROM market_data_ohlcv
 WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
 ORDER BY timestamp ASC
 """
 
 _FETCH_BARS_BASE_SQL = """
-SELECT timestamp, open, high, low, close, volume
+SELECT timestamp, open, high, low, close, volume, source
 FROM market_data_ohlcv
 WHERE symbol LIKE %s AND timeframe = %s
 ORDER BY timestamp ASC
 """
 
 _FETCH_BARS_BASE_SINCE_SQL = """
-SELECT timestamp, open, high, low, close, volume
+SELECT timestamp, open, high, low, close, volume, source
 FROM market_data_ohlcv
 WHERE symbol LIKE %s AND timeframe = %s AND timestamp >= %s
 ORDER BY timestamp ASC
@@ -1066,7 +1067,7 @@ def connect_db(settings: Settings) -> Any:
     return psycopg2.connect(dsn=settings.database_url)
 
 
-_TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "1d": 1440}
+_TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
 def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
@@ -1139,6 +1140,7 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = 
             "low": float(row[3]),
             "close": float(row[4]),
             "volume": float(row[5]),
+            "source": row[6] or "historical_backfill",
         }
         for row in rows
     ]
@@ -1567,7 +1569,16 @@ def main() -> None:
                                     }
                                     for b in ohlcv_bars
                                 ]
-                                n = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
+                                canonical = normalize_bars(
+                                    bar_dicts,
+                                    symbol=instrument.symbol,
+                                    timeframe=tf,
+                                    session_id=instrument.session_id,
+                                    exchange=instrument.exchange,
+                                    start=gap_start,
+                                    end=gap_end,
+                                )
+                                n = store_bars(db_conn, canonical, instrument.symbol, tf)
                                 total_bars += n
                                 if n > 0:
                                     fetched_tfs.add(tf)
@@ -1613,7 +1624,16 @@ def main() -> None:
                                     }
                                     for b in deep_bars
                                 ]
-                                n = store_bars(db_conn, deep_dicts, instrument.symbol, "1m")
+                                canonical_1m = normalize_bars(
+                                    deep_dicts,
+                                    symbol=instrument.symbol,
+                                    timeframe="1m",
+                                    session_id=instrument.session_id,
+                                    exchange=instrument.exchange,
+                                    start=deep_start,
+                                    end=end_dt,
+                                )
+                                n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
                                 print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
                             except Exception as e:
                                 print(f"  {instrument.symbol}/1m deep fetch error — {e}")
