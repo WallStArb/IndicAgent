@@ -570,9 +570,7 @@ class IndicatorService:
                     )
                     published += 1
                 except Exception as e:
-                    self.logger.warning(
-                        "Seed publish failed", symbol=symbol, tf=tf, error=str(e)
-                    )
+                    self.logger.warning("Seed publish failed", symbol=symbol, tf=tf, error=str(e))
         self.logger.info("Published seeded I1 state", published=published)
 
     async def _process_market_data(self) -> None:
@@ -637,8 +635,7 @@ class IndicatorService:
         for tf in ["1m", "5m", "15m", "1h"]:
             # _i1_plugin_states keys: (plugin_name, symbol, timeframe)
             old_plugin_keys = [
-                k for k in self._i1_plugin_states
-                if k[1] == old_symbol and k[2] == tf
+                k for k in self._i1_plugin_states if k[1] == old_symbol and k[2] == tf
             ]
             if not old_plugin_keys:
                 continue

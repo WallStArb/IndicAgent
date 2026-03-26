@@ -244,9 +244,7 @@ class IntelligenceComputeAgent:
                     state_key = (pname, symbol, timeframe)
                     lock = self._get_state_lock(state_key)
 
-                    def _sync_compute(
-                        _p=p, _lock=lock, _key=state_key, _frames=frames
-                    ):
+                    def _sync_compute(_p=p, _lock=lock, _key=state_key, _frames=frames):
                         with _lock:
                             _p._state = self._plugin_states.setdefault(_key, {})
                             _out = _p.compute_full(_frames)

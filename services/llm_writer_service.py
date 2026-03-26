@@ -482,14 +482,19 @@ class LLMWriterService:
             return
 
         params = list(self._calls_buffer)
+        PERSISTENCE_CONSUMER_LAG.labels(agent_id="llm_writer").set(len(params))
+
+        batch_start = time.monotonic()
         try:
-            with self._batch_latency.time():
-                await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, params)
+            await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, params)
+            batch_latency = time.monotonic() - batch_start
+            PERSISTENCE_BATCH_LATENCY.labels(agent_id="llm_writer").observe(batch_latency)
             self._calls_buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()
             self._total_batches += 1
             self.buffer_size_gauge.set(0)
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id="llm_writer").set(0)
             self.logger.debug("Flushed llm_calls batch", rows=len(params))
         except Exception as e:
             self.logger.error("Batch write failed", error=str(e), rows=len(params))
