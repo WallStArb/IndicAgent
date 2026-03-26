@@ -1,6 +1,6 @@
 # Phase 51: Signal & Indicator Validation Framework
 
-**Status:** 📋 Planned
+**Status:** ✅ Complete (retroactive — delivered in Phase 39)
 
 **Milestone:** v2.1 Data Foundation & Signal Confidence
 
