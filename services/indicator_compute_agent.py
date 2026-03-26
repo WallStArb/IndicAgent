@@ -29,6 +29,7 @@ sys.path.insert(0, str(project_root))
 import pandas as pd
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
+from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
@@ -51,7 +52,6 @@ from src.core.stream_keys import (
 )
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
-from src.core.agent.base import BaseAgent
 from src.observability.metrics import (
     BAR_TO_I1_LATENCY,
     INDICATOR_BARS_PROCESSED_LABELED_TOTAL,
@@ -205,7 +205,6 @@ class IndicatorComputeAgent(BaseAgent):
     def __init__(self, config_file: str | None = None):
         # Load config first so _setup_logging() can read it
         self.config = self._load_config(config_file)
-        # BaseAgent sets self.name, self._stop_event, and self.logger
         super().__init__(name="indicator_compute_agent")
         # _setup_logging() overrides the BaseAgent logger with the service-specific
         # configured logger (rotating file handler + structlog processor chain).
@@ -298,10 +297,6 @@ class IndicatorComputeAgent(BaseAgent):
             self.config["logging"]["file"],
             level=self.config["logging"].get("level", "INFO"),
         )
-
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Received shutdown signal", signal=signum)
-        self.shutdown_requested = True
 
     def _min_bars_for_tf(self, timeframe: str) -> int:
         return min_bars_for_tf(timeframe)
@@ -678,8 +673,8 @@ class IndicatorComputeAgent(BaseAgent):
     async def _report_consumer_lag(self) -> None:
         """Report consumer lag proxy via buffer size (no partition end-offset API available)."""
         while not self._stop_event.is_set():
-            if hasattr(self, "_kafka_consumer") and self._kafka_consumer is not None:
-                PERSISTENCE_CONSUMER_LAG.labels(agent_id="indicator_compute_agent").set(0)
+            if self._kafka_consumer is not None:
+                PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
             await asyncio.sleep(15)
 
     async def start(self) -> None:
