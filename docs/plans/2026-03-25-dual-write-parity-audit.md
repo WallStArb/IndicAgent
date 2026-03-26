@@ -144,6 +144,16 @@ topics = [
 
 Update the docstring comment from "intelligence.record" to "intelligence.journal".
 
+**Also fix two additional broken references in `_process_loop()` — the import fix above does not cover these:**
+
+- **Line ~640**: `topic_intelligence_record(self._env_name)` — this function does not exist in `stream_keys.py`. Replace with `topic_intelligence_journal(self._env_name)` and ensure `topic_intelligence_journal` is assigned to a local variable before use.
+- **Line ~671**: `feature_processed_topic` — referenced in a routing condition but never assigned in this scope → `NameError` at runtime. Update the condition to match against `topic_intelligence_journal(self._env_name)`.
+
+Verify the service imports cleanly after all four changes:
+```bash
+.venv/bin/python -c "import sys; sys.path.insert(0, '.'); from services import feature_writer_service; print('OK')"
+```
+
 - [ ] **Step 5: Run unit tests — verify no regressions**
 
 ```bash
@@ -175,8 +185,13 @@ git commit -m "fix(wiring): remove undefined topic_feature_processed, fix featur
 -- Compared against intelligence_features by ParityAuditorAgent on 5-minute schedule.
 -- DROP after parity certification and primary-write cutover.
 
+-- IMPORTANT: Use INCLUDING DEFAULTS INCLUDING CONSTRAINTS only — NOT INCLUDING ALL.
+-- INCLUDING ALL copies indexes and partitioning constraints from the source
+-- hypertable, which causes TimescaleDB to reject the subsequent create_hypertable
+-- call ("table already has a partitioning structure"). TimescaleDB recreates
+-- indexes itself after create_hypertable — do not pre-copy them.
 CREATE TABLE IF NOT EXISTS feature_snapshots_shadow (
-    LIKE intelligence_features INCLUDING ALL
+    LIKE intelligence_features INCLUDING DEFAULTS INCLUDING CONSTRAINTS
 );
 
 -- TimescaleDB hypertable — same chunk interval as source.
@@ -270,7 +285,8 @@ def test_insert_shadow_calls_correct_sql():
     db.execute_command = AsyncMock()
     repo = FeatureRepository(db, table_name="feature_snapshots_shadow")
     params = tuple(range(31))
-    asyncio.get_event_loop().run_until_complete(repo.insert(params))
+    assert len(params) == 31  # guard: catches silent field count regressions
+    asyncio.run(repo.insert(params))
     db.execute_command.assert_awaited_once()
     call_sql = db.execute_command.call_args[0][0]
     assert "feature_snapshots_shadow" in call_sql
@@ -360,7 +376,16 @@ class FeatureRepository:
 
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Verify no remaining `insertBatch` callers**
+
+`insertBatch()` is replaced with a `TypeError` raiser. Confirm zero callers exist before committing — a missed caller will crash at runtime, not at import time.
+
+```bash
+grep -r "insertBatch" src/ services/ --include="*.py"
+# Expected: no output
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/persistence/repository/feature_repository.py tests/unit/test_feature_repository.py
@@ -397,11 +422,14 @@ def _make_settings():
     s.database_url = "postgresql://localhost/test"
     return s
 
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
-
 def test_historian_consumer_group_is_distinct():
-    """Historian must use a different consumer group than feature_writer_service."""
+    """Historian must use a different consumer group than feature_writer_service.
+
+    NOTE: This test imports from feature_writer_service at module level. That import
+    will crash with ImportError until Task 1 (wiring fix) is fully applied — including
+    the fixes for lines ~640 and ~671 in feature_writer_service.py, not just line 35/381.
+    Run Task 1 completely before running this test file.
+    """
     from services.feature_historian_agent import CONSUMER_GROUP
     assert CONSUMER_GROUP == "feature_historian_group"
     # Sanity: not the same as the primary writer
@@ -425,6 +453,7 @@ def test_parse_valid_bar_intelligence_record():
     agent.logger = MagicMock()
     agent._parse_errors = MagicMock()
     agent._parse_errors.inc = MagicMock()
+    agent._expiry_map = {}  # required by _record_to_insert_params in consume path tests
 
     # Minimal valid BarIntelligenceRecord JSON — use model to generate
     from src.intelligence.schemas import BarIntelligenceRecord, IntelligenceEvent, OHLCVBar
