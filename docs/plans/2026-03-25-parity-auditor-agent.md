@@ -47,17 +47,16 @@
 ```python
 # tests/unit/test_parity_repository.py
 import asyncio
+import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from src.persistence.repository.parity_repository import ParityRepository
-
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
 
 def test_get_primary_rows_queries_intelligence_features():
     db = MagicMock()
     db.execute_query = AsyncMock(return_value=[])
     repo = ParityRepository(db)
-    _run(repo.get_primary_rows("ES", "1m", lookback_secs=300))
+    asyncio.run(repo.get_primary_rows("ES", "1m", lookback_secs=300))
     sql = db.execute_query.call_args[0][0]
     assert "intelligence_features" in sql
     assert "ORDER BY ts DESC" in sql
@@ -66,18 +65,16 @@ def test_get_shadow_rows_queries_feature_snapshots_shadow():
     db = MagicMock()
     db.execute_query = AsyncMock(return_value=[])
     repo = ParityRepository(db)
-    _run(repo.get_shadow_rows("ES", "1m", lookback_secs=300))
+    asyncio.run(repo.get_shadow_rows("ES", "1m", lookback_secs=300))
     sql = db.execute_query.call_args[0][0]
     assert "feature_snapshots_shadow" in sql
 
 def test_insert_violation_calls_execute_command():
     db = MagicMock()
     db.execute_command = AsyncMock()
-    import uuid
-    from datetime import UTC, datetime
     run_id = uuid.uuid4()
     repo = ParityRepository(db)
-    _run(repo.insert_violation(
+    asyncio.run(repo.insert_violation(
         ts=datetime(2026, 3, 26, 10, 0, tzinfo=UTC),
         symbol="ES", tf="1m", field="winner_plugin",
         legacy_val="TrendFollowing", shadow_val="MomentumBreakout",
@@ -91,7 +88,7 @@ def test_returns_empty_on_query_failure():
     db = MagicMock()
     db.execute_query = AsyncMock(side_effect=Exception("timeout"))
     repo = ParityRepository(db)
-    result = _run(repo.get_primary_rows("ES", "1m", lookback_secs=300))
+    result = asyncio.run(repo.get_primary_rows("ES", "1m", lookback_secs=300))
     assert result == []
 ```
 
@@ -127,6 +124,10 @@ _COMPARE_COLUMNS = [
     "signals_after_tod", "signals_after_calibration",
     "ledger_written", "session_type",
 ]
+# NOTE: _COMPARE_COLUMNS and _COMPARE_FIELDS must include the same set of
+# non-scalar fields (excluding ts/symbol/tf/bar which are join keys or JSONB).
+# "source" appears in both — divergences in source would indicate a schema
+# mismatch between the two write paths and must not go undetected.
 
 _INSERT_VIOLATION_SQL = """
 INSERT INTO feature_parity_violations
@@ -138,10 +139,12 @@ _FETCH_SQL = """
 SELECT {cols}
 FROM {table}
 WHERE symbol = $1 AND tf = $2
-  AND ts > NOW() - INTERVAL '{lookback} seconds'
+  AND ts > NOW() - make_interval(secs => $3)
 ORDER BY ts DESC
 LIMIT 500
 """
+# NOTE: {cols} and {table} are formatted from internal module-level constants only —
+# never from user input. $3 is a parameterized query value (no SQL injection risk).
 
 
 class ParityRepository:
@@ -165,13 +168,10 @@ class ParityRepository:
     async def _fetch(
         self, table: str, symbol: str, tf: str, lookback_secs: int
     ) -> list[dict[str, Any]]:
-        sql = _FETCH_SQL.format(
-            cols=", ".join(_COMPARE_COLUMNS),
-            table=table,
-            lookback=lookback_secs,
-        )
+        # {cols} and {table} are hardcoded module-level constants — not user input.
+        sql = _FETCH_SQL.format(cols=", ".join(_COMPARE_COLUMNS), table=table)
         try:
-            return await self._db.execute_query(sql, symbol, tf)
+            return await self._db.execute_query(sql, symbol, tf, lookback_secs)
         except Exception as exc:
             logger.warning("parity_fetch_failed", table=table, symbol=symbol, tf=tf, error=str(exc))
             return []
@@ -307,11 +307,14 @@ from typing import Any
 
 # Columns compared — excludes ephemeral fields (computed_at, bar_close_ts)
 # that are expected to differ slightly due to clock skew between writers.
+# Must align with _COMPARE_COLUMNS in parity_repository.py — "source" is
+# included in both so divergences between write paths are detected.
 _COMPARE_FIELDS: tuple[str, ...] = (
+    "source", "schema_version",
     "winner_plugin", "winner_confidence", "winner_direction",
     "signals_evaluated", "signals_after_quality", "signals_after_regime",
     "signals_after_tod", "signals_after_calibration",
-    "ledger_written", "session_type", "schema_version",
+    "ledger_written", "session_type",
 )
 
 # JSONB tier fields — compared as dict equality (key presence + values)
@@ -353,20 +356,31 @@ def build_row_index(rows: list[dict[str, Any]]) -> dict[datetime, dict[str, Any]
 def compare_rows(
     primary: list[dict[str, Any]],
     shadow: list[dict[str, Any]],
+    *,
+    symbol: str = "",
+    tf: str = "",
 ) -> ComparisonResult:
     """Compare primary and shadow rows field-by-field.
 
     Returns a ComparisonResult with all violations enumerated.
     Uses the ts column as the join key.
+
+    Args:
+        primary: Rows from intelligence_features.
+        shadow: Rows from feature_snapshots_shadow.
+        symbol: Active symbol for this comparison — used in empty-primary result
+                and log messages. Pass explicitly from the calling loop context.
+        tf: Active timeframe — same as symbol.
     """
     if not primary:
         return ComparisonResult(
-            symbol="", tf="", primary_count=0, shadow_count=len(shadow),
+            symbol=symbol, tf=tf, primary_count=0, shadow_count=len(shadow),
             match_count=0, violation_count=0,
         )
 
-    symbol = primary[0].get("symbol", "")
-    tf = primary[0].get("tf", "")
+    # Prefer explicit params; fall back to row content if caller omits them.
+    symbol = symbol or primary[0].get("symbol", "")
+    tf = tf or primary[0].get("tf", "")
     shadow_index = build_row_index(shadow)
 
     violations: list[Violation] = []
@@ -675,7 +689,7 @@ class ParityAuditorAgent:
         """Publish SHADOW_PARITY_CERTIFIED to system.events when all active pairs certified."""
         if self._producer is None:
             return
-        active = get_active_symbols()
+        active = get_active_symbols(self._settings)
         all_pairs = {(s, tf) for s in active for tf in ACTIVE_TIMEFRAMES}
         if not all_pairs.issubset(self._certified_pairs):
             return  # not all pairs certified yet
@@ -699,7 +713,7 @@ class ParityAuditorAgent:
         """Execute one comparison cycle across all active (symbol, tf) pairs."""
         assert self._repo is not None
         run_id = uuid.uuid4()
-        active = get_active_symbols()
+        active = get_active_symbols(self._settings)
         total_match = 0
         total_primary = 0
 
@@ -711,7 +725,7 @@ class ParityAuditorAgent:
                 if not primary:
                     continue  # nothing to compare yet
 
-                result = compare_rows(primary, shadow)
+                result = compare_rows(primary, shadow, symbol=symbol, tf=tf)
                 total_match += result.match_count
                 total_primary += result.primary_count
                 self._violations_total.inc(result.violation_count)
@@ -919,10 +933,27 @@ git commit -m "feat(ops): add indicagent-parity-auditor systemd unit"
 After `SHADOW_PARITY_CERTIFIED` is emitted:
 
 1. Stop `FeatureWriterService`: `sudo systemctl stop indicagent-feature-writer`
-2. Promote `FeatureHistorianAgent` to write to `intelligence_features`:
+2. **Copy committed Kafka offsets** before renaming the consumer group:
+   ```bash
+   # Record the current committed offset of feature_historian_group so the renamed
+   # group starts from the same position — not from the beginning of the topic.
+   docker exec redpanda rpk group describe feature_historian_group
+   # Note the committed offset per partition.
+   # After renaming to feature_writer_group, set offsets to match:
+   docker exec redpanda rpk group seek feature_writer_group \
+     --topic development.intelligence.journal --to <committed_offset>
+   ```
+   **This step is mandatory.** Skipping it causes the renamed group to replay the
+   entire topic history into `intelligence_features`, creating duplicate inserts for
+   all historical journal records.
+3. Promote `FeatureHistorianAgent` to write to `intelligence_features`:
    - Change `SHADOW_TABLE = "intelligence_features"` in `feature_historian_agent.py`
-   - Change consumer group to `feature_writer_group`
-3. Restart historian: `sudo systemctl restart indicagent-feature-historian`
-4. Verify `intelligence_features` continues receiving rows
-5. Drop `feature_snapshots_shadow` table: `DROP TABLE feature_snapshots_shadow;`
-6. Decommission `FeatureWriterService` and `ParityAuditorAgent` units
+   - Change `CONSUMER_GROUP = "feature_writer_group"` in `feature_historian_agent.py`
+4. Restart historian: `sudo systemctl restart indicagent-feature-historian`
+5. Verify `intelligence_features` continues receiving rows:
+   ```bash
+   docker exec timescaledb psql -U postgres -d indicagent \
+     -c "SELECT COUNT(*) FROM intelligence_features WHERE ts > NOW() - INTERVAL '5 minutes';"
+   ```
+6. Drop `feature_snapshots_shadow` table: `DROP TABLE feature_snapshots_shadow;`
+7. Decommission `FeatureWriterService` and `ParityAuditorAgent` units
