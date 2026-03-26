@@ -12,11 +12,11 @@ Standardize Agent lifecycle, OTel instrumentation, and scaling (systemd) by crea
 1. **Define `BaseAgent`:** Implement `BaseAgent` class in `src/core/agent/base.py`.
    - `start()`/`stop()`: Standardized lifecycle hooks with `SIGTERM` drainage.
    - `register_metrics()`: Automatic OTel instrumentation for Golden Signals.
-   - `lag_reporter()`: Default task to publish `consumer_lag_records`.
-2. **Systemd Integration:** Ensure agents export `consumer_lag_records` to Prometheus for `systemd`/local process monitoring.
+   - `lag_reporter()`: Default task to publish `persistence_consumer_lag`.
+2. **Systemd Integration:** Ensure agents export `persistence_consumer_lag` to Prometheus for `systemd`/local process monitoring.
 3. **Refactor Existing Agents:** Update `DataWriterAgent`, `SignalGeneratorAgent`, etc., to inherit from `BaseAgent`.
 4. **Registry:** Implement `AgentRegistry` to track live agents, their Kafka topics, and resource thresholds.
 
 ## Verification
 - **Inheritance Check:** All Agents must satisfy `isinstance(agent, BaseAgent)`.
-- **Operational Parity:** New agents automatically report `consumer_lag_records` without manual instrumentation, enabling `systemd` monitoring.
+- **Operational Parity:** New agents automatically report `persistence_consumer_lag` without manual instrumentation, enabling `systemd` monitoring.

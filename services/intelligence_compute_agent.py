@@ -89,7 +89,7 @@ class IntelligenceComputeAgent:
     ):
         self.running = False
         self.shutdown_requested = False
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(UTC)
 
         settings = Settings()
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
@@ -565,7 +565,7 @@ class IntelligenceComputeAgent:
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
             try:
-                uptime = int((datetime.now() - self.start_time).total_seconds())
+                uptime = int((datetime.now(UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 self.active_symbols_count.set(len(self._active_symbols))
                 self.logger.info(

@@ -1,6 +1,6 @@
 from typing import Any, Protocol, runtime_checkable
 
-from src.intelligence.schemas.alpha_multiplier import AlphaMultiplier
+from src.intelligence.schemas import AlphaMultiplier
 
 
 @runtime_checkable
