@@ -1,8 +1,6 @@
-"""src.core.agent — BaseAgent and AgentRegistry package.
-
-AgentRegistry is added in Task 2 (registry.py not yet created).
-"""
+"""src.core.agent — BaseAgent and AgentRegistry package."""
 
 from src.core.agent.base import BaseAgent
+from src.core.agent.registry import AgentRegistry
 
-__all__ = ["BaseAgent"]
+__all__ = ["BaseAgent", "AgentRegistry"]
