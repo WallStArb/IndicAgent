@@ -1,9 +1,9 @@
 # Renaissance Pipeline Audit Framework — Design Document
 
 **Date:** 2026-03-25
-**Status:** Design — REVISED (2026-03-25) — Critical Fixes Applied
+**Status:** Design — REVISED (2026-03-26) — All Critical Fixes Applied
 **Priority:** Critical — Foundation for v2.1 Data Quality validation
-**Revision Notes:** Critical issues fixed — ready for re-review
+**Revision Notes:** Second pass of critical fixes applied 2026-03-26 — ready for implementation planning
 
 ## Critical Fixes Applied (2026-03-25)
 
@@ -294,7 +294,7 @@ class PrometheusMetricsFetcher:
         Example: query_histogram("plugin_execution_seconds", symbol="ES", hours=24)
         Returns: {"p50": 0.045, "p95": 0.089, "p99": 0.152, "count": 288}
         """
-        query = f'histogram_quantile(0.50, sum(rate({metric_name}[{hours}h])) by (intelligence_tier) without (intelligence_tier))'
+        query = f'histogram_quantile(0.50, sum(rate({metric_name}[{hours}h])) by (intelligence_tier))'
 
         response = await self.client.get(
             f"{self.prometheus_url}/api/v1/query",
@@ -346,11 +346,7 @@ class PrometheusMetricsFetcher:
             ...
         }
         """
-        query = f'''
-            histogram_quantile(0.95, sum(
-                rate(plugin_execution_seconds{{{hours}h}})
-            ) by (plugin_name) without (plugin_name)
-        '''
+        query = f'histogram_quantile(0.95, sum(rate(plugin_execution_seconds[{hours}h])) by (plugin_name))'
 
         response = await self.client.get(
             f"{self.prometheus_url}/api/v1/query",
@@ -411,7 +407,7 @@ def rsi_reference(prices: List[float], period: int = 14) -> np.ndarray:
         avg_gain[i] = (avg_gain[i-1] * (period - 1) + gains[i]) / period
         avg_loss[i] = (avg_loss[i-1] * (period - 1) + losses[i]) / period
 
-    rs = avg_gain / avg_loss
+    rs = np.where(avg_loss == 0, np.inf, avg_gain / avg_loss)
     rsi = 100 - (100 / (1 + rs))
 
     rsi[:period] = np.nan
@@ -543,15 +539,15 @@ class ComputationalCorrectnessValidator:
         """Fetch data from intelligence_features for validation"""
         query = """
             SELECT ts,
-                   bar->>'close' as close,
-                   bar->>'high' as high,
-                   bar->>'low' as low,
-                   bar->>'volume' as volume,
+                   (bar->>'close')::float as close,
+                   (bar->>'high')::float as high,
+                   (bar->>'low')::float as low,
+                   (bar->>'volume')::float as volume,
                    (i1->>'rsi_14')::float as i1_rsi,
                    (i1->>'macd_12_26_9')::float as i1_macd,
                    (i1->>'atr_14')::float as i1_atr,
-                   (i4->>'volatility')::float as i4_volatility,
-                   (i4->>'vwap')::float as i4_vwap
+                   (i4->>'vol_percentile')::float as i4_volatility,
+                   (i4->>'session_vwap')::float as i4_vwap
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ts > NOW() - INTERVAL '%s hours'
@@ -682,10 +678,10 @@ class CrossTierValidator:
         """I1 features should correlate with I4 context"""
         query = """
             SELECT
-                (intel->'i1'->>'atr')::float as i1_atr,
-                (intel->'i1'->>'rsi')::float as i1_rsi,
-                (intel->'i4'->>'volatility')::float as i4_volatility,
-                (intel->'i4'->>'trend_strength')::float as i4_trend
+                (i1->>'atr_14')::float as i1_atr,
+                (i1->>'rsi_14')::float as i1_rsi,
+                (i4->>'vol_percentile')::float as i4_volatility,
+                (i3->>'trend_strength')::float as i4_trend
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
               AND ts > NOW() - INTERVAL '24 hours'
@@ -739,19 +735,16 @@ class CrossTierValidator:
 
         rows = await self.db.fetch(query, symbol, tf)
 
-        total_rows = len(rows)
         complete_rows = 0
         missing_field_counts = {}
 
         # Required I6 confluence fields
         required_fields = ["ctf_score", "ctf_trend_alignment", "ctf_fvg_alignment", "ctf_ob_alignment"]
 
-        for row in rows:
-            i6 = row.get("i6", {})
-            if not isinstance(i6, dict):
-                continue
+        valid_rows = [r for r in rows if isinstance(r.get("i6", {}), dict)]
+        total_rows = len(valid_rows)
 
-            total_rows += 1
+        for row in valid_rows:
 
             # Check if all required I6 fields are present and non-null
             missing = [f for f in required_fields if i6.get(f) is None]
@@ -790,12 +783,12 @@ class CrossTierValidator:
         """
         query = """
             SELECT
-                (i4->>'regime') as i4_regime,
+                (smc->>'hmm_regime') as i4_regime,
                 i7
             FROM intelligence_features
             WHERE symbol = $1 AND tf = $2
-              AND i4->>'regime' IS NOT NULL
-              AND i7 IS NOT NULL
+              AND smc->>'hmm_regime' IS NOT NULL
+              AND jsonb_array_length(i7) > 0
               AND ts > NOW() - INTERVAL '24 hours'
         """
 
@@ -868,11 +861,12 @@ Exit codes:
 import asyncio
 import argparse
 import sys
-from datetime import datetime
+from datetime import datetime, UTC
 
 from src.validation.validation_engine import ComputationalCorrectnessValidator
 from src.validation.cross_tier_validation import CrossTierValidator
 from src.core.database_manager import DatabaseManager
+from src.config.settings import Settings
 
 class AuditReporter:
     """Generate human-readable + machine-readable reports"""
@@ -888,7 +882,7 @@ class AuditReporter:
         print(f"   Symbol: {symbol}")
         print(f"   Timeframe: {tf}")
         print(f"   Window: Last {hours} hours")
-        print(f"   Started: {datetime.utcnow().isoformat()}Z")
+        print(f"   Started: {datetime.now(UTC).isoformat()}")
         print("=" * 60)
 
     def print_section(self, title: str):
@@ -1018,8 +1012,9 @@ async def main():
     reporter = AuditReporter()
     reporter.print_header(args.symbol, args.tf, args.hours)
 
-    db = DatabaseManager()
-    await db.connect()
+    settings = Settings()
+    db = DatabaseManager(settings.database_url)
+    await db.initialize()
 
     try:
         # Layer 1: Computational Correctness
@@ -1036,23 +1031,16 @@ async def main():
 
         reporter.print_cross_tier_consistency(i1_i4_results, i6_i7_results, regime_results)
 
-        # Layer 3: Latency Metrics
-        latency_query = """
-            SELECT
-                AVG(latency_bar_aggregation) as avg_bar_agg,
-                AVG(latency_i1_computation) as avg_i1,
-                AVG(latency_i4_computation) as avg_i4,
-                AVG(latency_i6_computation) as avg_i6,
-                AVG(latency_i7_computation) as avg_i7,
-                AVG(latency_end_to_end) as avg_e2e,
-                PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency_end_to_end) as p99_e2e
-            FROM intelligence_metrics
-            WHERE symbol = $1 AND timeframe = $2
-              AND measured_at > NOW() - INTERVAL '24 hours'
-        """
-
-        latency_row = await db.fetchrow(latency_query, args.symbol, args.tf)
-        latency_dict = dict(latency_row) if latency_row else {}
+        # Layer 3: Latency Metrics (from Prometheus — latency columns were removed from DDL)
+        # NOTE: intelligence_metrics has no latency columns. Latency data comes from
+        # Prometheus histograms (feature_pipeline_latency_ms, plugin_execution_seconds).
+        # Use PrometheusMetricsFetcher to query Prometheus instead.
+        from src.validation.prometheus_metrics import PrometheusMetricsFetcher
+        prom = PrometheusMetricsFetcher()
+        try:
+            latency_dict = await prom.get_pipeline_latency(symbol=args.symbol)
+        finally:
+            await prom.close()
         reporter.print_latency_metrics(latency_dict)
 
         # Summary
