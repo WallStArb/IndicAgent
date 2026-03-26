@@ -162,7 +162,6 @@ def topic_audit(env_name: str) -> str:
     return f"{env_prefix(env_name)}audit"
 
 
-
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 

@@ -11,13 +11,13 @@ def test_feature_writer_imports_cleanly():
 
 
 def test_feature_writer_subscribes_to_intelligence_journal():
-    """Verify feature_writer_service references topic_intelligence_journal, not topic_feature_processed."""
+    """feature_writer must use topic_intelligence_journal, not topic_feature_processed."""
     import pathlib
 
     src = pathlib.Path("services/feature_writer_service.py").read_text()
-    assert "topic_feature_processed" not in src, (
-        "feature_writer_service.py must not reference the removed topic_feature_processed"
-    )
-    assert "topic_intelligence_journal" in src, (
-        "feature_writer_service.py must subscribe to topic_intelligence_journal"
-    )
+    assert (
+        "topic_feature_processed" not in src
+    ), "feature_writer_service.py must not reference the removed topic_feature_processed"
+    assert (
+        "topic_intelligence_journal" in src
+    ), "feature_writer_service.py must subscribe to topic_intelligence_journal"

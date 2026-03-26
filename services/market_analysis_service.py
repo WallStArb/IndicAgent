@@ -246,9 +246,7 @@ class MarketAnalysisService:
                     state_key = (pname, symbol, timeframe)
                     lock = self._get_state_lock(state_key)
 
-                    def _sync_compute(
-                        _p=p, _lock=lock, _key=state_key, _frames=frames
-                    ):
+                    def _sync_compute(_p=p, _lock=lock, _key=state_key, _frames=frames):
                         with _lock:
                             _p._state = self._plugin_states.setdefault(_key, {})
                             _out = _p.compute_full(_frames)
@@ -604,13 +602,55 @@ class MarketAnalysisService:
                             c=float(bar_json.get("c", 0)),
                             v=int(bar_json.get("v", 0)),
                         ),
-                        i1=I1Indicators(**{k: v for k, v in parse_jsonb(latest["i1"], default={}).items() if v is not None}),
-                        i2=I2Events(**{k: v for k, v in parse_jsonb(latest["i2"], default={}).items() if v is not None}),
-                        i3=I3Structure(**{k: v for k, v in parse_jsonb(latest["i3"], default={}).items() if v is not None}),
-                        i4=I4Context(**{k: v for k, v in parse_jsonb(latest["i4"], default={}).items() if v is not None}),
-                        i5=I5Patterns(**{k: v for k, v in parse_jsonb(latest["i5"], default={}).items() if v is not None}),
-                        smc=SMCContext(**{k: v for k, v in parse_jsonb(latest["smc"], default={}).items() if v is not None}),
-                        i6=I6Confluence(**{k: v for k, v in parse_jsonb(latest["i6"], default={}).items() if v is not None}),
+                        i1=I1Indicators(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["i1"], default={}).items()
+                                if v is not None
+                            }
+                        ),
+                        i2=I2Events(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["i2"], default={}).items()
+                                if v is not None
+                            }
+                        ),
+                        i3=I3Structure(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["i3"], default={}).items()
+                                if v is not None
+                            }
+                        ),
+                        i4=I4Context(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["i4"], default={}).items()
+                                if v is not None
+                            }
+                        ),
+                        i5=I5Patterns(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["i5"], default={}).items()
+                                if v is not None
+                            }
+                        ),
+                        smc=SMCContext(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["smc"], default={}).items()
+                                if v is not None
+                            }
+                        ),
+                        i6=I6Confluence(
+                            **{
+                                k: v
+                                for k, v in parse_jsonb(latest["i6"], default={}).items()
+                                if v is not None
+                            }
+                        ),
                         bar_close_ts=latest["bar_close_ts"],
                         i1_computed_at=latest["i1_computed_at"],
                         computed_at=latest["computed_at"],
@@ -622,9 +662,7 @@ class MarketAnalysisService:
                     )
                     published_events += 1
                 except Exception as e:
-                    self.logger.warning(
-                        "Seed publish failed", symbol=symbol, tf=tf, error=str(e)
-                    )
+                    self.logger.warning("Seed publish failed", symbol=symbol, tf=tf, error=str(e))
 
         tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
         await asyncio.gather(*tasks)
@@ -655,7 +693,9 @@ class MarketAnalysisService:
                         tf,
                     )
                 except Exception as e:
-                    self.logger.warning("Fallback seed query failed", symbol=symbol, tf=tf, error=str(e))
+                    self.logger.warning(
+                        "Fallback seed query failed", symbol=symbol, tf=tf, error=str(e)
+                    )
                     return
                 if not rows:
                     return
@@ -664,19 +704,23 @@ class MarketAnalysisService:
                         bar_ts = row["timestamp"]
                         if isinstance(bar_ts, str):
                             bar_ts = datetime.fromisoformat(bar_ts)
-                        self.bar_history[key].append({
-                            "open": float(row["open"]),
-                            "high": float(row["high"]),
-                            "low": float(row["low"]),
-                            "close": float(row["close"]),
-                            "volume": int(row["volume"]),
-                            "timestamp": bar_ts,
-                        })
+                        self.bar_history[key].append(
+                            {
+                                "open": float(row["open"]),
+                                "high": float(row["high"]),
+                                "low": float(row["low"]),
+                                "close": float(row["close"]),
+                                "volume": int(row["volume"]),
+                                "timestamp": bar_ts,
+                            }
+                        )
                         fallback_seeded += 1
                     except Exception as e:
                         self.logger.debug(
                             "Fallback bar parse failed — skipping row",
-                            symbol=symbol, tf=tf, error=str(e),
+                            symbol=symbol,
+                            tf=tf,
+                            error=str(e),
                         )
 
         fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]

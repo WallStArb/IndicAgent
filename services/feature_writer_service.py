@@ -634,7 +634,6 @@ class FeatureWriterService:
 
             self.logger.debug(
                 "cross_asset_persisted",
-
                 tf=tf,
                 ts=ts_raw,
                 symbols=sorted(_EQ_INDEX_BASES),
