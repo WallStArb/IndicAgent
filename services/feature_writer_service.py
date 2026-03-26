@@ -37,7 +37,13 @@ from src.core.stream_keys import (
 )
 from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
 from src.intelligence.schemas import BarIntelligenceRecord
-from src.observability.metrics import counter, gauge, start_metrics_server
+from src.observability.metrics import (
+    PERSISTENCE_BATCH_LATENCY,
+    PERSISTENCE_CONSUMER_LAG,
+    counter,
+    gauge,
+    start_metrics_server,
+)
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -491,18 +497,23 @@ class FeatureWriterService:
         # Snapshot the buffer so execute_batch has a stable list; on failure
         # the original self._buffer is unchanged and will retry on the next flush.
         params = list(self._buffer)
+        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(len(params))
 
+        batch_start = time.monotonic()
         try:
             await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
             # Explicitly commit offsets after successful DB persistence
             if getattr(self, "_kafka_consumer", None):
                 await self._kafka_consumer.commit()
 
+            batch_latency = time.monotonic() - batch_start
+            PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_writer").observe(batch_latency)
             self._buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()
             self._total_batches += 1
             self.events_buffered_gauge.set(0)
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer").set(0)
             self.logger.debug("Flushed intelligence_features batch", rows=len(params))
         except Exception as e:
             self.logger.error("Batch write failed", error=str(e), rows=len(params))
