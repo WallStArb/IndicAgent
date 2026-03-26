@@ -208,7 +208,8 @@ IBKR TWS → feature_pipeline_service (I1-I6 unified) →
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | TWS Daemon | `indicagent-tws` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
-| Feature Pipeline | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
+| Feature Compute | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
+| Intelligence Compute | `indicagent-intelligence-compute` | I2-I6 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
