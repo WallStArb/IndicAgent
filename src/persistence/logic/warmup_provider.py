@@ -1,12 +1,17 @@
-"""BarHistorySeeder — startup warmup for intelligence compute agents.
+"""WarmupProvider — startup bar-history seeding for intelligence compute agents.
 
-Seeds bar_history from intelligence_features (and falls back to market_data_ohlcv),
+Seeds bar_history from intelligence_features (with market_data_ohlcv fallback),
 then re-publishes the most recent stored IntelligenceEvent per (symbol, tf) so the
 dashboard shows current state without waiting for the next live bar.
 
 Owns its own DB connection lifecycle: open → seed → close. The calling compute agent
 remains DB-ignorant after seed() returns.
+
+Retry/backoff: if the DB is unreachable at startup the provider will retry with
+exponential backoff before giving up gracefully (non-fatal — agent starts cold).
 """
+
+from __future__ import annotations
 
 import asyncio
 from collections import deque
@@ -32,15 +37,19 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
+from src.persistence.repository.feature_snapshot_repository import FeatureSnapshotRepository
+
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 2.0  # seconds; doubled each attempt
 
 
-class BarHistorySeeder:
-    """Seeds bar_history from DB at compute-agent startup.
+class WarmupProvider:
+    """Seeds bar_history and re-publishes latest intelligence at compute-agent startup.
 
     Usage::
 
-        seeder = BarHistorySeeder(settings, config, kafka_producer)
-        await seeder.seed(bar_history)
+        provider = WarmupProvider(settings, config, kafka_producer)
+        await provider.seed(bar_history)
         # DB connection closed; compute agent runs DB-free from here.
     """
 
@@ -59,25 +68,51 @@ class BarHistorySeeder:
     async def seed(self, bar_history: dict[str, deque]) -> None:
         """Seed bar_history from DB, then close the DB connection.
 
-        Falls back silently if DB is unavailable.
+        Retries DB initialisation up to _MAX_RETRIES times with exponential backoff.
+        Falls back silently if DB is unavailable after all retries — the agent starts
+        cold and warms up naturally from live data.
         """
         if not self._db_url:
-            self.logger.warning("DB seed skipped — no database_url configured")
+            self.logger.warning("warmup_skipped", reason="no database_url configured")
             return
 
-        db = DatabaseManager(self._db_url)
-        try:
-            await db.initialize()
-        except Exception as e:
-            self.logger.warning("DB init failed — skipping seed", error=str(e))
+        db = await self._connect_with_backoff()
+        if db is None:
             return
 
         try:
-            await self._run_seed(db, bar_history)
+            repo = FeatureSnapshotRepository(db)
+            await self._run_seed(repo, bar_history)
         finally:
             await db.close()
 
-    async def _run_seed(self, db: DatabaseManager, bar_history: dict[str, deque]) -> None:
+    async def _connect_with_backoff(self) -> DatabaseManager | None:
+        """Attempt DB connection with exponential backoff. Returns None on failure."""
+        delay = _RETRY_BASE_DELAY
+        for attempt in range(1, _MAX_RETRIES + 1):
+            db = DatabaseManager(self._db_url)
+            try:
+                await db.initialize()
+                return db
+            except Exception as exc:
+                self.logger.warning(
+                    "warmup_db_connect_failed",
+                    attempt=attempt,
+                    max_retries=_MAX_RETRIES,
+                    retry_in=delay if attempt < _MAX_RETRIES else None,
+                    error=str(exc),
+                )
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+        self.logger.warning("warmup_db_unavailable", reason="all retries exhausted — starting cold")
+        return None
+
+    async def _run_seed(
+        self,
+        repo: FeatureSnapshotRepository,
+        bar_history: dict[str, deque],
+    ) -> None:
         active_contracts = get_active_symbols()
         timeframes = self._config["service"]["timeframes"]
         seeded_bars = 0
@@ -90,24 +125,8 @@ class BarHistorySeeder:
                 min_bars = min_bars_for_tf(tf) * 2
                 tf_secs = TF_SECONDS.get(tf, 60)
                 lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
-                try:
-                    rows = await db.execute_query(
-                        f"""
-                        SELECT ts, bar, i1, i2, i3, i4, i5, smc, i6,
-                               bar_close_ts, i1_computed_at, computed_at
-                        FROM intelligence_features
-                        WHERE symbol = $1 AND tf = $2
-                          AND ts > NOW() - INTERVAL '{lookback_secs} seconds'
-                        ORDER BY ts DESC
-                        LIMIT {min_bars}
-                        """,
-                        symbol,
-                        tf,
-                    )
-                except Exception as e:
-                    self.logger.warning("Seed query failed", symbol=symbol, tf=tf, error=str(e))
-                    return
 
+                rows = await repo.get_recent_features(symbol, tf, min_bars, lookback_secs)
                 if not rows:
                     return
 
@@ -131,10 +150,10 @@ class BarHistorySeeder:
 
                 latest = rows[0]
                 try:
-                    def _tier(key: str) -> dict:
+                    def _tier(tier_key: str) -> dict:
                         return {
                             k: v
-                            for k, v in parse_jsonb(latest[key], default={}).items()
+                            for k, v in parse_jsonb(latest[tier_key], default={}).items()
                             if v is not None
                         }
 
@@ -168,8 +187,10 @@ class BarHistorySeeder:
                         key=message_key(symbol, tf),
                     )
                     published_events += 1
-                except Exception as e:
-                    self.logger.warning("Seed publish failed", symbol=symbol, tf=tf, error=str(e))
+                except Exception as exc:
+                    self.logger.warning(
+                        "warmup_publish_failed", symbol=symbol, tf=tf, error=str(exc)
+                    )
 
         tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
         await asyncio.gather(*tasks)
@@ -186,26 +207,8 @@ class BarHistorySeeder:
                 min_bars = min_bars_for_tf(tf) * 2
                 tf_secs = TF_SECONDS.get(tf, 60)
                 lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
-                try:
-                    rows = await db.execute_query(
-                        f"""
-                        SELECT timestamp, open, high, low, close, volume
-                        FROM market_data_ohlcv
-                        WHERE symbol = $1 AND timeframe = $2
-                          AND timestamp > NOW() - INTERVAL '{lookback_secs} seconds'
-                        ORDER BY timestamp DESC
-                        LIMIT {min_bars}
-                        """,
-                        symbol,
-                        tf,
-                    )
-                except Exception as e:
-                    self.logger.warning(
-                        "Fallback seed query failed", symbol=symbol, tf=tf, error=str(e)
-                    )
-                    return
-                if not rows:
-                    return
+
+                rows = await repo.get_ohlcv_fallback(symbol, tf, min_bars, lookback_secs)
                 for row in reversed(rows):
                     try:
                         bar_ts = row["timestamp"]
@@ -222,19 +225,19 @@ class BarHistorySeeder:
                             }
                         )
                         fallback_seeded += 1
-                    except Exception as e:
+                    except Exception as exc:
                         self.logger.debug(
-                            "Fallback bar parse failed — skipping row",
+                            "warmup_fallback_bar_parse_failed",
                             symbol=symbol,
                             tf=tf,
-                            error=str(e),
+                            error=str(exc),
                         )
 
         fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]
         await asyncio.gather(*fallback_tasks)
 
         self.logger.info(
-            "Seeded bar_history and published intelligence",
+            "warmup_complete",
             seeded_bars=seeded_bars,
             fallback_bars=fallback_seeded,
             published_events=published_events,
