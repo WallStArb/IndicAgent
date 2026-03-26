@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
 status: Milestone complete
-last_updated: "2026-03-26T12:07:43.959Z"
+last_updated: "2026-03-26T22:26:43.742Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.1 — Wiring Fixes + Doc Naming (complete)
+**Current focus:** Phase 52.2 — BaseAgent Infrastructure (Plan 01 complete)
 
 ## Current Position
 
-Phase: 52.1
-Plan: Not started
+Phase: 52.2
+Plan: 02
 
 ## v2.1 Milestone Goal
 
@@ -88,6 +88,13 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 - Used buffer size as PERSISTENCE_CONSUMER_LAG proxy — KafkaConsumerClient has no partition end-offset API
 - Tasks for feature_compute_agent.py and parity-auditor-agent.md skipped — files absent in worktree-agent-adfad16f branch (pre-date those file creations on main)
+
+### Decisions (Phase 52.2 Plan 01)
+
+- Named BaseAgent attribute self.logger (not self.log) to match 20+ existing call sites in IndicatorComputeAgent — avoids 700+ line diff in Plan 02
+- asyncio.get_running_loop() over deprecated get_event_loop() — Python 3.13 requirement; always valid inside start() which runs in asyncio.run()
+- @pytest.mark.asyncio explicit — pytest-asyncio 1.3.0 runs STRICT mode despite asyncio_mode=auto in pytest.ini; matches all other async tests in project
+- BaseAgent.start() auto-calls _run() — Plan 02 decides whether IndicatorComputeAgent restructures to super().start() or calls _register_signal_handlers() directly
 
 ### Pending Todos
 
