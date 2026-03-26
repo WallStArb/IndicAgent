@@ -157,6 +157,11 @@ def topic_intelligence_journal(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.journal"
 
 
+def topic_audit(env_name: str) -> str:
+    """Kafka topic for parity audit events published by ParityAuditorAgent."""
+    return f"{env_prefix(env_name)}audit"
+
+
 
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
