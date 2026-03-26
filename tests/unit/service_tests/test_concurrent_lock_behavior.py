@@ -12,6 +12,7 @@ exists (consolidated into feature_compute_agent in v2.0 DAG refactor).
 """
 
 import asyncio
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,7 +38,7 @@ class TestPerKeyLockCharacterization:
         svc = IndicatorComputeAgent.__new__(IndicatorComputeAgent)
         svc._stop_event = asyncio.Event()
         svc.name = "test"
-        svc.logger = pytest.importorskip("unittest.mock").MagicMock()
+        svc.logger = MagicMock()
         svc._i1_plugin_states_locks = {}
         key_a = ("RSI", "ES", "1m")
         key_b = ("RSI", "NQ", "1m")
@@ -68,8 +69,6 @@ class TestPerKeyLockCharacterization:
     @pytest.mark.asyncio
     async def test_lock_released_after_async_with_exits(self):
         """asyncio.Lock (IndicatorComputeAgent) must be free after async with completes."""
-        from unittest.mock import MagicMock
-
         svc = IndicatorComputeAgent.__new__(IndicatorComputeAgent)
         svc._stop_event = asyncio.Event()
         svc.name = "test"
