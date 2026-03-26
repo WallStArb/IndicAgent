@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 50 — Roll monitor graduation
+**Current focus:** Phase 52.1 — Wiring Fixes + Doc Naming (complete)
 
 ## Current Position
 
-Phase: 50
-Plan: Not started
+Phase: 52.1
+Plan: 01 (COMPLETE — 2026-03-26)
 
 ## v2.1 Milestone Goal
 
@@ -83,6 +83,11 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Warm-up suppression zeroes all 4 hmm_prob_* fields for audit trail consistency when bars_processed < min_lookback
 - structlog module-level logger = structlog.get_logger(__name__) in hmm_regime.py for 2D fallback observability
 - n_dims stored in _state after _reset_state() so it persists into _build_output() without argument threading
+
+### Decisions (Phase 52.1)
+
+- Used buffer size as PERSISTENCE_CONSUMER_LAG proxy — KafkaConsumerClient has no partition end-offset API
+- Tasks for feature_compute_agent.py and parity-auditor-agent.md skipped — files absent in worktree-agent-adfad16f branch (pre-date those file creations on main)
 
 ### Pending Todos
 
