@@ -1,7 +1,7 @@
 # Refactor Plan: SignalTrackerAgent (I7 Lifecycle Tracking)
 
 ## Objective
-Convert `SignalLifecycleService` into a standardized `SignalTrackerAgent`. Remove DB-coupling and enable Agentic scaling (HPA/OTel/SIGTERM).
+Convert `SignalLifecycleService` into a standardized `SignalTrackerAgent`. Remove DB-coupling and enable Agentic scaling (systemd/OTel/SIGTERM).
 
 ## Scope & Impact
 - **Affected File:** `services/signal_lifecycle_service.py` -> `services/signal_tracker_agent.py`
@@ -18,6 +18,6 @@ Convert `SignalLifecycleService` into a standardized `SignalTrackerAgent`. Remov
 4. **Resilience:** Wrap DB interactions in `try/except` with DLQ routing.
 
 ## Verification
-- **Scaling:** Verify independence via `consumer_lag` monitoring.
+- **Scaling:** Verify independence via `consumer_lag` monitoring and systemd process management.
 - **Integrity:** Ensure tracking state (MAE/MFE) is correctly serialized and persists across re-runs.
 - **Naming:** Verify all loggers and metric labels use `signal_tracker_agent`.
