@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
 status: Milestone complete
-last_updated: "2026-03-26T22:26:43.742Z"
+last_updated: "2026-03-26T22:36:40.763Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.2 — BaseAgent Infrastructure (Plan 01 complete)
+**Current focus:** Phase 52.2 — BaseAgent Infrastructure (Plans 01+02 complete)
 
 ## Current Position
 
 Phase: 52.2
-Plan: 02
+Plan: 03 (02 complete)
 
 ## v2.1 Milestone Goal
 
@@ -95,6 +95,13 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - asyncio.get_running_loop() over deprecated get_event_loop() — Python 3.13 requirement; always valid inside start() which runs in asyncio.run()
 - @pytest.mark.asyncio explicit — pytest-asyncio 1.3.0 runs STRICT mode despite asyncio_mode=auto in pytest.ini; matches all other async tests in project
 - BaseAgent.start() auto-calls _run() — Plan 02 decides whether IndicatorComputeAgent restructures to super().start() or calls _register_signal_handlers() directly
+
+### Decisions (Phase 52.2 Plan 02)
+
+- IndicatorComputeAgent.start() keeps own implementation (NOT routed through super().start()/_run()) — 60+ line initialization; _register_signal_handlers() called directly; lag_task created/cancelled in finally
+- _run() raises NotImplementedError — satisfies @abc.abstractmethod while documenting that start() manages the loop
+- MarketAnalysisService tests preserved with @pytest.mark.skip — file consolidated into feature_compute_agent (v2.0); tests document threading.Lock contract
+- PERSISTENCE_CONSUMER_LAG set to 0 — consistent with Phase 52.1 llm_writer pattern; no partition end-offset API available
 
 ### Pending Todos
 
