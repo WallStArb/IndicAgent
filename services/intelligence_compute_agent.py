@@ -31,7 +31,6 @@ from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
-from src.core.bar_history_seeder import BarHistorySeeder
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
 from src.core.service_utils import (
@@ -48,6 +47,7 @@ from src.core.stream_keys import (
     topic_system_events,
 )
 from src.intelligence.plugins import registry
+from src.persistence.logic.warmup_provider import WarmupProvider
 from src.intelligence.register_plugins import (
     TIER_I2,
     TIER_I3,
@@ -82,7 +82,11 @@ from src.observability.metrics import (
 class IntelligenceComputeAgent:
     """Execute I3/I4/I5/SMC/I6 intelligence plugins, consuming I1 from indicators stream."""
 
-    def __init__(self, config_file: str | None = None):
+    def __init__(
+        self,
+        config_file: str | None = None,
+        warmup_provider: WarmupProvider | None = None,
+    ):
         self.running = False
         self.shutdown_requested = False
         self.start_time = datetime.now()
@@ -127,7 +131,8 @@ class IntelligenceComputeAgent:
         self._df_cache: dict[str, pd.DataFrame | None] = {}
         self._active_symbols: set[str] = set()
 
-        self._settings = settings  # held for BarHistorySeeder at startup
+        self._settings = settings  # held for WarmupProvider at startup
+        self._warmup_provider = warmup_provider  # injectable; created lazily in start() if None
 
         # Build instrument map for asset-class guard
         self._instrument_map: dict[str, Any] = {
@@ -582,9 +587,10 @@ class IntelligenceComputeAgent:
 
             # Start Kafka producer before warmup — warmup publishes seeded intelligence
             await self._kafka_producer.start()
-            await BarHistorySeeder(self._settings, self.config, self._kafka_producer).seed(
-                self.bar_history
+            provider = self._warmup_provider or WarmupProvider(
+                self._settings, self.config, self._kafka_producer
             )
+            await provider.seed(self.bar_history)
 
             # Build topics list
             _settings = Settings()

@@ -1,14 +1,18 @@
 # Architectural Standard: The Renaissance "Agent" Pattern
 
-## 1. Core Definition
-A Renaissance Agent is an **autonomous, event-driven compute node** within our pipeline DAG. Unlike traditional microservices (monolithic, DB-coupled), an Agent is a pure OODA-loop (Observe-Decide-Act) executor.
+## 1. Core Definition: The Renaissance Agent (OODA Loop)
+A Renaissance Agent is an **autonomous, event-driven compute node** within our pipeline DAG. It operates on a continuous **OODA Loop** (Observe-Decide-Act):
 
-### Key Agentic Characteristics
+- **Observe:** The Agent consumes Kafka events (raw data) and internal metrics (Prometheus/OTel) to understand its operational environment.
+- **Decide:** The Agent executes logic (e.g., compute, filter, or signal fire) and evaluates internal health (e.g., "is lag too high? should I apply backpressure?").
+- **Act:** The Agent publishes results to a downstream topic, flushes persistence batches to a Repository, or routes errors to a Dead Letter Queue (DLQ).
+
+## 2. Key Agentic Characteristics
 - **Autonomy:** Agents bake in self-management—they monitor their own health, lag, and resource saturation.
 - **Scale-in/Out Capability:** Agents are designed for horizontal scalability, decoupled via Kafka streams, allowing the infrastructure to add/remove nodes based on load.
 - **Health Instrumentation:** Every Agent is self-instrumented (OpenTelemetry), providing real-time telemetry on consumer lag, processing latency, and throughput.
 
-## 2. Scaling On-Demand (The "Lag-Based" HPA)
+## 3. Scaling On-Demand (The "Lag-Based" HPA)
 In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, we design agents as independent Kafka consumer groups:
 
 - **Example - Feature Tier:**
@@ -20,7 +24,11 @@ In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, 
     - **K8s HPA (Horizontal Pod Autoscaler)** monitors this metric.
     - If `consumer_lag_records > 50,000`: K8s automatically spawns a new instance.
     - If `consumer_lag_records < 1,000`: K8s terminates the extra instance.
+- **Independence:** Because our agents are decoupled via Kafka, scaling a `SignalLedgerWriterAgent` has zero impact on the `SignalGeneratorAgent` compute node.
+- **Observability:** Prometheus + Grafana monitor the "Golden Signals" (Traffic, Latency, Errors, Saturation) for every Agent independently.
 
+## 4. Resilience & Operational Protocols
+Renaissance Agents must handle failures without human intervention and ensure no data loss during K8s lifecycle events.
 
 ### Graceful Shutdown (The "Drain" Mandate)
 - **Signal Handling:** Agents MUST listen for `SIGTERM` and `SIGINT`.
@@ -33,8 +41,8 @@ In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, 
 ### Dead-Letter Queue (DLQ) Integration
 - Agents MUST NOT block on unprocessable payloads (e.g., malformed JSON).
 - **Protocol:**
-    - Wrap `_persist_journal` in a try-except.
-    - On persistent write failure or serialization failure, route the payload to `intelligence.[domain].journal.dlq`.
+    - Wrap persistence/compute logic in try-except.
+    - On failure, route the payload to `intelligence.[domain].journal.dlq`.
     - Log an `error` event for post-mortem analysis (e.g., "Persistence failure: data unprocessable").
 
 ### Scaling & Lag Monitoring
@@ -45,7 +53,7 @@ In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, 
 - **Independence:** Persistence Agents (Historians) and Logic Agents (Computers) MUST scale on independent metrics. Never couple them.
 - **Observability:** Prometheus + Grafana monitor the "Golden Signals" (Traffic, Latency, Errors, Saturation) for every Agent independently.
 
-## 3. Comparison: Service vs. Agent
+## 5. Comparison: Service vs. Agent
 
 | Feature | Legacy "Service" | Renaissance "Agent" |
 | :--- | :--- | :--- |
@@ -54,7 +62,7 @@ In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, 
 | **Resilience** | Stop-on-Error | Dead-Letter-Queue (DLQ) + Auto-Retry |
 | **Visibility** | Log files | OTel Metrics + Provenance Chain |
 
-## 4. Taxonomy & Domain Mapping
+## 6. Taxonomy & Domain Mapping
 
 | Domain | Role | Agent Suffix | Example |
 | :--- | :--- | :--- | :--- |
@@ -66,7 +74,7 @@ In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, 
 | **Training** | Model Learning | `TrainingAgent` | `FeatureTrainingAgent` |
 | **Swarm** | Multi-Agent Reasoning | `SwarmAgent` | `SwarmIntelligenceAgent` |
 
-## 5. The Unified Intelligence Bus Taxonomy (v2.0)
+## 7. The Unified Intelligence Bus Taxonomy (v2.0)
 
 | Tier | Topic Name | Schema (Contract) | Agent Domain |
 | :--- | :--- | :--- | :--- |
@@ -86,7 +94,5 @@ In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, 
 3.  **Compute Efficiency:** By forcing tiers into these topics, we allow downstream agents to perform topic-based subscription filtering. If an agent only cares about `SMC` confluence, it ignores `i1` through `i5` topics entirely, saving massive CPU cycles on deserialization.
 
 ---
-
 **Status:** Global Standard v1.0
 **Last Updated:** 2026-03-25
-
