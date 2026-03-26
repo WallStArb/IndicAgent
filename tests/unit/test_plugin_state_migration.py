@@ -18,10 +18,13 @@ import pytest
 
 
 def _make_service() -> Any:
-    """Construct a bare IndicatorService with just the attrs needed for migration tests."""
-    from services.indicator_service import IndicatorService
+    """Construct a bare IndicatorComputeAgent with just the attrs needed for migration tests."""
+    from services.indicator_compute_agent import IndicatorComputeAgent
 
-    svc = IndicatorService.__new__(IndicatorService)
+    svc = IndicatorComputeAgent.__new__(IndicatorComputeAgent)
+    # BaseAgent attributes required by __new__ pattern (see CLAUDE.md)
+    svc._stop_event = asyncio.Event()
+    svc.name = "test"
     svc._i1_plugin_states = {}
     svc._i1_plugin_states_locks = {}
     svc.logger = MagicMock()
@@ -32,7 +35,7 @@ class TestAdjustPriceState:
     """Tests for the _adjust_price_state helper."""
 
     def test_adjusts_float_values(self) -> None:
-        from services.indicator_service import _adjust_price_state
+        from services.indicator_compute_agent import _adjust_price_state
 
         state = {"upper": 4200.0, "lower": 4150.0, "middle": 4175.0}
         result = _adjust_price_state(state, 2.5)
@@ -41,21 +44,21 @@ class TestAdjustPriceState:
         assert result["middle"] == pytest.approx(4177.5)
 
     def test_adjusts_int_values(self) -> None:
-        from services.indicator_service import _adjust_price_state
+        from services.indicator_compute_agent import _adjust_price_state
 
         state = {"level": 4200}
         result = _adjust_price_state(state, 1.0)
         assert result["level"] == pytest.approx(4201.0)
 
     def test_adjusts_list_of_floats(self) -> None:
-        from services.indicator_service import _adjust_price_state
+        from services.indicator_compute_agent import _adjust_price_state
 
         state = {"levels": [4100.0, 4200.0, 4300.0]}
         result = _adjust_price_state(state, 5.0)
         assert result["levels"] == pytest.approx([4105.0, 4205.0, 4305.0])
 
     def test_recurses_into_nested_dict(self) -> None:
-        from services.indicator_service import _adjust_price_state
+        from services.indicator_compute_agent import _adjust_price_state
 
         state = {"bands": {"upper": 4200.0, "lower": 4100.0}}
         result = _adjust_price_state(state, 10.0)
@@ -63,7 +66,7 @@ class TestAdjustPriceState:
         assert result["bands"]["lower"] == pytest.approx(4110.0)
 
     def test_leaves_non_numeric_unchanged(self) -> None:
-        from services.indicator_service import _adjust_price_state
+        from services.indicator_compute_agent import _adjust_price_state
 
         state = {"label": "trend_up", "direction": 1, "upper": 4200.0}
         result = _adjust_price_state(state, 2.0)
@@ -71,7 +74,7 @@ class TestAdjustPriceState:
         assert result["upper"] == pytest.approx(4202.0)
 
     def test_does_not_mutate_original(self) -> None:
-        from services.indicator_service import _adjust_price_state
+        from services.indicator_compute_agent import _adjust_price_state
 
         state = {"upper": 4200.0}
         _adjust_price_state(state, 10.0)
