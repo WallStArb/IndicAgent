@@ -187,7 +187,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [ ] **Phase 52.2: BaseAgent Infrastructure + IndicatorComputeAgent Rename** — **Plans:** 2 plans
   Plans:
   - [x] 52.2-01-PLAN.md — TDD BaseAgent + AgentRegistry (new src/core/agent/ package)
-  - [ ] 52.2-02-PLAN.md — Rename IndicatorService to IndicatorComputeAgent, fix 4 broken tests, systemd unit
+  - [x] 52.2-02-PLAN.md — Rename IndicatorService to IndicatorComputeAgent, fix 4 broken tests, systemd unit
 - [ ] **Phase 52.3: Dual-Write Shadow Writer** — migration `051_feature_snapshots_shadow.sql`; `FeatureRepository` configurable table name; `FeatureSnapshotWriterAgent` consuming `intelligence.journal` into shadow table; systemd unit
 - [ ] **Phase 52.4: SignalTrackerAgent Refactor** — rename `SignalLifecycleService` → `SignalTrackerAgent`; extract SQL to `SignalLedgerRepository`; inject repository; inherit `BaseAgent`; retire `indicagent-signal-lifecycle.service`
 - [ ] **Phase 52.5: Parity Auditor Agent** — `ParityRepository` + `FieldViolation` schema; `ParityAuditorAgent` timer loop comparing shadow vs primary per (symbol, tf); violation storage; automated `SHADOW_PARITY_CERTIFIED` gate; systemd unit
