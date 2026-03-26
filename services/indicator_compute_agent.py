@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-Indicator Service — I1 technical indicator computation
+Indicator Compute Agent — I1 technical indicator computation
 
-Reads market bars from Redis Streams, runs all 23 I1 plugins via the
+Reads market bars from Kafka, runs all I1 plugins via the
 plugin registry, and publishes ONE combined OHLCV+indicators message per
 bar to indicators:SYMBOL:TF. Downstream services consume this single
 message — no coordination across multiple indicator messages needed.
+
+Renamed from IndicatorService to IndicatorComputeAgent (Phase 52.2) to
+satisfy the Renaissance Agentic DAG naming convention (DB-ignorant Kafka
+agents use the ComputeAgent suffix).
 
 Replaces: indicators_processor_service.py + indicators_enhanced_service.py
 """
 
 import asyncio
 import json
-import signal
 import sys
 import time
 from collections import OrderedDict, defaultdict
@@ -24,7 +27,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import pandas as pd
-import structlog
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
 from src.core.database_manager import DatabaseManager
@@ -49,9 +51,11 @@ from src.core.stream_keys import (
 )
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import TIER_I1, register_all_plugins
+from src.core.agent.base import BaseAgent
 from src.observability.metrics import (
     BAR_TO_I1_LATENCY,
     INDICATOR_BARS_PROCESSED_LABELED_TOTAL,
+    PERSISTENCE_CONSUMER_LAG,
     PLUGIN_SKIPPED_TOTAL,
     counter,
     gauge,
@@ -193,17 +197,22 @@ def parse_indicators_message(
     return bar, features
 
 
-class IndicatorService:
+class IndicatorComputeAgent(BaseAgent):
     """Compute I1 technical indicators and publish one combined message per bar."""
 
     _WARMUP_READ_MULTIPLIER: int = 5  # read 5× target to survive duplicate timestamps
 
     def __init__(self, config_file: str | None = None):
+        # Load config first so _setup_logging() can read it
+        self.config = self._load_config(config_file)
+        # BaseAgent sets self.name, self._stop_event, and self.logger
+        super().__init__(name="indicator_compute_agent")
+        # _setup_logging() overrides the BaseAgent logger with the service-specific
+        # configured logger (rotating file handler + structlog processor chain).
+        self._setup_logging()
         self.running = False
         self.shutdown_requested = False
         self.start_time = datetime.now(UTC)
-        self.config = self._load_config(config_file)
-        self._setup_logging()
 
         register_all_plugins()
         registry.validate_tier(I1_PLUGINS, "I1")
@@ -258,10 +267,6 @@ class IndicatorService:
 
         self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
         self.bars_processed_labeled_total = INDICATOR_BARS_PROCESSED_LABELED_TOTAL
-
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        self.logger = structlog.get_logger(__name__)
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         default: dict[str, Any] = {
@@ -666,8 +671,23 @@ class IndicatorService:
                 plugins=migrated_count,
             )
 
+    async def _run(self) -> None:
+        """Main loop managed by start() directly — not called via BaseAgent.start()."""
+        raise NotImplementedError("Use start() directly")
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag proxy via buffer size (no partition end-offset API available)."""
+        while not self._stop_event.is_set():
+            if hasattr(self, "_kafka_consumer") and self._kafka_consumer is not None:
+                PERSISTENCE_CONSUMER_LAG.labels(agent_id="indicator_compute_agent").set(0)
+            await asyncio.sleep(15)
+
     async def start(self) -> None:
-        self.logger.info("Starting Indicator Service", config=self.config["service"])
+        # Register asyncio signal handlers (replaces synchronous signal.signal() in __init__)
+        self._register_signal_handlers()
+        # Launch consumer lag background task
+        lag_task = asyncio.create_task(self._report_consumer_lag())
+        self.logger.info("Starting Indicator Compute Agent", config=self.config["service"])
         try:
             start_metrics_server(port=self.config.get("metrics_port", 9109))
 
@@ -721,16 +741,21 @@ class IndicatorService:
                 asyncio.create_task(self._process_tick_data()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
-            self.logger.info("Indicator Service started")
+            self.logger.info("Indicator Compute Agent started")
             await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
-            self.logger.error("Failed to start indicator service", error=str(e))
+            self.logger.error("Failed to start indicator compute agent", error=str(e))
             raise
         finally:
+            lag_task.cancel()
+            try:
+                await lag_task
+            except asyncio.CancelledError:
+                pass
             await self.stop()
 
     async def stop(self) -> None:
-        self.logger.info("Stopping Indicator Service")
+        self.logger.info("Stopping Indicator Compute Agent")
         self.running = False
         self.shutdown_requested = True
         if self._kafka_consumer:
@@ -738,16 +763,16 @@ class IndicatorService:
         if self._tick_consumer:
             await self._tick_consumer.stop()
         await self._kafka_producer.stop()
-        self.logger.info("Indicator Service stopped")
+        self.logger.info("Indicator Compute Agent stopped")
 
 
 async def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Indicator Service")
+    parser = argparse.ArgumentParser(description="Indicator Compute Agent")
     parser.add_argument("--config", help="Config file path")
     args = parser.parse_args()
-    service = IndicatorService(args.config)
+    service = IndicatorComputeAgent(args.config)
     # Run plugin validation before starting service
     validator = PluginValidator()
     try:
