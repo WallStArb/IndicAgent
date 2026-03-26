@@ -19,11 +19,11 @@ def _find_naive_now_lines(path: str) -> list[str]:
     return naive_lines
 
 
-def test_indicator_service_no_naive_now():
-    naive = _find_naive_now_lines("services/indicator_service.py")
-    assert not naive, f"Found naive datetime.now() calls in indicator_service.py: {naive}"
+def test_indicator_compute_agent_no_naive_now():
+    naive = _find_naive_now_lines("services/indicator_compute_agent.py")
+    assert not naive, f"Found naive datetime.now() calls in indicator_compute_agent.py: {naive}"
 
 
-def test_market_analysis_service_no_naive_now():
-    naive = _find_naive_now_lines("services/market_analysis_service.py")
-    assert not naive, f"Found naive datetime.now() calls in market_analysis_service.py: {naive}"
+def test_intelligence_compute_agent_no_naive_now():
+    naive = _find_naive_now_lines("services/intelligence_compute_agent.py")
+    assert not naive, f"Found naive datetime.now() calls in intelligence_compute_agent.py: {naive}"
