@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
 status: Milestone complete
-last_updated: "2026-03-26T22:36:40.763Z"
+last_updated: "2026-03-26T23:00:00.000Z"
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 2
   completed_plans: 4
 ---
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.2 — BaseAgent Infrastructure (Plans 01+02 complete)
+**Current focus:** Phase 52.2 plan 02 in progress (IndicatorComputeAgent rename + BaseAgent inheritance). Next: 52.3 → 52.4 → 52.5 → Phase 53.
 
 ## Current Position
 
-Phase: 52.2
-Plan: 03 (02 complete)
+Phase: 52.3
+Plan: 01
 
 ## v2.1 Milestone Goal
 
@@ -52,20 +52,30 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - **Roll monitor pending** — `ROLL_MONITOR_ENABLED=false` awaiting D-21 validation after market_data_5m backfill (v2.0)
 - **Shadow dict infrastructure** — All 36 I7 plugins capture `_shadow` dict with ctf_*, exhaustion fields for ML training (v2.0)
 
+## Key Verified Facts (v2.1 Phase 52.2)
+
+- **BaseAgent(abc.ABC)** — `src/core/agent/base.py`; lifecycle: `start/stop/_run/_report_consumer_lag/_register_signal_handlers`; `self.logger` (not `self.log`); `asyncio.get_running_loop()` for SIGTERM/SIGINT
+- **AgentRegistry singleton** — `src/core/agent/registry.py`; `register/list_names/get`; singleton via `__new__`; test isolation via `_instance = None` reset
+- **IndicatorComputeAgent(BaseAgent)** — first concrete BaseAgent subclass; `_run()` raises `NotImplementedError` (start() manages loop directly); `PERSISTENCE_CONSUMER_LAG` set to 0 (no partition end-offset API)
+- **systemd unit** — `services/indicagent-indicator-compute.service`; requires manual `sudo cp` to `/etc/systemd/system/` before activation
+
 ## v2.1 Phase Context
 
-**Phase 48:** ✅ COMPLETE — Tick aggregation implemented (5s→1m bars via IBKR real-time bar push). I7 refactoring complete — extracted 3 shared utilities (microstructure_utils, state_utils, volume_profile_utils), fixed 4 I6 confluence violations, optimized aggregator calibration batching. 550+ lines of duplicate code eliminated, 83% reduction in calibration interpolation calls, 40-60% per-bar latency reduction.
+**Phase 48:** COMPLETE — Tick aggregation implemented (5s→1m bars via IBKR real-time bar push). I7 refactoring complete — extracted 3 shared utilities (microstructure_utils, state_utils, volume_profile_utils), fixed 4 I6 confluence violations, optimized aggregator calibration batching. 550+ lines of duplicate code eliminated, 83% reduction in calibration interpolation calls, 40-60% per-bar latency reduction.
 
   - **48.1:** Signal Generator Warmup Seed — fix bars_processed=0 issue by restoring DB seed on startup.
   - **48.2:** I7 Trading Layer Refactoring — code reuse utilities + performance optimizations.
 
-**Phase 49:** DB performance optimization — signal_ledger composite index, query optimization, CIS null repair completion.
+**Phase 49:** CLOSED 2026-03-26 — composite index + threading test done ad-hoc. CIS null repair deferred to v2.3 (todo: 2026-03-26-backfill-cis-null-scores-in-signal-ledger.md). Requirements traceability dropped.
 
-**Phase 50:** Roll monitor graduation — D-21 validation, migration 049_roll_premium_pct.sql, enable ROLL_MONITOR_ENABLED.
+**Phase 50:** Reframed 2026-03-26 — D-21 blocker was imaginary (market_data_5m not needed; 5m data exists in intelligence_features). Phase 50 now DEPENDS ON Phase 53.3 (RollDetectionAgent must be running before graduating flag). Execute after 53.3.
 
-**Phase 51:** Validation framework — per-layer sanity checks, outcome completeness audit, automated validation.
+**Phase 51:** CLOSED 2026-03-26 retroactively — all 4 goals delivered in Phase 39 (data_quality_check.py, systemd timer, lifecycle_replay validate(), IC health checks).
 
 **Phase 52:** Infrastructure hardening — Docker restart policies, automated gap-fill, log rotation, deploy scripts.
+
+  - **52.1:** COMPLETE — Wiring fixes; PERSISTENCE_CONSUMER_LAG wired in llm_writer_service; buffer-size proxy pattern established.
+  - **52.2:** COMPLETE — BaseAgent abstract class + AgentRegistry singleton; IndicatorService → IndicatorComputeAgent(BaseAgent); 4 broken test imports fixed; systemd unit file created. 15/15 TDD tests pass.
 
 ## Accumulated Context
 
@@ -77,6 +87,7 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Phase 49.1 inserted after Phase 49: Regime Gate Fix — Write All Signals to Signal Ledger (URGENT)
 - Phase 49.1 COMPLETE (2026-03-23): signal_ledger writes decoupled from winner selection; regime_type_at_fire + hmm_regime_at_fire populated on every LedgerEntry; 6 new TDD tests, 57 total passing
 - Phase 49.2 COMPLETE (2026-03-23): HMM observability — structlog 2D fallback warning, hmm_n_dims + hmm_warmed_up fields, warm-up prob suppression; 11 new TDD tests, 19 total HMM tests passing
+- Phase 52.2 COMPLETE (2026-03-26): BaseAgent + AgentRegistry + IndicatorComputeAgent rename; 15 TDD tests, all passing
 
 ### Decisions (Phase 49.2)
 
@@ -103,10 +114,24 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - MarketAnalysisService tests preserved with @pytest.mark.skip — file consolidated into feature_compute_agent (v2.0); tests document threading.Lock contract
 - PERSISTENCE_CONSUMER_LAG set to 0 — consistent with Phase 52.1 llm_writer pattern; no partition end-offset API available
 
+### Phase 53 — Data Layer DAG (NEW — designed 2026-03-26)
+
+Design doc: `docs/plans/2026-03-26-data-layer-dag-design.md`
+
+5-agent data layer refactor. Sub-phases:
+- **53.1:** BarWriterAgent + BarCompletenessAgent (unblocks Phase 52 DB-ignorant refactor; retires gap_fill_service)
+- **53.2:** BarAggregatorAgent (extracts BarAccumulator from feature_compute_agent; makes it pure intelligence)
+- **53.3:** RollDetectionAgent + DataProviderAgent rename (extracts RollMonitor; typed RollEvent schema; cleans tws_daemon)
+- **Phase 50:** Enable ROLL_MONITOR_ENABLED after 53.3 validated
+
+Key invariant: DataProviderAgent owns canonical 1440 1m bar grid (flat bars for empty minutes). BarAggregatorAgent produces canonical HTF from guaranteed 1m. BarCompletenessAgent audits historical gaps only.
+
+Ports: BarAggregatorAgent=:9120, BarWriterAgent=:9121, RollDetectionAgent=:9122, BarCompletenessAgent=:9123
+
 ### Pending Todos
 
-**31 pending todos** (see `.planning/todos/pending/`)
+**32 pending todos** (see `.planning/todos/pending/`)
 
 Recent additions:
-
+- 2026-03-26: Backfill CIS null scores in signal_ledger (deferred to v2.3)
 - 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
