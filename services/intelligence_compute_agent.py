@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-Market Analysis Service — I3/I4/I5/SMC/I6 plugin execution
+Intelligence Compute Agent — I2–I6 plugin execution
 
-Consumes the combined OHLCV+I1 messages published by indicator_service
-from indicators:SYMBOL:TF, then runs I3 (structure) → I4 (context) →
-I5 (pattern) → SMC (smart money) → I6 (confluence) and publishes
-combined intelligence results to intelligence:SYMBOL:TF.
+Consumes combined OHLCV+I1 messages published by indicator_compute_agent
+from indicators:SYMBOL:TF, runs I2 (events) → I3 (structure) → I4 (context) →
+I5 (patterns) → SMC (smart money) → I6 (confluence), and publishes
+IntelligenceEvent to intelligence:SYMBOL:TF.
 
-I1 is NOT recomputed here — it arrives pre-computed from indicator_service.
-This eliminates the triple I1 computation that existed when each service
-maintained its own indicator pipeline.
+I1 arrives pre-computed — no recomputation here.
+DB-ignorant during the compute loop; startup warmup is delegated to BarHistorySeeder.
 """
 
 import asyncio
@@ -31,15 +30,11 @@ import structlog
 from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
-from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
-from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
 from src.core.service_utils import (
     PLUGIN_METRICS_SAMPLE_RATE,
-    SEED_LOOKBACK_MULTIPLIER,
-    TF_SECONDS,
     min_bars_for_tf,
     parse_roll_event,
     setup_service_logging,
@@ -72,6 +67,7 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
+from src.intelligence.warmup.bar_history_seeder import BarHistorySeeder
 from src.observability.metrics import (
     BAR_TO_INTELLIGENCE_LATENCY,
     MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL,
@@ -131,10 +127,7 @@ class IntelligenceComputeAgent:
         self._df_cache: dict[str, pd.DataFrame | None] = {}
         self._active_symbols: set[str] = set()
 
-        database_url = settings.database_url
-        self.db_manager: DatabaseManager | None = (
-            DatabaseManager(database_url) if database_url else None
-        )
+        self._settings = settings  # held for BarHistorySeeder at startup
 
         # Build instrument map for asset-class guard
         self._instrument_map: dict[str, Any] = {
@@ -192,7 +185,7 @@ class IntelligenceComputeAgent:
             },
             "logging": {
                 "level": "INFO",
-                "file": "logs/market_analysis_service.log",
+                "file": "logs/intelligence_compute_agent.log",
                 "max_size": "10MB",
                 "backup_count": 5,
             },
@@ -515,180 +508,6 @@ class IntelligenceComputeAgent:
             key=message_key(symbol, timeframe),
         )
 
-    async def _warmup_bar_history(self) -> None:
-        """Seed bar_history from intelligence_features and publish last-known intelligence.
-
-        Queries intelligence_features for recent bars per (symbol, tf), populates
-        bar_history so the service is immediately ready to process live bars, then
-        re-publishes the stored IntelligenceEvent for each so the dashboard shows
-        current state without waiting for the next live bar.
-
-        Falls back silently if DB unavailable.
-        """
-        if not self.db_manager:
-            self.logger.warning("DB seed skipped — no db_manager")
-            return
-
-        try:
-            await self.db_manager.initialize()
-        except Exception as e:
-            self.logger.warning("DB init failed — skipping seed", error=str(e))
-            return
-
-        active_contracts = get_active_symbols()
-        timeframes = self.config["service"]["timeframes"]
-        seeded_bars = 0
-        published_events = 0
-
-        sem = asyncio.Semaphore(8)
-
-        async def _seed_one(symbol: str, tf: str) -> None:
-            nonlocal seeded_bars, published_events
-            async with sem:
-                min_bars = min_bars_for_tf(tf) * 2
-                tf_secs = TF_SECONDS.get(tf, 60)
-                lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
-                try:
-                    rows = await self.db_manager.execute_query(  # type: ignore[union-attr]
-                        f"""
-                        SELECT ts, bar, i1, i2, i3, i4, i5, smc, i6,
-                               bar_close_ts, i1_computed_at, computed_at
-                        FROM intelligence_features
-                        WHERE symbol = $1 AND tf = $2
-                          AND ts > NOW() - INTERVAL '{lookback_secs} seconds'
-                        ORDER BY ts DESC
-                        LIMIT {min_bars}
-                        """,
-                        symbol,
-                        tf,
-                    )
-                except Exception as e:
-                    self.logger.warning("Seed query failed", symbol=symbol, tf=tf, error=str(e))
-                    return
-
-                if not rows:
-                    return
-
-                key = f"{symbol}:{tf}"
-                # Insert oldest→newest into bar_history
-                for row in reversed(rows):
-                    bar_json = row["bar"]
-                    try:
-                        self.bar_history[key].append(
-                            {
-                                "open": float(bar_json.get("o", 0)),
-                                "high": float(bar_json.get("h", 0)),
-                                "low": float(bar_json.get("l", 0)),
-                                "close": float(bar_json.get("c", 0)),
-                                "volume": int(bar_json.get("v", 0)),
-                                "timestamp": row["ts"],
-                            }
-                        )
-                        seeded_bars += 1
-                    except Exception:
-                        pass
-
-                # Re-publish the most recent stored IntelligenceEvent
-                latest = rows[0]  # rows are DESC, so first = newest
-                try:
-                    bar_json = parse_jsonb(latest["bar"], default={})
-                    event = IntelligenceEvent(
-                        ts=latest["ts"],
-                        symbol=symbol,
-                        tf=tf,
-                        source="backfill",
-                        bar=OHLCVBar(
-                            o=float(bar_json.get("o", 0)),
-                            h=float(bar_json.get("h", 0)),
-                            l=float(bar_json.get("l", 0)),
-                            c=float(bar_json.get("c", 0)),
-                            v=int(bar_json.get("v", 0)),
-                        ),
-                        i1=I1Indicators(**{k: v for k, v in parse_jsonb(latest["i1"], default={}).items() if v is not None}),
-                        i2=I2Events(**{k: v for k, v in parse_jsonb(latest["i2"], default={}).items() if v is not None}),
-                        i3=I3Structure(**{k: v for k, v in parse_jsonb(latest["i3"], default={}).items() if v is not None}),
-                        i4=I4Context(**{k: v for k, v in parse_jsonb(latest["i4"], default={}).items() if v is not None}),
-                        i5=I5Patterns(**{k: v for k, v in parse_jsonb(latest["i5"], default={}).items() if v is not None}),
-                        smc=SMCContext(**{k: v for k, v in parse_jsonb(latest["smc"], default={}).items() if v is not None}),
-                        i6=I6Confluence(**{k: v for k, v in parse_jsonb(latest["i6"], default={}).items() if v is not None}),
-                        bar_close_ts=latest["bar_close_ts"],
-                        i1_computed_at=latest["i1_computed_at"],
-                        computed_at=latest["computed_at"],
-                    )
-                    await self._kafka_producer.publish(
-                        topic_intelligence(self.env_name),
-                        {"event": event.model_dump_json()},
-                        key=message_key(symbol, tf),
-                    )
-                    published_events += 1
-                except Exception as e:
-                    self.logger.warning(
-                        "Seed publish failed", symbol=symbol, tf=tf, error=str(e)
-                    )
-
-        tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
-        await asyncio.gather(*tasks)
-
-        # ── Fallback: seed bar_history from market_data_ohlcv for combos still below threshold ──
-        fallback_seeded = 0
-
-        async def _fallback_one(symbol: str, tf: str) -> None:
-            nonlocal fallback_seeded
-            key = f"{symbol}:{tf}"
-            if len(self.bar_history[key]) >= min_bars_for_tf(tf):
-                return  # already enough from intelligence_features
-            async with sem:
-                min_bars = min_bars_for_tf(tf) * 2
-                tf_secs = TF_SECONDS.get(tf, 60)
-                lookback_secs = min_bars * tf_secs * SEED_LOOKBACK_MULTIPLIER
-                try:
-                    rows = await self.db_manager.execute_query(  # type: ignore[union-attr]
-                        f"""
-                        SELECT timestamp, open, high, low, close, volume
-                        FROM market_data_ohlcv
-                        WHERE symbol = $1 AND timeframe = $2
-                          AND timestamp > NOW() - INTERVAL '{lookback_secs} seconds'
-                        ORDER BY timestamp DESC
-                        LIMIT {min_bars}
-                        """,
-                        symbol,
-                        tf,
-                    )
-                except Exception as e:
-                    self.logger.warning("Fallback seed query failed", symbol=symbol, tf=tf, error=str(e))
-                    return
-                if not rows:
-                    return
-                for row in reversed(rows):  # DB returns DESC; insert oldest→newest
-                    try:
-                        bar_ts = row["timestamp"]
-                        if isinstance(bar_ts, str):
-                            bar_ts = datetime.fromisoformat(bar_ts)
-                        self.bar_history[key].append({
-                            "open": float(row["open"]),
-                            "high": float(row["high"]),
-                            "low": float(row["low"]),
-                            "close": float(row["close"]),
-                            "volume": int(row["volume"]),
-                            "timestamp": bar_ts,
-                        })
-                        fallback_seeded += 1
-                    except Exception as e:
-                        self.logger.debug(
-                            "Fallback bar parse failed — skipping row",
-                            symbol=symbol, tf=tf, error=str(e),
-                        )
-
-        fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]
-        await asyncio.gather(*fallback_tasks)
-
-        self.logger.info(
-            "Seeded bar_history and published intelligence",
-            seeded_bars=seeded_bars,
-            fallback_bars=fallback_seeded,
-            published_events=published_events,
-        )
-
     async def _handle_roll_event(self, event: dict) -> None:
         """Update active symbol set on futures roll.
 
@@ -757,13 +576,15 @@ class IntelligenceComputeAgent:
                 await asyncio.sleep(5)
 
     async def start(self) -> None:
-        self.logger.info("Starting Market Analysis Service", config=self.config["service"])
+        self.logger.info("Starting Intelligence Compute Agent", config=self.config["service"])
         try:
             start_metrics_server(port=self.config.get("metrics_port", 9114))
 
             # Start Kafka producer before warmup — warmup publishes seeded intelligence
             await self._kafka_producer.start()
-            await self._warmup_bar_history()
+            await BarHistorySeeder(self._settings, self.config, self._kafka_producer).seed(
+                self.bar_history
+            )
 
             # Build topics list
             _settings = Settings()
@@ -779,7 +600,7 @@ class IntelligenceComputeAgent:
                     "kafka_bootstrap_servers",
                     _settings.kafka_bootstrap_servers,
                 ),
-                group_id="market_analysis",
+                group_id="intelligence_compute",
                 auto_offset_reset="latest",
             )
             await self._kafka_consumer.start()
@@ -789,28 +610,28 @@ class IntelligenceComputeAgent:
                 asyncio.create_task(self._process_market_data()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
-            self.logger.info("Market Analysis Service started")
+            self.logger.info("Intelligence Compute Agent started")
             await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
-            self.logger.error("Failed to start market analysis service", error=str(e))
+            self.logger.error("Failed to start intelligence compute agent", error=str(e))
             raise
         finally:
             await self.stop()
 
     async def stop(self) -> None:
-        self.logger.info("Stopping Market Analysis Service")
+        self.logger.info("Stopping Intelligence Compute Agent")
         self.running = False
         self.shutdown_requested = True
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
         await self._kafka_producer.stop()
-        self.logger.info("Market Analysis Service stopped")
+        self.logger.info("Intelligence Compute Agent stopped")
 
 
 async def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Market Analysis Service")
+    parser = argparse.ArgumentParser(description="Intelligence Compute Agent")
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
