@@ -83,7 +83,7 @@ from src.observability.metrics import (
 )
 
 
-class MarketAnalysisService:
+class MarketAggregatorAgent:
     """Execute I3/I4/I5/SMC/I6 intelligence plugins, consuming I1 from indicators stream."""
 
     def __init__(self, config_file: str | None = None):
@@ -814,7 +814,7 @@ async def main() -> None:
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
-    service = MarketAnalysisService(args.config)
+    service = MarketAggregatorAgent(args.config)
     # Run plugin validation before starting service
     validator = PluginValidator()
     try:
