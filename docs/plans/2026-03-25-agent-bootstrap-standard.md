@@ -1,7 +1,7 @@
 # Refactor Plan: BaseAgent Bootstrap Standard
 
 ## Objective
-Standardize Agent lifecycle, OTel instrumentation, and scaling (HPA) by creating a `BaseAgent` class in `src/core/agent/base.py`. This ensures every new Agent inherits the required Renaissance operational behavior.
+Standardize Agent lifecycle, OTel instrumentation, and scaling (systemd) by creating a `BaseAgent` class in `src/core/agent/base.py`. This ensures every new Agent inherits the required Renaissance operational behavior.
 
 ## Scope & Impact
 - **Affected Domain:** All Agents (I1-I8, Persistence, Inference, Training, Swarm).
@@ -13,9 +13,10 @@ Standardize Agent lifecycle, OTel instrumentation, and scaling (HPA) by creating
    - `start()`/`stop()`: Standardized lifecycle hooks with `SIGTERM` drainage.
    - `register_metrics()`: Automatic OTel instrumentation for Golden Signals.
    - `lag_reporter()`: Default task to publish `consumer_lag_records`.
-2. **Refactor Existing Agents:** Update `DataWriterAgent`, `SignalGeneratorAgent`, etc., to inherit from `BaseAgent`.
-3. **Registry:** Implement `AgentRegistry` to track live agents, their Kafka topics, and HPA thresholds.
+2. **Systemd Integration:** Ensure agents export `consumer_lag_records` to Prometheus for `systemd`/local process monitoring.
+3. **Refactor Existing Agents:** Update `DataWriterAgent`, `SignalGeneratorAgent`, etc., to inherit from `BaseAgent`.
+4. **Registry:** Implement `AgentRegistry` to track live agents, their Kafka topics, and resource thresholds.
 
 ## Verification
 - **Inheritance Check:** All Agents must satisfy `isinstance(agent, BaseAgent)`.
-- **Operational Parity:** New agents automatically report `consumer_lag_records` without manual instrumentation.
+- **Operational Parity:** New agents automatically report `consumer_lag_records` without manual instrumentation, enabling `systemd` monitoring.
