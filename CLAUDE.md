@@ -16,9 +16,13 @@ Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 ## Renaissance Agentic DAG Principles (v2.1)
 - **Agentic DAG Architecture:** All pipeline nodes must be autonomous, event-driven Agents. Compute Agents (I1-I6) are DB-ignorant and publish to domain-specific Tiered Topics (`intelligence.i{N}`). DataWriterAgents manage all persistence.
 - **The Persistence DAG:** WriterAgents must use the "Convergence Gate" (StreamMerger) to join tiered streams into a single, unified journal entry before persistence, ensuring atomic data integrity.
-- **Resilience & Observability:** All agents must be instrumented with `persistence_batch_latency` and `persistence_consumer_lag` metrics.
-- **Lifecycle Management:** Agents must implement `SIGTERM` handlers for graceful drain and maintain a DLQ for unprocessable payloads.
+- **Resilience & Observability:** 
+    - All agents must be instrumented with the "Golden Signals" (Traffic, Latency, Errors, Saturation) via Prometheus + Grafana.
+    - Persistence agents must track `persistence_batch_latency` and `persistence_consumer_lag`.
+- **Lifecycle Management:** 
+    - Agents must implement `SIGTERM` handlers for graceful drain and maintain a DLQ (`intelligence.[domain].journal.dlq`) for unprocessable payloads.
 - **Taxonomy:** All persistence logic resides in `src/persistence/repository/` (Repositories) and `src/persistence/writer/` (WriterAgents).
+- **Scaling:** Scaling is managed via systemd process management and Prometheus-based lag monitoring. No manual Kubernetes HPA management.
 
 Apply this framing when: designing new features, choosing between approaches, deciding what to log, evaluating model/strategy performance, or questioning whether something is "good enough."
 
