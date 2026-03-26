@@ -21,7 +21,9 @@ class TestCandlestickPatterns:
         # min_lookback=3 — prepend a neutral filler bar as pp.
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
 
         df = pd.DataFrame(
             {
@@ -42,7 +44,9 @@ class TestCandlestickPatterns:
         # open=5005, close=5010, high=5011, low=4980 → body=5, lower_wick=25, upper_wick=1
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
 
         df = pd.DataFrame(
             {
@@ -59,7 +63,9 @@ class TestCandlestickPatterns:
     def test_doji_detected(self):
         import pandas as pd
 
-        from src.intelligence.features.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
 
         # Doji: open ≈ close, range exists.
         # min_lookback=3 — prepend a neutral filler bar as pp.
@@ -76,7 +82,9 @@ class TestCandlestickPatterns:
         assert result.get("doji_detected") in (0.0, 1.0)
 
     def test_returns_all_fields(self):
-        from src.intelligence.features.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
 
         close = np.linspace(5000, 5010, 5)
         df = make_ohlcv(close)
@@ -95,7 +103,9 @@ class TestCandlestickPatterns:
         assert expected.issubset(result.keys())
 
     def test_empty_returns_empty(self):
-        from src.intelligence.features.i5_patterns.candlestick_patterns import CandlestickPatternsPlugin
+        from src.intelligence.features.i5_patterns.candlestick_patterns import (
+            CandlestickPatternsPlugin,
+        )
 
         assert CandlestickPatternsPlugin().compute_full({}) == {}
 

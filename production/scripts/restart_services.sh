@@ -6,7 +6,7 @@ set -euo pipefail
 
 SERVICES=(
     indicagent-tws
-    indicagent-feature-pipeline
+    indicagent-feature-compute
     indicagent-feature-writer
     indicagent-signal-generator
     indicagent-signal-lifecycle

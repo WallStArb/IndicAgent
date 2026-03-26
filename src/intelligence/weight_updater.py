@@ -34,9 +34,10 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from statsmodels.stats.proportion import proportions_ztest
 
+from src.persistence.repository.signal_ledger_repository import WIN_OUTCOMES
+
 from .ml.confidence_calibrator import run_calibration_update
 from .trading.cis_scorer import BOOTSTRAP_WEIGHTS, BUCKET_NAMES
-from src.persistence.repository.signal_ledger_repository import WIN_OUTCOMES
 
 logger = logging.getLogger(__name__)
 

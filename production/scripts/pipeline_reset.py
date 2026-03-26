@@ -105,13 +105,13 @@ DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
 _STOP_SERVICES = [
     "indicagent-signal-generator",
     "indicagent-signal-lifecycle",
-    "indicagent-feature-pipeline",
+    "indicagent-feature-compute",
     "indicagent-feature-writer",
     "indicagent-ai-narrative",
 ]
 
 _START_SERVICES = [
-    "indicagent-feature-pipeline",
+    "indicagent-feature-compute",
     "indicagent-feature-writer",
     "indicagent-signal-generator",
     "indicagent-signal-lifecycle",

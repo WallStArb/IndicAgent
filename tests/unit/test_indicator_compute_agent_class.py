@@ -37,7 +37,7 @@ def test_no_indicator_service_class_def() -> None:
     """No class named IndicatorService must remain in the file."""
     class_names = _parse_class_names()
     assert "IndicatorService" not in class_names, (
-        f"Found 'IndicatorService' class definition — must be renamed to IndicatorComputeAgent"
+        "Found 'IndicatorService' class definition — must be renamed to IndicatorComputeAgent"
     )
 
 
