@@ -59,8 +59,8 @@ from src.core.service_utils import (
 from src.core.stream_keys import (
     message_key,
     topic_cross_asset,
-    topic_feature_processed,
     topic_intelligence,
+    topic_intelligence_journal,
     topic_market_bars,
     topic_market_bars_htf,
     topic_market_ticks,
@@ -245,6 +245,9 @@ class FeatureComputeAgent:
         # Per-symbol tick buffer — flushed at bar close; capped at 10k ticks
         self._tick_buffers: dict[str, list[dict]] = defaultdict(list)
         self._tick_buffer_max: int = 10_000
+
+        # DB-ignorant — no direct database access in compute loop
+        self._db = None
 
         # Kafka clients
         self._producer: KafkaProducerClient = KafkaProducerClient(
@@ -980,7 +983,7 @@ class FeatureComputeAgent:
                 ),
             )
             await self._producer.publish(
-                topic_feature_processed(self._settings.env_name),
+                topic_intelligence_journal(self._settings.env_name),
                 value=feature_journal.model_dump_json(),
                 key=msg_key,
             )

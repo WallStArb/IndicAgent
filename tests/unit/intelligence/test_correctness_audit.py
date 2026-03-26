@@ -327,7 +327,9 @@ class TestOBVCorrectness:
 class TestSRClusteringCorrectness:
     def test_sr_levels_within_price_range(self):
         """S/R levels should be near current price range."""
-        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import (
+            SupportResistancePlugin,
+        )
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)
@@ -341,7 +343,9 @@ class TestSRClusteringCorrectness:
 
     def test_support_dist_pct_is_percentage(self):
         """support_dist_pct is a percentage (0-100 scale), should be in plausible range."""
-        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import (
+            SupportResistancePlugin,
+        )
 
         close = np.linspace(5000, 5100, 60)
         df = make_ohlcv(close)

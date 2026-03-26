@@ -47,7 +47,6 @@ from src.core.stream_keys import (
     topic_system_events,
 )
 from src.intelligence.plugins import registry
-from src.persistence.logic.warmup_provider import WarmupProvider
 from src.intelligence.register_plugins import (
     TIER_I2,
     TIER_I3,
@@ -77,6 +76,7 @@ from src.observability.metrics import (
     record_plugin_execution,
     start_metrics_server,
 )
+from src.persistence.logic.warmup_provider import WarmupProvider
 
 
 class IntelligenceComputeAgent:

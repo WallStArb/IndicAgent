@@ -25,8 +25,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
 from src.core.schemas.bar_message import SessionType
+from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
 
 
 class OHLCVBar(BaseModel):

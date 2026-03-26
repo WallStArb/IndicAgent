@@ -12,7 +12,6 @@ import pytest
 from src.persistence.logic.warmup_provider import WarmupProvider
 from src.persistence.repository.feature_snapshot_repository import FeatureSnapshotRepository
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

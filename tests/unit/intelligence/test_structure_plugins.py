@@ -97,7 +97,9 @@ class TestSwingDetector:
 class TestSupportResistance:
     def test_repeated_level_touches(self):
         """Data oscillating around levels → strength > 1 for clustered pivots."""
-        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import (
+            SupportResistancePlugin,
+        )
 
         # Oscillate between 4950 and 5050 repeatedly to build touches
         n = 120
@@ -116,7 +118,9 @@ class TestSupportResistance:
 
     def test_trending_sr_placement(self):
         """In uptrend, resistance above and support below current price."""
-        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import (
+            SupportResistancePlugin,
+        )
 
         close = _uptrend_data()
         df = make_ohlcv(close)
@@ -128,7 +132,9 @@ class TestSupportResistance:
         assert result["nearest_support"] <= current or result["support_dist_pct"] >= 0
 
     def test_empty_frames(self):
-        from src.intelligence.features.i3_structure.support_resistance import SupportResistancePlugin
+        from src.intelligence.features.i3_structure.support_resistance import (
+            SupportResistancePlugin,
+        )
 
         plugin = SupportResistancePlugin()
         assert plugin.compute_full({}) == {}
@@ -192,10 +198,10 @@ class TestTrendStructure:
 class TestStructureRegistration:
     def test_all_structure_plugins_registered(self):
         """All 3 structure plugins appear in registry alongside I5 patterns."""
-        from src.intelligence.plugins import PluginRegistry
         from src.intelligence.features.i3_structure.support_resistance import plugin as sr
         from src.intelligence.features.i3_structure.swing_detector import plugin as swing
         from src.intelligence.features.i3_structure.trend_structure import plugin as trend
+        from src.intelligence.plugins import PluginRegistry
 
         reg = PluginRegistry()
         reg.register_pattern(swing)
