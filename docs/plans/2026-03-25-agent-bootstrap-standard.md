@@ -1,0 +1,21 @@
+# Refactor Plan: BaseAgent Bootstrap Standard
+
+## Objective
+Standardize Agent lifecycle, OTel instrumentation, and scaling (HPA) by creating a `BaseAgent` class in `src/core/agent/base.py`. This ensures every new Agent inherits the required Renaissance operational behavior.
+
+## Scope & Impact
+- **Affected Domain:** All Agents (I1-I8, Persistence, Inference, Training, Swarm).
+- **Impact:** Eliminates manual repetition of `SIGTERM` handlers, OTel metric registration, and `consumer_lag` reporting.
+- **Principle:** "Reuse over Repetition." Every Agent inherits its "life-support" systems from the `BaseAgent`.
+
+## Implementation Steps
+1. **Define `BaseAgent`:** Implement `BaseAgent` class in `src/core/agent/base.py`.
+   - `start()`/`stop()`: Standardized lifecycle hooks with `SIGTERM` drainage.
+   - `register_metrics()`: Automatic OTel instrumentation for Golden Signals.
+   - `lag_reporter()`: Default task to publish `consumer_lag_records`.
+2. **Refactor Existing Agents:** Update `DataWriterAgent`, `SignalGeneratorAgent`, etc., to inherit from `BaseAgent`.
+3. **Registry:** Implement `AgentRegistry` to track live agents, their Kafka topics, and HPA thresholds.
+
+## Verification
+- **Inheritance Check:** All Agents must satisfy `isinstance(agent, BaseAgent)`.
+- **Operational Parity:** New agents automatically report `consumer_lag_records` without manual instrumentation.
