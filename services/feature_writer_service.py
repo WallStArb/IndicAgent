@@ -32,7 +32,7 @@ from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import normalize_session_type, parse_roll_event, setup_service_logging
 from src.core.stream_keys import (
     topic_cross_asset,
-    topic_feature_processed,
+    topic_intelligence_journal,
     topic_system_events,
 )
 from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
@@ -378,7 +378,7 @@ class FeatureWriterService:
 
         # Build topics list
         topics = [
-            topic_feature_processed(self._env_name),
+            topic_intelligence_journal(self._env_name),
             topic_system_events(self._env_name),
             topic_cross_asset(self._env_name),
         ]
@@ -633,11 +633,11 @@ class FeatureWriterService:
             self.error_count_total.inc()
 
     async def _process_loop(self) -> None:
-        """Kafka consumer loop — reads intelligence.record topic and routes by topic."""
+        """Kafka consumer loop — reads intelligence.journal topic and routes by topic."""
         if not self._kafka_consumer:
             return
 
-        intelligence_record_topic = topic_intelligence_record(self._env_name)
+        intelligence_journal_topic = topic_intelligence_journal(self._env_name)
         sys_events_topic = topic_system_events(self._env_name)
         cross_asset_topic = topic_cross_asset(self._env_name)
 
@@ -663,18 +663,13 @@ class FeatureWriterService:
                     continue
                 symbol, timeframe = parts
 
-                # SAFETY: Skip raw intelligence events from development.intelligence topic
-                # These have {"event": "..."} wrapper from feature_pipeline
+                # SAFETY: Skip raw intelligence events — these have {"event": "..."} wrapper
                 if isinstance(payload, dict) and "event" in payload:
                     continue
 
-                if kafka_topic == feature_processed_topic:
+                if kafka_topic == intelligence_journal_topic:
                     await self._process_single_message(symbol, timeframe, payload)
                     await self._maybe_flush(force=False)
-                elif kafka_topic == topic_intelligence(self._env_name):
-                    # SAFETY: Skip raw intelligence events - we only process BarIntelligenceRecord
-                    # These messages have {"event": "..."} wrapper from feature_pipeline
-                    continue
 
             except asyncio.CancelledError:
                 break
