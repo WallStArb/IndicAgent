@@ -250,10 +250,10 @@ class TestSystemEventsSubscription:
     """All services must unconditionally subscribe to system.events (SHADOW-03 graduated)."""
 
     def test_indicator_service_always_subscribes_to_system_events(self) -> None:
-        """IndicatorService.start() must always include topic_system_events in its consumer."""
+        """IndicatorComputeAgent.start() must always include topic_system_events in its consumer."""
         import inspect
 
-        from services.indicator_service import IndicatorService
-        source = inspect.getsource(IndicatorService.start)
+        from services.indicator_compute_agent import IndicatorComputeAgent
+        source = inspect.getsource(IndicatorComputeAgent.start)
         assert "topic_system_events" in source, \
             "start() must unconditionally subscribe to topic_system_events"

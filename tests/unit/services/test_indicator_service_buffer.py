@@ -12,10 +12,17 @@ import pandas as pd
 
 
 def _make_service():
-    """Create a minimal IndicatorService instance for buffer tests."""
-    from services.indicator_service import IndicatorService
+    """Create a minimal IndicatorComputeAgent instance for buffer tests."""
+    import asyncio
+    from unittest.mock import MagicMock
 
-    svc = IndicatorService.__new__(IndicatorService)
+    from services.indicator_compute_agent import IndicatorComputeAgent
+
+    svc = IndicatorComputeAgent.__new__(IndicatorComputeAgent)
+    # BaseAgent attributes required by __new__ pattern (see CLAUDE.md)
+    svc._stop_event = asyncio.Event()
+    svc.name = "test"
+    svc.logger = MagicMock()
     svc.bar_history = defaultdict(OrderedDict)
     svc._bar_history_max = 5  # small max for tests
     svc._df_cache = {}
