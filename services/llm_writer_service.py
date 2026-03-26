@@ -34,7 +34,13 @@ from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_intelligence_i8, topic_llm_calls, topic_llm_outcomes
-from src.observability.metrics import counter, gauge, start_metrics_server
+from src.observability.metrics import (
+    PERSISTENCE_BATCH_LATENCY,
+    PERSISTENCE_CONSUMER_LAG,
+    counter,
+    gauge,
+    start_metrics_server,
+)
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -369,6 +375,8 @@ class LLMWriterService:
             "llm_writer_i8_update_miss_total",
             "i8 UPDATEs that found 0 rows (timing window)",
         )
+        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="llm_writer")
+        self._consumer_lag_metric = PERSISTENCE_CONSUMER_LAG.labels(agent_id="llm_writer")
 
         self._total_calls = 0
         self._total_outcomes = 0
@@ -475,7 +483,8 @@ class LLMWriterService:
 
         params = list(self._calls_buffer)
         try:
-            await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, params)
+            with self._batch_latency.time():
+                await self.db_manager.execute_batch(_INSERT_LLM_CALL_SQL, params)
             self._calls_buffer.clear()
             self._last_flush = time.monotonic()
             self.batch_writes_total.inc()
@@ -756,6 +765,7 @@ class LLMWriterService:
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
+                self._consumer_lag_metric.set(len(self._calls_buffer))
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",

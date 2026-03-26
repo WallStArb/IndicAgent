@@ -17,4 +17,4 @@ Convert `IndicatorService` into a pure `IndicatorComputeAgent` within the Agenti
 ## Verification
 - **Functional Check:** Verify I1 indicator outputs match legacy values for a known bar sequence.
 - **Pipeline Integrity:** Verify that `IndicatorComputeAgent` downstream consumers (e.g., `ConfluenceComputeAgent`) receive the correct Kafka stream.
-- **Observability:** Verify `indicator_bars_processed_labeled_total` is correctly reporting.
+- **Observability:** Verify `events_consumed_total` is correctly reporting.

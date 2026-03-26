@@ -3,32 +3,35 @@
 ## 1. Core Definition: The Renaissance Agent (OODA Loop)
 A Renaissance Agent is an **autonomous, event-driven compute node** within our pipeline DAG. It operates on a continuous **OODA Loop** (Observe-Decide-Act):
 
-- **Observe:** The Agent consumes Kafka events (raw data) and internal metrics (Prometheus/OTel) to understand its operational environment.
+- **Observe:** The Agent consumes Kafka events (raw data) and internal metrics (Prometheus) to understand its operational environment.
 - **Decide:** The Agent executes logic (e.g., compute, filter, or signal fire) and evaluates internal health (e.g., "is lag too high? should I apply backpressure?").
 - **Act:** The Agent publishes results to a downstream topic, flushes persistence batches to a Repository, or routes errors to a Dead Letter Queue (DLQ).
 
 ## 2. Key Agentic Characteristics
 - **Autonomy:** Agents bake in self-management—they monitor their own health, lag, and resource saturation.
-- **Scale-in/Out Capability:** Agents are designed for horizontal scalability, decoupled via Kafka streams, allowing the infrastructure to add/remove nodes based on load.
-- **Health Instrumentation:** Every Agent is self-instrumented (OpenTelemetry), providing real-time telemetry on consumer lag, processing latency, and throughput.
+- **Scale-in/Out Capability:** **[CURRENT STANDARD]** Agents run as systemd services on a single server; scaling is achieved by adjusting systemd instance counts manually based on Prometheus lag alerts. **[TARGET ARCHITECTURE]** Horizontal scaling via Kafka consumer group partitioning (multiple instances).
+- **Health Instrumentation:** **[CURRENT STANDARD]** Every Agent is instrumented with Prometheus metrics via `src/observability/metrics.py` — consumer lag, processing latency, throughput. **[TARGET ARCHITECTURE]** OpenTelemetry (OTel) is not in the current stack and must not be added until `opentelemetry-sdk` is in `requirements.txt`.
 
-## 3. Scaling On-Demand (The "Lag-Based" HPA)
-In the legacy system, DB bottlenecks caused hard limits. In the Agentic system, we design agents as independent Kafka consumer groups:
+## 3. Scaling On-Demand (Lag-Based) **[CURRENT STANDARD]**
 
-- **Example - Feature Tier:**
-    - **IndicatorComputeAgent (CPU-Bound):** Performs heavy math. We scale horizontally to 10+ instances reading from the same topic; Kafka partitions the stream (e.g., Symbol AAPL -> Agent 1, TSLA -> Agent 2).
-    - **FeatureHistorianAgent (IO-Bound):** Performs batch I/O. We scale independently based on the throughput of the database.
+Production runs on a **single server with systemd** — no Kubernetes. Scaling is managed manually via Prometheus lag alerting:
 
-- **Scaling Logic:**
-    - Every Agent exports a Prometheus metric: `consumer_lag_records`.
-    - **K8s HPA (Horizontal Pod Autoscaler)** monitors this metric.
-    - If `consumer_lag_records > 50,000`: K8s automatically spawns a new instance.
-    - If `consumer_lag_records < 1,000`: K8s terminates the extra instance.
-- **Independence:** Because our agents are decoupled via Kafka, scaling a `SignalLedgerWriterAgent` has zero impact on the `SignalGeneratorAgent` compute node.
+- **Current Scaling Logic:**
+    - Persistence Agents MUST export `persistence_batch_latency` and `persistence_consumer_lag` via `src/observability/metrics.py`.
+    - Compute Agents MUST export `plugin_execution_seconds` (histogram by `plugin_name`) and `events_consumed_total`.
+    - **Grafana alerting** monitors `persistence_consumer_lag`. If lag exceeds threshold, the on-call engineer restarts or adds instances manually via systemd.
+
+- **Example - Feature Tier (Current):**
+    - **IndicatorComputeAgent (CPU-Bound):** Single systemd instance. If overwhelmed, increase batch size or reduce polling interval.
+    - **FeatureWriterAgent (IO-Bound):** Single systemd instance. Scale by tuning batch size and flush interval before adding instances.
+
+- **Independence:** Because agents are decoupled via Kafka, tuning a `FeatureWriterAgent` has zero impact on `IndicatorComputeAgent` compute.
 - **Observability:** Prometheus + Grafana monitor the "Golden Signals" (Traffic, Latency, Errors, Saturation) for every Agent independently.
 
+> **[TARGET ARCHITECTURE]** Future: Kafka consumer group partitioning (multiple instances per agent type, each assigned a partition subset). No K8s HPA — production is a single server. K8s references in any implementation plan are invalid.
+
 ## 4. Resilience & Operational Protocols
-Renaissance Agents must handle failures without human intervention and ensure no data loss during K8s lifecycle events.
+Renaissance Agents must handle failures without human intervention and ensure no data loss during systemd lifecycle events (start/stop/restart).
 
 ### Graceful Shutdown (The "Drain" Mandate)
 - **Signal Handling:** Agents MUST listen for `SIGTERM` and `SIGINT`.
@@ -38,19 +41,22 @@ Renaissance Agents must handle failures without human intervention and ensure no
     3.  Close the repository connection *only after* the batch is finalized.
     4.  Signal the orchestrator that the agent is "Shutdown Complete."
 
-### Dead-Letter Queue (DLQ) Integration
+### Dead-Letter Queue (DLQ) Integration **[TARGET ARCHITECTURE — not yet implemented]**
+> **Current Standard:** DLQ topic infrastructure does not exist. Agents MUST catch unprocessable payloads, log a structured error via `structlog`, and discard. Do NOT attempt to publish to a DLQ topic that doesn't exist.
+>
+> **Target:** Once DLQ topics are provisioned:
 - Agents MUST NOT block on unprocessable payloads (e.g., malformed JSON).
 - **Protocol:**
     - Wrap persistence/compute logic in try-except.
-    - On failure, route the payload to `intelligence.[domain].journal.dlq`.
+    - On failure, route the payload to `{env}.intelligence.[domain].journal.dlq`.
     - Log an `error` event for post-mortem analysis (e.g., "Persistence failure: data unprocessable").
 
-### Scaling & Lag Monitoring
-- **Consumer Lag Instrumentation:** Every Agent MUST export `consumer_lag_records` (the difference between `latest_offset` and `current_offset`).
-- **HPA Policy:**
-    - If `lag > threshold`: Spawn new Agent instance.
-    - If `lag < threshold`: Terminate Agent instance after drain period.
-- **Independence:** Persistence Agents (Historians) and Logic Agents (Computers) MUST scale on independent metrics. Never couple them.
+### Scaling & Lag Monitoring **[CURRENT STANDARD]**
+- **Consumer Lag Instrumentation:** Persistence Agents MUST export `persistence_consumer_lag` and `persistence_batch_latency` via `src/observability/metrics.py`. Compute Agents MUST export `plugin_execution_seconds` and `events_consumed_total`. Use the canonical metric names — do not invent new names.
+- **Grafana Alerting Policy:**
+    - If `persistence_consumer_lag > threshold`: Page on-call engineer to investigate and manually restart or tune agent.
+    - If lag clears: Resolve alert.
+- **Independence:** Persistence Agents (WriterAgents) and Logic Agents (ComputeAgents) MUST be instrumented on independent metrics. Never couple them.
 - **Observability:** Prometheus + Grafana monitor the "Golden Signals" (Traffic, Latency, Errors, Saturation) for every Agent independently.
 
 ## 5. Comparison: Service vs. Agent
@@ -59,8 +65,8 @@ Renaissance Agents must handle failures without human intervention and ensure no
 | :--- | :--- | :--- |
 | **State** | Monolithic (Service + DB) | Decoupled (Agent + Kafka Buffer) |
 | **Scaling** | Manual/Static | Automated via Lag-based HPA |
-| **Resilience** | Stop-on-Error | Dead-Letter-Queue (DLQ) + Auto-Retry |
-| **Visibility** | Log files | OTel Metrics + Provenance Chain |
+| **Resilience** | Stop-on-Error | Structured error logging + DLQ (target) |
+| **Visibility** | Log files | Prometheus metrics + structlog (current); ProvenanceChain (target, not yet implemented) |
 
 ## 6. Taxonomy & Domain Mapping
 
@@ -74,9 +80,15 @@ Renaissance Agents must handle failures without human intervention and ensure no
 | **Training** | Model Learning | `TrainingAgent` | `FeatureTrainingAgent` |
 | **Swarm** | Multi-Agent Reasoning | `SwarmAgent` | `SwarmIntelligenceAgent` |
 
-## 7. The Unified Intelligence Bus Taxonomy (v2.0)
+> **Taxonomy Note:** `FeatureHistorianAgent` previously appeared in plans but uses the wrong suffix — persistence agents use `WriterAgent` suffix (e.g., `FeatureWriterAgent`). The `HistorianAgent` suffix is not in the taxonomy and must not be used. Similarly, `SwarmSMCContributor` violates the `SwarmAgent` suffix rule — correct name would be `SwarmSMCAgent`.
 
-| Tier | Topic Name | Schema (Contract) | Agent Domain |
+## 7. The Unified Intelligence Bus Taxonomy **[TARGET ARCHITECTURE — topics not yet in stream_keys.py]**
+
+> **Important:** None of these tiered topics currently exist in `src/core/stream_keys.py`. The current pipeline publishes `IntelligenceEvent` to `intelligence:{SYMBOL}:{TF}` (a single unified topic per symbol/tf). The per-tier topic split below is the target architecture. Do not reference these topic names in implementation plans until they are added to `stream_keys.py`.
+>
+> **Topic naming rule (CLAUDE.md):** All topics must be prefixed with `{env}.` via `stream_keys.py`. The topic names below show the suffix only — actual topics are `{env}.intelligence.i1.indicators` etc.
+
+| Tier | Topic Suffix | Schema (Contract) | Agent Domain |
 | :--- | :--- | :--- | :--- |
 | **I1** | `intelligence.i1.indicators` | `I1Indicators` | `IndicatorComputeAgent` |
 | **I2** | `intelligence.i2.events` | `I2Events` | `EventComputeAgent` |
@@ -90,9 +102,11 @@ Renaissance Agents must handle failures without human intervention and ensure no
 ### Why this is the "Renaissance" Way:
 
 1.  **Strict Modularity:** If a plugin in I3 produces an output that doesn't fit `I3Structure`, the schema validation fails at the producer node. It never pollutes the downstream pipeline.
-2.  **Zero-Knowledge DAG:** The `SignalGeneratorAgent` (I7) doesn't need to know how `I1` works. It only needs to subscribe to `intelligence.i6.confluence` to get the pre-aggregated confluence features it requires for scoring.
+2.  **Zero-Knowledge DAG:** The `SignalGeneratorAgent` (I7) doesn't need to know how `I1` works. It only needs to subscribe to `{env}.intelligence.i6.confluence` to get the pre-aggregated confluence features it requires for scoring.
 3.  **Compute Efficiency:** By forcing tiers into these topics, we allow downstream agents to perform topic-based subscription filtering. If an agent only cares about `SMC` confluence, it ignores `i1` through `i5` topics entirely, saving massive CPU cycles on deserialization.
 
 ---
-**Status:** Global Standard v1.0
-**Last Updated:** 2026-03-25
+**Status:** Global Standard v1.1 — Current vs Target architecture labelled
+**Last Updated:** 2026-03-26
+
+> **Reading this document:** Sections labelled **[CURRENT STANDARD]** describe what agents must do today. Sections labelled **[TARGET ARCHITECTURE]** describe where we are heading — do not implement until the prerequisite infrastructure exists.

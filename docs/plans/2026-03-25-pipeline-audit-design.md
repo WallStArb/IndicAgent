@@ -5,31 +5,39 @@
 **Priority:** Critical — Foundation for v2.1 Data Quality validation
 **Revision Notes:** Second pass of critical fixes applied 2026-03-26 — ready for implementation planning
 
-## Critical Fixes Applied (2026-03-25)
+## Critical Fixes Applied
 
-### 1. Database Schema
-- [x] Verified `intelligence_metrics` does NOT exist (reviewer error)
-- [x] Keep original table name `intelligence_metrics` (no conflict)
-
-### 2. Field Name Mapping
-- [x] Fixed SQL queries to use period-encoded field names:
-  - `rsi_14`, `atr_14`, `macd_12_26_9`
-  - Changed from JSONB path `intel->'i1'->>'rsi'` to direct `i1->>'rsi_14'`
-  - Changed `bar->>'close'` instead of querying non-existent `intel->'bar'`
-
-### 3. Validation Logic Fixes
+### Pass 1 (2026-03-25)
+- [x] Verified `intelligence_metrics` does NOT exist (reviewer error) — name is correct
+- [x] Fixed SQL queries to use direct JSONB column paths (`i1->>'rsi_14'`, not `intel->'i1'->>'rsi'`)
+- [x] Fixed bar fields: `(bar->>'close')::float` (explicit cast — avoids numpy object array)
 - [x] Fixed I6→I7 completeness: Query `i6` JSONB directly, not iterate I7 signal dicts
 - [x] Fixed regime agreement: Use `signal["regime_type"]` instead of non-existent `regime_gate`
 - [x] Handle `regime_type='any'` signals (match any I4 regime)
 
-### 4. Remaining Issues (Deferred to Implementation)
+### Pass 2 (2026-03-26) — Second Reviewer Pass
+- [x] `cross_tier_validation.py`: Removed phantom `intel->` column — was `intel->'i1'->>'atr'`, now `i1->>'atr_14'`
+- [x] `cross_tier_validation.py`: `i4->>'regime'` → `smc->>'hmm_regime'` (HMM regime lives in `smc` JSONB)
+- [x] `cross_tier_validation.py`: `i4->>'trend_strength'` → `i3->>'trend_strength'` (trend_strength is an I3 field; I4 has `trend_regime`/`trend_confidence`/`kalman_trend`)
+- [x] `cross_tier_validation.py`: `i4->>'volatility'` → `i4->>'vol_percentile'` (I4 has `vol_regime`, `vol_percentile`, `garch_sigma`, `garch_vol_ratio`)
+- [x] `validation_engine.py`: `i4->>'vwap'` → `i4->>'session_vwap'`
+- [x] `validation_engine.py`: `i4->>'volatility'` → `i4->>'vol_percentile'`
+- [x] `pipeline_audit.py`: `DatabaseManager()` → `DatabaseManager(settings.database_url)`; `db.connect()` → `db.initialize()`
+- [x] `pipeline_audit.py`: Latency query removed — referenced deleted columns (`latency_bar_aggregation` etc. not in DDL). Replaced with `PrometheusMetricsFetcher.get_pipeline_latency()` call
+- [x] `cross_tier_validation.py`: Double-counted `total_rows` fixed — was `len(rows)` then `+= 1` per row; now pre-filter to `valid_rows` and `total_rows = len(valid_rows)`
+- [x] `cross_tier_validation.py`: `AND i7 IS NOT NULL` → `AND jsonb_array_length(i7) > 0` (`i7` has `DEFAULT '[]' NOT NULL` so IS NOT NULL is always true)
+- [x] PromQL: `{24h}` → `[24h]`; removed contradictory `by/without` in same clause
+- [x] RSI reference: added zero-guard `np.where(avg_loss == 0, np.inf, ...)` to prevent divide-by-zero
+- [x] `datetime.utcnow()` → `datetime.now(UTC)` throughout
+
+### Remaining Issues (Deferred to Implementation)
+- [ ] ATR/VWAP absolute tolerances (`0.05`) incorrect for futures (ATR is 15-25 points) — implement empirical calibration
 - [ ] Latency sampling (10% sampling instead of per-bar)
 - [ ] External validation (defer to Phase 2)
-- [ ] Regime segmentation (add WHERE clauses)
-- [ ] Index recommendations
-- [ ] Tolerance threshold empirical validation
+- [ ] Regime segmentation (add WHERE clauses for per-regime breakdown)
+- [ ] `feature_pipeline_latency_ms` not registered in production Prometheus — confirm before using
 
-**Status:** Critical blockers resolved. Design ready for implementation planning with remaining issues as implementation tasks.
+**Status:** All critical and important blockers resolved. Ready for implementation planning.
 
 ## Overview
 

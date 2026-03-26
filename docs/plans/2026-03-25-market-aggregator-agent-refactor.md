@@ -15,6 +15,6 @@ Convert `market_analysis_service.py` into a high-performance `MarketAggregatorAg
 4. **Resilience:** Wrap the accumulation loop in a graceful shutdown that flushes pending bars to Kafka before exiting.
 
 ## Verification
-- **Throughput:** Ensure `market_bars_published_total` is incrementing correctly.
-- **Latency:** Verify `BAR_AGGREGATION_LATENCY` is within sub-millisecond bounds.
+- **Throughput:** Ensure `events_produced_total` is incrementing correctly.
+- **Latency:** Verify `plugin_execution_seconds` is within sub-millisecond bounds.
 - **Data Integrity:** Verify that OHLCV bars produced match the legacy logic (Parity Check).

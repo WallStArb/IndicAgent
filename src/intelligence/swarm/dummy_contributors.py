@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from src.intelligence.schemas.alpha_multiplier import AgentResult, AlphaMultiplier
+from src.intelligence.schemas import AgentResult, AlphaMultiplier
 from src.intelligence.swarm.interface import IAlphaContributor
 
 

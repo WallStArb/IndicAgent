@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix broken topic wiring from the refactoring sprint, then deploy `FeatureHistorianAgent` as a shadow consumer writing to `feature_snapshots_shadow` — enabling automated parity validation before primary-write cutover.
+**Goal:** Fix broken topic wiring from the refactoring sprint, then deploy `FeatureSnapshotWriterAgent` as a shadow consumer writing to `feature_snapshots_shadow` — enabling automated parity validation before primary-write cutover.
 
-**Architecture:** `SignalGeneratorAgent` already correctly publishes `BarIntelligenceRecord` to `topic_intelligence_journal`. Two independent consumer groups will read from this single topic: `feature_writer_group` (existing — writes to `intelligence_features`) and `feature_historian_group` (new — writes to `feature_snapshots_shadow`). The auditor compares both tables row-by-row on a timer.
+**Architecture:** `SignalGeneratorAgent` already correctly publishes `BarIntelligenceRecord` to `topic_intelligence_journal`. Two independent consumer groups will read from this single topic: `feature_writer_group` (existing — writes to `intelligence_features`) and `feature_snapshot_writer_group` (new — writes to `feature_snapshots_shadow`). The auditor compares both tables row-by-row on a timer.
 
 **Tech Stack:** Python asyncio, asyncpg, aiokafka, structlog, Pydantic, TimescaleDB/PostgreSQL
 
@@ -25,7 +25,7 @@ The correct DAG is already in place everywhere else:
 SignalGeneratorAgent
   └─► BarIntelligenceRecord → development.intelligence.journal
         ├─► feature_writer_group  → intelligence_features      (fix wiring)
-        └─► feature_historian_group → feature_snapshots_shadow (new, Task 3)
+        └─► feature_snapshot_writer_group → feature_snapshots_shadow (new, Task 3)
 ```
 
 ## File Map
@@ -36,10 +36,10 @@ SignalGeneratorAgent
 | `services/feature_compute_agent.py` | Modify | Remove dead `IntelligenceJournal` publication block |
 | `services/feature_writer_service.py` | Modify | Fix topic subscription to `topic_intelligence_journal` |
 | `src/persistence/repository/feature_repository.py` | Modify | Accept configurable table name (DRY — reused by historian) |
-| `services/feature_historian_agent.py` | Create | Shadow writer: `intelligence.journal` → `feature_snapshots_shadow` |
+| `services/feature_snapshot_writer_agent.py` | Create | Shadow writer: `intelligence.journal` → `feature_snapshots_shadow` |
 | `production/migrations/051_feature_snapshots_shadow.sql` | Create | Shadow table DDL |
-| `tests/unit/test_feature_historian_agent.py` | Create | Unit tests for historian parse + write path |
-| `production/systemd/indicagent-feature-historian.service` | Create | systemd unit |
+| `tests/unit/test_feature_snapshot_writer_agent.py` | Create | Unit tests for historian parse + write path |
+| `production/systemd/indicagent-feature-snapshot-writer.service` | Create | systemd unit |
 
 ---
 
@@ -181,7 +181,7 @@ git commit -m "fix(wiring): remove undefined topic_feature_processed, fix featur
 ```sql
 -- production/migrations/051_feature_snapshots_shadow.sql
 -- Shadow table for parity validation — mirrors intelligence_features.
--- Written by FeatureHistorianAgent (consumer group: feature_historian_group).
+-- Written by FeatureSnapshotWriterAgent (consumer group: feature_snapshot_writer_group).
 -- Compared against intelligence_features by ParityAuditorAgent on 5-minute schedule.
 -- DROP after parity certification and primary-write cutover.
 
@@ -257,7 +257,7 @@ git commit -m "feat(db): add feature_snapshots_shadow and feature_parity_violati
 - Modify: `src/persistence/repository/feature_repository.py`
 - Test: `tests/unit/test_feature_repository.py`
 
-The `FeatureHistorianAgent` will write to `feature_snapshots_shadow` using exactly the same SQL as `FeatureWriterService`. Rather than duplicating the 31-column INSERT, make `FeatureRepository` accept a `table_name` parameter. One SQL template, two instantiations.
+The `FeatureSnapshotWriterAgent` will write to `feature_snapshots_shadow` using exactly the same SQL as `FeatureWriterService`. Rather than duplicating the 31-column INSERT, make `FeatureRepository` accept a `table_name` parameter. One SQL template, two instantiations.
 
 - [ ] **Step 1: Write failing test**
 
@@ -303,7 +303,7 @@ Replace `src/persistence/repository/feature_repository.py` with:
 """FeatureRepository — write-side persistence for intelligence feature vectors.
 
 Accepts a configurable table_name so the same SQL template is reused by both
-FeatureWriterService (→ intelligence_features) and FeatureHistorianAgent
+FeatureWriterService (→ intelligence_features) and FeatureSnapshotWriterAgent
 (→ feature_snapshots_shadow). Never duplicate the 31-column INSERT.
 """
 
@@ -394,11 +394,11 @@ git commit -m "refactor(repository): FeatureRepository accepts table_name for sh
 
 ---
 
-## Task 4: Create `FeatureHistorianAgent`
+## Task 4: Create `FeatureSnapshotWriterAgent`
 
 **Files:**
-- Create: `services/feature_historian_agent.py`
-- Create: `tests/unit/test_feature_historian_agent.py`
+- Create: `services/feature_snapshot_writer_agent.py`
+- Create: `tests/unit/test_feature_snapshot_writer_agent.py`
 
 The historian is a thin consumer. It reads `BarIntelligenceRecord` from `intelligence.journal` (same topic as `FeatureWriterService`, different consumer group), converts to insert params using the already-tested `_record_to_insert_params()` from `feature_writer_service.py`, and writes to `feature_snapshots_shadow` via `FeatureRepository`.
 
@@ -407,13 +407,13 @@ No `StreamMerger`, no `DataWriterAgent` — `BarIntelligenceRecord` is already a
 - [ ] **Step 1: Write failing tests**
 
 ```python
-# tests/unit/test_feature_historian_agent.py
+# tests/unit/test_feature_snapshot_writer_agent.py
 import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from services.feature_historian_agent import FeatureHistorianAgent
+from services.feature_snapshot_writer_agent import FeatureSnapshotWriterAgent
 
 def _make_settings():
     s = MagicMock()
@@ -430,26 +430,26 @@ def test_historian_consumer_group_is_distinct():
     the fixes for lines ~640 and ~671 in feature_writer_service.py, not just line 35/381.
     Run Task 1 completely before running this test file.
     """
-    from services.feature_historian_agent import CONSUMER_GROUP
-    assert CONSUMER_GROUP == "feature_historian_group"
+    from services.feature_snapshot_writer_agent import CONSUMER_GROUP
+    assert CONSUMER_GROUP == "feature_snapshot_writer_group"
     # Sanity: not the same as the primary writer
     from services.feature_writer_service import CONSUMER_GROUP as PRIMARY_GROUP
     assert CONSUMER_GROUP != PRIMARY_GROUP
 
 def test_historian_subscribes_to_intelligence_journal():
     """Historian must consume from the same topic as FeatureWriterService."""
-    from services.feature_historian_agent import CONSUMER_TOPIC_FN
+    from services.feature_snapshot_writer_agent import CONSUMER_TOPIC_FN
     from src.core.stream_keys import topic_intelligence_journal
     assert CONSUMER_TOPIC_FN("development") == topic_intelligence_journal("development")
 
 def test_historian_writes_to_shadow_table():
     """FeatureRepository must be instantiated with feature_snapshots_shadow."""
-    from services.feature_historian_agent import SHADOW_TABLE
+    from services.feature_snapshot_writer_agent import SHADOW_TABLE
     assert SHADOW_TABLE == "feature_snapshots_shadow"
 
 def test_parse_valid_bar_intelligence_record():
-    from services.feature_historian_agent import FeatureHistorianAgent
-    agent = FeatureHistorianAgent.__new__(FeatureHistorianAgent)
+    from services.feature_snapshot_writer_agent import FeatureSnapshotWriterAgent
+    agent = FeatureSnapshotWriterAgent.__new__(FeatureSnapshotWriterAgent)
     agent.logger = MagicMock()
     agent._parse_errors = MagicMock()
     agent._parse_errors.inc = MagicMock()
@@ -481,7 +481,7 @@ def test_parse_valid_bar_intelligence_record():
     assert result.intelligence.symbol == "ES"
 
 def test_parse_invalid_json_returns_none():
-    agent = FeatureHistorianAgent.__new__(FeatureHistorianAgent)
+    agent = FeatureSnapshotWriterAgent.__new__(FeatureSnapshotWriterAgent)
     agent.logger = MagicMock()
     agent._parse_errors = MagicMock()
     agent._parse_errors.inc = MagicMock()
@@ -490,18 +490,18 @@ def test_parse_invalid_json_returns_none():
     agent._parse_errors.inc.assert_called_once()
 ```
 
-Run: `.venv/bin/pytest tests/unit/test_feature_historian_agent.py -v`
+Run: `.venv/bin/pytest tests/unit/test_feature_snapshot_writer_agent.py -v`
 Expected: FAIL (module doesn't exist yet)
 
-- [ ] **Step 2: Create `services/feature_historian_agent.py`**
+- [ ] **Step 2: Create `services/feature_snapshot_writer_agent.py`**
 
 ```python
 #!/usr/bin/env python3
 """
-FeatureHistorianAgent — shadow persistence for parity validation.
+FeatureSnapshotWriterAgent — shadow persistence for parity validation.
 
 Consumes BarIntelligenceRecord from intelligence.journal under consumer group
-'feature_historian_group' (separate from 'feature_writer_group') and writes to
+'feature_snapshot_writer_group' (separate from 'feature_writer_group') and writes to
 feature_snapshots_shadow. ParityAuditorAgent compares the two tables to certify
 that FeatureRepository produces identical results to FeatureWriterService before
 primary-write cutover.
@@ -537,7 +537,7 @@ from src.persistence.repository.feature_repository import FeatureRepository
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
-CONSUMER_GROUP: str = "feature_historian_group"
+CONSUMER_GROUP: str = "feature_snapshot_writer_group"
 CONSUMER_TOPIC_FN = topic_intelligence_journal
 SHADOW_TABLE: str = "feature_snapshots_shadow"
 BATCH_SIZE: int = 50
@@ -545,7 +545,7 @@ FLUSH_INTERVAL_SECS: float = 5.0
 METRICS_PORT: int = 9119
 
 
-class FeatureHistorianAgent:
+class FeatureSnapshotWriterAgent:
     """Shadow writer: intelligence.journal → feature_snapshots_shadow."""
 
     def __init__(self) -> None:
@@ -553,7 +553,7 @@ class FeatureHistorianAgent:
         self.shutdown_requested = False
         self.start_time = datetime.now(UTC)
 
-        setup_service_logging("logs/feature_historian_agent.log")
+        setup_service_logging("logs/feature_snapshot_writer_agent.log")
         self.logger = structlog.get_logger(__name__)
 
         self._settings = Settings()
@@ -569,23 +569,23 @@ class FeatureHistorianAgent:
         self._consumer: KafkaConsumerClient | None = None
 
         self._events_consumed = counter(
-            "feature_historian_events_consumed_total",
-            "BarIntelligenceRecords consumed by FeatureHistorianAgent",
+            "feature_snapshot_writer_events_consumed_total",
+            "BarIntelligenceRecords consumed by FeatureSnapshotWriterAgent",
         )
         self._shadow_writes = counter(
-            "feature_historian_shadow_writes_total",
+            "feature_snapshot_writer_shadow_writes_total",
             "Rows written to feature_snapshots_shadow",
         )
         self._parse_errors = counter(
-            "feature_historian_parse_errors_total",
+            "feature_snapshot_writer_parse_errors_total",
             "BarIntelligenceRecord parse failures",
         )
         self._write_errors = counter(
-            "feature_historian_write_errors_total",
+            "feature_snapshot_writer_write_errors_total",
             "Shadow write failures",
         )
         self._consumer_lag = gauge(
-            "feature_historian_consumer_lag",
+            "persistence_consumer_lag",
             "Estimated Kafka consumer lag (buffer size proxy)",
         )
 
@@ -600,7 +600,7 @@ class FeatureHistorianAgent:
         try:
             return BarIntelligenceRecord.model_validate_json(raw)
         except (ValidationError, ValueError) as exc:
-            self.logger.warning("historian_parse_failed", error=str(exc))
+            self.logger.warning("snapshot_writer_parse_failed", error=str(exc))
             self._parse_errors.inc()
             return None
 
@@ -652,7 +652,7 @@ class FeatureHistorianAgent:
                 self.logger.error("consume_loop_error", error=str(exc))
 
     async def start(self) -> None:
-        self.logger.info("FeatureHistorianAgent starting", shadow_table=SHADOW_TABLE)
+        self.logger.info("FeatureSnapshotWriterAgent starting", shadow_table=SHADOW_TABLE)
         start_metrics_server(port=METRICS_PORT)
 
         # Build expiry map (same as FeatureWriterService)
@@ -678,7 +678,7 @@ class FeatureHistorianAgent:
         )
         await self._consumer.start()
         self.logger.info(
-            "historian_consumer_started",
+            "snapshot_writer_consumer_started",
             topic=topic_intelligence_journal(self._env_name),
             group=CONSUMER_GROUP,
         )
@@ -690,7 +690,7 @@ class FeatureHistorianAgent:
             await self.stop()
 
     async def stop(self) -> None:
-        self.logger.info("FeatureHistorianAgent stopping")
+        self.logger.info("FeatureSnapshotWriterAgent stopping")
         self.running = False
         self.shutdown_requested = True
         await self._flush()  # drain buffer before exit
@@ -698,11 +698,11 @@ class FeatureHistorianAgent:
             await self._consumer.stop()
         if self._db:
             await self._db.close()
-        self.logger.info("FeatureHistorianAgent stopped")
+        self.logger.info("FeatureSnapshotWriterAgent stopped")
 
 
 async def main() -> None:
-    agent = FeatureHistorianAgent()
+    agent = FeatureSnapshotWriterAgent()
     await agent.start()
 
 
@@ -713,7 +713,7 @@ if __name__ == "__main__":
 - [ ] **Step 3: Run tests**
 
 ```bash
-.venv/bin/pytest tests/unit/test_feature_historian_agent.py -v
+.venv/bin/pytest tests/unit/test_feature_snapshot_writer_agent.py -v
 ```
 
 Expected: PASS all tests
@@ -727,23 +727,23 @@ Expected: PASS all tests
 - [ ] **Step 5: Commit**
 
 ```bash
-git add services/feature_historian_agent.py tests/unit/test_feature_historian_agent.py
-git commit -m "feat(service): add FeatureHistorianAgent shadow writer for parity validation"
+git add services/feature_snapshot_writer_agent.py tests/unit/test_feature_snapshot_writer_agent.py
+git commit -m "feat(service): add FeatureSnapshotWriterAgent shadow writer for parity validation"
 ```
 
 ---
 
-## Task 5: systemd unit for `FeatureHistorianAgent`
+## Task 5: systemd unit for `FeatureSnapshotWriterAgent`
 
 **Files:**
-- Create: `production/systemd/indicagent-feature-historian.service`
+- Create: `production/systemd/indicagent-feature-snapshot-writer.service`
 
 - [ ] **Step 1: Create unit file**
 
 ```ini
-# production/systemd/indicagent-feature-historian.service
+# production/systemd/indicagent-feature-snapshot-writer.service
 [Unit]
-Description=IndicAgent Feature Historian Agent (Shadow Writer)
+Description=IndicAgent Feature Snapshot Writer Agent (Shadow Writer)
 After=network.target
 Wants=network.target
 
@@ -752,7 +752,7 @@ Type=simple
 User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_historian_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_snapshot_writer_agent.py
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -764,11 +764,11 @@ WantedBy=multi-user.target
 - [ ] **Step 2: Install and enable**
 
 ```bash
-sudo cp production/systemd/indicagent-feature-historian.service /etc/systemd/system/
+sudo cp production/systemd/indicagent-feature-snapshot-writer.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable indicagent-feature-historian
-sudo systemctl start indicagent-feature-historian
-sudo systemctl status indicagent-feature-historian
+sudo systemctl enable indicagent-feature-snapshot-writer
+sudo systemctl start indicagent-feature-snapshot-writer
+sudo systemctl status indicagent-feature-snapshot-writer
 ```
 
 Expected: `active (running)`
@@ -786,8 +786,8 @@ Expected: row count > 0, timestamps recent.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add production/systemd/indicagent-feature-historian.service
-git commit -m "feat(ops): add indicagent-feature-historian systemd unit"
+git add production/systemd/indicagent-feature-snapshot-writer.service
+git commit -m "feat(ops): add indicagent-feature-snapshot-writer systemd unit"
 ```
 
 ---
@@ -799,10 +799,10 @@ git commit -m "feat(ops): add indicagent-feature-historian systemd unit"
 - [ ] `feature_compute_agent.py` no longer publishes `IntelligenceJournal`
 - [ ] `feature_snapshots_shadow` table exists in TimescaleDB
 - [ ] `feature_parity_violations` table exists in TimescaleDB
-- [ ] `FeatureHistorianAgent` writes to shadow table (confirm with row count query above)
+- [ ] `FeatureSnapshotWriterAgent` writes to shadow table (confirm with row count query above)
 - [ ] `FeatureRepository.insert()` works for both tables (unit tests pass)
 - [ ] All unit tests pass with no new failures
-- [ ] Both `feature_writer_group` and `feature_historian_group` consumer groups visible in Redpanda:
+- [ ] Both `feature_writer_group` and `feature_snapshot_writer_group` consumer groups visible in Redpanda:
   ```bash
   docker exec redpanda rpk group list
   ```

@@ -37,7 +37,13 @@ from src.core.stream_keys import (
 )
 from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
 from src.intelligence.schemas import BarIntelligenceRecord
-from src.observability.metrics import counter, gauge, start_metrics_server
+from src.observability.metrics import (
+    PERSISTENCE_BATCH_LATENCY,
+    PERSISTENCE_CONSUMER_LAG,
+    counter,
+    gauge,
+    start_metrics_server,
+)
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -296,6 +302,8 @@ class FeatureWriterService:
             "feature_writer_parse_errors_total",
             "Total BarIntelligenceRecord parse failures",
         )
+        self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_writer")
+        self._consumer_lag_metric = PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_writer")
 
         self._total_events = 0
         self._total_batches = 0
@@ -493,7 +501,8 @@ class FeatureWriterService:
         params = list(self._buffer)
 
         try:
-            await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
+            with self._batch_latency.time():
+                await self.db_manager.execute_batch(_INSERT_FEATURE_SQL, params)
             # Explicitly commit offsets after successful DB persistence
             if getattr(self, "_kafka_consumer", None):
                 await self._kafka_consumer.commit()
@@ -704,6 +713,7 @@ class FeatureWriterService:
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
+                self._consumer_lag_metric.set(len(self._buffer))
                 interval = self.config["service"].get("health_check_interval", 30)
                 self.logger.info(
                     "Health check",

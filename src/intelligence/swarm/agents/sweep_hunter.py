@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID
 
-from src.intelligence.schemas.alpha_multiplier import AgentResult, AlphaMultiplier
+from src.intelligence.schemas import AgentResult, AlphaMultiplier
 from src.intelligence.swarm.interface import IAlphaContributor
 
 
@@ -30,8 +30,8 @@ class LiquiditySweepHunter(IAlphaContributor):
             multiplier = 1.0
 
         return AlphaMultiplier(
-            signal_id=uuid4(),
-            ts=datetime.now(),
+            signal_id=UUID(sid),
+            ts=datetime.now(UTC),
             path="llm_swarm",
             contributors={
                 "liquidity_sweep_hunter": AgentResult(

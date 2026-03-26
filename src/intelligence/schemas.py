@@ -20,9 +20,10 @@ Field names are extracted from each plugin's outputs frozenset — no guesswork.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain  # noqa: F401
 from src.core.schemas.bar_message import SessionType
@@ -826,3 +827,43 @@ class BarIntelligenceRecord(BaseModel):
     days_to_expiry: int | None = None
     i7_computed_at: datetime
     pipeline_latency_ms: float
+
+
+# ---------------------------------------------------------------------------
+# Alpha Multiplier — swarm / I8 shadow layer
+# Moved here from src/intelligence/schemas/alpha_multiplier.py to avoid
+# the Python namespace collision (schemas.py vs schemas/ package).
+# ---------------------------------------------------------------------------
+
+MIN_MULTIPLIER: float = 0.0
+MAX_MULTIPLIER: float = 2.0
+
+
+class AgentResult(BaseModel):
+    """Result of a single swarm agent calculation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    agent_id: str
+    multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AlphaMultiplier(BaseModel):
+    """Unified payload for Alpha Multiplier contributions."""
+
+    model_config = ConfigDict(frozen=True)
+
+    signal_id: UUID
+    ts: datetime
+
+    path: Literal["deterministic", "llm_swarm"]
+
+    contributors: dict[str, AgentResult]
+    final_alpha_multiplier: float = Field(..., ge=MIN_MULTIPLIER, le=MAX_MULTIPLIER)
+
+    @property
+    def is_production_ready(self) -> bool:
+        """Returns True only for deterministic-path multipliers safe for production injection."""
+        return self.path == "deterministic"

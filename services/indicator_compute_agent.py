@@ -201,7 +201,7 @@ class IndicatorService:
     def __init__(self, config_file: str | None = None):
         self.running = False
         self.shutdown_requested = False
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(UTC)
         self.config = self._load_config(config_file)
         self._setup_logging()
 
@@ -613,7 +613,7 @@ class IndicatorService:
     async def _health_monitor_loop(self) -> None:
         while self.running and not self.shutdown_requested:
             try:
-                uptime = int((datetime.now() - self.start_time).total_seconds())
+                uptime = int((datetime.now(UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
                 await asyncio.sleep(30)
             except asyncio.CancelledError:
