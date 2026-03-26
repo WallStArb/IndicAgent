@@ -1,6 +1,6 @@
 # Phase 49: DB Performance & Signal Ledger Hardening
 
-**Status:** 📋 Planned
+**Status:** ✅ Complete (partial — 2 items done ad-hoc, 2 deferred)
 
 **Milestone:** v2.1 Data Foundation & Signal Confidence
 
@@ -26,6 +26,15 @@
 
 ---
 
-## Plans
+## Outcome (2026-03-26)
 
-(TBD — Planning will occur when Phase 48 is complete)
+Phase closed without formal execution — items resolved ad-hoc or deferred:
+
+| Goal | Outcome |
+|------|---------|
+| `signal_ledger` composite index `(symbol, feature_ts, feature_tf)` | ✅ Done — `idx_ledger_feature_join` exists |
+| Threading.Lock characterization test | ✅ Done — `tests/unit/service_tests/test_concurrent_lock_behavior.py` |
+| CIS null repair (back-fill 488k rows) | ⏸ Deferred to v2.3 — todo `2026-03-26-backfill-cis-null-scores-in-signal-ledger.md` |
+| Requirements traceability | 🗑 Dropped — housekeeping, no downstream impact |
+
+Note: REQUIREMENTS.md DATA-01 is still marked `[x]` but CIS back-fill is NOT complete. Update when the todo is executed.
