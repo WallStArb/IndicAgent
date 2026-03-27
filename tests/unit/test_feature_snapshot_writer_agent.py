@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import MagicMock
 
 
 def test_feature_snapshot_writer_agent_class_exists():
@@ -56,7 +53,6 @@ def test_shadow_table_constant():
 def test_parse_valid_bar_intelligence_record():
     """_parse_record() must deserialize a valid BarIntelligenceRecord JSON."""
     from services.feature_snapshot_writer_agent import FeatureSnapshotWriterAgent
-    from src.core.agent.base import BaseAgent
     from src.intelligence.schemas import (
         BarIntelligenceRecord,
         I1Indicators,

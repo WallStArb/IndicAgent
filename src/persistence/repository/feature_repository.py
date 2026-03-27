@@ -14,9 +14,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # Security: only these two tables are valid destinations — no f-string injection possible.
-_ALLOWED_TABLES: frozenset[str] = frozenset(
-    {"intelligence_features", "feature_snapshots_shadow"}
-)
+_ALLOWED_TABLES: frozenset[str] = frozenset({"intelligence_features", "feature_snapshots_shadow"})
 
 _INSERT_SQL_TEMPLATE = """
 INSERT INTO {table} (
@@ -54,9 +52,7 @@ class FeatureRepository:
                     Must be in the allow-list — raises ValueError otherwise.
     """
 
-    def __init__(
-        self, db_manager: Any, table_name: str = "intelligence_features"
-    ) -> None:
+    def __init__(self, db_manager: Any, table_name: str = "intelligence_features") -> None:
         if table_name not in _ALLOWED_TABLES:
             raise ValueError(
                 f"table_name '{table_name}' not in allowed table list: {_ALLOWED_TABLES}"

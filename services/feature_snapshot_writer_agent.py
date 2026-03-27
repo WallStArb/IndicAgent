@@ -24,12 +24,10 @@ import asyncio
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import structlog
 from pydantic import ValidationError
 
 from services.feature_writer_service import _build_expiry_map, _record_to_insert_params
@@ -138,7 +136,7 @@ class FeatureSnapshotWriterAgent(BaseAgent):
         assert self._consumer is not None
         _journal_topic = topic_intelligence_journal(self._env_name)
 
-        async for topic, key, payload in self._consumer.messages():
+        async for topic, _key, payload in self._consumer.messages():
             if self._stop_event.is_set():
                 break
             try:
