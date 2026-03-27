@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Ready to execute
-last_updated: "2026-03-27T07:10:59.975Z"
+status: Ready Phase 52.4
+last_updated: "2026-03-27T07:30:00.000Z"
 progress:
-  total_phases: 8
-  completed_phases: 2
-  total_plans: 2
-  completed_plans: 5
+  total_phases: 11
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 6
 ---
 
 # Project State
@@ -18,12 +18,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.3 — dual-write-shadow-writer
+**Current focus:** Phase 52.4 — SignalTrackerAgent refactor
 
 ## Current Position
 
-Phase: 52.3 (dual-write-shadow-writer) — EXECUTING
-Plan: 2 of 2
+Phase: 52.4 (signal-tracker-agent) — READY TO EXECUTE
+PLAN.md: .planning/phases/52.4-signal-tracker-agent/PLAN.md
+
+## Phase 52.3 — COMPLETE (2026-03-27)
+
+FeatureSnapshotWriterAgent shadow writer shipped. Commits: 52a1dbd, 6ddad69, 96040f5, 41cc644, 3c7a704.
 
 ## v2.1 Milestone Goal
 
@@ -134,7 +138,16 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Three targeted edits at lines 124/125/131: add `.labels(agent_id="feature_snapshot_writer")` to PERSISTENCE_BATCH_LATENCY and PERSISTENCE_CONSUMER_LAG calls — eliminates "histogram metric is missing label values" log spam on every consume loop iteration
 - Prometheus labeled metric call pattern: always `.labels(agent_id=...)` before `.observe()` or `.set()` — never call histogram/gauge directly (matches feature_writer_service.py lines 305-306 reference pattern)
 
-### Phase 53 — Data Layer DAG (NEW — designed 2026-03-26)
+### Roadmap Housekeeping — 2026-03-27
+
+- Phase renumbering: auth 53→54, ML scoring 54→55, Renaissance observability 55→56
+- Phases 53.1/53.2/53.3 added to v2.1 ROADMAP (data layer DAG)
+- Archived plans: agent-bootstrap-standard, indicator-compute-agent-refactor, signal-tracker-agent-refactor, market-aggregator-agent-refactor (all superseded)
+- Archived ideas: momentum-acceleration, intelligence-redo, second-derivative-indicators (SHIPPED), trade-journal-auto-doc (LOW quality)
+- Backlog additions: Intelligence Swarm (Tier 1), Confluence Patterns + Latency Audit (Tier 2), Granular Topology (Tier 3)
+- Open swarm bugs: src/intelligence/swarm/ — schemas namespace collision, SafeSwarmWrapper fields, missing alpha_multiplier_shadow migration, return type mismatch (not blocking Phase 52.4)
+
+### Phase 53 — Data Layer DAG (designed 2026-03-26, added to ROADMAP 2026-03-27)
 
 Design doc: `docs/plans/2026-03-26-data-layer-dag-design.md`
 
