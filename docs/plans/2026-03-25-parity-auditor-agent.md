@@ -6,7 +6,7 @@
 
 **Architecture:** The auditor runs a periodic comparison loop (every 5 minutes) independent of the Kafka pipeline. It queries both DB tables for the same time window, computes a per-(symbol, tf) match rate, logs violations to `feature_parity_violations`, and publishes structured events to `development.audit`. After `CERTIFICATION_THRESHOLD` consecutive clean cycles, it publishes `SHADOW_PARITY_CERTIFIED` to `development.system.events` — this is the automated gate for primary-write cutover. No manual SQL. No human-in-the-loop for the happy path.
 
-**Tech Stack:** Python asyncio, asyncpg, structlog, Pydantic, TimescaleDB, Kafka (`development.audit`, `development.system.events`)
+**Tech Stack:** Python asyncio, asyncpg, structlog, Pydantic, TimescaleDB, Kafka (`topic_audit(env_name)` → `{env}.audit`, `topic_system_events(env_name)` → `{env}.system.events`)
 
 ---
 
@@ -935,21 +935,22 @@ After `SHADOW_PARITY_CERTIFIED` is emitted:
 1. Stop `FeatureWriterService`: `sudo systemctl stop indicagent-feature-writer`
 2. **Copy committed Kafka offsets** before renaming the consumer group:
    ```bash
-   # Record the current committed offset of feature_historian_group so the renamed
+   # Record the current committed offset of feature_snapshot_writer_group so the renamed
    # group starts from the same position — not from the beginning of the topic.
-   docker exec redpanda rpk group describe feature_historian_group
+   docker exec redpanda rpk group describe feature_snapshot_writer_group
    # Note the committed offset per partition.
    # After renaming to feature_writer_group, set offsets to match:
+   # Topic resolves via topic_intelligence_journal(settings.env_name) — default: development.intelligence.journal
    docker exec redpanda rpk group seek feature_writer_group \
      --topic development.intelligence.journal --to <committed_offset>
    ```
    **This step is mandatory.** Skipping it causes the renamed group to replay the
    entire topic history into `intelligence_features`, creating duplicate inserts for
    all historical journal records.
-3. Promote `FeatureHistorianAgent` to write to `intelligence_features`:
-   - Change `SHADOW_TABLE = "intelligence_features"` in `feature_historian_agent.py`
-   - Change `CONSUMER_GROUP = "feature_writer_group"` in `feature_historian_agent.py`
-4. Restart historian: `sudo systemctl restart indicagent-feature-historian`
+3. Promote `FeatureSnapshotWriterAgent` to write to `intelligence_features`:
+   - Change `SHADOW_TABLE = "intelligence_features"` in `feature_snapshot_writer_agent.py`
+   - Change `CONSUMER_GROUP = "feature_writer_group"` in `feature_snapshot_writer_agent.py`
+4. Restart historian: `sudo systemctl restart indicagent-feature-snapshot-writer`
 5. Verify `intelligence_features` continues receiving rows:
    ```bash
    docker exec timescaledb psql -U postgres -d indicagent \
