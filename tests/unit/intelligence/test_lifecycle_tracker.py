@@ -758,14 +758,19 @@ class TestConditionExpired:
 
 
 def _make_lifecycle_service():
-    """Build SignalLifecycleService via __new__ (bypasses __init__), with minimal state."""
-    from unittest.mock import MagicMock
+    """Build SignalTrackerAgent via __new__ (bypasses __init__), with minimal state."""
+    from unittest.mock import AsyncMock, MagicMock
 
-    from services.signal_lifecycle_service import SignalLifecycleService
+    from services.signal_tracker_agent import SignalTrackerAgent
 
-    svc = SignalLifecycleService.__new__(SignalLifecycleService)
+    svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
     svc.db_manager = MagicMock()
     svc.db_manager.execute_command = MagicMock(return_value=None)
+    svc._ledger_repo = MagicMock()
+    svc._ledger_repo.record_zone_resolution = AsyncMock()
+    svc._ledger_repo.record_activation = AsyncMock()
+    svc._ledger_repo.record_market_resolution = AsyncMock()
+    svc._ledger_repo.update_signal_status = AsyncMock()
     svc.active_signals_count = MagicMock()
     svc.point_values = {"ES": 50.0}
     svc._mae = {}
@@ -794,7 +799,6 @@ class TestChandelierServiceStateManagement:
     @pytest.mark.asyncio
     async def test_chandelier_state_initialized_on_first_active_bar(self):
         """_chandelier_state[sid] is created on the first active bar evaluation."""
-        from unittest.mock import AsyncMock, patch
 
         svc = _make_lifecycle_service()
         signal_id = "chan-init-001"
@@ -817,14 +821,12 @@ class TestChandelierServiceStateManagement:
         }
         bar = {"high": 5110.0, "low": 5098.0, "close": 5105.0}
 
-        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
-            with patch("services.signal_lifecycle_service.record_activation", new_callable=AsyncMock):
-                await svc._evaluate_signals_against_bar(
-                    symbol="ES", timeframe="1m",
-                    bar=bar, bar_time=__import__("datetime").datetime(2026, 3, 17, 12, 0, 0,
-                                                                       tzinfo=__import__("datetime").timezone.utc),
-                    all_active=[sig],
-                )
+        await svc._evaluate_signals_against_bar(
+            symbol="ES", timeframe="1m",
+            bar=bar, bar_time=__import__("datetime").datetime(2026, 3, 17, 12, 0, 0,
+                                                               tzinfo=__import__("datetime").timezone.utc),
+            all_active=[sig],
+        )
 
         assert signal_id in svc._chandelier_state
         assert svc._chandelier_state[signal_id]["vol_source"] == "garch_sigma"
@@ -834,7 +836,6 @@ class TestChandelierServiceStateManagement:
     async def test_chandelier_state_uses_atr_fallback_when_no_garch(self):
         """When garch_sigma_at_fire is 0, vol_source = 'atr_14' using atr_14 value."""
         from datetime import UTC, datetime
-        from unittest.mock import AsyncMock, patch
 
         svc = _make_lifecycle_service()
         signal_id = "chan-atr-002"
@@ -858,13 +859,11 @@ class TestChandelierServiceStateManagement:
         bar = {"high": 5105.0, "low": 5098.0, "close": 5102.0}
         bar_time = datetime(2026, 3, 17, 12, 0, 0, tzinfo=UTC)
 
-        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
-            with patch("services.signal_lifecycle_service.record_activation", new_callable=AsyncMock):
-                await svc._evaluate_signals_against_bar(
-                    symbol="ES", timeframe="1m",
-                    bar=bar, bar_time=bar_time,
-                    all_active=[sig],
-                )
+        await svc._evaluate_signals_against_bar(
+            symbol="ES", timeframe="1m",
+            bar=bar, bar_time=bar_time,
+            all_active=[sig],
+        )
 
         assert signal_id in svc._chandelier_state
         assert svc._chandelier_state[signal_id]["vol_source"] == "atr_14"
@@ -874,7 +873,6 @@ class TestChandelierServiceStateManagement:
     async def test_chandelier_state_cleaned_up_on_stop_exit(self):
         """_chandelier_state[sid] removed when signal exits via stop loss."""
         from datetime import UTC, datetime
-        from unittest.mock import AsyncMock, patch
 
         svc = _make_lifecycle_service()
         signal_id = "chan-cleanup-003"
@@ -909,12 +907,11 @@ class TestChandelierServiceStateManagement:
         # Bar with low <= stop_loss -> stop hit
         bar = {"high": 5095.0, "low": 5084.0, "close": 5085.0}
 
-        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
-            await svc._evaluate_signals_against_bar(
-                symbol="ES", timeframe="1m",
-                bar=bar, bar_time=bar_time,
-                all_active=[sig],
-            )
+        await svc._evaluate_signals_against_bar(
+            symbol="ES", timeframe="1m",
+            bar=bar, bar_time=bar_time,
+            all_active=[sig],
+        )
 
         assert signal_id not in svc._chandelier_state
         assert signal_id not in svc._staleness_consecutive
@@ -923,7 +920,6 @@ class TestChandelierServiceStateManagement:
     async def test_staleness_consecutive_increments_above_threshold(self):
         """_staleness_consecutive[sid] increments each bar when staleness_score > 0.5."""
         from datetime import UTC, datetime
-        from unittest.mock import AsyncMock, patch
 
         svc = _make_lifecycle_service()
         signal_id = "stale-incr-004"
@@ -952,28 +948,25 @@ class TestChandelierServiceStateManagement:
         }
         bar = {"high": 5105.0, "low": 5098.0, "close": 5102.0}
 
-        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
-            with patch("services.signal_lifecycle_service.record_activation", new_callable=AsyncMock):
-                await svc._evaluate_signals_against_bar(
-                    symbol="ES", timeframe="1m",
-                    bar=bar, bar_time=bar_time,
-                    all_active=[sig],
-                )
-                # After 1 bar with score > 0.5, consecutive = 1
-                assert svc._staleness_consecutive.get(signal_id, 0) == 1
-                # Feed a second bar with same regime flip
-                await svc._evaluate_signals_against_bar(
-                    symbol="ES", timeframe="1m",
-                    bar=bar, bar_time=bar_time,
-                    all_active=[sig],
-                )
-                assert svc._staleness_consecutive.get(signal_id, 0) == 2
+        await svc._evaluate_signals_against_bar(
+            symbol="ES", timeframe="1m",
+            bar=bar, bar_time=bar_time,
+            all_active=[sig],
+        )
+        # After 1 bar with score > 0.5, consecutive = 1
+        assert svc._staleness_consecutive.get(signal_id, 0) == 1
+        # Feed a second bar with same regime flip
+        await svc._evaluate_signals_against_bar(
+            symbol="ES", timeframe="1m",
+            bar=bar, bar_time=bar_time,
+            all_active=[sig],
+        )
+        assert svc._staleness_consecutive.get(signal_id, 0) == 2
 
     @pytest.mark.asyncio
     async def test_shadow_signal_registered_on_condition_expired(self):
         """_shadow_signals[sid] is populated when condition_expired fires."""
         from datetime import UTC, datetime, timedelta
-        from unittest.mock import AsyncMock, patch
 
         svc = _make_lifecycle_service()
         signal_id = "shadow-reg-005"
@@ -1012,12 +1005,11 @@ class TestChandelierServiceStateManagement:
         }
         bar = {"high": 5105.0, "low": 5098.0, "close": 5102.0}
 
-        with patch("services.signal_lifecycle_service.record_zone_resolution", new_callable=AsyncMock):
-            await svc._evaluate_signals_against_bar(
-                symbol="ES", timeframe="1m",
-                bar=bar, bar_time=bar_time,
-                all_active=[sig],
-            )
+        await svc._evaluate_signals_against_bar(
+            symbol="ES", timeframe="1m",
+            bar=bar, bar_time=bar_time,
+            all_active=[sig],
+        )
 
         # Signal should have been moved to shadow tracking
         assert signal_id in svc._shadow_signals
