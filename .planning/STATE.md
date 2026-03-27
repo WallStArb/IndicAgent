@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Milestone complete
-last_updated: "2026-03-26T23:00:00.000Z"
+status: Phase complete — ready for verification
+last_updated: "2026-03-27T06:45:28.370Z"
 progress:
   total_phases: 8
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 2
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.2 plan 02 in progress (IndicatorComputeAgent rename + BaseAgent inheritance). Next: 52.3 → 52.4 → 52.5 → Phase 53.
+**Current focus:** Phase 52.3 — dual-write-shadow-writer COMPLETE
 
 ## Current Position
 
-Phase: 52.3
-Plan: 01
+Phase: 52.3 (dual-write-shadow-writer) — COMPLETE (all 6 tasks, all 1 plan done)
+Plan: 1 of 1 (DONE)
 
 ## v2.1 Milestone Goal
 
@@ -58,6 +58,13 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - **AgentRegistry singleton** — `src/core/agent/registry.py`; `register/list_names/get`; singleton via `__new__`; test isolation via `_instance = None` reset
 - **IndicatorComputeAgent(BaseAgent)** — first concrete BaseAgent subclass; `_run()` raises `NotImplementedError` (start() manages loop directly); `PERSISTENCE_CONSUMER_LAG` set to 0 (no partition end-offset API)
 - **systemd unit** — `services/indicagent-indicator-compute.service`; requires manual `sudo cp` to `/etc/systemd/system/` before activation
+
+## Key Verified Facts (v2.1 Phase 52.3)
+
+- **migration 051** — `feature_snapshots_shadow` hypertable (1-day chunks); `feature_parity_violations` audit table; UNIQUE INDEX on (ts, symbol, tf) required for ON CONFLICT — TimescaleDB does NOT copy PKs from LIKE source
+- **FeatureRepository** — accepts `table_name: str = "intelligence_features"`; allow-list frozenset validates against SQL injection; `insertBatch()` replaced with `insert(params_tuple)` (TypeError stub for stale callers)
+- **FeatureSnapshotWriterAgent(BaseAgent)** — `services/feature_snapshot_writer_agent.py`; CONSUMER_GROUP=`feature_snapshot_writer_group`; metrics port 9119; `_run()` delegates to super().start() via normal BaseAgent flow
+- **systemd unit** — `indicagent-feature-snapshot-writer.service` installed, enabled, `active (running)`; shadow rows confirmed live (56 rows in 5 minutes)
 
 ## v2.1 Phase Context
 
@@ -114,11 +121,20 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - MarketAnalysisService tests preserved with @pytest.mark.skip — file consolidated into feature_compute_agent (v2.0); tests document threading.Lock contract
 - PERSISTENCE_CONSUMER_LAG set to 0 — consistent with Phase 52.1 llm_writer pattern; no partition end-offset API available
 
+### Decisions (Phase 52.3)
+
+- FeatureRepository allow-list validation: `frozenset{"intelligence_features", "feature_snapshots_shadow"}` — ValueError on unknown table; no f-string injection possible
+- FeatureSnapshotWriterAgent inherits BaseAgent (not standalone) — standard Renaissance lifecycle, SIGTERM drain, structlog binding consistent with IndicatorComputeAgent pattern
+- TimescaleDB `CREATE TABLE LIKE` does NOT copy primary keys/indexes — shadow table needs explicit `CREATE UNIQUE INDEX` for `ON CONFLICT (ts, symbol, tf) DO NOTHING` to work
+- `auto_offset_reset="earliest"` for shadow consumer — catches up from journal start to ensure full parity coverage; expected shadow count > primary count during catchup phase
+- Metrics port 9119 for snapshot writer (distinct from all other services)
+
 ### Phase 53 — Data Layer DAG (NEW — designed 2026-03-26)
 
 Design doc: `docs/plans/2026-03-26-data-layer-dag-design.md`
 
 5-agent data layer refactor. Sub-phases:
+
 - **53.1:** BarWriterAgent + BarCompletenessAgent (unblocks Phase 52 DB-ignorant refactor; retires gap_fill_service)
 - **53.2:** BarAggregatorAgent (extracts BarAccumulator from feature_compute_agent; makes it pure intelligence)
 - **53.3:** RollDetectionAgent + DataProviderAgent rename (extracts RollMonitor; typed RollEvent schema; cleans tws_daemon)
@@ -133,5 +149,6 @@ Ports: BarAggregatorAgent=:9120, BarWriterAgent=:9121, RollDetectionAgent=:9122,
 **32 pending todos** (see `.planning/todos/pending/`)
 
 Recent additions:
+
 - 2026-03-26: Backfill CIS null scores in signal_ledger (deferred to v2.3)
 - 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
