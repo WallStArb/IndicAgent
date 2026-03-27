@@ -32,7 +32,7 @@ class TestFreshnessDecayComputation:
     @pytest.mark.unit
     def test_freshness_at_zero_bars_is_one(self):
         """At bars_since=0, freshness=1.0 (no time elapsed since signal fire)."""
-        from services.signal_lifecycle_service import _compute_freshness_decay
+        from services.signal_tracker_agent import _compute_freshness_decay
 
         freshness = _compute_freshness_decay(bars_since=0, timeframe="1m")
         assert freshness == pytest.approx(1.0, abs=0.0001)
@@ -40,7 +40,7 @@ class TestFreshnessDecayComputation:
     @pytest.mark.unit
     def test_freshness_at_half_life_is_approx_half(self):
         """At bars_since=half_life_bars, freshness≈0.5 (exponential half-life property)."""
-        from services.signal_lifecycle_service import (
+        from services.signal_tracker_agent import (
             FRESHNESS_HALF_LIFE_BARS,
             _compute_freshness_decay,
         )
@@ -54,7 +54,7 @@ class TestFreshnessDecayComputation:
     @pytest.mark.unit
     def test_freshness_at_double_half_life_is_approx_quarter(self):
         """At bars_since=2*half_life, freshness≈0.25 (two halvings)."""
-        from services.signal_lifecycle_service import (
+        from services.signal_tracker_agent import (
             FRESHNESS_HALF_LIFE_BARS,
             _compute_freshness_decay,
         )
@@ -67,7 +67,7 @@ class TestFreshnessDecayComputation:
     @pytest.mark.unit
     def test_freshness_decreases_monotonically(self):
         """Freshness strictly decreases as bars_since increases."""
-        from services.signal_lifecycle_service import _compute_freshness_decay
+        from services.signal_tracker_agent import _compute_freshness_decay
 
         tf = "1m"
         prev = 1.0
@@ -81,7 +81,7 @@ class TestFreshnessDecayComputation:
     @pytest.mark.unit
     def test_freshness_never_negative(self):
         """Freshness is always >= 0.0 even at very large bars_since."""
-        from services.signal_lifecycle_service import _compute_freshness_decay
+        from services.signal_tracker_agent import _compute_freshness_decay
 
         freshness = _compute_freshness_decay(bars_since=1000, timeframe="1m")
         assert freshness >= 0.0
@@ -98,7 +98,7 @@ class TestEffectiveConfidenceComputation:
     @pytest.mark.unit
     def test_effective_confidence_at_zero_bars_equals_stored(self):
         """At bars_since=0, effective_confidence == stored_confidence."""
-        from services.signal_lifecycle_service import (
+        from services.signal_tracker_agent import (
             _compute_freshness_decay,
         )
 
@@ -110,7 +110,7 @@ class TestEffectiveConfidenceComputation:
     @pytest.mark.unit
     def test_effective_confidence_at_half_life_is_half_stored(self):
         """At half_life bars, effective_confidence ≈ stored_confidence / 2."""
-        from services.signal_lifecycle_service import (
+        from services.signal_tracker_agent import (
             FRESHNESS_HALF_LIFE_BARS,
             _compute_freshness_decay,
         )
@@ -125,7 +125,7 @@ class TestEffectiveConfidenceComputation:
     @pytest.mark.unit
     def test_original_confidence_not_mutated(self):
         """Computing effective_confidence must not mutate the original signal dict."""
-        from services.signal_lifecycle_service import (
+        from services.signal_tracker_agent import (
             FRESHNESS_HALF_LIFE_BARS,
             _compute_freshness_decay,
         )
@@ -153,7 +153,7 @@ class TestEffectiveConfidenceComputation:
     @pytest.mark.unit
     def test_freshness_decay_uses_bars_elapsed(self):
         """Freshness decay result depends on bars_since passed in (mock _bars_elapsed pattern)."""
-        from services.signal_lifecycle_service import _compute_freshness_decay
+        from services.signal_tracker_agent import _compute_freshness_decay
 
         # Simulate: if _bars_elapsed returns 0 vs 10 — different results
         f0 = _compute_freshness_decay(bars_since=0, timeframe="1m")
@@ -163,7 +163,7 @@ class TestEffectiveConfidenceComputation:
     @pytest.mark.unit
     def test_freshness_for_unknown_tf_uses_fallback(self):
         """Unknown timeframe falls back to a sensible default (no crash)."""
-        from services.signal_lifecycle_service import _compute_freshness_decay
+        from services.signal_tracker_agent import _compute_freshness_decay
 
         # Should not raise; uses fallback half_life
         freshness = _compute_freshness_decay(bars_since=5, timeframe="4h")
@@ -188,14 +188,19 @@ class TestFreshnessDecayWiring:
     """
 
     def _make_service(self):
-        """Build a SignalLifecycleService instance via __new__ (bypasses __init__)."""
-        from unittest.mock import MagicMock
+        """Build a SignalTrackerAgent instance via __new__ (bypasses __init__)."""
+        from unittest.mock import AsyncMock, MagicMock
 
-        from services.signal_lifecycle_service import SignalLifecycleService
+        from services.signal_tracker_agent import SignalTrackerAgent
 
-        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc.db_manager = MagicMock()
         svc.db_manager.execute_command = MagicMock(return_value=None)
+        svc._ledger_repo = MagicMock()
+        svc._ledger_repo.record_zone_resolution = AsyncMock()
+        svc._ledger_repo.record_activation = AsyncMock()
+        svc._ledger_repo.record_market_resolution = AsyncMock()
+        svc._ledger_repo.update_signal_status = AsyncMock()
         svc.active_signals_count = MagicMock()
         svc.point_values = {"ES": 50.0}
         svc._mae = {}
@@ -228,9 +233,8 @@ class TestFreshnessDecayWiring:
         After the fix: signal_quality == pnl_r * 0.5 → test PASSES (GREEN).
         """
         from datetime import datetime, timedelta
-        from unittest.mock import AsyncMock, patch
 
-        from services.signal_lifecycle_service import FRESHNESS_HALF_LIFE_BARS
+        from services.signal_tracker_agent import FRESHNESS_HALF_LIFE_BARS
 
         svc = self._make_service()
 
@@ -261,17 +265,14 @@ class TestFreshnessDecayWiring:
         # Bar that triggers target_1 hit (high=4015 >= target_1=4010) → positive pnl_r
         bar = {"high": 4015.0, "low": 4001.0, "close": 4012.0}
 
-        with patch(
-            "services.signal_lifecycle_service.record_zone_resolution",
-            new_callable=AsyncMock,
-        ) as mock_update:
-            await svc._evaluate_signals_against_bar(
-                symbol="ES",
-                timeframe=tf,
-                bar=bar,
-                bar_time=bar_time,
-                all_active=[sig],
-            )
+        await svc._evaluate_signals_against_bar(
+            symbol="ES",
+            timeframe=tf,
+            bar=bar,
+            bar_time=bar_time,
+            all_active=[sig],
+        )
+        mock_update = svc._ledger_repo.record_zone_resolution
 
         assert mock_update.called, "record_zone_resolution must be called on exit"
         kwargs = mock_update.call_args.kwargs
@@ -300,9 +301,8 @@ class TestFreshnessDecayWiring:
         This test should PASS both before and after the fix.
         """
         from datetime import datetime, timedelta
-        from unittest.mock import AsyncMock, patch
 
-        from services.signal_lifecycle_service import FRESHNESS_HALF_LIFE_BARS
+        from services.signal_tracker_agent import FRESHNESS_HALF_LIFE_BARS
 
         svc = self._make_service()
 
@@ -332,17 +332,14 @@ class TestFreshnessDecayWiring:
 
         bar = {"high": 4015.0, "low": 4001.0, "close": 4012.0}
 
-        with patch(
-            "services.signal_lifecycle_service.record_zone_resolution",
-            new_callable=AsyncMock,
-        ) as mock_update:
-            await svc._evaluate_signals_against_bar(
-                symbol="ES",
-                timeframe=tf,
-                bar=bar,
-                bar_time=bar_time,
-                all_active=[sig],
-            )
+        await svc._evaluate_signals_against_bar(
+            symbol="ES",
+            timeframe=tf,
+            bar=bar,
+            bar_time=bar_time,
+            all_active=[sig],
+        )
+        mock_update = svc._ledger_repo.record_zone_resolution
 
         assert mock_update.called, "record_zone_resolution must be called on exit"
         kwargs = mock_update.call_args.kwargs
