@@ -23,9 +23,9 @@ class TestActiveIndexLookup:
     @pytest.mark.unit
     def test_active_index_lookup_returns_matching_signals(self):
         """Lookup by (symbol, tf) tuple returns the correct signals."""
-        from services.signal_lifecycle_service import SignalLifecycleService
+        from services.signal_tracker_agent import SignalTrackerAgent
 
-        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
         sig = {"signal_id": "abc", "symbol": "ES", "timeframe": "1m", "status": "active"}
         svc._active_index[("ES", "1m")] = [sig]
@@ -36,9 +36,9 @@ class TestActiveIndexLookup:
     @pytest.mark.unit
     def test_active_index_returns_empty_for_unknown_key(self):
         """Lookup for a key with no signals returns empty list — no KeyError."""
-        from services.signal_lifecycle_service import SignalLifecycleService
+        from services.signal_tracker_agent import SignalTrackerAgent
 
-        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
         result = svc._active_index.get(("NQ", "5m"), [])
         assert result == []
@@ -46,9 +46,9 @@ class TestActiveIndexLookup:
     @pytest.mark.unit
     def test_active_index_isolates_keys(self):
         """Signals for one (symbol, tf) key do not bleed into another."""
-        from services.signal_lifecycle_service import SignalLifecycleService
+        from services.signal_tracker_agent import SignalTrackerAgent
 
-        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
         svc._active_index[("ES", "1m")] = [{"signal_id": "aaa"}]
         svc._active_index[("NQ", "1m")] = [{"signal_id": "bbb"}]
@@ -73,9 +73,9 @@ class TestRemoveFromIndex:
     @pytest.mark.unit
     def test_remove_from_index_removes_correct_signal(self):
         """Only the signal with matching signal_id is removed; others preserved."""
-        from services.signal_lifecycle_service import SignalLifecycleService
+        from services.signal_tracker_agent import SignalTrackerAgent
 
-        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
         svc._active_index[("ES", "1m")] = [
             {"signal_id": "aaa", "symbol": "ES", "timeframe": "1m"},
@@ -89,9 +89,9 @@ class TestRemoveFromIndex:
     @pytest.mark.unit
     def test_remove_from_index_on_empty_key_is_safe(self):
         """Calling _remove_from_index on a key with no signals does not raise."""
-        from services.signal_lifecycle_service import SignalLifecycleService
+        from services.signal_tracker_agent import SignalTrackerAgent
 
-        svc = SignalLifecycleService.__new__(SignalLifecycleService)
+        svc = SignalTrackerAgent.__new__(SignalTrackerAgent)
         svc._active_index = defaultdict(list)
         # Should not raise even if key is absent
         svc._remove_from_index("nonexistent", "ES", "1m")
