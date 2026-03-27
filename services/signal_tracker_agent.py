@@ -124,8 +124,6 @@ class SignalTrackerAgent(BaseAgent):
 
     def __init__(self, config_file: str | None = None, db_manager: DatabaseManager | None = None):
         super().__init__(name="signal_tracker_agent")
-        self.running = False
-        self.shutdown_requested = False
         self.start_time = datetime.now(tz=UTC)
         self.config = self._load_config(config_file)
         self._setup_logging()
@@ -168,9 +166,6 @@ class SignalTrackerAgent(BaseAgent):
 
         # PERF-04: In-memory active signal index
         self._active_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
-
-        # Shutdown event for reseed loop coordination
-        self.shutdown_event: asyncio.Event = asyncio.Event()
 
         # Tracked background tasks (Kafka publish, terminal event)
         self._pending_tasks: set[asyncio.Task] = set()
@@ -1015,7 +1010,6 @@ class SignalTrackerAgent(BaseAgent):
             await self._setup_kafka_clients()
             await self._reseed_chandelier_state()
             await self._seed_active_index()
-            self.running = True
             reseed_task = asyncio.create_task(self._active_index_reseed_loop())
             lag_task = asyncio.create_task(self._report_consumer_lag())
             tasks = [
@@ -1045,10 +1039,7 @@ class SignalTrackerAgent(BaseAgent):
     async def stop(self) -> None:
         """Drain in-flight lifecycle updates before exit."""
         self.logger.info("Stopping SignalTrackerAgent")
-        self.running = False
-        self.shutdown_requested = True
         self._stop_event.set()
-        self.shutdown_event.set()
         if self._pending_tasks:
             self.logger.info("Draining background tasks", count=len(self._pending_tasks))
             await asyncio.gather(*self._pending_tasks, return_exceptions=True)
