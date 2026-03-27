@@ -1,0 +1,17 @@
+[Unit]
+Description=IndicAgent Parity Auditor Agent (Shadow vs Primary Comparison)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/parity_auditor_agent.py
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

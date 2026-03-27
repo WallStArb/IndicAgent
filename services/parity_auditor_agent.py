@@ -204,9 +204,7 @@ class ParityAuditorAgent(BaseAgent):
         self._pool = await asyncpg.create_pool(self._settings.database_url)
         self._repo = ParityRepository(self._pool)
 
-        self._producer = AIOKafkaProducer(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
-        )
+        self._producer = AIOKafkaProducer(bootstrap_servers=self._settings.kafka_bootstrap_servers)
         await self._producer.start()
 
         self.logger.info("parity_auditor_started", interval_secs=COMPARISON_INTERVAL_SECS)
@@ -219,11 +217,9 @@ class ParityAuditorAgent(BaseAgent):
 
             # Wait for interval or stop event
             try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=COMPARISON_INTERVAL_SECS
-                )
+                await asyncio.wait_for(self._stop_event.wait(), timeout=COMPARISON_INTERVAL_SECS)
                 break  # stop event was set
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal — continue loop
 
     async def _compare_cycle(self) -> None:
@@ -305,9 +301,7 @@ class ParityAuditorAgent(BaseAgent):
         # Certification check: derive from feature_parity_violations (D-01)
         await self._check_certification(pair_stats)
 
-    async def _check_certification(
-        self, pair_stats: dict[tuple[str, str], dict]
-    ) -> None:
+    async def _check_certification(self, pair_stats: dict[tuple[str, str], dict]) -> None:
         """Check if all active (symbol, tf) pairs are certified.
 
         Certification is derived from fetch_clean_cycles query over

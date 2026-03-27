@@ -25,9 +25,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # Security: only these two tables are valid read targets.
-_ALLOWED_TABLES: frozenset[str] = frozenset(
-    {"intelligence_features", "feature_snapshots_shadow"}
-)
+_ALLOWED_TABLES: frozenset[str] = frozenset({"intelligence_features", "feature_snapshots_shadow"})
 
 _FETCH_WINDOW_SQL = "SELECT * FROM {table} WHERE ts >= $1 AND ts < $2 ORDER BY ts, symbol, tf"
 
@@ -65,9 +63,7 @@ class ParityRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
-    async def fetch_window(
-        self, table_name: str, since: datetime, until: datetime
-    ) -> list[dict]:
+    async def fetch_window(self, table_name: str, since: datetime, until: datetime) -> list[dict]:
         """Fetch rows in [since, until) time window from the specified table.
 
         Args:
@@ -90,9 +86,7 @@ class ParityRepository:
             rows = await conn.fetch(sql, since, until)
         return [dict(row) for row in rows]
 
-    async def insert_violations(
-        self, violations: list[Any], run_id: uuid.UUID
-    ) -> None:
+    async def insert_violations(self, violations: list[Any], run_id: uuid.UUID) -> None:
         """Batch-insert FieldViolation objects into feature_parity_violations.
 
         Uses executemany for performance. detected_at uses DEFAULT NOW() in DB schema.
@@ -109,9 +103,9 @@ class ParityRepository:
                 v.ts,
                 v.symbol,
                 v.tf,
-                v.field_name,     # -> field column
+                v.field_name,  # -> field column
                 v.primary_value,  # -> legacy_val column
-                v.shadow_value,   # -> shadow_val column
+                v.shadow_value,  # -> shadow_val column
                 run_id,
             )
             for v in violations

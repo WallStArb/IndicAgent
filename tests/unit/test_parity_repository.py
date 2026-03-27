@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Behavior 8: ParityRepository has fetch_window ────────────────────────────
+
 
 def test_parity_repository_has_fetch_window():
     """Test 8: ParityRepository has fetch_window method accepting table_name parameter."""
@@ -22,6 +22,7 @@ def test_parity_repository_has_fetch_window():
     repo = ParityRepository(mock_pool)
     assert hasattr(repo, "fetch_window")
     import inspect
+
     sig = inspect.signature(repo.fetch_window)
     params = list(sig.parameters)
     assert "table_name" in params
@@ -31,6 +32,7 @@ def test_parity_repository_has_fetch_window():
 
 # ── Behavior 9: ParityRepository has insert_violations ───────────────────────
 
+
 def test_parity_repository_has_insert_violations():
     """Test 9: ParityRepository has insert_violations method."""
     from src.persistence.repository.parity_repository import ParityRepository
@@ -39,6 +41,7 @@ def test_parity_repository_has_insert_violations():
     repo = ParityRepository(mock_pool)
     assert hasattr(repo, "insert_violations")
     import inspect
+
     sig = inspect.signature(repo.insert_violations)
     params = list(sig.parameters)
     assert "violations" in params
@@ -46,6 +49,7 @@ def test_parity_repository_has_insert_violations():
 
 
 # ── Behavior 10: ParityRepository has fetch_clean_cycles ─────────────────────
+
 
 def test_parity_repository_has_fetch_clean_cycles():
     """Test 10: ParityRepository has fetch_clean_cycles(symbol, tf, threshold) method."""
@@ -55,6 +59,7 @@ def test_parity_repository_has_fetch_clean_cycles():
     repo = ParityRepository(mock_pool)
     assert hasattr(repo, "fetch_clean_cycles")
     import inspect
+
     sig = inspect.signature(repo.fetch_clean_cycles)
     params = list(sig.parameters)
     assert "symbol" in params
@@ -62,15 +67,16 @@ def test_parity_repository_has_fetch_clean_cycles():
     assert "threshold" in params
 
     # D-09: these methods must NOT exist (no certification state table)
-    assert not hasattr(repo, "fetch_certification_state"), (
-        "fetch_certification_state must NOT exist per D-09"
-    )
-    assert not hasattr(repo, "update_certification_state"), (
-        "update_certification_state must NOT exist per D-09"
-    )
+    assert not hasattr(
+        repo, "fetch_certification_state"
+    ), "fetch_certification_state must NOT exist per D-09"
+    assert not hasattr(
+        repo, "update_certification_state"
+    ), "update_certification_state must NOT exist per D-09"
 
 
 # ── Behavior 11: ParityRepository rejects invalid table_name ─────────────────
+
 
 @pytest.mark.asyncio
 async def test_parity_repository_rejects_invalid_table():
@@ -79,7 +85,9 @@ async def test_parity_repository_rejects_invalid_table():
 
     mock_pool = MagicMock()
     mock_conn = AsyncMock()
-    mock_pool.acquire = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock()))
+    mock_pool.acquire = MagicMock(
+        return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock())
+    )
     repo = ParityRepository(mock_pool)
 
     since = datetime(2026, 1, 1, tzinfo=UTC)
@@ -120,12 +128,14 @@ async def test_parity_repository_accepts_valid_tables():
 
 # ── Behavior 12: PARITY_MATCH_RATE and SHADOW_AHEAD_ROWS_TOTAL exist ─────────
 
+
 def test_parity_metrics_exist_in_metrics_module():
     """Test 12: PARITY_MATCH_RATE and SHADOW_AHEAD_ROWS_TOTAL exist in metrics.py."""
     from src.observability.metrics import PARITY_MATCH_RATE, SHADOW_AHEAD_ROWS_TOTAL
 
     # Verify they're usable (Gauge/Counter with labels)
     from prometheus_client import Counter, Gauge
+
     assert isinstance(PARITY_MATCH_RATE, Gauge)
     assert isinstance(SHADOW_AHEAD_ROWS_TOTAL, Counter)
 
@@ -134,6 +144,7 @@ def test_parity_violations_total_exists():
     """PARITY_VIOLATIONS_TOTAL counter exists in metrics.py."""
     from src.observability.metrics import PARITY_VIOLATIONS_TOTAL
     from prometheus_client import Counter
+
     assert isinstance(PARITY_VIOLATIONS_TOTAL, Counter)
 
 
@@ -141,10 +152,12 @@ def test_parity_cycles_total_exists():
     """PARITY_CYCLES_TOTAL counter exists in metrics.py."""
     from src.observability.metrics import PARITY_CYCLES_TOTAL
     from prometheus_client import Counter
+
     assert isinstance(PARITY_CYCLES_TOTAL, Counter)
 
 
 # ── insert_violations async test ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_insert_violations_calls_executemany():
@@ -181,6 +194,7 @@ async def test_insert_violations_calls_executemany():
 
 
 # ── fetch_clean_cycles async test ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_fetch_clean_cycles_returns_int():

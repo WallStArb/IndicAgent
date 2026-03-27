@@ -235,9 +235,7 @@ SHADOW_EV_R = Gauge("shadow_ev_r", "Shadow plugin E[PnL_R]", ["plugin"])
 SHADOW_EV_CI_LOWER = Gauge(
     "shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]", ["plugin"]
 )
-SHADOW_DAYS_TO_GATE = Gauge(
-    "shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"]
-)
+SHADOW_DAYS_TO_GATE = Gauge("shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"])
 SHADOW_PROMOTION_READY = Gauge(
     "shadow_promotion_ready", "1 when all gate conditions met", ["plugin"]
 )
