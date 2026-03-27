@@ -7,7 +7,7 @@ def test_feature_writer_imports_cleanly():
     sys.path.insert(0, ".")
     from services import feature_writer_service
 
-    assert hasattr(feature_writer_service, "FeatureWriterService")
+    assert hasattr(feature_writer_service, "FeatureWriterAgent")
 
 
 def test_feature_writer_subscribes_to_intelligence_journal():

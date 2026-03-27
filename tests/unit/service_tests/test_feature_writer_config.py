@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 
 def _make_service():
-    """Construct FeatureWriterService with infrastructure mocked out."""
+    """Construct FeatureWriterAgent with infrastructure mocked out."""
     with (
         patch("services.feature_writer_service.start_metrics_server"),
         patch("services.feature_writer_service.DatabaseManager"),
@@ -18,9 +18,9 @@ def _make_service():
         import signal as _signal
 
         with patch.object(_signal, "signal"):
-            from services.feature_writer_service import FeatureWriterService
+            from services.feature_writer_service import FeatureWriterAgent
 
-            service = FeatureWriterService.__new__(FeatureWriterService)
+            service = FeatureWriterAgent.__new__(FeatureWriterAgent)
             service.config = service._load_config(None)
     return service
 

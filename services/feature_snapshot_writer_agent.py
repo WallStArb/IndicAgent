@@ -5,7 +5,7 @@ Consumes BarIntelligenceRecord from intelligence.journal under consumer group
 'feature_snapshot_writer_group' (separate from 'feature_writer_group') and writes
 to feature_snapshots_shadow. ParityAuditorAgent (Phase 52.5) will compare both
 tables to certify that FeatureRepository produces identical results to
-FeatureWriterService before primary-write cutover.
+FeatureWriterAgent before primary-write cutover.
 
 Architecture:
     intelligence.journal topic
@@ -169,7 +169,7 @@ class FeatureSnapshotWriterAgent(BaseAgent):
         self.logger.info("FeatureSnapshotWriterAgent starting", shadow_table=SHADOW_TABLE)
         start_metrics_server(port=METRICS_PORT)
 
-        # Build expiry map (same as FeatureWriterService)
+        # Build expiry map (same as FeatureWriterAgent)
         try:
             self._expiry_map = _build_expiry_map(self._settings)
             self.logger.info("expiry_map_built", contracts=len(self._expiry_map))

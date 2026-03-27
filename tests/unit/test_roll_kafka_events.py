@@ -67,9 +67,9 @@ def _append_bar(svc: Any, symbol: str, tf: str, close: float) -> None:
 
 
 def _make_feature_writer_service() -> Any:
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterAgent
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.db_manager = None
     svc.logger = MagicMock()
     svc.error_count_total = MagicMock()
@@ -146,7 +146,7 @@ class TestSignalGeneratorRollEvent:
         asyncio.run(svc._handle_roll_event({"event_type": "roll"}))
 
 
-# ── FeatureWriterService ───────────────────────────────────────────────────────
+# ── FeatureWriterAgent ───────────────────────────────────────────────────────
 
 
 class TestFeatureWriterRollEvent:
