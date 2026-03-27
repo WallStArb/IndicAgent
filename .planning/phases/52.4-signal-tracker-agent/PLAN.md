@@ -543,7 +543,11 @@ print('OK')
   - Add `Environment=PYTHONUNBUFFERED=1` (required per CLAUDE.md — missing from old unit)
   - Keep all other settings (After, Wants, Restart, User, etc.)
 
-  **4b: Delete signal_lifecycle_service.py (Claude's discretion — delete preferred):**
+  **4b: Retire old systemd unit file + Delete signal_lifecycle_service.py:**
+
+  Delete `services/indicagent-signal-lifecycle.service` (retire old unit per phase goal).
+
+  **4c: Delete signal_lifecycle_service.py (Claude's discretion — delete preferred):**
 
   First verify no external scripts import it:
   ```bash
@@ -583,6 +587,7 @@ print('OK')
     - grep "signal_tracker_agent.py" services/indicagent-signal-tracker.service returns a match
     - grep "SyslogIdentifier=indicagent-signal-tracker" services/indicagent-signal-tracker.service returns a match
     - grep "PYTHONUNBUFFERED=1" services/indicagent-signal-tracker.service returns a match
+    - File services/indicagent-signal-lifecycle.service does NOT exist (deleted — retired)
     - File services/signal_lifecycle_service.py does NOT exist (deleted)
     - grep "indicagent-signal-tracker" CLAUDE.md returns a match (Active Services table updated)
     - .venv/bin/pytest tests/unit/ -q exits with code 0 (all tests pass)

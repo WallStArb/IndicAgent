@@ -196,6 +196,9 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
   Plans:
   - [ ] 52.4-01-PLAN.md — Extend SignalLedgerRepository, create SignalTrackerAgent(BaseAgent), migrate 4 test files, systemd unit, cleanup
 - [ ] **Phase 52.5: Parity Auditor Agent** — `ParityRepository` + `FieldViolation` schema; `ParityAuditorAgent` timer loop comparing shadow vs primary per (symbol, tf); violation storage; automated `SHADOW_PARITY_CERTIFIED` gate; systemd unit
+- [ ] **Phase 52.6: BaseAgent + ProcessManifest Enhancement** — TBD (to be planned)
+- [ ] **Phase 52.7: Grafana Tempo Infrastructure** — Docker container + Grafana datasource; `OTEL_EXPORTER_OTLP_ENDPOINT` in all systemd units; pure infra, no application code changes
+- [ ] **Phase 52.8: Kafka Trace Propagation** — inject/extract W3C `traceparent` headers in `KafkaConsumerClient` and `KafkaProducerClient`; end-to-end DAG traces from ingestion to DB write; `kafka_utils.py` concern, not BaseAgent
 - [ ] **Phase 53.1: BarWriterAgent + BarCompletenessAgent** — extract `_ohlcv_buffer` from `feature_compute_agent` into `BarWriterAgent` (DB-ignorant compute path); `BarCompletenessAgent` audits historical gaps on startup; retires `gap_fill_service`; ports :9121/:9123
 - [ ] **Phase 53.2: BarAggregatorAgent** — extract `BarAccumulator` (1m→HTF aggregation) from `feature_compute_agent` into standalone `BarAggregatorAgent`; `feature_compute_agent` becomes pure intelligence; canonical flat bars for empty minutes; port :9120
 - [ ] **Phase 53.3: RollDetectionAgent + DataProviderAgent Rename** — extract `RollMonitor` (volume z-score detection) from `DataProviderAgent` into standalone `RollDetectionAgent`; typed `RollEvent` schema published to `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent`; port :9122
@@ -495,3 +498,37 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 50. Roll Monitor Graduation | v2.1 | 0/TBD | Not started | — |
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Not started | — |
 | 52. Infrastructure Hardening | v2.1 | 0/1 | Planned    |  |
+
+### Phase 52.6: BaseAgent + ProcessManifest Enhancement (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 52
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 52.6 to break down)
+
+### Phase 52.7: Grafana Tempo infrastructure
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 52.6
+**Plans:** 0 plans
+
+Design doc: `docs/ideas/base-agent-enhancement.md` — see "Infrastructure Follow-On" (Docker container, datasource, env var pattern) and Section 1 Tempo rationale (Tempo vs Jaeger, Exemplars, object storage)
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 52.7 to break down)
+
+### Phase 52.8: Kafka Trace Propagation
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 52.6, Phase 52.7
+**Plans:** 0 plans
+
+Design doc: `docs/ideas/base-agent-enhancement.md` — see "Kafka trace propagation" in Section 1 (propagate.inject/extract in KafkaConsumerClient/KafkaProducerClient, W3C traceparent headers, why this is a kafka_utils.py concern not a BaseAgent concern)
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 52.8 to break down)
