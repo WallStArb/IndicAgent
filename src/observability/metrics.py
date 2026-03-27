@@ -243,6 +243,28 @@ SHADOW_PROMOTION_READY = Gauge(
 )
 
 
+# Parity Auditor metrics (Phase 52.5)
+PARITY_MATCH_RATE = Gauge(
+    "parity_match_rate",
+    "Fraction of rows matching between primary and shadow (0.0-1.0)",
+    ["symbol", "tf"],
+)
+SHADOW_AHEAD_ROWS_TOTAL = Counter(
+    "shadow_ahead_rows_total",
+    "Rows present in shadow but not yet in primary (timing race)",
+    ["symbol", "tf"],
+)
+PARITY_VIOLATIONS_TOTAL = Counter(
+    "parity_violations_total",
+    "Total field-level parity violations detected",
+    ["symbol", "tf"],
+)
+PARITY_CYCLES_TOTAL = Counter(
+    "parity_cycles_total",
+    "Total comparison cycles executed by ParityAuditorAgent",
+)
+
+
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""
     global _server_started
