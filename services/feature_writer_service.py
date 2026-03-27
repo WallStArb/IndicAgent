@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Feature Writer Service — persists BarIntelligenceRecord to intelligence_features hypertable.
+"""Feature Writer Agent — persists BarIntelligenceRecord to intelligence_features hypertable.
 
 Consumes development.intelligence.record via Kafka consumer group 'feature_writer_group'
 and batch-writes complete rows to the intelligence_features TimescaleDB hypertable.
@@ -246,8 +246,8 @@ def _record_to_insert_params(
 # ── Service class ─────────────────────────────────────────────────────────────
 
 
-class FeatureWriterService:
-    """Async Kafka consumer service: intelligence.record topic → buffer → batch INSERT to
+class FeatureWriterAgent:
+    """Async Kafka consumer agent: intelligence.record topic → buffer → batch INSERT to
     intelligence_features.
 
     Phase 44.3: Consumes development.intelligence.record only. Performs a single atomic
@@ -731,7 +731,7 @@ class FeatureWriterService:
 
     async def _shutdown(self) -> None:
         """Graceful shutdown: flush buffer, close connections."""
-        self.logger.info("Shutting down Feature Writer Service")
+        self.logger.info("Shutting down Feature Writer Agent")
         self.shutdown_requested = True
         self.running = False
 
@@ -745,13 +745,13 @@ class FeatureWriterService:
             await self.db_manager.close()
 
         self.logger.info(
-            "Feature Writer Service stopped",
+            "Feature Writer Agent stopped",
             total_events=getattr(self, "_total_events", 0),
             total_batches=getattr(self, "_total_batches", 0),
         )
 
     async def start(self) -> None:
-        self.logger.info("Starting Feature Writer Service", config=self.config["service"])
+        self.logger.info("Starting Feature Writer Agent", config=self.config["service"])
         try:
             await self._connect_database()
             await self._setup_kafka_clients()
@@ -761,7 +761,7 @@ class FeatureWriterService:
                 asyncio.create_task(self._periodic_flush_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
             ]
-            self.logger.info("Feature Writer Service started")
+            self.logger.info("Feature Writer Agent started")
             await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             self.logger.error("Failed to start feature writer", error=str(e))
@@ -776,11 +776,11 @@ class FeatureWriterService:
 async def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Feature Writer Service")
+    parser = argparse.ArgumentParser(description="Feature Writer Agent")
     parser.add_argument("--config", help="Configuration file path")
     args = parser.parse_args()
 
-    svc = FeatureWriterService(args.config)
+    svc = FeatureWriterAgent(args.config)
     try:
         await svc.start()
     except KeyboardInterrupt:
