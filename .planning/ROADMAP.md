@@ -501,13 +501,17 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 
 ### Phase 52.6: BaseAgent + ProcessManifest Enhancement (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
-**Depends on:** Phase 52
-**Plans:** 0 plans
+**Goal:** Enhance BaseAgent with the full Renaissance lifecycle contract (metrics auto-start, OTel tracer, setup/teardown hooks, topic declarations, DLQ stub). Replace AgentRegistry with ProcessManifest. Migrate all four concrete agents (IndicatorComputeAgent, SignalGeneratorAgent, IntelligenceComputeAgent, FeatureWriterAgent) to the new contract. Close OTel tracing todo 009.
+**Requirements**: AGENT-01, AGENT-02, AGENT-03, AGENT-04, AGENT-05
+**Depends on:** Phase 52.2 (BaseAgent foundation), Phase 52.4 (SignalTrackerAgent)
+**Plans:** 5 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 52.6 to break down)
+- [ ] 52.6-01-PLAN.md — Pre-condition: rename FeatureWriterService → FeatureWriterAgent (class-name only commit)
+- [ ] 52.6-02-PLAN.md — TDD: enhance BaseAgent with full lifecycle contract (metrics_port, tracer, _setup/_teardown, running, topics, DLQ)
+- [ ] 52.6-03-PLAN.md — ProcessManifest (src/core/agent/manifest.py), delete AgentRegistry, update package exports
+- [ ] 52.6-04-PLAN.md — Migrate IndicatorComputeAgent + SignalGeneratorAgent to new BaseAgent contract
+- [ ] 52.6-05-PLAN.md — Migrate IntelligenceComputeAgent + FeatureWriterAgent; add init_tracing() to all four entrypoints
 
 ### Phase 52.7: Grafana Tempo infrastructure
 
