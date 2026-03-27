@@ -164,7 +164,7 @@ Ports: BarAggregatorAgent=:9120, BarWriterAgent=:9121, RollDetectionAgent=:9122,
 
 ### Pending Todos
 
-**32 pending todos** (see `.planning/todos/pending/`)
+**34 pending todos** (see `.planning/todos/pending/`)
 
 Recent additions:
 
