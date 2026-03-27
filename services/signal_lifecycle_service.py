@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 """
-Signal Lifecycle Service — institutional-grade signal lifecycle management.
+Signal Lifecycle Service — DEPRECATED (Phase 52.4).
 
-Replaces signal_tracker_service. Extends lifecycle tracking with:
+Use services/signal_tracker_agent.py and SignalTrackerAgent instead.
+This module is kept for one release cycle for backward compatibility
+with tests and imports that reference it directly.
+
+Original functionality:
 - Zone-aware entry activation (bar range overlaps entry_zone_low:zone_high)
 - Bars-elapsed computed from timestamps (fixes TTL silent bug)
 - In-memory MAE/MFE tracking per active signal; written to DB on exit
 - 8-class outcome classification
 - Tracks activation_price, zone_entry_pct, bars_to_activation, bars_in_trade
 """
+
+# DEPRECATED — use services/signal_tracker_agent.py
+# SignalTrackerAgent alias for forward-compatibility
+from services.signal_tracker_agent import SignalTrackerAgent as _SignalTrackerAgent  # noqa: F401
 
 import asyncio
 import json
