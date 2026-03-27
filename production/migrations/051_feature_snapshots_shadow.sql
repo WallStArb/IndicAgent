@@ -44,3 +44,8 @@ CREATE TABLE IF NOT EXISTS feature_parity_violations (
 
 CREATE INDEX ON feature_parity_violations (detected_at DESC);
 CREATE INDEX ON feature_parity_violations (symbol, tf, detected_at DESC);
+
+-- Unique constraint required by ON CONFLICT (ts, symbol, tf) DO NOTHING in FeatureRepository.
+-- TimescaleDB does not copy primary keys from LIKE source — must create explicitly.
+CREATE UNIQUE INDEX IF NOT EXISTS feature_snapshots_shadow_ts_symbol_tf_idx
+    ON feature_snapshots_shadow (ts, symbol, tf);
