@@ -46,7 +46,7 @@ pip install -r requirements.txt
 .venv/bin/black .                # Format
 
 # Start services
-sudo systemctl start indicagent-feature-pipeline  # or other services
+sudo systemctl start indicagent-feature-compute  # or other services
 sudo systemctl status indicagent-signal-generator
 
 # Dashboard
@@ -131,7 +131,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
-**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{feature-pipeline,signal-generator,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
+**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{feature-compute,signal-generator,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Naming Conventions
@@ -143,15 +143,19 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 | Layer | Pattern | Example (`alpha_signal`) |
 |-------|---------|------------------------------|
 | Python file (Service) | `<concept>_service.py` | `alpha_signal_service.py` |
+| Python file (Agent) | `<concept>_agent.py` | `alpha_signal_agent.py` |
 | Python file (Plugin) | `src/intelligence/trading/<concept>.py` | `alpha_signal.py` |
 | Python class (Service) | `PascalCase` + `Service` | `AlphaSignalService` |
+| Python class (Agent) | `PascalCase` + agent role suffix (see below) | `AlphaSignalComputeAgent` |
 | Python class (Plugin) | `PascalCase` + `Plugin` | `AlphaSignalPlugin` |
 | Systemd unit | `indicagent-<concept-kebab>.service` | `indicagent-alpha-signal.service` |
-| Log file | `logs/<python_filename>.log` | `logs/alpha_signal_service.log` |
+| Log file | `logs/<python_filename>.log` | `logs/alpha_signal_agent.log` |
 | Kafka topic fn | `topic_<concept>()` in `stream_keys.py` | `topic_alpha_signal()` |
 | Kafka topic string | `<env>.<domain>[.<sublayer>]` (dots only) | `dev.alpha_signal` |
 | DB table | `snake_case` plural noun | `alpha_signals` |
 | DB columns | `snake_case` | `ts`, `symbol`, `tf`, `i7` |
+
+**Agent role suffixes** (from `docs/architecture/AGENT_STANDARD.md`): `ComputeAgent` (I1-I6 math), `GeneratorAgent` (I7 signals), `WriterAgent` (persistence), `TrackerAgent` (lifecycle). Use `_agent.py` / `PascalCaseRoleAgent` for any service that is DB-ignorant and publishes to a Kafka topic. Use `_service.py` / `PascalCaseService` for services with mixed concerns or DB access.
 
 ### Active Service Map
 
@@ -199,7 +203,7 @@ Layer 1: Data Foundation                   -> HF collection, aggregation, typed 
 
 **Intelligence Pipeline:**
 ```
-IBKR TWS → feature_pipeline_service (I1-I6 unified) →
+IBKR TWS → feature_compute_agent (I1-I6 unified) →
   signal_generator_service (I7) → signal_ledger + intelligence_features →
   feature_writer_service → TimescaleDB → SSE → Dashboard
 ```
@@ -212,8 +216,8 @@ IBKR TWS → feature_pipeline_service (I1-I6 unified) →
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | TWS Daemon | `indicagent-tws` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
-| Feature Compute | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
-| Intelligence Compute | `indicagent-intelligence-compute` | I2-I6 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
+| Feature Compute | `indicagent-feature-compute` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
+| Intelligence Compute | `indicagent-intelligence-compute` | I7/I8 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
 | Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
@@ -321,8 +325,8 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 
 **Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
-- **feature_pipeline_service subscribes to:** `topic_market_bars` (1m bars) ONLY. The service PRODUCES HTF bars via `BarAccumulator` and publishes them to `topic_market_bars_htf` for downstream services (e.g., signal_generator_service). Subscribing to both would create a feedback loop.
-- **HTF bar flow:** TWS → 1m bars → market.bars → feature_pipeline (BarAccumulator aggregates) → publishes to market.bars.htf → signal_generator consumes → I7 → intelligence_features.
+- **feature_compute_agent subscribes to:** `topic_market_bars` (1m bars) ONLY. The agent PRODUCES HTF bars via `BarAccumulator` and publishes them to `topic_market_bars_htf` for downstream services (e.g., signal_generator_service). Subscribing to both would create a feedback loop.
+- **HTF bar flow:** TWS → 1m bars → market.bars → feature_compute_agent (BarAccumulator aggregates) → publishes to market.bars.htf → signal_generator consumes → I7 → intelligence_features.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`. **All service logs go to `logs/<service>.log` via `setup_service_logging()` — NOT to journald.** journalctl only shows `print()` output. Read log files directly for structured service output.
 - **`PYTHONUNBUFFERED=1` required** in all systemd service unit files — without it, Python buffers stdout and journald sees nothing even from print().
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
@@ -332,7 +336,7 @@ New I7 plugins that do not incorporate `ctf_*` scores must document explicitly w
 **Data & Database**
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
-- **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `feature_pipeline_service.py` line 104 `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
+- **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `feature_compute_agent.py` `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
 - **Canonical bar enforcement:** With continuous 1m bar flow (60 bars/hour), BarAccumulator emits: 24× 1h/day, 6× 4h/day, 1× 1d/day. Session break logic at RTH close prevents cross-session contamination. Overnight gaps don't skip bars—period boundary crossing on next 1m bar triggers emission of accumulated HTF bar.
 
 **Signal Logic**
@@ -372,6 +376,6 @@ When investigating "service not writing to database":
 ## Roadmap
 
 **v2.0 SHIPPED 2026-03-22** — Phases 39-47. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation.
-**v2.1 IN PROGRESS** — Phases 48-52. Phase 48 complete (tick aggregation + I7 refactor); 49.1 complete (write all signals to ledger); 49.2 complete (HMM observability + warm-up suppression). See `.planning/ROADMAP.md` for active phase details.
-**v2.2 PLANNED** — Phase 53: auth + external access. Plans in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
-**v2.3 DEFERRED** — Phases 54-55: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.1.
+**v2.1 IN PROGRESS** — Phases 48-53.3. Phase 48 complete; 49.1/49.2 complete; 52.1/52.2/52.3 complete. Phases 52.4/52.5/53.1/53.2/53.3 planned. See `.planning/ROADMAP.md` for active phase details.
+**v2.2 PLANNED** — Phase 54: auth + external access. Plans in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
+**v2.3 DEFERRED** — Phases 55-56: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.1.
