@@ -613,7 +613,7 @@ class LLMWriterService:
     async def _process_i8_message(self, payload: dict) -> None:
         """Buffer i8 column from intelligence.i8 topic message for batch UPDATE flush.
 
-        Mirrors the removed FeatureWriterService._process_i8_message but uses
+        Mirrors the removed FeatureWriterAgent._process_i8_message but uses
         LLMWriterService's buffer. Silently skips messages with no ts field.
         """
         ts_raw = payload.get("ts") or payload.get(b"ts", b"")
@@ -641,7 +641,7 @@ class LLMWriterService:
         """Flush _i8_buffer via UPDATE intelligence_features SET i8.
 
         Plain UPDATE (no INSERT ON CONFLICT) to avoid phantom rows if
-        FeatureWriterService hasn't yet written the base row for this (ts, symbol, tf).
+        FeatureWriterAgent hasn't yet written the base row for this (ts, symbol, tf).
         A 0-row UPDATE is safe — it is counted via i8_update_miss_total for observability.
         """
         if not self._i8_buffer:
