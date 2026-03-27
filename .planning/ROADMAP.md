@@ -494,6 +494,16 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Not started | — |
 | 52. Infrastructure Hardening | v2.1 | 0/1 | Planned    |  |
 
+### Phase 52.5: Parity Auditor Agent
+
+**Goal:** Build `ParityAuditorAgent` — a timer-based (5 min) comparison engine that validates `feature_snapshots_shadow` against `intelligence_features` per (symbol, tf), stores field-level violations in `feature_parity_violations`, emits `parity_match_rate` Prometheus metrics, and self-certifies parity after `CERTIFICATION_THRESHOLD` consecutive clean cycles by publishing `SHADOW_PARITY_CERTIFIED` to the system events topic.
+**Requirements**: [PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05]
+**Depends on:** Phase 52.3 (shadow table + FeatureSnapshotWriterAgent running)
+**Plans:** 1 plan
+
+Plans:
+- [ ] 52.5-01-PLAN.md — ParityRepository, FieldViolation, _compare_rows, ParityAuditorAgent(BaseAgent), systemd unit
+
 ### Phase 52.6: BaseAgent + ProcessManifest Enhancement (INSERTED)
 
 **Goal:** Enhance BaseAgent with the full Renaissance lifecycle contract (metrics auto-start, OTel tracer, setup/teardown hooks, topic declarations, DLQ stub). Replace AgentRegistry with ProcessManifest. Migrate all four concrete agents (IndicatorComputeAgent, SignalGeneratorAgent, IntelligenceComputeAgent, FeatureWriterAgent) to the new contract. Close OTel tracing todo 009.
@@ -530,7 +540,7 @@ Plans:
 ### Phase 52.8: Kafka Trace Propagation
 
 **Goal:** Wire W3C `traceparent` header inject/extract into `KafkaConsumerClient` and `KafkaProducerClient` so spans link across service boundaries end-to-end through the DAG.
-**Requirements**: TBD
+**Requirements**: [PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05]
 **Depends on:** Phase 52.6, Phase 52.7
 **Plans:** 1 plan
 
