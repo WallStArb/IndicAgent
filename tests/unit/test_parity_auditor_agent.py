@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -262,7 +262,7 @@ async def test_compare_cycle_certification_uses_fetch_clean_cycles():
 
 @pytest.mark.asyncio
 async def test_compare_cycle_publishes_certified_when_all_pairs_clean():
-    """Test 8: When ALL active pairs have CERTIFICATION_THRESHOLD clean cycles, publishes SHADOW_PARITY_CERTIFIED."""
+    """Test 8: All pairs reaching CERTIFICATION_THRESHOLD clean cycles triggers certification."""
     from services.parity_auditor_agent import CERTIFICATION_THRESHOLD, ParityAuditorAgent
 
     agent = ParityAuditorAgent.__new__(ParityAuditorAgent)
@@ -343,9 +343,7 @@ async def test_compare_cycle_uses_10_minute_window():
 
     mock_repo.fetch_window = capture_fetch_window
 
-    before = datetime.now(UTC)
     await agent._compare_cycle()
-    after = datetime.now(UTC)
 
     since = captured["since"]
     until = captured["until"]
