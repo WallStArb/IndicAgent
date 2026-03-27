@@ -255,4 +255,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 52: Infrastructure Hardening — Docker restart policies, log rotation, health checks, no manual steps
 
 ---
-*Last updated: 2026-03-23 — Phase 49.2 complete: HMM observability and warm-up suppression — structlog fallback warnings, hmm_n_dims + hmm_warmed_up fields in intelligence_features.smc JSONB, warm-up prob zeroing via existing regime_gate prob_min floor. 19 HMM tests green, zero changes to regime_gate or signal_generator.*
+*Last updated: 2026-03-27 — Phase 52.3 complete: FeatureSnapshotWriterAgent deployed as independent shadow consumer of development.intelligence.journal. Writes identical copy of every BarIntelligenceRecord to feature_snapshots_shadow hypertable. Two consumer groups (feature_writer_group + feature_snapshot_writer_group) read same topic independently. All 6 success criteria satisfied: migration 051 applied, agent active, shadow rows flowing (parity confirmed), metric label bug fixed (service starts cleanly), 13 unit tests pass, FeatureRepository accepts configurable table_name.*
