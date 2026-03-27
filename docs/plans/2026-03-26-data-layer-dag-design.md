@@ -82,9 +82,10 @@ The pipeline guarantees a complete, gapless bar series for every active symbol a
 │ - is_flat_bar flag   │   │                                  │
 └─────────────────────┘   └──────────────────────────────────┘
           │ market.bars.htf                │ market.events.roll
-          ▼                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Layer 2 — Persistence                                       │
+          ▼                               │ (consumed by Layer 3+:
+┌─────────────────────────────────────────┼───────────────────┐
+│ Layer 2 — Persistence                   │ signal_generator, │
+│                                         │ future ML layer)  │
 │                                                             │
 │  BarWriterAgent                                  :9121      │
 │    in:  market.bars (1m) + market.bars.htf (5m–1d)         │
