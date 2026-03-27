@@ -192,6 +192,9 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
   Plans:
   - [x] 52.3-01-PLAN.md — migration 051, FeatureRepository table_name, FeatureSnapshotWriterAgent(BaseAgent), systemd unit (SUMMARY: 52.3-01-SUMMARY.md)
 - [ ] **Phase 52.4: SignalTrackerAgent Refactor** — rename `SignalLifecycleService` → `SignalTrackerAgent`; extract SQL to `SignalLedgerRepository`; inject repository; inherit `BaseAgent`; retire `indicagent-signal-lifecycle.service`
+  **Plans:** 1 plan
+  Plans:
+  - [ ] 52.4-01-PLAN.md — Extend SignalLedgerRepository, create SignalTrackerAgent(BaseAgent), migrate 4 test files, systemd unit, cleanup
 - [ ] **Phase 52.5: Parity Auditor Agent** — `ParityRepository` + `FieldViolation` schema; `ParityAuditorAgent` timer loop comparing shadow vs primary per (symbol, tf); violation storage; automated `SHADOW_PARITY_CERTIFIED` gate; systemd unit
 - [ ] **Phase 53.1: BarWriterAgent + BarCompletenessAgent** — extract `_ohlcv_buffer` from `feature_compute_agent` into `BarWriterAgent` (DB-ignorant compute path); `BarCompletenessAgent` audits historical gaps on startup; retires `gap_fill_service`; ports :9121/:9123
 - [ ] **Phase 53.2: BarAggregatorAgent** — extract `BarAccumulator` (1m→HTF aggregation) from `feature_compute_agent` into standalone `BarAggregatorAgent`; `feature_compute_agent` becomes pure intelligence; canonical flat bars for empty minutes; port :9120
