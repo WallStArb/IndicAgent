@@ -22,7 +22,6 @@ from typing import Any
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import structlog
 
 from src.config.settings import Settings, get_active_symbols, get_point_value
 from src.core.agent.base import BaseAgent
@@ -215,6 +214,7 @@ class SignalTrackerAgent(BaseAgent):
         }
         if config_file and Path(config_file).exists():
             import json as _json
+
             with open(config_file) as f:
                 user_config = _json.load(f)
             for k, v in user_config.items():
@@ -462,14 +462,13 @@ class SignalTrackerAgent(BaseAgent):
                         current_mfe=m_mfe,
                     )
                 except Exception as e:
-                    self.logger.warning("Market track evaluation failed",
-                                        signal_id=sid, error=str(e))
+                    self.logger.warning(
+                        "Market track evaluation failed", signal_id=sid, error=str(e)
+                    )
                     m_trans = None
 
                 if m_trans is not None and m_trans.exit_price is not None:
-                    m_bit = _bars_in_trade(
-                        self._market_activated_at.get(sid), bar_time, timeframe
-                    )
+                    m_bit = _bars_in_trade(self._market_activated_at.get(sid), bar_time, timeframe)
                     m_outcome = m_trans.outcome
                     if m_outcome is None:
                         m_outcome = _classify_stop_outcome(m_mfe, m_bit)
@@ -489,8 +488,9 @@ class SignalTrackerAgent(BaseAgent):
                         )
                         self._resolved_market.add(sid)
                     except Exception as e:
-                        self.logger.warning("record_market_resolution failed",
-                                            signal_id=sid, error=str(e))
+                        self.logger.warning(
+                            "record_market_resolution failed", signal_id=sid, error=str(e)
+                        )
                     finally:
                         self._resolved_market.add(sid)
                         self._market_mae.pop(sid, None)
@@ -502,9 +502,7 @@ class SignalTrackerAgent(BaseAgent):
                     risk = abs(float(market_entry_price) - float(sig.get("stop_loss", 0)))
                     if risk > 0:
                         close_pnl_r = (
-                            (float(bar["close"]) - float(market_entry_price))
-                            * direction_val
-                            / risk
+                            (float(bar["close"]) - float(market_entry_price)) * direction_val / risk
                         )
                         self._market_mae[sid] = min(m_mae, close_pnl_r)
                         self._market_mfe[sid] = max(m_mfe, close_pnl_r)
@@ -536,13 +534,18 @@ class SignalTrackerAgent(BaseAgent):
                         except Exception as e:
                             self.logger.warning(
                                 "Failed to write chandelier_vol_source",
-                                signal_id=sid, error=str(e),
+                                signal_id=sid,
+                                error=str(e),
                             )
 
-                hmm_now = sig.get("hmm_regime") if isinstance(sig.get("hmm_regime"), int) else None
-                garch_now = sig.get("garch_sigma") if isinstance(sig.get("garch_sigma"), (int, float)) else None
-                hmm_fire = sig.get("hmm_regime_at_fire") if isinstance(sig.get("hmm_regime_at_fire"), int) else None
-                garch_fire = sig.get("garch_sigma_at_fire") if isinstance(sig.get("garch_sigma_at_fire"), (int, float)) else None
+                _hmm_v = sig.get("hmm_regime")
+                hmm_now = _hmm_v if isinstance(_hmm_v, int) else None
+                _g_v = sig.get("garch_sigma")
+                garch_now = _g_v if isinstance(_g_v, (int, float)) else None
+                _hmm_f = sig.get("hmm_regime_at_fire")
+                hmm_fire = _hmm_f if isinstance(_hmm_f, int) else None
+                _g_f = sig.get("garch_sigma_at_fire")
+                garch_fire = _g_f if isinstance(_g_f, (int, float)) else None
                 staleness_score_val, staleness_reason_val = compute_staleness_score(
                     hmm_now, hmm_fire, garch_now, garch_fire
                 )
@@ -566,7 +569,9 @@ class SignalTrackerAgent(BaseAgent):
                         self._chandelier_state.get(sid) if status == SignalStatus.ACTIVE else None
                     ),
                     staleness_consecutive_bars=(
-                        self._staleness_consecutive.get(sid, 0) if status == SignalStatus.ACTIVE else 0
+                        self._staleness_consecutive.get(sid, 0)
+                        if status == SignalStatus.ACTIVE
+                        else 0
                     ),
                     staleness_score=staleness_score_val,
                 )
@@ -609,7 +614,8 @@ class SignalTrackerAgent(BaseAgent):
                         except Exception as e:
                             self.logger.warning(
                                 "Failed to write chandelier state",
-                                signal_id=sid, error=str(e),
+                                signal_id=sid,
+                                error=str(e),
                             )
 
             if transition is None:
@@ -676,9 +682,7 @@ class SignalTrackerAgent(BaseAgent):
                     tf_seconds = _tf_to_seconds(timeframe)
                     sig_ts = sig.get("timestamp")
                     if sig_ts and isinstance(sig_ts, datetime) and tf_seconds > 0:
-                        bars_elapsed_total = int(
-                            (bar_time - sig_ts).total_seconds() / tf_seconds
-                        )
+                        bars_elapsed_total = int((bar_time - sig_ts).total_seconds() / tf_seconds)
                     else:
                         bars_elapsed_total = sig.get("bars_elapsed", 0)
                     remaining_ttl = max(0, ttl_bars - bars_elapsed_total)
@@ -700,7 +704,8 @@ class SignalTrackerAgent(BaseAgent):
                         except Exception as e:
                             self.logger.warning(
                                 "Failed to write shadow_tracking_start_ts",
-                                signal_id=sid, error=str(e),
+                                signal_id=sid,
+                                error=str(e),
                             )
 
                 self._spawn_task(
@@ -794,7 +799,8 @@ class SignalTrackerAgent(BaseAgent):
                     except Exception as e:
                         self.logger.warning(
                             "Failed to write shadow outcome",
-                            signal_id=shadow_sid, error=str(e),
+                            signal_id=shadow_sid,
+                            error=str(e),
                         )
                 del self._shadow_signals[shadow_sid]
         # ── End shadow signal tracking loop ─────────────────────────────────
@@ -895,9 +901,13 @@ class SignalTrackerAgent(BaseAgent):
                     trailing_history = sig.get("trailing_stop_price")
                     garch_fire = float(sig.get("garch_sigma_at_fire") or 0.0)
                     vol_source = sig.get("chandelier_vol_source") or "restored"
-                    if trailing_history and isinstance(trailing_history, list) and len(trailing_history) > 0:
+                    if trailing_history and isinstance(trailing_history, list) and trailing_history:
                         last_entry = trailing_history[-1]
-                        last_stop = float(last_entry.get("price", 0.0)) if isinstance(last_entry, dict) else 0.0
+                        last_stop = (
+                            float(last_entry.get("price", 0.0))
+                            if isinstance(last_entry, dict)
+                            else 0.0
+                        )
                         if last_stop > 0:
                             self._chandelier_state[sid] = {
                                 "trailing_stop": last_stop,
@@ -909,8 +919,9 @@ class SignalTrackerAgent(BaseAgent):
                                 "_last_written_stop": last_stop,
                             }
                     self._staleness_consecutive[sid] = 0
-            self.logger.info("Chandelier state re-seeded from DB",
-                             signals_reseeded=len(self._chandelier_state))
+            self.logger.info(
+                "Chandelier state re-seeded from DB", signals_reseeded=len(self._chandelier_state)
+            )
         except Exception as e:
             self.logger.warning("Failed to re-seed Chandelier state", error=str(e))
 
@@ -945,8 +956,7 @@ class SignalTrackerAgent(BaseAgent):
             return
         key = (symbol, timeframe)
         active_index[key] = [
-            s for s in active_index.get(key, [])
-            if str(s["signal_id"]) != signal_id
+            s for s in active_index.get(key, []) if str(s["signal_id"]) != signal_id
         ]
 
     async def _active_index_reseed_loop(self) -> None:
@@ -955,9 +965,7 @@ class SignalTrackerAgent(BaseAgent):
         while not self._stop_event.is_set():
             try:
                 try:
-                    await asyncio.wait_for(
-                        self._stop_event.wait(), timeout=_RESEED_INTERVAL
-                    )
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=_RESEED_INTERVAL)
                     break
                 except TimeoutError:
                     pass
