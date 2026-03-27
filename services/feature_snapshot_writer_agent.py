@@ -121,14 +121,14 @@ class FeatureSnapshotWriterAgent(BaseAgent):
                 self.logger.error("shadow_write_failed", error=str(exc))
                 self._write_errors.inc()
         duration = (datetime.now(UTC) - t0).total_seconds()
-        PERSISTENCE_BATCH_LATENCY.observe(duration)
-        PERSISTENCE_CONSUMER_LAG.set(len(self._buffer))
+        PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_snapshot_writer").observe(duration)
+        PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_snapshot_writer").set(len(self._buffer))
         self._last_flush = datetime.now(UTC)
 
     async def _report_consumer_lag(self) -> None:
         """Report consumer lag (buffer size proxy) until stop event."""
         while not self._stop_event.is_set():
-            PERSISTENCE_CONSUMER_LAG.set(len(self._buffer))
+            PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_snapshot_writer").set(len(self._buffer))
             await asyncio.sleep(15)
 
     async def _run(self) -> None:
