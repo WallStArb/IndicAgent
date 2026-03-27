@@ -13,9 +13,9 @@
 - ✅ **v1.8 Signal Intelligence** — Phases 28-29 (shipped 2026-03-13)
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
-- 🚧 **v2.1 Data Foundation & Signal Confidence** — Phases 48-52 (in progress)
-- ⏸ **v2.2 External Access** — Phase 53 (planned, deferred until v2.1 complete)
-- ⏸ **v2.3 ML Foundation** — Phases 54-55 (deferred until 30+ days clean signal data)
+- 🚧 **v2.1 Data Foundation & Signal Confidence** — Phases 48-53.3 (in progress)
+- ⏸ **v2.2 External Access** — Phase 54 (planned, deferred until v2.1 complete)
+- ⏸ **v2.3 ML Foundation** — Phases 55-56 (deferred until 30+ days clean signal data)
 
 ## Phases
 
@@ -174,7 +174,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 </details>
 
 <details open>
-<summary>🚧 v2.1 Data Foundation & Signal Confidence (Phases 48-52.5) — IN PROGRESS</summary>
+<summary>🚧 v2.1 Data Foundation & Signal Confidence (Phases 48-53.3) — IN PROGRESS</summary>
 
 **Milestone Goal:** Earn the right to trust the numbers. Fix the live data foundation (tick aggregation), close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
 
@@ -193,27 +193,35 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
   - [x] 52.3-01-PLAN.md — migration 051, FeatureRepository table_name, FeatureSnapshotWriterAgent(BaseAgent), systemd unit (SUMMARY: 52.3-01-SUMMARY.md)
 - [ ] **Phase 52.4: SignalTrackerAgent Refactor** — rename `SignalLifecycleService` → `SignalTrackerAgent`; extract SQL to `SignalLedgerRepository`; inject repository; inherit `BaseAgent`; retire `indicagent-signal-lifecycle.service`
 - [ ] **Phase 52.5: Parity Auditor Agent** — `ParityRepository` + `FieldViolation` schema; `ParityAuditorAgent` timer loop comparing shadow vs primary per (symbol, tf); violation storage; automated `SHADOW_PARITY_CERTIFIED` gate; systemd unit
+- [ ] **Phase 53.1: BarWriterAgent + BarCompletenessAgent** — extract `_ohlcv_buffer` from `feature_compute_agent` into `BarWriterAgent` (DB-ignorant compute path); `BarCompletenessAgent` audits historical gaps on startup; retires `gap_fill_service`; ports :9121/:9123
+- [ ] **Phase 53.2: BarAggregatorAgent** — extract `BarAccumulator` (1m→HTF aggregation) from `feature_compute_agent` into standalone `BarAggregatorAgent`; `feature_compute_agent` becomes pure intelligence; canonical flat bars for empty minutes; port :9120
+- [ ] **Phase 53.3: RollDetectionAgent + DataProviderAgent Rename** — extract `RollMonitor` (volume z-score detection) from `DataProviderAgent` into standalone `RollDetectionAgent`; typed `RollEvent` schema published to `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent`; port :9122
+  - Phase 50 (ROLL_MONITOR_ENABLED graduation) depends on 53.3 running and validated
+
+  Design doc: `docs/plans/2026-03-26-data-layer-dag-design.md`
 
 </details>
 
 <details>
-<summary>⏸ v2.2 External Access (Phase 53) — PLANNED, deferred until v2.1 complete</summary>
+<summary>⏸ v2.2 External Access (Phase 54) — PLANNED, deferred until v2.1 complete</summary>
 
 **Milestone Goal:** Secure, observable external access. Cloudflare Tunnel SSE fix is the only strictly required item; JWT auth can be replaced with Cloudflare Access (zero application code). Full auth layer if intentional multi-user access is needed.
 
-- [ ] **Phase 53: Auth + External Access** — Cloudflare Tunnel `disableChunkedEncoding` SSE fix; Cloudflare Access or JWT cookie auth; CORS hardening; auth event logging; rate limiting
+**Note:** Renumbered from Phase 53 → Phase 54 to make room for v2.1 data layer phases 53.1–53.3.
+
+- [ ] **Phase 54: Auth + External Access** — Cloudflare Tunnel `disableChunkedEncoding` SSE fix; Cloudflare Access or JWT cookie auth; CORS hardening; auth event logging; rate limiting
   - Plans already created in `.planning/phases/53-auth-external-access/` (moved from Phase 48 v2.0)
   - Revisit scope before executing — Cloudflare Access may replace JWT application code entirely
 
 </details>
 
 <details>
-<summary>⏸ v2.3 ML Foundation (Phases 54-55) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
+<summary>⏸ v2.3 ML Foundation (Phases 55-56) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
 
 **Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
 
-- [ ] **Phase 54: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
-- [ ] **Phase 55: Renaissance Observability** — DAG performance attribution, A/B experiment framework, causal inference, counterfactual analysis, LLM gate optimizer, intelligence tier audit surface, staleness as first-class quality signal
+- [ ] **Phase 55: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
+- [ ] **Phase 56: Renaissance Observability** — DAG performance attribution, A/B experiment framework, causal inference, counterfactual analysis, LLM gate optimizer, intelligence tier audit surface, staleness as first-class quality signal
 
 </details>
 
@@ -380,8 +388,9 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| **Phase 54: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 54` in Phase Details section |
-| **Phase 55: Renaissance Observability** | Deferred from v2.0 — depends on Phase 54 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | Phase Detail: see `### Phase 55` in Phase Details section |
+| **Intelligence Swarm** | 9 autonomous agents (Regime Sentinel, Volatility Arbiter, SMC Validator, Liquidity Decay, Correlation Contagion, Macro Event Observer, Execution Quality, SkepticAgent) providing alpha multipliers; shadow-first validation; `AlphaMultiplier` schema; hook into signal_lifecycle_service. Requires PydanticAI safety wrapper + 14-day correlation analysis infra. | `docs/ideas/intelligence-swarm-manifest.md` |
+| **Phase 55: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 55` in Phase Details section |
+| **Phase 56: Renaissance Observability** | Deferred from v2.0 — depends on Phase 55 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. Renaissance gap analysis D1–D5 items feed this phase. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
@@ -390,6 +399,8 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
+| Intelligence Confluence Patterns | Unsupervised discovery: enumerate concurrent I5/I6/I7 signals, track confluence signatures, surface statistically significant patterns for human labeling, feed back to I7 setups. Needs 30 days baseline data. Schema: `confluence_patterns` table + ConfluenceExplorationPlugin + writer service. | `docs/ideas/intelligence-confluence-patterns.md` |
+| Latency & Persistence Audit | Hot/cold path decoupling: Fire-and-Forget Kafka in hot path, PersistenceCoordinator async batch in cold path, zero-copy headers for provenance. Blocked on Phase 52 completion. | `docs/ideas/latency-and-persistence-audit-design.md` |
 | Intelligence Stack Latency | Parallel plugin workers within tiers (2-7× speedup potential). Thread-safety audit required. | `docs/ideas/intelligence-stack-latency-reduction.md` |
 | API keyset pagination | Large features export endpoint has no pagination — blocks on full table scan. | `.planning/todos/pending/2026-02-24-add-keyset-pagination-to-features-export-and-rest-endpoint.md` |
 | Regime-adaptive plugin parameters | I1/I4 parameter values adapt to hmm_regime (e.g. shorter RSI period in trending regime). | — |
@@ -402,6 +413,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
+| Granular Stream Topology | Publish each intelligence tier (I2, I4, I5, I6) to separate topics. Build only when a real consumer materializes (MLAgent feature pipeline, AegisAgent risk service, QualAgent). | `docs/ideas/granular-stream-topology.md` |
 | Orderflow Integration | reqTickByTickData; buy/sell delta metrics; delta divergence / absorption / imbalance continuation plugins. | — |
 | Portfolio Management | Correlation matrix; sector exposure limits; symbol rotation. | — |
 | Trade Journal Auto-Documentation | LLM daily summaries from signal_ledger — learning opportunities from losing trades, performance by setup/regime/TF. | — |
