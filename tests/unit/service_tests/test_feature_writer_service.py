@@ -1,6 +1,6 @@
 """Tests for feature_writer_service — consumer group batch writer to intelligence_features.
 
-Updated for Phase 44.3: FeatureWriterService now consumes development.intelligence.record
+Updated for Phase 44.3: FeatureWriterAgent now consumes development.intelligence.record
 only, performs a single atomic INSERT per bar from BarIntelligenceRecord. All i7/i8
 two-phase write code removed.
 """
@@ -93,10 +93,10 @@ def _make_valid_bar_intelligence_record():
 
 def test_parse_intelligence_record_returns_bar_intelligence_record():
     """Valid BarIntelligenceRecord JSON returns BarIntelligenceRecord instance."""
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterAgent
     from src.intelligence.schemas import BarIntelligenceRecord
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
 
@@ -113,9 +113,9 @@ def test_parse_intelligence_record_returns_bar_intelligence_record():
 
 def test_parse_intelligence_record_returns_none_for_invalid_json():
     """Malformed JSON returns None without crashing."""
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterAgent
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._parse_errors_total = MagicMock()
 
@@ -225,9 +225,9 @@ def test_record_to_insert_params_jsonb_columns_are_strings():
 @pytest.mark.asyncio
 async def test_maybe_flush_force_calls_execute_batch():
     """_maybe_flush(force=True) with 3 buffered records calls execute_batch with 3 params."""
-    from services.feature_writer_service import FeatureWriterService, _record_to_insert_params
+    from services.feature_writer_service import FeatureWriterAgent, _record_to_insert_params
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._last_flush = 0.0
     svc.batch_writes_total = MagicMock()
@@ -257,9 +257,9 @@ async def test_maybe_flush_has_no_i7_i8_buffer_references():
     """_maybe_flush no longer references _i7_buffer or _i8_buffer."""
     import inspect
 
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterAgent
 
-    source = inspect.getsource(FeatureWriterService._maybe_flush)
+    source = inspect.getsource(FeatureWriterAgent._maybe_flush)
     assert "_i7_buffer" not in source, "_i7_buffer must be absent from _maybe_flush"
     assert "_i8_buffer" not in source, "_i8_buffer must be absent from _maybe_flush"
     assert "_flush_i7_i8" not in source, "_flush_i7_i8 must be absent from _maybe_flush"
@@ -272,11 +272,11 @@ async def test_maybe_flush_time_based_calls_execute_batch():
 
     from services.feature_writer_service import (
         FLUSH_INTERVAL_SECS,
-        FeatureWriterService,
+        FeatureWriterAgent,
         _record_to_insert_params,
     )
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._last_flush = time.monotonic() - (FLUSH_INTERVAL_SECS + 1.0)
     svc.batch_writes_total = MagicMock()
@@ -304,9 +304,9 @@ async def test_maybe_flush_recent_events_no_call():
     """_maybe_flush(force=False) with recent events does NOT call execute_batch."""
     import time
 
-    from services.feature_writer_service import FeatureWriterService, _record_to_insert_params
+    from services.feature_writer_service import FeatureWriterAgent, _record_to_insert_params
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc._last_flush = time.monotonic()
 
@@ -329,24 +329,24 @@ async def test_maybe_flush_recent_events_no_call():
 
 def test_removed_i7_i8_methods_absent():
     """_process_i7_message, _process_i8_message, _flush_i7_i8 must be absent."""
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterAgent
 
-    assert not hasattr(FeatureWriterService, "_process_i7_message"), (
+    assert not hasattr(FeatureWriterAgent, "_process_i7_message"), (
         "_process_i7_message must be removed"
     )
-    assert not hasattr(FeatureWriterService, "_process_i8_message"), (
+    assert not hasattr(FeatureWriterAgent, "_process_i8_message"), (
         "_process_i8_message must be removed"
     )
-    assert not hasattr(FeatureWriterService, "_flush_i7_i8"), "_flush_i7_i8 must be removed"
+    assert not hasattr(FeatureWriterAgent, "_flush_i7_i8"), "_flush_i7_i8 must be removed"
 
 
 def test_topic_routing_only_handles_intelligence_record():
     """_process_loop source must contain intelligence_record_topic routing."""
     import inspect
 
-    from services.feature_writer_service import FeatureWriterService
+    from services.feature_writer_service import FeatureWriterAgent
 
-    source = inspect.getsource(FeatureWriterService._process_loop)
+    source = inspect.getsource(FeatureWriterAgent._process_loop)
     assert "intelligence_record_topic" in source, (
         "_process_loop must route intelligence_record_topic"
     )
@@ -361,9 +361,9 @@ def test_topic_routing_only_handles_intelligence_record():
 @pytest.mark.asyncio
 async def test_graceful_shutdown_sets_flag_and_flushes():
     """_shutdown sets shutdown_requested=True and flushes buffer."""
-    from services.feature_writer_service import FeatureWriterService, _record_to_insert_params
+    from services.feature_writer_service import FeatureWriterAgent, _record_to_insert_params
 
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
     svc.shutdown_requested = False
     svc._last_flush = 0.0
@@ -396,11 +396,11 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
 
 
 def test_kafka_consumer_group_is_feature_writer_group():
-    """KAFKA-07: FeatureWriterService uses CONSUMER_GROUP='feature_writer_group'."""
-    from services.feature_writer_service import CONSUMER_GROUP, FeatureWriterService
+    """KAFKA-07: FeatureWriterAgent uses CONSUMER_GROUP='feature_writer_group'."""
+    from services.feature_writer_service import CONSUMER_GROUP, FeatureWriterAgent
 
     assert CONSUMER_GROUP == "feature_writer_group"
-    svc = FeatureWriterService.__new__(FeatureWriterService)
+    svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     assert not hasattr(svc, "redis_client"), (
         "redis_client must not be present after Kafka migration"
     )
