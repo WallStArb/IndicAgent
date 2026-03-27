@@ -215,7 +215,7 @@ IBKR TWS → feature_pipeline_service (I1-I6 unified) →
 | Feature Compute | `indicagent-feature-pipeline` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
 | Intelligence Compute | `indicagent-intelligence-compute` | I2-I6 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
-| Signal Lifecycle | `indicagent-signal-lifecycle` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome | :9115 |
+| Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome (Phase 52.4: renamed from signal-lifecycle, inherits BaseAgent) | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
 | LLM Writer | `indicagent-llm-writer` | `llm.calls` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
