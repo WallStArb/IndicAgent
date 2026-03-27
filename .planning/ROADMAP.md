@@ -477,4 +477,4 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
 | 50. Roll Monitor Graduation | v2.1 | 0/TBD | Not started | — |
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Not started | — |
-| 52. Infrastructure Hardening | v2.1 | 0/TBD | Not started | — |
+| 52. Infrastructure Hardening | v2.1 | 0/1 | Planned    |  |
