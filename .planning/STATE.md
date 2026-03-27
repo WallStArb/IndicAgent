@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
 status: Ready to plan
-last_updated: "2026-03-27T11:59:25.488Z"
+last_updated: "2026-03-27T23:52:21.319Z"
 progress:
-  total_phases: 11
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 5
+  total_phases: 12
+  completed_phases: 3
+  total_plans: 11
+  completed_plans: 6
 ---
 
 # Project State
@@ -18,7 +18,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.4 — SignalTrackerAgent Refactor (Plan 01 complete)
+**Current focus:** Phase 52.5 — Parity Auditor Agent (Plan 01 complete)
 
 ## Current Position
 
@@ -102,6 +102,14 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - _run() raises NotImplementedError — satisfies @abc.abstractmethod while documenting that start() manages the loop
 - MarketAnalysisService tests preserved with @pytest.mark.skip — file consolidated into feature_compute_agent (v2.0); tests document threading.Lock contract
 - PERSISTENCE_CONSUMER_LAG set to 0 — consistent with Phase 52.1 llm_writer pattern; no partition end-offset API available
+
+### Decisions (Phase 52.5 Plan 01)
+
+- Certification derived from fetch_clean_cycles query over feature_parity_violations — no state table (D-01/D-09)
+- Shadow-only rows: SHADOW_AHEAD_ROWS_TOTAL counter only, never FieldViolation (D-03/D-07)
+- 10-minute comparison window (2x COMPARISON_INTERVAL_SECS) — self-adjusting across TFs (D-02)
+- SHADOW_PARITY_CERTIFIED published to topic_system_events when all pairs reach CERTIFICATION_THRESHOLD=12 (D-06)
+- Metrics port :9120 — 9119 reserved for FeatureSnapshotWriterAgent (D-04/D-08)
 
 ### Decisions (Phase 52.4 Plan 01)
 
