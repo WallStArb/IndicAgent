@@ -512,8 +512,8 @@ Plans:
 **Plans:** 1/5 plans executed
 
 Plans:
-- [x] 52.6-01-PLAN.md — Pre-condition: rename FeatureWriterService → FeatureWriterAgent (class-name only commit)
-- [ ] 52.6-02-PLAN.md — TDD: enhance BaseAgent with full lifecycle contract (metrics_port, tracer, _setup/_teardown, running, topics, DLQ)
+- [ ] 52.6-01-PLAN.md — Pre-condition: rename FeatureWriterService → FeatureWriterAgent (class-name only commit)
+- [x] 52.6-02-PLAN.md — TDD: enhance BaseAgent with full lifecycle contract (metrics_port, tracer, _setup/_teardown, running, topics, DLQ)
 - [ ] 52.6-03-PLAN.md — ProcessManifest (src/core/agent/manifest.py), delete AgentRegistry, update package exports
 - [ ] 52.6-04-PLAN.md — Migrate IndicatorComputeAgent + SignalGeneratorAgent to new BaseAgent contract
 - [ ] 52.6-05-PLAN.md — Migrate IntelligenceComputeAgent + FeatureWriterAgent; add init_tracing() to all four entrypoints
