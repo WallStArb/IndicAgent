@@ -235,11 +235,31 @@ SHADOW_EV_R = Gauge("shadow_ev_r", "Shadow plugin E[PnL_R]", ["plugin"])
 SHADOW_EV_CI_LOWER = Gauge(
     "shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]", ["plugin"]
 )
-SHADOW_DAYS_TO_GATE = Gauge(
-    "shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"]
-)
+SHADOW_DAYS_TO_GATE = Gauge("shadow_days_to_gate", "Estimated days to N=100 resolved", ["plugin"])
 SHADOW_PROMOTION_READY = Gauge(
     "shadow_promotion_ready", "1 when all gate conditions met", ["plugin"]
+)
+
+
+# Parity Auditor metrics (Phase 52.5)
+PARITY_MATCH_RATE = Gauge(
+    "parity_match_rate",
+    "Fraction of rows matching between primary and shadow (0.0-1.0)",
+    ["symbol", "tf"],
+)
+SHADOW_AHEAD_ROWS_TOTAL = Counter(
+    "shadow_ahead_rows_total",
+    "Rows present in shadow but not yet in primary (timing race)",
+    ["symbol", "tf"],
+)
+PARITY_VIOLATIONS_TOTAL = Counter(
+    "parity_violations_total",
+    "Total field-level parity violations detected",
+    ["symbol", "tf"],
+)
+PARITY_CYCLES_TOTAL = Counter(
+    "parity_cycles_total",
+    "Total comparison cycles executed by ParityAuditorAgent",
 )
 
 
