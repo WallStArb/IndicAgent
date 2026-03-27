@@ -131,10 +131,10 @@ class LedgerEntry:
     shadow_mfe: float | None = None
     shadow_outcome: str | None = None
     # Phase 35: Calibration fields — all nullable
-    raw_cis_score: float | None = None          # CIS score before Kalman filter
-    filtered_cis_score: float | None = None     # Kalman-filtered CIS score
+    raw_cis_score: float | None = None  # CIS score before Kalman filter
+    filtered_cis_score: float | None = None  # Kalman-filtered CIS score
     calibrated_confidence: float | None = None  # isotonic calibrated probability; NULL when N < 100
-    regime_type_at_fire: str | None = None      # regime_type of winning signal at fire time
+    regime_type_at_fire: str | None = None  # regime_type of winning signal at fire time
 
     def to_insert_params(self) -> tuple:
         """Return a 58-element tuple ready for batch INSERT.
@@ -184,26 +184,26 @@ class LedgerEntry:
             self.market_entry_price,  # $38 — FLOAT, nullable
             self.is_shadow,  # $39 — BOOLEAN
             # Phase 32: stop basis fields
-            self.stop_basis,                    # $40
-            self.stop_structure_type,           # $41
-            self.stop_structure_age_bars,       # $42
+            self.stop_basis,  # $40
+            self.stop_structure_type,  # $41
+            self.stop_structure_age_bars,  # $42
             self.structural_stop_distance_atr,  # $43
-            self.hmm_regime_at_fire,            # $44
-            self.garch_sigma_at_fire,           # $45
-            self.chandelier_vol_source,         # $46
+            self.hmm_regime_at_fire,  # $44
+            self.garch_sigma_at_fire,  # $45
+            self.chandelier_vol_source,  # $46
             # $47::jsonb — trailing stop path [{ts, price}]
             self.trailing_stop_price,
-            self.trailing_stop_tightening_rate, # $48
-            self.staleness_score,               # $49
-            self.staleness_trigger_reason,      # $50
-            self.shadow_tracking_start_ts,      # $51
-            self.shadow_mae,                    # $52
-            self.shadow_mfe,                    # $53
-            self.shadow_outcome,                # $54
-            self.raw_cis_score,                 # $55
-            self.filtered_cis_score,            # $56
-            self.calibrated_confidence,         # $57
-            self.regime_type_at_fire,           # $58
+            self.trailing_stop_tightening_rate,  # $48
+            self.staleness_score,  # $49
+            self.staleness_trigger_reason,  # $50
+            self.shadow_tracking_start_ts,  # $51
+            self.shadow_mae,  # $52
+            self.shadow_mfe,  # $53
+            self.shadow_outcome,  # $54
+            self.raw_cis_score,  # $55
+            self.filtered_cis_score,  # $56
+            self.calibrated_confidence,  # $57
+            self.regime_type_at_fire,  # $58
         )
 
 
@@ -358,14 +358,16 @@ def _build_feature_rows(
             continue
         bucket = FEATURE_BUCKET_MAP.get(key)
         contribution = contributions.get(key)
-        rows.append((
-            signal_id,
-            computed_at,
-            key,
-            float(value),
-            bucket,
-            float(contribution) if contribution is not None else None,
-        ))
+        rows.append(
+            (
+                signal_id,
+                computed_at,
+                key,
+                float(value),
+                bucket,
+                float(contribution) if contribution is not None else None,
+            )
+        )
     return rows
 
 
@@ -529,9 +531,7 @@ class SignalLedgerRepository:
                         await conn.executemany(_INSERT_FEATURES_SQL, feature_rows)
         logger.info("Wrote signals + features atomically", count=len(entries))
 
-    async def update_signal_status(
-        self, signal_id: str, **kwargs: Any
-    ) -> None:
+    async def update_signal_status(self, signal_id: str, **kwargs: Any) -> None:
         """Update a signal's lifecycle status and optional exit fields."""
         await self._db_manager.execute_command(
             _UPDATE_STATUS_SQL,
@@ -627,3 +627,151 @@ class SignalLedgerRepository:
             kwargs.get("bars_in_trade"),
             kwargs.get("outcome"),
         )
+
+    async def update_lifecycle_state(
+        self,
+        signal_id: str,
+        new_status: str,
+        outcome: str | None = None,
+        exit_price: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Update signal lifecycle state — delegates to update_signal_status.
+
+        Provides the canonical name expected by SignalTrackerAgent.
+        """
+        await self.update_signal_status(
+            signal_id,
+            status=new_status,
+            outcome=outcome,
+            exit_price=exit_price,
+            **kwargs,
+        )
+
+    async def update_mae_mfe(
+        self,
+        signal_id: str,
+        mae: float,
+        mfe: float,
+    ) -> None:
+        """Persist in-memory MAE/MFE to signal_ledger for the given signal."""
+        sql = """
+UPDATE signal_ledger
+SET mae = $2,
+    mfe = $3
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(sql, signal_id, mae, mfe)
+
+    async def fetch_active_signals(self, symbol: str, tf: str) -> list[dict]:
+        """Return pending/active/regime_suppressed signals for a specific symbol+timeframe."""
+        sql = """
+SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direction,
+       entry_price, stop_loss, targets, confidence, confluence_score, regime_context,
+       supporting_factors, was_selected, num_signals_bar, num_agreeing, num_conflicting,
+       resolution_method, composite_rank, market_context, status, activated_at,
+       exit_at, exit_price, exit_reason, pnl_ticks, pnl_r, pnl_dollars, created_at,
+       updated_at, feature_ts, feature_tf, cis_score, bucket_scores, weights_version,
+       signal_quality, signal_computed_at, determined_at, ask_at_signal, bid_at_signal,
+       market_price_at_signal, entry_zone_low, entry_zone_high, zone_valid_at_signal,
+       activation_price, zone_entry_pct, bars_to_activation, mae, mfe, bars_in_trade,
+       outcome, cis_attribution, market_entry_price, market_entry_exit_price,
+       market_entry_pnl_r, market_entry_mae, market_entry_mfe, market_entry_bars_in_trade,
+       market_entry_outcome, market_entry_gap_bars, market_entry_at, market_entry_exit_at,
+       is_shadow, stop_basis, stop_structure_type, stop_structure_age_bars,
+       structural_stop_distance_atr, hmm_regime_at_fire, garch_sigma_at_fire,
+       chandelier_vol_source, trailing_stop_price, trailing_stop_tightening_rate,
+       staleness_score, staleness_trigger_reason, shadow_tracking_start_ts, shadow_mae
+FROM signal_ledger
+WHERE status IN ('pending', 'active', 'regime_suppressed')
+  AND symbol = $1
+  AND timeframe = $2
+  AND exit_at IS NULL
+ORDER BY timestamp DESC
+"""
+        return await self._db_manager.execute_query(sql, symbol, tf)
+
+    async def fetch_pending_signals(self) -> list[dict]:
+        """Return all pending signals across all symbols/timeframes."""
+        sql = """
+SELECT signal_id, timestamp, symbol, timeframe, setup_plugin, signal_type, direction,
+       entry_price, stop_loss, targets, confidence, status, entry_zone_low, entry_zone_high,
+       zone_valid_at_signal, feature_ts, feature_tf
+FROM signal_ledger
+WHERE status = 'pending' AND exit_at IS NULL
+ORDER BY timestamp DESC
+"""
+        return await self._db_manager.execute_query(sql)
+
+    async def update_chandelier_state(
+        self,
+        signal_id: str,
+        history_json: str,
+        tightening_rate: float | None,
+        staleness_score: float,
+        staleness_reason: str | None,
+        vol_source: str | None,
+    ) -> None:
+        """Persist Chandelier trailing stop state and staleness fields."""
+        sql = """
+UPDATE signal_ledger
+SET trailing_stop_price = $2::jsonb,
+    trailing_stop_tightening_rate = $3,
+    staleness_score = $4,
+    staleness_trigger_reason = $5,
+    chandelier_vol_source = COALESCE(chandelier_vol_source, $6)
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(
+            sql,
+            signal_id,
+            history_json,
+            tightening_rate,
+            staleness_score,
+            staleness_reason,
+            vol_source,
+        )
+
+    async def update_chandelier_vol_source(self, signal_id: str, vol_source: str) -> None:
+        """Set chandelier_vol_source on first active bar if not already set."""
+        sql = """
+UPDATE signal_ledger
+SET chandelier_vol_source = $2
+WHERE signal_id = $1::uuid AND chandelier_vol_source IS NULL
+"""
+        await self._db_manager.execute_command(sql, signal_id, vol_source)
+
+    async def update_shadow_outcome(
+        self,
+        signal_id: str,
+        start_ts: Any,
+        shadow_mae: float,
+        shadow_mfe: float,
+        shadow_outcome: str,
+    ) -> None:
+        """Persist post-condition_expired shadow tracking outcome."""
+        sql = """
+UPDATE signal_ledger
+SET shadow_tracking_start_ts = $2,
+    shadow_mae = $3,
+    shadow_mfe = $4,
+    shadow_outcome = $5
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(
+            sql,
+            signal_id,
+            start_ts,
+            shadow_mae,
+            shadow_mfe,
+            shadow_outcome,
+        )
+
+    async def set_shadow_tracking_start(self, signal_id: str, start_ts: Any) -> None:
+        """Record start timestamp when a signal enters shadow tracking mode."""
+        sql = """
+UPDATE signal_ledger
+SET shadow_tracking_start_ts = $2
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(sql, signal_id, start_ts)
