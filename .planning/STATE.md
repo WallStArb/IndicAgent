@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
 status: Milestone complete
-last_updated: "2026-03-26T22:36:40.763Z"
+last_updated: "2026-03-27T11:44:02.713Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 2
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.2 — BaseAgent Infrastructure (Plans 01+02 complete)
+**Current focus:** Phase 52.4 — SignalTrackerAgent Refactor (Plan 01 complete)
 
 ## Current Position
 
-Phase: 52.2
-Plan: 03 (02 complete)
+Phase: 52.4
+Plan: 01 complete
 
 ## v2.1 Milestone Goal
 
@@ -102,6 +102,14 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - _run() raises NotImplementedError — satisfies @abc.abstractmethod while documenting that start() manages the loop
 - MarketAnalysisService tests preserved with @pytest.mark.skip — file consolidated into feature_compute_agent (v2.0); tests document threading.Lock contract
 - PERSISTENCE_CONSUMER_LAG set to 0 — consistent with Phase 52.1 llm_writer pattern; no partition end-offset API available
+
+### Decisions (Phase 52.4 Plan 01)
+
+- Kept signal_lifecycle_service.py as compatibility shim (one release cycle) — 20+ test imports still resolve without touching external test files
+- All SQL centralized in SignalLedgerRepository — added update_chandelier_state, update_chandelier_vol_source, update_shadow_outcome, set_shadow_tracking_start methods
+- Repository constructor kept as db_manager: Any (not asyncpg.Pool) — plan's pool interface was aspirational; changing would break signal_generator_agent and other callers
+- update_lifecycle_state wraps update_signal_status — canonical agent name while preserving backward-compat internal calls
+- indicagent-signal-lifecycle disabled; indicagent-signal-tracker installed on live system (pending main repo merge for ExecStart to resolve)
 
 ### Pending Todos
 
