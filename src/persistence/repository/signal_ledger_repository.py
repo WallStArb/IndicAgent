@@ -702,3 +702,66 @@ WHERE status = 'pending' AND exit_at IS NULL
 ORDER BY timestamp DESC
 """
         return await self._db_manager.execute_query(sql)
+
+    async def update_chandelier_state(
+        self,
+        signal_id: str,
+        history_json: str,
+        tightening_rate: float | None,
+        staleness_score: float,
+        staleness_reason: str | None,
+        vol_source: str | None,
+    ) -> None:
+        """Persist Chandelier trailing stop state and staleness fields."""
+        sql = """
+UPDATE signal_ledger
+SET trailing_stop_price = $2::jsonb,
+    trailing_stop_tightening_rate = $3,
+    staleness_score = $4,
+    staleness_trigger_reason = $5,
+    chandelier_vol_source = COALESCE(chandelier_vol_source, $6)
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(
+            sql, signal_id, history_json, tightening_rate,
+            staleness_score, staleness_reason, vol_source,
+        )
+
+    async def update_chandelier_vol_source(self, signal_id: str, vol_source: str) -> None:
+        """Set chandelier_vol_source on first active bar if not already set."""
+        sql = """
+UPDATE signal_ledger
+SET chandelier_vol_source = $2
+WHERE signal_id = $1::uuid AND chandelier_vol_source IS NULL
+"""
+        await self._db_manager.execute_command(sql, signal_id, vol_source)
+
+    async def update_shadow_outcome(
+        self,
+        signal_id: str,
+        start_ts: Any,
+        shadow_mae: float,
+        shadow_mfe: float,
+        shadow_outcome: str,
+    ) -> None:
+        """Persist post-condition_expired shadow tracking outcome."""
+        sql = """
+UPDATE signal_ledger
+SET shadow_tracking_start_ts = $2,
+    shadow_mae = $3,
+    shadow_mfe = $4,
+    shadow_outcome = $5
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(
+            sql, signal_id, start_ts, shadow_mae, shadow_mfe, shadow_outcome,
+        )
+
+    async def set_shadow_tracking_start(self, signal_id: str, start_ts: Any) -> None:
+        """Record start timestamp when a signal enters shadow tracking mode."""
+        sql = """
+UPDATE signal_ledger
+SET shadow_tracking_start_ts = $2
+WHERE signal_id = $1::uuid
+"""
+        await self._db_manager.execute_command(sql, signal_id, start_ts)
