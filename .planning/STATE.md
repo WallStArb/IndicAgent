@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Phase complete — ready for verification
-last_updated: "2026-03-27T06:45:28.370Z"
+status: Ready to execute
+last_updated: "2026-03-27T07:10:59.975Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.3 — dual-write-shadow-writer COMPLETE
+**Current focus:** Phase 52.3 — dual-write-shadow-writer
 
 ## Current Position
 
-Phase: 52.3 (dual-write-shadow-writer) — COMPLETE (all 6 tasks, all 1 plan done)
-Plan: 1 of 1 (DONE)
+Phase: 52.3 (dual-write-shadow-writer) — EXECUTING
+Plan: 2 of 2
 
 ## v2.1 Milestone Goal
 
@@ -128,6 +128,11 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - TimescaleDB `CREATE TABLE LIKE` does NOT copy primary keys/indexes — shadow table needs explicit `CREATE UNIQUE INDEX` for `ON CONFLICT (ts, symbol, tf) DO NOTHING` to work
 - `auto_offset_reset="earliest"` for shadow consumer — catches up from journal start to ensure full parity coverage; expected shadow count > primary count during catchup phase
 - Metrics port 9119 for snapshot writer (distinct from all other services)
+
+### Decisions (Phase 52.3 Plan 02)
+
+- Three targeted edits at lines 124/125/131: add `.labels(agent_id="feature_snapshot_writer")` to PERSISTENCE_BATCH_LATENCY and PERSISTENCE_CONSUMER_LAG calls — eliminates "histogram metric is missing label values" log spam on every consume loop iteration
+- Prometheus labeled metric call pattern: always `.labels(agent_id=...)` before `.observe()` or `.set()` — never call histogram/gauge directly (matches feature_writer_service.py lines 305-306 reference pattern)
 
 ### Phase 53 — Data Layer DAG (NEW — designed 2026-03-26)
 
