@@ -161,7 +161,7 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 - [x] **Phase 40: DAG Refactor — Clean Foundation** — signal_generator decomposed into 6 DAG microservices, 8 Redpanda topics, systemd units, E2E pipeline integration test (completed 2026-03-19)
 - [x] **Phase 41: Intelligence Gap Fill** — i6 FVG/OB alignment from real data, POC/VAH/VAL as T1/T2 targets, multi-TF S/R context; VWAP/session TF guards, aggregator active-from-all-ranked assertion (completed 2026-03-20)
 - [x] **Phase 42: Candlestick Pattern Expansion** — 18 new I5 patterns + CandlestickPatternSetup confidence tier weights (completed 2026-03-20)
-- [x] **Phase 43: Performance & Stability Emergency** — market_data_ohlcv rebuilt (15,740→21 chunks), feature_writer i7/i8 buffering, asyncio.to_thread plugin execution, lifecycle O(1) active-signal index, ndarray calibration pre-alloc, _run_refresh_loop helper, 328K stale signals expired (executed 2026-03-20; 1 test gap remains — see Phase 49)
+- [x] **Phase 43: Performance & Stability Emergency** — market_data_ohlcv rebuilt (15,740→21 chunks), feature_writer i7/i8 buffering, asyncio.to_thread plugin execution, lifecycle O(1) active-signal index, ndarray calibration pre-alloc, _run_refresh_loop helper, 328K stale signals expired (executed 2026-03-20; threading.Lock test gap closed in Phase 49)
 - [x] **Phase 44: I7 DAG Refactor** — ~458 LOC duplication extracted into shared utilities, validate_tier() enforcement, cross_timeframe decomposed, make_signal() factory + validate_signal() enforcement (completed 2026-03-21)
 - [x] **Phase 44.1: Feature Pipeline Renaissance Refactor** — unified FeaturePipelineService replaces 3 services; 3 Kafka hops → 1; pipeline_latency_ms < 50ms p99 (completed 2026-03-22)
 - [x] **Phase 44.2: SignalGeneratorService Consolidation** — 6 pipeline stage microservices absorbed in-process; 8 Kafka hops → 2; 6 systemd units retired (completed 2026-03-22)
@@ -179,30 +179,28 @@ Full phase details: `.planning/milestones/v1.9-ROADMAP.md`
 **Milestone Goal:** Earn the right to trust the numbers. Fix the live data foundation (tick aggregation), close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
 
 - [x] **Phase 48: Tick Aggregation & I7 Quality** — verify tick aggregation (5s→1m bars, eliminate bars_processed freeze); I7 refactoring: extract 3 shared utilities (550+ line savings), fix I6 confluence violations in 4 SMC/FVG plugins, optimize aggregator calibration batching (completed 2026-03-23)
-- [ ] **Phase 49: DB Performance & Signal Ledger Hardening** — signal_ledger composite index + query optimization; CIS null repair (blocked PostgreSQL shared memory fix); close Phase 43 test gap (threading.Lock characterization test); REQUIREMENTS.md requirement ID traceability fix
-- [ ] **Phase 50: Roll Monitor & DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration 049_roll_premium_pct.sql; enable ROLL_MONITOR_ENABLED; trad_DualDivergence promotion once D-07 gate passes
-- [ ] **Phase 51: Signal & Indicator Validation Framework** — per-layer sanity checks (I1→I7 output values statistically sensible); signal outcome completeness audit; setup_performance gate verification; automated validation that runs on each deploy
-- [ ] **Phase 52: Infrastructure Hardening** — Docker restart policies (timescaledb + redpanda); automated gap-fill on service restart; log rotation; deploy_dashboard.sh script; health check endpoints; no manual steps anywhere in the pipeline
-- [ ] **Phase 52.1: Wiring Fixes + Doc Naming** — fix `topic_feature_processed` ImportError in feature_compute_agent + feature_writer_service; fix naive `datetime.now()` in indicator/intelligence compute agents; wire `persistence_batch_latency`/`persistence_consumer_lag` metrics in writer services; fix hardcoded topic strings in parity-auditor plan
-- [ ] **Phase 52.2: BaseAgent Infrastructure + IndicatorComputeAgent Rename** — **Plans:** 2 plans
+- [x] **Phase 49: DB Performance & Signal Ledger Hardening** — composite index `idx_ledger_feature_join` done; threading.Lock characterization test done; CIS backfill deferred to v2.3 (todo: `2026-03-26-backfill-cis-null-scores-in-signal-ledger.md`); requirements traceability dropped — COMPLETE 2026-03-26 (ad-hoc)
+- [x] **Phase 51: Signal & Indicator Validation Framework** — per-layer sanity checks (I1→I7 output values statistically sensible); signal outcome completeness audit; setup_performance gate verification; automated validation that runs on each deploy — COMPLETE
+- [ ] **Phase 52: Infrastructure Hardening** — Docker restart policies (timescaledb + redpanda); log rotation; deploy_dashboard.sh script; health check endpoints; no manual steps anywhere in the pipeline *(gap-fill → Phase 53.1 BarCompletenessAgent)*
+- [x] **Phase 52.1: Wiring Fixes + Doc Naming** — fixed `topic_feature_processed` ImportError; fixed naive `datetime.now()` calls; wired `persistence_batch_latency`/`persistence_consumer_lag` metrics — COMPLETE
+- [x] **Phase 52.2: BaseAgent Infrastructure + IndicatorComputeAgent Rename** — TDD BaseAgent + AgentRegistry; renamed IndicatorService → IndicatorComputeAgent; fixed 4 broken tests; systemd unit — COMPLETE
   Plans:
   - [x] 52.2-01-PLAN.md — TDD BaseAgent + AgentRegistry (new src/core/agent/ package)
   - [x] 52.2-02-PLAN.md — Rename IndicatorService to IndicatorComputeAgent, fix 4 broken tests, systemd unit
 - [x] **Phase 52.3: Dual-Write Shadow Writer** — migration `051_feature_snapshots_shadow.sql`; `FeatureRepository` configurable table name; `FeatureSnapshotWriterAgent` consuming `intelligence.journal` into shadow table; systemd unit — COMPLETE 2026-03-27
   Plans:
   - [x] 52.3-01-PLAN.md — migration 051, FeatureRepository table_name, FeatureSnapshotWriterAgent(BaseAgent), systemd unit (SUMMARY: 52.3-01-SUMMARY.md)
-- [ ] **Phase 52.4: SignalTrackerAgent Refactor** — rename `SignalLifecycleService` → `SignalTrackerAgent`; extract SQL to `SignalLedgerRepository`; inject repository; inherit `BaseAgent`; retire `indicagent-signal-lifecycle.service`
-  **Plans:** 1 plan
+- [x] **Phase 52.4: SignalTrackerAgent Refactor** — renamed `SignalLifecycleService` → `SignalTrackerAgent`; extracted `SignalLedgerRepository`; inherited `BaseAgent`; retired `indicagent-signal-lifecycle.service` — COMPLETE
   Plans:
-  - [ ] 52.4-01-PLAN.md — Extend SignalLedgerRepository, create SignalTrackerAgent(BaseAgent), migrate 4 test files, systemd unit, cleanup
+  - [x] 52.4-01-PLAN.md — Extend SignalLedgerRepository, create SignalTrackerAgent(BaseAgent), migrate 4 test files, systemd unit, cleanup
 - [ ] **Phase 52.5: Parity Auditor Agent** — `ParityRepository` + `FieldViolation` schema; `ParityAuditorAgent` timer loop comparing shadow vs primary per (symbol, tf); violation storage; automated `SHADOW_PARITY_CERTIFIED` gate; systemd unit
 - [ ] **Phase 52.6: BaseAgent + ProcessManifest Enhancement** — TBD (to be planned)
-- [ ] **Phase 52.7: Grafana Tempo Infrastructure** — Docker container + Grafana datasource; `OTEL_EXPORTER_OTLP_ENDPOINT` in all systemd units; pure infra, no application code changes
-- [ ] **Phase 52.8: Kafka Trace Propagation** — inject/extract W3C `traceparent` headers in `KafkaConsumerClient` and `KafkaProducerClient`; end-to-end DAG traces from ingestion to DB write; `kafka_utils.py` concern, not BaseAgent
+- [ ] **Phase 52.7: Grafana Tempo Infrastructure** — Tempo Docker container + Grafana datasource; `OTEL_EXPORTER_OTLP_ENDPOINT` in systemd units; no Python code changes (`init_tracing()` already wired in 52.6)
+- [ ] **Phase 52.8: Kafka Trace Propagation** — `propagate.inject/extract` W3C `traceparent` headers in `kafka_utils.py`; links spans across service boundaries; `self.tracer` + `init_tracing()` already on all agents from 52.6
 - [ ] **Phase 53.1: BarWriterAgent + BarCompletenessAgent** — extract `_ohlcv_buffer` from `feature_compute_agent` into `BarWriterAgent` (DB-ignorant compute path); `BarCompletenessAgent` audits historical gaps on startup; retires `gap_fill_service`; ports :9121/:9123
 - [ ] **Phase 53.2: BarAggregatorAgent** — extract `BarAccumulator` (1m→HTF aggregation) from `feature_compute_agent` into standalone `BarAggregatorAgent`; `feature_compute_agent` becomes pure intelligence; canonical flat bars for empty minutes; port :9120
 - [ ] **Phase 53.3: RollDetectionAgent + DataProviderAgent Rename** — extract `RollMonitor` (volume z-score detection) from `DataProviderAgent` into standalone `RollDetectionAgent`; typed `RollEvent` schema published to `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent`; port :9122
-  - Phase 50 (ROLL_MONITOR_ENABLED graduation) depends on 53.3 running and validated
+- [ ] **Phase 50: Roll Monitor & DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration 049_roll_premium_pct.sql; enable ROLL_MONITOR_ENABLED; trad_DualDivergence promotion once D-07 gate passes *(depends on Phase 53.3 — RollDetectionAgent must be running)*
 
   Design doc: `docs/plans/2026-03-26-data-layer-dag-design.md`
 
@@ -285,19 +283,15 @@ Refer to the archived file for detailed success criteria, requirements, and plan
 
 **Goal**: Optimize database performance, complete CIS null repair, close test gaps, and fix requirements traceability.
 
-**Status**: 📋 Planned
+**Status**: ✅ Complete (ad-hoc, 2026-03-26)
 
 **Depends on**: Phase 48 completion
 
-**Requirements**: DBPERF-01, DBPERF-02, CIS-REPAIR-01, TEST-01, REQ-01
-
-**Success Criteria** (what must be TRUE):
-  1. `signal_ledger` has composite index on (symbol, feature_ts DESC, feature_tf) for sub-500ms JOIN queries
-  2. CIS null repair script runs successfully with adjusted PostgreSQL work_mem (shared memory fix)
-  3. Threading.Lock characterization test exists and passes (closes Phase 43 gap)
-  4. All REQUIREMENTS.md IDs traceable to validation tests or code locations
-
-**Plans**: TBD (4-5 plans estimated)
+**Outcome**:
+  1. ✅ `idx_ledger_feature_join` composite index exists on `signal_ledger`
+  2. ⏸ CIS null repair deferred to v2.3 — todo `2026-03-26-backfill-cis-null-scores-in-signal-ledger.md`
+  3. ✅ `tests/unit/service_tests/test_concurrent_lock_behavior.py` exists and passes
+  4. 🗑 Requirements traceability dropped — housekeeping, no downstream impact
 
 ### Phase 49.2: HMM Operational Fixes — observability, fallback logging, warm-up noise (INSERTED)
 
@@ -366,23 +360,24 @@ Plans:
 
 ### Phase 52: Infrastructure Hardening
 
-**Goal**: Eliminate manual intervention — Docker restart policies, automated gap-fill, log rotation, deploy scripts, health checks.
+**Goal**: Eliminate manual intervention — Docker restart policies, log rotation, deploy scripts, health checks.
 
 **Status**: 📋 Planned
 
 **Depends on**: Phase 51 (validation framework ensures stability before hardening)
 
-**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05, INFRA-06
+**Note**: Automated gap-fill moved to Phase 53.1 (BarCompletenessAgent).
+
+**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05
 
 **Success Criteria** (what must be TRUE):
   1. timescaledb and redpanda containers have `restart: unless-stopped` policy
-  2. Gap-fill service detects and fills missing bars automatically on service restart
-  3. Log files rotate (max size, retention policy) — no unbounded growth
-  4. `deploy_dashboard.sh` script builds and deploys dashboard in one command
-  5. All services respond to GET /health with {status: "ok" | "degraded"}
-  6. Full pipeline recovery from cold start requires zero manual steps
+  2. Log files rotate (max size, retention policy) — no unbounded growth
+  3. `deploy_dashboard.sh` script builds and deploys dashboard in one command
+  4. All services respond to GET /health with {status: "ok" | "degraded"}
+  5. Full pipeline recovery from cold start requires zero manual steps
 
-**Plans**: TBD (5-6 plans estimated)
+**Plans**: TBD (4-5 plans estimated)
 
 </details>
 ## Backlog
@@ -515,22 +510,38 @@ Plans:
 
 ### Phase 52.7: Grafana Tempo infrastructure
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Stand up Grafana Tempo as the OTel trace backend. No application code changes — agents already call `init_tracing()` after Phase 52.6. This phase wires the receiving end.
+**Requirements**: [TEMPO-01, TEMPO-02, TEMPO-03, TEMPO-04, TEMPO-05]
 **Depends on:** Phase 52.6
-**Plans:** 0 plans
+**Plans:** 2 plans
+
+**Scope:**
+- Tempo Docker container (alongside timescaledb/redpanda)
+- Grafana datasource pointing at Tempo
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` added to all systemd unit files
+- No changes to Python application code — `init_tracing()` in each `__main__` was done in 52.6
 
 Design doc: `docs/ideas/base-agent-enhancement.md` — see "Infrastructure Follow-On" (Docker container, datasource, env var pattern) and Section 1 Tempo rationale (Tempo vs Jaeger, Exemplars, object storage)
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 52.7 to break down)
+- [ ] 52.7-01-PLAN.md — Tempo Docker Compose service + config YAML + Grafana datasource
+- [ ] 52.7-02-PLAN.md — Systemd unit files: add OTEL_EXPORTER_OTLP_ENDPOINT + recover intelligence-compute unit
 
 ### Phase 52.8: Kafka Trace Propagation
 
-**Goal:** [To be planned]
+**Goal:** Wire W3C `traceparent` header inject/extract into `KafkaConsumerClient` and `KafkaProducerClient` so spans link across service boundaries end-to-end through the DAG.
 **Requirements**: TBD
 **Depends on:** Phase 52.6, Phase 52.7
 **Plans:** 0 plans
+
+**Scope and responsibility split:**
+- `self.tracer` on every agent — **already delivered by Phase 52.6 (plan 05)**. BaseAgent's contribution is done.
+- `init_tracing()` in every `__main__` block — **already delivered by Phase 52.6 (plan 05)**
+- Tempo receiving spans — **delivered by Phase 52.7**
+- This phase's only job: `opentelemetry.propagators.propagate.inject/extract` in `kafka_utils.py` so context crosses Kafka message boundaries. This is a transport-layer concern, not a BaseAgent concern — agents don't need to know about header propagation.
+
+**Scoping decision for planner — context propagation only, not per-message spans:**
+Inject/extract W3C `traceparent` header so parent context links across service boundaries. Do NOT create a span per Kafka message — at production throughput (1m bars × N symbols × N TFs) that is prohibitively expensive. Agents create their own spans internally using `self.tracer`; this phase only ensures the parent context is carried in the message header so those spans stitch into a single trace in Tempo.
 
 Design doc: `docs/ideas/base-agent-enhancement.md` — see "Kafka trace propagation" in Section 1 (propagate.inject/extract in KafkaConsumerClient/KafkaProducerClient, W3C traceparent headers, why this is a kafka_utils.py concern not a BaseAgent concern)
 
