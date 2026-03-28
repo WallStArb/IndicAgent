@@ -1,7 +1,7 @@
 """Failing tests (RED phase) for signal_generator_service perf weights — FEED-03 (service side).
 
 These tests define the behavioral contract for _load_perf_weights() and
-_perf_weights_refresh_loop() methods that Plan 03 will add to SignalGeneratorService.
+_perf_weights_refresh_loop() methods that Plan 03 will add to SignalGeneratorAgent.
 
 All tests fail with AttributeError (method/attribute does not exist yet) in RED phase.
 """
@@ -13,16 +13,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_generator_service import SignalGeneratorService
+from services.signal_generator_agent import SignalGeneratorAgent
 
 # ---------------------------------------------------------------------------
 # Factory — bypass __init__ using __new__ pattern (per CLAUDE.md)
 # ---------------------------------------------------------------------------
 
 
-def _make_svc() -> SignalGeneratorService:
-    """Build a SignalGeneratorService without calling __init__."""
-    svc = SignalGeneratorService.__new__(SignalGeneratorService)
+def _make_svc() -> SignalGeneratorAgent:
+    """Build a SignalGeneratorAgent without calling __init__."""
+    svc = SignalGeneratorAgent.__new__(SignalGeneratorAgent)
     svc.logger = MagicMock()
     svc.redis_client = AsyncMock()
     svc.running = True
@@ -44,20 +44,20 @@ def _make_svc() -> SignalGeneratorService:
 class TestPerfWeightsAttribute:
     @pytest.mark.unit
     def test_perf_weights_attribute_exists_on_new_instance(self):
-        """SignalGeneratorService.__new__ instance has _perf_weights attribute.
+        """SignalGeneratorAgent.__new__ instance has _perf_weights attribute.
 
         RED: fails because _perf_weights is not set in __init__ yet.
         The __new__ pattern bypasses __init__, so _perf_weights won't be present
         unless we set it manually — this test checks the real __init__ path by NOT
         pre-setting it in _make_svc (uses a fresh __new__ without the pre-set).
         """
-        svc = SignalGeneratorService.__new__(SignalGeneratorService)
+        svc = SignalGeneratorAgent.__new__(SignalGeneratorAgent)
         # This attribute test verifies __init__ would set it — in RED it won't be there
         # We check via hasattr on the class (not instance) to detect __init__ initialization
         # In GREEN: __init__ sets self._perf_weights = {}
         # In RED: we do the real check without pre-seeding
         assert hasattr(svc, "_perf_weights"), (
-            "_perf_weights not initialized in SignalGeneratorService.__init__ — "
+            "_perf_weights not initialized in SignalGeneratorAgent.__init__ — "
             "Plan 03 must add: self._perf_weights = {}"
         )
 
