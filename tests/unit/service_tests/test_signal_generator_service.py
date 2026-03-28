@@ -2031,3 +2031,64 @@ async def test_seed_bar_history_from_db_empty_result():
     finally:
         sgs_mod.get_active_contracts = original_get_active
 
+
+class TestSignalGeneratorAgentLifecycle:
+    """D-17: Lifecycle contract tests for SignalGeneratorAgent.
+
+    Uses __new__ injection pattern (CLAUDE.md) to bypass __init__ and test
+    lifecycle properties in isolation — no Kafka, DB, or I/O required.
+    """
+
+    def setup_method(self):
+        import asyncio
+
+        from unittest.mock import MagicMock
+
+        from services.signal_generator_agent import SignalGeneratorAgent
+
+        self.agent = SignalGeneratorAgent.__new__(SignalGeneratorAgent)
+        self.agent.name = "signal_generator_agent"
+        self.agent._stop_event = asyncio.Event()
+        self.agent._metrics_port = 9112
+        self.agent.logger = MagicMock()
+        self.agent.tracer = MagicMock()
+        self.agent.env_name = "development"
+
+    def test_topics_consumed_returns_list(self):
+        """topics_consumed must return a non-empty list of topic strings."""
+        topics = self.agent.topics_consumed
+        assert isinstance(topics, list)
+        assert len(topics) > 0
+
+    def test_topics_produced_returns_list(self):
+        """topics_produced must return a non-empty list of topic strings."""
+        topics = self.agent.topics_produced
+        assert isinstance(topics, list)
+        assert len(topics) > 0
+
+    def test_running_property_reflects_stop_event(self):
+        """running property must track the inverse of the stop event state."""
+        assert self.agent.running is True
+        self.agent._stop_event.set()
+        assert self.agent.running is False
+
+    def test_lag_threshold_messages_is_positive_int(self):
+        """lag_threshold_messages must return a positive integer."""
+        threshold = self.agent.lag_threshold_messages
+        assert isinstance(threshold, int)
+        assert threshold > 0
+
+    def test_inherits_base_agent(self):
+        """SignalGeneratorAgent must inherit from BaseAgent."""
+        from src.core.agent.base import BaseAgent
+
+        assert isinstance(self.agent, BaseAgent)
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_methods_are_coroutines(self):
+        """_setup, _run, and _teardown must all be awaitable coroutines."""
+        import asyncio
+
+        assert asyncio.iscoroutinefunction(self.agent._setup)
+        assert asyncio.iscoroutinefunction(self.agent._run)
+        assert asyncio.iscoroutinefunction(self.agent._teardown)
