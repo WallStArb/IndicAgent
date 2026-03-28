@@ -1,0 +1,23 @@
+[Unit]
+Description=IndicAgent Dashboard — Next.js frontend
+After=network-online.target indicagent-api.service
+Wants=indicagent-api.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent/dashboard
+Environment=PYTHONUNBUFFERED=1
+Environment=NODE_ENV=production
+ExecStartPre=/usr/bin/npm run build
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-dashboard
+
+[Install]
+WantedBy=multi-user.target
