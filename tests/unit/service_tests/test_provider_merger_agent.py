@@ -14,8 +14,30 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from prometheus_client import Counter, Histogram
+
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.schemas.provider_quality import ProviderQualityEvent
+
+# ---------------------------------------------------------------------------
+# Module-level test metrics (created once to avoid duplicate registration)
+# ---------------------------------------------------------------------------
+
+_TEST_MERGER_ROUTED = Counter(
+    "test_merger_bars_routed_total",
+    "Bars routed (test)",
+    ["provider"],
+)
+_TEST_MERGER_DROPPED = Counter(
+    "test_merger_bars_dropped_total",
+    "Bars dropped (test)",
+    ["provider"],
+)
+_TEST_MERGER_LATENCY = Histogram(
+    "test_merger_bar_latency_seconds",
+    "Bar latency (test)",
+    ["provider"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +101,17 @@ def _make_agent(
     agent._symbol_to_asset_class: dict[str, str] = {
         "ESM6": "futures",
         "NQM6": "futures",
+    }
+    # Pre-cache labeled metric children (mirrors __init__ pattern)
+    all_providers = provider_raw_topics or ["ibkr"]
+    agent._routed_lbl = {
+        p: _TEST_MERGER_ROUTED.labels(provider=p) for p in all_providers
+    }
+    agent._dropped_lbl = {
+        p: _TEST_MERGER_DROPPED.labels(provider=p) for p in all_providers
+    }
+    agent._latency_lbl = {
+        p: _TEST_MERGER_LATENCY.labels(provider=p) for p in all_providers
     }
     return agent
 

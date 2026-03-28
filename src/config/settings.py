@@ -112,6 +112,21 @@ class Settings(BaseSettings):
     regime_prob_min: float = Field(default=0.30, validation_alias="REGIME_PROB_MIN")
     regime_dur_min: int = Field(default=1, validation_alias="REGIME_DUR_MIN")
 
+    # Provider Merger Agent (Phase 54-04)
+    # provider_raw_topics: list of provider names whose raw topics to subscribe to
+    # provider_routing_config: asset_class -> authoritative provider name
+    # provider_silence_bars_threshold: bars of silence before failover is triggered
+    provider_raw_topics: list[str] = Field(default_factory=lambda: ["ibkr"])
+    provider_routing_config: dict[str, str] = Field(
+        default_factory=lambda: {
+            "futures": "ibkr",
+            "equity": "ibkr",
+            "crypto": "ibkr",
+            "fx": "ibkr",
+        }
+    )
+    provider_silence_bars_threshold: int = Field(default=5)
+
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=str(_ENV_FILE))
 
     @property
