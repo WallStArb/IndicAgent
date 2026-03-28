@@ -16,10 +16,10 @@ Phase 47 Plan 02 — TDD (replaces broken ratio logic from Phase 38-02)
 """
 from __future__ import annotations
 
-import asyncio
-from collections import defaultdict
 from datetime import UTC, date, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers: build a minimal Settings mock
@@ -51,7 +51,7 @@ def _make_settings(
 
 def _make_roll_monitor(settings=None):
     """Import and instantiate RollMonitor with given settings."""
-    from services.tws_daemon import RollMonitor  # noqa: PLC0415
+    from services.roll_compute_agent import RollMonitor  # noqa: PLC0415
     s = settings or _make_settings()
     return RollMonitor(s)
 
@@ -266,7 +266,7 @@ class TestCheckRollOutsideWindow:
             rm.update_volume("ES", 100.0)
 
         # Mock get_roll_window to return None (outside roll period)
-        with patch("src.config.contracts.get_roll_window", return_value=None):
+        with patch("services.roll_compute_agent.get_roll_window", return_value=None):
             utc_now = datetime(2026, 1, 15, 16, 0, tzinfo=UTC)
             result = rm.check_roll("ES", utc_now)
             # With get_roll_window returning None, should be False
@@ -302,7 +302,7 @@ class TestCheckRollZScoreConfirmation:
         confirmed = False
         for _ in range(10):
             rm.update_volume("ES", 100.0)  # Very low — should be z < -2.0
-            with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+            with patch("services.roll_compute_agent.get_roll_window", return_value=mock_window):
                 if rm.check_roll("ES", utc_now):
                     confirmed = True
                     break
@@ -327,7 +327,7 @@ class TestCheckRollZScoreConfirmation:
         utc_now = datetime(2026, 3, 10, 16, 0, tzinfo=UTC)
         mock_window = (date(2026, 3, 6), date(2026, 3, 17))
 
-        with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+        with patch("services.roll_compute_agent.get_roll_window", return_value=mock_window):
             rm.check_roll("ES", utc_now)
 
         # z ~ -1.5 should not produce confirmation — verify count stays low
@@ -343,7 +343,7 @@ class TestCheckRollZScoreConfirmation:
 
         utc_now = datetime(2026, 3, 10, 16, 0, tzinfo=UTC)
         mock_window = (date(2026, 3, 6), date(2026, 3, 17))
-        with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+        with patch("services.roll_compute_agent.get_roll_window", return_value=mock_window):
             result = rm.check_roll("ES", utc_now)
         assert result is False
 
@@ -354,36 +354,18 @@ class TestCheckRollZScoreConfirmation:
 
 
 class TestOnRollConfirmedChain:
-    """Test 12: _on_roll_confirmed derives new_symbol from derive_roll_chain."""
+    """Test 12: _on_roll_confirmed was removed from RollMonitor (DB-ignorant per Plan 03).
 
+    RollComputeAgent now builds and publishes the RollEvent directly.
+    This test class is preserved as a skip stub so the test history is traceable.
+    """
+
+    @pytest.mark.skip(
+        reason="DB write method removed in Plan 03 — RollComputeAgent publishes RollEvent directly"
+    )
     def test_on_roll_confirmed_uses_chain_roll_to(self):
-        """Test 12: _on_roll_confirmed calls derive_roll_chain and reads chain[0]['roll_to']."""
-        rm = _make_roll_monitor()
-        mock_kafka = MagicMock()
-        mock_kafka.publish = AsyncMock()
-
-        chain = [
-            {"symbol": "ESM6", "roll_to": "ESU6", "expiry_month": 6, "expiry_year": 2026},
-            {"symbol": "ESU6", "roll_to": "ESZ6", "expiry_month": 9, "expiry_year": 2026},
-            {"symbol": "ESZ6", "roll_to": None, "expiry_month": 12, "expiry_year": 2026},
-        ]
-
-        with patch("services.tws_daemon.derive_roll_chain", return_value=chain) as mock_chain:
-            asyncio.run(rm._on_roll_confirmed(
-                base_symbol="ES",
-                old_symbol="ESM6",
-                kafka_producer=mock_kafka,
-                env_name="dev",
-            ))
-            mock_chain.assert_called_with("ES")
-
-        # Kafka was called with roll event
-        mock_kafka.publish.assert_called_once()
-        call_args = mock_kafka.publish.call_args
-        payload = call_args[0][1]  # second positional arg is the payload dict
-        assert payload.get("new_symbol") == "ESU6", (
-            f"Expected new_symbol=ESU6, got {payload.get('new_symbol')}"
-        )
+        """Skipped: DB write method removed from RollMonitor (D-14 DB-ignorant)."""
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -392,49 +374,20 @@ class TestOnRollConfirmedChain:
 
 
 class TestCallSiteBugFix:
-    """Verify the call site in _emit_bar passes single volume arg."""
+    """Verify the call site in _emit_bar passes single volume arg.
 
+    NOTE: These tests verified wiring between DataProviderAgent._emit_bar and RollMonitor.
+    That integration was removed in Plan 02 (RollMonitor extracted to RollComputeAgent).
+    DataProviderAgent no longer calls RollMonitor — RollComputeAgent subscribes to market.bars
+    independently. Tests are preserved as skip stubs for traceability.
+    """
+
+    @pytest.mark.skip(
+        reason="RollMonitor removed from DataProviderAgent in Plan 02 — now in RollComputeAgent"
+    )
     def test_emit_bar_calls_update_volume_with_two_args_not_three(self):
-        """_emit_bar must call update_volume(symbol, vol) not update_volume(symbol, vol, vol)."""
-        from services.tws_daemon import TwsDaemon  # noqa: PLC0415
-
-        daemon = TwsDaemon.__new__(TwsDaemon)
-        daemon.settings = _make_settings()
-        daemon.env_name = "dev"
-        daemon.seen_bar_timestamps = defaultdict(set)
-        daemon.seen_bar_timestamps_order = defaultdict(list)
-        daemon.bars_processed = 0
-        daemon.m_bars = MagicMock()
-        daemon._kafka_producer = MagicMock()
-        daemon._kafka_producer.publish = AsyncMock()
-        daemon._official_bars_cache = defaultdict(dict)
-
-        mock_rm = MagicMock()
-        mock_rm.should_skip_symbol = MagicMock(return_value=False)
-        mock_rm.update_volume = MagicMock()
-        mock_rm.check_roll = MagicMock(return_value=False)
-        mock_rm._on_roll_confirmed = AsyncMock()
-        daemon._roll_monitor = mock_rm
-        daemon._symbol_to_base = {"ESM6": "ES"}
-
-        bar_minute = datetime(2026, 3, 10, 16, 0, tzinfo=UTC)
-        state = {
-            "bar_minute": bar_minute,
-            "open": 5000.0, "high": 5010.0, "low": 4990.0, "close": 5005.0,
-            "volume": 1500.0,
-        }
-
-        asyncio.run(daemon._emit_bar("ESM6", state))
-
-        # update_volume must be called with exactly 2 args (symbol, volume)
-        mock_rm.update_volume.assert_called_once()
-        call_args = mock_rm.update_volume.call_args[0]
-        assert len(call_args) == 2, (
-            f"update_volume called with {len(call_args)} positional args, expected 2. "
-            f"Args: {call_args}"
-        )
-        assert call_args[0] == "ES"  # base symbol, not contract code (ESM6 → ES via _symbol_to_base)
-        assert call_args[1] == 1500.0
+        """Skipped: DataProviderAgent._emit_bar no longer calls RollMonitor."""
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -522,61 +475,24 @@ class TestPaperSkipContracts:
 
 
 class TestBarLoopWiring:
-    def _make_daemon_with_mock_roll_monitor(self):
-        """Build a TwsDaemon via __new__ to test wiring without full init."""
-        from services.tws_daemon import TwsDaemon  # noqa: PLC0415
+    """Tests verifying RollMonitor wiring in the bar emit loop.
 
-        daemon = TwsDaemon.__new__(TwsDaemon)
-        daemon.settings = _make_settings()
-        daemon.env_name = "dev"
-        daemon.seen_bar_timestamps = defaultdict(set)
-        daemon.seen_bar_timestamps_order = defaultdict(list)
-        daemon.bars_processed = 0
-        daemon.m_bars = MagicMock()
-        daemon._kafka_producer = MagicMock()
-        daemon._kafka_producer.publish = AsyncMock()
-        daemon._official_bars_cache = defaultdict(dict)
+    NOTE: DataProviderAgent no longer contains RollMonitor (removed in Plan 02).
+    RollComputeAgent now subscribes to market.bars independently and runs RollMonitor.
+    These tests are preserved as skip stubs for traceability.
+    """
 
-        mock_rm = MagicMock()
-        mock_rm.should_skip_symbol = MagicMock(return_value=False)
-        mock_rm.update_volume = MagicMock()
-        mock_rm.check_roll = MagicMock(return_value=False)
-        mock_rm._on_roll_confirmed = AsyncMock()
-        daemon._roll_monitor = mock_rm
-        daemon._symbol_to_base = {"ESM6": "ES"}
-
-        return daemon, mock_rm
-
-    def _make_state(self, symbol: str = "ESM6", volume: float = 1500.0) -> dict:
-        bar_minute = datetime(2026, 6, 12, 16, 0, tzinfo=UTC)
-        return {
-            "bar_minute": bar_minute,
-            "open": 5000.0,
-            "high": 5010.0,
-            "low": 4990.0,
-            "close": 5005.0,
-            "volume": volume,
-        }
-
+    @pytest.mark.skip(
+        reason="RollMonitor removed from DataProviderAgent in Plan 02 — now in RollComputeAgent"
+    )
     def test_bar_loop_always_calls_roll_monitor(self):
-        """Roll monitor always active — _emit_bar unconditionally calls roll monitor."""
-        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor()
-        state = self._make_state()
+        """Skipped: DataProviderAgent no longer wires to RollMonitor."""
+        pass
 
-        asyncio.run(daemon._emit_bar("ESM6", state))
-
-        mock_rm.update_volume.assert_called()
-        mock_rm.check_roll.assert_called()
-
+    @pytest.mark.skip(
+        reason="RollMonitor removed from DataProviderAgent in Plan 02 — now in RollComputeAgent"
+    )
     def test_paper_skip_contracts_short_circuit(self):
-        """When check_roll returns False, _on_roll_confirmed not called."""
-        daemon, mock_rm = self._make_daemon_with_mock_roll_monitor()
-        mock_rm.check_roll = MagicMock(return_value=False)
-        state = self._make_state(symbol="BZJ6", volume=1000.0)
-
-        asyncio.run(daemon._emit_bar("BZJ6", state))
-
-        mock_rm.update_volume.assert_called()
-        mock_rm.check_roll.assert_called()
-        mock_rm._on_roll_confirmed.assert_not_called()
+        """Skipped: DataProviderAgent no longer wires to RollMonitor."""
+        pass
 
