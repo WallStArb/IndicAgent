@@ -263,6 +263,51 @@ PARITY_CYCLES_TOTAL = Counter(
 )
 
 
+# Provider abstraction layer metrics (Phase 54)
+# Golden Signals for DataProviderAdapter implementations and MergerAgent.
+PROVIDER_BARS_PRODUCED_TOTAL = Counter(
+    "provider_bars_produced_total",
+    "Total bars produced and published to raw topic per provider",
+    ["provider", "agent"],
+)
+PROVIDER_RECONNECTS_TOTAL = Counter(
+    "provider_reconnects_total",
+    "Total reconnection attempts per provider",
+    ["provider", "agent"],
+)
+PROVIDER_CONNECTED = Gauge(
+    "provider_connected",
+    "1 when provider is connected, 0 otherwise",
+    ["provider", "agent"],
+)
+PROVIDER_GAPS_FILLED_TOTAL = Counter(
+    "provider_gaps_filled_total",
+    "Total gap-fill bars fetched and published per provider",
+    ["provider", "agent"],
+)
+MERGER_BARS_ROUTED_TOTAL = Counter(
+    "merger_bars_routed_total",
+    "Total bars routed by MergerAgent to canonical market.bars topic",
+    ["provider"],
+)
+MERGER_BARS_DROPPED_TOTAL = Counter(
+    "merger_bars_dropped_total",
+    "Total bars dropped by MergerAgent (duplicate, stale, or non-primary)",
+    ["provider"],
+)
+MERGER_FAILOVERS_TOTAL = Counter(
+    "merger_failovers_total",
+    "Total provider failovers executed by MergerAgent",
+    ["from_provider", "to_provider"],
+)
+MERGER_BAR_LATENCY_SECONDS = Histogram(
+    "merger_bar_latency_seconds",
+    "Seconds between provider publish_ts and MergerAgent consume_ts",
+    ["provider"],
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+)
+
+
 def start_metrics_server(port: int = 9400) -> None:
     """Start Prometheus metrics server with enhanced monitoring."""
     global _server_started

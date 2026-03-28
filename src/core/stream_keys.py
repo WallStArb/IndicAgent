@@ -162,6 +162,26 @@ def topic_audit(env_name: str) -> str:
     return f"{env_prefix(env_name)}audit"
 
 
+def topic_market_bars_raw(env_name: str, provider: str) -> str:
+    """Raw bars from a single provider before merger routing.
+
+    Each provider publishes to its own isolated topic so the MergerAgent can
+    consume all providers and apply quality-gating + primary selection logic.
+    Topic pattern: <env>.market.bars.raw.<provider>
+    """
+    return f"{env_prefix(env_name)}market.bars.raw.{provider}"
+
+
+def topic_market_data_quality(env_name: str) -> str:
+    """ProviderQualityEvent side-channel: provider latency, gaps, failovers.
+
+    Distinct from topic_data_quality (pipeline.data_quality — pipeline-level
+    signal gate events). This topic carries per-provider bar delivery telemetry
+    for SLA monitoring and ML training signals.
+    """
+    return f"{env_prefix(env_name)}market.data.quality"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 

@@ -14,6 +14,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from src.core.models import Instrument
+from src.core.schemas.bar_message import BarMessage
 from src.observability.metrics import PROVIDER_ACTIVE_SUBSCRIPTIONS
 
 
@@ -106,6 +107,64 @@ class DataProvider(Protocol):
         end: datetime,
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars. timeframe: '1m', '5m', '15m', '1h'."""
+        ...
+
+
+@runtime_checkable
+class DataProviderAdapter(Protocol):
+    """Provider-agnostic adapter contract for the Phase 54 abstraction layer.
+
+    Any broker implementation (IBKR, Alpaca, Polygon, etc.) must satisfy
+    this protocol to plug into the MergerAgent-based pipeline.
+
+    Contrast with the existing DataProvider Protocol above (tick/RTB stream):
+    - DataProvider: legacy low-level tick/RTB API (ib_insync coupled)
+    - DataProviderAdapter: new normalized bar-level API (BarMessage typed bus)
+
+    provider_name must be a lower-case identifier used in topic keys,
+    metric labels, and quality event payloads, e.g. "ibkr", "alpaca".
+    """
+
+    provider_name: str  # "ibkr", "alpaca", etc.
+
+    async def connect(self) -> bool:
+        """Establish connection to the data source. Returns True on success."""
+        ...
+
+    async def disconnect(self) -> None:
+        """Cleanly disconnect."""
+        ...
+
+    def is_connected(self) -> bool:
+        """Return True if the connection is currently active."""
+        ...
+
+    async def stream_bars(
+        self, instruments: list[Instrument]
+    ) -> AsyncIterator[BarMessage]:
+        """Async iterator yielding normalized BarMessage instances as they arrive.
+
+        Each bar is published to the provider's raw topic before the merger
+        routes it into the canonical market.bars stream.
+        """
+        ...
+
+    async def fetch_historical(
+        self,
+        symbol: str,
+        tf: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[BarMessage]:
+        """Fetch historical bars as normalized BarMessage instances."""
+        ...
+
+    async def qualify_instrument(self, instrument: Instrument) -> Instrument:
+        """Resolve/enrich instrument metadata using provider-specific lookup.
+
+        Returns an updated Instrument with contract_details populated.
+        Raises ValueError if the instrument cannot be qualified.
+        """
         ...
 
 
