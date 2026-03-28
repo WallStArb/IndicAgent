@@ -28,6 +28,14 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ CrossAssetService microservice: ES/NQ/RTY/YM spread z-scores, correlation break features; CrossAssetDivergencePlugin I7 — v1.9
 - ✓ Automated futures roll detection: volume z-score > 2.0, 3-bar confirmation, TOD adjustment, full pipeline propagation, plugin state migration — v1.9
 
+**v2.1 Data Foundation & Signal Confidence (2026-03-28):**
+- ✓ Live tick aggregation: 5s RTBs → canonical 1m bars via IBKR push; eliminated bars_processed=0 freeze; 3 shared I7 utilities removing 550+ lines of duplication — v2.1
+- ✓ Signal ledger completeness: ALL signals written unconditionally regardless of regime suppression; regime_type_at_fire + hmm_regime_at_fire populated for ML segmentation; lifecycle composite index (34ms → <5ms) — v2.1
+- ✓ BaseAgent DAG standard: lifecycle contract (setup/teardown, metrics_port, tracer, topic manifest) on all 4 pipeline agents; ProcessManifest replaces singleton AgentRegistry; uniform SIGTERM drain across fleet — v2.1
+- ✓ Autonomous shadow parity: FeatureSnapshotWriterAgent dual-writes to shadow table via independent consumer group; ParityAuditorAgent validates 60 consecutive clean cycles before SHADOW_PARITY_CERTIFIED — zero human judgment required — v2.1
+- ✓ End-to-end distributed tracing: Grafana Tempo deployed as 6th Docker service; W3C traceparent injected/extracted in Kafka transport (_KafkaHeadersCarrier); bar-to-signal waterfall visible in Grafana Tempo — v2.1
+- ✓ Per-layer automated validation: I1→I7 sanity checks on each deploy; signal outcome completeness audit; setup_performance gate verification — v2.1
+
 **v2.0 Signal Integrity & ML Foundation (2026-03-22):**
 - ✓ Intelligence pipeline refactored into clean DAG: FeaturePipelineService (I1–I6, 3 hops→1), SignalGeneratorService (6-stage in-process, 8 hops→2), atomic BarIntelligenceRecord INSERT; 18 services → 9 — v2.0
 - ✓ DB hardening: `signal_ledger` generated columns, CHECK constraints, composite lifecycle index; `market_data_ohlcv` rebuilt (15,740→21 chunks); data_quality_check.py 15-min timer with 10 Prometheus gauges — v2.0
@@ -173,7 +181,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.1 in progress — Phase 52.8 complete 2026-03-28)
+### Current State (v2.1 SHIPPED 2026-03-28 — v2.2 Operational Excellence next)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
@@ -246,16 +254,16 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - **No retention on intelligence_features**: Keep indefinitely for seasonal ML
 - **IBKR dependency**: Live data requires TWS connection on Windows LAN
 
-## Current Milestone: v2.1 — Data Foundation & Signal Confidence
+## Current Milestone: v2.2 — Operational Excellence
 
-**Goal:** Earn the right to trust the numbers. Fix the live data foundation, close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
+**Goal:** Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
 
-**Target phases:**
-- Phase 48: Tick Aggregation — replace broken bar polling with live 1m OHLCV from tick stream
-- Phase 49: DB Performance & Signal Ledger Hardening — composite indexes, CIS null repair, Phase 43 test gap
-- Phase 50: Roll Monitor & DualDivergence Graduation — D-21 validation, migration 049, shadow promotions
-- Phase 51: Signal & Indicator Validation Framework — per-layer sanity checks, automated deploy validation
-- Phase 52: Infrastructure Hardening — Docker restart policies, log rotation, health checks, no manual steps
+**Target phases (dependency order):**
+- Phase 53.3: RollDetectionAgent + DataProviderAgent rename — extract RollMonitor; typed RollEvent; unblocks Phase 50
+- Phase 53.2: BarAggregatorAgent — extract BarAccumulator; feature_compute_agent becomes pure intelligence consumer
+- Phase 53.1: BarWriterAgent + BarCompletenessAgent — compute/persistence separation; self-healing gap loop; retires gap_fill_service
+- Phase 50: Roll Monitor + DualDivergence Graduation — D-21 validation; ROLL_MONITOR_ENABLED; trad_DualDivergence promotion
+- Phase 54: Auth + External Access — Cloudflare Tunnel SSE fix; auth; expose a clean, stable system
 
 ---
-*Last updated: 2026-03-27 — Phase 52.7 complete: Grafana Tempo infra deployed — Docker service, tempo.yaml, Grafana datasource provisioned, OTEL env vars in all 5 agent systemd units.*
+*Last updated: 2026-03-28 — v2.1 SHIPPED. v2.2 Operational Excellence planned.*
