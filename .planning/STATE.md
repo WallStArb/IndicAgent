@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Ready to execute
-last_updated: "2026-03-28T12:54:19.159Z"
+last_updated: "2026-03-28T12:56:50.269Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -118,3 +118,10 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 Recent additions:
 
 - 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
+
+### Decisions (Phase 053.2 Plan 02)
+
+- BarAggregatorComputeAgent uses prometheus_client.Counter/Histogram directly (not metrics.py helper) — helper lacks label support needed for `tf` label on htf_bars_produced_total
+- Dual-format bar parsing: BarMessage.model_validate() first, flat-dict fallback for DataProviderAgent format
+- After=indicagent-data-provider.service in systemd unit — D-18 startup ordering enforced at OS level
+- Service enabled but not started — FCA must be simplified in Plan 03 before cutover
