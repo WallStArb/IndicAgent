@@ -1,0 +1,24 @@
+[Unit]
+Description=IndicAgent Provider Merger Agent — routes market.bars.raw.<provider> to market.bars
+After=network-online.target indicagent-ibkr-provider.service
+Wants=indicagent-ibkr-provider.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python /home/bg/dev/indicagent/services/provider_merger_agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-provider-merger
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
