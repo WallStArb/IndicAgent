@@ -14,6 +14,8 @@ from typing import Any
 
 import structlog
 
+from src.core.schemas.market_events import RollEvent
+
 # Fraction of successful plugin executions to record as Prometheus metrics.
 # 1-in-10 reduces write pressure on the hot path; errors are always recorded.
 #
@@ -127,17 +129,17 @@ def normalize_session_type(value: str | None, default: str = "rth") -> str:
 
 
 def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
-    """Validate and extract (old_symbol, new_symbol) from a roll event payload.
+    """Parse a typed RollEvent payload into (old_contract, new_contract).
 
-    Returns None (and logs a warning) if the event is not a roll event or is missing fields.
-    Shared across all services that subscribe to system.events.
+    Accepts the RollEvent schema published by RollComputeAgent to topic_roll_events.
+    Returns None if the payload does not validate.
+    Shared across all services that subscribe to market.events.roll.
     """
-    if event.get("event_type") != "roll":
-        return None
     try:
-        return event["old_symbol"], event["new_symbol"]
-    except KeyError as exc:
-        logger.warning("roll_event_missing_fields", error=str(exc))
+        roll = RollEvent.model_validate(event)
+        return roll.old_contract, roll.new_contract
+    except Exception as exc:
+        logger.warning("roll_event_parse_failed", error=str(exc))
         return None
 
 

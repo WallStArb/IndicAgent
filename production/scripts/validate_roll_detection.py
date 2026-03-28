@@ -278,7 +278,8 @@ async def main() -> int:
     print()
     if not any_evaluated:
         print("Overall: SKIP (no symbols had sufficient historical data)")
-        print("  ROLL_MONITOR_ENABLED should NOT be set to true without validation data.")
+        print("  RollComputeAgent not running — check:")
+        print("    systemctl is-active indicagent-roll-detection")
         return 2
 
     overall = "PASS" if all_pass else "FAIL"
@@ -290,7 +291,7 @@ async def main() -> int:
     print()
 
     if not all_pass:
-        print("ROLL_MONITOR_ENABLED must NOT be set to true — accuracy gate failed.")
+        print("Accuracy gate failed — do NOT enable indicagent-roll-detection until resolved.")
         print("Review per-symbol failures above before enabling in production.")
     else:
         print("Accuracy gates met — roll detection algorithm validated for enablement.")

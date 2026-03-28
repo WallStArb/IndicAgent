@@ -561,7 +561,7 @@ class FeatureWriterAgent(BaseAgent):
         if result is None:
             return
         old_symbol, new_symbol = result
-        detected_at_raw: str = event.get("detected_at") or datetime.now(tz=UTC).isoformat()
+        detected_at_raw: str = event.get("detection_ts") or datetime.now(tz=UTC).isoformat()
         detected_at = _parse_ts(detected_at_raw)
 
         # INTEL-04: Extract roll_premium_pct from event payload (default None for backward compat)
