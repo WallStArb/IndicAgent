@@ -71,6 +71,7 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 ### Roadmap Evolution
 
+- Phase 54 added: Provider Abstraction Layer — Broker-Agnostic Data Foundation (2026-03-28)
 - Phase 49.2 inserted after Phase 49: HMM Operational Fixes — observability, fallback logging, warm-up noise (URGENT)
 - Phase 48.1 added: Signal Generator Warmup Seed (2026-03-23) — fix bars_processed=0, restore DB seed from startup
 - Phase 48 COMPLETE (2026-03-23): Tick aggregation + I7 refactoring — 550+ lines eliminated, 3 shared utilities created, 4 I6 confluence violations fixed, aggregator calibration optimized
