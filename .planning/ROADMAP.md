@@ -518,7 +518,7 @@ Design doc: `docs/ideas/base-agent-enhancement.md` — see "Infrastructure Follo
 
 Plans:
 - [x] 52.7-01-PLAN.md — Tempo Docker Compose service + config YAML + Grafana datasource
-- [ ] 52.7-02-PLAN.md — Systemd unit files: add OTEL_EXPORTER_OTLP_ENDPOINT + recover intelligence-compute unit
+- [x] 52.7-02-PLAN.md — Systemd unit files: add OTEL_EXPORTER_OTLP_ENDPOINT + recover intelligence-compute unit
 
 ### Phase 52.8: Kafka Trace Propagation
 
