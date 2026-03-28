@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import signal
 import sys
 import time
 import zoneinfo
@@ -36,6 +35,7 @@ from prometheus_client import Counter as _PrometheusCounter
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
+from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
 from src.core.database_manager import DatabaseManager
@@ -96,7 +96,6 @@ from src.observability.metrics import (
     counter,
     gauge,
     record_plugin_execution,
-    start_metrics_server,
 )
 from src.persistence.repository.signal_ledger_repository import (
     LedgerEntry,
@@ -420,7 +419,7 @@ def _is_zone_valid(
         return market_price >= entry_zone_low
 
 
-class SignalGeneratorAgent:
+class SignalGeneratorAgent(BaseAgent):
     """Execute I7 setup plugins, aggregate signals, and persist to signal_ledger."""
 
     # Class-level defaults — overridden per-instance in __init__.
@@ -431,9 +430,7 @@ class SignalGeneratorAgent:
     _cis_weights_cache: dict = {}  # noqa: RUF012
 
     def __init__(self, config_file: str | None = None):
-        self.running = False
-        self.shutdown_requested = False
-        self.shutdown_event = asyncio.Event()
+        super().__init__(name="signal_generator_agent", metrics_port=9112)
         self.start_time = datetime.now(tz=UTC)
 
         self.config = self._load_config(config_file)
@@ -544,11 +541,7 @@ class SignalGeneratorAgent:
         self._total_signals = 0
         self._error_count = 0
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
         self.logger = structlog.get_logger(__name__)
-        start_metrics_server(port=9112)
 
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         try:
@@ -705,7 +698,7 @@ class SignalGeneratorAgent:
             await resolution_consumer.start()
             try:
                 async for _topic, _key, payload in resolution_consumer.messages():
-                    if self.shutdown_requested:
+                    if not self.running:
                         break
                     try:
                         direction_raw = payload.get("direction", "")
@@ -734,9 +727,84 @@ class SignalGeneratorAgent:
         except Exception as e:
             self.logger.warning("Resolution listener failed to start", error=str(e))
 
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Received shutdown signal", signal=signum)
-        self.shutdown_requested = True
+    # ── BaseAgent lifecycle hooks ──────────────────────────────────────────────
+
+    @property
+    def topics_consumed(self) -> list[str]:
+        """Kafka topics this agent reads from."""
+        return [
+            topic_intelligence(self.env_name),
+            topic_cross_asset(self.env_name),
+            topic_market_ticks(self.env_name),
+            topic_system_events(self.env_name),
+        ]
+
+    @property
+    def topics_produced(self) -> list[str]:
+        """Kafka topics this agent writes to."""
+        return [
+            topic_signals_aggregated(self.env_name),
+            topic_intelligence_journal(self.env_name),
+        ]
+
+    @property
+    def lag_threshold_messages(self) -> int:
+        return 1000
+
+    async def _setup(self) -> None:
+        """Connect DB, seed bar history, start Kafka clients, load weights."""
+        await self._connect_database()
+        await self._seed_bar_history_from_db()
+        await self._setup_kafka_clients()
+        await self._load_perf_weights()
+        await self._refresh_drift_penalties_from_db()
+        await self._load_cis_weights_from_db()
+        await self._load_calibration_curves_from_db()
+        await self._load_tod_multipliers_from_db()
+
+    async def _run(self) -> None:
+        """Main I7 processing loop."""
+        self.logger.info("Starting Signal Generator Service", config=self.config["service"])
+        tasks = [
+            asyncio.create_task(self._process_loop()),
+            asyncio.create_task(self._health_monitor_loop()),
+            asyncio.create_task(
+                self._run_refresh_loop("perf_weights", 3600, self._load_perf_weights)
+            ),
+            asyncio.create_task(
+                self._run_refresh_loop(
+                    "drift_penalties", 14400, self._refresh_drift_penalties_from_db
+                )
+            ),
+            asyncio.create_task(self._resolution_listener_loop()),
+            asyncio.create_task(
+                self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)
+            ),
+            asyncio.create_task(
+                self._run_refresh_loop(
+                    "calibration_curves", 1800, self._load_calibration_curves_from_db
+                )
+            ),
+            asyncio.create_task(
+                self._run_refresh_loop(
+                    "tod_multipliers", 14400, self._load_tod_multipliers_from_db
+                )
+            ),
+            asyncio.create_task(self._drain_audit_queue()),
+        ]
+        self.logger.info("Signal Generator Service started")
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _teardown(self) -> None:
+        """Close Kafka consumer, producer, and DB connection."""
+        self._stop_event.set()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        if self._kafka_producer:
+            await self._kafka_producer.stop()
+        if self.db_manager:
+            await self.db_manager.close()
+        self.logger.info("Signal Generator Service stopped")
 
     async def _connect_database(self) -> None:
         try:
@@ -878,19 +946,6 @@ class SignalGeneratorAgent:
         self._kafka_producer = KafkaProducerClient(self._kafka_bootstrap)
         await self._kafka_producer.start()
         self.logger.info("Kafka producer started")
-
-    async def stop(self) -> None:
-        self.logger.info("Stopping Signal Generator Service")
-        self.running = False
-        self.shutdown_requested = True
-        self.shutdown_event.set()
-        if self._kafka_consumer:
-            await self._kafka_consumer.stop()
-        if self._kafka_producer:
-            await self._kafka_producer.stop()
-        if self.db_manager:
-            await self.db_manager.close()
-        self.logger.info("Signal Generator Service stopped")
 
     def _get_df(self, symbol: str, tf: str) -> pd.DataFrame:
         key = f"{symbol}:{tf}"
@@ -1142,7 +1197,7 @@ class SignalGeneratorAgent:
         remaining items with get_nowait() before blocking again. Avoids the
         asyncio.wait_for Task+TimerHandle allocation overhead per loop iteration.
         """
-        while not self.shutdown_requested:
+        while self.running:
             try:
                 payload = await self._audit_queue.get()
                 if self._kafka_producer:
@@ -1655,7 +1710,7 @@ class SignalGeneratorAgent:
 
         try:
             async for topic, key, payload in self._kafka_consumer.messages():
-                if self.shutdown_requested:
+                if not self.running:
                     break
                 try:
                     if topic == _sys_events_topic:
@@ -1705,7 +1760,7 @@ class SignalGeneratorAgent:
             pass
 
     async def _health_monitor_loop(self) -> None:
-        while self.running and not self.shutdown_requested:
+        while self.running:
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
@@ -1797,16 +1852,16 @@ class SignalGeneratorAgent:
 
         On exception, sleeps backoff_s before retrying to prevent spin on persistent errors.
         """
-        while self.running and not self.shutdown_requested:
+        while self.running:
             try:
                 try:
                     await asyncio.wait_for(
-                        self.shutdown_event.wait(), timeout=interval_s
+                        self._stop_event.wait(), timeout=interval_s
                     )
                     break  # shutdown_event was set
                 except TimeoutError:
                     pass
-                if self.shutdown_requested:
+                if not self.running:
                     break
                 await fn()
             except asyncio.CancelledError:
@@ -1957,67 +2012,6 @@ class SignalGeneratorAgent:
             self.logger.debug("tod_multipliers_loaded", n_cells=len(new_multipliers))
         except Exception as exc:
             self.logger.warning("tod_multipliers_refresh_error", error=str(exc))
-
-    async def start(self) -> None:
-        self.logger.info("Starting Signal Generator Service", config=self.config["service"])
-
-        try:
-            await self._connect_database()
-
-            # SEED BAR HISTORY BEFORE CONSUMER STARTS
-            await self._seed_bar_history_from_db()
-
-            await self._setup_kafka_clients()
-
-            self.running = True
-            # Load perf weights at startup so first bar already has weights
-            await self._load_perf_weights()
-
-            # Load drift penalties at startup from drift_state DB table
-            await self._refresh_drift_penalties_from_db()
-            # Load CIS weights at startup — first bar uses learned weights immediately
-            await self._load_cis_weights_from_db()
-
-            # Phase 35: Load calibration curves and TOD multipliers at startup
-            await self._load_calibration_curves_from_db()
-            await self._load_tod_multipliers_from_db()
-
-            tasks = [
-                asyncio.create_task(self._process_loop()),
-                asyncio.create_task(self._health_monitor_loop()),
-                asyncio.create_task(
-                    self._run_refresh_loop("perf_weights", 3600, self._load_perf_weights)
-                ),
-                asyncio.create_task(
-                    self._run_refresh_loop(
-                        "drift_penalties", 14400, self._refresh_drift_penalties_from_db
-                    )
-                ),
-                asyncio.create_task(self._resolution_listener_loop()),
-                asyncio.create_task(
-                    self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)
-                ),
-                asyncio.create_task(
-                    self._run_refresh_loop(
-                        "calibration_curves", 1800, self._load_calibration_curves_from_db
-                    )
-                ),
-                asyncio.create_task(
-                    self._run_refresh_loop(
-                        "tod_multipliers", 14400, self._load_tod_multipliers_from_db
-                    )
-                ),
-                # Phase 44.2: Audit queue drain — publishes stage snapshots off hot path
-                asyncio.create_task(self._drain_audit_queue()),
-            ]
-            self.logger.info("Signal Generator Service started")
-            await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            self.logger.error("Failed to start signal generator", error=str(e))
-            raise
-        finally:
-            await self.stop()
-
 
 async def main() -> None:
     import argparse
