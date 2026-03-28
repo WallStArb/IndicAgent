@@ -104,12 +104,11 @@ services:
 
   tempo:
     image: grafana/tempo:2.10.3
-    container_name: tempo
+    container_name: indicagent-tempo
     restart: unless-stopped
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     ports:
       - "4318:4318"   # OTLP HTTP receiver — host agents send spans here
-      - "3200:3200"   # Tempo HTTP API — Grafana queries traces here
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
