@@ -173,11 +173,12 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.0 shipped 2026-03-22)
+### Current State (v2.1 in progress — Phase 52.6 complete 2026-03-28)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
-- Signal pipeline: in-process 6-stage pipeline in SignalGeneratorService (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar; single atomic INSERT per bar to `intelligence_features`
+- **Phase 52.6 (2026-03-28):** BaseAgent enhanced with lifecycle contract (_setup/_teardown, metrics_port, tracer, topics_consumed/produced, running property, _send_to_dlq). ProcessManifest replaces singleton AgentRegistry. All 4 pipeline agents (IndicatorComputeAgent, SignalGeneratorAgent, IntelligenceComputeAgent, FeatureWriterAgent) migrated to enhanced BaseAgent. init_tracing() in all 4 service entrypoints — OTel spans ready for Phase 52.7 Tempo infra. Validated: AGENT-01–05.
+- Signal pipeline: in-process 6-stage pipeline in SignalGeneratorAgent (now BaseAgent) (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar; single atomic INSERT per bar to `intelligence_features`
 - FeaturePipelineService: unified I1–I6 execution, live 1m OHLCV written to `market_data_ohlcv`, cross-asset + VIX frames injected before I6
 - All 36 I7 plugins emit `_shadow` dict with I6 ctf_* sub-scores — ML training foundation ready for v2.3
 - Cross-asset unconditionally active (CROSS_ASSET_ENABLED flag removed); roll monitor awaiting D-21 re-validation (todo 023 in done — scaffolding removed, operational gate pending)
