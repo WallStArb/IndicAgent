@@ -114,3 +114,32 @@ def test_message_key_without_timeframe() -> None:
 
 def test_message_key_none_timeframe() -> None:
     assert message_key("GC", None) == "GC"
+
+
+# ---------------------------------------------------------------------------
+# Provider abstraction stream key tests (Phase 54-01)
+# ---------------------------------------------------------------------------
+
+
+def test_topic_market_bars_raw() -> None:
+    from src.core.stream_keys import topic_market_bars_raw
+
+    assert topic_market_bars_raw("development", "ibkr") == "development.market.bars.raw.ibkr"
+
+
+def test_topic_market_bars_raw_alpaca() -> None:
+    from src.core.stream_keys import topic_market_bars_raw
+
+    assert topic_market_bars_raw("development", "alpaca") == "development.market.bars.raw.alpaca"
+
+
+def test_topic_market_data_quality() -> None:
+    from src.core.stream_keys import topic_market_data_quality
+
+    assert topic_market_data_quality("development") == "development.market.data.quality"
+
+
+def test_topic_market_data_quality_distinct_from_pipeline() -> None:
+    from src.core.stream_keys import topic_data_quality, topic_market_data_quality
+
+    assert topic_market_data_quality("development") != topic_data_quality("development")
