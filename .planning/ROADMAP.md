@@ -499,7 +499,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 **Goal:** Build `ParityAuditorAgent` — a timer-based (5 min) comparison engine that validates `feature_snapshots_shadow` against `intelligence_features` per (symbol, tf), stores field-level violations in `feature_parity_violations`, emits `parity_match_rate` Prometheus metrics, and self-certifies parity after `CERTIFICATION_THRESHOLD` consecutive clean cycles by publishing `SHADOW_PARITY_CERTIFIED` to the system events topic.
 **Requirements**: [PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05]
 **Depends on:** Phase 52.3 (shadow table + FeatureSnapshotWriterAgent running)
-**Plans:** 1/2 plans executed
+**Plans:** 1/2 plans complete
 
 Plans:
 - [x] 52.5-01-PLAN.md — ParityRepository, FieldViolation, _compare_rows, ParityAuditorAgent(BaseAgent), systemd unit
