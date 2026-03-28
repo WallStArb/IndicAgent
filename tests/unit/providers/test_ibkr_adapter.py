@@ -1,0 +1,308 @@
+"""Tests for IBKRAdapter — Phase 54-02.
+
+TDD RED phase: all tests must fail before IBKRAdapter is implemented.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from src.core.bar_normalizer import SOURCE_IBKR_GENERIC, SOURCE_IBKR_NAMED
+from src.core.models import AssetClass, Instrument
+from src.core.schemas.bar_message import BarMessage
+from src.providers.base import DataProviderAdapter
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def instrument_es() -> Instrument:
+    return Instrument(
+        symbol="ESM6",
+        base="ES",
+        exchange="CME",
+        expiry="202606",
+        name="E-mini S&P 500",
+        point_value=50,
+        tick_size=0.25,
+        session_id="futures_24_5",
+    )
+
+
+@pytest.fixture
+def instrument_vx() -> Instrument:
+    return Instrument(
+        symbol="VXJ6",
+        base="VIX",
+        exchange="CFE",
+        expiry="20260415",
+        name="CBOE VIX Futures",
+        point_value=1000,
+        tick_size=0.05,
+        sector="volatility",
+        provider_meta={"ibkr": {"trading_class": "VX"}},
+    )
+
+
+@pytest.fixture
+def adapter():
+    """IBKRAdapter with mocked IBKRProvider."""
+    from src.providers.ibkr_adapter import IBKRAdapter
+
+    return IBKRAdapter(host="127.0.0.1", port=7497, client_id=35)
+
+
+def _make_rtb(minute_ts: datetime, price: float = 100.0) -> MagicMock:
+    """Create a mock RealTimeBar-like object."""
+    rtb = MagicMock()
+    rtb.time = minute_ts.replace(tzinfo=UTC) if minute_ts.tzinfo is None else minute_ts
+    rtb.open_ = price
+    rtb.high = price + 1.0
+    rtb.low = price - 1.0
+    rtb.close = price + 0.5
+    rtb.volume = 100.0
+    return rtb
+
+
+# ---------------------------------------------------------------------------
+# Protocol compliance
+# ---------------------------------------------------------------------------
+
+
+class TestProtocol:
+    def test_satisfies_protocol(self, adapter):
+        """IBKRAdapter must satisfy the runtime-checkable DataProviderAdapter Protocol."""
+        assert isinstance(adapter, DataProviderAdapter)
+
+    def test_provider_name_is_ibkr(self, adapter):
+        """provider_name must equal 'ibkr' for topic-key routing and metric labels."""
+        assert adapter.provider_name == "ibkr"
+
+
+# ---------------------------------------------------------------------------
+# stream_bars
+# ---------------------------------------------------------------------------
+
+
+class TestStreamBars:
+    @pytest.mark.asyncio
+    async def test_stream_bars_yields_bar_message(self, adapter, instrument_es):
+        """stream_bars must yield BarMessage instances."""
+        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+        rtb = _make_rtb(ts)
+
+        async def _fake_stream(symbols):
+            yield (instrument_es.symbol, rtb)
+
+        adapter._provider = MagicMock()
+        adapter._provider.stream_real_time_bars = _fake_stream
+
+        bars = []
+        # We only collect enough to get one bar; the adapter aggregates 5s→1m
+        # so we inject a bar from the next minute to trigger emission.
+        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
+
+        async def _fake_stream2(symbols):
+            yield (instrument_es.symbol, rtb)
+            yield (instrument_es.symbol, rtb2)
+
+        adapter._provider.stream_real_time_bars = _fake_stream2
+
+        async for bar in adapter.stream_bars([instrument_es]):
+            bars.append(bar)
+            break  # stop after first bar
+
+        assert len(bars) >= 1
+        assert isinstance(bars[0], BarMessage)
+
+    @pytest.mark.asyncio
+    async def test_stream_bars_source_is_ibkr_generic(self, adapter, instrument_es):
+        """Bars from stream_bars must have source == SOURCE_IBKR_GENERIC."""
+        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+        rtb = _make_rtb(ts)
+        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
+
+        async def _fake_stream(symbols):
+            yield (instrument_es.symbol, rtb)
+            yield (instrument_es.symbol, rtb2)
+
+        adapter._provider = MagicMock()
+        adapter._provider.stream_real_time_bars = _fake_stream
+
+        bars = []
+        async for bar in adapter.stream_bars([instrument_es]):
+            bars.append(bar)
+            break
+
+        assert bars[0].source == SOURCE_IBKR_GENERIC
+
+    @pytest.mark.asyncio
+    async def test_stream_bars_ts_is_utc_aware(self, adapter, instrument_es):
+        """Bars from stream_bars must have UTC-aware ts."""
+        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+        rtb = _make_rtb(ts)
+        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
+
+        async def _fake_stream(symbols):
+            yield (instrument_es.symbol, rtb)
+            yield (instrument_es.symbol, rtb2)
+
+        adapter._provider = MagicMock()
+        adapter._provider.stream_real_time_bars = _fake_stream
+
+        bars = []
+        async for bar in adapter.stream_bars([instrument_es]):
+            bars.append(bar)
+            break
+
+        assert bars[0].ts.tzinfo is not None
+
+    @pytest.mark.asyncio
+    async def test_stream_bars_symbol_from_instrument(self, adapter, instrument_es):
+        """Bars from stream_bars must carry the instrument symbol."""
+        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+        rtb = _make_rtb(ts)
+        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
+
+        async def _fake_stream(symbols):
+            yield (instrument_es.symbol, rtb)
+            yield (instrument_es.symbol, rtb2)
+
+        adapter._provider = MagicMock()
+        adapter._provider.stream_real_time_bars = _fake_stream
+
+        bars = []
+        async for bar in adapter.stream_bars([instrument_es]):
+            bars.append(bar)
+            break
+
+        assert bars[0].symbol == instrument_es.symbol
+
+
+# ---------------------------------------------------------------------------
+# fetch_historical
+# ---------------------------------------------------------------------------
+
+
+class TestFetchHistorical:
+    @pytest.mark.asyncio
+    async def test_fetch_historical_returns_list_of_bar_message(
+        self, adapter, instrument_es
+    ):
+        """fetch_historical must return list[BarMessage]."""
+        from src.providers.base import OHLCVBar
+
+        fake_bar = OHLCVBar(
+            symbol="ESM6",
+            timeframe="1m",
+            timestamp=datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC),
+            open=5100.0,
+            high=5105.0,
+            low=5095.0,
+            close=5102.0,
+            volume=1000,
+            source=SOURCE_IBKR_NAMED,
+        )
+        adapter._provider = MagicMock()
+        adapter._provider.fetch_historical_bars = AsyncMock(return_value=[fake_bar])
+
+        start = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 3, 28, 15, 0, 0, tzinfo=UTC)
+        result = await adapter.fetch_historical(
+            symbol="ESM6", tf="1m", start=start, end=end
+        )
+
+        assert isinstance(result, list)
+        assert len(result) >= 1
+        assert isinstance(result[0], BarMessage)
+
+    @pytest.mark.asyncio
+    async def test_fetch_historical_source_is_ibkr_named(
+        self, adapter, instrument_es
+    ):
+        """fetch_historical bars must have source == SOURCE_IBKR_NAMED."""
+        from src.providers.base import OHLCVBar
+
+        fake_bar = OHLCVBar(
+            symbol="ESM6",
+            timeframe="1m",
+            timestamp=datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC),
+            open=5100.0,
+            high=5105.0,
+            low=5095.0,
+            close=5102.0,
+            volume=1000,
+            source=SOURCE_IBKR_NAMED,
+        )
+        adapter._provider = MagicMock()
+        adapter._provider.fetch_historical_bars = AsyncMock(return_value=[fake_bar])
+
+        start = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 3, 28, 15, 0, 0, tzinfo=UTC)
+        result = await adapter.fetch_historical(
+            symbol="ESM6", tf="1m", start=start, end=end
+        )
+
+        assert result[0].source == SOURCE_IBKR_NAMED
+
+
+# ---------------------------------------------------------------------------
+# qualify_instrument
+# ---------------------------------------------------------------------------
+
+
+class TestQualifyInstrument:
+    @pytest.mark.asyncio
+    async def test_qualify_instrument_reads_nested_meta(
+        self, adapter, instrument_vx
+    ):
+        """qualify_instrument must read provider_meta['ibkr']['trading_class']."""
+        adapter._provider = MagicMock()
+        adapter._provider.qualify_instrument = AsyncMock(return_value=True)
+        adapter._provider._qualified_contracts = {instrument_vx.symbol: MagicMock()}
+
+        result = await adapter.qualify_instrument(instrument_vx)
+
+        # Should have called the underlying provider's qualify_instrument
+        adapter._provider.qualify_instrument.assert_called_once()
+        # Result must be an Instrument (possibly enriched)
+        assert isinstance(result, Instrument)
+
+    @pytest.mark.asyncio
+    async def test_qualify_instrument_empty_meta_ok(self, adapter, instrument_es):
+        """qualify_instrument must not crash when provider_meta is empty."""
+        assert instrument_es.provider_meta == {}
+
+        adapter._provider = MagicMock()
+        adapter._provider.qualify_instrument = AsyncMock(return_value=True)
+        adapter._provider._qualified_contracts = {instrument_es.symbol: MagicMock()}
+
+        # Must not raise
+        result = await adapter.qualify_instrument(instrument_es)
+        assert isinstance(result, Instrument)
+
+
+# ---------------------------------------------------------------------------
+# Settings — nested provider_meta
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsNestedProviderMeta:
+    def test_vxj6_settings_nested_provider_meta(self):
+        """VXJ6 in Settings must have provider_meta == {'ibkr': {'trading_class': 'VX'}}."""
+        from src.config.settings import Settings
+
+        settings = Settings()
+        vxj6 = next(
+            (c for c in settings.contracts if c.symbol == "VXJ6"), None
+        )
+        assert vxj6 is not None, "VXJ6 not found in default contracts"
+        assert vxj6.provider_meta == {"ibkr": {"trading_class": "VX"}}, (
+            f"Expected nested provider_meta, got {vxj6.provider_meta!r}"
+        )
