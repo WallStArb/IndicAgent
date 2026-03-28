@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from pydantic import ValidationError
 
 from src.core.schemas.market_events import RollEvent
 
@@ -138,7 +139,7 @@ def parse_roll_event(event: dict, logger: Any) -> tuple[str, str] | None:
     try:
         roll = RollEvent.model_validate(event)
         return roll.old_contract, roll.new_contract
-    except Exception as exc:
+    except ValidationError as exc:
         logger.warning("roll_event_parse_failed", error=str(exc))
         return None
 

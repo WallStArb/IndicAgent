@@ -61,6 +61,11 @@ def _make_agent():
     agent._rolls_detected = _TEST_ROLLS_DETECTED
     agent._detection_latency = _TEST_DETECTION_LATENCY
     agent._detection_errors = _TEST_DETECTION_ERRORS
+    # Cache labeled metrics (mirrors __init__ — required by __new__ test pattern)
+    agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="roll_compute_agent")
+    agent._rolls_detected_lbl = _TEST_ROLLS_DETECTED.labels(agent="roll_compute_agent")
+    agent._detection_latency_lbl = _TEST_DETECTION_LATENCY.labels(agent="roll_compute_agent")
+    agent._detection_errors_lbl = _TEST_DETECTION_ERRORS.labels(agent="roll_compute_agent")
     return agent
 
 
