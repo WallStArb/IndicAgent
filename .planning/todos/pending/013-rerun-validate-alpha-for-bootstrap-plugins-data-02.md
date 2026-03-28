@@ -1,7 +1,10 @@
 ---
 created: 2026-03-22T19:00:00.000Z
+updated: 2026-03-28T00:00:00.000Z
 title: Re-run validate_alpha.py for DerivOsc and AC Osc (DATA-02)
 area: data-quality
+priority: 13
+tier: data-gated
 files:
   - production/scripts/validate_alpha.py
   - src/intelligence/patterns/

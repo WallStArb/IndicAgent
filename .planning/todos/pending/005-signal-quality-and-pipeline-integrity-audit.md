@@ -1,9 +1,12 @@
 ---
 created: 2026-03-24T10:57:11.838Z
+updated: 2026-03-28T00:00:00.000Z
 title: Signal quality and pipeline integrity audit
 area: intelligence
+priority: 5
+tier: immediate
 files:
-  - services/signal_generator_service.py
+  - services/signal_generator_agent.py
   - src/intelligence/pipeline/regime_gate.py
   - src/intelligence/trading/signal_ledger.py
   - src/intelligence/trading/confidence_utils.py
@@ -35,7 +38,7 @@ Comprehensive signal quality and pipeline integrity issues discovered during inv
 **Regime Suppression Aggressiveness**:
 - `regime_suppressed` signals: 4,049 with avg confidence 0.168
 - May be too aggressive around regime transitions (user wants to loosen)
-- Existing todo #026 covers regime gate Renaissance violation
+- Existing todo #001 covers regime gate Renaissance violation
 - Need to verify suppression logic matches design intent
 
 **Performance Metrics Validation Needed**:
@@ -49,7 +52,7 @@ Comprehensive signal quality and pipeline integrity issues discovered during inv
 Comprehensive audit across 6 areas:
 
 ### 1. Confluence Integration Validation
-- ✓ Verify `signal_ledger.confluence_score` now non-zero (fix deployed)
+- Verify `signal_ledger.confluence_score` now non-zero (fix deployed)
 - Check I6 CTF sub-scores flowing (ctf_trend_alignment, ctf_regime_agreement, ctf_fvg_alignment, ctf_ob_alignment)
 - Confirm aggregator using confluence in `adjusted_rank` calculation
 - Validate I7 plugins consuming I6 data per Renaissance principle
@@ -95,7 +98,6 @@ Comprehensive audit across 6 areas:
 
 ## Related
 
-- Todo #026: Regime gate violates Renaissance signal data collection
+- Todo #001: Regime gate violates Renaissance signal data collection
 - Commit 8d9ca3e: I6 confluence_score fix (deployed, needs validation)
-- Phase 46: I6 Confluence expansion
 - Phase 49.1: ML training data infrastructure

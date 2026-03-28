@@ -1,10 +1,10 @@
 ---
 created: 2026-03-14T23:35:06.299Z
+updated: 2026-03-28T00:00:00.000Z
 title: Dashboard show staleness indicator for seeded intelligence data
 area: ui
-priority: 12
-tier: phase-50
-phase: "50"
+priority: 18
+tier: feature
 files:
   - dashboard/src/components/signal-card.tsx
   - dashboard/src/hooks/use-market-stream.ts
@@ -12,11 +12,9 @@ files:
 
 ## Problem
 
-When `market_analysis_service` seeds from DB on restart, the published `IntelligenceEvent`
-carries the original bar `ts` (potentially hours old — e.g. BTCUSD during IBKR weekend gaps).
-The dashboard currently renders stale values identically to live values. A trader could see
-BTCUSD RSI from 27 hours ago with no indication that it is not current. The `ts` field is
-already present in every SSE event, so the data needed to detect staleness is available.
+When a seeded intelligence event carries an original bar `ts` that is potentially hours old (e.g. BTCUSD during IBKR weekend gaps), the dashboard currently renders stale values identically to live values. A trader could see BTCUSD RSI from 27 hours ago with no indication that it is not current. The `ts` field is already present in every SSE event, so the data needed to detect staleness is available.
+
+Note: The original todo referenced `market_analysis_service` as the source of seeded events. That service was retired and merged into `services/feature_compute_agent.py`. The seeding behavior may now live in the intelligence compute pipeline — verify the source before implementing.
 
 ## Solution
 
