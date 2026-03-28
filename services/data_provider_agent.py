@@ -385,7 +385,8 @@ class DataProviderAgent:
                         "source": "authoritative",
                         "bar_close_ts": bar_timestamp,
                         "is_reconciled": False,
-                        "drift_detected": False
+                        "drift_detected": False,
+                        "is_flat_bar": True,
                     }
                     await self._kafka_producer.publish(
                         topic_market_bars(self.env_name),
@@ -415,7 +416,8 @@ class DataProviderAgent:
             "source": "authoritative",
             "bar_close_ts": bar_timestamp,
             "is_reconciled": bool(official),
-            "drift_detected": drift_detected
+            "drift_detected": drift_detected,
+            "is_flat_bar": False,
         }
         await self._kafka_producer.publish(
             topic_market_bars(self.env_name),
