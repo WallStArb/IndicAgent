@@ -212,7 +212,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
     - [x] 053.3-04-PLAN.md — signal_generator_agent consumer migration + cleanup
 - [ ] **Phase 53.2: BarAggregatorComputeAgent** — extract `BarAccumulator` (1m→HTF) from `feature_compute_agent` into standalone `BarAggregatorComputeAgent` (`bar_aggregator_agent.py`); `feature_compute_agent` becomes pure intelligence consumer; canonical flat bars for empty minutes; port :9120 *(depends on 53.3)*
   - **Plans:** 3 plans in 2 waves
-    - [ ] 053.2-01-PLAN.md — is_flat_bar schema + BarAccumulator propagation + DataProviderAgent emission
+    - [x] 053.2-01-PLAN.md — is_flat_bar schema + BarAccumulator propagation + DataProviderAgent emission
     - [ ] 053.2-02-PLAN.md — BarAggregatorComputeAgent implementation + systemd unit
     - [ ] 053.2-03-PLAN.md — FCA simplification (remove BarAccumulator, add HTF subscription) + CLAUDE.md update
 - [ ] **Phase 53.1: BarWriterAgent + BarAuditorAgent** — `BarWriterAgent` subscribes independently to `market.bars` + `market.bars.htf`; removes `_ohlcv_buffer` from compute path; `BarAuditorAgent` self-healing loop: detect gaps → `BarGapRequest` → DataProviderAgent fetches → BarWriterAgent persists; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
