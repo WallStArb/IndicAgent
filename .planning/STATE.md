@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Ready to execute
-last_updated: "2026-03-28T12:56:50.269Z"
+last_updated: "2026-03-28T16:31:03.697Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -22,8 +22,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 ## Current Position
 
-Phase: 053.2 (bar-aggregator-compute-agent) — EXECUTING
-Plan: 2 of 3
+Phase: 053.2 (bar-aggregator-compute-agent) — COMPLETE
+Plan: 3 of 3 (DONE)
 
 ## v2.1 Milestone Goal
 
@@ -125,3 +125,8 @@ Recent additions:
 - Dual-format bar parsing: BarMessage.model_validate() first, flat-dict fallback for DataProviderAgent format
 - After=indicagent-data-provider.service in systemd unit — D-18 startup ordering enforced at OS level
 - Service enabled but not started — FCA must be simplified in Plan 03 before cutover
+
+### Decisions (Phase 053.2 Plan 03)
+
+- feature_pipeline_service.py shim re-exports FeatureComputeAgent as FeaturePipelineService — 12 existing tests reference old class name; shim avoids touching test files
+- Pre-existing ruff E501 at line 705 deferred — out of scope per deviation scope boundary rule; was present in HEAD before these changes
