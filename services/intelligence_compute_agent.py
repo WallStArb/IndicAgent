@@ -29,6 +29,7 @@ from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
+from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.plugin_validator import PluginValidator
 from src.core.service_utils import (
@@ -65,7 +66,6 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
-from src.core.agent.base import BaseAgent
 from src.observability.metrics import (
     BAR_TO_INTELLIGENCE_LATENCY,
     MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL,
