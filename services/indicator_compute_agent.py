@@ -60,7 +60,6 @@ from src.observability.metrics import (
     counter,
     gauge,
     record_plugin_execution,
-    start_metrics_server,
 )
 
 # I1 plugin names — imported from register_plugins (single source of truth)
@@ -203,13 +202,16 @@ class IndicatorComputeAgent(BaseAgent):
     _WARMUP_READ_MULTIPLIER: int = 5  # read 5× target to survive duplicate timestamps
 
     def __init__(self, config_file: str | None = None):
-        # Load config first so _setup_logging() can read it
+        # Load config first (config-before-super pattern: D-15) so metrics_port is
+        # available before BaseAgent.__init__ auto-starts the metrics server.
         self.config = self._load_config(config_file)
-        super().__init__(name="indicator_compute_agent")
+        super().__init__(
+            name="indicator_compute_agent",
+            metrics_port=self.config.get("metrics_port", 9109),
+        )
         # _setup_logging() overrides the BaseAgent logger with the service-specific
         # configured logger (rotating file handler + structlog processor chain).
         self._setup_logging()
-        self.running = False
         self.shutdown_requested = False
         self.start_time = datetime.now(UTC)
 
@@ -609,7 +611,7 @@ class IndicatorComputeAgent(BaseAgent):
                 self.error_count_total.inc()
 
     async def _health_monitor_loop(self) -> None:
-        while self.running and not self.shutdown_requested:
+        while self.running:
             try:
                 uptime = int((datetime.now(UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
@@ -666,92 +668,84 @@ class IndicatorComputeAgent(BaseAgent):
                 plugins=migrated_count,
             )
 
-    async def _run(self) -> None:
-        """Main loop managed by start() directly — not called via BaseAgent.start()."""
-        raise NotImplementedError("Use start() directly")
+    @property
+    def topics_consumed(self) -> list[str]:
+        return [
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
+            topic_market_ticks(self.env_name),
+            topic_system_events(self.env_name),
+        ]
 
-    async def _report_consumer_lag(self) -> None:
-        """Report consumer lag proxy via buffer size (no partition end-offset API available)."""
-        while not self._stop_event.is_set():
-            if self._kafka_consumer is not None:
-                PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
-            await asyncio.sleep(15)
+    @property
+    def topics_produced(self) -> list[str]:
+        return [topic_indicators(self.env_name)]
 
-    async def start(self) -> None:
-        # Register asyncio signal handlers (replaces synchronous signal.signal() in __init__)
-        self._register_signal_handlers()
-        # Launch consumer lag background task
-        lag_task = asyncio.create_task(self._report_consumer_lag())
+    @property
+    def lag_threshold_messages(self) -> int:
+        return 500  # tighter threshold — feeds the entire downstream pipeline
+
+    async def _setup(self) -> None:
+        """Initialize DB, seed bar history, start Kafka producer and consumers."""
         self.logger.info("Starting Indicator Compute Agent", config=self.config["service"])
-        try:
-            start_metrics_server(port=self.config.get("metrics_port", 9109))
 
-            # Seed bar history from DB before starting consumer (Phase 26 pattern)
-            if self.db_manager:
-                await self.db_manager.initialize()
-            await self._seed_bar_history_from_db()
+        # Seed bar history from DB before starting consumer (Phase 26 pattern)
+        if self.db_manager:
+            await self.db_manager.initialize()
+        await self._seed_bar_history_from_db()
 
-            # Start Kafka producer
-            await self._kafka_producer.start()
+        # Start Kafka producer
+        await self._kafka_producer.start()
 
-            # Publish last-known I1 state from seeded history so dashboard is
-            # populated immediately without waiting for the first live bar.
-            await self._publish_seeded_state()
+        # Publish last-known I1 state from seeded history so dashboard is
+        # populated immediately without waiting for the first live bar.
+        await self._publish_seeded_state()
 
-            # Build topics list
-            _settings = Settings()
-            topics: list[str] = [
-                topic_market_bars(self.env_name),
-                topic_market_bars_htf(self.env_name),
-                topic_system_events(self.env_name),
-            ]
+        # Build topics list
+        _settings = Settings()
+        topics: list[str] = [
+            topic_market_bars(self.env_name),
+            topic_market_bars_htf(self.env_name),
+            topic_system_events(self.env_name),
+        ]
 
-            # Start Kafka consumer subscribed to market.bars and system.events topics
-            self._kafka_consumer = KafkaConsumerClient(
-                *topics,
-                bootstrap_servers=self.config.get(
-                    "kafka_bootstrap_servers",
-                    _settings.kafka_bootstrap_servers,
-                ),
-                group_id="indicator_compute_agent",
-                auto_offset_reset="latest",
-            )
-            await self._kafka_consumer.start()
+        # Start Kafka consumer subscribed to market.bars and system.events topics
+        self._kafka_consumer = KafkaConsumerClient(
+            *topics,
+            bootstrap_servers=self.config.get(
+                "kafka_bootstrap_servers",
+                _settings.kafka_bootstrap_servers,
+            ),
+            group_id="indicator_compute_agent",
+            auto_offset_reset="latest",
+        )
+        await self._kafka_consumer.start()
 
-            # Start tick consumer — separate group_id to avoid offset conflicts
-            self._tick_consumer = KafkaConsumerClient(
-                topic_market_ticks(self.env_name),
-                bootstrap_servers=self.config.get(
-                    "kafka_bootstrap_servers",
-                    _settings.kafka_bootstrap_servers,
-                ),
-                group_id="indicator_compute_agent_ticks",
-                auto_offset_reset="latest",
-            )
-            await self._tick_consumer.start()
+        # Start tick consumer — separate group_id to avoid offset conflicts
+        self._tick_consumer = KafkaConsumerClient(
+            topic_market_ticks(self.env_name),
+            bootstrap_servers=self.config.get(
+                "kafka_bootstrap_servers",
+                _settings.kafka_bootstrap_servers,
+            ),
+            group_id="indicator_compute_agent_ticks",
+            auto_offset_reset="latest",
+        )
+        await self._tick_consumer.start()
 
-            self.running = True
-            tasks = [
-                asyncio.create_task(self._process_market_data()),
-                asyncio.create_task(self._process_tick_data()),
-                asyncio.create_task(self._health_monitor_loop()),
-            ]
-            self.logger.info("Indicator Compute Agent started")
-            await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            self.logger.error("Failed to start indicator compute agent", error=str(e))
-            raise
-        finally:
-            lag_task.cancel()
-            try:
-                await lag_task
-            except asyncio.CancelledError:
-                pass
-            await self.stop()
+    async def _run(self) -> None:
+        """Main processing loop — started after _setup() completes."""
+        self.logger.info("Indicator Compute Agent started")
+        tasks = [
+            asyncio.create_task(self._process_market_data()),
+            asyncio.create_task(self._process_tick_data()),
+            asyncio.create_task(self._health_monitor_loop()),
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def stop(self) -> None:
+    async def _teardown(self) -> None:
+        """Close Kafka consumers and producer."""
         self.logger.info("Stopping Indicator Compute Agent")
-        self.running = False
         self.shutdown_requested = True
         if self._kafka_consumer:
             await self._kafka_consumer.stop()
@@ -759,6 +753,13 @@ class IndicatorComputeAgent(BaseAgent):
             await self._tick_consumer.stop()
         await self._kafka_producer.stop()
         self.logger.info("Indicator Compute Agent stopped")
+
+    async def _report_consumer_lag(self) -> None:
+        """Report consumer lag proxy via buffer size (no partition end-offset API available)."""
+        while not self._stop_event.is_set():
+            if self._kafka_consumer is not None:
+                PERSISTENCE_CONSUMER_LAG.labels(agent_id=self.name).set(0)
+            await asyncio.sleep(15)
 
 
 async def main() -> None:
