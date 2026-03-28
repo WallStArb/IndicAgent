@@ -414,7 +414,10 @@ class IBKRProvider:
             return False
         try:
             if instrument.asset_class == AssetClass.FUTURES:
-                trading_class = instrument.provider_meta.get("trading_class", "")
+                trading_class = instrument.provider_meta.get("ibkr", {}).get(
+                    "trading_class",
+                    instrument.provider_meta.get("trading_class", ""),  # legacy flat fallback
+                )
                 contract = Future(
                     symbol=instrument.base or instrument.symbol,
                     lastTradeDateOrContractMonth=instrument.expiry,

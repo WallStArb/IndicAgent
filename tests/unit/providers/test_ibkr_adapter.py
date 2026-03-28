@@ -5,6 +5,7 @@ TDD RED phase: all tests must fail before IBKRAdapter is implemented.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -90,98 +91,75 @@ class TestProtocol:
 # ---------------------------------------------------------------------------
 
 
+def _make_mock_provider_for_stream(instrument: Instrument) -> MagicMock:
+    """Build a mock IBKRProvider with both RTB and official-bars streams stubbed."""
+    ts1 = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
+    ts2 = datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC)
+    rtb1 = _make_rtb(ts1)
+    rtb2 = _make_rtb(ts2)
+
+    async def _fake_rtb(symbols):
+        yield (instrument.symbol, rtb1)
+        yield (instrument.symbol, rtb2)
+
+    async def _fake_official(symbols, timeframe="1m"):
+        # Yield nothing — no official bars in test
+        return
+        yield  # make it an async generator
+
+    provider = MagicMock()
+    provider.stream_real_time_bars = _fake_rtb
+    provider.stream_official_bars = _fake_official
+    return provider
+
+
+async def _collect_one_bar(adapter, instruments, timeout_secs=5.0) -> list[BarMessage]:
+    """Collect the first bar from stream_bars with a hard timeout."""
+    bars: list[BarMessage] = []
+    gen = adapter.stream_bars(instruments)
+    try:
+        async with asyncio.timeout(timeout_secs):
+            async for bar in gen:
+                bars.append(bar)
+                break
+    except TimeoutError:
+        pass
+    finally:
+        await gen.aclose()
+    return bars
+
+
 class TestStreamBars:
     @pytest.mark.asyncio
     async def test_stream_bars_yields_bar_message(self, adapter, instrument_es):
         """stream_bars must yield BarMessage instances."""
-        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
-        rtb = _make_rtb(ts)
-
-        async def _fake_stream(symbols):
-            yield (instrument_es.symbol, rtb)
-
-        adapter._provider = MagicMock()
-        adapter._provider.stream_real_time_bars = _fake_stream
-
-        bars = []
-        # We only collect enough to get one bar; the adapter aggregates 5s→1m
-        # so we inject a bar from the next minute to trigger emission.
-        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
-
-        async def _fake_stream2(symbols):
-            yield (instrument_es.symbol, rtb)
-            yield (instrument_es.symbol, rtb2)
-
-        adapter._provider.stream_real_time_bars = _fake_stream2
-
-        async for bar in adapter.stream_bars([instrument_es]):
-            bars.append(bar)
-            break  # stop after first bar
-
+        adapter._provider = _make_mock_provider_for_stream(instrument_es)
+        bars = await _collect_one_bar(adapter, [instrument_es])
         assert len(bars) >= 1
         assert isinstance(bars[0], BarMessage)
 
     @pytest.mark.asyncio
     async def test_stream_bars_source_is_ibkr_generic(self, adapter, instrument_es):
         """Bars from stream_bars must have source == SOURCE_IBKR_GENERIC."""
-        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
-        rtb = _make_rtb(ts)
-        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
-
-        async def _fake_stream(symbols):
-            yield (instrument_es.symbol, rtb)
-            yield (instrument_es.symbol, rtb2)
-
-        adapter._provider = MagicMock()
-        adapter._provider.stream_real_time_bars = _fake_stream
-
-        bars = []
-        async for bar in adapter.stream_bars([instrument_es]):
-            bars.append(bar)
-            break
-
+        adapter._provider = _make_mock_provider_for_stream(instrument_es)
+        bars = await _collect_one_bar(adapter, [instrument_es])
+        assert len(bars) >= 1
         assert bars[0].source == SOURCE_IBKR_GENERIC
 
     @pytest.mark.asyncio
     async def test_stream_bars_ts_is_utc_aware(self, adapter, instrument_es):
         """Bars from stream_bars must have UTC-aware ts."""
-        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
-        rtb = _make_rtb(ts)
-        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
-
-        async def _fake_stream(symbols):
-            yield (instrument_es.symbol, rtb)
-            yield (instrument_es.symbol, rtb2)
-
-        adapter._provider = MagicMock()
-        adapter._provider.stream_real_time_bars = _fake_stream
-
-        bars = []
-        async for bar in adapter.stream_bars([instrument_es]):
-            bars.append(bar)
-            break
-
+        adapter._provider = _make_mock_provider_for_stream(instrument_es)
+        bars = await _collect_one_bar(adapter, [instrument_es])
+        assert len(bars) >= 1
         assert bars[0].ts.tzinfo is not None
 
     @pytest.mark.asyncio
     async def test_stream_bars_symbol_from_instrument(self, adapter, instrument_es):
         """Bars from stream_bars must carry the instrument symbol."""
-        ts = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
-        rtb = _make_rtb(ts)
-        rtb2 = _make_rtb(datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC))
-
-        async def _fake_stream(symbols):
-            yield (instrument_es.symbol, rtb)
-            yield (instrument_es.symbol, rtb2)
-
-        adapter._provider = MagicMock()
-        adapter._provider.stream_real_time_bars = _fake_stream
-
-        bars = []
-        async for bar in adapter.stream_bars([instrument_es]):
-            bars.append(bar)
-            break
-
+        adapter._provider = _make_mock_provider_for_stream(instrument_es)
+        bars = await _collect_one_bar(adapter, [instrument_es])
+        assert len(bars) >= 1
         assert bars[0].symbol == instrument_es.symbol
 
 
