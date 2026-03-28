@@ -51,6 +51,11 @@ def topic_market_bars_htf(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.bars.htf"
 
 
+def topic_roll_events(env_name: str) -> str:
+    """Kafka topic for typed RollEvent messages from RollComputeAgent."""
+    return f"{env_prefix(env_name)}market.events.roll"
+
+
 def topic_indicators(env_name: str) -> str:
     """Kafka topic for I1 technical indicator output."""
     return f"{env_prefix(env_name)}indicators"
