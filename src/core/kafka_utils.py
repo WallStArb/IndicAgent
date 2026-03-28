@@ -46,9 +46,6 @@ class _KafkaHeadersCarrier:
     def keys(self) -> list[str]:
         return list(self._headers.keys())
 
-    def items(self) -> list[tuple[str, str]]:
-        return list(self._headers.items())
-
     def to_aiokafka_headers(self) -> list[tuple[str, bytes]]:
         return [(k, v.encode()) for k, v in self._headers.items()]
 

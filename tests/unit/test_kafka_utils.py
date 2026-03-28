@@ -83,16 +83,6 @@ def test_carrier_keys() -> None:
     assert len(keys) == 2
 
 
-def test_carrier_items() -> None:
-    """items() returns list of (key, value) tuples."""
-    carrier = _KafkaHeadersCarrier()
-    carrier.set("traceparent", "00-abc-def-01")
-    carrier.set("tracestate", "rojo=xyz")
-    items = dict(carrier.items())
-    assert items["traceparent"] == "00-abc-def-01"
-    assert items["tracestate"] == "rojo=xyz"
-
-
 def test_carrier_to_aiokafka_headers() -> None:
     """to_aiokafka_headers() encodes str values as UTF-8 bytes."""
     carrier = _KafkaHeadersCarrier()
