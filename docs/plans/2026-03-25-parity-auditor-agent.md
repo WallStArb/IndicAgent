@@ -543,7 +543,7 @@ ParityAuditorAgent — automated shadow parity validation.
 Compares intelligence_features (primary writer) against feature_snapshots_shadow
 (historian writer) on a timer. Tracks per-(symbol, tf) match rates. Stores
 violations in feature_parity_violations. Publishes PARITY_VIOLATION events to
-development.audit and SHADOW_PARITY_CERTIFIED to development.system.events
+topic_audit(env_name) and SHADOW_PARITY_CERTIFIED to topic_system_events(env_name)
 after CERTIFICATION_THRESHOLD consecutive clean cycles per pair.
 
 No manual SQL. No human gate on the happy path.
@@ -660,7 +660,7 @@ class ParityAuditorAgent:
     async def _publish_violation(
         self, result: ComparisonResult, run_id: uuid.UUID
     ) -> None:
-        """Publish PARITY_VIOLATION event to development.audit."""
+        """Publish PARITY_VIOLATION event to topic_audit(env_name)."""
         if self._producer is None or result.violation_count == 0:
             return
         event = {
@@ -916,9 +916,9 @@ git commit -m "feat(ops): add indicagent-parity-auditor systemd unit"
 - [ ] First cycle log shows `global_match_rate=1.0`
 - [ ] No rows in `feature_parity_violations` after 1 hour
 - [ ] After 5 × `AUDIT_INTERVAL_SECS` minutes: `certified_pairs` count = active symbols × 4 timeframes
-- [ ] `SHADOW_PARITY_CERTIFIED` event appears on `development.system.events`:
+- [ ] `SHADOW_PARITY_CERTIFIED` event appears on `topic_system_events(env_name)` (e.g. `development.system.events`):
   ```bash
-  docker exec redpanda rpk topic consume development.system.events --from-end | grep SHADOW_PARITY_CERTIFIED
+  docker exec redpanda rpk topic consume $(python -c "from src.core.stream_keys import topic_system_events; from src.config.settings import Settings; print(topic_system_events(Settings().env_name))") --from-end | grep SHADOW_PARITY_CERTIFIED
   ```
 - [ ] Prometheus metrics visible at `:9120`:
   ```bash

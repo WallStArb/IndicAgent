@@ -21,7 +21,7 @@ The real-time pipeline **never touches the database directly**. All live process
 **Technology:** Redpanda (Kafka-compatible, :19092) — replaced DragonflyDB (Phase 30, 2026-03-14)
 **Latency:** Sub-millisecond writes
 
-The TWS Daemon (`indicagent-tws`) connects to IBKR at `10.0.0.33:7497` and writes completed bars to Redpanda topics as they arrive. All stream keys are constructed via `src/core/stream_keys.py` and are environment-prefixed.
+The DataProviderAgent (`indicagent-data-provider`) connects to IBKR at `10.0.0.33:7497` and writes completed bars to Redpanda topics as they arrive. All stream keys are constructed via `src/core/stream_keys.py` and are environment-prefixed.
 
 ### Stream Key Convention
 
@@ -58,10 +58,10 @@ Each service reads from one or more Redpanda topics, computes intelligence, and 
 
 | Service | Reads From | Writes To |
 |---------|-----------|-----------|
-| `indicagent-indicator` | IBKR bar streams | `indicators:SYMBOL:TF` |
+| `indicagent-feature-compute` | IBKR bar streams | `indicators:SYMBOL:TF` |
 | `indicagent-market-analysis` | `indicators:SYMBOL:TF` | `intelligence:SYMBOL:TF` |
 | `indicagent-signal-generator` | `intelligence:SYMBOL:TF` | `signals:SYMBOL:TF:aggregated` + `signal_ledger` (new rows) |
-| `indicagent-signal-lifecycle` | `market:SYMBOL:1m` | `signal_ledger` (lifecycle updates) + `llm_outcomes:stream` |
+| `indicagent-signal-tracker` | `market:SYMBOL:1m` | `signal_ledger` (lifecycle updates) + `llm_outcomes:stream` |
 | `indicagent-ai-narrative` | `signals:SYMBOL:TF:aggregated` | `narratives:SYMBOL:TF` + `llm_calls:stream` |
 | `indicagent-feature-writer` | `intelligence:SYMBOL:TF` | `intelligence_features` (TimescaleDB) |
 | `indicagent-llm-writer` | `llm_calls:stream` + `llm_outcomes:stream` | `llm_calls` hypertable + `llm_model_scores` |
@@ -92,7 +92,7 @@ async for msg in self._consumer:
 |-------|-----------|---------|
 | `market_data_ohlcv` | `historical_backfill.py` only | Raw OHLCV cold storage — never written by live pipeline |
 | `intelligence_features` | `feature_writer_service` | Full feature vectors per bar (tiered JSONB: bar/i1/i3/i4/i5/smc/i6) — ML training dataset |
-| `signal_ledger` | `signal_generator_service` (new rows) + `signal_lifecycle_service` (lifecycle updates) | I7 signals with lifecycle state, MAE/MFE, 8-class outcome |
+| `signal_ledger` | `signal_generator_service` (new rows) + `signal_tracker_agent` (lifecycle updates) | I7 signals with lifecycle state, MAE/MFE, 8-class outcome |
 | `llm_calls` | `llm_writer_service` | Full LLM call audit — request, response, outcome back-filled on signal close |
 | `llm_model_scores` | `llm_writer_service` (refreshed every 15 min) | Per-model win rate, avg pnl_r, p-value — drives model selection |
 | `setup_performance` | weight-updater (nightly) | Per-setup rolling 30d stats — drives I7 signal ranking; only rows with `sample_size >= 30` |
@@ -159,7 +159,7 @@ IBKR TWS
                                       └─► intelligence_features (TimescaleDB)
 
 market:SYMBOL:1m
-  └─► signal_lifecycle_service
+  └─► signal_tracker_agent
         ├─► signal_ledger (cold — lifecycle updates, MAE/MFE, outcome)
         └─► llm_outcomes:stream → llm_writer_service (outcome back-fill)
 ```

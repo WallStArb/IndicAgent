@@ -152,7 +152,7 @@ The architecture supports **learned weights** loaded from a `cis_weights` databa
 
 ```
 signal fires (weight version N)
-  → signal_lifecycle_service tracks outcome (stop / target / TTL)
+  → signal_tracker_agent tracks outcome (stop / target / TTL)
   → outcome written to signal_ledger
   → weight-learning job reads outcomes, fits logistic regression per bucket
   → new weights written to cis_weights (version N+1)

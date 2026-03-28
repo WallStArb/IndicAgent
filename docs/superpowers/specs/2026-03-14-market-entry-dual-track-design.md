@@ -1,7 +1,9 @@
 # Market Entry Dual-Track + Lifecycle Replay
 **Date:** 2026-03-14
-**Status:** Approved for implementation
+**Status:** Shipped
 **Scope:** signal_ledger schema, lifecycle_tracker, signal_ledger.py, signal_generator_service, signal_lifecycle_service, lifecycle_replay script
+
+> **Name drift note (2026-03-28):** `signal_lifecycle_service` → `signal_tracker_agent` / `SignalTrackerAgent` (Phase 52.4). References in this doc to `signal_lifecycle_service` are historically accurate to when the feature was built.
 
 ---
 

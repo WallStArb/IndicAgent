@@ -6,7 +6,7 @@
 The platform is an empty shell; intelligence is composed entirely of plugins. If logic isn't a plugin, it's not extensible. The system is designed to be plugin-first, where new capabilities are added by writing a single `@dataclass` without changing pipeline or stream infrastructure.
 
 ## 2. Event-Driven Microservices
-No service calls another. Redpanda (Kafka-compatible) is the sole, durable communication fabric. This decoupling ensures that restarting one service (e.g., `feature_pipeline_service`) has zero operational impact on others (e.g., `signal_lifecycle_service`).
+No service calls another. Redpanda (Kafka-compatible) is the sole, durable communication fabric. This decoupling ensures that restarting one service (e.g., `feature_compute_agent`) has zero operational impact on others (e.g., `signal_tracker_agent`).
 
 ## 3. Hot Path Isolation
 The real-time pipeline never touches the database. Persistence (TimescaleDB) is strictly asynchronous and decoupled via the `feature_writer_service`. This guarantees sub-millisecond hot-path latency.

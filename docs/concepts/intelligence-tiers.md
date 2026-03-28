@@ -294,7 +294,7 @@ capability_tags = {
 ### **Service Architecture Integration**
 The I1-I8 framework integrates seamlessly with IndicAgent's service-based architecture:
 
-- **Data Foundation:** `indicagent-indicator` (`indicator_service.py`) provides I1+I2 raw features and composite events
+- **Data Foundation:** `indicagent-feature-compute` (`feature_compute_agent.py`) provides I1+I2 raw features and composite events
 - **Intelligence Pipeline:** `indicagent-market-analysis` (`market_analysis_service.py`) runs I3→I4→I5→SMC→I6
 - **Signal Generation:** `indicagent-signal-generator` runs I7 setup plugins + CISScorer aggregation
 - **AI Narrative:** `indicagent-ai-narrative` (`ai_narrative_service.py`) runs I8 via Ollama
