@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: Ready to execute
-last_updated: "2026-03-28T21:43:05.321Z"
+status: Phase complete — ready for verification
+last_updated: "2026-03-28T21:53:02.926Z"
 progress:
   total_phases: 12
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -163,3 +163,12 @@ Recent additions:
 - IBKRProviderAgent client_id = ib_client_id + 1 (36) during transition; DataProviderAgent uses base 35
 - gap_requests_loop consumer group: {provider_name}_provider_gap_consumer — distinct from DataProviderAgent's data_provider_consumer
 - PluginCircuitBreaker not used in reconnect — designed for plugin/workflow protection, not connection backoff; exponential cap at 60s provides equivalent safety
+
+### Decisions (Phase 54 Plan 04)
+
+- provider_merger_consumer group name — idempotent on restart, matches project convention
+- _extract_provider_from_topic() uses rsplit('.', 1)[-1] — handles any env prefix depth without hardcoding
+- Test helper _make_agent() sets module-level Prometheus label children — avoids duplicate registration on repeated test runs
+- Recovery publishes event first, then falls through to route bar normally — primary is authoritative immediately on resume
+- latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
+- Systemd unit points to main repo path (not worktree) — ProviderMergerAgent will work once worktree merged to main
