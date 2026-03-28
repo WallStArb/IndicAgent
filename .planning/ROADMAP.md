@@ -206,7 +206,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 - [ ] **Phase 53.3: RollComputeAgent + DataProviderAgent Rename** — extract `RollMonitor` into standalone `RollComputeAgent` (`roll_compute_agent.py`); typed `RollEvent` schema on `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent` (`ProviderAgent` taxonomy); port :9122 *(unblocks Phase 50)*
   - **Plans:** 4 plans in 2 waves
-    - [ ] 053.3-01-PLAN.md — RollEvent schema + topic_roll_events stream key
+    - [x] 053.3-01-PLAN.md — RollEvent schema + topic_roll_events stream key
     - [ ] 053.3-02-PLAN.md — DataProviderAgent rename + roll removal
     - [ ] 053.3-03-PLAN.md — RollComputeAgent implementation + test redirect
     - [ ] 053.3-04-PLAN.md — signal_generator_agent consumer migration + cleanup
