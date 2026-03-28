@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 ## Current Position
 
 Phase: 52.6
-Plan: Not started
+Plan: 04 complete (5 total) — SignalGeneratorAgent BaseAgent migration + lifecycle tests
 
 ## v2.1 Milestone Goal
 
