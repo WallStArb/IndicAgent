@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: Milestone complete
-last_updated: "2026-03-28T16:35:24.663Z"
+status: Ready to execute
+last_updated: "2026-03-28T17:34:03.884Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 053.2 — bar-aggregator-compute-agent
+**Current focus:** Phase 053.1 — bar-writer-auditor-agents
 
 ## Current Position
 
-Phase: 053.2
-Plan: Not started
+Phase: 053.1 (bar-writer-auditor-agents) — EXECUTING
+Plan: 2 of 3
 
 ## v2.1 Milestone Goal
 
@@ -130,3 +130,13 @@ Recent additions:
 
 - feature_pipeline_service.py shim re-exports FeatureComputeAgent as FeaturePipelineService — 12 existing tests reference old class name; shim avoids touching test files
 - Pre-existing ruff E501 at line 705 deferred — out of scope per deviation scope boundary rule; was present in HEAD before these changes
+
+### Decisions (Phase 053.1 Plan 01)
+
+- topic_gap_requests() follows topic_roll_events() pattern — market.events.gap_requests
+- BarGapRequest.request_id auto-generates UUID via default_factory — no manual caller overhead
+- source field on BarGapRequest defaults to 'bar_auditor' for DLQ traceability
+- BarWriterAgent uses asyncpg.create_pool directly — not DatabaseManager — WriterAgent owns its own pool
+- source='live_1m' for 1m bars, 'live_htf' for HTF bars — matches D-04 spec
+- ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING — idempotent replay-safe writes
+- Golden Signals use direct prometheus_client (not metrics.py helper) — label support needed for tf dimension
