@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
-status: Milestone complete
-last_updated: "2026-03-28T05:54:41.062Z"
+status: Ready to plan
+last_updated: "2026-03-28T09:17:51.001Z"
 progress:
   total_phases: 12
   completed_phases: 6
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 ## Current Position
 
-Phase: 52.8
+Phase: 49.1
 Plan: Not started
 
 ## v2.1 Milestone Goal

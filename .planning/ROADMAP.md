@@ -487,7 +487,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 46. I6 Confluence Expansion | v2.0 | 4/4 | Complete   | 2026-03-22 |
 | 47. Shadow Mode Graduation | v2.0 | 4/4 | Complete   | 2026-03-22 |
 | 48. Tick Aggregation & I7 Quality | v2.1 | 2/2 | Complete   | 2026-03-23 |
-| 49. DB Performance | v2.1 | 0/TBD | Not started | — |
+| 49. DB Performance | v2.1 | 0/TBD | Complete    | 2026-03-28 |
 | 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
 | 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
 | 50. Roll Monitor Graduation | v2.1 | 0/TBD | Not started | — |
