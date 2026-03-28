@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Ready to execute
-last_updated: "2026-03-28T21:36:54.146Z"
+last_updated: "2026-03-28T21:43:05.321Z"
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 ## Current Position
 
 Phase: 54 (provider-abstraction-layer-broker-agnostic-data-foundation) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 ## v2.1 Milestone Goal
 
@@ -156,3 +156,10 @@ Recent additions:
 - Legacy flat provider_meta fallback in IBKRProvider.qualify_instrument — callers not yet migrated still resolve trading_class correctly
 - asyncio.ensure_future for background tasks inside stream_bars generator; cancelled in finally block on generator close
 - VXJ6 provider_meta canonical format is now {"ibkr": {"trading_class": "VX"}} — all new instruments must use nested format
+
+### Decisions (Phase 54 Plan 03)
+
+- gap-fill bars publish to topic_market_bars_raw(env, provider) not market.bars — MergerAgent owns routing
+- IBKRProviderAgent client_id = ib_client_id + 1 (36) during transition; DataProviderAgent uses base 35
+- gap_requests_loop consumer group: {provider_name}_provider_gap_consumer — distinct from DataProviderAgent's data_provider_consumer
+- PluginCircuitBreaker not used in reconnect — designed for plugin/workflow protection, not connection backoff; exponential cap at 60s provides equivalent safety
