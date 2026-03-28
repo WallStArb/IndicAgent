@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
+from pydantic import ValidationError
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -55,45 +56,50 @@ class BarAggregatorComputeAgent(BaseAgent):
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
         self._settings = Settings()
-        self.env_name: str = self._settings.env_name or ""
-        metrics_port = 9120
-        super().__init__(name="bar_aggregator_agent", metrics_port=metrics_port)
+        self._env_name: str = self._settings.env_name or ""
+        super().__init__(name="bar_aggregator_agent", metrics_port=9120)
 
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
 
         # Golden Signals (D-16) — direct prometheus_client for label support
-        self._events_consumed = Counter(
+        _events_consumed = Counter(
             "bar_agg_events_consumed_total",
             "1m bars consumed from market.bars",
             ["agent"],
         )
-        self._htf_bars_produced = Counter(
+        _htf_bars_produced = Counter(
             "bar_agg_htf_bars_produced_total",
             "HTF bars produced and published",
             ["agent", "tf"],
         )
-        self._aggregation_latency = Histogram(
+        _aggregation_latency = Histogram(
             "bar_agg_aggregation_latency_seconds",
             "Time to process a 1m bar and publish any HTF completions",
             ["agent"],
         )
-        self._aggregation_errors = Counter(
+        _aggregation_errors = Counter(
             "bar_agg_aggregation_errors_total",
             "Exceptions during bar processing",
             ["agent"],
         )
+        # Cache labeled children — avoids dict lookup on every bar (roll_compute_agent pattern)
+        self._events_consumed_lbl = _events_consumed.labels(agent=self.name)
+        self._aggregation_latency_lbl = _aggregation_latency.labels(agent=self.name)
+        self._aggregation_errors_lbl = _aggregation_errors.labels(agent=self.name)
+        _htf_tfs = ("5m", "15m", "1h", "4h", "1d")
+        self._htf_bars_produced_lbl: dict[str, Counter] = {
+            tf: _htf_bars_produced.labels(agent=self.name, tf=tf) for tf in _htf_tfs
+        }
 
     @property
     def topics_consumed(self) -> list[str]:
-        """Kafka topics consumed: 1m bars from DataProviderAgent."""
-        return [topic_market_bars(self.env_name)]
+        return [topic_market_bars(self._env_name)]
 
     @property
     def topics_produced(self) -> list[str]:
-        """Kafka topics produced: HTF bars for FeatureComputeAgent."""
-        return [topic_market_bars_htf(self.env_name)]
+        return [topic_market_bars_htf(self._env_name)]
 
     async def _setup(self) -> None:
         """Connect Kafka producer and consumer."""
@@ -103,7 +109,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         await self._kafka_producer.start()
 
         self._kafka_consumer = KafkaConsumerClient(
-            topic_market_bars(self.env_name),
+            topic_market_bars(self._env_name),
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
             group_id="bar_aggregator_consumer",
             auto_offset_reset="latest",
@@ -124,7 +130,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main loop: consume 1m bars, aggregate, publish completed HTF bars."""
-        htf_topic = topic_market_bars_htf(self.env_name)
+        htf_topic = topic_market_bars_htf(self._env_name)
 
         async for _topic, _key, payload in self._kafka_consumer.messages():
             if not self.running:
@@ -135,9 +141,9 @@ class BarAggregatorComputeAgent(BaseAgent):
                 if bar is None:
                     continue
 
-                self._events_consumed.labels(agent=self.name).inc()
+                self._events_consumed_lbl.inc()
 
-                with self._aggregation_latency.labels(agent=self.name).time():
+                with self._aggregation_latency_lbl.time():
                     completed_bars = self._bar_accumulator.update(bar)
 
                 for htf_bar in completed_bars:
@@ -146,9 +152,8 @@ class BarAggregatorComputeAgent(BaseAgent):
                         htf_bar.model_dump(mode="json"),
                         key=message_key(htf_bar.symbol, htf_bar.tf),
                     )
-                    self._htf_bars_produced.labels(
-                        agent=self.name, tf=htf_bar.tf
-                    ).inc()
+                    if htf_bar.tf in self._htf_bars_produced_lbl:
+                        self._htf_bars_produced_lbl[htf_bar.tf].inc()
                     self.logger.debug(
                         "bar_aggregator_agent.htf_bar_published",
                         symbol=htf_bar.symbol,
@@ -157,7 +162,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                     )
 
             except Exception as exc:
-                self._aggregation_errors.labels(agent=self.name).inc()
+                self._aggregation_errors_lbl.inc()
                 self.logger.error(
                     "bar_aggregator_agent.processing_error",
                     error=str(exc),
@@ -177,7 +182,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         """
         try:
             return BarMessage.model_validate(payload)
-        except Exception:
+        except ValidationError:
             pass
 
         # Legacy / flat dict format from DataProviderAgent

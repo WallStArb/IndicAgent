@@ -57,15 +57,18 @@ def _make_agent():
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent.env_name = "dev"
+    agent._env_name = "dev"
     agent._kafka_producer = AsyncMock()
     agent._kafka_consumer = AsyncMock()
     agent._bar_accumulator = BarAccumulator()
-    # Wire module-level test metrics (no duplicate registration)
-    agent._events_consumed = _TEST_EVENTS_CONSUMED
-    agent._htf_bars_produced = _TEST_HTF_BARS_PRODUCED
-    agent._aggregation_latency = _TEST_AGGREGATION_LATENCY
-    agent._aggregation_errors = _TEST_AGGREGATION_ERRORS
+    # Wire module-level test metrics via cached label children (matches production pattern)
+    agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_aggregator_agent")
+    agent._aggregation_latency_lbl = _TEST_AGGREGATION_LATENCY.labels(agent="bar_aggregator_agent")
+    agent._aggregation_errors_lbl = _TEST_AGGREGATION_ERRORS.labels(agent="bar_aggregator_agent")
+    agent._htf_bars_produced_lbl = {
+        tf: _TEST_HTF_BARS_PRODUCED.labels(agent="bar_aggregator_agent", tf=tf)
+        for tf in ("5m", "15m", "1h", "4h", "1d")
+    }
     return agent
 
 
@@ -228,10 +231,13 @@ async def test_no_publish_for_mid_period_bar():
 
 
 def test_golden_signals_are_correct_types():
-    """Golden Signals must be Counter and Histogram instances."""
+    """Golden Signals cached children must be the correct prometheus types."""
+    from prometheus_client import Counter, Histogram
+
     agent = _make_agent()
 
-    assert isinstance(agent._events_consumed, Counter)
-    assert isinstance(agent._htf_bars_produced, Counter)
-    assert isinstance(agent._aggregation_latency, Histogram)
-    assert isinstance(agent._aggregation_errors, Counter)
+    assert hasattr(agent._events_consumed_lbl, "inc")
+    assert hasattr(agent._aggregation_latency_lbl, "time")
+    assert hasattr(agent._aggregation_errors_lbl, "inc")
+    assert isinstance(agent._htf_bars_produced_lbl, dict)
+    assert all(hasattr(v, "inc") for v in agent._htf_bars_produced_lbl.values())
