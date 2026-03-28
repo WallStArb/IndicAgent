@@ -1,10 +1,10 @@
 ---
 created: 2026-02-24T20:52:53.602Z
+updated: 2026-03-28T00:00:00.000Z
 title: Add keyset pagination to features export and REST endpoint
 area: api
-priority: 9
-tier: phase-48
-phase: "48"
+priority: 19
+tier: feature
 files:
   - src/api/routes/features.py:60-189
 ---

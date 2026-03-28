@@ -1,7 +1,10 @@
 ---
 created: 2026-03-22T23:24:47.768Z
+updated: 2026-03-28T00:00:00.000Z
 title: Canonical initial backfill with closed-market gap fill
 area: tooling
+priority: 15
+tier: near-term
 files:
   - production/scripts/historical_backfill.py
   - src/providers/ibkr.py
@@ -47,7 +50,7 @@ Each TF fetched natively from IBKR — 5m bars are NOT derived from 1m.
    - If market is **closed** at that slot → insert synthetic flat bar:
      `O=H=L=C=prev_close, V=0, source='synthetic'`
    - If market is **open** at that slot but IBKR returned nothing → log as a
-     true data gap (missing bar, not a closure), flag for `003-gap-fill-service`
+     true data gap (missing bar, not a closure), flag for gap-fill-service
 4. Write canonical series to `market_data_ohlcv` with `source` column to
    distinguish live/fetched/synthetic bars
 
@@ -58,7 +61,7 @@ Each TF fetched natively from IBKR — 5m bars are NOT derived from 1m.
 - `source='synthetic'` flag allows downstream filtering if needed
 
 ### Notes
-- Distinct from `003-add-gap-fill-service` (that handles ongoing gap maintenance;
+- Distinct from gap-fill-service todo (that handles ongoing gap maintenance;
   this handles cold-start seeding)
-- Session schedule logic can be shared with 003 when both are implemented
+- Session schedule logic can be shared when both are implemented
 - FX and crypto are 24h — no synthetic bars needed, just any true IBKR gaps

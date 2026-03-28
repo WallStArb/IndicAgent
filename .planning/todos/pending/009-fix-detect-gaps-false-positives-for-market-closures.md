@@ -1,7 +1,10 @@
 ---
 created: 2026-03-22T23:17:49.009Z
+updated: 2026-03-28T00:00:00.000Z
 title: Fix detect_gaps false positives for market closures
 area: tooling
+priority: 9
+tier: near-term
 files:
   - production/scripts/historical_backfill.py:1028-1061
 ---

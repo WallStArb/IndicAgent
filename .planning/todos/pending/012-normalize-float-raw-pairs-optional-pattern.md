@@ -1,7 +1,10 @@
 ---
 created: 2026-03-22T00:00:00Z
+updated: 2026-03-28T00:00:00.000Z
 title: Normalize float(raw_pairs) if ... else None pattern across cross-asset plugins
 area: intelligence
+priority: 12
+tier: near-term
 files:
   - src/intelligence/trading/cross_asset_divergence.py
 ---
@@ -13,3 +16,5 @@ Phase 46 review found the `float(raw_pairs) if raw_pairs else None` guard patter
 ## Solution
 
 Extract to a small utility function (e.g. `safe_float(val) -> float | None`) in `src/intelligence/cross_asset_pairs.py` or `composites/common.py` (already has similar helpers like `is_num`). Migrate callers in a single focused refactor pass — verify no behavior change since `float(None)` raises but `if raw_pairs` guards against it.
+
+Note: If todo #011 (extract CrossAssetPair enum) creates `src/intelligence/cross_asset_pairs.py`, add `safe_float` there. Otherwise use `composites/common.py`.

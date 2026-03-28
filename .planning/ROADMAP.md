@@ -14,7 +14,7 @@
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
-- 🚧 **v2.2 Operational Excellence** — Phases 53.3, 53.2, 53.1, 50, 54 (planned)
+- 🚧 **v2.2 Operational Excellence** — Phases 53.3, 53.2, 53.1, 50 (planned)
 - ⏸ **v2.3 ML Foundation** — Phases 55-56 (deferred until 30+ days clean signal data)
 
 ## Phases
@@ -198,7 +198,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🚧 v2.2 Operational Excellence (Phases 53.3→53.2→53.1→50→54) — IN PROGRESS</summary>
+<summary>🚧 v2.2 Operational Excellence (Phases 53.3→53.2→53.1→50) — IN PROGRESS</summary>
 
 **Milestone Goal:** Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
 
@@ -213,14 +213,11 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 053.2-01-PLAN.md — is_flat_bar schema + BarAccumulator propagation + DataProviderAgent emission
   - [x] 053.2-02-PLAN.md — BarAggregatorComputeAgent implementation + systemd unit
   - [x] 053.2-03-PLAN.md — FCA simplification (remove BarAccumulator, add HTF subscription) + CLAUDE.md update
-- [ ] **Phase 53.1: BarWriterAgent + BarAuditorAgent** 🔄 In Progress — `BarWriterAgent` decouples OHLCV persistence from compute path; `BarAuditorAgent` self-healing gap-fill loop; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
+- [x] **Phase 53.1: BarWriterAgent + BarAuditorAgent** ✅ Complete 2026-03-28 — `BarWriterAgent` decouples OHLCV persistence from compute path; `BarAuditorAgent` self-healing gap-fill loop; retires `gap_fill_service`; ports :9121/:9123
   - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
   - [x] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
   - [x] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
 - [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation; apply `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` after D-07 gate *(unblocked — 53.3 RollComputeAgent validated 2026-03-28)*
-- [ ] **Phase 54: Auth + External Access** — Cloudflare Tunnel SSE fix; Cloudflare Access or JWT auth; CORS hardening; rate limiting *(expose a clean, stable system)*
-  - Plans exist in `.planning/phases/53-auth-external-access/`; revisit scope before executing
-
   Design docs: `docs/plans/2026-03-26-data-layer-dag-design.md`
 
 </details>
@@ -407,7 +404,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 in progress — Phase 53.1 (plan 2/3).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 in progress — Phase 53.1 complete; next: Phase 50 (Roll Monitor + DualDivergence Graduation).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -473,9 +470,12 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 49. DB Performance | v2.1 | 0/TBD | Complete    | 2026-03-28 |
 | 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
 | 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
-| 50. Roll Monitor Graduation | v2.1 | 0/TBD | Not started | — |
-| 51. Signal Validation Framework | v2.1 | 0/TBD | Not started | — |
-| 52. Infrastructure Hardening | v2.1 | 0/1 | Planned    |  |
+| 50. Roll Monitor Graduation | v2.2 | 0/TBD | Not started | — |
+| 51. Signal Validation Framework | v2.1 | 0/TBD | Complete (absorbed) | 2026-03-28 |
+| 52. Infrastructure Hardening | v2.1 | 8/8 | Complete (absorbed) | 2026-03-28 |
+| 53.3. RollComputeAgent + DataProviderAgent Rename | v2.2 | 4/4 | Complete | 2026-03-28 |
+| 53.2. BarAggregatorComputeAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
+| 53.1. BarWriterAgent + BarAuditorAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
 
 ### Phase 52.5: Parity Auditor Agent
 

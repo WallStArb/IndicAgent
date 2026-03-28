@@ -3,9 +3,8 @@ created: 2026-03-07T00:00:00.000Z
 updated: 2026-03-28T00:00:00.000Z
 title: Broker-agnostic instrument provider_meta — multi-provider DAG architecture
 area: architecture
-priority: 16
+priority: 23
 tier: deferred
-phase: when-second-provider
 files:
   - src/config/settings.py
   - src/providers/ibkr.py
@@ -60,7 +59,7 @@ This means:
 | Agent class | `IBKRProviderAgent` | `AlpacaProviderAgent` | `TastyTradeProviderAgent` |
 | Systemd unit | `indicagent-ibkr-provider.service` | `indicagent-alpaca-provider.service` | `indicagent-tastytrade-provider.service` |
 
-Current `data_provider_agent.py` → rename to `ibkr_provider_agent.py` as part of this work.
+Current `services/data_provider_agent.py` → rename to `services/ibkr_provider_agent.py` as part of this work.
 
 ## Instrument Schema
 

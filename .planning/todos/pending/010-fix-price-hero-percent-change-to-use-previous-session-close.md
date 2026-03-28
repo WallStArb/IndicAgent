@@ -1,7 +1,10 @@
 ---
 created: 2026-03-22T23:40:06.101Z
+updated: 2026-03-28T00:00:00.000Z
 title: Fix price-hero percent change to use previous session close
 area: ui
+priority: 10
+tier: near-term
 files:
   - dashboard/src/components/price-hero.tsx:99-103
   - dashboard/src/lib/types.ts:376
@@ -17,7 +20,7 @@ The plumbing is mostly there: `prevClose` exists in `SymbolData` (types.ts:376),
 
 ## Solution
 
-1. Add `/api/market-data/session` endpoint to `market_data.py` — for each symbol, query the last `1d` bar from `market_data_ohlcv`. Using the daily bar avoids per-asset-class close-time logic (ES closes 4:15 ET, equity 4:00 ET, crypto rolling) since IBKR bakes the correct session boundary into the bar naturally.
+1. Add `/api/market-data/session` endpoint to `src/api/routes/market_data.py` — for each symbol, query the last `1d` bar from `market_data_ohlcv`. Using the daily bar avoids per-asset-class close-time logic (ES closes 4:15 ET, equity 4:00 ET, crypto rolling) since IBKR bakes the correct session boundary into the bar naturally.
 
 2. Change `price-hero.tsx` lines 99-103 to use `data.prevClose` instead of `session.open`.
 

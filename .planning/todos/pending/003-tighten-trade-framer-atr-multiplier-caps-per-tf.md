@@ -1,10 +1,10 @@
 ---
 created: 2026-03-20T09:51:12.383Z
+updated: 2026-03-28T00:00:00.000Z
 title: Tighten trade_framer ATR multiplier caps per-TF
 area: general
-priority: 1
+priority: 3
 tier: immediate
-phase: unblocked
 files:
   - src/intelligence/trading/trade_framer.py:64-83
 ---

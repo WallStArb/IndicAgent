@@ -1,10 +1,10 @@
 ---
 created: 2026-03-14T19:52:42.603Z
+updated: 2026-03-28T00:00:00.000Z
 title: Write DistribAgent implementation plan using writing-plans skill
 area: planning
-priority: 17
+priority: 24
 tier: deferred
-phase: separate-project
 files:
   - docs/plans/2026-03-14-distribagent-design.md
 ---

@@ -1,8 +1,10 @@
 ---
 created: 2026-03-26T22:38:31.852Z
+updated: 2026-03-28T00:00:00.000Z
 title: Backfill CIS null scores in signal_ledger
 area: database
-milestone: v2.3
+priority: 14
+tier: data-gated
 files:
   - src/intelligence/schemas.py
   - src/core/database_manager.py
@@ -31,5 +33,5 @@ Script location when created: `production/scripts/repair_cis_nulls.py`
 ## Related
 
 - Deferred from Phase 49 (DB Performance & Signal Ledger Hardening)
-- Todo: `2026-03-24-signal-quality-and-pipeline-integrity-audit.md` — broader ML training data gap audit
+- Todo #005: Signal quality and pipeline integrity audit — broader ML training data gap audit
 - REQUIREMENTS.md DATA-01 is marked `[x]` but is NOT done — update when this is complete

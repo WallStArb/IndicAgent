@@ -1,7 +1,10 @@
 ---
 created: 2026-03-22T00:00:00Z
+updated: 2026-03-28T00:00:00.000Z
 title: Extract cross-asset pair identifiers to shared constant or enum
 area: intelligence
+priority: 11
+tier: near-term
 files:
   - src/intelligence/trading/cross_asset_divergence.py
 ---

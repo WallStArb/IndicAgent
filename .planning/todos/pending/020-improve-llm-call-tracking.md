@@ -1,10 +1,10 @@
 ---
 created: 2026-03-07T00:00:00.000Z
+updated: 2026-03-28T00:00:00.000Z
 title: Improve LLM call tracking — real token counts, error details, fill empty fields
 area: observability
-priority: 10
-tier: phase-49
-phase: "49"
+priority: 20
+tier: feature
 files:
   - services/ai_narrative_service.py
   - services/llm_writer_service.py
@@ -33,17 +33,17 @@ files:
 - `prompt_eval_count` → tokens in
 - `eval_count` → tokens out
 
-**Action:** Read these fields in `ai_narrative_service.py` and pass them through to `llm_writer_service.py`. May need DB migration to add `tokens_in` / `tokens_out` columns (or repurpose `tokens_est` as `tokens_out` and add `tokens_in`).
+**Action:** Read these fields in `services/ai_narrative_service.py` and pass them through to `services/llm_writer_service.py`. May need DB migration to add `tokens_in` / `tokens_out` columns (or repurpose `tokens_est` as `tokens_out` and add `tokens_in`).
 
 ### 2. Error message on failures
 `succeeded=False` records have no detail — impossible to distinguish timeout vs OOM vs bad response format.
 
-**Action:** Capture exception message or HTTP error text in a new `error_message` column (or reuse an existing nullable text field). Populate in the `except` block in `ai_narrative_service.py`.
+**Action:** Capture exception message or HTTP error text in a new `error_message` column (or reuse an existing nullable text field). Populate in the `except` block in `services/ai_narrative_service.py`.
 
 ### 3. Fill empty fields
 `cis_score`, `entry_zone_low`, `entry_zone_high` are columns but never written. The values exist in the aggregated signal context passed to the narrative service.
 
-**Action:** Wire these through the publish payload in `ai_narrative_service.py` → include in the `llm_calls:stream` message → `llm_writer_service.py` reads and inserts them.
+**Action:** Wire these through the publish payload in `services/ai_narrative_service.py` → include in the `llm_calls:stream` message → `services/llm_writer_service.py` reads and inserts them.
 
 ### 4. Retry/fallback chain visibility
 Only the winning provider is stored. Intermediate failures (e.g., primary Ollama timeout → fallback) are silently discarded.
