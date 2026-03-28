@@ -1,7 +1,6 @@
 [Unit]
 Description=IndicAgent Feature Writer Service — Redis to TimescaleDB
-After=network-online.target indicagent-indicator.service
-Wants=indicagent-indicator.service
+After=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

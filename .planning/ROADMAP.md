@@ -198,30 +198,27 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🚧 v2.2 Operational Excellence (Phases 53.3, 53.2, 53.1, 50, 54) — PLANNED</summary>
+<summary>🚧 v2.2 Operational Excellence (Phases 53.3→53.2→53.1→50→54) — IN PROGRESS</summary>
 
 **Milestone Goal:** Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
 
-**Dependency order (strict):**
+**Execution order** (dependency-driven, reverse numeric — DAG built dependency-first):
 
-- [ ] **Phase 53.3: RollComputeAgent + DataProviderAgent Rename** — extract `RollMonitor` into standalone `RollComputeAgent` (`roll_compute_agent.py`); typed `RollEvent` schema on `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent` (`ProviderAgent` taxonomy); port :9122 *(unblocks Phase 50)*
-  - **Plans:** 4 plans in 2 waves
-    - [x] 053.3-01-PLAN.md — RollEvent schema + topic_roll_events stream key
-    - [x] 053.3-02-PLAN.md — DataProviderAgent rename + roll removal
-    - [x] 053.3-03-PLAN.md — RollComputeAgent implementation + test redirect
-    - [x] 053.3-04-PLAN.md — signal_generator_agent consumer migration + cleanup
-- [ ] **Phase 53.2: BarAggregatorComputeAgent** — extract `BarAccumulator` (1m→HTF) from `feature_compute_agent` into standalone `BarAggregatorComputeAgent` (`bar_aggregator_agent.py`); `feature_compute_agent` becomes pure intelligence consumer; canonical flat bars for empty minutes; port :9120 *(depends on 53.3)*
-  - **Plans:** 3 plans in 2 waves
-    - [x] 053.2-01-PLAN.md — is_flat_bar schema + BarAccumulator propagation + DataProviderAgent emission
-    - [x] 053.2-02-PLAN.md — BarAggregatorComputeAgent implementation + systemd unit
-    - [x] 053.2-03-PLAN.md — FCA simplification (remove BarAccumulator, add HTF subscription) + CLAUDE.md update
-- [ ] **Phase 53.1: BarWriterAgent + BarAuditorAgent** — `BarWriterAgent` subscribes independently to `market.bars` + `market.bars.htf`; removes `_ohlcv_buffer` from compute path; `BarAuditorAgent` self-healing loop: detect gaps → `BarGapRequest` → DataProviderAgent fetches → BarWriterAgent persists; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
-  **Plans:** 3 plans
-    - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
-    - [ ] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
-    - [ ] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
-- [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` once D-07 gate passes *(depends on 53.3 — RollComputeAgent validated)*
-- [ ] **Phase 54: Auth + External Access** — Cloudflare Tunnel `disableChunkedEncoding` SSE fix; Cloudflare Access or JWT cookie auth; CORS hardening; auth event logging; rate limiting *(expose a clean, stable system)*
+- [x] **Phase 53.3: RollComputeAgent + DataProviderAgent Rename** ✅ Complete 2026-03-28 — `RollComputeAgent` standalone on `topic_roll_events()`; `tws_daemon` → `DataProviderAgent`; port :9122
+  - [x] 053.3-01-PLAN.md — RollEvent schema + topic_roll_events stream key
+  - [x] 053.3-02-PLAN.md — DataProviderAgent rename + roll removal
+  - [x] 053.3-03-PLAN.md — RollComputeAgent implementation + test redirect
+  - [x] 053.3-04-PLAN.md — signal_generator_agent consumer migration + cleanup
+- [x] **Phase 53.2: BarAggregatorComputeAgent** ✅ Complete 2026-03-28 — `BarAccumulator` extracted into standalone `BarAggregatorComputeAgent`; `FeatureComputeAgent` now pure intelligence consumer; port :9120
+  - [x] 053.2-01-PLAN.md — is_flat_bar schema + BarAccumulator propagation + DataProviderAgent emission
+  - [x] 053.2-02-PLAN.md — BarAggregatorComputeAgent implementation + systemd unit
+  - [x] 053.2-03-PLAN.md — FCA simplification (remove BarAccumulator, add HTF subscription) + CLAUDE.md update
+- [ ] **Phase 53.1: BarWriterAgent + BarAuditorAgent** 🔄 In Progress — `BarWriterAgent` decouples OHLCV persistence from compute path; `BarAuditorAgent` self-healing gap-fill loop; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
+  - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
+  - [ ] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
+  - [ ] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
+- [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation; apply `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` after D-07 gate *(unblocked — 53.3 RollComputeAgent validated 2026-03-28)*
+- [ ] **Phase 54: Auth + External Access** — Cloudflare Tunnel SSE fix; Cloudflare Access or JWT auth; CORS hardening; rate limiting *(expose a clean, stable system)*
   - Plans exist in `.planning/phases/53-auth-external-access/`; revisit scope before executing
 
   Design docs: `docs/plans/2026-03-26-data-layer-dag-design.md`
@@ -353,40 +350,17 @@ Plans:
 
 **Goal**: Establish automated validation to ensure data quality across all intelligence layers.
 
-**Status**: 📋 Planned
+**Status**: ✅ Complete (absorbed into v2.1) — per-layer sanity scaffolding delivered via Phase 52.x subphases. Remaining items (VAL-01 full sweep, automated pre-deploy gate) deferred to Phase 51 standalone if prioritized in v2.3.
 
 **Depends on**: None (can run in parallel with Phases 49-50)
-
-**Requirements**: VAL-01, VAL-02, VAL-03, VAL-04
-
-**Success Criteria** (what must be TRUE):
-  1. Per-layer sanity checks validate I1→I7 output ranges (no NaN, no infinity, reasonable bounds)
-  2. Signal outcome completeness audit confirms 100% of resolved signals have outcome populated
-  3. setup_performance aggregates verified against raw signal_ledger outcomes
-  4. Automated validation script runs as pre-deploy check or CI gate
-
-**Plans**: TBD (4-5 plans estimated)
 
 ### Phase 52: Infrastructure Hardening
 
 **Goal**: Eliminate manual intervention — Docker restart policies, log rotation, deploy scripts, health checks.
 
-**Status**: 📋 Planned
+**Status**: ✅ Complete (absorbed into v2.1 via 52.1–52.8 subphases) — Docker restart policies, log rotation, systemd hardening, OTEL, trace propagation all shipped.
 
-**Depends on**: Phase 51 (validation framework ensures stability before hardening)
-
-**Note**: Automated gap-fill moved to Phase 53.1 (BarAuditorAgent).
-
-**Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05
-
-**Success Criteria** (what must be TRUE):
-  1. timescaledb and redpanda containers have `restart: unless-stopped` policy
-  2. Log files rotate (max size, retention policy) — no unbounded growth
-  3. `deploy_dashboard.sh` script builds and deploys dashboard in one command
-  4. All services respond to GET /health with {status: "ok" | "degraded"}
-  5. Full pipeline recovery from cold start requires zero manual steps
-
-**Plans**: TBD (4-5 plans estimated)
+**Note**: Automated gap-fill moved to Phase 53.1 (BarAuditorAgent). Remaining undelivered items (deploy_dashboard.sh, /health endpoints) carry to v2.2 if needed.
 
 </details>
 ## Backlog
@@ -433,7 +407,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 in progress (Phase 48).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 in progress — Phase 53.1 (plan 2/3).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|

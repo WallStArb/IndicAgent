@@ -1,13 +1,13 @@
 """
 Stream key helpers and Kafka topic builders.
 
-Version: 3.0.0
-Last Updated: 2026-03-14
-Status: Phase 30 complete — DragonflyDB retired ✅
+Version: 3.1.0
+Last Updated: 2026-03-28
+Status: v2.2 DAG complete — all pipeline stage topics are in-process audit snapshots.
 
 Kafka topic builder functions (topic_*) are the primary API.
 Legacy Redis key helpers retained for sse.py backward compat:
-  live_tick, market, indicators, intelligence, intelligence_i7, intelligence_i8,
+  live_tick, market, indicators, intelligence, intelligence_i8,
   signals, signals_aggregated, narratives, narratives_group, system_events,
   llm_calls_stream, llm_outcomes_stream, prefix, patterns_pattern
 
@@ -17,6 +17,10 @@ Removed in Phase 30 (no remaining callers in services or API):
   ticks_pattern, market_pattern, indicators_pattern,
   intelligence_pattern, intelligence_i7_pattern, intelligence_i8_pattern,
   signals_pattern, narratives_pattern
+
+Removed in v2.2 (dead after Phase 44.2 in-process consolidation + Phase 44.3):
+  topic_intelligence_i7 — SSE now consumes intelligence.record
+  topic_winner, topic_attribution — Phase 40 6-stage microservice DAG retired
 """
 
 from __future__ import annotations
@@ -71,12 +75,6 @@ def topic_intelligence(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence"
 
 
-# DEPRECATED: retired after Phase 44.3 — dashboard SSE now consumes intelligence.record
-def topic_intelligence_i7(env_name: str) -> str:
-    """Kafka topic for I7 signal scorecard (all_ranked per bar)."""
-    return f"{env_prefix(env_name)}intelligence.i7"
-
-
 def topic_intelligence_i8(env_name: str) -> str:
     """Kafka topic for I8 AI narrative metadata per bar."""
     return f"{env_prefix(env_name)}intelligence.i8"
@@ -122,10 +120,6 @@ def topic_cross_asset(env_name: str) -> str:
     return f"{env_prefix(env_name)}cross_asset"
 
 
-def topic_attribution(env_name: str) -> str:
-    """Kafka topic for stage attribution metadata (side channel for observability)."""
-    return f"{env_prefix(env_name)}pipeline.attribution"
-
 
 def topic_quality_gated(env_name: str) -> str:
     """Kafka topic for QualityGate stage output."""
@@ -151,10 +145,6 @@ def topic_ranked(env_name: str) -> str:
     """Kafka topic for Ranker stage output."""
     return f"{env_prefix(env_name)}pipeline.ranked"
 
-
-def topic_winner(env_name: str) -> str:
-    """Kafka topic for WinnerSelector stage output."""
-    return f"{env_prefix(env_name)}pipeline.winner"
 
 
 def topic_data_quality(env_name: str) -> str:
