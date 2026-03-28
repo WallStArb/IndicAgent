@@ -784,4 +784,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    from src.observability.otel import init_tracing
+
+    init_tracing(service_name="indicator_compute_agent")
     asyncio.run(main())

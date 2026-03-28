@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import calendar
 import json
-import signal
 import sys
 import time
 from datetime import UTC, date, datetime
@@ -27,6 +26,7 @@ import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts, get_active_symbols
+from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
 from src.core.service_utils import normalize_session_type, parse_roll_event, setup_service_logging
@@ -42,7 +42,6 @@ from src.observability.metrics import (
     PERSISTENCE_CONSUMER_LAG,
     counter,
     gauge,
-    start_metrics_server,
 )
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -246,7 +245,7 @@ def _record_to_insert_params(
 # ── Service class ─────────────────────────────────────────────────────────────
 
 
-class FeatureWriterAgent:
+class FeatureWriterAgent(BaseAgent):
     """Async Kafka consumer agent: intelligence.record topic → buffer → batch INSERT to
     intelligence_features.
 
@@ -255,11 +254,12 @@ class FeatureWriterAgent:
     """
 
     def __init__(self, config_file: str | None = None):
-        self.running = False
-        self.shutdown_requested = False
         self.start_time = datetime.now(tz=UTC)
 
-        self.config = self._load_config(config_file)
+        config = self._load_config(config_file)
+        metrics_port = config.get("service", {}).get("metrics_port", 9116)
+        super().__init__(name="feature_writer_agent", metrics_port=metrics_port)
+        self.config = config
         self._setup_logging()
 
         self._kafka_consumer: KafkaConsumerClient | None = None
@@ -310,13 +310,6 @@ class FeatureWriterAgent:
         self._error_count = 0
         self._expiry_map: dict[str, date] = {}
 
-        self.logger = structlog.get_logger(__name__)
-
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        metrics_port = self.config.get("service", {}).get("metrics_port", 9116)
-        start_metrics_server(port=metrics_port)
-
     def _load_config(self, config_file: str | None) -> dict[str, Any]:
         try:
             _settings = Settings()
@@ -359,9 +352,36 @@ class FeatureWriterAgent:
             backup_count=self.config["logging"].get("backup_count", 5),
         )
 
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Received shutdown signal", signal=signum)
-        self.shutdown_requested = True
+    @property
+    def topics_consumed(self) -> list[str]:
+        return [topic_intelligence_journal(self._env_name)]
+
+    @property
+    def topics_produced(self) -> list[str]:
+        return []  # DB writer — no Kafka output
+
+    @property
+    def lag_threshold_messages(self) -> int:
+        return 500  # persistence agent — tighter lag threshold
+
+    async def _setup(self) -> None:
+        """Connect DB and start Kafka consumer."""
+        await self._connect_database()
+        await self._setup_kafka_clients()
+
+    async def _run(self) -> None:
+        """Main feature writing loop."""
+        self.logger.info("Feature Writer Agent started")
+        tasks = [
+            asyncio.create_task(self._process_loop()),
+            asyncio.create_task(self._periodic_flush_loop()),
+            asyncio.create_task(self._health_monitor_loop()),
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _teardown(self) -> None:
+        """Flush buffer, close Kafka consumer and DB pool."""
+        await self._shutdown()
 
     async def _connect_database(self) -> None:
         dsn = self.config["database"].get("dsn") or self.config["database"].get("url")
@@ -655,7 +675,7 @@ class FeatureWriterAgent:
         cross_asset_topic = topic_cross_asset(self._env_name)
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
-            if self.shutdown_requested:
+            if not self.running:
                 break
             try:
                 # Route system.events to roll handler (no symbol/tf key required)
@@ -698,7 +718,7 @@ class FeatureWriterAgent:
         message arrives. If the intelligence.record topic goes quiet, buffered events
         never reach the database until the next message arrives.
         """
-        while self.running and not self.shutdown_requested:
+        while self.running:
             try:
                 await asyncio.sleep(FLUSH_INTERVAL_SECS)
                 await self._maybe_flush(force=False)
@@ -708,7 +728,7 @@ class FeatureWriterAgent:
                 self.logger.error("Error in periodic flush loop", error=str(e))
 
     async def _health_monitor_loop(self) -> None:
-        while self.running and not self.shutdown_requested:
+        while self.running:
             try:
                 uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
@@ -732,8 +752,6 @@ class FeatureWriterAgent:
     async def _shutdown(self) -> None:
         """Graceful shutdown: flush buffer, close connections."""
         self.logger.info("Shutting down Feature Writer Agent")
-        self.shutdown_requested = True
-        self.running = False
 
         # Flush remaining buffered records before closing
         await self._maybe_flush(force=True)
@@ -749,25 +767,6 @@ class FeatureWriterAgent:
             total_events=getattr(self, "_total_events", 0),
             total_batches=getattr(self, "_total_batches", 0),
         )
-
-    async def start(self) -> None:
-        self.logger.info("Starting Feature Writer Agent", config=self.config["service"])
-        try:
-            await self._connect_database()
-            await self._setup_kafka_clients()
-            self.running = True
-            tasks = [
-                asyncio.create_task(self._process_loop()),
-                asyncio.create_task(self._periodic_flush_loop()),
-                asyncio.create_task(self._health_monitor_loop()),
-            ]
-            self.logger.info("Feature Writer Agent started")
-            await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            self.logger.error("Failed to start feature writer", error=str(e))
-            raise
-        finally:
-            await self._shutdown()
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
@@ -788,4 +787,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    from src.observability.otel import init_tracing
+
+    init_tracing(service_name="feature_writer_agent")
     asyncio.run(main())
