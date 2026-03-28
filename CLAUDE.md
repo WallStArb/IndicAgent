@@ -152,7 +152,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 | DB table | `snake_case` plural noun | `alpha_signals` |
 | DB columns | `snake_case` | `ts`, `symbol`, `tf`, `i7` |
 
-**Agent role suffixes** (from `docs/architecture/AGENT_STANDARD.md`): `ComputeAgent` (I1-I6 math), `GeneratorAgent` (I7 signals), `WriterAgent` (persistence), `TrackerAgent` (lifecycle). Use `_agent.py` / `PascalCaseRoleAgent` for any service that is DB-ignorant and publishes to a Kafka topic. Use `_service.py` / `PascalCaseService` for services with mixed concerns or DB access.
+**Agent role suffixes** (from `docs/architecture/AGENT_STANDARD.md`): `ProviderAgent` (external source→Kafka, no compute/DB), `ComputeAgent` (math/stats transform, DB-ignorant), `GeneratorAgent` (signal/trade fire), `WriterAgent` (DB persistence), `TrackerAgent` (business object lifecycle), `AuditorAgent` (data integrity validation + self-healing). Use `_agent.py` / `PascalCaseRoleAgent` for any service that is DB-ignorant and publishes to a Kafka topic. Use `_service.py` / `PascalCaseService` for services with mixed concerns or DB access.
 
 ### Active Service Map
 

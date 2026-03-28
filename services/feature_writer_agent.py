@@ -328,7 +328,7 @@ class FeatureWriterAgent(BaseAgent):
             },
             "logging": {
                 "level": "INFO",
-                "file": "logs/feature_writer_service.log",
+                "file": "logs/feature_writer_agent.log",
                 "max_size": "10MB",
                 "backup_count": 5,
             },

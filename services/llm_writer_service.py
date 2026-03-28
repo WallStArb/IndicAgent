@@ -7,7 +7,7 @@ Consumes two Kafka topics via consumer group 'llm_writer':
 
 Also recomputes llm_model_scores every 15 minutes.
 
-Mirrors the feature_writer_service.py pattern exactly: batch buffering, graceful SIGINT/SIGTERM.
+Mirrors the feature_writer_agent.py pattern exactly: batch buffering, graceful SIGINT/SIGTERM.
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ sys.path.insert(0, str(project_root))
 import structlog
 from scipy.stats import binomtest
 
-# Reuse timestamp parsing utility from feature_writer_service
-from services.feature_writer_service import _parse_ts
+# Reuse timestamp parsing utility from feature_writer_agent
+from services.feature_writer_agent import _parse_ts
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient

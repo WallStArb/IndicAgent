@@ -204,10 +204,10 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 
 **Dependency order (strict):**
 
-- [ ] **Phase 53.3: RollDetectionAgent + DataProviderAgent Rename** — extract `RollMonitor` into standalone `RollDetectionAgent`; typed `RollEvent` schema on `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent`; port :9122 *(unblocks Phase 50)*
-- [ ] **Phase 53.2: BarAggregatorAgent** — extract `BarAccumulator` (1m→HTF) from `feature_compute_agent` into standalone agent; `feature_compute_agent` becomes pure intelligence consumer; canonical flat bars for empty minutes; port :9120 *(depends on 53.3)*
-- [ ] **Phase 53.1: BarWriterAgent + BarCompletenessAgent** — `BarWriterAgent` subscribes independently to `market.bars` + `market.bars.htf`; removes `_ohlcv_buffer` from compute path; `BarCompletenessAgent` self-healing loop: detect gaps → `BarGapRequest` → DataProviderAgent fetches → BarWriterAgent persists; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
-- [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` once D-07 gate passes *(depends on 53.3 — RollDetectionAgent validated)*
+- [ ] **Phase 53.3: RollComputeAgent + DataProviderAgent Rename** — extract `RollMonitor` into standalone `RollComputeAgent` (`roll_compute_agent.py`); typed `RollEvent` schema on `topic_roll_events()`; rename `tws_daemon` → `DataProviderAgent` (`ProviderAgent` taxonomy); port :9122 *(unblocks Phase 50)*
+- [ ] **Phase 53.2: BarAggregatorComputeAgent** — extract `BarAccumulator` (1m→HTF) from `feature_compute_agent` into standalone `BarAggregatorComputeAgent` (`bar_aggregator_agent.py`); `feature_compute_agent` becomes pure intelligence consumer; canonical flat bars for empty minutes; port :9120 *(depends on 53.3)*
+- [ ] **Phase 53.1: BarWriterAgent + BarAuditorAgent** — `BarWriterAgent` subscribes independently to `market.bars` + `market.bars.htf`; removes `_ohlcv_buffer` from compute path; `BarAuditorAgent` self-healing loop: detect gaps → `BarGapRequest` → DataProviderAgent fetches → BarWriterAgent persists; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
+- [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation after market_data_5m backfill; apply migration `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` once D-07 gate passes *(depends on 53.3 — RollComputeAgent validated)*
 - [ ] **Phase 54: Auth + External Access** — Cloudflare Tunnel `disableChunkedEncoding` SSE fix; Cloudflare Access or JWT cookie auth; CORS hardening; auth event logging; rate limiting *(expose a clean, stable system)*
   - Plans exist in `.planning/phases/53-auth-external-access/`; revisit scope before executing
 
@@ -362,7 +362,7 @@ Plans:
 
 **Depends on**: Phase 51 (validation framework ensures stability before hardening)
 
-**Note**: Automated gap-fill moved to Phase 53.1 (BarCompletenessAgent).
+**Note**: Automated gap-fill moved to Phase 53.1 (BarAuditorAgent).
 
 **Requirements**: INFRA-01, INFRA-02, INFRA-03, INFRA-04, INFRA-05
 

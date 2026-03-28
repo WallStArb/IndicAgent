@@ -3,7 +3,7 @@
 Tests:
 - market_analysis_service._handle_roll_event() updates active symbol list
 - signal_generator_service._handle_roll_event() updates bar_history keys
-- feature_writer_service._handle_roll_event() writes roll boundary marker to DB
+- feature_writer_agent._handle_roll_event() writes roll boundary marker to DB
 - All services: malformed events are logged and skipped
 - All services: always subscribe to system.events unconditionally (SHADOW-03 graduated)
 """
@@ -66,8 +66,8 @@ def _append_bar(svc: Any, symbol: str, tf: str, close: float) -> None:
     svc._bar_history.append(bar)
 
 
-def _make_feature_writer_service() -> Any:
-    from services.feature_writer_service import FeatureWriterAgent
+def _make_feature_writer_agent() -> Any:
+    from services.feature_writer_agent import FeatureWriterAgent
 
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.db_manager = None
@@ -151,7 +151,7 @@ class TestSignalGeneratorRollEvent:
 
 class TestFeatureWriterRollEvent:
     def test_writes_roll_boundary_marker_to_db(self) -> None:
-        svc = _make_feature_writer_service()
+        svc = _make_feature_writer_agent()
         mock_db = MagicMock()
         mock_db.execute_batch = AsyncMock()
         svc.db_manager = mock_db
@@ -182,7 +182,7 @@ class TestFeatureWriterRollEvent:
 
     def test_roll_boundary_marker_format(self) -> None:
         """The i7 JSON must contain roll_boundary key with old->new format."""
-        svc = _make_feature_writer_service()
+        svc = _make_feature_writer_agent()
         mock_db = MagicMock()
         mock_db.execute_batch = AsyncMock()
         svc.db_manager = mock_db
@@ -214,7 +214,7 @@ class TestFeatureWriterRollEvent:
 
     def test_skips_write_if_no_db(self) -> None:
         """No DB connection — should log and return without crashing."""
-        svc = _make_feature_writer_service()
+        svc = _make_feature_writer_agent()
         svc.db_manager = None
         event = {
             "event_type": "roll",
@@ -226,7 +226,7 @@ class TestFeatureWriterRollEvent:
         asyncio.run(svc._handle_roll_event(event))  # No crash
 
     def test_ignores_non_roll_event(self) -> None:
-        svc = _make_feature_writer_service()
+        svc = _make_feature_writer_agent()
         mock_db = MagicMock()
         mock_db.execute_batch = AsyncMock()
         svc.db_manager = mock_db
@@ -235,7 +235,7 @@ class TestFeatureWriterRollEvent:
         mock_db.execute_batch.assert_not_called()
 
     def test_malformed_event_does_not_crash(self) -> None:
-        svc = _make_feature_writer_service()
+        svc = _make_feature_writer_agent()
         mock_db = MagicMock()
         mock_db.execute_batch = AsyncMock()
         svc.db_manager = mock_db

@@ -13,7 +13,7 @@ Architecture:
       └── feature_snapshot_writer_group -> feature_snapshots_shadow   (this agent)
 
 Design invariant: this agent is intentionally thin — no business logic.
-All param-building is delegated to _record_to_insert_params() from feature_writer_service.
+All param-building is delegated to _record_to_insert_params() from feature_writer_agent.
 
 Renaissance principle: Shadow before cutover. Earn the right through proof.
 """
@@ -30,7 +30,7 @@ sys.path.insert(0, str(project_root))
 
 from pydantic import ValidationError
 
-from services.feature_writer_service import _build_expiry_map, _record_to_insert_params
+from services.feature_writer_agent import _build_expiry_map, _record_to_insert_params
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager

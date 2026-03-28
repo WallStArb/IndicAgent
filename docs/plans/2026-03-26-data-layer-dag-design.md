@@ -40,12 +40,12 @@ The pipeline guarantees a complete, gapless bar series for every active symbol a
 - Every active symbol always has exactly 1440 1m bars/day for 24/7 markets (crypto, FX)
 - RTH-gated markets (equity futures, commodities) emit flat bars during off-hours preserving the grid
 
-**`BarAggregatorAgent` produces canonical HTF from guaranteed 1m:**
+**`BarAggregatorComputeAgent` produces canonical HTF from guaranteed 1m:**
 - Because flat 1m bars flow continuously, every 5m/15m/1h/4h/1d period closes with an entry
 - No HTF gaps possible in real-time — completeness is inherited from the 1m guarantee
 - `is_flat_bar=True` flag propagates through so downstream agents can gate on it
 
-**`BarCompletenessAgent` audits historical gaps only:**
+**`BarAuditorAgent` audits historical gaps only:**
 - Real-time canonical completeness is already guaranteed upstream
 - Audits `market_data_ohlcv` on startup and periodically for historical gaps (new symbol onboarding, post-restart catch-up, pre-BarWriterAgent era data)
 - Self-healing: publishes gap requests → DataProviderAgent fetches historical → BarWriterAgent persists
@@ -71,7 +71,7 @@ The pipeline guarantees a complete, gapless bar series for every active symbol a
 │ Layer 1 — Processing │   │ Layer 1 — Processing             │
 │ (DB-ignorant)        │   │ (DB-ignorant)                    │
 │                      │   │                                  │
-│ BarAggregatorAgent   │   │ RollDetectionAgent               │
+│ BarAggregatorComputeAgent   │   │ RollComputeAgent               │
 │   :9120              │   │   :9122                          │
 │ in:  market.bars     │   │ in:  market.bars                 │
 │ out: market.bars.htf │   │ out: market.events.roll          │
@@ -93,7 +93,7 @@ The pipeline guarantees a complete, gapless bar series for every active symbol a
 │    strategy: ON CONFLICT (ts, symbol, tf) DO NOTHING        │
 │    source: "live_1m" | "live_htf"                           │
 │                                                             │
-│  BarCompletenessAgent                            :9123      │
+│  BarAuditorAgent                            :9123      │
 │    reads:   market_data_ohlcv (actual counts vs expected)   │
 │    out:     market.events.gap_requests                      │
 │    schedule: startup + every 5min market hours              │
@@ -129,17 +129,17 @@ The pipeline guarantees a complete, gapless bar series for every active symbol a
 - Publishes `market.bars` + `market.ticks`
 - Subscribes to `market.events.gap_requests` → fetches historical bars → re-publishes to `market.bars`
 
-**Extracted in this phase:** `RollMonitor` class removed entirely (→ `RollDetectionAgent`)
+**Extracted in this phase:** `RollMonitor` class removed entirely (→ `RollComputeAgent`)
 
 **Key invariant:** Always emits exactly one 1m bar per minute per active symbol. Never skips a minute.
 
 ---
 
-### BarAggregatorAgent
+### BarAggregatorComputeAgent
 
 **File:** `services/bar_aggregator_agent.py`
-**Class:** `BarAggregatorAgent(BaseAgent)`
-**Systemd:** `indicagent-bar-aggregator.service`
+**Class:** `BarAggregatorComputeAgent(BaseAgent)`
+**Systemd:** `indicagent-bar-aggregator-compute.service`
 **Metrics:** `:9120`
 **Phase:** 53.2
 
@@ -187,11 +187,11 @@ The pipeline guarantees a complete, gapless bar series for every active symbol a
 
 ---
 
-### RollDetectionAgent
+### RollComputeAgent
 
-**File:** `services/roll_detection_agent.py`
-**Class:** `RollDetectionAgent(BaseAgent)`
-**Systemd:** `indicagent-roll-detection.service`
+**File:** `services/roll_compute_agent.py`
+**Class:** `RollComputeAgent(BaseAgent)`
+**Systemd:** `indicagent-roll-compute.service`
 **Metrics:** `:9122`
 **Phase:** 53.3 (same phase as DataProviderAgent cleanup)
 
@@ -223,11 +223,11 @@ class RollEvent(BaseModel):
 
 ---
 
-### BarCompletenessAgent
+### BarAuditorAgent
 
-**File:** `services/bar_completeness_agent.py`
-**Class:** `BarCompletenessAgent(BaseAgent)`
-**Systemd:** `indicagent-bar-completeness.service`
+**File:** `services/bar_auditor_agent.py`
+**Class:** `BarAuditorAgent(BaseAgent)`
+**Systemd:** `indicagent-bar-auditor.service`
 **Metrics:** `:9123`
 **Phase:** 53.1 (alongside BarWriterAgent)
 
@@ -258,12 +258,12 @@ class RollEvent(BaseModel):
 ## Self-Healing Loop
 
 ```
-BarCompletenessAgent detects gap in market_data_ohlcv
+BarAuditorAgent detects gap in market_data_ohlcv
   → publishes BarGapRequest{symbol, tf, start_ts, end_ts}
   → DataProviderAgent fetches historical bars from IBKR
   → publishes to market.bars (same topic as live)
   → BarWriterAgent persists (ON CONFLICT DO NOTHING)
-  → next BarCompletenessAgent audit cycle confirms gap filled
+  → next BarAuditorAgent audit cycle confirms gap filled
 ```
 
 Zero manual steps. No scripts. No human in the loop.
@@ -274,10 +274,10 @@ Zero manual steps. No scripts. No human in the loop.
 
 | Phase | Agent | Dependency | Value |
 |-------|-------|-----------|-------|
-| **53.1** | `BarWriterAgent` + `BarCompletenessAgent` | Phase 52 (DB-ignorant feature_compute) | Unblocks Phase 52 completion; retires gap_fill_service |
-| **53.2** | `BarAggregatorAgent` | 53.1 (BarWriterAgent running) | Extracts BarAccumulator from intelligence layer; feature_compute becomes pure |
-| **53.3** | `RollDetectionAgent` + `DataProviderAgent` rename | 53.2 (BarAggregatorAgent running) | Extracts RollMonitor from provider; typed RollEvent schema; clean DataProviderAgent |
-| **50** | Enable `ROLL_MONITOR_ENABLED` | 53.3 (RollDetectionAgent validated) | Graduates roll monitor from shadow; enables roll_premium_pct population |
+| **53.1** | `BarWriterAgent` + `BarAuditorAgent` | Phase 52 (DB-ignorant feature_compute) | Unblocks Phase 52 completion; retires gap_fill_service |
+| **53.2** | `BarAggregatorComputeAgent` | 53.1 (BarWriterAgent running) | Extracts BarAccumulator from intelligence layer; feature_compute becomes pure |
+| **53.3** | `RollComputeAgent` + `DataProviderAgent` rename | 53.2 (BarAggregatorComputeAgent running) | Extracts RollMonitor from provider; typed RollEvent schema; clean DataProviderAgent |
+| **50** | Enable `ROLL_MONITOR_ENABLED` | 53.3 (RollComputeAgent validated) | Graduates roll monitor from shadow; enables roll_premium_pct population |
 
 ---
 
@@ -286,9 +286,9 @@ Zero manual steps. No scripts. No human in the loop.
 | Current | Replaced by | Phase |
 |---------|-------------|-------|
 | `feature_compute_agent._ohlcv_buffer` + `_flush_ohlcv()` | `BarWriterAgent` | 53.1 |
-| `feature_compute_agent._bar_accumulator` + `_publish_htf_bar()` | `BarAggregatorAgent` | 53.2 |
-| `gap_fill_service` | `BarCompletenessAgent` | 53.1 |
-| `tws_daemon.RollMonitor` class | `RollDetectionAgent` | 53.3 |
+| `feature_compute_agent._bar_accumulator` + `_publish_htf_bar()` | `BarAggregatorComputeAgent` | 53.2 |
+| `gap_fill_service` | `BarAuditorAgent` | 53.1 |
+| `tws_daemon.RollMonitor` class | `RollComputeAgent` | 53.3 |
 | `tws_daemon.py` filename/class | `data_provider_agent.py` / `DataProviderAgent` | 53.3 |
 
 ---
@@ -299,7 +299,7 @@ Zero manual steps. No scripts. No human in the loop.
 |-------|------|
 | DataProviderAgent (tws_daemon) | :9100 (existing) |
 | FeatureComputeAgent | :9125 (existing) |
-| BarAggregatorAgent | :9120 |
+| BarAggregatorComputeAgent | :9120 |
 | BarWriterAgent | :9121 |
-| RollDetectionAgent | :9122 |
-| BarCompletenessAgent | :9123 |
+| RollComputeAgent | :9122 |
+| BarAuditorAgent | :9123 |

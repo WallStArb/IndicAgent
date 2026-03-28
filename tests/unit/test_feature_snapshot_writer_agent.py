@@ -38,7 +38,7 @@ def test_consumer_group_constant():
 
     assert CONSUMER_GROUP == "feature_snapshot_writer_group"
     # Sanity: different from primary writer
-    from services.feature_writer_service import CONSUMER_GROUP as PRIMARY_GROUP
+    from services.feature_writer_agent import CONSUMER_GROUP as PRIMARY_GROUP
 
     assert CONSUMER_GROUP != PRIMARY_GROUP
 

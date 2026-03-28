@@ -1,4 +1,4 @@
-"""Tests verifying feature_writer_service._load_config() uses get_active_contracts().
+"""Tests verifying feature_writer_agent._load_config() uses get_active_contracts().
 
 Ensures the default symbol list covers all 23 active H6/J6 contracts rather than
 the stale 6-symbol hardcoded list (ESH6, NQH6, RTYH6, CLK6, GCM6, NGK6).
@@ -10,15 +10,15 @@ from unittest.mock import MagicMock, patch
 def _make_service():
     """Construct FeatureWriterAgent with infrastructure mocked out."""
     with (
-        patch("services.feature_writer_service.start_metrics_server"),
-        patch("services.feature_writer_service.DatabaseManager"),
-        patch("services.feature_writer_service.counter", return_value=MagicMock()),
-        patch("services.feature_writer_service.gauge", return_value=MagicMock()),
+        patch("services.feature_writer_agent.start_metrics_server"),
+        patch("services.feature_writer_agent.DatabaseManager"),
+        patch("services.feature_writer_agent.counter", return_value=MagicMock()),
+        patch("services.feature_writer_agent.gauge", return_value=MagicMock()),
     ):
         import signal as _signal
 
         with patch.object(_signal, "signal"):
-            from services.feature_writer_service import FeatureWriterAgent
+            from services.feature_writer_agent import FeatureWriterAgent
 
             service = FeatureWriterAgent.__new__(FeatureWriterAgent)
             service.config = service._load_config(None)
