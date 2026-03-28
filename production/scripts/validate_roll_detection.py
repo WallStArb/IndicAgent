@@ -278,8 +278,7 @@ async def main() -> int:
     print()
     if not any_evaluated:
         print("Overall: SKIP (no symbols had sufficient historical data)")
-        print("  RollComputeAgent not running — check:")
-        print("    systemctl is-active indicagent-roll-detection")
+        print("  Ensure market_data_5m has >= 100 bars (run historical backfill if needed).")
         return 2
 
     overall = "PASS" if all_pass else "FAIL"
