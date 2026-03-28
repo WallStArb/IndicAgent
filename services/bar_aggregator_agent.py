@@ -24,7 +24,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import structlog
 from pydantic import ValidationError
 
 project_root = Path(__file__).parent.parent
@@ -38,8 +37,6 @@ from src.core.bar_accumulator import BarAccumulator
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.stream_keys import message_key, topic_market_bars, topic_market_bars_htf
-
-_logger = structlog.get_logger(__name__)
 
 
 class BarAggregatorComputeAgent(BaseAgent):
