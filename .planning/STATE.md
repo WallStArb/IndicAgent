@@ -1,52 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.2
-milestone_name: Operational Excellence
-status: Phase complete — ready for verification
-last_updated: "2026-03-28T12:31:39.694Z"
+milestone: v2.1
+milestone_name: Data Foundation & Signal Confidence
+status: Executing Phase 52.6
+last_updated: "2026-03-27T23:44:25.791Z"
 progress:
-  total_phases: 11
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 12
+  completed_phases: 2
+  total_plans: 11
+  completed_plans: 5
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-28)
+See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** v2.2 — Phase 53.3 executing (Plan 03 complete: RollComputeAgent + test redirect done)
+**Current focus:** Phase 52.6 — baseagent-processmanifest-enhancement
 
 ## Current Position
 
-Phase: 053.3 (roll-detection-agent-data-provider-rename) — EXECUTING
-Plan: 4 of 4 complete
+Phase: 52.6 (baseagent-processmanifest-enhancement) — EXECUTING
+Plan: 1 of 5
 
-### Decisions (Phase 053.3 Plan 04)
+## v2.1 Milestone Goal
 
-- parse_roll_event uses RollEvent.model_validate for typed pydantic validation; old dict-key parsing (event_type/old_symbol/new_symbol) retired per D-02
-- feature_writer_agent reads detection_ts (not detected_at) from RollEvent schema payloads — field name changed with typed schema
-- signal_generator_agent subscribes to topic_roll_events (market.events.roll); topic_system_events removed per D-01
-
-### Decisions (Phase 053.3 Plan 03)
-
-- is_enabled property removed from RollMonitor — pre-existing test asserts SHADOW-03 graduated (always active)
-- Module-level prometheus counters in test fixture prevent duplicate registration across test runs
-- TestOnRollConfirmedChain, TestCallSiteBugFix, TestBarLoopWiring skipped (not deleted) to preserve test history traceability
-- roll_gap_price/roll_gap_pct = 0.0 intentional — previous contract price unavailable at detection time (Phase 50 refinement)
-
-### Decisions (Phase 053.3 Plan 02)
-
-- DataProviderAgent in services/data_provider_agent.py (ExecStart points directly, not through production/daemons/ wrapper which doesn't exist)
-- RollMonitor class deleted entirely from DataProviderAgent — moves to Plan 03 as standalone RollDetectionAgent
-- _UNSET sentinel added to __new__ test fixture (CLAUDE.md Service test pattern compliance)
-
-## v2.2 Milestone Goal
-
-Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
+Earn the right to trust the numbers. Fix the live data foundation (tick aggregation), close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
 
 ## Architecture Constraints (SoC / DAG / Microservices)
 
@@ -122,14 +103,6 @@ Complete the data layer DAG decomposition, automate gap healing, graduate shadow
 - MarketAnalysisService tests preserved with @pytest.mark.skip — file consolidated into feature_compute_agent (v2.0); tests document threading.Lock contract
 - PERSISTENCE_CONSUMER_LAG set to 0 — consistent with Phase 52.1 llm_writer pattern; no partition end-offset API available
 
-### Decisions (Phase 52.5 Plan 01)
-
-- Certification derived from fetch_clean_cycles query over feature_parity_violations — no state table (D-01/D-09)
-- Shadow-only rows: SHADOW_AHEAD_ROWS_TOTAL counter only, never FieldViolation (D-03/D-07)
-- 10-minute comparison window (2x COMPARISON_INTERVAL_SECS) — self-adjusting across TFs (D-02)
-- SHADOW_PARITY_CERTIFIED published to topic_system_events when all pairs reach CERTIFICATION_THRESHOLD=12 (D-06)
-- Metrics port :9120 — 9119 reserved for FeatureSnapshotWriterAgent (D-04/D-08)
-
 ### Decisions (Phase 52.4 Plan 01)
 
 - Kept signal_lifecycle_service.py as compatibility shim (one release cycle) — 20+ test imports still resolve without touching external test files
@@ -137,13 +110,6 @@ Complete the data layer DAG decomposition, automate gap healing, graduate shadow
 - Repository constructor kept as db_manager: Any (not asyncpg.Pool) — plan's pool interface was aspirational; changing would break signal_generator_agent and other callers
 - update_lifecycle_state wraps update_signal_status — canonical agent name while preserving backward-compat internal calls
 - indicagent-signal-lifecycle disabled; indicagent-signal-tracker installed on live system (pending main repo merge for ExecStart to resolve)
-
-### Decisions (Phase 52.6 Plan 05)
-
-- Source inspection (AST/text) for IntelligenceComputeAgent tests — avoids services.indicator_service ModuleNotFoundError at import time
-- init_tracing in all four __main__ blocks — no-op until Phase 52.7 wires OTEL_EXPORTER_OTLP_ENDPOINT in systemd unit files
-- config-before-super pattern applied consistently — metrics_port extracted before super().__init__()
-- FeatureWriterAgent._env_name (underscore prefix) differs from other agents' env_name — noted in test setup
 
 ### Pending Todos
 
