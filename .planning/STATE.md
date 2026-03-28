@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: v2.1 milestone complete
-last_updated: "2026-03-28T12:19:46.040Z"
+status: Ready to execute
+last_updated: "2026-03-28T12:28:44.028Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -18,12 +18,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-28)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** v2.2 — Phase 53.3 executing (Plan 02 complete: DataProviderAgent rename done)
+**Current focus:** v2.2 — Phase 53.3 executing (Plan 04 complete: consumer-side migration done)
 
 ## Current Position
 
 Phase: 053.3 (roll-detection-agent-data-provider-rename) — EXECUTING
-Plan: 2 of 4 complete
+Plan: 4 of 4 complete
+
+### Decisions (Phase 053.3 Plan 04)
+
+- parse_roll_event uses RollEvent.model_validate for typed pydantic validation; old dict-key parsing (event_type/old_symbol/new_symbol) retired per D-02
+- feature_writer_agent reads detection_ts (not detected_at) from RollEvent schema payloads — field name changed with typed schema
+- signal_generator_agent subscribes to topic_roll_events (market.events.roll); topic_system_events removed per D-01
 
 ### Decisions (Phase 053.3 Plan 02)
 
