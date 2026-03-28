@@ -207,7 +207,8 @@ IBKR TWS → feature_compute_agent (I1-I6 unified) →
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
 | Data Provider | `indicagent-data-provider` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
-| Feature Compute | `indicagent-feature-compute` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
+| Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator; publishes to `market.bars.htf` | :9120 |
+| Feature Compute | `indicagent-feature-compute` | I1-I6 unified pipeline; subscribes to `market.bars` + `market.bars.htf` → `intelligence:SYMBOL:TF` | :9125 |
 | Intelligence Compute | `indicagent-intelligence-compute` | I7/I8 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
 | Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome (Phase 52.4: renamed from signal-lifecycle, inherits BaseAgent) | :9115 |
@@ -307,8 +308,8 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 **Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
-- **feature_compute_agent subscribes to:** `topic_market_bars` (1m bars) ONLY. The agent PRODUCES HTF bars via `BarAccumulator` and publishes them to `topic_market_bars_htf` for downstream services (e.g., signal_generator_service). Subscribing to both would create a feedback loop.
-- **HTF bar flow:** TWS → 1m bars → market.bars → feature_compute_agent (BarAccumulator aggregates) → publishes to market.bars.htf → signal_generator consumes → I7 → intelligence_features.
+- **feature_compute_agent subscribes to:** `topic_market_bars` (1m bars) AND `topic_market_bars_htf` (HTF bars from BarAggregatorComputeAgent). Each bar triggers an independent I1-I6 pipeline run. BarAccumulator extraction (Phase 53.2) eliminated the feedback loop concern.
+- **HTF bar flow:** TWS → 1m bars → market.bars → bar_aggregator_agent (BarAccumulator) → market.bars.htf → feature_compute_agent (I1-I6) + signal_generator (I7) → intelligence_features.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`. **All service logs go to `logs/<service>.log` via `setup_service_logging()` — NOT to journald.** journalctl only shows `print()` output. Read log files directly for structured service output.
 - **`PYTHONUNBUFFERED=1` required** in all systemd service unit files — without it, Python buffers stdout and journald sees nothing even from print().
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
