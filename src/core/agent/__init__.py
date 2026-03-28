@@ -1,6 +1,6 @@
-"""src.core.agent — BaseAgent and AgentRegistry package."""
+"""src.core.agent — BaseAgent and ProcessManifest package."""
 
 from src.core.agent.base import BaseAgent
-from src.core.agent.registry import AgentRegistry
+from src.core.agent.manifest import ProcessManifest
 
-__all__ = ["BaseAgent", "AgentRegistry"]
+__all__ = ["BaseAgent", "ProcessManifest"]
