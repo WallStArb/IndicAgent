@@ -170,6 +170,7 @@ class BarAccumulator:
                     "volume": bar_1m.volume,
                     "last_ts": curr_ts,
                     "session_type": bar_1m.session_type,
+                    "all_flat": bar_1m.is_flat_bar,
                 }
             else:
                 # Update existing accumulator
@@ -180,6 +181,8 @@ class BarAccumulator:
                 acc["last_ts"] = curr_ts
                 # Update period_ts in case it shifted (shouldn't happen but be safe)
                 acc["period_ts"] = period_ts
+                # HTF is_flat_bar = True only when ALL constituent 1m bars were flat (D-10)
+                acc["all_flat"] = acc["all_flat"] and bar_1m.is_flat_bar
 
         return completed
 
@@ -210,4 +213,5 @@ class BarAccumulator:
             source="htf_derived",
             session_type=acc.get("session_type", SessionType.RTH),
             gap_preceding=False,
+            is_flat_bar=acc.get("all_flat", False),
         )
