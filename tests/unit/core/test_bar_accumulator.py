@@ -269,3 +269,146 @@ def test_session_break_closes_partial():
     # The emitted bar should contain only the pre-RTH data (not mixed)
     eth_partial = five_m_bars[0]
     assert eth_partial.close == pytest.approx(5241.0)  # last ETH bar's close
+
+
+# ── is_flat_bar tests ─────────────────────────────────────────────────────────
+
+
+def _make_flat_1m_bar(
+    symbol: str = "ES",
+    minute_offset: int = 0,
+    price: float = 5250.0,
+) -> "BarMessage":
+    """Helper: create a zero-volume flat bar (is_flat_bar=True)."""
+    from src.core.schemas.bar_message import BarMessage, SessionType
+
+    return BarMessage(
+        ts=BASE_TS + timedelta(minutes=minute_offset),
+        symbol=symbol,
+        tf="1m",
+        open=price,
+        high=price,
+        low=price,
+        close=price,
+        volume=0,
+        source=SOURCE_IBKR_NAMED,
+        session_type=SessionType.RTH,
+        is_flat_bar=True,
+    )
+
+
+def test_is_flat_bar_default_false():
+    """BarMessage with default is_flat_bar=False validates successfully."""
+    bar = _make_1m_bar()
+    assert bar.is_flat_bar is False
+
+
+def test_is_flat_bar_true_validates():
+    """BarMessage with explicit is_flat_bar=True validates successfully."""
+    bar = _make_flat_1m_bar()
+    assert bar.is_flat_bar is True
+
+
+def test_is_flat_bar_all_flat_htf():
+    """BarAccumulator with all-flat 1m bars produces HTF bar with is_flat_bar=True."""
+    from src.core.bar_accumulator import BarAccumulator
+
+    acc = BarAccumulator(timeframes=["5m"])
+    emitted = []
+
+    # Feed 5 flat bars then boundary bar to close the window
+    for minute in range(5):
+        emitted.extend(acc.update(_make_flat_1m_bar(minute_offset=minute)))
+    # Boundary bar (flat too) closes the window
+    emitted.extend(acc.update(_make_flat_1m_bar(minute_offset=5)))
+
+    five_m = next((b for b in emitted if b.tf == "5m"), None)
+    assert five_m is not None
+    assert five_m.is_flat_bar is True
+
+
+def test_is_flat_bar_mixed_is_not_flat():
+    """BarAccumulator with mix of flat and real bars produces HTF bar with is_flat_bar=False."""
+    from src.core.bar_accumulator import BarAccumulator
+
+    acc = BarAccumulator(timeframes=["5m"])
+    emitted = []
+
+    # 2 flat bars, then 3 real bars
+    emitted.extend(acc.update(_make_flat_1m_bar(minute_offset=0)))
+    emitted.extend(acc.update(_make_flat_1m_bar(minute_offset=1)))
+    emitted.extend(acc.update(_make_1m_bar(minute_offset=2)))
+    emitted.extend(acc.update(_make_1m_bar(minute_offset=3)))
+    emitted.extend(acc.update(_make_1m_bar(minute_offset=4)))
+    # Boundary bar closes the window
+    emitted.extend(acc.update(_make_1m_bar(minute_offset=5)))
+
+    five_m = next((b for b in emitted if b.tf == "5m"), None)
+    assert five_m is not None
+    assert five_m.is_flat_bar is False
+
+
+def test_is_flat_bar_all_real_is_not_flat():
+    """BarAccumulator with all real bars produces HTF bar with is_flat_bar=False."""
+    from src.core.bar_accumulator import BarAccumulator
+
+    acc = BarAccumulator(timeframes=["5m"])
+    emitted = []
+    for minute in range(6):
+        emitted.extend(acc.update(_make_1m_bar(minute_offset=minute)))
+
+    five_m = next((b for b in emitted if b.tf == "5m"), None)
+    assert five_m is not None
+    assert five_m.is_flat_bar is False
+
+
+def test_is_flat_bar_session_break_propagation():
+    """Session break emits partial bar with correct is_flat_bar propagation."""
+    from src.core.bar_accumulator import BarAccumulator, TradingSession
+    from src.core.schemas.bar_message import SessionType
+
+    pre_rth_ts = datetime(2026, 3, 21, 13, 0, 0, tzinfo=UTC)  # 08:00 ET
+    rth_ts = datetime(2026, 3, 21, 14, 30, 0, tzinfo=UTC)  # 09:30 ET
+
+    from src.core.schemas.bar_message import BarMessage
+
+    # Flat bar before session break
+    bar_eth_flat = BarMessage(
+        ts=pre_rth_ts,
+        symbol="ES",
+        tf="1m",
+        open=5240.0,
+        high=5240.0,
+        low=5240.0,
+        close=5240.0,
+        volume=0,
+        source=SOURCE_IBKR_NAMED,
+        session_type=SessionType.ETH,
+        is_flat_bar=True,
+    )
+    # Real bar after session break
+    bar_rth_real = BarMessage(
+        ts=rth_ts,
+        symbol="ES",
+        tf="1m",
+        open=5250.0,
+        high=5252.0,
+        low=5248.0,
+        close=5251.0,
+        volume=1500,
+        source=SOURCE_IBKR_NAMED,
+        session_type=SessionType.RTH,
+        is_flat_bar=False,
+    )
+
+    session = TradingSession(SessionType.RTH)
+    acc = BarAccumulator(timeframes=["5m"], session=session)
+
+    emitted = []
+    emitted.extend(acc.update(bar_eth_flat))
+    emitted.extend(acc.update(bar_rth_real))
+
+    five_m_bars = [b for b in emitted if b.tf == "5m"]
+    assert len(five_m_bars) >= 1
+    # Partial bar emitted at session break had only one flat bar → is_flat_bar=True
+    assert five_m_bars[0].is_flat_bar is True

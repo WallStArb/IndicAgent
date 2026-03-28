@@ -59,6 +59,9 @@ class BarMessage(BaseModel):
                           "htf_derived" — aggregated from 1m bars by BarAccumulator
         session_type  — Trading session at bar close time
         gap_preceding — True when a gap exists before this bar (missing bars)
+        is_flat_bar   — True when bar has zero volume (flat fill from prev close);
+                        False for normal bars with real trade activity.
+                        HTF bars: True only when ALL constituent 1m bars were flat.
     """
 
     ts: datetime
@@ -72,3 +75,4 @@ class BarMessage(BaseModel):
     source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED]
     session_type: SessionType
     gap_preceding: bool = False
+    is_flat_bar: bool = False
