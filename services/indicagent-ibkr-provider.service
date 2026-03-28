@@ -1,7 +1,6 @@
 [Unit]
 Description=IndicAgent IBKR Provider Agent — broker-agnostic bar publisher
-After=network-online.target indicagent-data-provider.service
-Wants=indicagent-data-provider.service
+After=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
