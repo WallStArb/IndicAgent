@@ -10,7 +10,6 @@ Tests:
 from __future__ import annotations
 
 import asyncio
-import json
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
@@ -156,13 +155,16 @@ class TestFeatureWriterRollEvent:
         mock_db.execute_batch = AsyncMock()
         svc.db_manager = mock_db
 
+        # RollEvent typed schema (D-11) — old dict keys (event_type, old_symbol) retired
         event = {
-            "event_type": "roll",
-            "base_symbol": "ES",
-            "old_symbol": "ESM6",
-            "new_symbol": "ESU6",
-            "roll_gap": 2.5,
-            "detected_at": "2026-06-12T14:30:00Z",
+            "symbol": "ES",
+            "old_contract": "ESM6",
+            "new_contract": "ESU6",
+            "roll_gap_price": 2.5,
+            "roll_gap_pct": 0.001,
+            "detection_ts": "2026-06-12T14:30:00Z",
+            "volume_zscore": 2.1,
+            "confirmation_count": 3,
         }
         asyncio.run(svc._handle_roll_event(event))
 
@@ -174,9 +176,8 @@ class TestFeatureWriterRollEvent:
         # SQL must contain roll_boundary pattern (merge or set)
         assert "intelligence_features" in sql
         assert "roll_boundary" in sql or "i7" in sql.lower()
-        # Params must reference both old and new symbol
+        # Params must reference both old and new contract
         # The marker value should encode "ESM6->ESU6"
-        marker_str = json.dumps({"roll_boundary": "ESM6->ESU6"})
         assert any("ESM6->ESU6" in str(p) for row in params for p in row), \
             f"Expected 'ESM6->ESU6' in params: {params}"
 
@@ -187,30 +188,28 @@ class TestFeatureWriterRollEvent:
         mock_db.execute_batch = AsyncMock()
         svc.db_manager = mock_db
 
+        # RollEvent typed schema (D-11)
         event = {
-            "event_type": "roll",
-            "base_symbol": "NQ",
-            "old_symbol": "NQM6",
-            "new_symbol": "NQU6",
-            "roll_gap": 3.0,
-            "detected_at": "2026-06-12T14:30:00Z",
+            "symbol": "NQ",
+            "old_contract": "NQM6",
+            "new_contract": "NQU6",
+            "roll_gap_price": 3.0,
+            "roll_gap_pct": -0.002,
+            "detection_ts": "2026-06-12T14:30:00Z",
+            "volume_zscore": 1.8,
+            "confirmation_count": 2,
         }
         asyncio.run(svc._handle_roll_event(event))
 
         params = mock_db.execute_batch.call_args[0][1]
-        # Find the JSON param that contains the i7 marker
-        i7_json = None
+        # Find the dict param that contains the i7 marker (asyncpg: native dicts, not JSON strings)
+        i7_dict = None
         for row in params:
             for p in row:
-                if isinstance(p, str):
-                    try:
-                        d = json.loads(p)
-                        if "roll_boundary" in d:
-                            i7_json = d
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-        assert i7_json is not None, "No i7 JSON with roll_boundary found in DB call params"
-        assert i7_json["roll_boundary"] == "NQM6->NQU6"
+                if isinstance(p, dict) and "roll_boundary" in p:
+                    i7_dict = p
+        assert i7_dict is not None, "No dict with roll_boundary found in DB call params"
+        assert i7_dict["roll_boundary"] == "NQM6->NQU6"
 
     def test_skips_write_if_no_db(self) -> None:
         """No DB connection — should log and return without crashing."""
