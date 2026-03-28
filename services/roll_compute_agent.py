@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -110,7 +110,6 @@ class RollMonitor:
 
         # Per-base-symbol rolling state
         # base symbol -> deque of float volumes (single value per bar — D-16 fix)
-        from collections import deque
         self._volume_windows: dict[str, deque] = {}
         # Per-base-symbol consecutive confirmation count for z-score < -2.0 bars
         self._confirmation_counts: dict[str, int] = defaultdict(int)
@@ -179,7 +178,6 @@ class RollMonitor:
         site always passed the same value for both, producing ratio=1.0 always.
         The new z-score algorithm needs only the current bar's volume.
         """
-        from collections import deque
         if base_symbol not in self._volume_windows:
             self._volume_windows[base_symbol] = deque(maxlen=self._window_size)
         self._volume_windows[base_symbol].append(current_vol)
@@ -246,9 +244,7 @@ class RollMonitor:
         self._last_volume_zscore = float(z_score)
 
         if z_score < -2.0:
-            self._confirmation_counts[base_symbol] = (
-                self._confirmation_counts.get(base_symbol, 0) + 1
-            )
+            self._confirmation_counts[base_symbol] = self._confirmation_counts.get(base_symbol, 0) + 1
         else:
             self._confirmation_counts[base_symbol] = 0
 
@@ -297,7 +293,7 @@ class RollComputeAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._symbol_to_base: dict[str, str] = {
-            c.symbol: getattr(c, "base", c.symbol)
+            c.symbol: c.base or c.symbol
             for c in get_active_contracts(settings)
         }
 
@@ -322,6 +318,11 @@ class RollComputeAgent(BaseAgent):
             "Exceptions during bar processing",
             ["agent"],
         )
+        # Cache labeled metric objects — avoids per-bar registry lookup on hot path
+        self._events_consumed_lbl = self._events_consumed.labels(agent=self.name)
+        self._detection_latency_lbl = self._detection_latency.labels(agent=self.name)
+        self._rolls_detected_lbl = self._rolls_detected.labels(agent=self.name)
+        self._detection_errors_lbl = self._detection_errors.labels(agent=self.name)
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -362,7 +363,7 @@ class RollComputeAgent(BaseAgent):
                 volume = float(payload.get("volume", 0))
                 bar_ts_str = payload.get("timestamp", "")
 
-                self._events_consumed.labels(agent=self.name).inc()
+                self._events_consumed_lbl.inc()
                 self._roll_monitor.update_volume(base_symbol, volume)
 
                 bar_utc: datetime
@@ -373,7 +374,7 @@ class RollComputeAgent(BaseAgent):
                 else:
                     bar_utc = datetime.now(UTC)
 
-                with self._detection_latency.labels(agent=self.name).time():
+                with self._detection_latency_lbl.time():
                     rolled = self._roll_monitor.check_roll(base_symbol, bar_utc)
 
                 if rolled:
@@ -388,8 +389,12 @@ class RollComputeAgent(BaseAgent):
                         elif chain:
                             # roll_to field from chain head gives the next contract symbol
                             new_contract = chain[0].get("roll_to", symbol)
-                    except Exception:
-                        pass
+                    except Exception as chain_exc:
+                        self.logger.warning(
+                            "roll_chain_derivation_failed",
+                            base_symbol=base_symbol,
+                            error=str(chain_exc),
+                        )
 
                     roll_event = RollEvent(
                         symbol=base_symbol,
@@ -406,7 +411,7 @@ class RollComputeAgent(BaseAgent):
                         roll_event.model_dump(mode="json"),
                         key=base_symbol,
                     )
-                    self._rolls_detected.labels(agent=self.name).inc()
+                    self._rolls_detected_lbl.inc()
                     self.logger.info(
                         "roll_detected",
                         symbol=base_symbol,
@@ -416,7 +421,7 @@ class RollComputeAgent(BaseAgent):
                         confirmation_count=roll_event.confirmation_count,
                     )
             except Exception as exc:
-                self._detection_errors.labels(agent=self.name).inc()
+                self._detection_errors_lbl.inc()
                 self.logger.error("roll_detection_error", error=str(exc), symbol=symbol)
 
 
