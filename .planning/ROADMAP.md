@@ -542,7 +542,7 @@ Plans:
 **Goal:** Wire W3C `traceparent` header inject/extract into `KafkaConsumerClient` and `KafkaProducerClient` so spans link across service boundaries end-to-end through the DAG.
 **Requirements**: [PARITY-01, PARITY-02, PARITY-03, PARITY-04, PARITY-05]
 **Depends on:** Phase 52.6, Phase 52.7
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 **Scope and responsibility split:**
 - `self.tracer` on every agent — **already delivered by Phase 52.6 (plan 05)**. BaseAgent's contribution is done.
@@ -556,4 +556,4 @@ Inject/extract W3C `traceparent` header so parent context links across service b
 Design doc: `docs/ideas/base-agent-enhancement.md` — see "Kafka trace propagation" in Section 1 (propagate.inject/extract in KafkaConsumerClient/KafkaProducerClient, W3C traceparent headers, why this is a kafka_utils.py concern not a BaseAgent concern)
 
 Plans:
-- [ ] 52.8-01-PLAN.md — Wire traceparent inject/extract into KafkaProducerClient + KafkaConsumerClient
+- [x] 52.8-01-PLAN.md — Wire traceparent inject/extract into KafkaProducerClient + KafkaConsumerClient
