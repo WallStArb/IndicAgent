@@ -47,13 +47,9 @@ All live in `src/intelligence/trading/`:
 - Use `frozenset[str]` for `outputs`/`capability_tags`, `tuple[InputSpec, ...]` for `inputs` — not `set`/`list`.
 - Tier lists (`TIER_I1`…`TIER_I7`) in `register_plugins.py` — single source of truth; `validate_tier()` hard-crashes on missing names.
 
-## AI Narrative Service
-
-- Consumer group: `"ai_narrative"`, starts at `"$"` (skips backlog on restart)
-- Timeframes: `["1m", "5m", "15m", "1h"]` — matches signal_generator_service
-- Ollama timeout: 60s (qwen3.5:9b on AMD ROCm iGPU)
-
 ## LLM Provider Chain (`llm_providers.py`)
+
+**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (qwen3.5:9b on AMD ROCm iGPU).
 
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
@@ -106,69 +102,4 @@ Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lif
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 
-## Service Management
-
-**Active services (12):**
-- `indicagent-feature-pipeline` — I1-I6 unified pipeline
-- `indicagent-signal-generator` — I7 trading setups
-- `indicagent-signal-lifecycle` — Zone-aware lifecycle + outcomes
-- `indicant-ai-narrative` — I8 LLM analysis
-- `indicant-feature-writer` — Redpanda → TimescaleDB batch writer
-- `indicant-llm-writer` — LLM audit trail + outcome backfill
-- `indicant-cross-asset` — Cross-asset spread dynamics
-- `indicant-data-quality` — Data quality monitoring
-- `indicant-weight-updater` — Setup performance table refresh
-- `indicant-tws` — IBKR TWS daemon (bars + ticks)
-- `indicant-api` — FastAPI + SSE
-- `indicant-dashboard` — Next.js dashboard
-
-**Service operations:**
-```bash
-# Check status
-sudo systemctl status indicagent-feature-pipeline
-sudo systemctl status indicagent-signal-generator
-
-# Restart single service
-sudo systemctl restart indicant-signal-generator
-
-# Restart entire pipeline (ordered)
-sudo systemctl restart indicant-feature-pipeline  # Start here (I1-I6)
-sudo systemctl restart indicant-signal-generator   # Then I7
-sudo systemctl restart indicant-signal-lifecycle   # Then lifecycle
-
-# Restart AI/LLM services
-sudo systemctl restart indicagent-ai-narrative
-sudo systemctl restart indicant-llm-writer
-
-# Restart data services
-sudo systemctl restart indicant-feature-writer
-sudo systemctl restart indicant-cross-asset
-
-# View logs
-tail -f logs/signal_generator_service.log        # Structured logs (preferred)
-tail -f logs/feature_pipeline_service.log        # I1-I6 computation logs
-journalctl -u indicagent-signal-generator -f     # systemd logs (print() only)
-```
-
-**After plugin changes:** Plugins are loaded at startup via `register_all_plugins()`. Any changes to `register_plugins.py`, tier lists, or plugin files require:
-```bash
-sudo systemctl restart indicant-feature-pipeline  # I1-I6 plugins
-sudo systemctl restart indicant-signal-generator   # I7 plugins
-```
-
-## Troubleshooting
-
-### Plugin Not Firing?
-- **Verify plugin registered**: Check service startup logs for `validate_tier()` output — missing plugin names from tier lists hard-crash at startup:
-  ```bash
-  journalctl -u indicant-signal-generator --since "5 minutes ago" | grep validate_tier
-  ```
-- **Check `regime_type` declaration**: All I7 plugins must declare `regime_type: "trend" | "mean_reversion" | "any"` as a class attribute. If missing, the aggregator regime gate will silently misfire (trend plugins suppressed in ranging, mean-reversion suppressed in trending).
-- **Verify plugin in tier list**: `registry.validate_tier()` hard-crashes at startup on any missing name from `TIER_I1`…`TIER_I7` constants in `register_plugins.py`. If service won't start, check for typos in plugin names.
-- **State write-back**: GARCH/HMM plugins fully reassign `_state` — if plugin returns stale results, check that `_state` is being written back after `compute_full()`.
-
-### LLM/Signal Issues
-- **Qwen3 empty responses**: Caused by `num_predict < 500` — thinking tokens consume budget before response. Increase to 500+ or use `/no_think` prefix.
-- **LLM service not connecting**: Check Ollama is running: `docker ps | grep ollama`. Verify `OLLAMA_BASE_URL` in service environment.
-- **Aggregator ignoring performance**: `active` must be derived from `all_ranked`, not raw `signals` list. If `perf_weights` have no effect, check aggregator logic.
-- **Signal activation failures**: Check zone bounds in `trade_framer._resolve_zone_bounds()` — supply_demand, fvg, ob, and sweep setups have different zone calculation logic.
+**After plugin changes:** Restart `indicagent-feature-compute` (I1-I6) and `indicagent-signal-generator` (I7). See root CLAUDE.md Active Services table for canonical service names and metrics ports.
