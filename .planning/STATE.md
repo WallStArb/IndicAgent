@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: Milestone complete
-last_updated: "2026-03-28T17:57:48.424Z"
+status: Ready to execute
+last_updated: "2026-03-28T19:23:24.169Z"
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
 ---
 
 # Project State
@@ -18,12 +18,12 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 053.1 — bar-writer-auditor-agents
+**Current focus:** Phase 54 — provider-abstraction-layer-broker-agnostic-data-foundation
 
 ## Current Position
 
-Phase: 053.1
-Plan: Not started
+Phase: 54 (provider-abstraction-layer-broker-agnostic-data-foundation) — EXECUTING
+Plan: 2 of 4
 
 ## v2.1 Milestone Goal
 
@@ -141,3 +141,10 @@ Recent additions:
 - source='live_1m' for 1m bars, 'live_htf' for HTF bars — matches D-04 spec
 - ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING — idempotent replay-safe writes
 - Golden Signals use direct prometheus_client (not metrics.py helper) — label support needed for tf dimension
+
+### Decisions (Phase 54 Plan 01)
+
+- DataProviderAdapter placed alongside (not replacing) DataProvider Protocol — existing IBKRProvider callers unaffected; new adapter is the MergerAgent contract
+- ProviderQualityEvent uses field_validator mode=before on all three datetime fields to uniformly reject naive datetimes
+- SOURCE_IBKR_GENERIC added to BarMessage.source Literal — IBKRAdapter (Plan 54-02) produces bars with source=SOURCE_IBKR_GENERIC
+- topic_market_data_quality distinct from topic_data_quality — former is provider telemetry, latter is pipeline signal quality gating
