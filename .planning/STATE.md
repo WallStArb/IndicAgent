@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: Ready to execute
-last_updated: "2026-03-28T12:28:44.028Z"
+status: Phase complete — ready for verification
+last_updated: "2026-03-28T12:31:39.694Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -18,7 +18,7 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-28)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** v2.2 — Phase 53.3 executing (Plan 04 complete: consumer-side migration done)
+**Current focus:** v2.2 — Phase 53.3 executing (Plan 03 complete: RollComputeAgent + test redirect done)
 
 ## Current Position
 
@@ -30,6 +30,13 @@ Plan: 4 of 4 complete
 - parse_roll_event uses RollEvent.model_validate for typed pydantic validation; old dict-key parsing (event_type/old_symbol/new_symbol) retired per D-02
 - feature_writer_agent reads detection_ts (not detected_at) from RollEvent schema payloads — field name changed with typed schema
 - signal_generator_agent subscribes to topic_roll_events (market.events.roll); topic_system_events removed per D-01
+
+### Decisions (Phase 053.3 Plan 03)
+
+- is_enabled property removed from RollMonitor — pre-existing test asserts SHADOW-03 graduated (always active)
+- Module-level prometheus counters in test fixture prevent duplicate registration across test runs
+- TestOnRollConfirmedChain, TestCallSiteBugFix, TestBarLoopWiring skipped (not deleted) to preserve test history traceability
+- roll_gap_price/roll_gap_pct = 0.0 intentional — previous contract price unavailable at detection time (Phase 50 refinement)
 
 ### Decisions (Phase 053.3 Plan 02)
 

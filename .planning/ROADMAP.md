@@ -208,7 +208,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - **Plans:** 4 plans in 2 waves
     - [x] 053.3-01-PLAN.md — RollEvent schema + topic_roll_events stream key
     - [x] 053.3-02-PLAN.md — DataProviderAgent rename + roll removal
-    - [ ] 053.3-03-PLAN.md — RollComputeAgent implementation + test redirect
+    - [x] 053.3-03-PLAN.md — RollComputeAgent implementation + test redirect
     - [x] 053.3-04-PLAN.md — signal_generator_agent consumer migration + cleanup
 - [ ] **Phase 53.2: BarAggregatorComputeAgent** — extract `BarAccumulator` (1m→HTF) from `feature_compute_agent` into standalone `BarAggregatorComputeAgent` (`bar_aggregator_agent.py`); `feature_compute_agent` becomes pure intelligence consumer; canonical flat bars for empty minutes; port :9120 *(depends on 53.3)*
   - **Plans:** 3 plans in 2 waves
