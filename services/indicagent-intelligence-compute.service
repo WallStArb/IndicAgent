@@ -1,7 +1,7 @@
 [Unit]
-Description=IndicAgent Signal Generator Service — I7 signals
-After=network-online.target indicagent-market-analysis.service
-Wants=indicagent-market-analysis.service
+Description=IndicAgent Intelligence Compute Agent — I2-I6 pipeline
+After=network-online.target indicagent-feature-pipeline.service
+Wants=indicagent-feature-pipeline.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -12,12 +12,13 @@ WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_generator_service.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/intelligence_compute_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-signal-generator
+SyslogIdentifier=indicagent-intelligence-compute
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
