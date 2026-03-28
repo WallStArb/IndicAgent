@@ -5,8 +5,7 @@ Verifies:
 1. _event_name_for_topic maps intelligence.record → signal_scorecard
 2. intelligence.i7 topic removed from _build_topic_list()
 3. intelligence.record topic present in _build_topic_list()
-4. topic_intelligence_i7 marked deprecated in stream_keys
-5. BarIntelligenceRecord.ranked_signals serializes to the expected signal_scorecard payload shape
+4. BarIntelligenceRecord.ranked_signals serializes to the expected signal_scorecard payload shape
 """
 
 import json
@@ -14,7 +13,6 @@ from datetime import UTC, datetime
 
 from src.api.routes.sse import _build_topic_list, _event_name_for_topic
 from src.core.stream_keys import (
-    topic_intelligence_i7,
     topic_intelligence_journal,
 )
 
@@ -49,11 +47,14 @@ class TestBuildTopicList:
     """_build_topic_list() uses intelligence.record, not intelligence.i7."""
 
     def test_intelligence_record_in_topic_list(self):
-        """intelligence.record topic must appear in _build_topic_list()."""
+        """intelligence.journal topic must appear in _build_topic_list().
+
+        Phase 44.3 rewired SSE from intelligence.record to topic_intelligence_journal
+        (topic string: intelligence.journal).
+        """
         topics = _build_topic_list(["ES"], "1m")
-        # Verify by checking the suffix, since env prefix varies across environments
-        assert any("intelligence.record" in t for t in topics), (
-            f"Expected a topic containing 'intelligence.record' in topic list, got: {topics}"
+        assert any("intelligence.journal" in t for t in topics), (
+            f"Expected a topic containing 'intelligence.journal' in topic list, got: {topics}"
         )
 
     def test_intelligence_i7_not_in_topic_list(self):
@@ -134,15 +135,10 @@ class TestBarIntelligenceRecordPayloadShape:
         assert "adjusted_rank" in sig
 
 
-class TestStreamKeysDeprecation:
-    """topic_intelligence_i7 is marked deprecated in stream_keys.py."""
-
-    def test_topic_intelligence_i7_still_callable(self):
-        """Deprecated function must still be callable (producer not yet removed)."""
-        result = topic_intelligence_i7("")
-        assert result == "intelligence.i7"
+class TestStreamKeysLiveTopics:
+    """stream_keys topic builders for current active topics."""
 
     def test_topic_intelligence_journal_available(self):
-        """topic_intelligence_journal must be importable and return correct topic."""
+        """topic_intelligence_journal must be importable and return correct topic string."""
         result = topic_intelligence_journal("")
-        assert result == "intelligence.record"
+        assert result == "intelligence.journal"

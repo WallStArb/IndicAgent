@@ -1,4 +1,4 @@
-"""Unit tests for perf_weights DB-direct read in signal_generator_service.
+"""Unit tests for perf_weights DB-direct read in signal_generator_agent.
 
 Tests for:
 - _load_perf_weights() reads from setup_performance DB table (not Redis)
@@ -21,7 +21,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_load_perf_weights_populates_from_db():
     """_load_perf_weights() must read from setup_performance table via asyncpg."""
-    from services.signal_generator_service import SignalGeneratorService
+    from services.signal_generator_agent import SignalGeneratorAgent as SignalGeneratorService
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
     svc._perf_weights = {}
@@ -57,7 +57,7 @@ async def test_load_perf_weights_populates_from_db():
 @pytest.mark.asyncio
 async def test_load_perf_weights_no_op_when_no_db():
     """_load_perf_weights() is no-op when db_manager is None."""
-    from services.signal_generator_service import SignalGeneratorService
+    from services.signal_generator_agent import SignalGeneratorAgent as SignalGeneratorService
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
     svc._perf_weights = {}
@@ -71,7 +71,7 @@ async def test_load_perf_weights_no_op_when_no_db():
 @pytest.mark.asyncio
 async def test_load_perf_weights_does_not_use_redis():
     """_load_perf_weights() must not call redis_client.get."""
-    from services.signal_generator_service import SignalGeneratorService
+    from services.signal_generator_agent import SignalGeneratorAgent as SignalGeneratorService
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
     svc._perf_weights = {}
@@ -99,7 +99,7 @@ async def test_load_perf_weights_does_not_use_redis():
 @pytest.mark.asyncio
 async def test_load_perf_weights_empty_table_leaves_empty_dict():
     """Empty setup_performance table → _perf_weights stays empty."""
-    from services.signal_generator_service import SignalGeneratorService
+    from services.signal_generator_agent import SignalGeneratorAgent as SignalGeneratorService
 
     svc = SignalGeneratorService.__new__(SignalGeneratorService)
     svc._perf_weights = {}
@@ -174,7 +174,6 @@ def test_stream_keys_topic_builders_still_present():
         "topic_market_bars",
         "topic_indicators",
         "topic_intelligence",
-        "topic_intelligence_i7",
         "topic_intelligence_i8",
         "topic_signals",
         "topic_signals_aggregated",

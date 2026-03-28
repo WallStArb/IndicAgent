@@ -7,7 +7,6 @@ from src.core.stream_keys import (
     system_events,
     topic_indicators,
     topic_intelligence,
-    topic_intelligence_i7,
     topic_intelligence_i8,
     topic_llm_calls,
     topic_llm_outcomes,
@@ -79,10 +78,6 @@ def test_topic_indicators_no_env() -> None:
 
 def test_topic_intelligence_with_env() -> None:
     assert topic_intelligence("dev") == "dev.intelligence"
-
-
-def test_topic_intelligence_i7_with_env() -> None:
-    assert topic_intelligence_i7("dev") == "dev.intelligence.i7"
 
 
 def test_topic_intelligence_i8_with_env() -> None:

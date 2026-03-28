@@ -5,11 +5,12 @@
 set -euo pipefail
 
 SERVICES=(
-    indicagent-tws
+    indicagent-data-provider
+    indicagent-bar-aggregator-compute
     indicagent-feature-compute
     indicagent-feature-writer
     indicagent-signal-generator
-    indicagent-signal-lifecycle
+    indicagent-signal-tracker
     indicagent-ai-narrative
     indicagent-llm-writer
     indicagent-api

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""End-to-end integration test for the 6-stage DAG pipeline.
+"""DEPRECATED: E2E test for the Phase 40 6-stage DAG pipeline microservice architecture.
 
-Tests the full signal flow through all DAG stages:
-    QualityGate -> RegimeGate -> TODAdjuster -> Calibrator -> Ranker -> WinnerSelector
+Phase 44.2 (2026-03-22) consolidated all 6 pipeline stages in-process into
+signal_generator_agent.py. The microservice DAG (QualityGate, RegimeGate,
+TODAdjuster, Calibrator, Ranker, WinnerSelector as separate services) no longer
+exists. topic_winner and topic_attribution have been removed from stream_keys.
 
-These tests require live Redpanda and all 6 stage microservices running.
-Mark with @pytest.mark.integration — skipped in CI without live infra.
-
-Usage:
-    .venv/bin/pytest tests/integration/test_dag_pipeline_e2e.py -v -m integration
+These tests are SKIPPED. Replace with a new E2E test targeting the current
+in-process pipeline architecture (signal_generator_agent + audit stage topics).
+See todo: 004-service-new-test-pattern-safety.md
 """
 
 from __future__ import annotations
@@ -27,9 +27,12 @@ sys.path.insert(0, str(project_root))
 from src.config.settings import Settings
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.stream_keys import (
-    topic_attribution,
     topic_quality_gated,
-    topic_winner,
+)
+
+pytestmark = pytest.mark.skip(
+    reason="Phase 40 6-stage DAG architecture retired in Phase 44.2. "
+    "Rewrite as test_signal_generator_e2e.py targeting in-process pipeline."
 )
 
 # ---------------------------------------------------------------------------
