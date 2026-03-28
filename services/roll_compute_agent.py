@@ -57,6 +57,12 @@ _ROLL_MIN_WINDOW = 20
 
 _logger = structlog.get_logger(__name__)
 
+# Module-level Prometheus metrics — avoids duplicate registration on re-instantiation
+_EVENTS_CONSUMED = Counter("roll_compute_events_consumed_total", "Bars consumed from market.bars", ["agent"])
+_ROLLS_DETECTED = Counter("roll_compute_rolls_detected_total", "Roll events confirmed and published", ["agent"])
+_DETECTION_LATENCY = Histogram("roll_compute_detection_latency_seconds", "Roll detection latency per bar", ["agent"])
+_DETECTION_ERRORS = Counter("roll_compute_detection_errors_total", "Exceptions during bar processing", ["agent"])
+
 
 # ---------------------------------------------------------------------------
 # RollMonitor — extracted from tws_daemon.py / data_provider_agent.py
@@ -222,11 +228,9 @@ class RollMonitor:
         if cooldown_until is not None and utc_now < cooldown_until:
             return False
 
-        # Time-of-day gating (optional)
+        # Time-of-day gating: skip detection entirely during post-close window (16-18 ET)
         if self._tod_gated:
-            threshold = self.get_threshold(base_symbol)
-            adj_threshold = self._apply_tod_adjustment(threshold, utc_now)
-            if adj_threshold is None:
+            if self._apply_tod_adjustment(self.get_threshold(base_symbol), utc_now) is None:
                 return False
 
         # Z-score: detect volume DROP below 2 std devs (front contract losing volume to back)
@@ -297,32 +301,11 @@ class RollComputeAgent(BaseAgent):
             for c in get_active_contracts(settings)
         }
 
-        # Golden Signals (D-17) — use _prom_counter/_prom_gauge for dedup registry
-        self._events_consumed = Counter(
-            "roll_compute_events_consumed_total",
-            "Bars consumed from market.bars",
-            ["agent"],
-        )
-        self._rolls_detected = Counter(
-            "roll_compute_rolls_detected_total",
-            "Roll events confirmed and published",
-            ["agent"],
-        )
-        self._detection_latency = Histogram(
-            "roll_compute_detection_latency_seconds",
-            "Roll detection latency per bar",
-            ["agent"],
-        )
-        self._detection_errors = Counter(
-            "roll_compute_detection_errors_total",
-            "Exceptions during bar processing",
-            ["agent"],
-        )
         # Cache labeled metric objects — avoids per-bar registry lookup on hot path
-        self._events_consumed_lbl = self._events_consumed.labels(agent=self.name)
-        self._detection_latency_lbl = self._detection_latency.labels(agent=self.name)
-        self._rolls_detected_lbl = self._rolls_detected.labels(agent=self.name)
-        self._detection_errors_lbl = self._detection_errors.labels(agent=self.name)
+        self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
+        self._detection_latency_lbl = _DETECTION_LATENCY.labels(agent=self.name)
+        self._rolls_detected_lbl = _ROLLS_DETECTED.labels(agent=self.name)
+        self._detection_errors_lbl = _DETECTION_ERRORS.labels(agent=self.name)
 
     @property
     def topics_consumed(self) -> list[str]:

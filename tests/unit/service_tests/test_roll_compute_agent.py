@@ -57,11 +57,7 @@ def _make_agent():
     agent._symbol_to_base = {"ESM6": "ES"}
     agent._roll_monitor = MagicMock(spec=RollMonitor)
     # Wire module-level test metrics (no duplicate registration)
-    agent._events_consumed = _TEST_EVENTS_CONSUMED
-    agent._rolls_detected = _TEST_ROLLS_DETECTED
-    agent._detection_latency = _TEST_DETECTION_LATENCY
-    agent._detection_errors = _TEST_DETECTION_ERRORS
-    # Cache labeled metrics (mirrors __init__ — required by __new__ test pattern)
+    # Metrics are module-level in production; bind test-named labels for __new__ fixture
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="roll_compute_agent")
     agent._rolls_detected_lbl = _TEST_ROLLS_DETECTED.labels(agent="roll_compute_agent")
     agent._detection_latency_lbl = _TEST_DETECTION_LATENCY.labels(agent="roll_compute_agent")
@@ -252,10 +248,11 @@ def test_golden_signals_are_counter_instances():
     """events_consumed_total and rolls_detected_total must be Counter instances."""
     from prometheus_client import Counter
 
-    agent = _make_agent()
-    assert isinstance(agent._events_consumed, Counter)
-    assert isinstance(agent._rolls_detected, Counter)
-    assert isinstance(agent._detection_errors, Counter)
+    from services.roll_compute_agent import _EVENTS_CONSUMED, _DETECTION_ERRORS, _ROLLS_DETECTED
+
+    assert isinstance(_EVENTS_CONSUMED, Counter)
+    assert isinstance(_ROLLS_DETECTED, Counter)
+    assert isinstance(_DETECTION_ERRORS, Counter)
 
 
 # ---------------------------------------------------------------------------
