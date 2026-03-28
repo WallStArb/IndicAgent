@@ -56,6 +56,11 @@ def topic_roll_events(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.events.roll"
 
 
+def topic_gap_requests(env_name: str) -> str:
+    """Kafka topic for BarGapRequest gap-fill events from BarAuditorAgent."""
+    return f"{env_prefix(env_name)}market.events.gap_requests"
+
+
 def topic_indicators(env_name: str) -> str:
     """Kafka topic for I1 technical indicator output."""
     return f"{env_prefix(env_name)}indicators"
