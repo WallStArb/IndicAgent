@@ -134,11 +134,6 @@ class RollMonitor:
         """Detect paper account via ib_host setting."""
         return self._settings.ib_host in self.PAPER_ACCOUNT_HOSTS
 
-    @property
-    def is_enabled(self) -> bool:
-        """Return True — roll monitoring is always enabled (SHADOW-03 graduated)."""
-        return True
-
     def should_skip_symbol(self, symbol: str) -> bool:
         """Return True if symbol should be skipped (paper account + unavailable contract)."""
         return self._is_paper and symbol in self.PAPER_SKIP_CONTRACTS
