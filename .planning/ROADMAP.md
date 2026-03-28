@@ -540,3 +540,16 @@ Design doc: `docs/ideas/base-agent-enhancement.md` — see "Kafka trace propagat
 
 Plans:
 - [x] 52.8-01-PLAN.md — Wire traceparent inject/extract into KafkaProducerClient + KafkaConsumerClient
+
+### Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation
+
+**Goal:** Abstract DataProviderAgent into BaseProviderAgent + adapter pattern. IBKRAdapter wraps IBKRProvider. ProviderMergerAgent is the single canonical author of market.bars with auto-failover.
+**Requirements**: TBD
+**Depends on:** Phase 53.3
+**Plans:** 4 plans
+
+Plans:
+- [ ] 54-01-PLAN.md — Foundation: Contracts, Schemas, Stream Keys
+- [ ] 54-02-PLAN.md — IBKRAdapter + provider_meta Migration
+- [ ] 54-03-PLAN.md — BaseProviderAgent + IBKRProviderAgent
+- [ ] 54-04-PLAN.md — ProviderMergerAgent + Zero-Downtime Cutover
