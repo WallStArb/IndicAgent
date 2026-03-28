@@ -74,7 +74,8 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 
 | Domain | Role | Agent Suffix | Example | Rule |
 | :--- | :--- | :--- | :--- | :--- |
-| **Ingestion** | External source → Kafka adapter | `ProviderAgent` | `DataProviderAgent` | Protocol boundary only — no compute, no DB |
+| **Ingestion** | External source → Kafka adapter | `ProviderAgent` | `DataProviderAgent`, `IBKRProviderAgent` | Protocol boundary only — no compute, no DB |
+| **Fan-in Routing** | Multi-source Kafka fan-in → single authoritative stream | `MergerAgent` | `ProviderMergerAgent` | Selects authoritative source, auto-failover on silence; DB-ignorant; Kafka→Kafka only |
 | **Compute** | Mathematical/statistical transformation | `ComputeAgent` | `IndicatorComputeAgent`, `BarAggregatorComputeAgent`, `RollComputeAgent` | DB-ignorant; pure transform |
 | **Decision** | Signal/trade fire | `GeneratorAgent` | `SignalGeneratorAgent` | Produces ranked decision events |
 | **Persistence** | Data I/O / batch write | `WriterAgent` | `FeatureWriterAgent`, `BarWriterAgent` | DB-aware; never on the hot compute path |
@@ -86,6 +87,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 
 ### Role Boundary Rules
 
+- **`ProviderAgent` vs `MergerAgent`:** A `ProviderAgent` connects to an external data source and publishes to a provider-specific raw topic. A `MergerAgent` consumes from multiple raw topics and selects the authoritative event for downstream consumers. A provider never routes; a merger never touches external protocols.
 - **`ProviderAgent` vs `ComputeAgent`:** A provider translates an external protocol into typed Kafka events. It performs no mathematical transformation. The moment you add z-scores, aggregation, or detection logic, that logic belongs in a separate `ComputeAgent`.
 - **`TrackerAgent` vs `AuditorAgent`:** Trackers follow a *business object* through its lifecycle (signal: pending→active→expired). Auditors validate *data pipeline integrity* across system boundaries (parity, completeness) and trigger automated remediation. Do not conflate.
 - **`WriterAgent` isolation:** WriterAgents are the only agents with DB write access. They must never appear on the compute hot path — they consume from Kafka and batch-persist asynchronously.
