@@ -1,0 +1,23 @@
+[Unit]
+Description=IndicAgent RollComputeAgent — futures roll detection
+After=network-online.target indicagent-data-provider.service
+Wants=indicagent-data-provider.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/roll_compute_agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-roll-compute
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
