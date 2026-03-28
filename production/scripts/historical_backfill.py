@@ -84,7 +84,7 @@ from src.core.service_utils import bar_close_ts as compute_bar_close_ts
 from src.intelligence.plugins import registry
 from src.intelligence.register_plugins import register_all_plugins
 from src.intelligence.trading.aggregator import AggregatedResult, aggregate
-from src.intelligence.trading.signal_ledger import LedgerEntry
+from src.persistence.repository.signal_ledger_repository import LedgerEntry
 from src.providers import IBKRProvider
 
 # ---------------------------------------------------------------------------

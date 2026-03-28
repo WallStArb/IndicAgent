@@ -103,6 +103,14 @@ _LLM_TABLES = ["llm_calls", "llm_model_scores"]
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
 
 _STOP_SERVICES = [
+    # Provider layer (Phase 54: replaces indicagent-data-provider)
+    "indicagent-ibkr-provider",
+    "indicagent-provider-merger",
+    # Bar pipeline
+    "indicagent-bar-aggregator-compute",
+    "indicagent-bar-writer",
+    "indicagent-bar-auditor",
+    # Intelligence + signal pipeline
     "indicagent-signal-generator",
     "indicagent-signal-tracker",
     "indicagent-feature-compute",
@@ -111,6 +119,14 @@ _STOP_SERVICES = [
 ]
 
 _START_SERVICES = [
+    # Provider layer
+    "indicagent-ibkr-provider",
+    "indicagent-provider-merger",
+    # Bar pipeline
+    "indicagent-bar-aggregator-compute",
+    "indicagent-bar-writer",
+    "indicagent-bar-auditor",
+    # Intelligence + signal pipeline
     "indicagent-feature-compute",
     "indicagent-feature-writer",
     "indicagent-signal-generator",
@@ -421,7 +437,7 @@ def main() -> None:
     for t in cleared:
         print(f"      {verb} {t}")
 
-    # Re-seed contract_metadata — truncate_tables() wipes it, so data_provider_agent would
+    # Re-seed contract_metadata — truncate_tables() wipes it, so ibkr_provider_agent would
     # pick up 0 futures from get_active_contracts() and never subscribe to them.
     print("      re-seeding contract_metadata (front-month roll chain)...")
     async def _seed_contract_metadata() -> None:

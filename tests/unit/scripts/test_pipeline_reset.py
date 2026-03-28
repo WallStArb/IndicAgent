@@ -186,3 +186,109 @@ def test_clear_kafka_topics_recreates_topics_after_delete():
         asyncio.run(clear_kafka_topics("localhost:19092", env_prefix="development"))
 
     mock_client.create_topics.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Service lists (Phase 54 provider refactor)
+# ---------------------------------------------------------------------------
+
+
+def test_stop_services_includes_new_provider_services():
+    """_STOP_SERVICES must include ibkr-provider and provider-merger (new DAG services)."""
+    from production.scripts.pipeline_reset import _STOP_SERVICES
+
+    assert "indicagent-ibkr-provider" in _STOP_SERVICES
+    assert "indicagent-provider-merger" in _STOP_SERVICES
+
+
+def test_stop_services_includes_bar_pipeline():
+    """_STOP_SERVICES must include bar-aggregator, bar-writer, bar-auditor."""
+    from production.scripts.pipeline_reset import _STOP_SERVICES
+
+    assert "indicagent-bar-aggregator-compute" in _STOP_SERVICES
+    assert "indicagent-bar-writer" in _STOP_SERVICES
+    assert "indicagent-bar-auditor" in _STOP_SERVICES
+
+
+def test_stop_services_excludes_old_data_provider():
+    """indicagent-data-provider is retired — must NOT appear in _STOP_SERVICES."""
+    from production.scripts.pipeline_reset import _STOP_SERVICES
+
+    assert "indicagent-data-provider" not in _STOP_SERVICES
+
+
+def test_start_services_includes_bar_pipeline():
+    """_START_SERVICES must include bar-aggregator, bar-writer, bar-auditor after reset."""
+    from production.scripts.pipeline_reset import _START_SERVICES
+
+    assert "indicagent-bar-aggregator-compute" in _START_SERVICES
+    assert "indicagent-bar-writer" in _START_SERVICES
+    assert "indicagent-bar-auditor" in _START_SERVICES
+
+
+def test_start_services_includes_new_provider_services():
+    """_START_SERVICES must include ibkr-provider and provider-merger."""
+    from production.scripts.pipeline_reset import _START_SERVICES
+
+    assert "indicagent-ibkr-provider" in _START_SERVICES
+    assert "indicagent-provider-merger" in _START_SERVICES
+
+
+# ---------------------------------------------------------------------------
+# kafka_init_topics — topic spec completeness
+# ---------------------------------------------------------------------------
+
+
+def test_kafka_init_topics_importable():
+    """kafka_init_topics module must exist and export _TOPIC_SPECS."""
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
+    assert isinstance(_TOPIC_SPECS, list)
+    assert len(_TOPIC_SPECS) > 0
+
+
+def test_kafka_init_topics_spec_shape():
+    """Each entry in _TOPIC_SPECS must be a (suffix, partitions, retention_ms) tuple."""
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
+    for entry in _TOPIC_SPECS:
+        assert len(entry) == 3, f"Expected 3-tuple, got {entry}"
+        suffix, partitions, retention_ms = entry
+        assert isinstance(suffix, str)
+        assert isinstance(partitions, int)
+        assert isinstance(retention_ms, int)
+
+
+def test_kafka_init_topics_includes_core_topics():
+    """Core market data topics must be present in _TOPIC_SPECS."""
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
+    suffixes = {s for s, _, _ in _TOPIC_SPECS}
+    assert "market.bars" in suffixes
+    assert "market.bars.htf" in suffixes
+    assert "market.ticks" in suffixes
+    assert "market.events.gap_requests" in suffixes
+
+
+def test_kafka_init_topics_includes_provider_raw_topic():
+    """market.bars.raw.ibkr must be in _TOPIC_SPECS (Phase 54 new topic)."""
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
+    suffixes = {s for s, _, _ in _TOPIC_SPECS}
+    assert "market.bars.raw.ibkr" in suffixes
+
+
+def test_kafka_init_topics_includes_quality_topic():
+    """market.data.quality must be in _TOPIC_SPECS (Phase 54 new topic)."""
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
+    suffixes = {s for s, _, _ in _TOPIC_SPECS}
+    assert "market.data.quality" in suffixes
+
+
+def test_kafka_init_topics_all_use_dots_not_colons():
+    """All topic suffixes must use dots as separators, never colons (CLAUDE.md rule)."""
+    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+
+    for suffix, _, _ in _TOPIC_SPECS:
+        assert ":" not in suffix, f"Colon found in topic suffix: {suffix}"
