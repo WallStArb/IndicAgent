@@ -28,6 +28,11 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - ✓ CrossAssetService microservice: ES/NQ/RTY/YM spread z-scores, correlation break features; CrossAssetDivergencePlugin I7 — v1.9
 - ✓ Automated futures roll detection: volume z-score > 2.0, 3-bar confirmation, TOD adjustment, full pipeline propagation, plugin state migration — v1.9
 
+**v2.1 DAG Extraction — BarAggregatorComputeAgent (2026-03-28):**
+- ✓ `is_flat_bar` field in `BarMessage`: BarAccumulator tracks `all_flat` across constituent 1m bars, DataProviderAgent stamps flat-fill path with `True` — downstream consumers can distinguish canonical empty-minute bars — v2.1
+- ✓ `BarAggregatorComputeAgent` (`bar_aggregator_agent.py`): standalone DB-ignorant compute node consuming `market.bars`, publishing completed HTF bars to `market.bars.htf`; Golden Signals on :9120; systemd unit installed — v2.1
+- ✓ `feature_compute_agent` simplified: BarAccumulator extracted, `_publish_htf_bar()` removed, now subscribes to both `market.bars` (1m) and `market.bars.htf` (completed HTF); pure intelligence consumer — v2.1
+
 **v2.1 Data Foundation & Signal Confidence (2026-03-28):**
 - ✓ Live tick aggregation: 5s RTBs → canonical 1m bars via IBKR push; eliminated bars_processed=0 freeze; 3 shared I7 utilities removing 550+ lines of duplication — v2.1
 - ✓ Signal ledger completeness: ALL signals written unconditionally regardless of regime suppression; regime_type_at_fire + hmm_regime_at_fire populated for ML segmentation; lifecycle composite index (34ms → <5ms) — v2.1
