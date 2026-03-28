@@ -70,5 +70,5 @@ class FeatureRepository:
     async def insertBatch(self, feature_data: Any) -> None:
         raise TypeError(
             "FeatureRepository.insertBatch() removed — use insert(params_tuple). "
-            "Build params via feature_writer_service._record_to_insert_params()."
+            "Build params via feature_writer_agent._record_to_insert_params()."
         )

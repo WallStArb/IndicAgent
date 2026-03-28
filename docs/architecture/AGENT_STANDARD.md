@@ -70,17 +70,27 @@ Renaissance Agents must handle failures without human intervention and ensure no
 
 ## 6. Taxonomy & Domain Mapping
 
-| Domain | Role | Agent Suffix | Example |
-| :--- | :--- | :--- | :--- |
-| **Compute** | Feature Transformation | `ComputeAgent` | `IndicatorComputeAgent` |
-| **Decision** | Signal/Trade Fire | `GeneratorAgent` | `SignalGeneratorAgent` |
-| **Persistence** | Data I/O/Batching | `WriterAgent` | `SignalLedgerWriterAgent` |
-| **Lifecycle** | State Tracking (PnL/MAE) | `TrackerAgent` | `SignalTrackerAgent` |
-| **Inference** | AI/ML Decision Engine | `PredictiveAlphaAgent` | `AlphaInferenceAgent` |
-| **Training** | Model Learning | `TrainingAgent` | `FeatureTrainingAgent` |
-| **Swarm** | Multi-Agent Reasoning | `SwarmAgent` | `SwarmIntelligenceAgent` |
+The taxonomy covers the full DAG from data ingestion to quality control. Every agent suffix maps to a single, invariant responsibility. If you read the name, you know the node's role in the DAG without opening the file.
 
-> **Taxonomy Note:** `FeatureHistorianAgent` previously appeared in plans but uses the wrong suffix — persistence agents use `WriterAgent` suffix (e.g., `FeatureWriterAgent`). The `HistorianAgent` suffix is not in the taxonomy and must not be used. Similarly, `SwarmSMCContributor` violates the `SwarmAgent` suffix rule — correct name would be `SwarmSMCAgent`.
+| Domain | Role | Agent Suffix | Example | Rule |
+| :--- | :--- | :--- | :--- | :--- |
+| **Ingestion** | External source → Kafka adapter | `ProviderAgent` | `DataProviderAgent` | Protocol boundary only — no compute, no DB |
+| **Compute** | Mathematical/statistical transformation | `ComputeAgent` | `IndicatorComputeAgent`, `BarAggregatorComputeAgent`, `RollComputeAgent` | DB-ignorant; pure transform |
+| **Decision** | Signal/trade fire | `GeneratorAgent` | `SignalGeneratorAgent` | Produces ranked decision events |
+| **Persistence** | Data I/O / batch write | `WriterAgent` | `FeatureWriterAgent`, `BarWriterAgent` | DB-aware; never on the hot compute path |
+| **Lifecycle** | Business object state tracking | `TrackerAgent` | `SignalTrackerAgent` | Follows a domain entity through its lifecycle (e.g., signal PnL/MAE) |
+| **Quality Gate** | Autonomous data integrity validation + remediation | `AuditorAgent` | `ParityAuditorAgent`, `BarAuditorAgent` | Compares, certifies, triggers self-healing; never modifies data directly |
+| **Inference** | AI/ML decision engine | `PredictiveAlphaAgent` | `AlphaInferenceAgent` | (future) |
+| **Training** | Model learning | `TrainingAgent` | `FeatureTrainingAgent` | (future) |
+| **Swarm** | Multi-agent reasoning | `SwarmAgent` | `SwarmIntelligenceAgent` | (future) |
+
+### Role Boundary Rules
+
+- **`ProviderAgent` vs `ComputeAgent`:** A provider translates an external protocol into typed Kafka events. It performs no mathematical transformation. The moment you add z-scores, aggregation, or detection logic, that logic belongs in a separate `ComputeAgent`.
+- **`TrackerAgent` vs `AuditorAgent`:** Trackers follow a *business object* through its lifecycle (signal: pending→active→expired). Auditors validate *data pipeline integrity* across system boundaries (parity, completeness) and trigger automated remediation. Do not conflate.
+- **`WriterAgent` isolation:** WriterAgents are the only agents with DB write access. They must never appear on the compute hot path — they consume from Kafka and batch-persist asynchronously.
+
+> **Taxonomy Note:** `FeatureHistorianAgent` previously appeared in plans but uses the wrong suffix — persistence agents use `WriterAgent` (e.g., `FeatureWriterAgent`). `SwarmSMCContributor` violates the `SwarmAgent` suffix rule — correct name is `SwarmSMCAgent`. `RollDetectionAgent` and `BarCompletenessAgent` in early v2.2 design docs used non-taxonomy suffixes — correct names are `RollComputeAgent` and `BarAuditorAgent`.
 
 ## 7. The Unified Intelligence Bus Taxonomy **[TARGET ARCHITECTURE — topics not yet in stream_keys.py]**
 
@@ -106,7 +116,7 @@ Renaissance Agents must handle failures without human intervention and ensure no
 3.  **Compute Efficiency:** By forcing tiers into these topics, we allow downstream agents to perform topic-based subscription filtering. If an agent only cares about `SMC` confluence, it ignores `i1` through `i5` topics entirely, saving massive CPU cycles on deserialization.
 
 ---
-**Status:** Global Standard v1.1 — Current vs Target architecture labelled
-**Last Updated:** 2026-03-26
+**Status:** Global Standard v1.2 — Extended taxonomy with ProviderAgent + AuditorAgent
+**Last Updated:** 2026-03-28
 
 > **Reading this document:** Sections labelled **[CURRENT STANDARD]** describe what agents must do today. Sections labelled **[TARGET ARCHITECTURE]** describe where we are heading — do not implement until the prerequisite infrastructure exists.

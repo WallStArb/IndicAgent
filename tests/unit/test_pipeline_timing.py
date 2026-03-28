@@ -4,7 +4,7 @@ Tests cover:
 - bar_close_ts utility function
 - IntelligenceEvent timing field optionality
 - Per-source timing field behaviour (live vs backfill)
-- feature_writer_service INSERT param generation
+- feature_writer_agent INSERT param generation
 """
 
 from datetime import UTC, datetime, timedelta
@@ -178,7 +178,7 @@ def test_backfill_bar_close_ts_always_set():
     assert event.bar_close_ts == bct
 
 
-# ── feature_writer_service: INSERT param tuple ────────────────────────────────
+# ── feature_writer_agent: INSERT param tuple ────────────────────────────────
 
 
 def _make_record(source: str = "live", bar_close_ts=None, i1_computed_at=None, computed_at=None):
@@ -207,7 +207,7 @@ def _make_record(source: str = "live", bar_close_ts=None, i1_computed_at=None, c
 
 def test_feature_writer_writes_timing_columns_none_when_absent():
     """Without timing fields, _record_to_insert_params returns None for timing positions."""
-    from services.feature_writer_service import _record_to_insert_params
+    from services.feature_writer_agent import _record_to_insert_params
 
     record = _make_record(source="backfill")
     params = _record_to_insert_params(record)
@@ -219,7 +219,7 @@ def test_feature_writer_writes_timing_columns_none_when_absent():
 
 def test_feature_writer_writes_timing_columns_present_for_live():
     """With timing fields set, _record_to_insert_params returns them at expected positions."""
-    from services.feature_writer_service import _record_to_insert_params
+    from services.feature_writer_agent import _record_to_insert_params
 
     bct = datetime(2026, 1, 15, 13, 0, 0, tzinfo=UTC)
     i1_at = datetime(2026, 1, 15, 13, 0, 0, 450000, tzinfo=UTC)
