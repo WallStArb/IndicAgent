@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: Executing Phase 053.3
-last_updated: "2026-03-28T12:12:31Z"
+status: v2.1 milestone complete
+last_updated: "2026-03-28T12:19:46.040Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -18,12 +18,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-28)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 053.3 — roll-detection-agent-data-provider-rename
+**Current focus:** v2.2 — Phase 53.3 executing (Plan 02 complete: DataProviderAgent rename done)
 
 ## Current Position
 
 Phase: 053.3 (roll-detection-agent-data-provider-rename) — EXECUTING
-Plan: 2 of 4
+Plan: 2 of 4 complete
+
+### Decisions (Phase 053.3 Plan 02)
+
+- DataProviderAgent in services/data_provider_agent.py (ExecStart points directly, not through production/daemons/ wrapper which doesn't exist)
+- RollMonitor class deleted entirely from DataProviderAgent — moves to Plan 03 as standalone RollDetectionAgent
+- _UNSET sentinel added to __new__ test fixture (CLAUDE.md Service test pattern compliance)
 
 ## v2.2 Milestone Goal
 
@@ -125,12 +131,6 @@ Complete the data layer DAG decomposition, automate gap healing, graduate shadow
 - init_tracing in all four __main__ blocks — no-op until Phase 52.7 wires OTEL_EXPORTER_OTLP_ENDPOINT in systemd unit files
 - config-before-super pattern applied consistently — metrics_port extracted before super().__init__()
 - FeatureWriterAgent._env_name (underscore prefix) differs from other agents' env_name — noted in test setup
-
-### Decisions (Phase 053.3 Plan 01)
-
-- All 8 RollEvent fields required (no defaults) — partial roll data must not flow downstream
-- topic_roll_events grouped with market.* topics after topic_market_bars_htf in stream_keys.py
-- BarGapRequest is intentional stub (4 fields complete) — Phase 53.1 owns full implementation
 
 ### Pending Todos
 

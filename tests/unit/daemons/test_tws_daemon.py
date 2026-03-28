@@ -1,4 +1,4 @@
-"""Tests for services/tws_daemon — Kafka-native TWS daemon (Phase 30, Plan 02)."""
+"""Tests for services/data_provider_agent — Kafka-native data provider agent (Phase 30, Plan 02)."""
 
 from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
@@ -6,21 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-def _make_mock_roll_monitor():
-    """No-op RollMonitor mock — roll detection always active but no roll detected."""
-    mock_rm = MagicMock()
-    mock_rm.check_roll = MagicMock(return_value=False)
-    mock_rm.should_skip_symbol = MagicMock(return_value=False)
-    return mock_rm
-
-
 def _make_rtb_loop_daemon():
-    """Build a TwsDaemon via __new__ ready for _rtb_loop tests with a mock Kafka producer."""
+    """Build a DataProviderAgent via __new__ ready for _rtb_loop tests with a mock Kafka producer."""
     from collections import defaultdict
 
-    from services.tws_daemon import TwsDaemon
+    from services.data_provider_agent import DataProviderAgent
 
-    daemon = TwsDaemon.__new__(TwsDaemon)
+    daemon = DataProviderAgent.__new__(DataProviderAgent)
     daemon.env_name = "dev"
     daemon.running = True
     daemon.bars_processed = 0
@@ -29,9 +21,9 @@ def _make_rtb_loop_daemon():
     daemon.m_ticks = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    daemon._roll_monitor = _make_mock_roll_monitor()
     daemon._official_bars_cache = defaultdict(dict)
     daemon._rtb_state = {}
+    daemon._UNSET = object()  # sentinel for unset prev_close — mirrors __init__
 
     kafka_producer = AsyncMock()
     kafka_producer.publish = AsyncMock()
@@ -76,15 +68,14 @@ async def test_emit_bar_dedup_guard_prevents_double_publish():
     from collections import defaultdict
     from datetime import datetime
 
-    from services.tws_daemon import TwsDaemon
+    from services.data_provider_agent import DataProviderAgent
 
-    daemon = TwsDaemon.__new__(TwsDaemon)
+    daemon = DataProviderAgent.__new__(DataProviderAgent)
     daemon.env_name = "dev"
     daemon.bars_processed = 0
     daemon.m_bars = MagicMock()
     daemon.seen_bar_timestamps = defaultdict(set)
     daemon.seen_bar_timestamps_order = defaultdict(list)
-    daemon._roll_monitor = _make_mock_roll_monitor()
     daemon._official_bars_cache = defaultdict(dict)
     daemon._symbol_to_base = {"ES": "ES"}
 
@@ -108,12 +99,12 @@ async def test_emit_bar_dedup_guard_prevents_double_publish():
     assert kafka_producer.publish.call_count == 1  # still 1
 
 
-def test_tws_daemon_no_redis_asyncio_import():
-    """services/tws_daemon.py must not import redis.asyncio (fully Kafka-native)."""
+def test_data_provider_agent_no_redis_asyncio_import():
+    """services/data_provider_agent.py must not import redis.asyncio (fully Kafka-native)."""
     import ast
     from pathlib import Path
 
-    source = (Path(__file__).parent.parent.parent.parent / "services" / "tws_daemon.py").read_text()
+    source = (Path(__file__).parent.parent.parent.parent / "services" / "data_provider_agent.py").read_text()
     tree = ast.parse(source)
     redis_asyncio_imports = []
     for node in ast.walk(tree):

@@ -421,7 +421,7 @@ def main() -> None:
     for t in cleared:
         print(f"      {verb} {t}")
 
-    # Re-seed contract_metadata — truncate_tables() wipes it, so tws_daemon would
+    # Re-seed contract_metadata — truncate_tables() wipes it, so data_provider_agent would
     # pick up 0 futures from get_active_contracts() and never subscribe to them.
     print("      re-seeding contract_metadata (front-month roll chain)...")
     async def _seed_contract_metadata() -> None:
