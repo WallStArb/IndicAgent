@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Milestone complete
-last_updated: "2026-03-28T16:35:24.663Z"
+last_updated: "2026-03-28T17:47:06.590Z"
 progress:
   total_phases: 11
   completed_phases: 0
@@ -130,3 +130,11 @@ Recent additions:
 
 - feature_pipeline_service.py shim re-exports FeatureComputeAgent as FeaturePipelineService — 12 existing tests reference old class name; shim avoids touching test files
 - Pre-existing ruff E501 at line 705 deferred — out of scope per deviation scope boundary rule; was present in HEAD before these changes
+
+### Decisions (Phase 053.1 Plan 02)
+
+- BarAuditorAgent uses asyncpg.create_pool directly (not DatabaseManager) — AuditorAgents own their DB pools
+- asyncio.wait_for(_stop_event.wait, timeout=300) for interruptible sleep — SIGTERM wakes immediately without waiting full interval
+- _gap_requests_task submitted ONCE before reconnect while-loop — pure Kafka consumer, no IBKR connection dependency
+- _gap_requests_task NOT in _on_disconnected cancellation list — only IBKR-dependent tasks cancel on disconnect
+- DPA uses module-level logger (not self.logger) — test mocks services.data_provider_agent.logger directly
