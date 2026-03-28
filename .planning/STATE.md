@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Data Foundation & Signal Confidence
 status: Ready to plan
-last_updated: "2026-03-28T00:07:29.300Z"
+last_updated: "2026-03-28T00:39:20.402Z"
 progress:
   total_phases: 12
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 11
 ---
 
 # Project State
@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 ## Current Position
 
 Phase: 52.6
-Plan: 04 complete (5 total) — SignalGeneratorAgent BaseAgent migration + lifecycle tests
+Plan: 05 complete (5 total) — IntelligenceComputeAgent + FeatureWriterAgent BaseAgent migration + lifecycle tests — PHASE COMPLETE
 
 ## v2.1 Milestone Goal
 
@@ -118,6 +118,13 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 - Repository constructor kept as db_manager: Any (not asyncpg.Pool) — plan's pool interface was aspirational; changing would break signal_generator_agent and other callers
 - update_lifecycle_state wraps update_signal_status — canonical agent name while preserving backward-compat internal calls
 - indicagent-signal-lifecycle disabled; indicagent-signal-tracker installed on live system (pending main repo merge for ExecStart to resolve)
+
+### Decisions (Phase 52.6 Plan 05)
+
+- Source inspection (AST/text) for IntelligenceComputeAgent tests — avoids services.indicator_service ModuleNotFoundError at import time
+- init_tracing in all four __main__ blocks — no-op until Phase 52.7 wires OTEL_EXPORTER_OTLP_ENDPOINT in systemd unit files
+- config-before-super pattern applied consistently — metrics_port extracted before super().__init__()
+- FeatureWriterAgent._env_name (underscore prefix) differs from other agents' env_name — noted in test setup
 
 ### Pending Todos
 
