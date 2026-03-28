@@ -523,7 +523,7 @@ Plans:
 **Goal:** Stand up Grafana Tempo as the OTel trace backend. No application code changes — agents already call `init_tracing()` after Phase 52.6. This phase wires the receiving end.
 **Requirements**: [TEMPO-01, TEMPO-02, TEMPO-03, TEMPO-04, TEMPO-05]
 **Depends on:** Phase 52.6
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 **Scope:**
 - Tempo Docker container (alongside timescaledb/redpanda)
@@ -534,7 +534,7 @@ Plans:
 Design doc: `docs/ideas/base-agent-enhancement.md` — see "Infrastructure Follow-On" (Docker container, datasource, env var pattern) and Section 1 Tempo rationale (Tempo vs Jaeger, Exemplars, object storage)
 
 Plans:
-- [ ] 52.7-01-PLAN.md — Tempo Docker Compose service + config YAML + Grafana datasource
+- [x] 52.7-01-PLAN.md — Tempo Docker Compose service + config YAML + Grafana datasource
 - [ ] 52.7-02-PLAN.md — Systemd unit files: add OTEL_EXPORTER_OTLP_ENDPOINT + recover intelligence-compute unit
 
 ### Phase 52.8: Kafka Trace Propagation
