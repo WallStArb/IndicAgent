@@ -353,7 +353,7 @@ When investigating "service not writing to database":
 3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
 4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
 5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
-6. **Kafka/DataProvider verification** — `docker exec redpanda rpk topic consume development.market.bars --offset N` (or `--from-end`). DataProvider emissions: `journalctl -u indicagent-data-provider --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`.
+6. **Kafka/IBKRProvider verification** — `docker exec redpanda rpk topic consume development.market.bars --offset N` (or `--from-end`). Provider emissions: `journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`. Merger routing: `journalctl -u indicagent-provider-merger --since "2 minutes ago"`.
 
 ## Environment Variables
 

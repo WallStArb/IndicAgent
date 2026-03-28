@@ -1,7 +1,7 @@
 [Unit]
 Description=IndicAgent RollComputeAgent — futures roll detection
-After=network-online.target indicagent-data-provider.service
-Wants=indicagent-data-provider.service
+After=network-online.target indicagent-ibkr-provider.service
+Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
