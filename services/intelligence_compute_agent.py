@@ -13,7 +13,6 @@ DB-ignorant during the compute loop; startup warmup is delegated to BarHistorySe
 
 import asyncio
 import json
-import signal
 import sys
 import threading
 import time
@@ -26,7 +25,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import pandas as pd
-import structlog
 from pydantic import ValidationError
 
 from services.indicator_service import parse_indicators_message
@@ -67,6 +65,7 @@ from src.intelligence.schemas import (
     OHLCVBar,
     SMCContext,
 )
+from src.core.agent.base import BaseAgent
 from src.observability.metrics import (
     BAR_TO_INTELLIGENCE_LATENCY,
     MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL,
@@ -74,12 +73,11 @@ from src.observability.metrics import (
     counter,
     gauge,
     record_plugin_execution,
-    start_metrics_server,
 )
 from src.persistence.logic.warmup_provider import WarmupProvider
 
 
-class IntelligenceComputeAgent:
+class IntelligenceComputeAgent(BaseAgent):
     """Execute I3/I4/I5/SMC/I6 intelligence plugins, consuming I1 from indicators stream."""
 
     def __init__(
@@ -87,13 +85,16 @@ class IntelligenceComputeAgent:
         config_file: str | None = None,
         warmup_provider: WarmupProvider | None = None,
     ):
-        self.running = False
-        self.shutdown_requested = False
         self.start_time = datetime.now(UTC)
 
         settings = Settings()
+        config = self._load_config(config_file, settings)
+        super().__init__(
+            name="intelligence_compute_agent",
+            metrics_port=config.get("metrics_port", 9114),
+        )
+        self.config = config
         self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
-        self.config = self._load_config(config_file, settings)
         self._setup_logging()
 
         register_all_plugins()
@@ -167,10 +168,6 @@ class IntelligenceComputeAgent:
         self.plugin_skipped_total = PLUGIN_SKIPPED_TOTAL
         self.bars_processed_labeled_total = MARKET_ANALYSIS_BARS_PROCESSED_LABELED_TOTAL
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        self.logger = structlog.get_logger(__name__)
-
     def _get_state_lock(self, key: tuple[str, str, str]) -> threading.Lock:
         """Get or create a threading lock for given state key."""
         return self._plugin_states_locks.setdefault(key, threading.Lock())
@@ -214,9 +211,60 @@ class IntelligenceComputeAgent:
             backup_count=self.config["logging"].get("backup_count", 5),
         )
 
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        self.logger.info("Received shutdown signal", signal=signum)
-        self.shutdown_requested = True
+    @property
+    def topics_consumed(self) -> list[str]:
+        return [
+            topic_indicators(self.env_name),
+            topic_system_events(self.env_name),
+        ]
+
+    @property
+    def topics_produced(self) -> list[str]:
+        return [topic_intelligence(self.env_name)]
+
+    @property
+    def lag_threshold_messages(self) -> int:
+        return 1000
+
+    async def _setup(self) -> None:
+        """Start Kafka producer and seed warmup bar history, then start consumer."""
+        await self._kafka_producer.start()
+        provider = self._warmup_provider or WarmupProvider(
+            self._settings, self.config, self._kafka_producer
+        )
+        await provider.seed(self.bar_history)
+
+        topics: list[str] = [
+            topic_indicators(self.env_name),
+            topic_system_events(self.env_name),
+        ]
+        _settings = Settings()
+        self._kafka_consumer = KafkaConsumerClient(
+            *topics,
+            bootstrap_servers=self.config.get(
+                "kafka_bootstrap_servers",
+                _settings.kafka_bootstrap_servers,
+            ),
+            group_id="intelligence_compute",
+            auto_offset_reset="latest",
+        )
+        await self._kafka_consumer.start()
+
+    async def _run(self) -> None:
+        """Main intelligence computation loop."""
+        self.logger.info("Intelligence Compute Agent started")
+        tasks = [
+            asyncio.create_task(self._process_market_data()),
+            asyncio.create_task(self._health_monitor_loop()),
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _teardown(self) -> None:
+        """Close Kafka consumer and producer."""
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        await self._kafka_producer.stop()
+        self.logger.info("Intelligence Compute Agent stopped")
 
     async def _run_analysis_pipeline(
         self, symbol: str, timeframe: str, frames: dict[str, Any]
@@ -530,7 +578,7 @@ class IntelligenceComputeAgent:
         assert self._kafka_consumer is not None
         _sys_events_topic = topic_system_events(self.env_name)
         async for topic, key, payload in self._kafka_consumer.messages():
-            if self.shutdown_requested:
+            if not self.running:
                 break
             try:
                 # Route system.events to roll handler
@@ -561,7 +609,7 @@ class IntelligenceComputeAgent:
                 self.error_count_total.inc()
 
     async def _health_monitor_loop(self) -> None:
-        while self.running and not self.shutdown_requested:
+        while self.running:
             try:
                 uptime = int((datetime.now(UTC) - self.start_time).total_seconds())
                 self.service_uptime_seconds.set(uptime)
@@ -577,59 +625,6 @@ class IntelligenceComputeAgent:
             except Exception as e:
                 self.logger.error("Error in health monitor", error=str(e))
                 await asyncio.sleep(5)
-
-    async def start(self) -> None:
-        self.logger.info("Starting Intelligence Compute Agent", config=self.config["service"])
-        try:
-            start_metrics_server(port=self.config.get("metrics_port", 9114))
-
-            # Start Kafka producer before warmup — warmup publishes seeded intelligence
-            await self._kafka_producer.start()
-            provider = self._warmup_provider or WarmupProvider(
-                self._settings, self.config, self._kafka_producer
-            )
-            await provider.seed(self.bar_history)
-
-            # Build topics list
-            _settings = Settings()
-            topics: list[str] = [
-                topic_indicators(self.env_name),
-                topic_system_events(self.env_name),
-            ]
-
-            # Start Kafka consumer subscribed to indicators and system.events topics
-            self._kafka_consumer = KafkaConsumerClient(
-                *topics,
-                bootstrap_servers=self.config.get(
-                    "kafka_bootstrap_servers",
-                    _settings.kafka_bootstrap_servers,
-                ),
-                group_id="intelligence_compute",
-                auto_offset_reset="latest",
-            )
-            await self._kafka_consumer.start()
-
-            self.running = True
-            tasks = [
-                asyncio.create_task(self._process_market_data()),
-                asyncio.create_task(self._health_monitor_loop()),
-            ]
-            self.logger.info("Intelligence Compute Agent started")
-            await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            self.logger.error("Failed to start intelligence compute agent", error=str(e))
-            raise
-        finally:
-            await self.stop()
-
-    async def stop(self) -> None:
-        self.logger.info("Stopping Intelligence Compute Agent")
-        self.running = False
-        self.shutdown_requested = True
-        if self._kafka_consumer:
-            await self._kafka_consumer.stop()
-        await self._kafka_producer.stop()
-        self.logger.info("Intelligence Compute Agent stopped")
 
 
 async def main() -> None:
@@ -656,4 +651,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    from src.observability.otel import init_tracing
+
+    init_tracing(service_name="intelligence_compute_agent")
     asyncio.run(main())
