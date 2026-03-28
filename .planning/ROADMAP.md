@@ -546,10 +546,10 @@ Plans:
 **Goal:** Abstract DataProviderAgent into BaseProviderAgent + adapter pattern. IBKRAdapter wraps IBKRProvider. ProviderMergerAgent is the single canonical author of market.bars with auto-failover.
 **Requirements**: TBD
 **Depends on:** Phase 53.3
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 - [x] 54-01-PLAN.md — Foundation: Contracts, Schemas, Stream Keys
 - [x] 54-02-PLAN.md — IBKRAdapter + provider_meta Migration
-- [ ] 54-03-PLAN.md — BaseProviderAgent + IBKRProviderAgent
+- [x] 54-03-PLAN.md — BaseProviderAgent + IBKRProviderAgent
 - [ ] 54-04-PLAN.md — ProviderMergerAgent + Zero-Downtime Cutover
