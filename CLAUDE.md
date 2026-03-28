@@ -128,7 +128,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
-**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{feature-compute,signal-generator,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
+**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{ibkr-provider,feature-compute,signal-generator,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Naming Conventions
@@ -206,7 +206,8 @@ IBKR TWS → feature_compute_agent (I1-I6 unified) →
 ### Active Services
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
-| Data Provider | `indicagent-data-provider` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; gap-fill consumer; publishes to `market.bars`/`market.ticks` | — |
+| IBKR Provider | `indicagent-ibkr-provider` | IBKR dual streams: 5s RTB → 1m aggregation + official reconciliation; publishes to `market.bars.raw.ibkr` | :9129 |
+| Provider Merger | `indicagent-provider-merger` | Routes `market.bars.raw.<provider>` → `market.bars`; auto-failover on primary silence; ProviderQualityEvent quality side-channel | :9130 |
 | Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator; publishes to `market.bars.htf` | :9120 |
 | Bar Writer | `indicagent-bar-writer` | market.bars + market.bars.htf → market_data_ohlcv batch writer | :9121 |
 | Bar Auditor | `indicagent-bar-auditor` | Gap detection → market.events.gap_requests | :9123 |
@@ -341,7 +342,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
-- **DataProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-data-provider`. Verify: `journalctl -u indicagent-data-provider | grep "KafkaProducerClient started"`
+- **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-ibkr-provider`. Verify: `journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"`
 - **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
 
 ## Data Pipeline Debugging
