@@ -57,6 +57,39 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 # All TF labels we pre-cache labeled Counter children for
 _BAR_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
+# Module-level metric objects — prevents duplicate registration if the agent class
+# is imported more than once in the same process (e.g., unit tests without isolation)
+_EVENTS_CONSUMED = Counter(
+    "bar_writer_events_consumed_total",
+    "Bar messages consumed from market.bars and market.bars.htf",
+    ["agent"],
+)
+_BARS_WRITTEN = Counter(
+    "bar_writer_bars_written_total",
+    "OHLCV rows successfully written to market_data_ohlcv",
+    ["agent", "tf"],
+)
+_BATCH_LATENCY = Histogram(
+    "bar_writer_persistence_batch_latency_seconds",
+    "Time to execute an executemany batch INSERT to market_data_ohlcv",
+    ["agent"],
+)
+_WRITE_ERRORS = Counter(
+    "bar_writer_write_errors_total",
+    "Exceptions during batch INSERT — buffer left intact for retry",
+    ["agent"],
+)
+_CONFLICT_SKIPS = Counter(
+    "bar_writer_conflict_skips_total",
+    "Bars skipped due to ON CONFLICT DO NOTHING (duplicate detection)",
+    ["agent"],
+)
+_CONSUMER_LAG = Gauge(
+    "bar_writer_persistence_consumer_lag",
+    "Current unwritten buffer depth (proxy for consumer lag)",
+    ["agent"],
+)
+
 
 class BarWriterAgent(BaseAgent):
     """Dedicated OHLCV persistence agent.
@@ -78,50 +111,17 @@ class BarWriterAgent(BaseAgent):
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
-        # Batch buffer
         self._buffer: list[tuple] = []
         self._last_flush: float = 0.0
 
-        # Golden Signals — direct prometheus_client for label support (Phase 053.2 pattern)
-        _events_consumed = Counter(
-            "bar_writer_events_consumed_total",
-            "Bar messages consumed from market.bars and market.bars.htf",
-            ["agent"],
-        )
-        _bars_written = Counter(
-            "bar_writer_bars_written_total",
-            "OHLCV rows successfully written to market_data_ohlcv",
-            ["agent", "tf"],
-        )
-        _batch_latency = Histogram(
-            "bar_writer_persistence_batch_latency_seconds",
-            "Time to execute an executemany batch INSERT to market_data_ohlcv",
-            ["agent"],
-        )
-        _write_errors = Counter(
-            "bar_writer_write_errors_total",
-            "Exceptions during batch INSERT — buffer left intact for retry",
-            ["agent"],
-        )
-        _conflict_skips = Counter(
-            "bar_writer_conflict_skips_total",
-            "Bars skipped due to ON CONFLICT DO NOTHING (duplicate detection)",
-            ["agent"],
-        )
-        _consumer_lag = Gauge(
-            "bar_writer_persistence_consumer_lag",
-            "Current unwritten buffer depth (proxy for consumer lag)",
-            ["agent"],
-        )
-
         # Cache labeled children — avoids dict lookup on every bar
-        self._events_consumed_lbl = _events_consumed.labels(agent=self.name)
-        self._persistence_batch_latency_lbl = _batch_latency.labels(agent=self.name)
-        self._write_errors_lbl = _write_errors.labels(agent=self.name)
-        self._conflict_skips_lbl = _conflict_skips.labels(agent=self.name)
-        self._persistence_consumer_lag_lbl = _consumer_lag.labels(agent=self.name)
+        self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
+        self._persistence_batch_latency_lbl = _BATCH_LATENCY.labels(agent=self.name)
+        self._write_errors_lbl = _WRITE_ERRORS.labels(agent=self.name)
+        self._conflict_skips_lbl = _CONFLICT_SKIPS.labels(agent=self.name)
+        self._persistence_consumer_lag_lbl = _CONSUMER_LAG.labels(agent=self.name)
         self._bars_written_lbl: dict[str, object] = {
-            tf: _bars_written.labels(agent=self.name, tf=tf) for tf in _BAR_TFS
+            tf: _BARS_WRITTEN.labels(agent=self.name, tf=tf) for tf in _BAR_TFS
         }
 
     @property
