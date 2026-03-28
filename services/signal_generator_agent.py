@@ -60,9 +60,9 @@ from src.core.stream_keys import (
     topic_quality_gated,
     topic_ranked,
     topic_regime_gated,
+    topic_roll_events,
     topic_signals,
     topic_signals_aggregated,
-    topic_system_events,
     topic_tod_adjusted,
 )
 from src.intelligence.cross_asset_features import resolve_eq_index_base
@@ -736,7 +736,7 @@ class SignalGeneratorAgent(BaseAgent):
             topic_intelligence(self.env_name),
             topic_cross_asset(self.env_name),
             topic_market_ticks(self.env_name),
-            topic_system_events(self.env_name),
+            topic_roll_events(self.env_name),
         ]
 
     @property
@@ -926,7 +926,7 @@ class SignalGeneratorAgent(BaseAgent):
         topics: list[str] = [
             topic_intelligence(self.env_name),
             topic_market_ticks(self.env_name),
-            topic_system_events(self.env_name),
+            topic_roll_events(self.env_name),
             topic_cross_asset(self.env_name),
         ]
 
@@ -1699,13 +1699,13 @@ class SignalGeneratorAgent(BaseAgent):
             return False
 
     async def _process_loop(self) -> None:
-        """Consume from intelligence, market.ticks, and optionally system.events topics."""
+        """Consume from intelligence, market.ticks, market.events.roll, and cross_asset topics."""
         if not self._kafka_consumer:
             return
 
         _intel_topic = topic_intelligence(self.env_name)
         _ticks_topic = topic_market_ticks(self.env_name)
-        _sys_events_topic = topic_system_events(self.env_name)
+        _roll_events_topic = topic_roll_events(self.env_name)
         _cross_asset_topic = topic_cross_asset(self.env_name)
 
         try:
@@ -1713,7 +1713,7 @@ class SignalGeneratorAgent(BaseAgent):
                 if not self.running:
                     break
                 try:
-                    if topic == _sys_events_topic:
+                    if topic == _roll_events_topic:
                         await self._handle_roll_event(payload)
                         await self._kafka_consumer.commit()
                     elif topic == _cross_asset_topic:
