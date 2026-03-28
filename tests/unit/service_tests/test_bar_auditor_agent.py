@@ -171,9 +171,7 @@ class TestDetectGaps:
         mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
         agent._db_pool = mock_pool
 
-        _contracts = "services.bar_auditor_agent.get_active_contracts"
-        with patch(_contracts, return_value=[mock_instrument]):
-            gaps = await agent._detect_gaps(lookback_days=1)
+        gaps = await agent._detect_gaps(instruments=[mock_instrument], lookback_days=1)
 
         assert len(gaps) >= 1
         gap = gaps[0]
@@ -206,15 +204,12 @@ class TestDetectGaps:
         mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
         agent._db_pool = mock_pool
 
-        _contracts = "services.bar_auditor_agent.get_active_contracts"
         _date = "services.bar_auditor_agent.date"
-        # Patch date to only check a Saturday (2026-03-21)
-        with patch(_contracts, return_value=[mock_instrument]):
-            with patch(_date) as mock_date:
-                # Make today() return a Sunday so lookback_days=1 gives Saturday
-                mock_date.today.return_value = date(2026, 3, 22)  # Sunday
-                mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-                gaps = await agent._detect_gaps(lookback_days=1)
+        with patch(_date) as mock_date:
+            # Make today() return a Sunday so lookback_days=1 gives Saturday
+            mock_date.today.return_value = date(2026, 3, 22)  # Sunday
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            gaps = await agent._detect_gaps(instruments=[mock_instrument], lookback_days=1)
 
         # Saturday = non-trading day for NYSE → no gap requests
         assert gaps == []
@@ -243,9 +238,7 @@ class TestRunAudit:
         agent._gap_requests_published = MagicMock()
         agent._audit_errors = MagicMock()
         agent._audit_duration = MagicMock()
-        agent._audit_duration.labels = MagicMock(return_value=MagicMock())
-        agent._audit_duration.labels.return_value.time = MagicMock()
-        _time_ctx = agent._audit_duration.labels.return_value.time.return_value
+        _time_ctx = agent._audit_duration.time.return_value
         _time_ctx.__enter__ = MagicMock(return_value=None)
         _time_ctx.__exit__ = MagicMock(return_value=False)
 
@@ -273,11 +266,8 @@ class TestRunAudit:
         agent._audits_run = MagicMock()
         agent._gap_requests_published = MagicMock()
         agent._audit_errors = MagicMock()
-        agent._audit_errors.labels = MagicMock(return_value=MagicMock())
         agent._audit_duration = MagicMock()
-        agent._audit_duration.labels = MagicMock(return_value=MagicMock())
-        agent._audit_duration.labels.return_value.time = MagicMock()
-        _time_ctx = agent._audit_duration.labels.return_value.time.return_value
+        _time_ctx = agent._audit_duration.time.return_value
         _time_ctx.__enter__ = MagicMock(return_value=None)
         _time_ctx.__exit__ = MagicMock(return_value=False)
 
@@ -286,4 +276,4 @@ class TestRunAudit:
             # Should NOT raise
             await agent._run_audit()
 
-        agent._audit_errors.labels.return_value.inc.assert_called_once()
+        agent._audit_errors.inc.assert_called_once()

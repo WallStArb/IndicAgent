@@ -49,6 +49,34 @@ _AUDIT_INTERVAL = 300  # seconds between audits (5 minutes)
 _COMPLETENESS_THRESHOLD = 0.95  # flag gap if actual/expected < 95%
 _DEFAULT_LOOKBACK_DAYS = 3
 
+# Module-level metric objects — prevents duplicate registration if the agent class
+# is imported more than once in the same process (e.g., unit tests without isolation)
+_AUDITS_RUN = Counter(
+    "bar_auditor_audits_run_total",
+    "Total audit cycles completed",
+    ["agent"],
+)
+_GAP_REQUESTS_PUBLISHED = Counter(
+    "bar_auditor_gap_requests_published_total",
+    "BarGapRequest events published to Kafka",
+    ["agent"],
+)
+_AUDIT_DURATION = Histogram(
+    "bar_auditor_audit_duration_seconds",
+    "Wall-clock time for a full audit cycle",
+    ["agent"],
+)
+_AUDIT_ERRORS = Counter(
+    "bar_auditor_audit_errors_total",
+    "Exceptions during audit cycles",
+    ["agent"],
+)
+_CANONICAL_COMPLETENESS = Gauge(
+    "bar_auditor_canonical_completeness_pct",
+    "Fraction of expected 1m bars present (0.0–1.0)",
+    ["agent", "symbol", "tf"],
+)
+
 
 class BarAuditorAgent(BaseAgent):
     """AuditorAgent: detects gaps in market_data_ohlcv and publishes BarGapRequest.
@@ -71,39 +99,13 @@ class BarAuditorAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
-        # Golden Signals — direct prometheus_client for label support
-        _audits_run = Counter(
-            "bar_auditor_audits_run_total",
-            "Total audit cycles completed",
-            ["agent"],
-        )
-        _gap_requests_published = Counter(
-            "bar_auditor_gap_requests_published_total",
-            "BarGapRequest events published to Kafka",
-            ["agent"],
-        )
-        _audit_duration = Histogram(
-            "bar_auditor_audit_duration_seconds",
-            "Wall-clock time for a full audit cycle",
-            ["agent"],
-        )
-        _audit_errors = Counter(
-            "bar_auditor_audit_errors_total",
-            "Exceptions during audit cycles",
-            ["agent"],
-        )
-        _canonical_completeness = Gauge(
-            "bar_auditor_canonical_completeness_pct",
-            "Fraction of expected 1m bars present (0.0–1.0)",
-            ["agent", "symbol", "tf"],
-        )
-
-        # Cache labeled children to avoid dict lookup per audit
-        self._audits_run = _audits_run.labels(agent=self.name)
-        self._gap_requests_published = _gap_requests_published.labels(agent=self.name)
-        self._audit_duration = _audit_duration
-        self._audit_errors = _audit_errors
-        self._canonical_completeness = _canonical_completeness
+        # Cache labeled children — avoids .labels() lookup on every audit cycle
+        self._audits_run = _AUDITS_RUN.labels(agent=self.name)
+        self._gap_requests_published = _GAP_REQUESTS_PUBLISHED.labels(agent=self.name)
+        self._audit_duration = _AUDIT_DURATION.labels(agent=self.name)
+        self._audit_errors = _AUDIT_ERRORS.labels(agent=self.name)
+        # Dynamic symbol/tf labels — cannot pre-cache; call .labels() at use time
+        self._canonical_completeness = _CANONICAL_COMPLETENESS
 
     # ------------------------------------------------------------------
     # BaseAgent interface
@@ -164,9 +166,9 @@ class BarAuditorAgent(BaseAgent):
             if not self.running:
                 break
 
-            # Only audit during market hours for at least one instrument
-            if self._any_session_open():
-                await self._run_audit()
+            instruments = get_active_contracts(self._settings)
+            if self._any_session_open(instruments):
+                await self._run_audit(instruments)
 
     # ------------------------------------------------------------------
     # Business logic
@@ -217,7 +219,9 @@ class BarAuditorAgent(BaseAgent):
         return max(0, total_mins)
 
     async def _detect_gaps(
-        self, lookback_days: int = _DEFAULT_LOOKBACK_DAYS
+        self,
+        instruments: list,
+        lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
     ) -> list[BarGapRequest]:
         """Detect missing bars across all active instruments for last N days.
 
@@ -230,27 +234,24 @@ class BarAuditorAgent(BaseAgent):
         Returns:
             list[BarGapRequest]: one request per (instrument, date) that needs gap fill
         """
-        instruments = get_active_contracts(self._settings)
         today = date.today()
         gaps: list[BarGapRequest] = []
 
-        for instrument in instruments:
-            session = instrument.trading_session
-            for days_back in range(1, lookback_days + 1):
-                target_date = today - timedelta(days=days_back)
-                expected = self._expected_bars_for_date(session, target_date)
-                if expected == 0:
-                    # Non-trading day — skip
-                    continue
+        assert self._db_pool is not None
+        async with self._db_pool.acquire() as conn:
+            for instrument in instruments:
+                session = instrument.trading_session
+                for days_back in range(1, lookback_days + 1):
+                    target_date = today - timedelta(days=days_back)
+                    expected = self._expected_bars_for_date(session, target_date)
+                    if expected == 0:
+                        continue
 
-                # Date boundaries in UTC
-                date_start_utc = datetime(
-                    target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=UTC
-                )
-                date_end_utc = date_start_utc + timedelta(days=1)
+                    date_start_utc = datetime(
+                        target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=UTC
+                    )
+                    date_end_utc = date_start_utc + timedelta(days=1)
 
-                assert self._db_pool is not None
-                async with self._db_pool.acquire() as conn:
                     actual = await conn.fetchval(
                         """
                         SELECT COUNT(*)
@@ -265,42 +266,43 @@ class BarAuditorAgent(BaseAgent):
                         date_end_utc,
                     )
 
-                actual = actual or 0
-                completeness = actual / expected
+                    actual = actual or 0
+                    completeness = actual / expected
 
-                # Update completeness gauge
-                self._canonical_completeness.labels(
-                    agent=self.name, symbol=instrument.symbol, tf="1m"
-                ).set(completeness)
+                    self._canonical_completeness.labels(
+                        agent=self.name, symbol=instrument.symbol, tf="1m"
+                    ).set(completeness)
 
-                if completeness < _COMPLETENESS_THRESHOLD:
-                    self.logger.warning(
-                        "bar_auditor_agent.gap_detected",
-                        symbol=instrument.symbol,
-                        date=str(target_date),
-                        actual=actual,
-                        expected=expected,
-                        completeness=round(completeness, 3),
-                    )
-                    gaps.append(
-                        BarGapRequest(
+                    if completeness < _COMPLETENESS_THRESHOLD:
+                        self.logger.warning(
+                            "bar_auditor_agent.gap_detected",
                             symbol=instrument.symbol,
-                            tf="1m",
-                            start_ts=date_start_utc,
-                            end_ts=date_end_utc,
+                            date=str(target_date),
+                            actual=actual,
+                            expected=expected,
+                            completeness=round(completeness, 3),
                         )
-                    )
+                        gaps.append(
+                            BarGapRequest(
+                                symbol=instrument.symbol,
+                                tf="1m",
+                                start_ts=date_start_utc,
+                                end_ts=date_end_utc,
+                            )
+                        )
 
         return gaps
 
-    async def _run_audit(self) -> None:
+    async def _run_audit(self, instruments: list | None = None) -> None:
         """Run a single audit cycle: detect gaps and publish BarGapRequest events.
 
         Catches all exceptions to prevent audit loop from crashing on transient failures.
         """
+        if instruments is None:
+            instruments = get_active_contracts(self._settings)
         try:
-            with self._audit_duration.labels(agent=self.name).time():
-                gap_requests = await self._detect_gaps()
+            with self._audit_duration.time():
+                gap_requests = await self._detect_gaps(instruments)
 
             for req in gap_requests:
                 await self._kafka_producer.publish(
@@ -317,17 +319,17 @@ class BarAuditorAgent(BaseAgent):
             )
 
         except Exception as exc:
-            self._audit_errors.labels(agent=self.name).inc()
+            self._audit_errors.inc()
             self.logger.error(
                 "bar_auditor_agent.audit_error",
                 error=str(exc),
             )
             # Do not re-raise — audit loop must continue on transient failures
 
-    def _any_session_open(self) -> bool:
+    def _any_session_open(self, instruments: list) -> bool:
         """True if any active instrument's trading session is currently open."""
         now_utc = datetime.now(UTC)
-        for instrument in get_active_contracts(self._settings):
+        for instrument in instruments:
             if instrument.trading_session.is_open(now_utc):
                 return True
         return False
