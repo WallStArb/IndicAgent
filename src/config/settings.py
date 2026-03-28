@@ -240,7 +240,7 @@ class Settings(BaseSettings):
                 point_value=1000,
                 tick_size=0.05,
                 sector="volatility",
-                provider_meta={"trading_class": "VX"},
+                provider_meta={"ibkr": {"trading_class": "VX"}},
             ),
             # Interest Rate Futures — June 2026 (M6); ZN/ZB rolled from H6 on 2026-03-16 (expires 2026-03-20)
             Instrument(
