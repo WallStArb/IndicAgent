@@ -206,8 +206,10 @@ IBKR TWS → feature_compute_agent (I1-I6 unified) →
 ### Active Services
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
-| Data Provider | `indicagent-data-provider` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
+| Data Provider | `indicagent-data-provider` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; gap-fill consumer; publishes to `market.bars`/`market.ticks` | — |
 | Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator; publishes to `market.bars.htf` | :9120 |
+| Bar Writer | `indicagent-bar-writer` | market.bars + market.bars.htf → market_data_ohlcv batch writer | :9121 |
+| Bar Auditor | `indicagent-bar-auditor` | Gap detection → market.events.gap_requests | :9123 |
 | Feature Compute | `indicagent-feature-compute` | I1-I6 unified pipeline; subscribes to `market.bars` + `market.bars.htf` → `intelligence:SYMBOL:TF` | :9125 |
 | Intelligence Compute | `indicagent-intelligence-compute` | I7/I8 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
@@ -232,12 +234,12 @@ IBKR TWS → feature_compute_agent (I1-I6 unified) →
 ```
 Hot:  IBKR TWS → Redpanda Streams → Services              (sub-ms)
 Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
-Cold: feature_writer_service → TimescaleDB                (batch, async)
+Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 ```
 **Real-time pipeline never touches the database directly.**
 
 ### TimescaleDB Tables
-- `market_data_ohlcv` — raw OHLCV (backfill only; keep forever — ground truth). Live data flows through Redpanda topics only.
+- `market_data_ohlcv` — raw OHLCV (backfill + live via BarWriterAgent; keep forever — ground truth).
 - `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever). Column name is `ts` not `feature_ts`.
 - `signal_ledger` — ALL I7 signals per bar (not just winner) + lifecycle outcomes; JOIN via `(symbol, feature_ts, feature_tf)` (keep forever). Phase 49.1: signal_generator_service writes every signal to the ledger regardless of regime eligibility — winner published to stream separately.
 - `llm_calls` — full LLM audit log per call; outcome back-filled by `llm_writer_service` (keep forever)
