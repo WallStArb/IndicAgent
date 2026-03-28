@@ -359,21 +359,28 @@ def test_topic_routing_only_handles_intelligence_record():
 
 
 @pytest.mark.asyncio
-async def test_graceful_shutdown_sets_flag_and_flushes():
-    """_shutdown sets shutdown_requested=True and flushes buffer."""
+async def test_graceful_shutdown_flushes_and_closes():
+    """_shutdown flushes buffer and closes Kafka/DB connections."""
+    import asyncio
+    from contextlib import contextmanager
+
     from services.feature_writer_service import FeatureWriterAgent, _record_to_insert_params
 
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     svc.logger = MagicMock()
-    svc.shutdown_requested = False
+    svc._stop_event = asyncio.Event()  # required by BaseAgent.running property
     svc._last_flush = 0.0
-    svc.running = True
     svc.batch_writes_total = MagicMock()
     svc.events_buffered_gauge = MagicMock()
     svc.error_count_total = MagicMock()
     svc._total_batches = 0
     svc._total_events = 0
     svc._error_count = 0
+    # _batch_latency is a context manager returned by PERSISTENCE_BATCH_LATENCY.labels()
+    mock_batch_latency = MagicMock()
+    mock_batch_latency.__enter__ = MagicMock(return_value=None)
+    mock_batch_latency.__exit__ = MagicMock(return_value=False)
+    svc._batch_latency = mock_batch_latency
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
@@ -382,6 +389,7 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
 
     mock_kafka = MagicMock()
     mock_kafka.stop = AsyncMock()
+    mock_kafka.commit = AsyncMock()
     svc._kafka_consumer = mock_kafka
 
     record = _make_valid_bar_intelligence_record()
@@ -390,7 +398,6 @@ async def test_graceful_shutdown_sets_flag_and_flushes():
 
     await svc._shutdown()
 
-    assert svc.shutdown_requested is True
     mock_db.execute_batch.assert_called_once()
     assert svc._buffer == []
 
@@ -523,3 +530,79 @@ class TestComputeDaysToExpiry:
 
         result = _compute_days_to_expiry("ESH6", self._dt(2026, 3, 4), {})
         assert result is None
+
+
+# ── Lifecycle contract tests (D-17) ──────────────────────────────────────────
+
+
+class TestFeatureWriterAgentLifecycle:
+    """D-17: Lifecycle contract tests for FeatureWriterAgent.
+
+    Uses __new__ injection pattern (CLAUDE.md) to bypass __init__ and test
+    lifecycle properties in isolation — no Kafka, DB, or I/O required.
+    """
+
+    def setup_method(self):
+        import asyncio
+
+        from services.feature_writer_service import FeatureWriterAgent
+
+        self.agent = FeatureWriterAgent.__new__(FeatureWriterAgent)
+        self.agent.name = "feature_writer_agent"
+        self.agent._stop_event = asyncio.Event()
+        self.agent._metrics_port = 9116
+        self.agent.logger = MagicMock()
+        self.agent.tracer = MagicMock()
+        self.agent._env_name = "development"  # underscore prefix (FeatureWriterAgent pattern)
+
+    def test_topics_consumed_returns_list(self):
+        """topics_consumed must return a non-empty list of topic strings."""
+        topics = self.agent.topics_consumed
+        assert isinstance(topics, list)
+        assert len(topics) > 0
+
+    def test_topics_produced_is_empty(self):
+        """topics_produced must be empty — DB writer has no Kafka output."""
+        assert self.agent.topics_produced == []
+
+    def test_running_property_reflects_stop_event(self):
+        """running property reflects the _stop_event state."""
+        import asyncio
+
+        assert self.agent.running is True
+        self.agent._stop_event.set()
+        assert self.agent.running is False
+
+    def test_lag_threshold_messages_is_int(self):
+        """lag_threshold_messages must return a positive integer."""
+        assert isinstance(self.agent.lag_threshold_messages, int)
+        assert self.agent.lag_threshold_messages > 0
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_methods_are_coroutines(self):
+        """_setup, _run, and _teardown must all be awaitable coroutines."""
+        import asyncio
+
+        assert asyncio.iscoroutinefunction(self.agent._setup)
+        assert asyncio.iscoroutinefunction(self.agent._run)
+        assert asyncio.iscoroutinefunction(self.agent._teardown)
+
+
+def test_feature_writer_agent_inherits_base_agent():
+    """FeatureWriterAgent must inherit from BaseAgent."""
+    from services.feature_writer_service import FeatureWriterAgent
+    from src.core.agent.base import BaseAgent
+
+    assert issubclass(FeatureWriterAgent, BaseAgent)
+
+
+def test_feature_writer_no_signal_signal_calls():
+    """No sync signal.signal() calls must remain in the service file."""
+    import inspect
+
+    from services.feature_writer_service import FeatureWriterAgent
+
+    source = inspect.getsource(FeatureWriterAgent)
+    assert "signal.signal(" not in source, (
+        "signal.signal() must not appear — use BaseAgent._register_signal_handlers()"
+    )
