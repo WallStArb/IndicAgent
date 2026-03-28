@@ -30,7 +30,7 @@ IBKR TWS → Redpanda (hot path) → Dashboard (SSE, real-time)
 ## Key Architectural Decisions
 
 ### 1. Single canonical pipeline service
-`market_analysis_service.py` only. `intelligence_processor_service.py` was deleted (Phase 1). The `bar_aggregator_service` was also removed — timeframe aggregation is now embedded in the TWS daemon.
+`market_analysis_service.py` only. `intelligence_processor_service.py` was deleted (Phase 1). The `bar_aggregator_service` was also removed — timeframe aggregation is now embedded in the DataProviderAgent.
 
 **Why:** The old service re-computed I1 internally — violating separation of concerns since `indicator_service.py` already owns I1. Canonical service consumes pre-computed `indicators:SYMBOL:TF` stream.
 
@@ -133,7 +133,7 @@ Stage 2 replay writes `source='backfill'`. First ~50 bars have degraded quality 
 
 Every LLM call from `ai_narrative_service` is published to `llm_calls:stream` (maxlen=500) with full request/response context. `llm_writer_service` consumes this stream and writes to the `llm_calls` hypertable (keep forever — each call is a labeled training sample once outcome is known).
 
-Signal lifecycle exits are published to `llm_outcomes:stream` (maxlen=200) by `signal_lifecycle_service`. `llm_writer_service` back-fills realized outcome (pnl_r, mae, mfe) onto historical `llm_calls` records.
+Signal lifecycle exits are published to `llm_outcomes:stream` (maxlen=200) by `signal_tracker_agent`. `llm_writer_service` back-fills realized outcome (pnl_r, mae, mfe) onto historical `llm_calls` records.
 
 `llm_model_scores` table tracks per-model performance (win_rate, avg_pnl_r, p-value), refreshed every 15 minutes. This drives model selection for future calls.
 
@@ -141,7 +141,7 @@ Signal lifecycle exits are published to `llm_outcomes:stream` (maxlen=200) by `s
 
 ### 13. Signal lifecycle — zone-aware, 8-class outcome
 
-`signal_lifecycle_service` replaced `signal_tracker_service`. Key differences:
+`signal_tracker_agent` replaced `signal_tracker_service`. Key differences:
 - Zone bounds: `zone_low/zone_high` from TradeFrame — price must enter the zone to activate
 - MAE/MFE: tracked in-memory per signal_id (`_mae`, `_mfe` dicts); written to `signal_ledger` on exit
 - `_activated_at` dict tracks activation time for `bars_in_trade` computation
@@ -172,7 +172,7 @@ Signal lifecycle exits are published to `llm_outcomes:stream` (maxlen=200) by `s
 | `services/market_analysis_service.py` | I3-I6 pipeline + publisher |
 | `services/feature_writer_service.py` | intelligence:SYMBOL:TF → intelligence_features (async persistence) |
 | `services/signal_generator_service.py` | I7 signals → signal_ledger |
-| `services/signal_lifecycle_service.py` | Zone-aware signal lifecycle (replaces signal_tracker) |
+| `services/signal_tracker_agent.py` | Zone-aware signal lifecycle (replaces signal_tracker_service) |
 | `services/llm_writer_service.py` | LLM audit log → llm_calls hypertable + model scoring |
 | `src/core/stream_keys.py` | Stream name constants (always use helpers) |
 | `src/api/routes/sse.py` | SSE endpoint → dashboard |

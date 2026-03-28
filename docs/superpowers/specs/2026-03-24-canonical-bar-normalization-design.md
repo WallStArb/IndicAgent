@@ -1,8 +1,10 @@
 # Canonical Bar Normalization — Design Spec
 
 **Date:** 2026-03-24
-**Status:** Approved
+**Status:** Shipped
 **Milestone:** v2.1
+
+> **Name drift note (2026-03-28):** `tws_daemon` / `tws_daemon.py` referenced in this doc is now `data_provider_agent` / `DataProviderAgent` (Phase 53.3 rename, in progress).
 
 ---
 

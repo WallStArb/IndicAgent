@@ -52,7 +52,7 @@ regime_suppressed ──► (virtual active) ──► closed (shadow, status ne
 
 ## Activation: Zone Entry
 
-The **Signal Lifecycle Service** (`services/signal_lifecycle_service.py`, systemd: `indicagent-signal-lifecycle`) reads 1m market bars via a dedicated consumer group (`signal_lifecycle`).
+The **Signal Tracker Agent** (`services/signal_tracker_agent.py`, systemd: `indicagent-signal-tracker`) reads 1m market bars via a dedicated consumer group (`signal_lifecycle`).
 
 For every pending signal, each new 1m bar checks whether price entered the entry zone:
 
@@ -173,5 +173,5 @@ Every signal outcome tells you: given these market conditions at the time of ent
 - [Intelligence Tiers](intelligence-tiers.md) — I7 setup plugins and CISScorer
 - [Regime Classification](regime-classification.md) — regime gates that filter I7 signals
 - [Data Pipeline](data-pipeline.md) — how signals flow from stream to TimescaleDB
-- **Code:** `services/signal_lifecycle_service.py`, `src/intelligence/trading/`
+- **Code:** `services/signal_tracker_agent.py`, `src/intelligence/trading/`
 - **Migration:** `production/migrations/015_signal_lifecycle_fields.sql`

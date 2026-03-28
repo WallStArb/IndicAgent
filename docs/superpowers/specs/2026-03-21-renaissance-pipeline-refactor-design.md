@@ -1,9 +1,11 @@
 # Renaissance Pipeline Refactor — Design Spec
 
 **Date:** 2026-03-21
-**Status:** Approved
+**Status:** Shipped (Phase 44)
 **Supersedes:** `docs/superpowers/specs/2026-03-21-feature-pipeline-renaissance-design.md`
 **Phases:** 44.1 (FeaturePipelineService), 44.2 (SignalGeneratorService consolidation), 44.3 (Atomic persistence + OHLCV)
+
+> **Name drift note (2026-03-28):** Names used in this spec reflect Phase 44 conventions. Subsequent renames: `FeaturePipelineService` → `FeatureComputeAgent` (Phase 44→52); `SignalLifecycleService` → `SignalTrackerAgent` (Phase 52.4); `indicagent-feature-pipeline` → `indicagent-feature-compute`.
 
 ---
 

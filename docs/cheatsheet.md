@@ -21,9 +21,9 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 # Authoritative unit files: production/systemd/
 sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-data-provider
-sudo systemctl restart indicagent-feature-pipeline
+sudo systemctl restart indicagent-feature-compute
 sudo systemctl restart indicagent-signal-generator
-sudo systemctl restart indicagent-signal-lifecycle
+sudo systemctl restart indicagent-signal-tracker
 sudo systemctl restart indicagent-ai-narrative
 sudo systemctl restart indicagent-feature-writer
 sudo systemctl restart indicagent-llm-writer
@@ -33,8 +33,8 @@ sudo systemctl restart indicagent-api
 journalctl -u indicagent-data-provider -f    # live logs for any service (print() only; structured logs in logs/<service>.log)
 
 # Start all services (e.g. after reboot — start docker first: docker start timescaledb redpanda)
-sudo systemctl start indicagent-data-provider indicagent-feature-pipeline \
-  indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative \
+sudo systemctl start indicagent-data-provider indicagent-feature-compute \
+  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative \
   indicagent-feature-writer indicagent-llm-writer indicagent-cross-asset indicagent-api
 
 # Health / metrics
@@ -54,7 +54,7 @@ cd production && docker compose up -d prometheus grafana
 
 # Direct invocation (debugging only)
 .venv/bin/python services/data_provider_agent.py
-.venv/bin/python services/feature_pipeline_service.py
+.venv/bin/python services/feature_compute_agent.py
 .venv/bin/python services/signal_generator_service.py
 .venv/bin/python services/feature_writer_service.py
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
@@ -75,12 +75,12 @@ cd production && docker compose up -d prometheus grafana
 # Step 2 — full reset (requires TWS connected at 10.0.0.33:7497; expect 30–60 min)
 .venv/bin/python production/scripts/pipeline_reset.py
 # → when prompted to STOP, run:
-sudo systemctl stop indicagent-feature-pipeline indicagent-signal-generator indicagent-signal-lifecycle \
+sudo systemctl stop indicagent-feature-compute indicagent-signal-generator indicagent-signal-tracker \
   indicagent-feature-writer indicagent-ai-narrative
 # → press Enter, let fetch + replay complete
 # → when prompted to START, run:
-sudo systemctl start indicagent-feature-pipeline indicagent-feature-writer \
-  indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative
+sudo systemctl start indicagent-feature-compute indicagent-feature-writer \
+  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative
 
 # Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv
 # (use after plugin/signal logic changes, no IBKR connection needed)
