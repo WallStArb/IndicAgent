@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Phase complete — ready for verification
-last_updated: "2026-03-28T21:53:02.926Z"
+last_updated: "2026-03-28T23:47:48.227Z"
 progress:
   total_phases: 12
   completed_phases: 1
@@ -171,4 +171,4 @@ Recent additions:
 - Test helper _make_agent() sets module-level Prometheus label children — avoids duplicate registration on repeated test runs
 - Recovery publishes event first, then falls through to route bar normally — primary is authoritative immediately on resume
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
-- Systemd unit points to main repo path (not worktree) — ProviderMergerAgent will work once worktree merged to main
+- Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
