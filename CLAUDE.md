@@ -206,7 +206,7 @@ IBKR TWS → feature_compute_agent (I1-I6 unified) →
 ### Active Services
 | Service | Unit | Purpose | Metrics |
 |---------|------|---------|---------|
-| TWS Daemon | `indicagent-tws` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
+| Data Provider | `indicagent-data-provider` | Dual IBKR streams: 5s RTB → 1m aggregation + official 1m reconciliation; publishes to `market.bars`/`market.ticks` | — |
 | Feature Compute | `indicagent-feature-compute` | I1-I6 unified in-process pipeline → `intelligence:SYMBOL:TF` | :9125 |
 | Intelligence Compute | `indicagent-intelligence-compute` | I7/I8 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
 | Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
@@ -338,7 +338,7 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 - **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
-- **TWS contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-tws`. Verify: `journalctl -u indicagent-tws | grep "KafkaProducerClient started"`
+- **DataProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-data-provider`. Verify: `journalctl -u indicagent-data-provider | grep "KafkaProducerClient started"`
 - **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
 
 ## Data Pipeline Debugging
@@ -349,7 +349,7 @@ When investigating "service not writing to database":
 3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
 4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
 5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
-6. **Kafka/TWS verification** — `docker exec redpanda rpk topic consume development.market.bars --offset N` (or `--from-end`). TWS emissions: `journalctl -u indicagent-tws --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`.
+6. **Kafka/DataProvider verification** — `docker exec redpanda rpk topic consume development.market.bars --offset N` (or `--from-end`). DataProvider emissions: `journalctl -u indicagent-data-provider --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`.
 
 ## Environment Variables
 

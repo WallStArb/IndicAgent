@@ -20,7 +20,7 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 # All services are systemd-managed (Restart=always, start on boot)
 # Authoritative unit files: production/systemd/
 sudo systemctl status 'indicagent-*'
-sudo systemctl restart indicagent-tws
+sudo systemctl restart indicagent-data-provider
 sudo systemctl restart indicagent-feature-pipeline
 sudo systemctl restart indicagent-signal-generator
 sudo systemctl restart indicagent-signal-lifecycle
@@ -30,10 +30,10 @@ sudo systemctl restart indicagent-llm-writer
 sudo systemctl restart indicagent-cross-asset
 sudo systemctl restart indicagent-api
 
-journalctl -u indicagent-tws -f              # live logs for any service (print() only; structured logs in logs/<service>.log)
+journalctl -u indicagent-data-provider -f    # live logs for any service (print() only; structured logs in logs/<service>.log)
 
 # Start all services (e.g. after reboot — start docker first: docker start timescaledb redpanda)
-sudo systemctl start indicagent-tws indicagent-feature-pipeline \
+sudo systemctl start indicagent-data-provider indicagent-feature-pipeline \
   indicagent-signal-generator indicagent-signal-lifecycle indicagent-ai-narrative \
   indicagent-feature-writer indicagent-llm-writer indicagent-cross-asset indicagent-api
 
@@ -53,7 +53,7 @@ cd production && docker compose up -d prometheus grafana
 # Note: 3001 avoids conflict with IndicAgent dashboard (Next.js on 3000)
 
 # Direct invocation (debugging only)
-.venv/bin/python services/tws_daemon.py
+.venv/bin/python services/data_provider_agent.py
 .venv/bin/python services/feature_pipeline_service.py
 .venv/bin/python services/signal_generator_service.py
 .venv/bin/python services/feature_writer_service.py
