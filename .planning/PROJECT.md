@@ -173,10 +173,11 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.1 in progress — Phase 52.6 complete 2026-03-28)
+### Current State (v2.1 in progress — Phase 52.7 complete 2026-03-27)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
+- **Phase 52.7 (2026-03-27):** Grafana Tempo deployed as 6th Docker Compose service (`grafana/tempo:2.10.3`). OTLP HTTP on port 4318, 7-day local retention, separate WAL/traces paths. Grafana datasource provisioned at `tempo:3200` with service map linked to Prometheus. `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` added to all 5 agent systemd unit files; `indicagent-intelligence-compute.service` recovered into version control; `PYTHONUNBUFFERED=1` fixed in signal-generator and feature-writer. Validated: TEMPO-01–05.
 - **Phase 52.6 (2026-03-28):** BaseAgent enhanced with lifecycle contract (_setup/_teardown, metrics_port, tracer, topics_consumed/produced, running property, _send_to_dlq). ProcessManifest replaces singleton AgentRegistry. All 4 pipeline agents (IndicatorComputeAgent, SignalGeneratorAgent, IntelligenceComputeAgent, FeatureWriterAgent) migrated to enhanced BaseAgent. init_tracing() in all 4 service entrypoints — OTel spans ready for Phase 52.7 Tempo infra. Validated: AGENT-01–05.
 - Signal pipeline: in-process 6-stage pipeline in SignalGeneratorAgent (now BaseAgent) (quality_gate → regime_gate → tod_adjuster → calibrator → ranker → winner_selector); publishes `BarIntelligenceRecord` per bar; single atomic INSERT per bar to `intelligence_features`
 - FeaturePipelineService: unified I1–I6 execution, live 1m OHLCV written to `market_data_ohlcv`, cross-asset + VIX frames injected before I6
@@ -256,4 +257,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 52: Infrastructure Hardening — Docker restart policies, log rotation, health checks, no manual steps
 
 ---
-*Last updated: 2026-03-28 — Phase 52.5 complete: ParityAuditorAgent deployed as timer-based (5-min) autonomous comparison engine. Validates feature_snapshots_shadow against intelligence_features per (symbol, tf), stores field-level violations in feature_parity_violations with run_id grouping, emits parity_match_rate Prometheus gauge on :9120. Certification derived from fetch_clean_cycles query over violations table — 12 consecutive clean windows triggers SHADOW_PARITY_CERTIFIED on topic_system_events. Shadow-only rows tracked via SHADOW_AHEAD_ROWS_TOTAL counter (never stored as violations). 32 TDD unit tests pass, ruff/black clean, systemd unit created.*
+*Last updated: 2026-03-27 — Phase 52.7 complete: Grafana Tempo infra deployed — Docker service, tempo.yaml, Grafana datasource provisioned, OTEL env vars in all 5 agent systemd units.*
