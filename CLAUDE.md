@@ -69,9 +69,6 @@ cd dashboard && npm run dev  # Runs on http://localhost:3000
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases + backlog (GSD-managed) |
 | **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (`/gsd:plan-phase`) |
 
-> **`docs/ideas/` is a living research workspace** — files are actively reviewed, trimmed, and developed over time. Large ideas (e.g. Renaissance intelligence, MLAgent) are built incrementally: each session starts from the file to discuss what subset is feasible, too complex, or too compute-intensive, then plans/builds that slice. The file tracks what's shipped vs still future. Status/priority/milestone live in each file's frontmatter. No separate index.
-> **When a subset is ready to build:** `brainstorming` → `docs/plans/` → `/gsd:plan-phase` → `/gsd:execute-phase`.
-
 Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features.
 
 ## Required Workflows
@@ -164,12 +161,9 @@ See "Active Services" table in Key Components section below. Source service file
 ### Per-Layer Naming Rules
 
 **Python**
-- Services: `<concept>_service.py` file / `PascalCaseService` class
 - Plugins: `snake_case.py` file (short name) / `PascalCasePlugin` class — `adx.py` → `ADXPlugin`
 - Aggregators/results: `PascalCase` no suffix — `CISScorer`, `AggregatedResult`
-- Functions/methods: `snake_case` — `compute_full()`, `get_active_contracts()`, `publish_ohlcv_bar()`
-- Constants: `UPPER_SNAKE_CASE` — `TIER_I1`, `PLUGIN_METRICS_SAMPLE_RATE`
-- Private attrs: `_snake_case` — `_regime_cache`, `_plugin_states`
+- Functions/methods: `snake_case`. Constants: `UPPER_SNAKE_CASE`. Private attrs: `_snake_case`.
 
 **Kafka topics** (always via `src/core/stream_keys.py`, never hardcoded)
 - Functions: `topic_<output_domain>()` — singular noun describing what flows in the topic
@@ -177,15 +171,12 @@ See "Active Services" table in Key Components section below. Source service file
 - Consumer groups: `<concept>_consumer` (idempotent on restart)
 
 **Database**
-- Tables: `snake_case` plural nouns — `intelligence_features`, `signal_ledger`
-- Columns: `snake_case` — timestamp is `ts` (not `feature_ts`); always `symbol`, `tf`
-- Views: `<source_table>_<timeframe>` — `ohlcv_15m`, `market_data_5m`
-- Migrations: `NNN_description.sql` (zero-padded, sequential)
+- Tables: `snake_case` plural nouns. Columns: `snake_case` — timestamp is `ts` (not `feature_ts`); always `symbol`, `tf`
+- Views: `<source_table>_<timeframe>` — `ohlcv_15m`, `market_data_5m`. Migrations: `NNN_description.sql`.
 
 **Systemd / Infrastructure**
-- Units: `indicagent-<concept-kebab>.service` — installed copies in `/etc/systemd/system/`; source files in `services/`. `production/systemd/` is a reference dir with newer hardening (`LimitNOFILE=65536`) but has not been kept up to date — do not treat as authoritative.
+- Units: installed in `/etc/systemd/system/`; source files in `services/`. `production/systemd/` is a reference dir — do not treat as authoritative.
 - Logs: `logs/<python_service_filename>.log` — read directly for structured output (journald shows only `print()`)
-- Containers: lowercase single-word — `timescaledb`, `redpanda`
 
 **Tests / TypeScript / Docs**
 - Tests: `tests/unit/test_<module>.py`; functions `test_<what>_<condition>`
@@ -276,25 +267,15 @@ Cold: feature_writer_service → TimescaleDB                (batch, async)
 
 ### Signal Identity Preservation (Renaissance Principle)
 
-**Never merge informationally distinct signals into a parameterized class.** OFI and CVD are separate explanatory variables in the model:
-- **OFI** (Order Flow Imbalance) = directional pressure from the limit order book — *intent*
-- **CVD** (Cumulative Volume Delta) = signed aggressive volume — *execution*
-
-Merging them into `OFIDivergencePlugin(mode="ofi"|"cvd")` destroys separability. When the ML scoring layer builds the training matrix, `trad_OFIDivergence` and `trad_CVDDivergence` must appear as independent feature columns — collapsing them makes it impossible to measure which signal type contributes alpha independently.
-
-**Rule:** Extract shared *computation* utilities (normalization, threshold logic) without collapsing signal identities. This applies to all signal families: OFI/CVD, VWAP (3 plugins), liquidity (3 plugins). Shared utilities — yes. Shared identity — never.
+**Never merge informationally distinct signals into a parameterized class.** OFI (order book intent) and CVD (aggressive execution) are separate ML feature columns — `trad_OFIDivergence` and `trad_CVDDivergence` must remain independent. Same rule for VWAP (3 plugins), liquidity (3 plugins). Extract shared *computation* to utilities; never collapse *identity*.
 
 ### I6 → I7 Confluence Obligation (Renaissance Principle)
 
-**Every I7 plugin must consume relevant I6 `ctf_*` sub-scores in its confidence calculation.** Computing I6 cross-timeframe alignment and ignoring it downstream is a Renaissance violation — compute budget is spent, signal quality is not captured.
-
-Weight by setup family:
-- **Trend-following** setups → `ctf_trend_alignment`, `ctf_score` (heavy weight)
-- **Mean-reversion** setups → `ctf_regime_agreement`, `ctf_structure_alignment`
-- **SMC/FVG** setups → `ctf_fvg_alignment`, `ctf_ob_alignment`
+**Every I7 plugin must consume relevant I6 `ctf_*` sub-scores in its confidence calculation.** Weight by setup family:
+- **Trend-following** → `ctf_trend_alignment`, `ctf_score` (heavy weight)
+- **Mean-reversion** → `ctf_regime_agreement`, `ctf_structure_alignment`
+- **SMC/FVG** → `ctf_fvg_alignment`, `ctf_ob_alignment`
 - **Microstructure** (OFI/CVD) → `ctf_score` as a *gate* (suppress signal if CTF disagrees)
-
-New I7 plugins that do not incorporate `ctf_*` scores must document explicitly why they are exempt. No exemption without justification.
 
 ## Development Standards
 
@@ -368,9 +349,7 @@ When investigating "service not writing to database":
 3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
 4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
 5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
-6. **Kafka topic verification** — `docker exec redpanda rpk topic consume development.market.bars --offset 32985` (read specific offset). `--from-end` reads tail, `-o N` from beginning. Manual test: `echo '{"test":1}' | docker exec -i redpanda rpk topic produce development.market.bars --key "TEST"`
-7. **TWS bar emissions** — `journalctl -u indicagent-tws --since "2 minutes ago" | grep "1m bar emitted"` shows emitted bars. If logs show bars but Kafka is stale, check: `journalctl -u indicagent-tws | grep "Published to Kafka successfully"`
-8. **Contract expiration check** — `.venv/bin/python3 -c "from src.config.settings import get_active_contracts; print([c.symbol for c in get_active_contracts()])"` to verify current contracts vs TWS daemon (may have old expired contracts)
+6. **Kafka/TWS verification** — `docker exec redpanda rpk topic consume development.market.bars --offset N` (or `--from-end`). TWS emissions: `journalctl -u indicagent-tws --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`.
 
 ## Environment Variables
 
