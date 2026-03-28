@@ -26,7 +26,6 @@ import pytest
 
 def _make_settings(*, tod_gated: bool = True) -> MagicMock:
     s = MagicMock()
-    s.roll_monitor_enabled = True
     s.ib_host = "192.168.1.158"
     s.roll_monitor_window_size = 100
     s.roll_monitor_threshold_default = 1.2
@@ -39,7 +38,7 @@ def _make_settings(*, tod_gated: bool = True) -> MagicMock:
 
 
 def _make_roll_monitor(tod_gated: bool = True):
-    from services.tws_daemon import RollMonitor  # noqa: PLC0415
+    from services.roll_compute_agent import RollMonitor  # noqa: PLC0415
     return RollMonitor(_make_settings(tod_gated=tod_gated))
 
 
@@ -223,7 +222,7 @@ class TestTodAdjustmentIntegratedWithCheckRoll:
         utc_now = datetime(2026, 6, 12, 21, 0, tzinfo=UTC)
         # Patch get_roll_window to simulate inside roll period
         mock_window = (date(2026, 6, 6), date(2026, 6, 17))
-        with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+        with patch("services.roll_compute_agent.get_roll_window", return_value=mock_window):
             result = rm.check_roll("ES", utc_now)
         assert result is False
         assert rm._confirmation_count["ES"] == 0
@@ -252,7 +251,7 @@ class TestTodAdjustmentIntegratedWithCheckRoll:
         confirmed = False
         for _ in range(6):
             rm.update_volume("ES", 100.0)  # very low — z << -2.0
-            with patch("services.tws_daemon.get_roll_window", return_value=mock_window):
+            with patch("services.roll_compute_agent.get_roll_window", return_value=mock_window):
                 if rm.check_roll("ES", utc_now):
                     confirmed = True
                     break
