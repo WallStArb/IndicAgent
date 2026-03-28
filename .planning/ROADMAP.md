@@ -215,8 +215,8 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 053.2-03-PLAN.md — FCA simplification (remove BarAccumulator, add HTF subscription) + CLAUDE.md update
 - [ ] **Phase 53.1: BarWriterAgent + BarAuditorAgent** 🔄 In Progress — `BarWriterAgent` decouples OHLCV persistence from compute path; `BarAuditorAgent` self-healing gap-fill loop; retires `gap_fill_service`; ports :9121/:9123 *(depends on 53.2)*
   - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
-  - [ ] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
-  - [ ] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
+  - [x] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
+  - [x] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
 - [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation; apply `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` after D-07 gate *(unblocked — 53.3 RollComputeAgent validated 2026-03-28)*
 - [ ] **Phase 54: Auth + External Access** — Cloudflare Tunnel SSE fix; Cloudflare Access or JWT auth; CORS hardening; rate limiting *(expose a clean, stable system)*
   - Plans exist in `.planning/phases/53-auth-external-access/`; revisit scope before executing
