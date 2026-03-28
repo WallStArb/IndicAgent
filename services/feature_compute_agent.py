@@ -3,14 +3,14 @@
 FeatureComputeAgent — Unified I1-I6 in-process pipeline.
 
 Replaces indicator_service + market_analysis_service + timeframes_builder_service.
-Consumes 1m bars from development.market.bars, runs I1→I2→I3→I4→I5→SMC→I6
-in-process (no inter-service Kafka hop), publishes IntelligenceEvent to
-development.intelligence, and publishes completed HTF bars to
-development.market.bars.htf.
+Consumes 1m bars from development.market.bars AND HTF bars from
+development.market.bars.htf, runs I1→I2→I3→I4→I5→SMC→I6 per bar,
+publishes IntelligenceEvent to development.intelligence.
 
 Key design decisions:
 - BarHistory replaces raw dict[str, deque] from both legacy services
-- BarAccumulator replaces TimeframeBuilderService — emits HTF bars in-process
+- BarAccumulator extracted to BarAggregatorComputeAgent (Phase 53.2) — FCA is a pure consumer
+- Each bar arriving (1m or HTF) triggers an independent pipeline run (per D-02)
 - pipeline_latency_ms published at :9125
 - GARCH/HMM plugin state persists across bars (asyncio.to_thread + threading.Lock)
 - smc_trend_direction renamed before features merge (I3 trend_direction preserved)
@@ -40,7 +40,6 @@ import structlog
 from pydantic import ValidationError
 
 from src.config.settings import Settings, get_active_contracts
-from src.core.bar_accumulator import BarAccumulator
 from src.core.bar_history import BarHistory
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
@@ -166,10 +165,10 @@ class FeatureComputeAgent:
       1. DB connect → seed BarHistory from intelligence_features (ROW_NUMBER window query)
       2. Re-publish last known IntelligenceEvent per (symbol, tf) for dashboard warmup
       3. Subscribe to system.events for roll events
-      4. Begin consuming development.market.bars
+      4. Begin consuming development.market.bars and development.market.bars.htf
 
     Per-bar pipeline:
-      BarMessage → gap detection → BarHistory.append → BarAccumulator.update
+      BarMessage → gap detection → BarHistory.append → pipeline (if warm)
       → I1 → I2 → I3 → I4 → I5 → SMC → I6 → IntelligenceEvent → publish
     """
 
@@ -238,9 +237,6 @@ class FeatureComputeAgent:
             if _instr.symbol in ("VX", "VIX"):
                 self._vix_symbol = _instr.symbol
                 break
-
-        # BarAccumulator — session-aware 1m→HTF aggregator (replaces timeframes_builder_service)
-        self._bar_accumulator = BarAccumulator()
 
         # Per-symbol tick buffer — flushed at bar close; capped at 10k ticks
         self._tick_buffers: dict[str, list[dict]] = defaultdict(list)
@@ -593,7 +589,12 @@ class FeatureComputeAgent:
         await asyncio.gather(*[_bounded(b) for b in messages], return_exceptions=True)
 
     async def _process_bar(self, bar: BarMessage) -> None:
-        """Core per-bar processing: gap detection → BarHistory → BarAccumulator → pipeline."""
+        """Core per-bar processing: gap detection → BarHistory → pipeline (if warm).
+
+        Each bar arriving on either topic_market_bars (1m) or topic_market_bars_htf
+        triggers an independent I1-I6 pipeline run (per D-02, D-03).
+        BarAccumulator is handled by BarAggregatorComputeAgent — FCA is a pure consumer.
+        """
         t0 = time.perf_counter()
 
         # 1. Gap detection: check if previous bar ts is stale
@@ -612,37 +613,19 @@ class FeatureComputeAgent:
         # 3. Append to BarHistory
         self._bar_history.append(bar)
 
-        # 4. BarAccumulator update — get completed HTF bars
-        htf_bars = self._bar_accumulator.update(bar)
-        for htf_bar in htf_bars:
-            self._bar_history.append(htf_bar)
-            await self._publish_htf_bar(htf_bar)
-
-        # 5. Process bar + all completed HTF bars through I1-I6 pipeline
-        all_bars = [bar] + htf_bars
-        for b in all_bars:
-            if not self._bar_history.is_warm(b.symbol, b.tf, min_bars_for_tf(b.tf)):
-                continue
-            try:
-                await self._run_pipeline(b, t0)
-            except Exception as e:
-                self.logger.error(
-                    "Pipeline error",
-                    symbol=b.symbol,
-                    tf=b.tf,
-                    error=str(e),
-                )
-                self._pipeline_errors.inc()
-
-    async def _publish_htf_bar(self, bar: BarMessage) -> None:
-        """Publish completed HTF bar to development.market.bars.htf topic."""
-        topic = topic_market_bars_htf(self._settings.env_name)
-        payload = bar.model_dump_json()
-        await self._producer.publish(
-            topic,
-            {"bar": payload},
-            key=f"{bar.symbol}:{bar.tf}",
-        )
+        # 4. Run I1-I6 pipeline if warm (each bar independently — per D-02)
+        if not self._bar_history.is_warm(bar.symbol, bar.tf, min_bars_for_tf(bar.tf)):
+            return
+        try:
+            await self._run_pipeline(bar, t0)
+        except Exception as e:
+            self.logger.error(
+                "Pipeline error",
+                symbol=bar.symbol,
+                tf=bar.tf,
+                error=str(e),
+            )
+            self._pipeline_errors.inc()
 
     # ---------------------------------------------------------------------------
     # Live OHLCV write path
@@ -1240,10 +1223,10 @@ class FeatureComputeAgent:
             await self._seed_bar_history()
 
             # 4. Build topics list — subscribe to consumer topics only
-            # Note: feature_pipeline_service PRODUCES HTF bars via BarAccumulator
-            # and publishes them to topic_market_bars_htf for downstream services.
+            # Subscribe to both 1m (market.bars) and HTF (market.bars.htf) topics.
+            # HTF bars produced by BarAggregatorComputeAgent — FCA is a pure consumer.
             env = self._settings.env_name
-            topics: list[str] = [topic_market_bars(env)]
+            topics: list[str] = [topic_market_bars(env), topic_market_bars_htf(env)]
             topics.append(topic_system_events(env))
             topics.append(topic_cross_asset(env))
 
