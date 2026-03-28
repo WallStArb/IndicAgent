@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Ready to execute
-last_updated: "2026-03-28T19:23:24.169Z"
+last_updated: "2026-03-28T21:36:54.146Z"
 progress:
   total_phases: 12
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -23,7 +23,7 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 ## Current Position
 
 Phase: 54 (provider-abstraction-layer-broker-agnostic-data-foundation) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 
 ## v2.1 Milestone Goal
 
@@ -148,3 +148,11 @@ Recent additions:
 - ProviderQualityEvent uses field_validator mode=before on all three datetime fields to uniformly reject naive datetimes
 - SOURCE_IBKR_GENERIC added to BarMessage.source Literal — IBKRAdapter (Plan 54-02) produces bars with source=SOURCE_IBKR_GENERIC
 - topic_market_data_quality distinct from topic_data_quality — former is provider telemetry, latter is pipeline signal quality gating
+
+### Decisions (Phase 54 Plan 02)
+
+- IBKRAdapter._provider wraps IBKRProvider directly — no DI container needed at this scale; swapping broker = new adapter file
+- _SESSION_ID_TO_TYPE dict maps Instrument.session_id to SessionType enum at adapter level (futures_24_5→RTH, fx_24_5→FX, crypto_24_7→CRYPTO, nyse→RTH)
+- Legacy flat provider_meta fallback in IBKRProvider.qualify_instrument — callers not yet migrated still resolve trading_class correctly
+- asyncio.ensure_future for background tasks inside stream_bars generator; cancelled in finally block on generator close
+- VXJ6 provider_meta canonical format is now {"ibkr": {"trading_class": "VX"}} — all new instruments must use nested format
