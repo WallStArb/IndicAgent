@@ -523,7 +523,7 @@ Plans:
 **Goal:** Stand up Grafana Tempo as the OTel trace backend. No application code changes — agents already call `init_tracing()` after Phase 52.6. This phase wires the receiving end.
 **Requirements**: [TEMPO-01, TEMPO-02, TEMPO-03, TEMPO-04, TEMPO-05]
 **Depends on:** Phase 52.6
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 **Scope:**
 - Tempo Docker container (alongside timescaledb/redpanda)
