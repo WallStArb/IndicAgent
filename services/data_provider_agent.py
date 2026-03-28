@@ -44,9 +44,11 @@ from prometheus_client import Counter as _Counter
 from prometheus_client import start_http_server
 
 from src.config.settings import Settings, get_active_contracts
-from src.core.kafka_utils import KafkaProducerClient
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.schemas.market_events import BarGapRequest
 from src.core.stream_keys import (
     message_key,
+    topic_gap_requests,
     topic_market_bars,
     topic_market_ticks,
 )
@@ -138,6 +140,7 @@ class DataProviderAgent:
         self._rtb_task: asyncio.Future | None = None
         self._official_task: asyncio.Future | None = None
         self._heartbeat_task: asyncio.Future | None = None
+        self._gap_requests_task: asyncio.Future | None = None
 
         # Per-symbol RTB state: symbol -> {open, high, low, close, volume, bar_minute, emitted}
         self._rtb_state: dict[str, dict] = {}
@@ -324,6 +327,90 @@ class DataProviderAgent:
                 logger.error("Heartbeat loop error", error=str(e))
                 await asyncio.sleep(1)
 
+    async def _gap_requests_loop(self) -> None:
+        """Consume BarGapRequest events and re-fetch bars from IBKR.
+
+        Per D-01a/D-01b: runs in self.loop alongside _rtb_loop, _official_bars_loop.
+        Consumer group: data_provider_consumer.
+        On receipt: parse BarGapRequest, call self.provider.fetch_historical_bars(),
+        re-publish each bar to topic_market_bars with source="ibkr_gap_fill".
+
+        IMPORTANT: This is a pure Kafka consumer loop — it has NO dependency on
+        IBKR connection state. It is submitted ONCE in run() before the reconnect
+        while-loop and is NOT cancelled/restarted on IBKR disconnect. The IBKR
+        fetch inside the loop will naturally fail if IBKR is disconnected, and
+        the per-message try/except handles that gracefully.
+        """
+        gap_consumer = KafkaConsumerClient(
+            topic_gap_requests(self.env_name),
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
+            group_id="data_provider_consumer",
+            auto_offset_reset="earliest",
+        )
+        await gap_consumer.start()
+        logger.info("gap_requests_loop.started", topic=topic_gap_requests(self.env_name))
+
+        try:
+            async for _topic, _key, payload in gap_consumer.messages():
+                if not self.running:
+                    break
+                try:
+                    req = BarGapRequest.model_validate(payload)
+                    logger.info(
+                        "gap_requests_loop.received",
+                        request_id=req.request_id,
+                        symbol=req.symbol,
+                        tf=req.tf,
+                        start_ts=req.start_ts.isoformat(),
+                        end_ts=req.end_ts.isoformat(),
+                    )
+
+                    bars = await self.provider.fetch_historical_bars(
+                        symbol=req.symbol,
+                        timeframe=req.tf,
+                        start=req.start_ts,
+                        end=req.end_ts,
+                    )
+
+                    for bar in bars:
+                        bar_data = {
+                            "symbol": req.symbol,
+                            "tf": req.tf,
+                            "ts": bar.timestamp.isoformat(),
+                            "open": bar.open,
+                            "high": bar.high,
+                            "low": bar.low,
+                            "close": bar.close,
+                            "volume": bar.volume,
+                            "source": "ibkr_gap_fill",
+                            "is_reconciled": True,
+                            "drift_detected": False,
+                            "is_flat_bar": False,
+                        }
+                        await self._kafka_producer.publish(
+                            topic_market_bars(self.env_name),
+                            bar_data,
+                            key=message_key(req.symbol, req.tf),
+                        )
+
+                    logger.info(
+                        "gap_requests_loop.fulfilled",
+                        request_id=req.request_id,
+                        symbol=req.symbol,
+                        bars_fetched=len(bars),
+                    )
+
+                except Exception as exc:
+                    logger.error(
+                        "gap_requests_loop.error",
+                        error=str(exc),
+                        payload_preview=str(payload)[:200],
+                    )
+                    # Continue consuming — don't crash the loop on a single failure
+
+        finally:
+            await gap_consumer.stop()
+
     async def _emit_bar(self, symbol: str, state: dict) -> None:
         """Publish completed 1m bar and perform reconciliation with official source."""
         bar_minute = state["bar_minute"]
@@ -493,6 +580,11 @@ class DataProviderAgent:
             self._heartbeat_task = asyncio.run_coroutine_threadsafe(
                 self._heartbeat_loop(), self.loop
             )
+            # _gap_requests_loop is a pure Kafka consumer — submitted ONCE here,
+            # NOT inside the reconnect while-loop. IBKR disconnects do NOT cancel it.
+            self._gap_requests_task = asyncio.run_coroutine_threadsafe(
+                self._gap_requests_loop(), self.loop
+            )
 
         self.running = True
         self.start_time = datetime.now(UTC)
@@ -558,6 +650,16 @@ class DataProviderAgent:
     def cleanup(self) -> None:
         logger.info("Cleaning up DataProviderAgent...")
         self.running = False
+
+        # Cancel all background tasks on graceful shutdown
+        for task in [
+            self._rtb_task,
+            self._official_task,
+            self._heartbeat_task,
+            self._gap_requests_task,
+        ]:
+            if task is not None and not task.done():
+                task.cancel()
 
         # Stop Kafka producer
         if self.loop and self._kafka_producer:
