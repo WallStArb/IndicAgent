@@ -1,33 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.1
-milestone_name: Data Foundation & Signal Confidence
-status: Ready to plan
-last_updated: "2026-03-28T09:17:51.001Z"
+milestone: v2.2
+milestone_name: Operational Excellence
+status: v2.1 milestone complete
+last_updated: "2026-03-28T09:52:11.457Z"
 progress:
-  total_phases: 12
-  completed_phases: 6
-  total_plans: 11
-  completed_plans: 14
+  total_phases: 11
+  completed_phases: 4
+  total_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-03-22)
+See: `.planning/PROJECT.md` (updated 2026-03-28)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 52.8 — kafka-trace-propagation
+**Current focus:** v2.2 — Phase 53.3 first (RollDetectionAgent + DataProviderAgent rename)
 
 ## Current Position
 
-Phase: 49.1
+Phase: 53.3 (next to plan)
 Plan: Not started
 
-## v2.1 Milestone Goal
+## v2.2 Milestone Goal
 
-Earn the right to trust the numbers. Fix the live data foundation (tick aggregation), close DB performance gaps, validate every intelligence layer independently, graduate shadow modes with real evidence, and harden infrastructure so nothing requires manual intervention.
+Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
 
 ## Architecture Constraints (SoC / DAG / Microservices)
 

@@ -1,5 +1,20 @@
 # Milestones
 
+## v2.1 Data Foundation & Signal Confidence (Shipped: 2026-03-28)
+
+**Phases completed:** 13 phases (48, 49, 49.1, 49.2, 51, 52.1–52.8)
+
+**Key accomplishments:**
+
+1. **Live tick aggregation + I7 reuse** — 5s RTBs → canonical 1m bars via IBKR push; 3 shared I7 utilities (microstructure, state, volume_profile) removing 550+ lines duplication; 40–60% per-bar latency reduction
+2. **Signal ledger completeness** — ALL I7 signals written unconditionally; regime_type_at_fire + hmm_regime_at_fire populated; composite lifecycle index drops UPDATE latency 34ms → <5ms
+3. **BaseAgent DAG standard** — Lifecycle contract (setup/teardown, metrics_port, tracer, topic manifest) on all 4 pipeline agents; ProcessManifest replaces singleton AgentRegistry; uniform SIGTERM drain
+4. **Autonomous shadow parity** — FeatureSnapshotWriterAgent dual-writes via independent consumer group; ParityAuditorAgent validates 60 consecutive clean cycles before publishing `SHADOW_PARITY_CERTIFIED`
+5. **End-to-end distributed tracing** — Grafana Tempo as 6th Docker service; W3C `traceparent` in Kafka transport; bar-to-signal waterfall trace visible across all agents in Grafana Tempo
+6. **Per-layer automated validation** — I1→I7 sanity checks run on each deploy; signal outcome completeness audited; setup_performance gate verified
+
+---
+
 ## v2.0 Signal Integrity & ML Foundation (Shipped: 2026-03-22)
 
 **Phases completed:** 14 phases, 60 plans, 111 tasks
