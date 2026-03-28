@@ -10,6 +10,8 @@ Type=simple
 User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/feature_writer_service.py
 Restart=always
 RestartSec=10
