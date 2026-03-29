@@ -40,6 +40,7 @@ from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
 from src.core.schemas.provider_quality import ProviderQualityEvent
+from src.core.service_utils import TF_SECONDS
 from src.core.stream_keys import (
     message_key,
     topic_market_bars,
@@ -52,16 +53,6 @@ from src.observability.metrics import (
     MERGER_BARS_ROUTED_TOTAL,
     MERGER_FAILOVERS_TOTAL,
 )
-
-# Bar interval in seconds per timeframe (for silence detection)
-_TF_SECONDS: dict[str, int] = {
-    "1m": 60,
-    "5m": 300,
-    "15m": 900,
-    "1h": 3600,
-    "4h": 14400,
-    "1d": 86400,
-}
 
 
 class ProviderMergerAgent(BaseAgent):
@@ -158,7 +149,7 @@ class ProviderMergerAgent(BaseAgent):
         await self._kafka_consumer.start()
         self.logger.info(
             "provider_merger_agent.setup_complete",
-            topics_consumed=self.topics_consumed,
+            topics_consumed=raw_topics,
             topics_produced=self.topics_produced,
             providers=self._provider_raw_topics,
         )
@@ -222,8 +213,6 @@ class ProviderMergerAgent(BaseAgent):
                 bar=bar,
                 provider=provider,
                 event_type="recovery",
-                publish_ts=bar.ts,
-                consume_ts=consume_ts,
                 promoted_provider=authoritative,
             )
             self.logger.info(
@@ -243,7 +232,7 @@ class ProviderMergerAgent(BaseAgent):
             lbl = self._dropped_lbl.get(provider)
             if lbl is not None:
                 lbl.inc()
-            await self._check_failover(bar, provider, authoritative)
+            await self._check_failover(bar, provider, authoritative, consume_ts)
 
     async def _route_bar(self, bar: BarMessage, provider: str, consume_ts: datetime) -> None:
         """Publish bar to market.bars and emit a quality event."""
@@ -270,13 +259,12 @@ class ProviderMergerAgent(BaseAgent):
         if lat_lbl is not None:
             lat_lbl.observe(latency_s)
 
-        # Publish quality event
+        # Publish quality event (latency already computed above — pass it to avoid recompute)
         await self._publish_quality_event(
             bar=bar,
             provider=provider,
             event_type="bar_received",
-            publish_ts=publish_ts,
-            consume_ts=consume_ts,
+            latency_ms=latency_ms,
         )
 
         self.logger.debug(
@@ -288,11 +276,10 @@ class ProviderMergerAgent(BaseAgent):
         )
 
     async def _check_failover(
-        self, bar: BarMessage, secondary_provider: str, primary_provider: str
+        self, bar: BarMessage, secondary_provider: str, primary_provider: str, consume_ts: datetime
     ) -> None:
         """Check if primary silence threshold exceeded; trigger failover if so."""
         symbol = bar.symbol
-        consume_ts = datetime.now(UTC)
 
         # Only failover if we have seen the primary before
         primary_last = self._last_bar_ts.get(primary_provider, {}).get(symbol)
@@ -301,7 +288,7 @@ class ProviderMergerAgent(BaseAgent):
             return
 
         silence_seconds = (consume_ts - primary_last).total_seconds()
-        bar_interval_seconds = _TF_SECONDS.get(bar.tf, 60)
+        bar_interval_seconds = TF_SECONDS.get(bar.tf, 60)
         threshold_seconds = self._provider_silence_bars_threshold * bar_interval_seconds
 
         if silence_seconds >= threshold_seconds:
@@ -314,8 +301,6 @@ class ProviderMergerAgent(BaseAgent):
                 bar=bar,
                 provider=secondary_provider,
                 event_type="failover",
-                publish_ts=bar.ts,
-                consume_ts=consume_ts,
                 promoted_provider=secondary_provider,
             )
             self.logger.warning(
@@ -331,24 +316,21 @@ class ProviderMergerAgent(BaseAgent):
         bar: BarMessage,
         provider: str,
         event_type: str,
-        publish_ts: datetime,
-        consume_ts: datetime,
+        latency_ms: float = 0.0,
         promoted_provider: str | None = None,
     ) -> None:
         """Serialize and publish a ProviderQualityEvent to the quality topic."""
         assert self._kafka_producer is not None
 
-        latency_s = (consume_ts - publish_ts).total_seconds()
-        latency_ms = max(0.0, latency_s * 1000.0)
-
+        now = datetime.now(UTC)
         event = ProviderQualityEvent(
             ts=bar.ts,
             symbol=bar.symbol,
             tf=bar.tf,
             provider=provider,
             event_type=event_type,  # type: ignore[arg-type]
-            publish_ts=publish_ts,
-            consume_ts=consume_ts,
+            publish_ts=bar.ts,
+            consume_ts=now,
             latency_ms=latency_ms,
             promoted_provider=promoted_provider,
         )
