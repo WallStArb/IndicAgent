@@ -14,20 +14,18 @@ Key design decisions:
 
 from __future__ import annotations
 
+import ast
 import asyncio
-import copy
 import json
 import os
-import signal
 import sys
 import threading
 import time
 import zoneinfo
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -38,17 +36,12 @@ from pydantic import ValidationError
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.bar_history import BarHistory
-from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.schemas.bar_message import BarMessage, SessionType
+from src.core.schemas.bar_message import BarMessage
 from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain
 from src.core.service_utils import (
-    CROSS_ASSET_VALID_TFS,
-    PLUGIN_METRICS_SAMPLE_RATE,
-    SEED_LOOKBACK_MULTIPLIER,
     TF_SECONDS,
-    TF_TTL_BARS,
     min_bars_for_tf,
     parse_roll_event,
     setup_service_logging,
@@ -77,39 +70,7 @@ from src.intelligence.pipeline import (
     rank_signals,
     select_winner,
 )
-from src.intelligence.pipeline.tod_adjuster import (
-    _TOD_ALPHA,
-    _TOD_CLAMP,
-    _TOD_SESSION_PRIORS,
-)
 from src.intelligence.plugins import registry
-from src.intelligence.register_plugins import TIER_I7, register_all_plugins
-from src.intelligence.schemas import (
-    I1Indicators,
-    I2Events,
-    I3Structure,
-    I4Context,
-    I5Patterns,
-    I6Confluence,
-    BarIntelligenceRecord,
-    IntelligenceEvent,
-    RankedSignal,
-    SMCContext,
-)
-from src.intelligence.trading.cis_scorer import CISScorer
-from src.intelligence.trading.signal_schema import make_signal, validate_signal
-from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
-from src.observability.metrics import (
-    BAR_TO_SIGNAL_LATENCY,
-    counter,
-    gauge,
-    record_plugin_execution,
-    start_metrics_server,
-)
-from src.persistence.repository.signal_ledger_repository import (
-    LedgerEntry,
-    SignalStatus,
-)
 
 # Re-import I1-I6 tiers from register_plugins (shared source of truth)
 from src.intelligence.register_plugins import (
@@ -118,8 +79,27 @@ from src.intelligence.register_plugins import (
     TIER_I3,
     TIER_I4,
     TIER_I5,
-    TIER_SMC,
     TIER_I6,
+    TIER_I7,
+    TIER_SMC,
+    register_all_plugins,
+)
+from src.intelligence.schemas import (
+    I1Indicators,
+    I2Events,
+    I3Structure,
+    I4Context,
+    I5Patterns,
+    I6Confluence,
+    IntelligenceEvent,
+    OHLCVBar,
+    SMCContext,
+)
+from src.intelligence.trading.cis_scorer import CISScorer
+from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+from src.observability.metrics import (
+    counter,
+    gauge,
 )
 
 # ---------------------------------------------------------------------------
@@ -315,6 +295,20 @@ def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | Non
 # ---------------------------------------------------------------------------
 
 _AGENT_VERSION = "v1"
+
+
+def _restore_tuple_key(k: Any) -> Any:
+    """Convert stringified tuple keys back to tuples for state restoration."""
+    if isinstance(k, str):
+        try:
+            parsed = ast.literal_eval(k)
+            if isinstance(parsed, tuple):
+                return parsed
+        except (ValueError, SyntaxError):
+            pass
+    return k
+
+
 _STATE_TOPIC_PARTITIONS = 1
 _STATE_TOPIC_REPLICATION = 1
 _STATE_TOPIC_RETENTION_MS = 604800000  # 7 days
@@ -431,15 +425,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "intelligence_pipeline_output_publish_failures_total",
             "Output buffer publish failures",
         )
-        self._state_checkpoint_fallback = counter(
+        self._state_checkpoint_fallback_total = counter(
             "intelligence_pipeline_state_checkpoint_fallback_total",
             "State checkpoint fallback to BarHistorySeeder",
         )
-        self._state_checkpoint_failures = counter(
+        self._state_checkpoint_failures_total = counter(
             "intelligence_pipeline_state_checkpoint_failures_total",
             "State checkpoint encode/decode failures",
         )
-        self._state_offset_resets = counter(
+        self._state_offset_reset_total = counter(
             "intelligence_pipeline_state_offset_reset_total",
             "Consumer offset resets after checkpoint restore",
         )
@@ -495,7 +489,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # 3. Fallback to BarHistorySeeder if checkpoint miss
         if not restored:
-            self._state_checkpoint_fallback.inc()
+            self._state_checkpoint_fallback_total.inc()
             self.logger.info("state.checkpoint_miss — seeding via BarHistorySeeder")
             await self._seed_bar_history_from_db()
 
@@ -594,54 +588,58 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             restored_any = False
             timeout_after = time.monotonic() + 5.0  # 5s max
 
-            while time.monotonic() < timeout_after:
-                msgs = await asyncio.wait_for(
-                    consumer.consume_batch(timeout_ms=1000, max_records=100),
-                    timeout=2.0,
-                )
-                if not msgs:
+            async for _topic, key_str, payload in consumer.messages():
+                if time.monotonic() > timeout_after:
                     break
-                for msg in msgs:
-                    key_str = msg.get("key", "")
-                    if not key_str.startswith(f"{_AGENT_VERSION}:"):
-                        continue
-                    try:
-                        payload = msg.get("value")
-                        if isinstance(payload, dict):
-                            payload = msg.get("value", b"")
+                if not key_str or not key_str.startswith(f"{_AGENT_VERSION}:"):
+                    # Version mismatch — wrong version prefix
+                    self._state_checkpoint_fallback_total.inc()
+                    continue
+                try:
+                    if isinstance(payload, dict):
+                        # messages() returns decoded dict; re-encode for StateSerializer
+                        import msgpack as _msgpack
+                        raw = _msgpack.packb(payload, use_bin_type=True)
+                        state = StateSerializer.decode(raw)
+                    else:
                         state = StateSerializer.decode(payload)
-                    except Exception:
-                        self._state_checkpoint_failures.inc()
-                        continue
+                except Exception:
+                    self._state_checkpoint_failures_total.inc()
+                    continue
 
-                    # Parse key: "v1:SYMBOL:TF"
-                    parts = key_str.split(":")
-                    if len(parts) != 3:
-                        continue
-                    _, symbol, tf = parts
+                # Parse key: "v1:SYMBOL:TF"
+                parts = key_str.split(":")
+                if len(parts) != 3:
+                    continue
+                _, symbol, tf = parts
 
-                    # Restore fields
-                    if "_plugin_states" in state:
-                        for k, v in state["_plugin_states"].items():
-                            if isinstance(k, str):
-                                k = tuple(k.split(":", 2)) if ":" in k else k
-                            self._plugin_states[k] = v
-                    if "_kalman_state" in state:
-                        self._kalman_state.update(state["_kalman_state"])
-                    if "_tod_priors" in state:
-                        self._tod_priors.update(state["_tod_priors"])
-                    if "_bar_history" in state:
-                        for k, v in state["_bar_history"].items():
-                            self._bar_history._data[k] = v
-                    if "_last_bar_offset" in state:
-                        self._last_bar_offset.update(state["_last_bar_offset"])
+                # Restore fields
+                if "_plugin_states" in state:
+                    for k, v in state["_plugin_states"].items():
+                        key = _restore_tuple_key(k)
+                        self._plugin_states[key] = v
+                if "_kalman_state" in state:
+                    for k, v in state["_kalman_state"].items():
+                        key = _restore_tuple_key(k)
+                        self._kalman_state[key] = v
+                if "_tod_priors" in state:
+                    for k, v in state["_tod_priors"].items():
+                        key = _restore_tuple_key(k)
+                        self._tod_priors[key] = v
+                if "_bar_history" in state:
+                    for k, v in state["_bar_history"].items():
+                        self._bar_history._data[k] = v
+                if "_last_bar_offset" in state:
+                    for k, v in state["_last_bar_offset"].items():
+                        key = _restore_tuple_key(k)
+                        self._last_bar_offset[key] = v
 
-                    restored_any = True
+                restored_any = True
 
             await consumer.stop()
 
             if restored_any and self._last_bar_offset:
-                self._state_offset_resets.inc()
+                self._state_offset_reset_total.inc()
                 self.logger.info(
                     "state.restored",
                     offsets=self._last_bar_offset,
@@ -651,7 +649,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         except Exception as exc:
             self.logger.warning("state.restore_failed", error=str(exc))
-            self._state_checkpoint_failures.inc()
+            self._state_checkpoint_failures_total.inc()
             return False
 
     # ------------------------------------------------------------------
@@ -690,7 +688,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Wait for output queue to drain (10s timeout)
         try:
             await asyncio.wait_for(self._output_queue.join(), timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.logger.warning("teardown.output_drain_timeout")
         if hasattr(self, "_kafka_consumer"):
             await self._kafka_consumer.stop()
@@ -708,25 +706,23 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Consume bars and process through I1-I7 pipeline."""
         while self.running:
             try:
-                msgs = await self._kafka_consumer.consume_batch(
-                    timeout_ms=1000, max_records=10
-                )
-            except Exception:
-                await asyncio.sleep(1)
-                continue
-
-            for msg in msgs:
-                try:
-                    bar = self._parse_bar(msg)
-                    if bar is None:
+                async for _topic, _key, payload in self._kafka_consumer.messages():
+                    if not isinstance(payload, dict):
                         continue
-                    await self._process_bar(bar)
-                except Exception as exc:
-                    self.logger.error(
-                        "bar.process_error",
-                        error=str(exc),
-                    )
-                    self._pipeline_errors.inc()
+                    try:
+                        bar = self._parse_bar(payload)
+                        if bar is None:
+                            continue
+                        await self._process_bar(bar)
+                    except Exception as exc:
+                        self.logger.error(
+                            "bar.process_error",
+                            error=str(exc),
+                        )
+                        self._pipeline_errors.inc()
+            except Exception as exc:
+                self.logger.warning("process_loop.consumer_error", error=str(exc))
+                await asyncio.sleep(1)
 
     def _parse_bar(self, msg: dict) -> BarMessage | None:
         """Parse a Kafka message into BarMessage."""
@@ -821,7 +817,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 intel_dict = cached_evt.model_dump()
                 flattened = {}
                 for tier_name, tier_data in intel_dict.items():
-                    if tier_name in ("i1", "i2", "i3", "i4", "i5", "smc", "i6") and isinstance(tier_data, dict):
+                    if (
+                        tier_name in ("i1", "i2", "i3", "i4", "i5", "smc", "i6")
+                        and isinstance(tier_data, dict)
+                    ):
                         flattened.update(tier_data)
                     else:
                         flattened[tier_name] = tier_data
@@ -898,13 +897,370 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 computed_at=datetime.now(UTC),
             )
         except ValidationError as exc:
-            self.logger.error("IntelligenceEvent validation failed", symbol=symbol, tf=tf, error=str(exc))
+            self.logger.error(
+                "IntelligenceEvent validation failed",
+                symbol=symbol, tf=tf, error=str(exc),
+            )
             self._pipeline_errors.inc()
             return None, None
 
         self._last_events[key] = event
         return event, tiered
 
+    # ------------------------------------------------------------------
+    # Output buffer
+    # ------------------------------------------------------------------
+
+    def _enqueue(self, topic: str, key: str, value: Any) -> None:
+        """Non-blocking enqueue to output buffer. Drops on QueueFull."""
+        try:
+            self._output_queue.put_nowait((topic, key, value))
+        except asyncio.QueueFull:
+            self._output_buffer_drops.inc()
+
+    async def _drain_output(self) -> None:
+        """Background task: drain output queue and publish to Kafka."""
+        while self.running or not self._output_queue.empty():
+            try:
+                topic, key, value = await asyncio.wait_for(
+                    self._output_queue.get(), timeout=1.0
+                )
+                self._output_buffer_depth.set(self._output_queue.qsize())
+                await self._kafka_producer.publish(topic, key=key, value=value)
+                self._output_queue.task_done()
+            except TimeoutError:
+                continue
+            except Exception:
+                self._output_publish_failures.inc()
+                self.logger.exception("output.publish_failed")
+
+    # ------------------------------------------------------------------
+    # I1 plugin execution
+    # ------------------------------------------------------------------
+
+    async def _run_i1(self, frames: dict, symbol: str, tf: str) -> dict:
+        """Run all I1 plugins and return merged result dict."""
+        result: dict[str, Any] = {}
+        for plugin_name in TIER_I1:
+            plugin = self._plugin_cache.get(plugin_name)
+            if plugin is None:
+                continue
+            if should_skip_plugin(plugin_name, symbol, tf):
+                continue
+            state_key = (plugin_name, symbol, tf)
+            lock = self._get_state_lock(state_key)
+            try:
+                out = await asyncio.to_thread(
+                    plugin.compute, frames, self._plugin_states.get(state_key, {})
+                )
+                if isinstance(out, dict):
+                    with lock:
+                        if "_state" in out:
+                            self._plugin_states[state_key] = out.pop("_state")
+                        result.update({k: v for k, v in out.items() if k != "_state"})
+            except Exception as exc:
+                self._pipeline_errors.inc()
+                self.logger.warning(
+                    "plugin.error", plugin=plugin_name, error=str(exc)
+                )
+        return result
+
+    # ------------------------------------------------------------------
+    # I2-I6 analysis pipeline
+    # ------------------------------------------------------------------
+
+    async def _run_analysis_pipeline(
+        self, symbol: str, tf: str, frames: dict
+    ) -> dict | None:
+        """Run I2 → I3 → I4 → I5 → SMC → I6 and return tiered dict."""
+        tiered: dict[str, dict] = {}
+        tier_map = [
+            ("i2", TIER_I2),
+            ("i3", TIER_I3),
+            ("i4", TIER_I4),
+            ("i5", TIER_I5),
+            ("smc", TIER_SMC),
+            ("i6", TIER_I6),
+        ]
+        for tier_key, tier_list in tier_map:
+            tier_result: dict[str, Any] = {}
+            for plugin_name in tier_list:
+                plugin = self._plugin_cache.get(plugin_name)
+                if plugin is None:
+                    continue
+                if should_skip_plugin(plugin_name, symbol, tf):
+                    continue
+                state_key = (plugin_name, symbol, tf)
+                lock = self._get_state_lock(state_key)
+                try:
+                    out = await asyncio.to_thread(
+                        plugin.compute, frames, self._plugin_states.get(state_key, {})
+                    )
+                    if isinstance(out, dict):
+                        with lock:
+                            if "_state" in out:
+                                self._plugin_states[state_key] = out.pop("_state")
+                            # smc_trend_direction rename
+                            if tier_key == "smc" and "smc_trend_direction" in out:
+                                out["trend_direction"] = out.pop("smc_trend_direction")
+                            tier_result.update(
+                                {k: v for k, v in out.items() if k != "_state"}
+                            )
+                except Exception as exc:
+                    self._pipeline_errors.inc()
+                    self.logger.warning(
+                        "plugin.error", plugin=plugin_name, tier=tier_key, error=str(exc)
+                    )
+            tiered[tier_key] = tier_result
+            frames[tier_key] = tier_result
+
+        return tiered
+
+    # ------------------------------------------------------------------
+    # I7 signal generation pipeline
+    # ------------------------------------------------------------------
+
+    async def _run_i7(
+        self, bar: BarMessage, event: IntelligenceEvent, tiered: dict
+    ) -> None:
+        """Run I7 plugins → quality gate → regime gate → calibration → rank → select."""
+        symbol, tf = bar.symbol, bar.tf
+        features = _build_features_from_event(event)
+
+        # Run all I7 plugins
+        raw_signals: list[dict] = []
+        for plugin_name in I7_PLUGINS:
+            plugin = self._plugin_cache.get(plugin_name)
+            if plugin is None:
+                continue
+            if should_skip_plugin(plugin_name, symbol, tf):
+                continue
+            state_key = (plugin_name, symbol, tf)
+            lock = self._get_state_lock(state_key)
+            try:
+                out = await asyncio.to_thread(
+                    plugin.compute, {"main": None, **features},
+                    self._plugin_states.get(state_key, {}),
+                )
+                if isinstance(out, dict) and out.get("signal"):
+                    sig = out["signal"]
+                    sig["setup_plugin"] = plugin_name
+                    sig["symbol"] = symbol
+                    sig["tf"] = tf
+                    # Alpha decay
+                    fire_key = (symbol, tf, plugin_name, sig.get("direction", 0))
+                    _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
+                    raw_signals.append(sig)
+                    self._signals_generated.inc()
+                if isinstance(out, dict) and "_state" in out:
+                    with lock:
+                        self._plugin_states[state_key] = out["_state"]
+            except Exception as exc:
+                self._pipeline_errors.inc()
+                self.logger.warning(
+                    "i7.plugin.error", plugin=plugin_name, error=str(exc)
+                )
+
+        if not raw_signals:
+            return
+
+        # Attribution capture: BEFORE quality gate
+        for sig in raw_signals:
+            sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
+
+        # Pipeline stages
+        quality_gated = apply_quality_gate(raw_signals, features)
+        regime_gated = apply_regime_gate(
+            quality_gated,
+            self._regime_cache,
+            tf,
+            _REGIME_AUTHORITY_TF,
+            features,
+        )
+        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, features)
+
+        # Attribution capture: BEFORE calibration
+        for sig in tod_adjusted:
+            sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
+
+        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf)
+        ranked = rank_signals(calibrated, self._perf_weights)
+        winner = select_winner(ranked)
+
+        if winner:
+            self._signals_selected.inc()
+            self._enqueue(
+                topic_intelligence(self._settings.env_name),
+                message_key(symbol, tf),
+                winner,
+            )
+
+    # ------------------------------------------------------------------
+    # State checkpointing
+    # ------------------------------------------------------------------
+
+    async def _checkpoint_state(self, bar: BarMessage) -> None:
+        """Encode current state and enqueue to compacted state topic."""
+        state = {
+            "_plugin_states": self._plugin_states,
+            "_kalman_state": self._kalman_state,
+            "_tod_priors": self._tod_priors,
+            "_last_bar_offset": self._last_bar_offset,
+        }
+        encoded = StateSerializer.encode(state)
+        checkpoint_key = f"{_AGENT_VERSION}:{bar.symbol}:{bar.tf}"
+        self._enqueue(
+            topic_intelligence_pipeline_state(self._settings.env_name),
+            checkpoint_key,
+            encoded,
+        )
+
+    # ------------------------------------------------------------------
+    # Intelligence journal
+    # ------------------------------------------------------------------
+
+    def _enqueue_intel_journal(
+        self, bar: BarMessage, event: IntelligenceEvent, msg_key: str
+    ) -> None:
+        """Enqueue IntelligenceJournal record to output buffer."""
+        journal = IntelligenceJournal(
+            provenance=ProvenanceChain(
+                agent="intelligence_pipeline_agent",
+                version=_AGENT_VERSION,
+                computed_at=datetime.now(UTC),
+            ),
+            event=event,
+        )
+        self._enqueue(
+            topic_intelligence_journal(self._settings.env_name),
+            msg_key,
+            journal.model_dump_json(),
+        )
+
+    # ------------------------------------------------------------------
+    # Health monitoring
+    # ------------------------------------------------------------------
+
+    async def _health_monitor_loop(self) -> None:
+        """Periodic health check and metric reporting."""
+        while self.running:
+            self._output_buffer_depth.set(self._output_queue.qsize())
+            await asyncio.sleep(10)
+
+    # ------------------------------------------------------------------
+    # Resolution listener (ticks, cross-asset, system events)
+    # ------------------------------------------------------------------
+
+    async def _resolution_listener_loop(self) -> None:
+        """Listen for tick data, cross-asset updates, and system events."""
+        while self.running:
+            try:
+                async for _topic, _key, payload in self._kafka_consumer.messages():
+                    if not isinstance(payload, dict):
+                        continue
+                    # Route by topic
+                    if "cross_asset" in _topic:
+                        tf = payload.get("tf", "1m")
+                        self._cross_asset_cache[tf] = payload
+                    elif "ticks" in _topic:
+                        symbol = payload.get("symbol", "")
+                        self._live_quotes[symbol] = payload
+                    elif "system.events" in _topic:
+                        await self._handle_system_event(payload)
+            except Exception as exc:
+                self.logger.warning("resolution_listener.error", error=str(exc))
+                await asyncio.sleep(1)
+
+    async def _handle_system_event(self, payload: dict) -> None:
+        """Handle system events (pipeline reset, roll, etc.)."""
+        event_type = payload.get("type", "")
+        if event_type == "pipeline_reset":
+            self.logger.info("system.pipeline_reset_received")
+
+    # ------------------------------------------------------------------
+    # DB cache refresh loops
+    # ------------------------------------------------------------------
+
+    async def _run_refresh_loop(self, load_fn, interval_sec: int) -> None:
+        """Periodically refresh a DB cache."""
+        while self.running:
+            try:
+                await asyncio.sleep(interval_sec)
+                await load_fn()
+            except Exception as exc:
+                self.logger.warning("refresh_loop.error", error=str(exc))
+
+    async def _load_perf_weights(self) -> None:
+        """Load perf_weights from setup_performance table."""
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query("""
+                SELECT setup_plugin, direction, win_rate, avg_pnl_r, sample_size
+                FROM setup_performance
+                WHERE sample_size >= 30
+            """)
+            weights: dict = {}
+            for r in rows:
+                key = (r["setup_plugin"], r["direction"])
+                weights[key] = r.get("win_rate", 0.5)
+            self._perf_weights = weights
+        except Exception as exc:
+            self.logger.warning("perf_weights.load_failed", error=str(exc))
+
+    async def _refresh_drift_penalties(self) -> None:
+        """Refresh drift penalties from DRIFT_PENALTIES config."""
+        self._drift_penalties = dict(DRIFT_PENALTIES)
+
+    async def _load_cis_weights(self) -> None:
+        """Load CIS bucket weights from cis_weights table."""
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT version, weights FROM cis_weights ORDER BY version DESC LIMIT 1"
+            )
+            if rows:
+                self._cis_weights_cache = rows[0].get("weights", {})
+        except Exception as exc:
+            self.logger.warning("cis_weights.load_failed", error=str(exc))
+
+    async def _load_calibration_curves(self) -> None:
+        """Load calibration curves from calibration_curves table."""
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT setup_plugin, curve_data FROM calibration_curves"
+            )
+            curves: dict = {}
+            for r in rows:
+                curves[r["setup_plugin"]] = r.get("curve_data", {})
+            self._calibration_curves = curves
+        except Exception as exc:
+            self.logger.warning("calibration_curves.load_failed", error=str(exc))
+
+    async def _load_tod_multipliers(self) -> None:
+        """Load TOD multipliers from tod_multipliers table."""
+        if self._db is None:
+            return
+        try:
+            rows = await self._db.execute_query(
+                "SELECT regime_type, tf, hour_et, multiplier FROM tod_multipliers"
+            )
+            priors: dict = {}
+            for r in rows:
+                key = (r["regime_type"], r["tf"], r["hour_et"])
+                priors[key] = float(r["multiplier"])
+            self._tod_priors.update(priors)
+        except Exception as exc:
+            self.logger.warning("tod_multipliers.load_failed", error=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
+if __name__ == "__main__":
+    agent = IntelligencePipelineComputeAgent()
+    asyncio.run(agent.start())
