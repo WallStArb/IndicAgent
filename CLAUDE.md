@@ -71,6 +71,15 @@ cd dashboard && npm run dev  # Runs on http://localhost:3000
 
 Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-scale features.
 
+## AI Working Rules
+
+> How to work with Claude Code without losing momentum or shipping broken code. Full rules: `docs/ai-working-rules.md`
+
+- **Pick Your Mode first:** shipping (no experiments) or researching (shadow only) — don't mix in one session
+- **3-Prompt Rule:** bug unsolved after 3 tries → stop, manually debug 5 min or rewrite the prompt
+- **Shadow First:** algo changes that affect signal output go shadow-only until proven
+- **The "Does It Run?" Gate:** session isn't done until the service starts and produces output
+
 ## Required Workflows
 
 ### Pre-Commit Quality Gate (Mandatory)

@@ -1480,8 +1480,8 @@ class SignalGeneratorAgent(BaseAgent):
                     )
                     await self._kafka_producer.publish(
                         topic_intelligence_journal(env),
+                        journal.model_dump(mode="json"),
                         key=message_key(symbol, timeframe),
-                        value=journal.model_dump_json(),
                     )
                     self.signals_generated_total.inc(len(entries))
                     self.signals_selected_total.inc(selected_count)
@@ -1587,7 +1587,7 @@ class SignalGeneratorAgent(BaseAgent):
                 )
                 await self._kafka_producer.publish(
                     topic_intelligence_journal(self.env_name),
-                    record.model_dump_json(),
+                    record.model_dump(mode="json"),
                     key=message_key(symbol, timeframe),
                 )
             except Exception as _rec_err:

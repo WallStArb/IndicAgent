@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -75,6 +77,8 @@ class ProviderMergerAgent(BaseAgent):
         super().__init__(name="provider_merger_agent", metrics_port=9130)
 
         self._provider_raw_topics: list[str] = self._settings.provider_raw_topics
+        if not self._provider_raw_topics:
+            raise ValueError("provider_raw_topics must be non-empty")
         self._provider_routing_config: dict[str, str] = (
             self._settings.provider_routing_config
         )
@@ -87,7 +91,13 @@ class ProviderMergerAgent(BaseAgent):
 
         # Last bar timestamp per provider per symbol for silence detection
         # Structure: provider -> {symbol -> last_ts}
-        self._last_bar_ts: dict[str, dict[str, datetime]] = {}
+        self._last_bar_ts: defaultdict[str, dict[str, datetime]] = defaultdict(dict)
+
+        # Cache topic string -> provider name to avoid rsplit on every bar
+        self._topic_to_provider: dict[str, str] = {
+            topic_market_bars_raw(self._env_name, p): p
+            for p in self._provider_raw_topics
+        }
 
         # Instrument asset_class lookup: symbol -> asset_class string
         self._symbol_to_asset_class: dict[str, str] = {
@@ -191,11 +201,9 @@ class ProviderMergerAgent(BaseAgent):
         4. Else: update secondary tracking + check failover.
         """
         consume_ts = datetime.now(UTC)
-        provider = self._extract_provider_from_topic(topic)
+        provider = self._topic_to_provider.get(topic) or self._extract_provider_from_topic(topic)
 
         # Update last_bar_ts tracking for all providers
-        if provider not in self._last_bar_ts:
-            self._last_bar_ts[provider] = {}
         self._last_bar_ts[provider][bar.symbol] = bar.ts
 
         # Determine authoritative provider for this symbol's asset_class
@@ -318,7 +326,7 @@ class ProviderMergerAgent(BaseAgent):
         self,
         bar: BarMessage,
         provider: str,
-        event_type: str,
+        event_type: Literal["bar_received", "gap_detected", "failover", "recovery"],
         latency_ms: float = 0.0,
         promoted_provider: str | None = None,
     ) -> None:
@@ -331,7 +339,7 @@ class ProviderMergerAgent(BaseAgent):
             symbol=bar.symbol,
             tf=bar.tf,
             provider=provider,
-            event_type=event_type,  # type: ignore[arg-type]
+            event_type=event_type,
             publish_ts=bar.ts,
             consume_ts=now,
             latency_ms=latency_ms,

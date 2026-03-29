@@ -60,8 +60,13 @@ class KafkaProducerClient:
     async def start(self) -> None:
         """Create and start the underlying AIOKafkaProducer."""
         logger.info("KafkaProducerClient starting", bootstrap_servers=self._bootstrap)
-        self._producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
-        await self._producer.start()
+        producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap)
+        try:
+            await producer.start()
+        except Exception:
+            await producer.stop()
+            raise
+        self._producer = producer
         logger.info("KafkaProducerClient started successfully")
 
     async def stop(self) -> None:
