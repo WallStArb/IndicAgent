@@ -18,7 +18,7 @@ import abc
 import asyncio
 from asyncio import CancelledError
 
-from src.config.settings import Settings
+from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base import BaseAgent
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import Instrument
@@ -65,11 +65,13 @@ class BaseProviderAgent(BaseAgent):
 
         # Pre-cache labeled metric children — avoids per-bar dict lookup overhead
         pname = self._provider_name_str()
-        aname = self._agent_name()
-        self._m_bars_raw = PROVIDER_BARS_PRODUCED_TOTAL.labels(provider=pname, agent=aname)
-        self._m_reconnects = PROVIDER_RECONNECTS_TOTAL.labels(provider=pname, agent=aname)
-        self._g_connected = PROVIDER_CONNECTED.labels(provider=pname, agent=aname)
-        self._m_gaps_filled = PROVIDER_GAPS_FILLED_TOTAL.labels(provider=pname, agent=aname)
+        self._m_bars_raw = PROVIDER_BARS_PRODUCED_TOTAL.labels(provider=pname, agent=self.name)
+        self._m_reconnects = PROVIDER_RECONNECTS_TOTAL.labels(provider=pname, agent=self.name)
+        self._g_connected = PROVIDER_CONNECTED.labels(provider=pname, agent=self.name)
+        self._m_gaps_filled = PROVIDER_GAPS_FILLED_TOTAL.labels(provider=pname, agent=self.name)
+
+        # Cache raw topic — constant for agent lifetime
+        self._raw_topic = topic_market_bars_raw(self._settings.env_name or "", pname)
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._adapter: DataProviderAdapter | None = None
@@ -115,7 +117,8 @@ class BaseProviderAgent(BaseAgent):
         await self._adapter.connect()
         self._g_connected.set(1)
         self.logger.info(
-            f"{self._agent_name()}.setup_complete",
+            "provider_agent.setup_complete",
+            agent=self.name,
             provider=self._provider_name_str(),
         )
 
@@ -141,7 +144,8 @@ class BaseProviderAgent(BaseAgent):
             await self._adapter.disconnect()
         self._g_connected.set(0)
         self.logger.info(
-            f"{self._agent_name()}.teardown_complete",
+            "provider_agent.teardown_complete",
+            agent=self.name,
             provider=self._provider_name_str(),
         )
 
@@ -162,14 +166,16 @@ class BaseProviderAgent(BaseAgent):
                     await self._publish_bar(bar)
                 # Generator exited normally — treat as disconnect
                 self.logger.warning(
-                    f"{self._agent_name()}.stream_ended",
+                    "provider_agent.stream_ended",
+                    agent=self.name,
                     provider=self._provider_name_str(),
                 )
             except CancelledError:
                 return
             except Exception as exc:
                 self.logger.error(
-                    f"{self._agent_name()}.stream_error",
+                    "provider_agent.stream_error",
+                    agent=self.name,
                     provider=self._provider_name_str(),
                     error=str(exc),
                 )
@@ -189,7 +195,8 @@ class BaseProviderAgent(BaseAgent):
         delay = min(2 ** (attempt + 1), 60)
         self._m_reconnects.inc()
         self.logger.warning(
-            f"{self._agent_name()}.reconnecting",
+            "provider_agent.reconnecting",
+            agent=self.name,
             provider=self._provider_name_str(),
             attempt=attempt,
             backoff_seconds=delay,
@@ -201,7 +208,8 @@ class BaseProviderAgent(BaseAgent):
             if connected:
                 self._g_connected.set(1)
                 self.logger.info(
-                    f"{self._agent_name()}.reconnected",
+                    "provider_agent.reconnected",
+                    agent=self.name,
                     provider=self._provider_name_str(),
                     attempt=attempt,
                 )
@@ -210,7 +218,8 @@ class BaseProviderAgent(BaseAgent):
         except Exception as exc:
             self._g_connected.set(0)
             self.logger.error(
-                f"{self._agent_name()}.reconnect_failed",
+                "provider_agent.reconnect_failed",
+                agent=self.name,
                 provider=self._provider_name_str(),
                 attempt=attempt,
                 error=str(exc),
@@ -230,7 +239,7 @@ class BaseProviderAgent(BaseAgent):
         Gap-fill bars are published to topic_market_bars_raw(env, provider)
         so MergerAgent routes them into the canonical stream.
         """
-        env = self._settings.env_name
+        env = self._settings.env_name or ""
         group_id = f"{self._provider_name_str()}_provider_gap_consumer"
         gap_consumer = KafkaConsumerClient(
             topic_gap_requests(env),
@@ -240,7 +249,8 @@ class BaseProviderAgent(BaseAgent):
         )
         await gap_consumer.start()
         self.logger.info(
-            f"{self._agent_name()}.gap_requests_loop.started",
+            "provider_agent.gap_requests_loop.started",
+            agent=self.name,
             topic=topic_gap_requests(env),
             group_id=group_id,
         )
@@ -252,7 +262,8 @@ class BaseProviderAgent(BaseAgent):
                 try:
                     req = BarGapRequest.model_validate(payload)
                     self.logger.info(
-                        f"{self._agent_name()}.gap_requests_loop.received",
+                        "provider_agent.gap_requests_loop.received",
+                        agent=self.name,
                         request_id=str(req.request_id),
                         symbol=req.symbol,
                         tf=req.tf,
@@ -267,17 +278,17 @@ class BaseProviderAgent(BaseAgent):
                         end=req.end_ts,
                     )
 
-                    raw_topic = topic_market_bars_raw(env, self._provider_name_str())
                     for bar in bars:
                         await self._kafka_producer.publish(
-                            raw_topic,
+                            self._raw_topic,
                             bar.model_dump(),
                             key=message_key(req.symbol, req.tf),
                         )
                         self._m_gaps_filled.inc()
 
                     self.logger.info(
-                        f"{self._agent_name()}.gap_requests_loop.fulfilled",
+                        "provider_agent.gap_requests_loop.fulfilled",
+                        agent=self.name,
                         request_id=str(req.request_id),
                         symbol=req.symbol,
                         bars_fetched=len(bars),
@@ -287,7 +298,8 @@ class BaseProviderAgent(BaseAgent):
                     raise
                 except Exception as exc:
                     self.logger.error(
-                        f"{self._agent_name()}.gap_requests_loop.error",
+                        "provider_agent.gap_requests_loop.error",
+                        agent=self.name,
                         error=str(exc),
                         payload_preview=str(payload)[:200],
                     )
@@ -301,20 +313,13 @@ class BaseProviderAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _publish_bar(self, bar: BarMessage) -> None:
-        """Publish a BarMessage to the provider's raw topic.
-
-        Publishes to topic_market_bars_raw(env, provider_name) — not to the
-        canonical market.bars topic (MergerAgent owns that routing).
-        """
-        env = self._settings.env_name
-        raw_topic = topic_market_bars_raw(env, self._provider_name_str())
+        """Publish a BarMessage to the provider's raw topic."""
         await self._kafka_producer.publish(
-            raw_topic,
+            self._raw_topic,
             bar.model_dump(),
             key=message_key(bar.symbol, bar.tf),
         )
         self._m_bars_raw.inc()
-        self._g_connected.set(1)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -322,6 +327,4 @@ class BaseProviderAgent(BaseAgent):
 
     def _get_instruments(self) -> list[Instrument]:
         """Return active instruments from settings."""
-        from src.config.settings import get_active_contracts
-
         return get_active_contracts(self._settings)

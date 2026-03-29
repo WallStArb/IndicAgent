@@ -6,11 +6,6 @@ BaseProviderAgent. This file only describes what makes IBKR unique:
 - agent name, metrics port, provider name string
 - how to build the IBKRAdapter
 
-The existing DataProviderAgent continues running on market.bars during
-the transition. Both agents run simultaneously on different consumer groups
-and different raw topics until Plan 54-04 cutover.
-
-Phase 54-03 — Provider Abstraction Layer.
 Metrics port: :9129
 """
 
@@ -48,9 +43,7 @@ class IBKRProviderAgent(BaseProviderAgent):
         return IBKRAdapter(
             host=self._settings.ib_host,
             port=self._settings.ib_port,
-            # client_id offset: base ib_client_id=35 is used by DataProviderAgent.
-            # Use 36 during transition; remove offset post-cutover (Plan 54-04).
-            client_id=self._settings.ib_client_id + 1,
+            client_id=self._settings.ib_client_id,
         )
 
 
