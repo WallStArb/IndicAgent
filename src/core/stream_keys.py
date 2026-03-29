@@ -157,6 +157,31 @@ def topic_intelligence_journal(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.journal"
 
 
+def topic_intelligence_pipeline_state(env_name: str) -> str:
+    """Kafka compacted topic for IntelligencePipelineComputeAgent state checkpoints.
+
+    Key format: {agent_version}:{symbol}:{tf} (e.g. 'v1:ESM6:1m')
+    Value: msgpack-encoded state dict (plugin_state, kalman_state, tod_priors,
+           bar_history, last_bar_offset).
+    Topic config: cleanup.policy=compact, min.cleanable.dirty.ratio=0.1,
+                  segment.ms=3600000 — set on topic creation, not in code.
+    """
+    return f"{env_prefix(env_name)}intelligence.pipeline.state"
+
+
+def topic_intelligence_shadow(env_name: str) -> str:
+    """Kafka topic for shadow rollout output from IntelligencePipelineComputeAgent.
+
+    Used during Plan 4 shadow validation only. The new agent publishes to this
+    topic (instead of the canonical intelligence topic) while running in shadow
+    mode with consumer group 'intelligence_pipeline_shadow'. After cutover
+    validation passes, this topic is deleted and this function is removed.
+
+    NOTE: Do not add consumers for this topic — it is for manual inspection only.
+    """
+    return f"{env_prefix(env_name)}intelligence.shadow"
+
+
 def topic_audit(env_name: str) -> str:
     """Kafka topic for structured audit events (parity violations, certification events)."""
     return f"{env_prefix(env_name)}audit"
