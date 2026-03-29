@@ -16,7 +16,7 @@ _TOPIC_SPECS: list[tuple[str, int, int]] = [
     ("market.ticks",               1, _SEVEN_DAYS_MS),
     ("market.bars",                1, _SEVEN_DAYS_MS),
     ("market.bars.htf",            1, _SEVEN_DAYS_MS),
-    ("market.bars.raw.ibkr",       1, _SEVEN_DAYS_MS),
+    # market.bars.raw.<provider> entries are added dynamically via get_topic_specs()
     ("market.events.gap_requests", 1, _SEVEN_DAYS_MS),
     ("market.events.roll",         1, _SEVEN_DAYS_MS),
     ("market.data.quality",        1, _SEVEN_DAYS_MS),
@@ -48,3 +48,18 @@ _TOPIC_SPECS: list[tuple[str, int, int]] = [
     ("audit",                      1, _SEVEN_DAYS_MS),
     ("pipeline.data_quality",      1, _SEVEN_DAYS_MS),
 ]
+
+
+def get_topic_specs(providers: list[str]) -> list[tuple[str, int, int]]:
+    """Return full topic spec list, including one raw topic per provider.
+
+    Args:
+        providers: List of provider names from Settings.provider_raw_topics
+                   (e.g. ["ibkr", "polygon"]).
+    """
+    raw_provider_specs = [
+        (f"market.bars.raw.{provider}", 1, _SEVEN_DAYS_MS) for provider in providers
+    ]
+    # Insert raw provider topics immediately after market.bars.htf
+    insert_after = next(i for i, t in enumerate(_TOPIC_SPECS) if t[0] == "market.bars.htf")
+    return _TOPIC_SPECS[: insert_after + 1] + raw_provider_specs + _TOPIC_SPECS[insert_after + 1 :]

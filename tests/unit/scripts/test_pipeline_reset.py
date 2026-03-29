@@ -161,7 +161,9 @@ def test_clear_kafka_topics_deletes_all_env_prefixed_topics():
 
     with patch("production.scripts.pipeline_reset.AIOKafkaAdminClient", return_value=mock_client):
         import asyncio
-        count = asyncio.run(clear_kafka_topics("localhost:19092", env_prefix="development"))
+        count = asyncio.run(
+            clear_kafka_topics("localhost:19092", env_prefix="development", providers=["ibkr"])
+        )
 
     mock_client.delete_topics.assert_called_once()
     topics_deleted = mock_client.delete_topics.call_args.args[0]
@@ -183,7 +185,9 @@ def test_clear_kafka_topics_recreates_topics_after_delete():
 
     with patch("production.scripts.pipeline_reset.AIOKafkaAdminClient", return_value=mock_client):
         import asyncio
-        asyncio.run(clear_kafka_topics("localhost:19092", env_prefix="development"))
+        asyncio.run(
+            clear_kafka_topics("localhost:19092", env_prefix="development", providers=["ibkr"])
+        )
 
     mock_client.create_topics.assert_called_once()
 
@@ -271,11 +275,17 @@ def test_kafka_init_topics_includes_core_topics():
 
 
 def test_kafka_init_topics_includes_provider_raw_topic():
-    """market.bars.raw.ibkr must be in _TOPIC_SPECS (Phase 54 new topic)."""
-    from production.scripts.kafka_init_topics import _TOPIC_SPECS
+    """get_topic_specs must include a raw topic for each provider."""
+    from production.scripts.kafka_init_topics import get_topic_specs
 
-    suffixes = {s for s, _, _ in _TOPIC_SPECS}
+    specs = get_topic_specs(["ibkr"])
+    suffixes = {s for s, _, _ in specs}
     assert "market.bars.raw.ibkr" in suffixes
+
+    specs_multi = get_topic_specs(["ibkr", "polygon"])
+    suffixes_multi = {s for s, _, _ in specs_multi}
+    assert "market.bars.raw.ibkr" in suffixes_multi
+    assert "market.bars.raw.polygon" in suffixes_multi
 
 
 def test_kafka_init_topics_includes_quality_topic():
