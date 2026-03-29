@@ -1,38 +1,77 @@
 # Renaissance Pipeline Evolution Strategy
 
 ## Context
-This document tracks the evolution of the `indicagent` data layer from a multi-hop Kafka DAG to a high-performance, in-process Intelligence Engine.
+This document tracks the evolution of the `indicagent` data layer from a monolithic service architecture toward the current agentic DAG. It captures both what shipped and where the design is headed next.
 
-## Baseline (Current): Data Layer 2.0
-We have successfully implemented:
-- **Clock-Driven Data Flow:** `TwsDaemon` now guarantees 1-minute bar emission via internal heartbeat, ensuring temporal alignment for stateful models.
+---
+
+## Baseline (v2.0, shipped 2026-03-22): Data Layer Foundation
+
+Phases 39–47 established the foundation:
+
+- **Clock-Driven Data Flow:** Guaranteed 1-minute bar emission via internal heartbeat, ensuring temporal alignment for stateful models.
 - **Multi-Stream Reconciliation:** Dual-stream comparison (5s real-time vs 1m audited) provides drift detection.
 - **Zero-Loss Guarantee:** Kafka consumers migrated to `auto_offset_reset="earliest"` with explicit `commit()` operations, ensuring mathematical continuity after service crashes.
+- **I1-I6 Unified Pipeline:** `feature_compute_agent` runs the full indicator-through-confluence stack in a single service, subscribing to both `market.bars` (1m) and `market.bars.htf` (aggregated timeframes).
 
-## Architectural Proposal: The In-Process Intelligence Engine
-To scale to 5,000+ symbols and reduce cumulative latency (50ms per hop), we propose migrating from a distributed Kafka-DAG to an **In-Process Intelligence Engine**.
+---
 
-### Core Principles
-1. **Memory Bus vs. Kafka Bus:** Tier-to-tier communication moves from Kafka topics to an internal `asyncio.Queue` (Memory Bus). 
-2. **Selective Egress:** Only critical, consumer-facing data (e.g., `signals.aggregated`) is pushed to Kafka. This preserves modularity and external service observability while eliminating internal serialization overhead.
-3. **Tiered Compute:** I1–I3 (Indicator tiers) run for all symbols; I4–I6 (Intelligence/Confluence tiers) run only if triggered by Tier 1.
+## v2.1 Shipped: Agentic DAG Refactor (Phases 52–54)
 
-### Operational Roadmap
-1. **Benchmark:** Quantify current Kafka-hop latency and CPU overhead per-symbol.
-2. **Sidecar Development:** Implement the `InternalEventBus` and `EgressManager` within `FeaturePipelineService`.
-3. **Phase Migration:** Gradually collapse the DAG tiers into the Engine, one tier at a time, using the internal bus.
+### Phase 52-53: BaseAgent Unification
 
-### Next Phase: Renaissance Validation Framework
+All pipeline services now extend `BaseAgent` (`src/core/agent/base.py`), providing a unified lifecycle: graceful SIGTERM drain, Golden Signals instrumentation (Traffic, Latency, Errors, Saturation via Prometheus), and a consistent startup/shutdown contract.
 
-The In-Process Intelligence Engine provides the performance foundation. The next evolution is the **Renaissance Alpha Pipeline** (`docs/ideas/renaissance-alpha-pipeline.md`) — a validation framework that ensures all alpha contributors (ML models, rule-based heuristics, LLM-derived patterns) earn the right through statistical proof:
+New dedicated agents were introduced with clear role separation:
+
+| Agent | Role | DB Access |
+|-------|------|-----------|
+| `BarAggregatorComputeAgent` | 1m → HTF bar aggregation via `BarAccumulator` | None (compute only) |
+| `BarWriterAgent` | Persists `market.bars` + `market.bars.htf` → `market_data_ohlcv` | Write |
+| `BarAuditorAgent` | Gap detection, emits `market.events.gap_requests` | None (compute only) |
+| `RollComputeAgent` | Futures roll premium computation | None (compute only) |
+| `SignalTrackerAgent` | Zone-aware signal lifecycle: activation, MAE/MFE, 8-class outcome | Write |
+
+The principle is explicit: **DB-ignorant compute agents** publish to Kafka topics; **DB-aware writer agents** consume from those topics and own all persistence. No compute agent touches the database.
+
+### Phase 54: Provider Abstraction Layer
+
+The previous `TwsDaemon` / `tws_daemon` was replaced by a proper provider abstraction:
+
+- **`BaseProviderAgent`** — abstract base defining the instrument qualification protocol and gap-fill loop. Provider-agnostic by design.
+- **`IBKRAdapter`** — thin adapter pattern wrapping `IBKRProvider`, translating IBKR-specific events to the canonical bar schema.
+- **`IBKRProviderAgent`** — extends `BaseProviderAgent`, wires `IBKRAdapter` into the agent lifecycle.
+- **`ProviderMergerAgent`** — canonical bar authority. Consumes from provider-specific raw topics (`market.bars.raw.<provider>`), performs multi-provider auto-failover on primary silence, and publishes to the single canonical `market.bars` topic. Emits `ProviderQualityEvent` on the quality side-channel.
+
+The raw/canonical topic split (`market.bars.raw.ibkr` → `ProviderMergerAgent` → `market.bars`) means downstream consumers are fully provider-agnostic. Switching or adding a data source only requires a new `BaseProviderAgent` subclass — nothing downstream changes.
+
+---
+
+## Next: Intelligence Pipeline Unification (Phase 57, Planned)
+
+The current pipeline still uses Kafka for inter-service communication between `feature_compute_agent` (I1-I6) and `signal_generator_agent` (I7). The Phase 57 design (`IntelligencePipelineComputeAgent`) will merge these into a single agent with an internal `asyncio.Queue` as the I6→I7 bus — eliminating one Kafka hop and simplifying state management.
+
+Key elements of the Phase 57 design:
+- Single `services/intelligence_pipeline_agent.py`, unit `indicagent-intelligence-pipeline`, port `:9125`
+- Async Kafka output via `asyncio.Queue(maxsize=500)` — compute hot path zero I/O blocking
+- State checkpointing to a compacted Kafka topic (`development.intelligence.pipeline.state`) — eliminates warmup on restart
+- `BarHistorySeeder` retained as cold-start fallback only (checkpoint miss or agent version bump)
+- Shadow rollout via `intelligence.shadow` topic before cutover
+
+**This has not shipped yet.** Kafka is still the inter-service bus for I1-I7. Any reference to an "in-process intelligence engine" or "eliminating Kafka" describes this future work, not current reality.
+
+### Further Future Direction: Renaissance Validation Framework
+
+Once the intelligence pipeline is unified, the next evolution is the **Renaissance Alpha Pipeline** — a validation framework ensuring all alpha contributors earn the right through statistical proof:
 
 - Shadow-first validation (14-day correlation gate)
 - Automated promotion/demotion based on Pearson r
-- IAlphaContributor interface for all signal sources
-- LLMs in research-only, offline (no real-time calls in hot path)
+- `IAlphaContributor` interface for all signal sources
+- LLMs in research-only, offline mode (no real-time calls in hot path)
 
-This transforms the system from "feature factory" to "validated alpha engine."
+This transforms the system from "feature factory" to "validated alpha engine." Design in `docs/ideas/renaissance-alpha-pipeline.md`.
 
 ---
+
 *Analysis Date: 2026-03-22*
-*Updated: 2026-03-24*
+*Updated: 2026-03-29 — reflect v2.1 shipped state (phases 52–54); mark Phase 57 intelligence unification as planned, not shipped*
