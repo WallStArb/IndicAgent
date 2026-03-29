@@ -72,27 +72,44 @@ Renaissance Agents must handle failures without human intervention and ensure no
 
 The taxonomy covers the full DAG from data ingestion to quality control. Every agent suffix maps to a single, invariant responsibility. If you read the name, you know the node's role in the DAG without opening the file.
 
-| Domain | Role | Agent Suffix | Example | Rule |
+| Domain | Role | Agent Suffix | File Pattern | Example | Rule |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Ingestion** | External source → Kafka adapter | `ProviderAgent` | `*_provider_agent.py` | `IBKRProviderAgent` | Protocol boundary only — no compute, no DB. Extends `BaseProviderAgent` (`src/providers/base_provider_agent.py`). |
+| **Fan-in Routing** | Multi-source Kafka fan-in → single authoritative stream | `MergerAgent` | `*_merger_agent.py` | `ProviderMergerAgent` | Selects authoritative source, auto-failover on silence; DB-ignorant; Kafka→Kafka only |
+| **Compute** | Mathematical/statistical transformation | `ComputeAgent` | `*_agent.py` | `BarAggregatorComputeAgent`, `RollComputeAgent`, `IndicatorComputeAgent` | DB-ignorant; pure transform |
+| **Decision** | Signal/trade fire | `GeneratorAgent` | `*_agent.py` | `SignalGeneratorAgent` | Produces ranked decision events |
+| **Persistence** | Data I/O / batch write | `WriterAgent` | `*_writer_agent.py` | `FeatureWriterAgent`, `BarWriterAgent` | DB-aware; never on the hot compute path |
+| **Lifecycle** | Business object state tracking | `TrackerAgent` | `*_tracker_agent.py` | `SignalTrackerAgent` | Follows a domain entity through its lifecycle (e.g., signal PnL/MAE/8-class outcome) |
+| **Quality Gate** | Autonomous data integrity validation + remediation | `AuditorAgent` | `*_auditor_agent.py` | `BarAuditorAgent`, `ParityAuditorAgent` | Compares, certifies, triggers self-healing; never modifies data directly |
+| **Inference** | AI/ML decision engine | `PredictiveAlphaAgent` | `*_agent.py` | `AlphaInferenceAgent` | (future) |
+| **Training** | Model learning | `TrainingAgent` | `*_agent.py` | `FeatureTrainingAgent` | (future) |
+| **Swarm** | Multi-agent reasoning | `SwarmAgent` | `*_agent.py` | `SwarmIntelligenceAgent` | (future) |
+
+### Active Agent Inventory (Phase 52–54)
+
+| Agent Class | File | Systemd Unit | Role | Publishes To |
 | :--- | :--- | :--- | :--- | :--- |
-| **Ingestion** | External source → Kafka adapter | `ProviderAgent` | `DataProviderAgent`, `IBKRProviderAgent` | Protocol boundary only — no compute, no DB |
-| **Fan-in Routing** | Multi-source Kafka fan-in → single authoritative stream | `MergerAgent` | `ProviderMergerAgent` | Selects authoritative source, auto-failover on silence; DB-ignorant; Kafka→Kafka only |
-| **Compute** | Mathematical/statistical transformation | `ComputeAgent` | `IndicatorComputeAgent`, `BarAggregatorComputeAgent`, `RollComputeAgent` | DB-ignorant; pure transform |
-| **Decision** | Signal/trade fire | `GeneratorAgent` | `SignalGeneratorAgent` | Produces ranked decision events |
-| **Persistence** | Data I/O / batch write | `WriterAgent` | `FeatureWriterAgent`, `BarWriterAgent` | DB-aware; never on the hot compute path |
-| **Lifecycle** | Business object state tracking | `TrackerAgent` | `SignalTrackerAgent` | Follows a domain entity through its lifecycle (e.g., signal PnL/MAE) |
-| **Quality Gate** | Autonomous data integrity validation + remediation | `AuditorAgent` | `ParityAuditorAgent`, `BarAuditorAgent` | Compares, certifies, triggers self-healing; never modifies data directly |
-| **Inference** | AI/ML decision engine | `PredictiveAlphaAgent` | `AlphaInferenceAgent` | (future) |
-| **Training** | Model learning | `TrainingAgent` | `FeatureTrainingAgent` | (future) |
-| **Swarm** | Multi-agent reasoning | `SwarmAgent` | `SwarmIntelligenceAgent` | (future) |
+| `IBKRProviderAgent` | `services/ibkr_provider_agent.py` | `indicagent-ibkr-provider` | `ProviderAgent` | `market.bars.raw.ibkr` |
+| `ProviderMergerAgent` | `services/provider_merger_agent.py` | `indicagent-provider-merger` | `MergerAgent` | `market.bars` |
+| `BarAggregatorComputeAgent` | `services/bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | `ComputeAgent` | `market.bars.htf` |
+| `RollComputeAgent` | `services/roll_compute_agent.py` | `indicagent-roll-compute` | `ComputeAgent` | futures roll events |
+| `BarAuditorAgent` | `services/bar_auditor_agent.py` | `indicagent-bar-auditor` | `AuditorAgent` | `market.events.gap_requests` |
+| `BarWriterAgent` | `services/bar_writer_agent.py` | `indicagent-bar-writer` | `WriterAgent` | `market_data_ohlcv` (DB) |
+| `FeatureWriterAgent` | `services/feature_writer_agent.py` | `indicagent-feature-writer` | `WriterAgent` | `intelligence_features` (DB) |
+| `SignalTrackerAgent` | `services/signal_tracker_agent.py` | `indicagent-signal-tracker` | `TrackerAgent` | `signal_ledger` (DB) |
+
+**Provider abstraction layer (Phase 54):**
+- `BaseProviderAgent` (`src/providers/base_provider_agent.py`) — abstract base for all providers. Handles instrument qualification, gap-fill loop via `market.events.gap_requests`, Kafka producer/consumer lifecycle, and Prometheus metrics. All provider agents extend this class.
+- `IBKRProviderAgent` extends `BaseProviderAgent` using an `IBKRAdapter`. Adding a new data source = one subclass + one systemd unit.
 
 ### Role Boundary Rules
 
-- **`ProviderAgent` vs `MergerAgent`:** A `ProviderAgent` connects to an external data source and publishes to a provider-specific raw topic. A `MergerAgent` consumes from multiple raw topics and selects the authoritative event for downstream consumers. A provider never routes; a merger never touches external protocols.
+- **`ProviderAgent` vs `MergerAgent`:** A `ProviderAgent` connects to an external data source and publishes to a provider-specific raw topic (e.g., `market.bars.raw.ibkr`). A `MergerAgent` consumes from multiple raw topics and selects the authoritative event for downstream consumers. A provider never routes; a merger never touches external protocols.
 - **`ProviderAgent` vs `ComputeAgent`:** A provider translates an external protocol into typed Kafka events. It performs no mathematical transformation. The moment you add z-scores, aggregation, or detection logic, that logic belongs in a separate `ComputeAgent`.
-- **`TrackerAgent` vs `AuditorAgent`:** Trackers follow a *business object* through its lifecycle (signal: pending→active→expired). Auditors validate *data pipeline integrity* across system boundaries (parity, completeness) and trigger automated remediation. Do not conflate.
+- **`TrackerAgent` vs `AuditorAgent`:** Trackers follow a *business object* through its lifecycle (signal: pending→active→expired→outcome). Auditors validate *data pipeline integrity* across system boundaries (parity, gap detection) and trigger automated remediation. Do not conflate.
 - **`WriterAgent` isolation:** WriterAgents are the only agents with DB write access. They must never appear on the compute hot path — they consume from Kafka and batch-persist asynchronously.
 
-> **Taxonomy Note:** `FeatureHistorianAgent` previously appeared in plans but uses the wrong suffix — persistence agents use `WriterAgent` (e.g., `FeatureWriterAgent`). `SwarmSMCContributor` violates the `SwarmAgent` suffix rule — correct name is `SwarmSMCAgent`. `RollDetectionAgent` and `BarCompletenessAgent` in early v2.2 design docs used non-taxonomy suffixes — correct names are `RollComputeAgent` and `BarAuditorAgent`.
+> **Taxonomy Note:** `FeatureHistorianAgent` previously appeared in plans but uses the wrong suffix — persistence agents use `WriterAgent` (e.g., `FeatureWriterAgent`). `SwarmSMCContributor` violates the `SwarmAgent` suffix rule — correct name is `SwarmSMCAgent`. `RollDetectionAgent` and `BarCompletenessAgent` in early v2.2 design docs used non-taxonomy suffixes — correct names are `RollComputeAgent` and `BarAuditorAgent`. `signal_lifecycle_service` was renamed to `SignalTrackerAgent` in Phase 52.4.
 
 ## 7. The Unified Intelligence Bus Taxonomy **[TARGET ARCHITECTURE — topics not yet in stream_keys.py]**
 
