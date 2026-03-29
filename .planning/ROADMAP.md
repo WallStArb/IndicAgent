@@ -480,7 +480,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 53.2. BarAggregatorComputeAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
 | 53.1. BarWriterAgent + BarAuditorAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
 | 54. Provider Abstraction Layer | v2.2 | 4/4 | Complete | 2026-03-28 |
-| 57. IntelligencePipelineComputeAgent | v2.2 | 0/TBD | Not started | — |
+| 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete   | 2026-03-29 |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -565,4 +565,4 @@ Plans:
 **Requirements**: TBD
 **Depends on:** Phase 52.6 (BaseAgent lifecycle contract), Phase 53.2 (BarAggregatorComputeAgent)
 **Design doc:** `docs/plans/2026-03-29-intelligence-agent-unified-pipeline-design.md`
-**Plans:** TBD
+**Plans:** 3/3 plans complete
