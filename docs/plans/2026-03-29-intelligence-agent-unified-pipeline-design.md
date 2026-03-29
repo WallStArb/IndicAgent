@@ -1,4 +1,4 @@
-# IntelligenceAgent — Unified I1-I7 Pipeline Design
+# IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline Design
 
 **Status:** Design approved
 **Date:** 2026-03-29
@@ -24,7 +24,7 @@ Three Renaissance violations in the current compute pipeline:
 | Principle | Decision |
 |---|---|
 | Kafka and DB are sinks, not pipes | I1→I7 runs in-process; Kafka publish is fire-and-forget via async buffer |
-| Stateful processes checkpoint their own state | Compacted Kafka topic `state.agent` stores full plugin state per (symbol, tf) |
+| Stateful processes checkpoint their own state | Compacted Kafka topic `intelligence.pipeline.state` stores full plugin state per (symbol, tf) |
 | No manual tasks on restart | State restore is automatic; fallback to DB seed is automatic; zero human steps |
 | Never drop data that could contain signal | `pre_quality_confidence` + `pre_calibration_confidence` added to `signal_ledger` |
 | Instrument everything | `output_buffer_depth`, `output_buffer_drops_total`, `state_checkpoint_fallback_total` metrics at birth |
@@ -35,33 +35,33 @@ Three Renaissance violations in the current compute pipeline:
 ## Architecture
 
 ```
-                   ┌──────────────────────────────────────────────────────┐
-market.bars ──────→│                  IntelligenceAgent                    │
-market.bars.htf ──→│   I1→I2→I3→I4→I5→SMC→I6→I7                          │
-system.events ────→│   quality_gate → regime_gate → tod_adjust             │
-cross_asset ──────→│   → calibrate → rank → select_winner                  │
-                   │                                                        │
-                   │   pure CPU — zero I/O blocking in hot path             │
-                   └─────────────────────┬────────────────────────────────┘
-                                         │ queue.put_nowait() — non-blocking
-                                         ▼
-                                 asyncio.Queue(maxsize=500)
-                                 output_buffer_depth gauge
-                                         │
-                              background drain task
-                         ┌───────────────┼───────────────┐
-                         ▼               ▼               ▼
-                   intelligence       signals        state.agent
-                     topic          .aggregated    (compacted, ∞)
-                         │               │         key: v1:ESM6:1m
+                   ┌─────────────────────────────────────────────────────────────┐
+market.bars ──────→│            IntelligencePipelineComputeAgent                  │
+market.bars.htf ──→│   I1→I2→I3→I4→I5→SMC→I6→I7                                 │
+system.events ────→│   quality_gate → regime_gate → tod_adjust                    │
+cross_asset ──────→│   → calibrate → rank → select_winner                         │
+                   │                                                               │
+                   │   pure CPU — zero I/O blocking in hot path                    │
+                   └──────────────────────┬────────────────────────────────────────┘
+                                          │ queue.put_nowait() — non-blocking
+                                          ▼
+                                  asyncio.Queue(maxsize=500)
+                                  output_buffer_depth gauge
+                                          │
+                               background drain task
+                         ┌────────────────┼──────────────────────────┐
+                         ▼                ▼                           ▼
+                   intelligence        signals        intelligence.pipeline.state
+                     topic           .aggregated          (compacted, ∞)
+                         │                │               key: v1:ESM6:1m
                 FeatureWriterAgent  SignalWriterAgent
-                         │               │
-                 intelligence_      signal_ledger
-                   features (DB)       (DB)
+                         │                │
+                 intelligence_       signal_ledger
+                   features (DB)        (DB)
 
-── On restart ────────────────────────────────────────────────────────────
-1. Consume state.agent (compacted) → restore plugin_state, kalman_state,
-   tod_priors, bar_history, last_bar_offset  [~120 msgs, milliseconds]
+── On restart ────────────────────────────────────────────────────────────────
+1. Consume intelligence.pipeline.state (compacted) → restore plugin_state,
+   kalman_state, tod_priors, bar_history, last_bar_offset  [~120 msgs, ms]
 2. Seek bars consumer to last_bar_offset + 1
 3. Catch up on missed bars → resume live processing
    Zero manual steps. Zero warmup window.
@@ -72,18 +72,18 @@ cross_asset ──────→│   → calibrate → rank → select_winner 
 ## What Changes
 
 ### Removed
-- `services/feature_compute_agent.py` — replaced by `services/intelligence_agent.py`
-- `services/signal_generator_agent.py` — absorbed into `IntelligenceAgent`
-- `src/core/bar_history_seeder.py` — replaced by state checkpoint restore (kept as fallback only)
-- Systemd unit `indicagent-feature-compute` — replaced by `indicagent-intelligence`
+- `services/feature_compute_agent.py` — replaced by `services/intelligence_pipeline_agent.py`
+- `services/signal_generator_agent.py` — absorbed into `IntelligencePipelineComputeAgent`
+- `src/core/bar_history_seeder.py` — replaced by state checkpoint restore (kept as cold-start fallback only)
+- Systemd unit `indicagent-feature-compute` — replaced by `indicagent-intelligence-pipeline`
 - Systemd unit `indicagent-signal-generator` — removed
 - Dead Kafka topic functions: `topic_quality_gated`, `topic_regime_gated`, `topic_tod_adjusted`, `topic_calibrated`, `topic_ranked` from `stream_keys.py`
 - Dead Kafka topics from Redpanda: `development.pipeline.quality_gated`, `development.pipeline.regime_gated`, `development.pipeline.tod_adjusted`, `development.pipeline.calibrated`, `development.pipeline.ranked`
 
 ### Added
-- `services/intelligence_agent.py` — `IntelligenceAgent` (I1-I7 unified)
-- `topic_state_agent()` in `stream_keys.py` — compacted checkpoint topic
-- `state.agent` Kafka topic — `cleanup.policy=compact`, no retention limit
+- `services/intelligence_pipeline_agent.py` — `IntelligencePipelineComputeAgent` (I1-I7 unified)
+- `topic_intelligence_pipeline_state()` in `stream_keys.py` → `development.intelligence.pipeline.state`
+- `development.intelligence.pipeline.state` Kafka topic — `cleanup.policy=compact`, no retention limit
 - `pre_quality_confidence FLOAT` column on `signal_ledger`
 - `pre_calibration_confidence FLOAT` column on `signal_ledger`
 - Migration: `NNN_signal_ledger_attribution.sql`
@@ -99,11 +99,13 @@ cross_asset ──────→│   → calibrate → rank → select_winner 
 
 ## Component Contracts
 
-### IntelligenceAgent
+### IntelligencePipelineComputeAgent
 
-**File:** `services/intelligence_agent.py`
-**Class:** `IntelligenceAgent`
-**Metrics port:** `:9125` (replaces both `:9125` feature-compute and `:9112` signal-generator)
+**File:** `services/intelligence_pipeline_agent.py`
+**Class:** `IntelligencePipelineComputeAgent`
+**Systemd unit:** `indicagent-intelligence-pipeline`
+**Log file:** `logs/intelligence_pipeline_agent.log`
+**Metrics port:** `:9125` (canonical — inherited from `indicagent-feature-compute`; `:9112` from `indicagent-signal-generator` is retired)
 
 **State owned (fully checkpointed):**
 - `_plugin_state: dict` — per `(plugin_name, symbol, tf)` indicator buffers
@@ -128,11 +130,14 @@ BarMessage → gap_detection → BarHistory.append
 
 ### Async Output Buffer
 
-`asyncio.Queue(maxsize=500)` inside `IntelligenceAgent`. Hot path calls `queue.put_nowait()` — never blocks. `QueueFull` increments `output_buffer_drops_total` counter and continues.
+`asyncio.Queue(maxsize=500)` inside `IntelligencePipelineComputeAgent`. Hot path calls `queue.put_nowait()` — never blocks. `QueueFull` increments `output_buffer_drops_total` counter and continues.
 
 Background drain task batches by topic and publishes to Kafka. Prometheus gauge `output_buffer_depth` tracks current queue depth.
 
-### State Checkpoint Topic (`state.agent`)
+### State Checkpoint Topic (`intelligence.pipeline.state`)
+
+**Topic function:** `topic_intelligence_pipeline_state()` in `stream_keys.py`
+**Topic string:** `development.intelligence.pipeline.state`
 
 Compacted Kafka topic. Configuration:
 ```
@@ -213,7 +218,7 @@ ORDER BY ts DESC LIMIT 50;
 
 ### Unit tests (`tests/unit/`)
 
-- `test_intelligence_agent_pipeline.py` — mock bar in, assert `IntelligenceEvent` + `SignalResult` enqueued. Verifies I1→I7 wiring without Kafka or DB.
+- `test_intelligence_pipeline_agent_pipeline.py` — mock bar in, assert `IntelligenceEvent` + `SignalResult` enqueued. Verifies I1→I7 wiring without Kafka or DB.
 - `test_async_output_buffer.py` — verify `QueueFull` increments counter without raising. Verify drain task publishes to correct topics in correct order.
 - `test_state_checkpoint_serde.py` — serialize full state dict → msgpack → deserialize → assert round-trip fidelity for each state type.
 - `test_state_restore.py` — given a checkpoint payload, assert agent restores all five state fields correctly and `_last_bar_offset` matches.
@@ -221,17 +226,17 @@ ORDER BY ts DESC LIMIT 50;
 
 ### Integration tests (`tests/integration/`)
 
-- `test_intelligence_agent_restart.py` — run agent against live Kafka, process N bars, checkpoint to `state.agent`, terminate, restart, assert state restored and next bar output is identical to continuous-run baseline.
+- `test_intelligence_pipeline_agent_restart.py` — run agent against live Kafka, process N bars, checkpoint to `intelligence.pipeline.state`, terminate, restart, assert state restored and next bar output is identical to continuous-run baseline.
 - `test_signal_ledger_attribution.py` — assert `pre_quality_confidence` and `pre_calibration_confidence` are non-null for every row inserted by the agent.
 
 ---
 
 ## Rollout
 
-1. Deploy `IntelligenceAgent` in shadow mode publishing to `intelligence.shadow` topic (separate consumer group, no WriterAgent consumption) — validates output without double-processing
+1. Deploy `indicagent-intelligence-pipeline` in shadow mode publishing to `intelligence.shadow` topic (separate consumer group, no WriterAgent consumption) — validates output without double-processing
 2. Compare `intelligence.shadow` output against `intelligence` topic output from existing services for N bars — assert field-level parity
 3. Stop `indicagent-feature-compute` + `indicagent-signal-generator`
-4. Start `indicagent-intelligence` (now publishing to canonical `intelligence` topic)
+4. Start `indicagent-intelligence-pipeline` publishing to canonical `intelligence` topic
 5. Apply `signal_ledger` migration (`NNN_signal_ledger_attribution.sql`)
 6. Delete dead `pipeline.*` Kafka topics from Redpanda
 7. Remove dead `topic_quality_gated`, `topic_regime_gated`, `topic_tod_adjusted`, `topic_calibrated`, `topic_ranked` functions from `stream_keys.py`
