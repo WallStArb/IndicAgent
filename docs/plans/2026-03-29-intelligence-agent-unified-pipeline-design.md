@@ -79,6 +79,11 @@ cross_asset ──────→│   → calibrate → rank → select_winner 
 - Systemd unit `indicagent-signal-generator` — removed
 - Dead Kafka topic functions: `topic_quality_gated`, `topic_regime_gated`, `topic_tod_adjusted`, `topic_calibrated`, `topic_ranked` from `stream_keys.py`
 - Dead Kafka topics from Redpanda: `development.pipeline.quality_gated`, `development.pipeline.regime_gated`, `development.pipeline.tod_adjusted`, `development.pipeline.calibrated`, `development.pipeline.ranked`
+- `services/intelligence_compute_agent.py` — confirmed dead: `indicagent-intelligence-compute` is failed + disabled; superseded by `feature_compute_agent` in Phase 40 DAG refactor
+- `services/indicator_compute_agent.py` — legacy I1 predecessor to `feature_compute_agent`; no active consumers
+- Systemd unit `/etc/systemd/system/indicagent-intelligence-compute.service` — remove
+- Kafka topic `development.indicators` — no active consumer groups; published by legacy `indicator_compute_agent` only
+- `topic_indicators()` function from `stream_keys.py` — **verify first**: `src/api/main.py` and `src/api/routes/sse.py` reference it; confirm these are dead code paths before removing
 
 ### Added
 - `services/intelligence_pipeline_agent.py` — `IntelligencePipelineComputeAgent` (I1-I7 unified)
