@@ -9,15 +9,14 @@ and failover/recovery contract (primary silence -> promote secondary).
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from prometheus_client import Counter, Histogram
 
 from src.core.schemas.bar_message import BarMessage, SessionType
-from src.core.schemas.provider_quality import ProviderQualityEvent
 
 # ---------------------------------------------------------------------------
 # Module-level test metrics (created once to avoid duplicate registration)
@@ -87,7 +86,7 @@ def _make_agent(
     agent._kafka_consumer = AsyncMock()
     # Failover state
     agent._promoted: dict[str, str] = {}
-    agent._last_bar_ts: dict[str, dict[str, datetime]] = {}
+    agent._last_bar_ts: defaultdict[str, dict[str, datetime]] = defaultdict(dict)
     # Settings config
     agent._provider_raw_topics = provider_raw_topics or ["ibkr"]
     agent._provider_routing_config = provider_routing_config or {
@@ -97,6 +96,11 @@ def _make_agent(
         "fx": "ibkr",
     }
     agent._provider_silence_bars_threshold = provider_silence_bars_threshold
+    # Topic -> provider cache (mirrors __init__ pattern)
+    from src.core.stream_keys import topic_market_bars_raw
+    agent._topic_to_provider = {
+        topic_market_bars_raw("dev", p): p for p in (provider_raw_topics or ["ibkr"])
+    }
     # Instrument lookup: symbol -> asset_class string
     agent._symbol_to_asset_class: dict[str, str] = {
         "ESM6": "futures",
@@ -123,9 +127,8 @@ def _make_agent(
 
 def test_inherits_base_agent() -> None:
     """ProviderMergerAgent must be a BaseAgent subclass."""
-    from src.core.agent.base import BaseAgent
-
     from services.provider_merger_agent import ProviderMergerAgent
+    from src.core.agent.base import BaseAgent
 
     assert issubclass(ProviderMergerAgent, BaseAgent)
 
@@ -139,8 +142,6 @@ def test_inherits_base_agent() -> None:
 async def test_routes_authoritative_bar_to_market_bars() -> None:
     """Bar from authoritative provider must be published to topic_market_bars."""
     from src.core.stream_keys import topic_market_bars, topic_market_bars_raw
-
-    from services.provider_merger_agent import ProviderMergerAgent
 
     agent = _make_agent()
     bar = _make_bar()
@@ -163,8 +164,6 @@ async def test_routes_authoritative_bar_to_market_bars() -> None:
 async def test_drops_non_authoritative_bar() -> None:
     """Bar from non-authoritative provider must NOT be published to market.bars."""
     from src.core.stream_keys import topic_market_bars, topic_market_bars_raw
-
-    from services.provider_merger_agent import ProviderMergerAgent
 
     # Configure routing: futures authoritative is ibkr, but bar comes from alpaca
     agent = _make_agent(
@@ -198,8 +197,6 @@ async def test_preserves_bar_message_source() -> None:
     """Bar forwarded to market.bars must have source field unchanged."""
     from src.core.stream_keys import topic_market_bars, topic_market_bars_raw
 
-    from services.provider_merger_agent import ProviderMergerAgent
-
     agent = _make_agent()
     bar = _make_bar()
     topic = topic_market_bars_raw("dev", "ibkr")
@@ -225,8 +222,6 @@ async def test_preserves_bar_message_source() -> None:
 async def test_publishes_quality_event_on_routed_bar() -> None:
     """After routing a bar, a ProviderQualityEvent with event_type='bar_received' must be published."""
     from src.core.stream_keys import topic_market_bars_raw, topic_market_data_quality
-
-    from services.provider_merger_agent import ProviderMergerAgent
 
     agent = _make_agent()
     bar = _make_bar()
@@ -254,8 +249,6 @@ async def test_latency_ms_positive() -> None:
     """Quality event latency_ms must be >= 0."""
     from src.core.stream_keys import topic_market_bars_raw, topic_market_data_quality
 
-    from services.provider_merger_agent import ProviderMergerAgent
-
     agent = _make_agent()
     bar = _make_bar()
     topic = topic_market_bars_raw("dev", "ibkr")
@@ -281,8 +274,6 @@ async def test_detects_primary_silence_promotes_secondary() -> None:
     """Primary silent for N bars while secondary has data -> _promoted[symbol]=secondary; failover quality event."""
     from src.core.stream_keys import topic_market_bars_raw, topic_market_data_quality
 
-    from services.provider_merger_agent import ProviderMergerAgent
-
     agent = _make_agent(
         provider_raw_topics=["ibkr", "alpaca"],
         provider_routing_config={"futures": "ibkr", "equity": "ibkr", "crypto": "ibkr", "fx": "ibkr"},
@@ -291,7 +282,7 @@ async def test_detects_primary_silence_promotes_secondary() -> None:
 
     # Simulate primary (ibkr) was last seen 3 bar-intervals ago (silence > threshold=2)
     stale_ts = datetime.now(UTC) - timedelta(seconds=3 * 60)  # 3 minutes ago for 1m bars
-    agent._last_bar_ts = {"ibkr": {"ESM6": stale_ts}}
+    agent._last_bar_ts = defaultdict(dict, {"ibkr": {"ESM6": stale_ts}})
 
     # Secondary (alpaca) sends a bar
     bar = _make_bar()
@@ -323,8 +314,6 @@ async def test_detects_primary_silence_promotes_secondary() -> None:
 async def test_recovery_after_failover() -> None:
     """After failover, primary resumes -> recovery quality event; _promoted cleared."""
     from src.core.stream_keys import topic_market_bars_raw, topic_market_data_quality
-
-    from services.provider_merger_agent import ProviderMergerAgent
 
     agent = _make_agent(
         provider_raw_topics=["ibkr", "alpaca"],
@@ -362,8 +351,6 @@ def test_subscribes_to_all_configured_raw_topics() -> None:
     """With provider_raw_topics=['ibkr'], topics_consumed includes topic_market_bars_raw(env, 'ibkr')."""
     from src.core.stream_keys import topic_market_bars_raw
 
-    from services.provider_merger_agent import ProviderMergerAgent
-
     agent = _make_agent(provider_raw_topics=["ibkr"])
 
     assert topic_market_bars_raw("dev", "ibkr") in agent.topics_consumed
@@ -376,7 +363,6 @@ def test_subscribes_to_all_configured_raw_topics() -> None:
 
 def test_consumer_group_name() -> None:
     """Consumer group must be 'provider_merger_consumer'."""
-    from services.provider_merger_agent import ProviderMergerAgent
 
     agent = _make_agent()
     assert agent.consumer_group == "provider_merger_consumer"
@@ -389,7 +375,6 @@ def test_consumer_group_name() -> None:
 
 def test_routing_extracts_provider_from_topic() -> None:
     """Topic 'dev.market.bars.raw.ibkr' -> extracted provider is 'ibkr'."""
-    from services.provider_merger_agent import ProviderMergerAgent
 
     agent = _make_agent()
     provider = agent._extract_provider_from_topic("dev.market.bars.raw.ibkr")

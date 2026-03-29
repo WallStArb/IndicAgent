@@ -900,7 +900,7 @@ class FeatureComputeAgent:
             )
             await self._producer.publish(
                 topic_intelligence_journal(self._settings.env_name),
-                value=feature_journal.model_dump_json(),
+                feature_journal.model_dump(mode="json"),
                 key=msg_key,
             )
         except Exception as e:

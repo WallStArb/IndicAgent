@@ -75,6 +75,9 @@ class BaseProviderAgent(BaseAgent):
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._adapter: DataProviderAdapter | None = None
+        self._instruments: list[Instrument] = []
+        # Semaphore created at runtime (not class level) to stay within the event loop.
+        self._qualify_sem: asyncio.Semaphore | None = None
 
     # ------------------------------------------------------------------
     # Abstract interface — subclasses must implement all four
@@ -107,7 +110,7 @@ class BaseProviderAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _setup(self) -> None:
-        """Connect Kafka producer and the provider adapter."""
+        """Connect Kafka producer and the provider adapter, then qualify all instruments."""
         self._kafka_producer = KafkaProducerClient(
             bootstrap_servers=self._settings.kafka_bootstrap_servers
         )
@@ -116,10 +119,45 @@ class BaseProviderAgent(BaseAgent):
         self._adapter = self._create_adapter()
         await self._adapter.connect()
         self._g_connected.set(1)
+
+        self._instruments = self._get_instruments()
+        self._qualify_sem = asyncio.Semaphore(5)
+        total = len(self._instruments)
+
+        # Qualify all instruments concurrently; cap at 5 parallel requests to
+        # avoid overwhelming the provider connection on startup.
+        results = await asyncio.gather(
+            *[self._qualify_instrument(i) for i in self._instruments],
+            return_exceptions=True,
+        )
+        # Keep only instruments that qualified successfully. Unqualified instruments
+        # cannot be used for streaming (adapter lacks conId/localSymbol after failure).
+        # False and exception objects both represent failures.
+        self._instruments = [
+            inst for inst, ok in zip(self._instruments, results, strict=True) if ok is True
+        ]
+        qualified_count = len(self._instruments)
+
+        if qualified_count == 0:
+            self.logger.error(
+                "provider_agent.no_qualified_instruments",
+                agent=self.name,
+                total=total,
+            )
+            raise RuntimeError(f"{self.name}: no instruments qualified — cannot stream data")
+        if qualified_count < total:
+            self.logger.warning(
+                "provider_agent.partial_qualification",
+                agent=self.name,
+                qualified=qualified_count,
+                total=total,
+            )
         self.logger.info(
             "provider_agent.setup_complete",
             agent=self.name,
             provider=self._provider_name_str(),
+            qualified=qualified_count,
+            total=total,
         )
 
     async def _run(self) -> None:
@@ -150,17 +188,35 @@ class BaseProviderAgent(BaseAgent):
         )
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _qualify_instrument(self, instrument: Instrument) -> bool:
+        """Qualify a single instrument via the adapter, rate-limited to 5 concurrent."""
+        async with self._qualify_sem:
+            try:
+                await self._adapter.qualify_instrument(instrument)
+                return True
+            except Exception as exc:
+                self.logger.warning(
+                    "provider_agent.qualify_failed",
+                    agent=self.name,
+                    symbol=instrument.symbol,
+                    error=str(exc),
+                )
+                return False
+
+    # ------------------------------------------------------------------
     # Stream loop with exponential-backoff reconnect
     # ------------------------------------------------------------------
 
     async def _stream_loop(self) -> None:
         """Consume bars from adapter.stream_bars() with auto-reconnect."""
-        instruments = self._get_instruments()
         attempt = 0
 
         while not self._stop_event.is_set():
             try:
-                async for bar in self._adapter.stream_bars(instruments):
+                async for bar in self._adapter.stream_bars(self._instruments):
                     if self._stop_event.is_set():
                         return
                     await self._publish_bar(bar)
@@ -281,7 +337,7 @@ class BaseProviderAgent(BaseAgent):
                     for bar in bars:
                         await self._kafka_producer.publish(
                             self._raw_topic,
-                            bar.model_dump(),
+                            bar.model_dump(mode="json"),
                             key=message_key(req.symbol, req.tf),
                         )
                         self._m_gaps_filled.inc()
@@ -316,7 +372,7 @@ class BaseProviderAgent(BaseAgent):
         """Publish a BarMessage to the provider's raw topic."""
         await self._kafka_producer.publish(
             self._raw_topic,
-            bar.model_dump(),
+            bar.model_dump(mode="json"),
             key=message_key(bar.symbol, bar.tf),
         )
         self._m_bars_raw.inc()

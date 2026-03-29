@@ -265,6 +265,10 @@ src/intelligence/.cache/
 production/var/log/*.log
 production/var/run/*.pid
 services/*.pid
+# Agent stdout/stderr log dumps (extension-less files in repo root)
+bar_aggregator_agent
+bar_writer_agent
+provider_merger_agent
 
 # Dashboard build artifacts (correct path)
 dashboard/node_modules/
