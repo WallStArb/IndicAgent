@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -49,7 +50,7 @@ from production.scripts.historical_backfill import (  # noqa: E402
     replay_symbol,
     seed_roll_chain,
 )
-from production.scripts.kafka_init_topics import _TOPIC_SPECS
+from production.scripts.kafka_init_topics import get_topic_specs
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.intelligence.register_plugins import register_all_plugins
@@ -191,7 +192,9 @@ def build_preflight_summary(
     return "\n".join(lines)
 
 
-async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
+async def clear_kafka_topics(
+    bootstrap_servers: str, env_prefix: str, providers: list[str]
+) -> int:
     """Delete and recreate all pipeline Kafka topics to flush all stream data.
 
     Returns number of topics cleared.
@@ -204,7 +207,7 @@ async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
             replication_factor=1,
             topic_configs={"retention.ms": retention_ms},
         )
-        for suffix, partitions, retention_ms in _TOPIC_SPECS
+        for suffix, partitions, retention_ms in get_topic_specs(providers)
     ]
     topic_names = [t.name for t in new_topics]
 
@@ -323,22 +326,20 @@ def verify_dataset(conn: Any, seed_mode: bool = False) -> tuple[bool, str]:
 
 def _pause_for_services(action: str, services: list[str], auto_confirm: bool = False) -> None:
     """Print service commands and wait for user to press Enter, or auto-execute if auto_confirm=True."""
-    verb = "stop" if action == "stop" else "start"
+    verb = action
     print(f"\n{'='*50}")
     if auto_confirm:
+        cmd = ["sudo", "systemctl", verb] + services
         print(f"{action.upper()} pipeline services automatically (--yes flag):")
-        import subprocess
-        for svc in services:
-            cmd = ["sudo", "systemctl", verb, svc]
-            print(f"  {' '.join(cmd)}")
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode != 0:
-                    print(f"    Warning: {result.stderr.strip()}")
-            except Exception as e:
-                print(f"    Error: {e}")
+        print(f"  {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"    Warning: {result.stderr.strip()}")
+        except Exception as e:
+            print(f"    Error: {e}")
     else:
-        print(f"{action.UPPER()} pipeline services before continuing:")
+        print(f"{action.upper()} pipeline services before continuing:")
         print()
         for svc in services:
             print(f"  sudo systemctl {verb} {svc}")
@@ -423,7 +424,9 @@ def main() -> None:
     if bootstrap is None:
         print("      WARNING: kafka_bootstrap_servers not configured, using localhost:19092")
         bootstrap = "localhost:19092"
-    n_topics = asyncio.run(clear_kafka_topics(bootstrap, env_prefix=kafka_env_prefix))
+    n_topics = asyncio.run(
+        clear_kafka_topics(bootstrap, env_prefix=kafka_env_prefix, providers=settings.provider_raw_topics)
+    )
     print(f"      Cleared {n_topics} Kafka topics")
 
     # --- Stage 3: Truncate DB ---
