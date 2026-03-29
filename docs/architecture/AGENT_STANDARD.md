@@ -59,7 +59,24 @@ Renaissance Agents must handle failures without human intervention and ensure no
 - **Independence:** Persistence Agents (WriterAgents) and Logic Agents (ComputeAgents) MUST be instrumented on independent metrics. Never couple them.
 - **Observability:** Prometheus + Grafana monitor the "Golden Signals" (Traffic, Latency, Errors, Saturation) for every Agent independently.
 
-## 5. Comparison: Service vs. Agent
+## 5. BaseAgent Lifecycle Contract
+
+All agents extend `BaseAgent` (`src/core/agent/base.py`). The lifecycle is a three-phase hook model:
+
+| Hook | Responsibility |
+| :--- | :--- |
+| `_setup()` | Connect Kafka producer/consumer, initialize plugin state, register Prometheus metrics. Called once before the event loop starts. |
+| `_run()` | Main event loop — consume, transform, publish. Runs until shutdown is signalled. |
+| `_teardown()` | Drain in-flight batches, flush pending Kafka produce calls, close DB connections (WriterAgents only), deregister metrics. Called after `_run()` exits. |
+
+**SIGTERM handler (mandatory):** All agents must register a `SIGTERM` (and `SIGINT`) handler that:
+1. Sets a shutdown flag to exit `_run()` cleanly.
+2. Allows the current batch commit to complete (drain mandate — see Section 4).
+3. Calls `_teardown()` before the process exits.
+
+Any agent that does not implement `_teardown()` and handle `SIGTERM` violates the Graceful Shutdown mandate and risks data loss during systemd restart.
+
+## 6. Comparison: Service vs. Agent
 
 | Feature | Legacy "Service" | Renaissance "Agent" |
 | :--- | :--- | :--- |
