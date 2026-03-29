@@ -12,6 +12,7 @@ from src.persistence.repository.signal_ledger_repository import (
     _SELECT_ACTIVE_SQL,
     LedgerEntry,
     SignalLedgerRepository,
+    update_signal_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -66,7 +67,7 @@ class TestLedgerEntry:
         entry = _make_entry()
         params = entry.to_insert_params()
 
-        assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
+        assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
@@ -102,7 +103,7 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
+        assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
         assert params[24] == pytest.approx(0.47)
         # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
         parsed = json.loads(params[25])
@@ -178,7 +179,7 @@ class TestLedgerEntryNewFields:
             composite_rank=1,
         )
         params = entry.to_insert_params()
-        assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
+        assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
 
 
 def test_ledger_entry_has_cis_attribution_field():
@@ -233,7 +234,7 @@ def test_ledger_entry_to_insert_params_includes_attribution():
         cis_attribution={"trend": {"psar_direction": 0.05}},
     )
     params = entry.to_insert_params()
-    assert len(params) == 58  # 39 original + 15 Phase 32 stop/lifecycle + 4 Phase 35 calibration
+    assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
     assert '"psar_direction"' in params[36]  # $37 = cis_attribution JSON string
 
 
@@ -282,8 +283,7 @@ class TestUpdateSignalStatus:
     async def test_update_status_to_active(self):
         db = AsyncMock()
         activated = datetime(2026, 2, 16, 14, 35, 0, tzinfo=UTC)
-        await update_signal_status(
-            db,
+        await SignalLedgerRepository(db).update_signal_status(
             "some-uuid",
             status="active",
             activated_at=activated,
@@ -299,8 +299,7 @@ class TestUpdateSignalStatus:
     async def test_update_status_with_exit(self):
         db = AsyncMock()
         exit_time = datetime(2026, 2, 16, 15, 0, 0, tzinfo=UTC)
-        await update_signal_status(
-            db,
+        await SignalLedgerRepository(db).update_signal_status(
             "some-uuid",
             status="closed",
             exit_at=exit_time,
@@ -519,9 +518,9 @@ class TestIsShadowField:
         entry = _make_entry()
         assert entry.is_shadow is False
 
-    def test_to_insert_params_length_58(self):
+    def test_to_insert_params_length_60(self):
         entry = _make_entry()
-        assert len(entry.to_insert_params()) == 58  # 39 original + 15 Phase 32 + 4 Phase 35 calibration fields
+        assert len(entry.to_insert_params()) == 60  # 58 prior + 2 Phase 57 attribution fields
 
     def test_to_insert_params_is_shadow_position_false(self):
         entry = _make_entry(is_shadow=False)
@@ -621,12 +620,12 @@ class TestLedgerEntryPhase35CalibrationFields:
         assert entry.calibrated_confidence is None
         assert entry.regime_type_at_fire is None
 
-    def test_to_insert_params_returns_58_elements(self):
-        """to_insert_params() must return 58 elements after Phase 35 extension (was 54)."""
+    def test_to_insert_params_returns_60_elements(self):
+        """to_insert_params() must return 60 elements after Phase 57 extension (was 58)."""
         entry = _make_entry()
         params = entry.to_insert_params()
-        assert len(params) == 58, (
-            f"Expected 58 elements (54 original + 4 Phase 35 calibration fields), got {len(params)}"
+        assert len(params) == 60, (
+            f"Expected 60 elements (58 prior + 2 Phase 57 attribution), got {len(params)}"
         )
 
     def test_to_insert_params_calibration_fields_at_positions_55_to_58(self):
@@ -638,11 +637,13 @@ class TestLedgerEntryPhase35CalibrationFields:
             regime_type_at_fire="trend",
         )
         params = entry.to_insert_params()
-        assert len(params) == 58
+        assert len(params) == 60
         assert params[54] == pytest.approx(0.72)   # $55 raw_cis_score
         assert params[55] == pytest.approx(0.68)   # $56 filtered_cis_score
         assert params[56] == pytest.approx(0.61)   # $57 calibrated_confidence
         assert params[57] == "trend"               # $58 regime_type_at_fire
+        assert params[58] is None                  # $59 pre_quality_confidence
+        assert params[59] is None                  # $60 pre_calibration_confidence
 
     def test_to_insert_params_calibration_fields_nullable(self):
         """Calibration fields must be NULL-able (None passes through unchanged)."""
