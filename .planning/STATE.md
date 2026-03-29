@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: In progress
-last_updated: "2026-03-29T21:19:08Z"
+status: Executing Phase 57
+last_updated: "2026-03-29T21:14:42.129Z"
 progress:
-  total_phases: 12
+  total_phases: 13
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 7
+  completed_plans: 4
 ---
 
 # Project State
@@ -22,9 +22,9 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 ## Current Position
 
-Phase: 57 (1/3 plans complete)
-Plan: 01 — Foundations complete (stream keys, migration, systemd unit)
-Next: 57-02-PLAN
+Phase: 57 (intelligencepipelinecomputeagent-unified-i1-i7-pipeline) — EXECUTING
+Plan: 1 of 3
+Next: no active phase
 
 ## v2.1 Milestone Goal
 
@@ -173,10 +173,3 @@ Recent additions:
 - Recovery publishes event first, then falls through to route bar normally — primary is authoritative immediately on resume
 - latency_ms clamped to 0 with max(0.0, latency_s * 1000) — prevents negative values from clock skew
 - Removed After=indicagent-data-provider.service stale dependency from ibkr-provider unit — post-cutover cleanup; service no longer exists
-
-### Decisions (Phase 57 Plan 01)
-
-- New topic functions placed after topic_intelligence_journal() following file ordering convention
-- Migration 052 uses IF NOT EXISTS guard; not applied until Plan 4 cutover to avoid impacting live signal_ledger
-- Systemd unit lives in services/ as reference template only; Plan 4 installs via sudo cp + daemon-reload
-- Dead pipeline.* topic functions left untouched — still imported by live signal_generator_agent.py
