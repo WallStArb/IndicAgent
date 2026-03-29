@@ -49,6 +49,7 @@ from production.scripts.historical_backfill import (  # noqa: E402
     replay_symbol,
     seed_roll_chain,
 )
+from production.scripts.kafka_init_topics import _TOPIC_SPECS
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.intelligence.register_plugins import register_all_plugins
@@ -103,7 +104,7 @@ _LLM_TABLES = ["llm_calls", "llm_model_scores"]
 DEFAULT_TIMEFRAMES = ["1m", "5m", "15m", "1h", "1d"]
 
 _STOP_SERVICES = [
-    # Provider layer (Phase 54: replaces indicagent-data-provider)
+    # Provider layer
     "indicagent-ibkr-provider",
     "indicagent-provider-merger",
     # Bar pipeline
@@ -195,8 +196,6 @@ async def clear_kafka_topics(bootstrap_servers: str, env_prefix: str) -> int:
 
     Returns number of topics cleared.
     """
-    from production.scripts.kafka_init_topics import _TOPIC_SPECS
-
     prefix = f"{env_prefix}." if env_prefix else ""
     new_topics = [
         NewTopic(
