@@ -135,9 +135,12 @@ class LedgerEntry:
     filtered_cis_score: float | None = None  # Kalman-filtered CIS score
     calibrated_confidence: float | None = None  # isotonic calibrated probability; NULL when N < 100
     regime_type_at_fire: str | None = None  # regime_type of winning signal at fire time
+    # Phase 57: per-stage confidence attribution
+    pre_quality_confidence: float | None = None  # confidence before apply_quality_gate()
+    pre_calibration_confidence: float | None = None  # confidence before apply_calibration()
 
     def to_insert_params(self) -> tuple:
-        """Return a 58-element tuple ready for batch INSERT.
+        """Return a 60-element tuple ready for batch INSERT.
 
         JSONB columns (targets, supporting_factors, market_context, bucket_scores,
         trailing_stop_price) are passed as Python dicts/lists; asyncpg serializes
@@ -204,6 +207,8 @@ class LedgerEntry:
             self.filtered_cis_score,  # $56
             self.calibrated_confidence,  # $57
             self.regime_type_at_fire,  # $58
+            self.pre_quality_confidence,  # $59 — Phase 57 attribution
+            self.pre_calibration_confidence,  # $60 — Phase 57 attribution
         )
 
 
@@ -234,7 +239,8 @@ INSERT INTO signal_ledger (
     staleness_score, staleness_trigger_reason,
     shadow_tracking_start_ts,
     shadow_mae, shadow_mfe, shadow_outcome,
-    raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire
+    raw_cis_score, filtered_cis_score, calibrated_confidence, regime_type_at_fire,
+    pre_quality_confidence, pre_calibration_confidence
 ) VALUES (
     $1::uuid, $2, $3, $4, $5, $6,
     $7, $8, $9, $10::jsonb,
@@ -257,7 +263,8 @@ INSERT INTO signal_ledger (
     $49, $50,
     $51,
     $52, $53, $54,
-    $55, $56, $57, $58
+    $55, $56, $57, $58,
+    $59, $60
 )
 """
 
