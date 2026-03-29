@@ -83,7 +83,7 @@ def test_ledger_entry_has_15_new_fields():
 
 
 def test_ledger_entry_to_insert_params_returns_58_elements():
-    """to_insert_params() must return a 58-element tuple (39 original + 15 Phase 32 + 4 Phase 35)."""
+    """to_insert_params() must return a 60-element tuple (39 original + 15 Phase 32 + 4 Phase 35 + 2 Phase 57)."""
     from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
     entry = LedgerEntry(
@@ -109,7 +109,7 @@ def test_ledger_entry_to_insert_params_returns_58_elements():
         composite_rank=1,
     )
     params = entry.to_insert_params()
-    assert len(params) == 58, f"Expected 58 params, got {len(params)}"
+    assert len(params) == 60, f"Expected 60 params, got {len(params)}"
 
 
 def test_ledger_entry_to_insert_params_with_all_new_fields():
@@ -155,7 +155,7 @@ def test_ledger_entry_to_insert_params_with_all_new_fields():
         shadow_outcome="target_1",
     )
     params = entry.to_insert_params()
-    assert len(params) == 58  # 39 original + 15 Phase 32 + 4 Phase 35 calibration fields
+    assert len(params) == 60  # 39 original + 15 Phase 32 + 4 Phase 35 calibration + 2 Phase 57 attribution
     # Check that stop_basis is at position 39 (0-indexed)
     assert params[39] == "structure_snap"
     assert params[40] == "ob_bottom"
@@ -164,12 +164,10 @@ def test_ledger_entry_to_insert_params_with_all_new_fields():
     assert params[43] == 1
     assert params[44] == 0.015
     assert params[45] == "garch_sigma"
-    # trailing_stop_price is JSON-serialized
-    import json
+    # trailing_stop_price is a list (asyncpg handles JSONB serialization)
     assert params[46] is not None
-    parsed = json.loads(params[46])
-    assert len(parsed) == 1
-    assert parsed[0]["price"] == 4495.0
+    assert len(params[46]) == 1
+    assert params[46][0]["price"] == 4495.0
     assert params[47] == 0.1
     assert params[48] == 0.3
     assert params[49] == "bar_count"
@@ -209,16 +207,18 @@ def test_ledger_entry_trailing_stop_none_serializes_to_none():
     assert params[46] is None  # trailing_stop_price = None
 
 
-def test_insert_sql_has_58_columns():
-    """_INSERT_SQL must have 58 column names and $1 through $58."""
+def test_insert_sql_has_60_columns():
+    """_INSERT_SQL must have 60 column names and $1 through $60."""
     from src.persistence.repository.signal_ledger_repository import _INSERT_SQL
 
-    # Count $N placeholders — ensure $54-$58 all exist
+    # Count $N placeholders — ensure $54-$60 all exist
     assert "$54" in _INSERT_SQL, "_INSERT_SQL must contain $54"
     assert "$55" in _INSERT_SQL, "_INSERT_SQL must contain $55"
     assert "$56" in _INSERT_SQL, "_INSERT_SQL must contain $56"
     assert "$57" in _INSERT_SQL, "_INSERT_SQL must contain $57"
     assert "$58" in _INSERT_SQL, "_INSERT_SQL must contain $58"
+    assert "$59" in _INSERT_SQL, "_INSERT_SQL must contain $59"
+    assert "$60" in _INSERT_SQL, "_INSERT_SQL must contain $60"
     assert "$53" in _INSERT_SQL
     assert "$40" in _INSERT_SQL
     # Check Phase 32 column names present
@@ -230,6 +230,9 @@ def test_insert_sql_has_58_columns():
     assert "filtered_cis_score" in _INSERT_SQL
     assert "calibrated_confidence" in _INSERT_SQL
     assert "regime_type_at_fire" in _INSERT_SQL
+    # Check Phase 57 attribution column names present
+    assert "pre_quality_confidence" in _INSERT_SQL
+    assert "pre_calibration_confidence" in _INSERT_SQL
 
 
 # ---------------------------------------------------------------------------
