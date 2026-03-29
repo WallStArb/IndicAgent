@@ -292,6 +292,9 @@ class ProviderMergerAgent(BaseAgent):
         threshold_seconds = self._provider_silence_bars_threshold * bar_interval_seconds
 
         if silence_seconds >= threshold_seconds:
+            # Already promoted — skip redundant failover increment
+            if self._promoted.get(symbol) == secondary_provider:
+                return
             # Primary is silent — promote secondary
             self._promoted[symbol] = secondary_provider
             MERGER_FAILOVERS_TOTAL.labels(
