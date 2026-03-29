@@ -1,22 +1,31 @@
 # Architecture Reference — IndicAgent Unified Intelligence Bus
 
-Last Updated: 2026-03-11
+Last Updated: 2026-03-29
 
 > Source of truth for architectural decisions. The *why* behind the build sequence.
 > Full design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md`
 
-Status: I1-I8 complete — 98 plugins + 2 aggregation components, 1754 passing tests
+Status: I1-I8 complete — 121 plugins + 2 aggregation components
 
 ---
 
 ## Core Architecture
 
 ```
-IBKR TWS → Redpanda (hot path) → Dashboard (SSE, real-time)
-                │              → LLM agents (consumer group)
-                │              → Signal generator (consumer group)
+IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
                 │
-                ↓ feature_writer_service (async, decoupled)
+                ↓ ProviderMergerAgent (market.bars)
+                │              ├─ BarAggregatorComputeAgent (market.bars.htf)
+                │              ├─ BarWriterAgent → market_data_ohlcv
+                │              └─ BarAuditorAgent → market.events.gap_requests
+                │
+                ↓ feature_compute_agent (I1-I6, subscribes market.bars + market.bars.htf)
+                │              → intelligence:{symbol}:{tf}
+                │
+                ├─ signal_generator_agent (I7) → signal_ledger
+                ├─ ai_narrative_service (I8) → narratives:{symbol}:{tf}
+                │
+                ↓ feature_writer_agent (async, decoupled)
           TimescaleDB intelligence_features hypertable
                 │
                 ↓ REST API (/api/features, /api/signals)
@@ -29,10 +38,10 @@ IBKR TWS → Redpanda (hot path) → Dashboard (SSE, real-time)
 
 ## Key Architectural Decisions
 
-### 1. Single canonical pipeline service
-`market_analysis_service.py` only. `intelligence_processor_service.py` was deleted (Phase 1). The `bar_aggregator_service` was also removed — timeframe aggregation is now embedded in the DataProviderAgent.
+### 1. Multi-agent bar processing tier before feature computation
+`IBKRProviderAgent` publishes raw 1m bars to `market.bars.raw.ibkr`. `ProviderMergerAgent` routes and normalises to `market.bars` (canonical). `BarAggregatorComputeAgent` aggregates 1m → 5m/15m/1h/4h/1d and publishes to `market.bars.htf`. `feature_compute_agent` subscribes to both `market.bars` and `market.bars.htf` — each bar triggers an independent I1-I6 pipeline run.
 
-**Why:** The old service re-computed I1 internally — violating separation of concerns since `indicator_service.py` already owns I1. Canonical service consumes pre-computed `indicators:SYMBOL:TF` stream.
+**Why:** Provider-agnostic design — ProviderMergerAgent abstracts the broker. Bar aggregation is a separate concern from intelligence computation. Writer and auditor agents run in parallel without coupling to the hot compute path.
 
 ### 2. IntelligenceEvent — versioned, tiered JSONB schema
 ```python
@@ -152,15 +161,19 @@ Signal lifecycle exits are published to `llm_outcomes:stream` (maxlen=200) by `s
 ---
 
 ## Stream Keys (canonical)
+
+All stream keys are constructed via `src/core/stream_keys.py` — never hardcoded. Topic names use dots, not colons.
+
 ```
-{env}:ticks:{symbol}:live          # raw IBKR ticks
-{env}:market:{symbol}:{tf}         # OHLCV bars
-{env}:indicators:{symbol}:{tf}     # I1 outputs
-{env}:intelligence:{symbol}:{tf}   # I3-I6 IntelligenceEvent
-{env}:signals:{symbol}:{tf}:aggregated  # I7 signals
-{env}:narratives:{symbol}:{tf}     # I8 AI narratives
-{env}:llm_calls:stream             # LLM call audit log (maxlen=500)
-{env}:llm_outcomes:stream          # Signal lifecycle exits (maxlen=200)
+{env}.market.bars.raw.{provider}   # provider-specific raw bars (IBKRProviderAgent → market.bars.raw.ibkr)
+{env}.market.bars                  # canonical 1m bars (ProviderMergerAgent)
+{env}.market.bars.htf              # multi-timeframe bars 5m–1d (BarAggregatorComputeAgent)
+{env}.market.events.gap_requests   # gap fill requests (BarAuditorAgent)
+{env}.market.events.roll           # roll detection events (RollComputeAgent)
+{env}.market.data.quality          # ProviderQualityEvent side-channel (ProviderMergerAgent)
+{env}.intelligence.{symbol}.{tf}   # I1-I6 IntelligenceEvent (feature_compute_agent)
+{env}.signals.{symbol}.{tf}.aggregated  # I7 signals (signal_generator_agent)
+{env}.narratives.{symbol}.{tf}     # I8 AI narratives (ai_narrative_service)
 ```
 
 ---
@@ -169,12 +182,19 @@ Signal lifecycle exits are published to `llm_outcomes:stream` (maxlen=200) by `s
 | File | Role |
 |------|------|
 | `src/intelligence/schemas.py` | IntelligenceEvent Pydantic model (canonical) |
-| `services/market_analysis_service.py` | I3-I6 pipeline + publisher |
-| `services/feature_writer_service.py` | intelligence:SYMBOL:TF → intelligence_features (async persistence) |
-| `services/signal_generator_service.py` | I7 signals → signal_ledger |
-| `services/signal_tracker_agent.py` | Zone-aware signal lifecycle (replaces signal_tracker_service) |
+| `src/providers/base_provider_agent.py` | Abstract base — Kafka publish, metrics, SIGTERM for all providers |
+| `src/providers/ibkr_adapter.py` | IBKRAdapter wrapping IBKRProvider; all ib_insync logic isolated here |
+| `services/ibkr_provider_agent.py` | IBKRProviderAgent — publishes raw 1m bars to market.bars.raw.ibkr |
+| `services/provider_merger_agent.py` | ProviderMergerAgent — routes to market.bars, auto-failover, quality side-channel |
+| `services/bar_aggregator_agent.py` | BarAggregatorComputeAgent — 1m → HTF via BarAccumulator → market.bars.htf |
+| `services/bar_writer_agent.py` | BarWriterAgent — market.bars + market.bars.htf → market_data_ohlcv |
+| `services/bar_auditor_agent.py` | BarAuditorAgent — gap detection → market.events.gap_requests |
+| `services/feature_compute_agent.py` | Unified I1-I6 pipeline; subscribes market.bars + market.bars.htf |
+| `services/feature_writer_agent.py` | intelligence:SYMBOL:TF → intelligence_features (async persistence) |
+| `services/signal_generator_agent.py` | I7 signals → signal_ledger |
+| `services/signal_tracker_agent.py` | Zone-aware signal lifecycle, MAE/MFE, 8-class outcome |
 | `services/llm_writer_service.py` | LLM audit log → llm_calls hypertable + model scoring |
-| `src/core/stream_keys.py` | Stream name constants (always use helpers) |
+| `src/core/stream_keys.py` | Stream name constants (always use helpers, never hardcode) |
 | `src/api/routes/sse.py` | SSE endpoint → dashboard |
-| `production/scripts/historical_backfill.py` | 365-day IBKR fetch + I1-I7 replay |
+| `production/scripts/historical_backfill.py` | Historical IBKR fetch + I1-I7 replay |
 | `production/migrations/` | All DB migrations |
