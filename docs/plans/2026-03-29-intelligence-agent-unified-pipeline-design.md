@@ -91,7 +91,7 @@ cross_asset ──────→│   → calibrate → rank → select_winner 
 - `development.intelligence.pipeline.state` Kafka topic — `cleanup.policy=compact`, no retention limit
 - `pre_quality_confidence FLOAT` column on `signal_ledger`
 - `pre_calibration_confidence FLOAT` column on `signal_ledger`
-- Migration: `NNN_signal_ledger_attribution.sql`
+- Migration: `052_signal_ledger_attribution.sql`
 
 ### Unchanged
 - All I1-I7 plugin code — zero changes to `src/intelligence/`
@@ -163,6 +163,23 @@ segment.ms=3600000
 3. Seek bars consumer to `min(last_bar_offset.values()) + 1`
 
 **Agent version bump:** new key prefix → no match in map → `state_checkpoint_fallback_total` increments → automatic fallback to `BarHistorySeeder` DB path
+
+### StateSerializer (`src/core/state_serializer.py`)
+
+All five state fields are checkpointed including `_plugin_state`. Type conversion is explicit before msgpack encoding:
+
+| Type | Encode | Decode |
+|---|---|---|
+| `numpy.ndarray` | `.tolist()` + tag `{"__ndarray__": true, "data": [...], "dtype": str}` | `numpy.array(d["data"], dtype=d["dtype"])` |
+| Pydantic model | `.model_dump()` + tag `{"__pydantic__": "ClassName", "data": {...}}` | `ModelClass(**d["data"])` — registry keyed by class name |
+| `deque` | `list(x)` + tag `{"__deque__": true, "data": [...], "maxlen": x.maxlen}` | `deque(d["data"], maxlen=d["maxlen"])` |
+| Primitive (`int`, `float`, `str`, `bool`, `None`) | Pass-through | Pass-through |
+| `dict` / `list` | Recurse | Recurse |
+
+`StateSerializer.encode(state: dict) -> bytes` — walks the full state tree, applies type tags, returns msgpack bytes.
+`StateSerializer.decode(payload: bytes) -> dict` — deserializes, reconstructs tagged types.
+
+Pydantic model registry is populated at import time from `src/intelligence/schemas.py` and `src/intelligence/pipeline/` — any model used in plugin state must be registered. Unrecognised class name raises `StateDeserializationError` (non-fatal on startup → fallback to `BarHistorySeeder`).
 
 ---
 
@@ -238,10 +255,24 @@ ORDER BY ts DESC LIMIT 50;
 
 ## Rollout
 
-1. Deploy `indicagent-intelligence-pipeline` in shadow mode publishing to `intelligence.shadow` topic (separate consumer group, no WriterAgent consumption) — validates output without double-processing
-2. Compare `intelligence.shadow` output against `intelligence` topic output from existing services for N bars — assert field-level parity
-3. Stop `indicagent-feature-compute` + `indicagent-signal-generator`
-4. Start `indicagent-intelligence-pipeline` publishing to canonical `intelligence` topic
-5. Apply `signal_ledger` migration (`NNN_signal_ledger_attribution.sql`)
-6. Delete dead `pipeline.*` Kafka topics from Redpanda
-7. Remove dead `topic_quality_gated`, `topic_regime_gated`, `topic_tod_adjusted`, `topic_calibrated`, `topic_ranked` functions from `stream_keys.py`
+Shadow validation is automated — not manual. The existing `ParityAuditorAgent` pattern (Phase 52.5) is extended for this cutover.
+
+### Shadow Phase (automated parity gate)
+
+1. Deploy `indicagent-intelligence-pipeline` in shadow mode publishing to `development.intelligence.shadow` topic — consumer group `intelligence_pipeline_shadow`, no WriterAgent consumption
+2. `PipelineParityAuditorAgent` (new, lightweight — ~100 lines extending `ParityAuditorAgent`) compares shadow vs canonical `intelligence` topic per `(symbol, tf)` on a 5-minute timer
+3. Certification gate — all must hold for `≥ 30` consecutive clean cycles:
+   - Numeric field deviation `< 0.001` on all `i1`–`i6` JSONB sub-fields
+   - Zero missing signals (every signal in canonical topic also present in shadow, matched by `(symbol, tf, ts)`)
+   - Signal count delta `= 0` per cycle
+4. On certification: `PipelineParityAuditorAgent` publishes `PIPELINE_PARITY_CERTIFIED` to `system.events` topic
+
+### Cutover (triggered by `PIPELINE_PARITY_CERTIFIED`)
+
+5. Stop `indicagent-feature-compute` + `indicagent-signal-generator`
+6. Reconfigure `indicagent-intelligence-pipeline` to publish to canonical `intelligence` topic (remove shadow flag)
+7. Apply `signal_ledger` migration (`052_signal_ledger_attribution.sql`)
+8. Delete dead `pipeline.*` Kafka topics from Redpanda
+9. Remove dead `topic_quality_gated`, `topic_regime_gated`, `topic_tod_adjusted`, `topic_calibrated`, `topic_ranked` functions from `stream_keys.py`
+10. Remove dead service files and systemd units (feature_compute, signal_generator, intelligence_compute, indicator_compute)
+11. Update CLAUDE.md active service table

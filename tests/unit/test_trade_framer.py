@@ -82,7 +82,7 @@ def test_ledger_entry_has_15_new_fields():
     assert hasattr(entry, "shadow_outcome")
 
 
-def test_ledger_entry_to_insert_params_returns_58_elements():
+def test_ledger_entry_to_insert_params_returns_60_elements():
     """to_insert_params() must return a 60-element tuple (39 original + 15 Phase 32 + 4 Phase 35 + 2 Phase 57)."""
     from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
