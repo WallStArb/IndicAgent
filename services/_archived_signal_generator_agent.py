@@ -1,0 +1,2047 @@
+#!/usr/bin/env python3
+"""
+Signal Generator Service — I7 plugin execution and aggregation
+
+Subscribes to intelligence:SYMBOL:TF stream (enriched with OHLCV by
+market_analysis_service). On each bar: runs all I7 setup plugins,
+aggregates signals, inserts all to signal_ledger, publishes winner to
+signals:SYMBOL:TF:aggregated.
+
+Lifecycle tracking (pending→active→exit, P&L) is handled separately by
+signal_lifecycle_service, which subscribes to market:SYMBOL:1m directly.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+import time
+import zoneinfo
+from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+import numpy as np
+import pandas as pd
+import structlog
+from prometheus_client import Counter as _PrometheusCounter
+from pydantic import ValidationError
+
+from src.config.settings import Settings, get_active_contracts, get_active_symbols
+from src.core.agent.base import BaseAgent
+from src.core.bar_history import BarHistory
+from src.core.bar_normalizer import SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED
+from src.core.database_manager import DatabaseManager
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
+from src.core.plugin_validator import PluginValidator
+from src.core.schemas.bar_message import BarMessage, SessionType
+from src.core.service_utils import (
+    CROSS_ASSET_VALID_TFS,
+    TF_SECONDS,
+    TF_TTL_BARS,
+    normalize_session_type,
+    parse_roll_event,
+    setup_service_logging,
+)
+from src.core.stream_keys import (
+    message_key,
+    topic_calibrated,
+    topic_cross_asset,
+    topic_intelligence,
+    topic_intelligence_journal,
+    topic_market_ticks,
+    topic_quality_gated,
+    topic_ranked,
+    topic_regime_gated,
+    topic_roll_events,
+    topic_signals,
+    topic_signals_aggregated,
+    topic_tod_adjusted,
+)
+from src.intelligence.cross_asset_features import resolve_eq_index_base
+from src.intelligence.pipeline import (
+    apply_calibration,
+    apply_quality_gate,
+    apply_regime_gate,
+    apply_tod_adjustment,
+    rank_signals,
+    select_winner,
+)
+from src.intelligence.pipeline.tod_adjuster import (
+    _TOD_ALPHA,
+    _TOD_CLAMP,
+    _TOD_SESSION_PRIORS,
+)
+from src.intelligence.plugins import registry
+from src.intelligence.register_plugins import TIER_I7, register_all_plugins
+from src.intelligence.schemas import (
+    BarIntelligenceRecord,
+    IntelligenceEvent,
+    IntelligenceJournal,
+    ProvenanceChain,
+    RankedSignal,
+)
+from src.intelligence.trading.cis_scorer import CISScorer
+from src.intelligence.trading.signal_schema import make_signal, validate_signal
+from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
+from src.observability.metrics import (
+    BAR_TO_SIGNAL_LATENCY,
+    counter,
+    gauge,
+    record_plugin_execution,
+)
+from src.persistence.repository.signal_ledger_repository import (
+    LedgerEntry,
+    SignalStatus,
+)
+
+# I7 plugin names — imported from register_plugins (single source of truth)
+I7_PLUGINS = TIER_I7
+
+# Prometheus counter for signal validation failures (per D-17).
+# Uses raw prometheus_client.Counter with labels (project helper counter() doesn't support labels).
+SIGNAL_VALIDATION_FAILURES = _PrometheusCounter(
+    "signal_validation_failures_total",
+    "Signal validation failures before aggregation",
+    ["plugin"],
+)
+
+# In-process pipeline stage counters (PIPE-06).
+_PIPELINE_STAGE_INPUT = _PrometheusCounter(
+    "signal_generator_pipeline_stage_input_total",
+    "Signals entering each pipeline stage",
+    ["stage"],
+)
+_PIPELINE_STAGE_OUTPUT = _PrometheusCounter(
+    "signal_generator_pipeline_stage_output_total",
+    "Signals exiting each pipeline stage",
+    ["stage"],
+)
+_LEDGER_WRITE_FAILURES = _PrometheusCounter(
+    "signal_generator_ledger_write_failures_total",
+    "Signal ledger write failures",
+)
+_AUDIT_DROPS = _PrometheusCounter(
+    "signal_generator_audit_queue_drops_total",
+    "Audit queue overflow drops",
+)
+
+# Minimum bars between published signals per timeframe. Prevents condition
+# re-fires (same setup firing every bar while condition persists).
+# Day-trading focus: 1m=3 bars (3 min cooldown), higher TFs=2 bars.
+MIN_BARS_BETWEEN_SIGNALS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
+# TF_SECONDS imported from src.core.service_utils (shared with signal_lifecycle_service)
+
+# QUAL-04: per-setup cooldown — prevents same setup/direction recycling within N bars.
+# Keyed by (symbol, tf, setup_plugin, direction); independent of the bar-level _signal_gate.
+# Day-trading focus: 1m=3 bars (3 min), higher TFs=2 bars (matches MIN_BARS_BETWEEN_SIGNALS).
+_SIGNAL_COOLDOWN_BARS: dict[str, int] = {"1m": 3, "5m": 2, "15m": 2, "1h": 2}
+
+# HMM regime integer -> semantic label for ML training segmentation (D-02).
+# Collapses trend direction intentionally — consistent with aggregator._REGIME_MAP.
+# Used by _process_event() to populate regime_type_at_fire on every LedgerEntry.
+_HMM_REGIME_LABEL: dict[int, str] = {0: "ranging", 1: "trending", 2: "trending"}
+
+# QUAL-02: alpha decay half-life — bars after which a repeated same-setup/direction signal
+# has its confidence multiplied by max(0.0, 1.0 - bars_since / half_life).
+# Starting values — replace with learned values after 90 days of outcome data.
+# Regress half-life against Sharpe per TF when data justifies it.
+ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
+
+# TF_TTL_BARS imported from src.core.service_utils — single source of truth.
+
+# Slow-clock regime authority: maps each TF to the higher-TF whose HMM regime
+# is used for gating. Avoids gating 1m signals on noisy 1m HMM.
+# If the authority TF stream is not subscribed, cache entry is absent → gate skipped.
+# 1h signals gate on 4h HMM. If 4h stream not subscribed, cache entry absent → gate skipped.
+_REGIME_AUTHORITY_TF: dict[str, str] = {
+    "1m": "5m",
+    "5m": "15m",
+    "15m": "1h",
+    "1h": "4h",
+    "4h": "1d",
+    "1d": "1d",
+}
+
+# Phase 35 TOD: Eastern Time zone for hour extraction
+_ET = zoneinfo.ZoneInfo("America/New_York")
+
+# _TOD_SESSION_PRIORS, _TOD_ALPHA, _TOD_CLAMP imported from src.intelligence.pipeline.tod_adjuster
+
+# ---------------------------------------------------------------------------
+# Phase 35: CIS Kalman filter — local-level 1D model (KAL-01 / KAL-02)
+# ---------------------------------------------------------------------------
+_CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
+    "1m":  {"Q": 0.01, "R": 0.08},
+    "5m":  {"Q": 0.01, "R": 0.06},
+    "15m": {"Q": 0.01, "R": 0.04},
+    "1h":  {"Q": 0.01, "R": 0.02},
+}
+
+
+def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
+    """Load per-TF CIS Kalman Q/R from config/kalman_parameters.json.
+
+    Falls back to _CIS_KALMAN_DEFAULTS if file missing or 'cis_kalman' key absent.
+    Degrades gracefully — service never crashes on missing config file.
+    """
+    config_path = Path(__file__).parent.parent / "config" / "kalman_parameters.json"
+    try:
+        data = json.loads(config_path.read_text())
+        params = data.get("cis_kalman", _CIS_KALMAN_DEFAULTS)
+        return {tf: dict(v) for tf, v in params.items()}
+    except Exception:
+        return dict(_CIS_KALMAN_DEFAULTS)
+
+
+_CIS_KALMAN_PARAMS: dict[str, dict[str, float]] = _load_cis_kalman_params()
+
+
+def _cis_kalman_update(
+    raw_cis: float,
+    x_est: float,
+    P_est: float,
+    Q: float,
+    R: float,
+) -> tuple[float, float]:
+    """One predict+update step of the local-level 1D Kalman filter on CIS score.
+
+    Exact recursion from KalmanTrendPlugin — applied to CIS in [-1, 1] space.
+    Returns (new_x_est, new_P_est).
+    """
+    P_pred = P_est + Q
+    K = P_pred / (P_pred + R)
+    x_new = x_est + K * (raw_cis - x_est)
+    P_new = (1.0 - K) * P_pred
+    return x_new, P_new
+
+
+
+logger = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Phase 42: pattern_reliability weight cache (15-min TTL)
+# ---------------------------------------------------------------------------
+_pattern_reliability_cache: dict[str, float] | None = None
+_pattern_reliability_cache_ts: datetime | None = None
+_pattern_reliability_cache_ttl_sec: int = 900  # 15 minutes
+
+
+async def _load_pattern_reliability_weights(
+    db_manager: DatabaseManager,
+) -> dict[str, float]:
+    """Load pattern confidence weights from pattern_reliability table with 15-min cache.
+
+    Returns preloaded dict for injection into frames["pattern_weights"].
+    Bootstrap priors (is_bootstrap=true) always included; calibrated weights
+    (sample_size >= 30) override bootstrap when available.
+    """
+    global _pattern_reliability_cache, _pattern_reliability_cache_ts
+
+    if db_manager is None:
+        return _pattern_reliability_cache if _pattern_reliability_cache is not None else {}
+
+    now = datetime.now(UTC)
+    if (
+        _pattern_reliability_cache is not None
+        and _pattern_reliability_cache_ts is not None
+        and (now - _pattern_reliability_cache_ts).total_seconds()
+        < _pattern_reliability_cache_ttl_sec
+    ):
+        return _pattern_reliability_cache
+
+    try:
+        rows = await db_manager.execute_query("""
+            SELECT pattern_name, base_confidence
+            FROM pattern_reliability
+            WHERE is_bootstrap = true OR sample_size >= 30
+        """)
+        weights = {r["pattern_name"]: float(r["base_confidence"]) for r in rows}
+        _pattern_reliability_cache = weights
+        _pattern_reliability_cache_ts = now
+        logger.info(f"Pattern reliability weights loaded from DB: {len(weights)} patterns")
+        return weights
+    except Exception as exc:
+        logger.warning(f"Pattern reliability load failed, using fallback: {exc}")
+        return {}  # Plugin will use its own fallback_weights
+
+
+def _apply_alpha_decay(
+    sig: dict,
+    tf: str,
+    last_fire_state: dict | None,
+) -> None:
+    """QUAL-02: Apply alpha decay to signal confidence in-place.
+
+    If the same setup/direction fired recently (within ALPHA_HALF_LIFE_BARS bars),
+    the repeated fire carries less information value. Confidence is multiplied by:
+        multiplier = max(0.0, 1.0 - bars_since / half_life)
+
+    Args:
+        sig: Signal dict — confidence is mutated in place.
+        tf: Timeframe string used to look up half-life.
+        last_fire_state: Dict with "bars_since" key from _setup_last_fire, or None
+            if this is the first fire for this setup/direction (no decay applied).
+    """
+    if last_fire_state is None:
+        return  # First fire — no decay
+    bars_since = last_fire_state.get("bars_since", 0)
+    half_life = ALPHA_HALF_LIFE_BARS.get(tf, 6)
+    multiplier = max(0.0, 1.0 - bars_since / half_life)
+    sig["confidence"] = round(float(sig.get("confidence", 0.0)) * multiplier, 4)
+
+
+def _parse_intelligence_event(fields: dict) -> IntelligenceEvent | None:
+    """Parse intelligence stream message into typed IntelligenceEvent.
+
+    Handles both Kafka payload dicts (string keys) and legacy Redis bytes dicts.
+    Returns None and logs a warning if the message is malformed or version unknown.
+    """
+    # Try string key (Kafka JSON dict) first, then bytes key (legacy Redis)
+    raw = fields.get("event") or fields.get(b"event", b"")
+    if not raw:
+        logger.warning("Failed to parse IntelligenceEvent: no 'event' field", fields=fields)
+        return None
+    try:
+        return IntelligenceEvent.model_validate_json(raw)
+    except (ValidationError, ValueError) as e:
+        logger.warning(
+            "Failed to parse IntelligenceEvent",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return None
+
+
+def _build_features_from_event(event: IntelligenceEvent) -> dict[str, Any]:
+    """Build a features dict from a typed IntelligenceEvent for I7 plugins.
+
+    Flattens all sub-models so every I7 plugin gets the features it needs.
+    Legacy key aliases are preserved for signal_ledger market_context stability.
+    """
+    f: dict[str, Any] = {}
+
+    # I1 — all fields including extras (VWAP, etc.)
+    for k, v in event.i1.model_dump().items():
+        if v is not None:
+            f[k] = v
+    # BB aliases: plugins may expect bb_middle / bb_upper / bb_lower
+    f["bb_middle"] = event.i1.bb_20_2_mid
+    f["bb_upper"] = event.i1.bb_20_2_upper
+    f["bb_lower"] = event.i1.bb_20_2_lower
+
+    # I2 — composite events (crossovers, threshold extremes, volume events)
+    for k, v in event.i2.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    # Close price — used by bridge composites stored in I2 (DonchianPosition etc.)
+    f["close_price"] = event.bar.c
+
+    # I3 — swing, S/R, trend structure
+    for k, v in event.i3.model_dump().items():
+        if v is not None:
+            f[k] = v
+    # SR aliases: plugins use sr_nearest_support / sr_nearest_resistance
+    f["sr_nearest_support"] = event.i3.nearest_support
+    f["sr_nearest_resistance"] = event.i3.nearest_resistance
+
+    # I4 — regimes, GARCH, Kalman
+    for k, v in event.i4.model_dump().items():
+        if v is not None:
+            f[k] = v
+    # Legacy key aliases
+    f["vol_regime"] = event.i4.vol_regime
+    f["volatility_regime"] = event.i4.vol_regime
+    f["volatility_percentile"] = event.i4.vol_percentile
+    f["hmm_regime_state"] = event.smc.hmm_regime
+
+    # I5 — squeeze_fired, rsi divergence, momentum, patterns
+    for k, v in event.i5.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    # SMC — all 61 fields (sweep_*, fvg_*, ob_*, bsl_*, ssl_*, S/D zones, etc.)
+    for k, v in event.smc.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    # I6 — cross-timeframe confluence
+    for k, v in event.i6.model_dump().items():
+        if v is not None:
+            f[k] = v
+
+    return f
+
+
+def _extract_live_quote(live_quotes: dict, symbol: str) -> dict[str, float | None]:
+    """Extract live bid/ask from _live_quotes in-process dict.
+
+    Returns {"bid": None, "ask": None} if no entry exists for the symbol,
+    matching the prior HGETALL-miss semantics.
+    """
+    entry = live_quotes.get(symbol)
+    if not entry:
+        return {"bid": None, "ask": None}
+
+    def _parse(key: str) -> float | None:
+        val = entry.get(key)
+        if val is None:
+            return None
+        try:
+            f = float(val)
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    return {"bid": _parse("bid"), "ask": _parse("ask")}
+
+
+def _is_zone_valid(
+    direction: int,
+    market_price: float | None,
+    entry_zone_low: float | None,
+    entry_zone_high: float | None,
+) -> bool | None:
+    """True if market price is still reachable (within or near zone)."""
+    if market_price is None or entry_zone_low is None or entry_zone_high is None:
+        return None
+    if direction == 1:
+        return market_price <= entry_zone_high
+    else:
+        return market_price >= entry_zone_low
+
+
+class SignalGeneratorAgent(BaseAgent):
+    """Execute I7 setup plugins, aggregate signals, and persist to signal_ledger."""
+
+    # Class-level defaults — overridden per-instance in __init__.
+    # Required by the __new__ test pattern (CLAUDE.md): attributes accessed via
+    # hasattr() on bare __new__ instances must be defined at class level.
+    _perf_weights: dict[str, float] = {}  # noqa: RUF012
+    _drift_penalties: dict[tuple[str, str], float] = {}  # noqa: RUF012
+    _cis_weights_cache: dict = {}  # noqa: RUF012
+
+    def __init__(self, config_file: str | None = None):
+        super().__init__(name="signal_generator_agent", metrics_port=9112)
+        self.start_time = datetime.now(tz=UTC)
+
+        self.config = self._load_config(config_file)
+        self._setup_logging()
+
+        register_all_plugins()
+        registry.validate_tier(I7_PLUGINS, "I7")
+
+        self.db_manager: DatabaseManager | None = None
+        self._kafka_consumer: KafkaConsumerClient | None = None
+        self._kafka_producer: KafkaProducerClient | None = None
+
+        settings = Settings()
+        self.env_name = settings.env_name or ""
+        self.env_prefix = f"{settings.env_name}:" if settings.env_name else ""
+        self._kafka_bootstrap = getattr(settings, "kafka_bootstrap_servers", "localhost:19092")
+        # SHADOW-01: Regime gate safety floors (configurable via env vars)
+        self._regime_prob_min: float = getattr(settings, "regime_prob_min", 0.30)
+        self._regime_dur_min: int = getattr(settings, "regime_dur_min", 1)
+
+        # In-process live quotes dict: symbol → {"bid": float, "ask": float}
+        # Populated by ticks topic handler. Replaces Redis HGETALL for price:SYMBOL:latest.
+        self._live_quotes: dict[str, dict] = {}
+
+        self._bar_history: BarHistory = BarHistory(maxlen=200)
+        self._stream_map: dict[str, tuple[str, str]] = {}
+        self._df_cache: dict[str, pd.DataFrame | None] = {}
+        # Regime cache for slow-clock gating (SIGINT-04).
+        # Structure: {symbol: {tf: {"hmm_regime": float, "hmm_regime_prob": float,
+        #                           "hmm_regime_duration": float}}}
+        # Updated on every IntelligenceEvent arrival; used by _process_bar() to look
+        # up the authority TF regime data for regime gating in aggregate().
+        self._regime_cache: dict[str, dict[str, dict]] = defaultdict(dict)
+        # Performance weights cache: setup_plugin → perf_multiplier [0.5, 1.5].
+        # Loaded from Redis at startup and refreshed every 60 min by
+        # _run_refresh_loop("perf_weights",...). Empty dict = neutral (all multipliers=1.0).
+        self._perf_weights: dict[str, float] = {}
+        # QUAL-09: KS drift penalty cache — (symbol, tf) → float penalty [0.70, 1.0].
+        # Read from Redis per bar evaluation. Absent key → penalty=1.0 (no drift).
+        self._drift_penalties: dict[tuple[str, str], float] = {}
+        # Gate dict: tracks last published signal per (symbol, timeframe) to prevent
+        # condition re-fires (cooldown) and direction flips before prior signal resolves.
+        # In-memory only — resets on service restart (first signal post-restart publishes).
+        self._signal_gate: dict[tuple[str, str], dict] = {}
+        # QUAL-04: per-setup cooldown — keyed by (symbol, tf, setup_plugin, direction).
+        # Value = datetime when the cooldown was set (used with TF_SECONDS to compute
+        # bars elapsed at filter time). Independent of _signal_gate (aggregated-winner level).
+        self._setup_cooldown: dict[tuple[str, str, str, int], datetime] = {}
+        # QUAL-02: alpha decay state — keyed by (symbol, tf, setup_plugin, direction).
+        # Value = {"bars_since": int} — incremented each bar for that (symbol, tf).
+        # Reset to {"bars_since": 0} after each fire. Separate from _setup_cooldown.
+        self._setup_last_fire: dict[tuple[str, str, str, int], dict] = {}
+        # CIS scorer instance — loaded with bootstrap weights at startup, updated
+        # every 30 minutes from the cis_weights table by _run_refresh_loop("cis_weights",...).
+        self._cis_scorer: CISScorer = CISScorer()
+        # CIS weights cache: (asset_cluster, timeframe) -> (weights_dict, version)
+        # Populated by _load_cis_weights_from_db(); used for per-cluster weight lookup.
+        self._cis_weights_cache: dict[tuple[str, str], tuple[dict[str, float], int]] = {}
+
+        # Phase 35: Calibration + TOD multiplier + CIS Kalman state
+        # (plugin_name, tf) -> (breakpoints, values)
+        self._calibration_curves: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
+        self._tod_multipliers: dict = {}      # (regime_type, tf, hour_et) -> float multiplier
+        self._cis_kalman_state: dict = {}     # (symbol, tf) -> {x_est, P_est} — used in plan 03
+
+        # Phase 44.2: Bounded audit queue for async stage snapshot publishing.
+        # put_nowait() is called on hot path; drain happens in background task.
+        # maxsize=1000 bounds memory; overflow tracked by _AUDIT_DROPS counter.
+        self._audit_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+
+        # Phase 037: Cross-asset intelligence cache (keyed by tf)
+        self._cross_asset_cache: dict[str, dict] = {}  # tf -> latest cross_asset payload
+
+        # Phase 041: Higher-timeframe intelligence cache for HTF context injection
+        # Plain dict - bounded by active symbol set in practice (~50 symbols)
+        self._htf_intel_cache: dict[str, dict] = {}  # "{symbol}:1h" -> latest 1h intel features
+
+        self.bars_processed_total = counter(
+            "generator_bars_processed_total",
+            "Total intelligence events processed by signal generator",
+        )
+        self.signals_generated_total = counter(
+            "generator_signals_generated_total",
+            "Total signals inserted to signal_ledger",
+        )
+        self.signals_selected_total = counter(
+            "generator_signals_selected_total",
+            "Total signals where was_selected=True",
+        )
+        self.signals_written_total = counter(
+            "generator_signals_written_total",
+            "Total signal_ledger rows written on suppressed-only bars (no winner)",
+        )
+        self.calculation_duration_ms = gauge(
+            "generator_calculation_duration_ms",
+            "Per-bar processing time in milliseconds",
+        )
+        self.service_uptime_seconds = gauge(
+            "generator_service_uptime_seconds",
+            "Signal generator service uptime in seconds",
+        )
+        self.error_count_total = counter(
+            "generator_errors_total",
+            "Total errors encountered by signal generator",
+        )
+
+        self._total_bars = 0
+        self._total_signals = 0
+        self._error_count = 0
+
+        self.logger = structlog.get_logger(__name__)
+
+    def _load_config(self, config_file: str | None) -> dict[str, Any]:
+        try:
+            _settings = Settings()
+        except Exception as e:
+            logger.warning("Settings() failed in _load_config — using defaults", error=str(e))
+            _settings = None
+
+        default_config: dict[str, Any] = {
+            "database": {
+                "url": (
+                    _settings.database_url
+                    if _settings and getattr(_settings, "database_url", None)
+                    else "postgresql://postgres:postgres@localhost:5432/indicagent"
+                )
+            },
+            "service": {
+                "symbols": get_active_symbols(_settings),
+                # 4h and 1d intentionally excluded: day-trading focus. 4h bars close 4×/day,
+                # 1d once/day — signal latency too high for intraday entries. Extend in a future
+                # phase if swing-trading scope is added.
+                "timeframes": ["1m", "5m", "15m", "1h"],
+                "min_history_bars": 50,
+                "processing_interval": 0.1,
+                "health_check_interval": 30,
+            },
+            "logging": {
+                "level": "INFO",
+                "file": "logs/signal_generator_service.log",
+                "max_size": "10MB",
+                "backup_count": 5,
+            },
+        }
+
+        if config_file and Path(config_file).exists():
+            with open(config_file) as f:
+                user_config = json.load(f)
+            for key, value in user_config.items():
+                if isinstance(value, dict) and key in default_config:
+                    default_config[key].update(value)
+                else:
+                    default_config[key] = value
+
+        return default_config
+
+    def _setup_logging(self) -> None:
+        setup_service_logging(
+            self.config["logging"]["file"],
+            level=self.config["logging"].get("level", "INFO"),
+            backup_count=self.config["logging"].get("backup_count", 5),
+        )
+
+    def _check_gate(self, symbol: str, tf: str, direction: int, timestamp: datetime) -> bool:
+        """Return True (suppress signal) if gate blocks this signal, False (allow) otherwise.
+
+        Suppresses if:
+        1. Cooldown: bars since last published signal < MIN_BARS_BETWEEN_SIGNALS[tf]
+        2. Flip-while-unresolved: direction changed AND prior signal not resolved
+        Returns False (allow) if no prior gate entry exists (first signal always publishes).
+        """
+        gate = self._signal_gate.get((symbol, tf))
+        if gate is None:
+            return False  # No prior signal — always allow
+
+        tf_secs = TF_SECONDS.get(tf, 60)
+        min_bars = MIN_BARS_BETWEEN_SIGNALS.get(tf, 2)
+        bars_since = (timestamp - gate["bar_ts"]).total_seconds() / tf_secs
+
+        # Cooldown: same or different direction — suppress if too soon
+        if bars_since < min_bars:
+            return True
+
+        # Direction flip while prior signal is still live — suppress
+        if direction != gate["direction"] and not gate["resolved"]:
+            return True
+
+        return False
+
+    def _update_gate(
+        self, symbol: str, tf: str, direction: int, timestamp: datetime, signal_id: str
+    ) -> None:
+        """Record gate state after a signal is successfully published to the stream."""
+        self._signal_gate[(symbol, tf)] = {
+            "direction": direction,
+            "bar_ts": timestamp,
+            "signal_id": signal_id,
+            "resolved": False,
+        }
+
+    def _filter_setup_cooldown(
+        self,
+        symbol: str,
+        tf: str,
+        signals: list[dict],
+        timestamp: datetime,
+    ) -> list[dict]:
+        """QUAL-04: Filter signals blocked by per-setup cooldown gate.
+
+        Prevents same setup/direction from recycling within _SIGNAL_COOLDOWN_BARS bars.
+        Runs before aggregation (before alpha decay path) so blocked signals never enter ranking.
+
+        The cooldown dict stores the fire timestamp per (symbol, tf, plugin, direction).
+        At filter time, bars_elapsed is computed from (timestamp - fired_at) / tf_seconds.
+        A signal is blocked if bars_elapsed < _SIGNAL_COOLDOWN_BARS[tf].
+
+        Returns the subset of signals that passed the gate.
+        """
+        tf_secs = TF_SECONDS.get(tf, 60)
+        cooldown_bars = _SIGNAL_COOLDOWN_BARS.get(tf, 2)
+
+        accepted = []
+        for sig in signals:
+            plugin = sig.get("setup_plugin", "")
+            direction = int(sig.get("direction", 0))
+            key = (symbol, tf, plugin, direction)
+
+            fired_at = self._setup_cooldown.get(key)
+            if fired_at is not None:
+                bars_elapsed = (timestamp - fired_at).total_seconds() / tf_secs
+                if bars_elapsed < cooldown_bars:
+                    # Blocked by cooldown — skip before alpha decay
+                    self.logger.debug(
+                        "Signal cooldown-blocked",
+                        symbol=symbol,
+                        tf=tf,
+                        plugin=plugin,
+                        direction=direction,
+                        bars_elapsed=round(bars_elapsed, 2),
+                        cooldown_bars=cooldown_bars,
+                    )
+                    continue
+
+            accepted.append(sig)
+            # Register/refresh cooldown for this setup+direction
+            self._setup_cooldown[key] = timestamp
+
+        return accepted
+
+    async def _resolution_listener_loop(self) -> None:
+        """Monitor signals.aggregated topic for direction=0 lifecycle exit events.
+
+        Signal lifecycle service publishes direction=0 to signals.aggregated
+        when a signal exits (any outcome). When we see direction=0, mark the gate for
+        that (symbol, tf) as resolved — allowing direction flips on the next bar.
+        Uses a separate Kafka consumer subscribed to signals.aggregated.
+        """
+        try:
+            resolution_consumer = KafkaConsumerClient(
+                topic_signals_aggregated(self.env_name),
+                bootstrap_servers=self._kafka_bootstrap,
+                group_id="signal_generator_resolution",
+                auto_offset_reset="latest",
+            )
+            await resolution_consumer.start()
+            try:
+                async for _topic, _key, payload in resolution_consumer.messages():
+                    if not self.running:
+                        break
+                    try:
+                        direction_raw = payload.get("direction", "")
+                        if not direction_raw:
+                            continue
+                        try:
+                            direction_val = int(float(str(direction_raw)))
+                        except (ValueError, TypeError):
+                            continue
+                        if direction_val != 0:
+                            continue
+                        # direction=0 → lifecycle exit; mark gate resolved
+                        sym = str(payload.get("symbol", ""))
+                        tf = str(payload.get("timeframe", ""))
+                        if (sym, tf) in self._signal_gate:
+                            self._signal_gate[(sym, tf)]["resolved"] = True
+                            self.logger.debug("Gate resolved", symbol=sym, timeframe=tf)
+                    except Exception as e:
+                        self.logger.warning("Resolution listener message error", error=str(e))
+            except asyncio.CancelledError:
+                pass
+            finally:
+                await resolution_consumer.stop()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self.logger.warning("Resolution listener failed to start", error=str(e))
+
+    # ── BaseAgent lifecycle hooks ──────────────────────────────────────────────
+
+    @property
+    def topics_consumed(self) -> list[str]:
+        """Kafka topics this agent reads from."""
+        return [
+            topic_intelligence(self.env_name),
+            topic_cross_asset(self.env_name),
+            topic_market_ticks(self.env_name),
+            topic_roll_events(self.env_name),
+        ]
+
+    @property
+    def topics_produced(self) -> list[str]:
+        """Kafka topics this agent writes to."""
+        return [
+            topic_signals_aggregated(self.env_name),
+            topic_intelligence_journal(self.env_name),
+        ]
+
+    @property
+    def lag_threshold_messages(self) -> int:
+        return 1000
+
+    async def _setup(self) -> None:
+        """Connect DB, seed bar history, start Kafka clients, load weights."""
+        await self._connect_database()
+        await self._seed_bar_history_from_db()
+        await self._setup_kafka_clients()
+        await self._load_perf_weights()
+        await self._refresh_drift_penalties_from_db()
+        await self._load_cis_weights_from_db()
+        await self._load_calibration_curves_from_db()
+        await self._load_tod_multipliers_from_db()
+
+    async def _run(self) -> None:
+        """Main I7 processing loop."""
+        self.logger.info("Starting Signal Generator Service", config=self.config["service"])
+        tasks = [
+            asyncio.create_task(self._process_loop()),
+            asyncio.create_task(self._health_monitor_loop()),
+            asyncio.create_task(
+                self._run_refresh_loop("perf_weights", 3600, self._load_perf_weights)
+            ),
+            asyncio.create_task(
+                self._run_refresh_loop(
+                    "drift_penalties", 14400, self._refresh_drift_penalties_from_db
+                )
+            ),
+            asyncio.create_task(self._resolution_listener_loop()),
+            asyncio.create_task(
+                self._run_refresh_loop("cis_weights", 1800, self._load_cis_weights_from_db)
+            ),
+            asyncio.create_task(
+                self._run_refresh_loop(
+                    "calibration_curves", 1800, self._load_calibration_curves_from_db
+                )
+            ),
+            asyncio.create_task(
+                self._run_refresh_loop(
+                    "tod_multipliers", 14400, self._load_tod_multipliers_from_db
+                )
+            ),
+            asyncio.create_task(self._drain_audit_queue()),
+        ]
+        self.logger.info("Signal Generator Service started")
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _teardown(self) -> None:
+        """Close Kafka consumer, producer, and DB connection."""
+        self._stop_event.set()
+        if self._kafka_consumer:
+            await self._kafka_consumer.stop()
+        if self._kafka_producer:
+            await self._kafka_producer.stop()
+        if self.db_manager:
+            await self.db_manager.close()
+        self.logger.info("Signal Generator Service stopped")
+
+    async def _connect_database(self) -> None:
+        try:
+            self.db_manager = DatabaseManager(self.config["database"]["url"])
+            await self.db_manager.initialize()
+            self.logger.info("Connected to database")
+        except Exception as e:
+            self.logger.warning("Database unavailable, persistence disabled", error=str(e))
+            self.db_manager = None
+
+    async def _seed_bar_history_from_db(self) -> None:
+        """Seed BarHistory from intelligence_features on startup.
+
+        Queries last 50 bars per (symbol, tf) from intelligence_features
+        and populates BarHistory to eliminate warmup delay.
+
+        Gracefully degrades if DB unavailable: logs WARNING and proceeds
+        with empty BarHistory (falls back to live warmup).
+        """
+        if not self.db_manager:
+            self.logger.warning("DB seed failed - no db_manager, falling back to live warmup")
+            return
+
+        active_contracts = get_active_contracts()
+        timeframes = self.config["service"]["timeframes"]  # ["1m", "5m", "15m", "1h"]
+
+        try:
+            for contract in active_contracts:
+                symbol = contract.symbol
+                for tf in timeframes:
+                    query = """
+                        SELECT ts, bar, session_type
+                        FROM intelligence_features
+                        WHERE symbol = $1 AND tf = $2
+                        ORDER BY ts DESC
+                        LIMIT 50
+                    """
+
+                    rows = await self.db_manager.execute_query(
+                        query, symbol, tf
+                    )
+
+                    if not rows:
+                        continue
+
+                    # Process rows in reverse (oldest first) to maintain chronological order
+                    for row in reversed(rows):
+                        ts = row["ts"]
+                        bar_data = row["bar"]  # stored as JSON string in intelligence_features
+                        if isinstance(bar_data, str):
+                            bar_data = json.loads(bar_data)
+                        session_type = normalize_session_type(row.get("session_type"))
+
+                        # Reconstruct BarMessage
+                        bar_msg = BarMessage(
+                            ts=ts,
+                            symbol=symbol,
+                            tf=tf,
+                            open=bar_data["o"],
+                            high=bar_data["h"],
+                            low=bar_data["l"],
+                            close=bar_data["c"],
+                            volume=bar_data["v"],
+                            source="ibkr_seed",  # Mark as seeded from DB
+                            session_type=(
+                                SessionType(session_type) if session_type else SessionType.RTH
+                            ),
+                            gap_preceding=False,
+                        )
+
+                        self._bar_history.append(bar_msg)
+
+            self.logger.info(
+                "BarHistory seeded from database",
+                symbols=len(active_contracts),
+                timeframes=len(timeframes)
+            )
+
+        except Exception as e:
+            self.logger.warning(
+                "DB seed failed - falling back to live warmup",
+                error=str(e)
+            )
+            # Proceed with empty BarHistory - service will warm up from live data
+
+    async def _handle_ticks_message(self, symbol: str, payload: dict) -> None:
+        """KAFKA-06: Update _live_quotes with latest tick for symbol.
+
+        Called when a message arrives on the market.ticks topic.
+        Key is SYMBOL (no TF). Keeps only the latest tick per symbol.
+        """
+        self._live_quotes[symbol] = payload
+
+    async def _handle_roll_event(self, event: dict) -> None:
+        """Migrate bar_history keys from old_symbol to new_symbol on futures roll.
+
+        Delegates to BarHistory.migrate_symbol() which atomically renames all
+        (old_symbol, tf) keys to (new_symbol, tf) without dropping any buffered bars.
+        Also invalidates the df_cache for both symbols so the next bar triggers a rebuild.
+        """
+        result = parse_roll_event(event, self.logger)
+        if result is None:
+            return
+        old_symbol, new_symbol = result
+
+        self._bar_history.migrate_symbol(old_symbol, new_symbol)
+        # Invalidate df_cache for both symbols across all TFs
+        for tf in ["1m", "5m", "15m", "1h"]:
+            self._df_cache.pop(f"{old_symbol}:{tf}", None)
+            self._df_cache.pop(f"{new_symbol}:{tf}", None)
+        self.logger.info(
+            "roll_bar_history_migrated",
+            old=old_symbol,
+            new=new_symbol,
+        )
+
+    async def _setup_kafka_clients(self) -> None:
+        """Initialize Kafka consumer (intelligence + ticks) and producer (signals)."""
+        topics: list[str] = [
+            topic_intelligence(self.env_name),
+            topic_market_ticks(self.env_name),
+            topic_roll_events(self.env_name),
+            topic_cross_asset(self.env_name),
+        ]
+
+        self._kafka_consumer = KafkaConsumerClient(
+            *topics,
+            bootstrap_servers=self._kafka_bootstrap,
+            group_id="signal_generator_group",
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+        )
+        await self._kafka_consumer.start()
+        self.logger.info(
+            "Kafka consumer started",
+            topics=topics,
+        )
+
+        self._kafka_producer = KafkaProducerClient(self._kafka_bootstrap)
+        await self._kafka_producer.start()
+        self.logger.info("Kafka producer started")
+
+    def _get_df(self, symbol: str, tf: str) -> pd.DataFrame:
+        key = f"{symbol}:{tf}"
+        if self._df_cache.get(key) is None:
+            self._df_cache[key] = self._bar_history.to_dataframe(symbol, tf)
+        return self._df_cache[key]
+
+    def _run_setup_plugins(
+        self,
+        frames: dict[str, Any],
+        symbol: str = "",
+        timeframe: str = "",
+        timestamp: datetime | None = None,
+        ttl_bars: int = 10,
+    ) -> tuple[list[dict], dict]:
+        """Run all I7 setup plugins and return validated signals + always-log metadata.
+
+        Per D-29/D-30: make_signal() is the single construction point; validate_signal()
+        gates every signal before it reaches downstream processing.
+
+        Per D-15/D-16/D-17/D-18: validation failures emit ERROR log + Prometheus counter
+        + drop (never silent, never crash).
+
+        Returns:
+            (signals, plugin_metadata) where:
+            - signals: list of validated signal.v1 dicts (direction != 0, passed validation)
+            - plugin_metadata: always-log fields from DivergenceStack regardless of signal fire
+
+        Each signal dict is tagged with regime_type from the plugin attribute
+        (Option B from RESEARCH.md — tag at plugin execution, keeps aggregator stateless).
+        """
+        signals = []
+        plugin_metadata: dict = {}
+        ts_str = timestamp.isoformat() if timestamp is not None else ""
+        close_price = 0.0
+        df = frames.get("main")
+        if df is not None and len(df) > 0:
+            close_price = float(df["close"].iloc[-1])
+
+        for name in I7_PLUGINS:
+            t0 = time.time()
+            try:
+                plugin = registry.get_pattern(name)
+                result = plugin.compute_full(frames)
+                elapsed = time.time() - t0
+                # Capture DivergenceStack always-log fields regardless of signal direction
+                if name == "trad_DivergenceStack" and result:
+                    if result.get("div_weighted_score") is not None:
+                        plugin_metadata["divergence_scoring"] = {
+                            "div_weighted_score": result.get("div_weighted_score"),
+                            "div_n_agreeing": result.get("div_n_agreeing"),
+                            "rsi_div_score": result.get("rsi_div_score"),
+                            "macd_div_score": result.get("macd_div_score"),
+                            "vol_div_score": result.get("vol_div_score"),
+                            "obv_div_score": result.get("obv_div_score"),
+                            "cmf_div_score": result.get("cmf_div_score"),
+                        }
+                if result and result.get("direction", 0) != 0:
+                    # Extract I6 confluence_score from features (Renaissance: always consume I6 output)
+                    i6_ctf_score = frames.get("features", {}).get("ctf_score", 0.0)
+                    if i6_ctf_score is None:
+                        i6_ctf_score = 0.0
+
+                    # Per D-29: construct canonical signal.v1 via make_signal() factory
+                    try:
+                        signal = make_signal(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            timestamp=ts_str,
+                            signal_type=result["signal_type"],
+                            setup_plugin=name,
+                            direction=result["direction"],
+                            entry_price=result.get("entry_price", close_price),
+                            stop_loss=result["stop_loss"],
+                            targets=result["targets"],
+                            confidence=result["confidence"],
+                            regime_context=result.get("regime_context", "any"),
+                            confluence_score=i6_ctf_score,
+                            supporting_factors=result.get("supporting_factors", []),
+                            invalidation_conditions=result.get("invalidation_conditions", []),
+                            ttl_bars=result.get("ttl_bars", ttl_bars),
+                        )
+                    except (KeyError, TypeError) as e:
+                        self.logger.error(
+                            "make_signal_construction_failed",
+                            plugin=name,
+                            error=str(e),
+                            result_keys=list(result.keys()),
+                        )
+                        SIGNAL_VALIDATION_FAILURES.labels(plugin=name).inc()
+                        record_plugin_execution(name, "", "", elapsed, "error", "I7")
+                        continue
+
+                    # Per D-30: validate before aggregation — drop invalid signals
+                    if not validate_signal(signal):
+                        self.logger.error(
+                            "signal_validation_failed",
+                            plugin=name,
+                            signal=signal,
+                            reason="validate_signal returned False",
+                        )
+                        SIGNAL_VALIDATION_FAILURES.labels(plugin=name).inc()
+                        record_plugin_execution(name, "", "", elapsed, "validation_failed", "I7")
+                        continue  # Drop invalid signal — never reaches aggregator (per D-18)
+
+                    # Preserve extra plugin-output fields used downstream (e.g. regime_type tag,
+                    # dual_divergence, tod_multiplier) that aren't part of signal.v1 schema
+                    signal["regime_type"] = getattr(plugin, "regime_type", "any")
+                    if "dual_divergence" in result:
+                        signal["dual_divergence"] = result["dual_divergence"]
+                    if "setup_variant" in result:
+                        signal["setup_variant"] = result["setup_variant"]
+                    if "stop_basis" in result:
+                        signal["stop_basis"] = result["stop_basis"]
+
+                    signals.append(signal)
+                    record_plugin_execution(name, "", "", elapsed, "success", "I7")
+                else:
+                    record_plugin_execution(name, "", "", elapsed, "no_signal", "I7")
+            except Exception as e:
+                self.logger.warning("I7 plugin failed", plugin=name, error=str(e))
+                record_plugin_execution(name, "", "", time.time() - t0, "error", "I7")
+        return signals, plugin_metadata
+
+    async def _process_bar(
+        self,
+        symbol: str,
+        timeframe: str,
+        bar: dict[str, Any],
+        features: dict[str, Any],
+        frames: dict[str, Any],
+        timestamp: datetime,
+        bar_close_ts: datetime | None = None,
+        source: str = "live",
+    ) -> None:
+        """Generate signals, aggregate, persist, and publish winner."""
+        df = frames.get("main")
+        min_bars = self.config["service"]["min_history_bars"]
+        if df is None or len(df) < min_bars:
+            return
+
+        calc_start = time.time()
+
+        # Phase 041: Merge HTF VP levels into features with htf_1h_ prefix
+        # _select_vp() in trade_framer reads these keys in its fallback branch
+        htf_frame = frames.get("htf_1h", {})
+        if htf_frame:
+            htf_poc = htf_frame.get("poc_price") or htf_frame.get("poc_price_rolling")
+            htf_vah = htf_frame.get("vah") or htf_frame.get("vah_rolling")
+            htf_val = htf_frame.get("val") or htf_frame.get("val_rolling")
+            if htf_poc is not None:
+                features["htf_1h_poc_price"] = float(htf_poc)
+            if htf_vah is not None:
+                features["htf_1h_vah"] = float(htf_vah)
+            if htf_val is not None:
+                features["htf_1h_val"] = float(htf_val)
+
+        # Apply per-TF TTL — make_signal() receives this value so signals are constructed
+        # with the correct TTL from the start. TF_TTL_BARS is the single source of truth.
+        tf_ttl = TF_TTL_BARS.get(timeframe, 10)
+
+        raw_signals, _plugin_metadata = self._run_setup_plugins(
+            frames,
+            symbol=symbol,
+            timeframe=timeframe,
+            timestamp=timestamp,
+            ttl_bars=tf_ttl,
+        )
+
+        # QUAL-04: per-setup cooldown — strip same setup/direction within N bars.
+        # Runs before aggregation so blocked signals never enter alpha decay path.
+        raw_signals = self._filter_setup_cooldown(symbol, timeframe, raw_signals, timestamp)
+
+        # Phase 35 TOD-02: Apply Bayesian-smoothed TOD multiplier to each signal's confidence
+        # PRE-CIS: multiplier affects bucket contribution → signal selection, not just ranking.
+        # Lookup key: (regime_type, timeframe, hour_et); fallback to 1.0 (neutral).
+        _bar_hour_et = timestamp.astimezone(_ET).hour
+        for sig in raw_signals:
+            _regime_t = sig.get("regime_type", "any")
+            _tod_mult = self._tod_multipliers.get((_regime_t, timeframe, _bar_hour_et), 1.0)
+            if _tod_mult != 1.0:
+                sig["confidence"] = round(float(sig.get("confidence", 0.0)) * _tod_mult, 4)
+                sig["tod_multiplier"] = _tod_mult  # logged in signal dict for observability
+
+        # QUAL-02: alpha decay — increment bars_since for all tracked (symbol, tf) entries,
+        # then apply decay to each signal's confidence BEFORE calling aggregate().
+        # This preserves original confidence in signal_ledger (ledger uses post-decay values
+        # from signal dicts, which are snapshots at fire time).
+        for key in list(self._setup_last_fire):
+            if key[0] == symbol and key[1] == timeframe:
+                self._setup_last_fire[key]["bars_since"] = (
+                    self._setup_last_fire[key].get("bars_since", 0) + 1
+                )
+        for sig in raw_signals:
+            plugin = sig.get("setup_plugin", "")
+            direction = int(sig.get("direction", 0))
+            key = (symbol, timeframe, plugin, direction)
+            _apply_alpha_decay(sig, timeframe, self._setup_last_fire.get(key))
+
+        # Look up authority TF regime data for slow-clock gating (SIGINT-04).
+        authority_tf = _REGIME_AUTHORITY_TF.get(timeframe, timeframe)
+        regime_data = self._regime_cache.get(symbol, {}).get(authority_tf)
+
+        # QUAL-09: Read KS drift penalty from in-process dict for this symbol/TF.
+        drift_penalty = await self._read_drift_penalty(symbol, timeframe)
+
+        # In-process pipeline: call all 6 pure functions, write ledger, publish record.
+        await self._process_event(
+            event=frames.get("_event"),  # event reference injected via frames by caller
+            symbol=symbol,
+            timeframe=timeframe,
+            timestamp=timestamp,
+            bar_close_ts=bar_close_ts,
+            source=source,
+            raw_signals=raw_signals,
+            regime_data=regime_data,
+            drift_penalty=drift_penalty,
+            features=features,
+        )
+
+        # Emit bar-to-signal latency metric
+        signal_computed_at = datetime.now(tz=UTC) if source == "live" else None
+        if source == "live" and bar_close_ts is not None and signal_computed_at is not None:
+            BAR_TO_SIGNAL_LATENCY.labels(symbol=symbol, tf=timeframe).observe(
+                (signal_computed_at - bar_close_ts).total_seconds()
+            )
+
+        elapsed_ms = (time.time() - calc_start) * 1000
+        self.bars_processed_total.inc()
+        self.calculation_duration_ms.set(elapsed_ms)
+        self._total_bars += 1
+
+        self.logger.debug(
+            "Bar processed (in-process pipeline)",
+            symbol=symbol,
+            timeframe=timeframe,
+            signals_fired=len(raw_signals),
+            calc_ms=round(elapsed_ms, 2),
+        )
+
+
+    async def _drain_audit_queue(self) -> None:
+        """Background task: drain audit payloads to Kafka pipeline.* topics.
+
+        Runs alongside _process_loop(). Hot path uses put_nowait() which never
+        blocks; this drain task handles the actual I/O off the critical path.
+
+        Pattern: block on queue.get() until an item arrives, then drain all
+        remaining items with get_nowait() before blocking again. Avoids the
+        asyncio.wait_for Task+TimerHandle allocation overhead per loop iteration.
+        """
+        while self.running:
+            try:
+                payload = await self._audit_queue.get()
+                if self._kafka_producer:
+                    await self._kafka_producer.publish(payload["topic"], payload["data"])
+                # Drain any additional items queued since we unblocked
+                while True:
+                    try:
+                        payload = self._audit_queue.get_nowait()
+                        if self._kafka_producer:
+                            await self._kafka_producer.publish(payload["topic"], payload["data"])
+                    except asyncio.QueueEmpty:
+                        break
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning("audit_drain_error", error=str(e))
+
+    async def _queue_stage_audits(self, payloads: list[dict]) -> None:
+        """Non-blocking enqueue of stage audit snapshots.
+
+        Drops payloads silently when queue is full (overflow tracked by _AUDIT_DROPS).
+        Called on the hot path — must never block.
+        """
+        for p in payloads:
+            try:
+                self._audit_queue.put_nowait(p)
+            except asyncio.QueueFull:
+                _AUDIT_DROPS.inc()
+
+    def _to_ranked_signal(self, sig: dict, winner: dict | None) -> RankedSignal:
+        """Map a signal dict (post-pipeline) to a RankedSignal Pydantic model.
+
+        raw_confidence is read from the "_raw_confidence" key captured before the
+        pipeline ran. is_winner is set when the signal matches the winner by plugin+direction.
+        """
+        winner_plugin = winner.get("setup_plugin") if winner else None
+        winner_dir = winner.get("direction") if winner else None
+        is_winner = (
+            winner is not None
+            and sig.get("setup_plugin") == winner_plugin
+            and sig.get("direction") == winner_dir
+        )
+        return RankedSignal(
+            signal_id=sig.get("signal_id", ""),
+            plugin=sig.get("setup_plugin", "unknown"),
+            direction=int(sig.get("direction", 0)),
+            raw_confidence=float(sig.get("_raw_confidence", sig.get("confidence", 0.0))),
+            calibrated_confidence=float(
+                sig.get("calibrated_confidence", sig.get("confidence", 0.0))
+            ),
+            regime_eligible=bool(sig.get("regime_eligible", True)),
+            quality_score=float(sig.get("quality_score", 1.0)),
+            tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
+            adjusted_rank=float(sig.get("adjusted_rank", 999.0)),
+            is_winner=is_winner,
+        )
+
+    async def _process_event(
+        self,
+        event: Any,
+        symbol: str,
+        timeframe: str,
+        timestamp: datetime,
+        bar_close_ts: datetime | None,
+        source: str,
+        raw_signals: list[dict],
+        regime_data: dict | None,
+        drift_penalty: float,
+        features: dict,
+    ) -> None:
+        """In-process pipeline: apply all 6 stages, write ledger, publish record.
+
+        Replaces the 8-hop Kafka DAG dispatch from the old architecture.
+        Hot path: 6 synchronous function calls + async DB write + async publishes.
+        Audit snapshots are queued non-blocking for background drain.
+
+        Gate logic (_check_gate/_update_gate) runs here in-process before ledger write.
+        _check_gate() runs before ledger write; _update_gate() runs after.
+        """
+        pipeline_start = time.monotonic()
+
+        # Capture raw_confidence before pipeline modifies confidence
+        for sig in raw_signals:
+            sig["_raw_confidence"] = float(sig.get("confidence", 0.0))
+
+        # Build quality gate thresholds from I4 context + drift penalty
+        if event is not None:
+            _hurst_q = float(event.i4.hurst_trend_quality or 1.0)
+            _entropy_q = float(event.i4.entropy_quality or 1.0)
+        else:
+            _hurst_q = 1.0
+            _entropy_q = 1.0
+        thresholds = {
+            "hurst_quality": _hurst_q,
+            "entropy_quality": _entropy_q,
+            "drift_penalty": drift_penalty,
+        }
+
+        # Stage 1: Quality gate
+        _PIPELINE_STAGE_INPUT.labels(stage="quality_gate").inc(len(raw_signals))
+        quality_gated = apply_quality_gate(raw_signals, thresholds)
+        _PIPELINE_STAGE_OUTPUT.labels(stage="quality_gate").inc(len(quality_gated))
+
+        # Stage 2: Regime gate
+        _PIPELINE_STAGE_INPUT.labels(stage="regime_gate").inc(len(quality_gated))
+        regime_gated = apply_regime_gate(
+            quality_gated,
+            regime_data,
+            prob_min=self._regime_prob_min,
+            dur_min=self._regime_dur_min,
+        )
+        regime_eligible_count = sum(1 for s in regime_gated if s.get("regime_eligible", True))
+        _PIPELINE_STAGE_OUTPUT.labels(stage="regime_gate").inc(regime_eligible_count)
+
+        # Stage 3: TOD adjustment
+        bar_hour_et = timestamp.astimezone(_ET).hour
+        _PIPELINE_STAGE_INPUT.labels(stage="tod_adjuster").inc(len(regime_gated))
+        tod_adjusted = apply_tod_adjustment(
+            regime_gated, self._tod_multipliers, timeframe, bar_hour_et
+        )
+        _PIPELINE_STAGE_OUTPUT.labels(stage="tod_adjuster").inc(len(tod_adjusted))
+
+        # Stage 4: Calibration
+        _PIPELINE_STAGE_INPUT.labels(stage="calibrator").inc(len(tod_adjusted))
+        calibrated = apply_calibration(tod_adjusted, self._calibration_curves, timeframe)
+        _PIPELINE_STAGE_OUTPUT.labels(stage="calibrator").inc(len(calibrated))
+
+        # Stage 5: Ranking
+        _PIPELINE_STAGE_INPUT.labels(stage="ranker").inc(len(calibrated))
+        ranked = rank_signals(calibrated, self._perf_weights, timeframe)
+        _PIPELINE_STAGE_OUTPUT.labels(stage="ranker").inc(len(ranked))
+
+        # Stage 6: Winner selection
+        _PIPELINE_STAGE_INPUT.labels(stage="winner_selector").inc(len(ranked))
+        winner, all_ranked, resolution_method = select_winner(
+            ranked, self._cis_scorer, features
+        )
+        _PIPELINE_STAGE_OUTPUT.labels(stage="winner_selector").inc(1 if winner else 0)
+
+        # Queue stage audit snapshots to pipeline.* topics (non-blocking)
+        _audit_ts = timestamp.isoformat()
+        _audit_meta = {"symbol": symbol, "timeframe": timeframe, "ts": _audit_ts}
+        await self._queue_stage_audits([
+            {"topic": topic_quality_gated(self.env_name),
+             "data": {"signals": quality_gated, **_audit_meta}},
+            {"topic": topic_regime_gated(self.env_name),
+             "data": {"signals": regime_gated, **_audit_meta}},
+            {"topic": topic_tod_adjusted(self.env_name),
+             "data": {"signals": tod_adjusted, **_audit_meta}},
+            {"topic": topic_calibrated(self.env_name),
+             "data": {"signals": calibrated, **_audit_meta}},
+            {"topic": topic_ranked(self.env_name),
+             "data": {"signals": ranked, **_audit_meta}},
+        ])
+
+        # --- Stage 6: Winner gate + persist (DECOUPLED per D-01) ---
+        ledger_written = False
+        signal_computed_at = datetime.now(tz=UTC)
+        _winner_signal_id: str = ""
+
+        # 6a: Winner gate check (unchanged logic, just scoped correctly)
+        if winner:
+            _winner_direction = int(winner.get("direction", 0))
+            if self._check_gate(symbol, timeframe, _winner_direction, timestamp):
+                # Gate suppresses (cooldown or direction flip) — persist still happens below
+                self.logger.debug(
+                    "winner_signal_gated",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    direction=_winner_direction,
+                )
+                winner = None
+            else:
+                _winner_signal_id = str(winner.get("signal_id", "") or uuid4())
+                # Set signal_id on winner dict so it matches the ledger entry
+                winner["signal_id"] = _winner_signal_id
+
+        # 6b: Build LedgerEntry list from ALL ranked signals (UNCONDITIONAL on all_ranked).
+        # Renaissance principle: never drop data that could contain signal.
+        # Regime-suppressed signals are labeled training data for ML scoring (Phase 53+).
+        if all_ranked:
+            # Resolve regime fields once (available for all entries)
+            _hmm_regime_int: int | None = None
+            _regime_type_label: str | None = None
+            if regime_data is not None:
+                _hmm_raw = regime_data.get("hmm_regime")
+                if isinstance(_hmm_raw, (int, float)):
+                    _hmm_regime_int = int(_hmm_raw)
+                    _regime_type_label = _HMM_REGIME_LABEL.get(_hmm_regime_int)
+
+            entries: list[LedgerEntry] = []
+            selected_count = 0
+            for rank_idx, ranked_sig in enumerate(all_ranked, start=1):
+                _ranked_id = str(ranked_sig.get("signal_id") or "")
+                # was_selected is True only for the entry that matches the (non-gated) winner.
+                _is_winner_entry = (
+                    (
+                        _ranked_id == _winner_signal_id
+                        or (
+                            not _ranked_id
+                            and ranked_sig.get("setup_plugin") == winner.get("setup_plugin")
+                            and ranked_sig.get("regime_eligible", True)
+                        )
+                    )
+                    if winner is not None
+                    else False
+                )
+                _status = (
+                    SignalStatus.PENDING
+                    if ranked_sig.get("regime_eligible", True)
+                    else SignalStatus.REGIME_SUPPRESSED
+                )
+                _ranked_dir = int(ranked_sig.get("direction", 0))
+                entries.append(
+                    LedgerEntry(
+                        signal_id=_ranked_id or str(uuid4()),
+                        timestamp=timestamp,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        setup_plugin=str(ranked_sig.get("setup_plugin", "unknown")),
+                        signal_type=str(ranked_sig.get("signal_type", "unknown")),
+                        direction=_ranked_dir,
+                        entry_price=float(ranked_sig.get("entry_price", 0.0)),
+                        stop_loss=float(ranked_sig.get("stop_loss", 0.0)),
+                        targets=[
+                            float(t) for t in (ranked_sig.get("targets") or [])
+                        ],
+                        confidence=float(ranked_sig.get("confidence", 0.0)),
+                        confluence_score=float(
+                            ranked_sig.get("confluence_score", 0.0)
+                        ),
+                        regime_context=str(ranked_sig.get("regime_context", "")),
+                        supporting_factors=list(
+                            ranked_sig.get("supporting_factors", [])
+                        ),
+                        was_selected=_is_winner_entry,
+                        num_signals_bar=len(all_ranked),
+                        num_agreeing=0,
+                        num_conflicting=0,
+                        resolution_method=str(resolution_method or "in_process"),
+                        composite_rank=rank_idx,
+                        status=_status,
+                        feature_ts=timestamp,
+                        feature_tf=timeframe,
+                        signal_computed_at=signal_computed_at,
+                        hmm_regime_at_fire=_hmm_regime_int,
+                        regime_type_at_fire=_regime_type_label,
+                    )
+                )
+                if _is_winner_entry:
+                    selected_count += 1
+
+            # Plugin-level shadow mode (IS_SHADOW=True on plugin class)
+            for entry in entries:
+                plugin_instance = registry.patterns.get(entry.setup_plugin)
+                if plugin_instance is not None and getattr(
+                    plugin_instance, "IS_SHADOW", False
+                ):
+                    entry.is_shadow = True
+
+            # 6c: ASYNC KAFKA JOURNAL (Latency audit requirement)
+            if entries:
+                try:
+                    env = self.env_name
+                    now = datetime.now(UTC)
+                    journal = IntelligenceJournal(
+                        ts=now,
+                        sid=entries[0].signal_id,
+                        payload={
+                            "entries": [e.__dict__ for e in entries],
+                            "features": features,
+                            "selected_count": selected_count,
+                        },
+                        provenance=ProvenanceChain(
+                            origin_ts=now,
+                            pipeline_id=f"gen_{symbol}_{timeframe}",
+                            plugin_stack=[e.setup_plugin for e in entries],
+                            compute_budget_ms=0.0,
+                        ),
+                    )
+                    await self._kafka_producer.publish(
+                        topic_intelligence_journal(env),
+                        journal.model_dump(mode="json"),
+                        key=message_key(symbol, timeframe),
+                    )
+                    self.signals_generated_total.inc(len(entries))
+                    self.signals_selected_total.inc(selected_count)
+                    self._total_signals += len(entries)
+                    ledger_written = True
+                    if not winner:
+                        self.signals_written_total.inc(len(entries))
+                except Exception as _journal_err:
+                    self.logger.error(
+                        "signal_journal_publish_failed",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        error=str(_journal_err),
+                    )
+                    _LEDGER_WRITE_FAILURES.inc()
+                    ledger_written = False
+
+        # 6d: Kafka publish winner (only if winner passed gate)
+        if winner:
+            sig = winner
+            msg_key = message_key(symbol, timeframe)
+            message: dict = {
+                k: str(v)
+                for k, v in sig.items()
+                if isinstance(v, (str, int, float, bool))
+            }
+            targets = sig.get("targets") or []
+            target_labels = sig.get("target_labels") or []
+            if targets:
+                message["profit_target"] = str(float(targets[0]))
+                if len(targets) > 1:
+                    message["profit_target_2"] = str(float(targets[1]))
+                if len(targets) > 2:
+                    message["profit_target_3"] = str(float(targets[2]))
+            message["target_labels"] = json.dumps(target_labels)
+            message["target_types"] = json.dumps(sig.get("target_types") or [])
+            entry_p = float(sig.get("entry_price", 0))
+            stop_p = float(sig.get("stop_loss", 0))
+            risk = abs(entry_p - stop_p)
+            if risk > 0 and targets:
+                message["risk_reward_ratio"] = str(
+                    round(abs(float(targets[0]) - entry_p) / risk, 2)
+                )
+            message["timestamp"] = timestamp.isoformat()
+            message["symbol"] = symbol
+            message["timeframe"] = timeframe
+            message["signal_computed_at"] = signal_computed_at.isoformat()
+            message["signal_id"] = _winner_signal_id
+            message["was_selected"] = "1"
+
+            published_signal = False
+            if self._kafka_producer:
+                try:
+                    await self._kafka_producer.publish(
+                        topic_signals(self.env_name), message, key=msg_key
+                    )
+                    await self._kafka_producer.publish(
+                        topic_signals_aggregated(self.env_name), message, key=msg_key
+                    )
+                    published_signal = True
+                except Exception as _pub_err:
+                    self.logger.warning(
+                        "winner_kafka_publish_failed",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        error=str(_pub_err),
+                    )
+
+            if published_signal:
+                self._update_gate(
+                    symbol, timeframe, _winner_direction, timestamp, _winner_signal_id
+                )
+                _pub_plugin = sig.get("setup_plugin", "")
+                if _pub_plugin:
+                    _decay_key = (symbol, timeframe, _pub_plugin, _winner_direction)
+                    self._setup_last_fire[_decay_key] = {"bars_since": 0}
+
+        # Build and publish BarIntelligenceRecord to intelligence.record
+        pipeline_latency_ms = (time.monotonic() - pipeline_start) * 1000
+        ranked_signal_models = [self._to_ranked_signal(s, winner) for s in all_ranked]
+
+        if event is not None and self._kafka_producer:
+            try:
+                record = BarIntelligenceRecord(
+                    intelligence=event,
+                    ranked_signals=ranked_signal_models,
+                    winner_plugin=winner.get("setup_plugin") if winner else None,
+                    winner_confidence=(
+                        winner.get("calibrated_confidence") or winner.get("confidence")
+                        if winner else None
+                    ),
+                    winner_direction=int(winner.get("direction", 0)) if winner else None,
+                    signals_evaluated=len(raw_signals),
+                    signals_after_quality=len(quality_gated),
+                    signals_after_regime=regime_eligible_count,
+                    signals_after_tod=len(tod_adjusted),
+                    signals_after_calibration=len(calibrated),
+                    ledger_written=ledger_written,
+                    session_type=getattr(event, "session_type", SessionType.RTH).value,
+                    days_to_expiry=None,
+                    i7_computed_at=signal_computed_at,
+                    pipeline_latency_ms=pipeline_latency_ms,
+                )
+                await self._kafka_producer.publish(
+                    topic_intelligence_journal(self.env_name),
+                    record.model_dump(mode="json"),
+                    key=message_key(symbol, timeframe),
+                )
+            except Exception as _rec_err:
+                self.logger.warning(
+                    "intelligence_record_publish_failed", error=str(_rec_err)
+                )
+
+    async def _process_single_message(
+        self,
+        symbol: str,
+        timeframe: str,
+        fields: dict,
+        stream_name: str,
+        message_id: bytes | None,
+    ) -> bool:
+        try:
+            event = _parse_intelligence_event(fields)
+            if event is None:
+                # Malformed or missing event — ack and skip (do not crash)
+                return True
+
+            # Update regime cache for slow-clock gating (SIGINT-04).
+            # Cache the HMM regime from every IntelligenceEvent so _process_bar()
+            # can look up the authority TF (higher-TF) regime when gating signals.
+            if event.smc is not None and event.smc.hmm_regime is not None:
+                self._regime_cache[symbol][timeframe] = {
+                    "hmm_regime": event.smc.hmm_regime,
+                    "hmm_regime_prob": event.smc.hmm_regime_prob or 0.0,
+                    "hmm_regime_duration": event.smc.hmm_regime_duration or 0,
+                }
+
+            timestamp = event.ts
+            bar = {
+                "open": event.bar.o,
+                "high": event.bar.h,
+                "low": event.bar.l,
+                "close": event.bar.c,
+                "volume": event.bar.v,
+            }
+            features = _build_features_from_event(event)
+
+            # Phase 041: Cache 1h intel for HTF injection into short-TF frames
+            if timeframe == "1h":
+                self._htf_intel_cache[f"{symbol}:1h"] = features
+
+            # Map IntelligenceEvent source (live/backfill) → BarMessage source taxonomy
+            bar_source = SOURCE_IBKR_NAMED if event.source == "live" else SOURCE_IBKR_SEED
+            bar_msg = BarMessage(
+                ts=event.ts,
+                symbol=symbol,
+                tf=timeframe,
+                open=event.bar.o,
+                high=event.bar.h,
+                low=event.bar.l,
+                close=event.bar.c,
+                volume=event.bar.v,
+                source=bar_source,
+                session_type=event.session_type,
+                gap_preceding=False,
+            )
+            self._bar_history.append(bar_msg)
+            key = f"{symbol}:{timeframe}"
+            self._df_cache[key] = None
+
+            frames = {
+                "main": self._get_df(symbol, timeframe),
+                "features": features,
+                "timeframe": timeframe,  # Phase 041: enables TF guard in VWAP/session plugins
+                "_event": event,  # Phase 44.2: passed to _process_event for BarIntelligenceRecord
+            }
+
+            # Phase 037: Inject cross-asset frames for EQ_INDEX symbols
+            if resolve_eq_index_base(symbol) is not None:
+                frames["cross_asset"] = self._cross_asset_cache.get(
+                    timeframe, {"ready": False}
+                )
+                frames["cross_asset_5m"] = self._cross_asset_cache.get(
+                    "5m", {"ready": False}
+                )
+
+            # Phase 041: Inject HTF 1h context for short-TF bars
+            if timeframe in ("1m", "5m", "15m"):
+                frames["htf_1h"] = self._htf_intel_cache.get(f"{symbol}:1h", {})
+
+            # Phase 42: inject pattern_reliability weights for CandlestickPatternSetup
+            frames["pattern_weights"] = await _load_pattern_reliability_weights(self.db_manager)
+
+            await self._process_bar(
+                symbol,
+                timeframe,
+                bar,
+                features,
+                frames,
+                timestamp,
+                bar_close_ts=event.bar_close_ts,
+                source=event.source,
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(
+                "Error processing message",
+                symbol=symbol,
+                timeframe=timeframe,
+                error=str(e),
+            )
+            self.error_count_total.inc()
+            self._error_count += 1
+            return False
+
+    async def _process_loop(self) -> None:
+        """Consume from intelligence, market.ticks, market.events.roll, and cross_asset topics."""
+        if not self._kafka_consumer:
+            return
+
+        _intel_topic = topic_intelligence(self.env_name)
+        _ticks_topic = topic_market_ticks(self.env_name)
+        _roll_events_topic = topic_roll_events(self.env_name)
+        _cross_asset_topic = topic_cross_asset(self.env_name)
+
+        try:
+            async for topic, key, payload in self._kafka_consumer.messages():
+                if not self.running:
+                    break
+                try:
+                    if topic == _roll_events_topic:
+                        await self._handle_roll_event(payload)
+                        await self._kafka_consumer.commit()
+                    elif topic == _cross_asset_topic:
+                        # Cache latest cross-asset snapshot by timeframe
+                        try:
+                            tf = payload.get("tf", "")
+                            if tf in CROSS_ASSET_VALID_TFS and payload.get("ready"):
+                                self._cross_asset_cache[tf] = payload
+                            await self._kafka_consumer.commit()
+                        except Exception as _xa_err:
+                            self.logger.warning("cross_asset_parse_failed", error=str(_xa_err))
+                    elif topic == _intel_topic:
+                        # key = "SYMBOL:TF"
+                        if key:
+                            parts = key.split(":", 1)
+                            if len(parts) == 2:
+                                symbol, timeframe = parts[0], parts[1]
+                            else:
+                                symbol = parts[0]
+                                timeframe = payload.get("timeframe", "")
+                        else:
+                            symbol = payload.get("symbol", "")
+                            timeframe = payload.get("timeframe", "")
+
+                        if symbol and timeframe:
+                            await self._process_single_message(
+                                symbol, timeframe, payload, topic, None
+                            )
+
+                        await self._kafka_consumer.commit()
+                    elif topic == _ticks_topic:
+                        # key = "SYMBOL"
+                        symbol = key or payload.get("symbol", "")
+                        if symbol:
+                            await self._handle_ticks_message(symbol, payload)
+                        await self._kafka_consumer.commit()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    self.logger.error("Error in processing loop", error=str(e))
+                    self.error_count_total.inc()
+                    self._error_count += 1
+        except asyncio.CancelledError:
+            pass
+
+    async def _health_monitor_loop(self) -> None:
+        while self.running:
+            try:
+                uptime = int((datetime.now(tz=UTC) - self.start_time).total_seconds())
+                self.service_uptime_seconds.set(uptime)
+                interval = self.config["service"]["health_check_interval"]
+                self.logger.info(
+                    "Health check",
+                    uptime=uptime,
+                    bars_processed=self._total_bars,
+                    signals_generated=self._total_signals,
+                    errors=self._error_count,
+                )
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in health monitor", error=str(e))
+                await asyncio.sleep(5)
+
+    async def _load_perf_weights(self) -> None:
+        """Load perf multiplier dict from setup_performance DB table.
+
+        Phase 30: Replaces Redis GET setup_performance:weights with direct DB query.
+        Reads win_rate and avg_pnl_r for setups with sample_size >= 30 and builds
+        the perf_weights dict in the same format as the old Redis-cached version.
+        """
+        if not self.db_manager:
+            self.logger.debug("_load_perf_weights: no db_manager — skipping")
+            return
+        query = """
+            SELECT setup_plugin, win_rate, avg_pnl_r
+            FROM setup_performance
+            WHERE sample_size >= 30
+        """  # noqa: S608
+        try:
+            async with self.db_manager.pool.acquire() as conn:
+                rows = await conn.fetch(query)
+            if not rows:
+                self.logger.debug("Perf weights: no eligible setups in setup_performance")
+                return
+            # Build perf_weights dict in the same format as the old Redis-cached version.
+            # Rank by avg_pnl_r descending to compute perf_multiplier in [0.5, ~1.5].
+            n = len(rows)
+            sorted_rows = sorted(rows, key=lambda r: float(r["avg_pnl_r"] or 0), reverse=True)
+            weights: dict[str, float] = {}
+            for rank, row in enumerate(sorted_rows):
+                multiplier = 0.5 + ((n - 1 - rank) / n) if n > 1 else 1.0
+                weights[row["setup_plugin"]] = round(multiplier, 4)
+            self._perf_weights = weights
+            self.logger.debug("Perf weights loaded from DB", n_setups=len(weights))
+        except Exception as exc:
+            self.logger.warning("Failed to load perf weights from DB", error=str(exc))
+
+    async def _refresh_drift_penalties_from_db(self) -> None:
+        """QUAL-09: Load KS drift penalties from drift_state DB table into _drift_penalties dict.
+
+        Phase 30: Replaces per-bar Redis GET with a 4h batch refresh from DB.
+        Called at startup and every 4h by _run_refresh_loop("drift_penalties",...).
+
+        Only reads KS rows (tf != '_cusum'). CUSUM rows are for setup_performance_updater.
+        """
+        if not self.db_manager:
+            self.logger.debug("_refresh_drift_penalties_from_db: no db_manager — skipping")
+            return
+        query = """
+            SELECT symbol, tf, ks_severity
+            FROM drift_state
+            WHERE tf != '_cusum'
+        """  # noqa: S608
+        try:
+            async with self.db_manager.pool.acquire() as conn:
+                rows = await conn.fetch(query)
+            new_penalties: dict[tuple[str, str], float] = {}
+            for row in rows:
+                severity = row["ks_severity"]
+                new_penalties[(row["symbol"], row["tf"])] = DRIFT_PENALTIES.get(severity, 1.0)
+            self._drift_penalties = new_penalties
+            self.logger.debug("drift_penalties refreshed from DB", n_entries=len(new_penalties))
+        except Exception as exc:
+            self.logger.warning("Failed to refresh drift_penalties from DB", error=str(exc))
+
+    async def _run_refresh_loop(
+        self,
+        name: str,
+        interval_s: int | float,
+        fn: Callable[[], Awaitable[None]],
+        backoff_s: int = 30,
+    ) -> None:
+        """Shared refresh loop: sleep interval_s, call fn, repeat until shutdown.
+
+        On exception, sleeps backoff_s before retrying to prevent spin on persistent errors.
+        """
+        while self.running:
+            try:
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(), timeout=interval_s
+                    )
+                    break  # shutdown_event was set
+                except TimeoutError:
+                    pass
+                if not self.running:
+                    break
+                await fn()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self.logger.error(f"{name} refresh loop error", error=str(exc))
+                await asyncio.sleep(backoff_s)
+
+    async def _read_drift_penalty(self, symbol: str, timeframe: str) -> float:
+        """QUAL-09: Read KS drift penalty from in-process _drift_penalties dict.
+
+        Phase 30: No longer reads Redis. Uses dict populated by _refresh_drift_penalties_from_db().
+        Falls back to 1.0 (no penalty) when no entry exists for this symbol/TF.
+        """
+        return self._drift_penalties.get((symbol, timeframe), 1.0)
+
+    async def _load_cis_weights_from_db(self) -> None:
+        """Load per-cluster learned weights from cis_weights table.
+
+        Only rows with sample_size >= 100 are considered.
+        Updates self._cis_scorer with global weights when available.
+        Falls back to bootstrap on empty result or DB error.
+        """
+        if self.db_manager is None:
+            return
+        try:
+            rows = await self.db_manager.execute_query(
+                """
+                SELECT DISTINCT ON (asset_cluster, timeframe)
+                    asset_cluster, timeframe, version, sample_size,
+                    trend_w, momentum_w, structure_w, pattern_w,
+                    institutional_w, regime_w
+                FROM cis_weights
+                WHERE sample_size >= 100
+                ORDER BY asset_cluster, timeframe, version DESC
+                """
+            )
+            if not rows:
+                self.logger.info(
+                    "No learned CIS weights with sample_size >= 100 — using bootstrap"
+                )
+                return
+            for row in rows:
+                weights = {
+                    "trend": row["trend_w"],
+                    "momentum": row["momentum_w"],
+                    "structure": row["structure_w"],
+                    "pattern": row["pattern_w"],
+                    "institutional": row["institutional_w"],
+                    "regime": row["regime_w"],
+                }
+                cluster = row["asset_cluster"]
+                tf = row["timeframe"]
+                self._cis_weights_cache[(cluster, tf)] = (weights, row["version"])
+                self.logger.info(
+                    "Loaded weights from DB",
+                    cluster=cluster,
+                    tf=tf,
+                    version=row["version"],
+                    sample_size=row["sample_size"],
+                )
+            # Update the global scorer with global/global weights when available.
+            # Phase 35 will extend this to per-cluster routing.
+            global_key = ("global", "global")
+            if global_key in self._cis_weights_cache:
+                w, v = self._cis_weights_cache[global_key]
+                self._cis_scorer.update_weights(w, v)
+        except Exception as exc:
+            self.logger.warning(
+                "CIS weights refresh error — keeping current weights", error=str(exc)
+            )
+
+    async def _load_calibration_curves_from_db(self) -> None:
+        """Load isotonic calibration curves from confidence_calibration table every 30 min."""
+        if self.db_manager is None:
+            return
+        try:
+            rows = await self.db_manager.execute_query(
+                "SELECT plugin_name, timeframe, breakpoints, values "
+                "FROM confidence_calibration WHERE sample_size >= 100"
+            )
+            new_cache: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]] = {}
+            for row in rows:
+                key = (row["plugin_name"], row["timeframe"])
+                new_cache[key] = (
+                    np.array(row["breakpoints"], dtype=np.float64),
+                    np.array(row["values"], dtype=np.float64),
+                )
+            self._calibration_curves = new_cache
+            self.logger.debug("calibration_curves_loaded", n_curves=len(new_cache))
+        except Exception as exc:
+            self.logger.warning("calibration_curves_refresh_error", error=str(exc))
+
+    async def _load_tod_multipliers_from_db(self) -> None:
+        """Load Bayesian-smoothed TOD multipliers per (regime_type, timeframe, hour_et).
+
+        Uses regime_type_at_fire column (added by migration 038). Pre-Phase-35 rows
+        have NULL and are bucketed as 'any' via COALESCE.
+        """
+        if self.db_manager is None:
+            return
+        try:
+            rows = await self.db_manager.execute_query(
+                """
+                SELECT
+                    COALESCE(regime_type_at_fire, 'any') AS regime_type,
+                    timeframe,
+                    EXTRACT(HOUR FROM timestamp AT TIME ZONE 'America/New_York')::int AS hour_et,
+                    COUNT(*)::float AS n,
+                    SUM(CASE WHEN outcome IN ('target_1','target_1_2','target_full')
+                             THEN 1 ELSE 0 END)::float AS wins
+                FROM signal_ledger
+                WHERE outcome IS NOT NULL AND is_shadow = FALSE
+                GROUP BY 1, 2, 3
+                """
+            )
+            # Compute overall win rate as baseline (prior denominator) — single pass
+            total_n = total_wins = 0.0
+            for r in rows:
+                total_n += r["n"]
+                total_wins += r["wins"]
+            global_win_rate = (total_wins / total_n) if total_n > 0 else 0.5
+            global_win_rate = max(0.01, global_win_rate)  # avoid div-by-zero
+
+            new_multipliers: dict = {}
+            for row in rows:
+                regime_type = str(row["regime_type"])
+                timeframe = str(row["timeframe"])
+                hour_et = int(row["hour_et"])
+                n = float(row["n"])
+                wins = float(row["wins"])
+                empirical_wr = (wins / n) if n > 0 else global_win_rate
+                empirical_ratio = empirical_wr / global_win_rate
+
+                prior_ratio = _TOD_SESSION_PRIORS.get((regime_type, hour_et), 1.0)
+                raw_mult = (_TOD_ALPHA * prior_ratio + n * empirical_ratio) / (_TOD_ALPHA + n)
+                clamped = max(_TOD_CLAMP[0], min(_TOD_CLAMP[1], raw_mult))
+                new_multipliers[(regime_type, timeframe, hour_et)] = round(clamped, 4)
+
+            # Cold-start: if no DB data yet, seed from session priors so warm-start
+            # intent of _TOD_SESSION_PRIORS is fulfilled before signals accumulate.
+            if not new_multipliers:
+                for (regime_t, hour_et), prior_ratio in _TOD_SESSION_PRIORS.items():
+                    clamped = max(_TOD_CLAMP[0], min(_TOD_CLAMP[1], prior_ratio))
+                    for tf in ("1m", "5m", "15m", "1h"):
+                        new_multipliers[(regime_t, tf, hour_et)] = round(clamped, 4)
+            self._tod_multipliers = new_multipliers
+            self.logger.debug("tod_multipliers_loaded", n_cells=len(new_multipliers))
+        except Exception as exc:
+            self.logger.warning("tod_multipliers_refresh_error", error=str(exc))
+
+async def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Signal Generator Service")
+    parser.add_argument("--config", help="Configuration file path")
+    args = parser.parse_args()
+
+    # Initialize service first — _setup_logging() in __init__ must run before
+    # register_all_plugins() to prevent plugin module imports from configuring
+    # the root logger before logging.basicConfig() is called (which would make
+    # it a no-op and silence all structlog output).
+    svc = SignalGeneratorAgent(args.config)
+
+    # Run plugin validation (plugins already registered by __init__)
+    validator = PluginValidator()
+    try:
+        validator.validate_all()
+        print("✅ Plugin validation passed")
+    except RuntimeError as e:
+        print(f"❌ Plugin validation failed: {e}")
+        sys.exit(1)
+    try:
+        await svc.start()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    from src.observability.otel import init_tracing
+
+    init_tracing(service_name="signal_generator_agent")
+    asyncio.run(main())

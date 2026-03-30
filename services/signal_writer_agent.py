@@ -54,7 +54,7 @@ class SignalWriterAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="signal_writer_agent", metrics_port=9119)
-        setup_service_logging("signal_writer_agent")
+        setup_service_logging("logs/signal_writer_agent.log")
 
         self._settings = Settings()
         self._db: DatabaseManager | None = None

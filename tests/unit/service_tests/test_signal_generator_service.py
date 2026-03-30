@@ -2044,7 +2044,7 @@ class TestSignalGeneratorAgentLifecycle:
 
         from unittest.mock import MagicMock
 
-        from services.signal_generator_agent import SignalGeneratorAgent
+        from services._archived_signal_generator_agent import SignalGeneratorAgent
 
         self.agent = SignalGeneratorAgent.__new__(SignalGeneratorAgent)
         self.agent.name = "signal_generator_agent"
