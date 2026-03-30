@@ -1,0 +1,8 @@
+{
+  "security": {
+    "enableConseca": true
+  },
+  "skills": {
+    "enabled": true
+  }
+}
