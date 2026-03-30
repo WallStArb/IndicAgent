@@ -1,9 +1,9 @@
 # Platform Architecture — Unified Intelligence & Execution Suite (Vision)
 
-**Created:** 2026-03-04  
-**Last Updated:** 2026-03-06  
-**Status:** Vision — architecture ideation / ideas capture  
-**Related:** `docs/ideas/qualagent-vision.md`, `docs/ideas/derivagent-vision.md`, `docs/ideas/tradeagent-vision.md`, `docs/ideas/primeagent-vision.md`, `docs/ideas/aegisagent-vision.md`, `docs/ideas/renaissance-framing.md`
+**Created:** 2026-03-04
+**Last Updated:** 2026-03-30
+**Status:** Vision — architecture ideation / ideas capture
+**Related:** `docs/architecture/CONCEPTS.md` (high-level patterns), `docs/ideas/ml-agent-architecture.md` (ML/AI), `docs/ideas/intelligence-swarm-manifest.md` (swarm), qualagent/derivagent/tradeagent/primeagent/aegisagent visions, `docs/ideas/renaissance-framing.md`
 
 > **Living document.** The data flow section and canonical stream namespace are the source of truth for stream contracts across all products. Update these whenever a stream is added, renamed, or retired.
 

@@ -15,6 +15,7 @@
 
 ## Understanding the architecture?
 
+**→ [High-Level Concepts](architecture/CONCEPTS.md)** — Core architectural patterns (DAG, clustering, microservices, ML/AI)
 **→ [Intelligence Tiers](concepts/intelligence-tiers.md)** — I1-I8 framework
 **→ [Plugin Architecture](concepts/plugin-architecture.md)** — How plugins work
 **→ [DAG Execution](concepts/dag-execution.md)** — Dependency ordering

@@ -449,10 +449,13 @@ ticks:ES:live         # Raw tick data
 
 ## Related Documentation
 
+- [High-Level Concepts](../architecture/CONCEPTS.md) — Core architectural patterns including DAG, microservices, and ML/AI layers
 - [Intelligence Tiers](intelligence-tiers.md) — complete tier-by-tier plugin reference
 - [DAG Execution](dag-execution.md) — how plugin dependencies are ordered via topological sort
 - [Incremental Computation](incremental-computation.md) — 141x speedup, state patterns by indicator type
 - [Data Pipeline](data-pipeline.md) — hot/warm/cold tiers, stream keys, consumer groups
+- **ML/AI Architecture:** `../ideas/ml-agent-architecture.md` — Multi-agent orchestrator and swarm intelligence
+- **Intelligence Swarm:** `../ideas/intelligence-swarm-manifest.md` — Task/job-based agents for market friction analysis
 - **Architecture:** `docs/architecture/plugin-native-architecture-explained.md`
 - **Code:** `src/intelligence/plugins.py`, `src/intelligence/dag.py`, `src/intelligence/register_plugins.py`
 

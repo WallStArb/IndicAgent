@@ -2,7 +2,7 @@
 
 **Version:** 2.3.0
 **Last Updated:** 2026-03-15
-**Status:** Historical reference — ALL phases in this document are shipped. I1-I8 pipeline operational with 98 plugins + 2 aggregation. For current state see `CLAUDE.md`. For ML/agent strategy see `docs/ideas/ml-learning-machine.md` and `docs/intelligence/ai-intelligence-architecture.md`.
+**Status:** Historical reference — ALL phases in this document are shipped. I1-I8 pipeline operational with 98 plugins + 2 aggregation. For current state see `CLAUDE.md`. For ML/agent strategy see `docs/ideas/ml-agent-architecture.md` and `docs/ideas/intelligence-swarm-manifest.md`. For high-level architecture patterns see `docs/architecture/CONCEPTS.md`.
 
 > **Note:** This document was the original strategy roadmap. Every phase described below (Pattern Detection, Multi-TF Integration, SMC, I8 AI Narrative, CIS, Signal Lifecycle) has been built and is running in production as of v1.6. It is preserved as historical context. The active next layer is MLAgent — see `docs/ideas/ml-learning-machine.md`.
 
