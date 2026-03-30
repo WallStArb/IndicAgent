@@ -499,7 +499,7 @@ def test_frame_trade_populates_stop_basis_fields():
 
 def test_tf_ttl_bars_constants():
     """TF_TTL_BARS should define per-TF TTL values."""
-    from services.signal_generator_service import TF_TTL_BARS
+    from src.core.service_utils import TF_TTL_BARS
 
     assert TF_TTL_BARS["1m"] == 20
     assert TF_TTL_BARS["5m"] == 12

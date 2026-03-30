@@ -46,8 +46,8 @@ pip install -r requirements.txt
 .venv/bin/black .                # Format
 
 # Start services
-sudo systemctl start indicagent-feature-compute  # or other services
-sudo systemctl status indicagent-signal-generator
+sudo systemctl start indicagent-intelligence-pipeline  # or other services
+sudo systemctl status indicagent-intelligence-pipeline
 
 # Dashboard
 cd dashboard && npm run dev  # Runs on http://localhost:3000
@@ -137,7 +137,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
-**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{ibkr-provider,feature-compute,signal-generator,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
+**New contracts:** (1) INSERT to `instruments` table, (2) restart `indicagent-{ibkr-provider,intelligence-pipeline,feature-writer}`, (3) backfill: `.venv/bin/python production/scripts/historical_backfill.py --fetch-only --symbols SYM --days N`
 **Direct run (debug only):** `.venv/bin/python services/<name>_service.py` · API: `uvicorn src.api.main:app`
 
 ## Naming Conventions
@@ -203,8 +203,8 @@ Layer 1: Data Foundation                   -> HF collection, aggregation, typed 
 
 **Intelligence Pipeline:**
 ```
-IBKR TWS → feature_compute_agent (I1-I6 unified) →
-  signal_generator_service (I7) → signal_ledger + intelligence_features →
+IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
+  signal_ledger + intelligence_features →
   feature_writer_service → TimescaleDB → SSE → Dashboard
 ```
 
@@ -220,9 +220,7 @@ IBKR TWS → feature_compute_agent (I1-I6 unified) →
 | Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator; publishes to `market.bars.htf` | :9120 |
 | Bar Writer | `indicagent-bar-writer` | market.bars + market.bars.htf → market_data_ohlcv batch writer | :9121 |
 | Bar Auditor | `indicagent-bar-auditor` | Gap detection → market.events.gap_requests | :9123 |
-| Feature Compute | `indicagent-feature-compute` | I1-I6 unified pipeline; subscribes to `market.bars` + `market.bars.htf` → `intelligence:SYMBOL:TF` | :9125 |
-| Intelligence Compute | `indicagent-intelligence-compute` | I7/I8 standalone (DB-ignorant compute loop; warmup via `BarHistorySeeder`) → `intelligence:SYMBOL:TF` | :9114 |
-| Signal Generator | `indicagent-signal-generator` | I7: setups → `signal_ledger`; bar_history fed from IntelligenceEvent stream | :9112 |
+| Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics | :9125 |
 | Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome (Phase 52.4: renamed from signal-lifecycle, inherits BaseAgent) | :9115 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
@@ -320,8 +318,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 **Service & Test Patterns**
 - **Services**: graceful SIGINT/SIGTERM, drain queues, idempotent consumer groups.
-- **feature_compute_agent subscribes to:** `topic_market_bars` (1m bars) AND `topic_market_bars_htf` (HTF bars from BarAggregatorComputeAgent). Each bar triggers an independent I1-I6 pipeline run. BarAccumulator extraction (Phase 53.2) eliminated the feedback loop concern.
-- **HTF bar flow:** TWS → 1m bars → market.bars → bar_aggregator_agent (BarAccumulator) → market.bars.htf → feature_compute_agent (I1-I6) + signal_generator (I7) → intelligence_features.
+- **intelligence_pipeline_agent subscribes to:** `topic_market_bars` (1m bars) AND `topic_market_bars_htf` (HTF bars from BarAggregatorComputeAgent). Each bar triggers an independent I1-I7 in-process pipeline run.
+- **HTF bar flow:** TWS → 1m bars → market.bars → bar_aggregator_agent (BarAccumulator) → market.bars.htf → intelligence_pipeline_agent (I1-I7 unified) → signal_ledger + intelligence_features.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`. **All service logs go to `logs/<service>.log` via `setup_service_logging()` — NOT to journald.** journalctl only shows `print()` output. Read log files directly for structured service output.
 - **`PYTHONUNBUFFERED=1` required** in all systemd service unit files — without it, Python buffers stdout and journald sees nothing even from print().
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
@@ -333,12 +331,12 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 **Data & Database**
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
-- **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `feature_compute_agent.py` `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
+- **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `intelligence_pipeline_agent.py` `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
 - **Canonical bar enforcement:** With continuous 1m bar flow (60 bars/hour), BarAccumulator emits: 24× 1h/day, 6× 4h/day, 1× 1d/day. Session break logic at RTH close prevents cross-session contamination. Overnight gaps don't skip bars—period boundary crossing on next 1m bar triggers emission of accumulated HTF bar.
 
 **Signal Logic**
 - **Terminal event payload**: `_publish_terminal_event` sends both `status` and `outcome` fields (identical values). Dashboard must read `payload.outcome` — `payload.status` works today but is semantically wrong and fragile if the two ever diverge.
-- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `signal_generator_service.py`, `signal_lifecycle_service.py` — no enum. Avoid adding new status comparisons without consolidating.
+- **Signal status strings**: `"pending"`, `"active"`, `"regime_suppressed"` are raw string literals across `signal_ledger.py`, `lifecycle_tracker.py`, `intelligence_pipeline_agent.py` — no enum. Avoid adding new status comparisons without consolidating.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts — raw `signals` never get `adjusted_rank` set. If `active` is derived from raw `signals`, `perf_weights` have zero effect on winner selection (only on `all_ranked` ordering). Always derive `active = [s for s in all_ranked if s.get("regime_eligible", True)]`.
 
 **Dashboard:** See `docs/dashboard/GOTCHAS.md` for SSE re-render optimization, payload parsing, Next.js HMR, layout modes, and runtime API detection.
@@ -352,7 +350,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-ibkr-provider`. Verify: `journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"`
-- **Docker containers on reboot**: `timescaledb` and `redpanda` containers have no restart policy and exit on server reboot — all indicagent services fail immediately. Fix: `docker start timescaledb redpanda` then restart services. Long-term: add `restart: unless-stopped` to both containers.
+- **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — they come back automatically. No manual `docker start` needed after reboot.
 
 ## Data Pipeline Debugging
 
@@ -370,7 +368,6 @@ When investigating "service not writing to database":
 
 ## Roadmap
 
-**v2.0 SHIPPED 2026-03-22** — Phases 39-47. DAG refactor, feature pipeline unification, I6/I7 confluence wiring, shadow mode graduation.
-**v2.1 IN PROGRESS** — Phases 48-53.3. Phase 48 complete; 49.1/49.2 complete; 52.1/52.2/52.3 complete. Phases 52.4/52.5/53.1/53.2/53.3 planned. See `.planning/ROADMAP.md` for active phase details.
-**v2.2 PLANNED** — Phase 54: auth + external access. Plans in `.planning/phases/53-auth-external-access/`. Revisit Cloudflare Access vs JWT before executing.
-**v2.3 DEFERRED** — Phases 55-56: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.1.
+**v2.1 SHIPPED 2026-03-28** — Phases 48-53.3. DAG decomposition complete: BarAggregatorComputeAgent, BarWriterAgent, BarAuditorAgent, RollComputeAgent, DataProviderAgent, ProviderMergerAgent all standalone.
+**v2.2 IN PROGRESS** — Phases 53.3→54→57 complete; Phase 50 (Roll Monitor graduation) remaining. See `.planning/ROADMAP.md` for active phase details.
+**v2.3 DEFERRED** — Phases 55-56: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.2.

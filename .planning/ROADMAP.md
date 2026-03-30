@@ -220,8 +220,11 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 - [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation; apply `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` after D-07 gate *(unblocked — 53.3 RollComputeAgent validated 2026-03-28)*
   Design docs: `docs/plans/2026-03-26-data-layer-dag-design.md`
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
-- [ ] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** — Merge `feature_compute_agent` (I1-I6) + `signal_generator_agent` (I7) into single `IntelligencePipelineComputeAgent`; eliminate Kafka as inter-compute bus; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` signal attribution
-  Design doc: `docs/plans/2026-03-29-intelligence-agent-unified-pipeline-design.md`
+- [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
+  Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
+  - [x] 57-01-PLAN.md — Kafka infrastructure, signal_ledger migration, systemd unit scaffolding
+  - [x] 57-02-PLAN.md — I1-I6 in-process pipeline, state checkpointing, BarHistorySeeder warmup
+  - [x] 57-03-PLAN.md — I7 integration, confidence attribution, output queue, async drain
 
 </details>
 
@@ -559,10 +562,8 @@ Plans:
 - [x] 54-03-PLAN.md — BaseProviderAgent + IBKRProviderAgent
 - [x] 54-04-PLAN.md — ProviderMergerAgent + Zero-Downtime Cutover
 
-### Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline
+### Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline ✅ Complete 2026-03-29
 
 **Goal:** Merge `feature_compute_agent` (I1-I6) and `signal_generator_agent` (I7) into a single `IntelligencePipelineComputeAgent`. Eliminate Kafka as an inter-compute bus (I6→I7 round-trip removed). Add state checkpointing to a compacted Kafka topic so restarts are zero-warmup. Add `pre_quality_confidence` and `pre_calibration_confidence` columns to `signal_ledger` for full per-stage attribution.
-**Requirements**: TBD
-**Depends on:** Phase 52.6 (BaseAgent lifecycle contract), Phase 53.2 (BarAggregatorComputeAgent)
-**Design doc:** `docs/plans/2026-03-29-intelligence-agent-unified-pipeline-design.md`
-**Plans:** 3/3 plans complete
+**Design doc:** `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
+**Plans:** 3/3 plans complete — shipped 2026-03-29
