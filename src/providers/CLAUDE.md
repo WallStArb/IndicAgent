@@ -32,6 +32,11 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 
 ### Troubleshooting
 - **TWS connection refused**: IBKR TWS at `192.168.1.157` — check trusted IPs in TWS API settings if connection fails.
+- **Contract rollover**: When futures expire (H6→M6/J6), restart `indicagent-ibkr-provider` to load new contracts:
+  ```bash
+  sudo systemctl restart indicagent-ibkr-provider
+  # Verify: journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"
+  ```
 - **`bars_processed` freeze**: TWS daemon gets stuck — IBKR paper account returns stale RTH bars regardless of `endDateTime` format. `seen_bar_timestamps` dedup caches all timestamps from initial poll; counter sticks at N×61 forever. **Restart does NOT fix it.** Root fix: build 1m OHLCV bars from live tick stream (`development.market.ticks`) instead of polling historical API.
 - **Qualify errors**: Some futures need `tradingClass` in `provider_meta` — add if IBKR returns ambiguous contract details.
 - **LocalSymbol mismatches**: FX/crypto use dots (EUR.USD) vs codebase (EURUSD) — `_local_to_canonical` dict handles this automatically.
