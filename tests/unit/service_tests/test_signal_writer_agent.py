@@ -5,7 +5,7 @@ Tests structural contract, _payload_to_ledger_entries conversion, and flush beha
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -27,7 +27,6 @@ def _make_agent():
 
     agent = SignalWriterAgent.__new__(SignalWriterAgent)
     agent.logger = MagicMock()
-    agent.running = True
     agent._settings = MagicMock()
     agent._settings.database_url = "postgresql://postgres@localhost/indicagent"
     agent._settings.kafka_bootstrap_servers = "localhost:19092"
