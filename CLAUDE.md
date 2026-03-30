@@ -134,6 +134,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 **Consumer debugging:** `docker exec redpanda rpk group describe feature_pipeline -t` — shows consumer lag per topic. `docker exec redpanda rpk topic consume development.market.bars.htf` — verify HTF bars are being published correctly.
 
 **Roadmap consistency check:** `node gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Run after any phase completion.
+**GSD decimal phases not resolvable by gsd-tools**: `init execute-phase "57.1"` returns `phase_found: false` — tools only parse whole-number phases from ROADMAP.md. Execute decimal phases manually: read PLAN.md directly, spawn gsd-executor with explicit `phase_dir`, skip gsd-tools state update calls (executor handles ROADMAP/STATE directly).
 
 **Tests:** `.venv/bin/pytest tests/unit/ -v` · lint: `.venv/bin/ruff check . --fix` · format: `.venv/bin/black .`
 **Dashboard dev:** `cd dashboard && npm run dev`
@@ -322,6 +323,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **HTF bar flow:** TWS → 1m bars → market.bars → bar_aggregator_agent (BarAccumulator) → market.bars.htf → intelligence_pipeline_agent (I1-I7 unified) → signal_ledger + intelligence_features.
 - **Logging**: `structlog` with fields `timestamp`, `service`, `symbol`, `timeframe`, `level`. **All service logs go to `logs/<service>.log` via `setup_service_logging()` — NOT to journald.** journalctl only shows `print()` output. Read log files directly for structured service output.
 - **`PYTHONUNBUFFERED=1` required** in all systemd service unit files — without it, Python buffers stdout and journald sees nothing even from print().
+- **`setup_service_logging` requires full log path**: pass `"logs/<name>.log"` (e.g. `setup_service_logging("logs/signal_writer_agent.log")`), not a bare name — bare name causes runtime failure on log file creation.
+- **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`**: `.labels(agent_id="my_agent")` — not `agent=`. Always check `src/observability/metrics.py` label names before using any labeled metric.
 - **Mock gotcha**: `isinstance(val, (int, float))` not `if val` — MagicMock is truthy, `float(MagicMock())` returns 1.0.
 - **Async mock gotcha**: `AsyncMock` with instance-level `__aiter__` silently yields 0 iterations — Python dunder lookup is on the type. Define `__aiter__` at class level in a real class when mocking async iterables (e.g., AIOKafkaConsumer).
 - **OTel carrier `get()` signature**: OTel's `DefaultGetter` calls `carrier.get(key, default)` with 2 args. Any `TextMapPropagator` carrier must accept `get(self, key, default=None)` or runtime `TypeError` occurs.
