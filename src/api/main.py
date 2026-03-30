@@ -68,12 +68,12 @@ async def lifespan(app: FastAPI):
             topic_narratives_group(env_name),
             bootstrap_servers=kafka_bootstrap,
             # Single-instance group: every API process must receive all messages for SSE.
-            # Stable group_id + seek_to_beginning() replays full history to repopulate _latest.
+            # latest offset: skip history, only deliver live messages to clients.
             group_id="sse_broadcaster",
-            auto_offset_reset="earliest",
+            auto_offset_reset="latest",
         )
         await _sse_consumer.start()
-        await _sse_consumer.seek_to_beginning()  # replay history to repopulate _latest on restart
+        await _sse_consumer.seek_to_end()  # always skip committed history; start from live
         _broadcaster_task = asyncio.create_task(dependencies.kafka_broadcaster.run(_sse_consumer))
 
         # Seed instruments table from contract config
