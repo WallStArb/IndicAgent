@@ -1,75 +1,85 @@
 # Phase 50: Roll Monitor Graduation - Context
 
 **Gathered:** 2026-03-30
-**Updated:** 2026-03-30 (changed from removal to build-out)
+**Updated:** 2026-03-30 (build-out approach, full Renaissance DAG)
 **Status:** Ready for planning
 
 ## Phase Boundary
 
-Build out the futures roll detection feature end-to-end. RollComputeAgent exists but is disabled; `roll_premium_pct` column exists but is never populated. Goal: enable the feature with working roll premium computation, D-21 validation, and downstream integration.
+Build out the futures roll detection feature end-to-end following Renaissance DAG principles. RollComputeAgent exists (DB-ignorant, publishes to `topic_roll_events`) but needs: D-21 validation, roll premium computation, service enablement, and downstream consumers.
 
-**Decision change:** Originally scoped for removal, user decided to build out properly.
+**Renaissance principles:**
+- **DAG:** RollComputeAgent → Kafka → FeatureWriterAgent → DB
+- **Modularity:** Each agent has one job
+- **Reuse:** 5m data exists, algorithm exists
+- **Proof before production:** D-21 validation first
+- **Earn the right through proof:** Shadow mode until validated
 
 ---
 
 ## Implementation Decisions
 
-### D-01: Build market_data_5m Foundation
+### D-01: Create market_data_5m View
 
-Create `market_data_5m` view aggregating 1m bars into 5-minute buckets. Required for D-21 validation (cleaner volume signal) and enables HTF analysis.
+5m data already exists in `market_data_ohlcv` (87K rows with `timeframe='5m'`). Create a view for D-21 validation.
 
 **Actions:**
-- Create materialized view: `SELECT timestamp_bin, symbol, OHLCV FROM market_data_ohlcv GROUP BY 5-min buckets`
-- Run one-time backfill from existing 1m data
-- Wire BarAggregatorComputeAgent 5m output to persistence
-
-**Rationale:** Renaissance principle — "Never drop data that could contain signal." 5m compression reduces storage while preserving structure.
+- Create `market_data_5m` view: `SELECT * FROM market_data_ohlcv WHERE timeframe = '5m'`
+- Simple, no backfill needed
+- Unblocks D-21 validation
 
 ### D-02: Implement Roll Premium Computation
 
-RollComputeAgent detects rolls but doesn't compute price gap. Need to derive front/back contract prices at detection time.
+RollComputeAgent detects rolls but doesn't compute price gap. Need front/back contract prices at detection time.
 
 **Actions:**
-- Extend RollComputeAgent to query active contracts and get bid/ask prices for front + back
-- Populate `roll_gap_price` and `roll_gap_pct` in RollEvent
-- FeatureWriterAgent consumes RollEvent and populates `roll_premium_pct` in intelligence_features
+- Extend RollComputeAgent to query active contracts (from `get_active_contracts()`)
+- Get bid/ask prices for front + back contracts
+- Compute `roll_gap_pct = (back_price - front_price) / front_price`
+- Populate in RollEvent
 
-**Rationale:** Roll premium signal = (back - front) / front. This spread predicts returns during roll windows.
-
-### D-03: Enable RollComputeAgent and Validate
-
-**Actions:**
-- Run D-21 validation against `market_data_5m` (gate: >=90% detection, <10% FP)
-- If validation passes: enable `indicagent-roll-compute.service`
-- If validation fails: tune algorithm or add more data
-
-**Rationale:** Shadow mode until proven accurate. "Earn the right through proof."
-
-### D-04: Wire Downstream Consumers
+### D-03: Run D-21 Validation
 
 **Actions:**
-- Identify which I7 plugins benefit from roll context (mean-reversion setups during roll windows)
-- Add `roll_premium_pct` to trade_framer context
-- I7 plugins can adjust confidence when roll premium is extreme (>2% contango = bearish signal)
+- Run `validate_roll_detection.py` against `market_data_5m`
+- Gate: >=90% detection rate, <10% false positive rate
+- If passes: enable RollComputeAgent
+- If fails: tune algorithm or gather more data
 
-**Rationale:** Roll spread contains information — market pays for carry cost during contango.
+### D-04: Wire FeatureWriterAgent Consumer
 
-### D-05: Phase Split Structure
+**Actions:**
+- FeatureWriterAgent subscribes to `topic_roll_events`
+- On RollEvent, UPDATE `intelligence_features SET roll_premium_pct = ...`
+- Only bars during roll windows get populated (others stay NULL)
 
-Phase 50 split into subphases:
+### D-05: Downstream Consumers (Future)
 
-| Subphase | Focus | Estimated Plans |
-|----------|-------|-----------------|
-| 50.1 | Create market_data_5m view + backfill | 2 plans |
-| 50.2 | Implement roll premium computation | 2-3 plans |
-| 50.3 | D-21 validation + enable service | 2 plans |
-| 50.4 | Wire downstream consumers | 1-2 plans |
+I7 mean-reversion plugins can use `roll_premium_pct` to adjust confidence:
+- High roll premium (>2% contango) → boost mean-reversion signals
+- Low premium (backwardation) → different regime
 
-### Claude's Discretion
+**Defer to Phase 51+** — first get roll detection working.
 
-- **5m view type:** Materialized view with REFRESH CONCURRENTLY vs continuous aggregation via trigger — decide during planning
-- **Price source for roll gap:** IBKR real-time quotes vs last bar close — decide based on data availability
-- **Validation failure path:** If D-21 fails <90% detection, either tune z-score threshold or gather more data before retrying
+### D-06: DAG Architecture (Renaissance)
+
+**RollComputeAgent (DB-ignorant):**
+- Consumes: `market.bars` (1m bars)
+- Computes: Roll detection + roll premium
+- Publishes: `RollEvent` to `topic_roll_events`
+- NO DB writes
+
+**FeatureWriterAgent (persistence):**
+- Consumes: `topic_roll_events`
+- Writes: `roll_premium_pct` to `intelligence_features`
+- Reuses existing agent pattern
+
+### D-07: Service Enablement
+
+**Actions:**
+- Run D-21 validation first
+- If passes: `sudo systemctl enable indicagent-roll-compute.service`
+- If fails: fix algorithm, revalidate
 
 ---
 
@@ -78,23 +88,24 @@ Phase 50 split into subphases:
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Roll Detection
-- `services/roll_compute_agent.py` — RollComputeAgent implementation (volume z-score algorithm)
+- `services/roll_compute_agent.py` — RollComputeAgent (RollMonitor class, BaseAgent lifecycle)
 - `production/scripts/validate_roll_detection.py` — D-21 validation script
 - `src/config/contracts.py` — `get_roll_window()`, `derive_roll_chain()`, `FUTURES_ROLL_CYCLES`
-- `src/core/schemas/market_events.py` — `RollEvent` schema
+- `src/core/schemas/market_events.py` — `RollEvent` schema (roll_gap_price, roll_gap_pct, detection_ts)
 
 ### Data Pipeline
-- `src/core/bar_accumulator.py` — BarAccumulator (HTF aggregation logic)
 - `services/bar_aggregator_compute_agent.py` — Publishes 5m bars to `market.bars.htf`
-- `services/feature_writer_agent.py` — Writes to `intelligence_features` (needs roll_premium_pct wiring)
+- `services/bar_writer_agent.py` — Writes to `market_data_ohlcv` (5m already there)
+- `src/core/bar_accumulator.py` — BarAccumulator (HTF aggregation logic)
 
-### Database
+### Persistence
+- `services/feature_writer_agent.py` — Needs to consume `topic_roll_events`
 - `production/migrations/049_roll_premium_pct.sql` — Column definition (already applied)
-- `.planning/ROADMAP.md` — Phase 50 context, depends-on relationships
 
 ### Architecture
-- `CLAUDE.md` — DAG architecture, shadow mode pattern, graduation criteria
-- `src/core/stream_keys.py` — `topic_roll_events()` stream key
+- `CLAUDE.md` — DAG architecture, BaseAgent lifecycle, Golden Signals
+- `src/core/stream_keys.py` — `topic_roll_events()`
+- `src/core/agent/base.py` — BaseAgent class (RollComputeAgent inherits)
 
 ---
 
@@ -102,40 +113,40 @@ Phase 50 split into subphases:
 
 ### Reusable Assets
 
-- **BarAccumulator** (`src/core/bar_accumulator.py`): Already aggregates 1m → 5m/15m/1h. Logic can be reused for 5m view creation.
-- **RollMonitor** (in `roll_compute_agent.py`): Calendar + volume z-score algorithm already implemented. Just needs enablement.
-- **Shadow stats monitoring** (`src/intelligence/weight_updater.py`): Infrastructure for tracking shadow performance exists.
+- **RollMonitor** (in `roll_compute_agent.py`): Calendar + volume z-score algorithm. Implemented and tested.
+- **BaseAgent** (`src/core/agent/base.py`): Lifecycle, metrics, Kafka wiring all exist.
+- **FeatureWriterAgent**: Already consumes multiple topics, can add `topic_roll_events`.
 
 ### Established Patterns
 
-- **Graduation pattern:** Phase 47 graduated CROSS_ASSET (flag removed, unconditional active). RollComputeAgent follows same pattern.
-- **Materialized view refresh:** PostgreSQL `REFRESH CONCURRENTLY` allows queries while rebuilding.
-- **Agent systemd units:** After=network-online.target, Wants=ibkr-provider, Restart=always pattern.
+- **Agent systemd units:** After=network-online.target, Wants=ibkr-provider, Restart=always
+- **Kafka topics:** `topic_roll_events()` pattern already defined
+- **Migration pattern:** `ALTER TABLE ... ADD COLUMN` already done in 049
 
 ### Integration Points
 
-- **BarAggregatorComputeAgent** → writes 5m bars to DB (may need new writer or existing)
-- **RollComputeAgent** → publishes RollEvent to `topic_roll_events` → FeatureWriterAgent consumes
-- **FeatureWriterAgent** → writes `roll_premium_pct` to `intelligence_features`
-- **I7 plugins** → read `roll_premium_pct` from features dict (currently always None, will be populated)
+- **RollComputeAgent** → `topic_roll_events` → **FeatureWriterAgent** → `intelligence_features.roll_premium_pct`
+- **I7 plugins** → read `features['roll_premium_pct']` → adjust confidence (future work)
 
 ---
 
 ## Specific Ideas
 
-**Roll premium as signal:** When roll_premium_pct > 2% (extreme contango), market is paying premium for front month. This often precedes mean reversion. I7 mean-reversion plugins can boost confidence when roll premium is high.
+**Roll premium as signal:** When futures are in contango (front < back), market pays premium for front month. Extreme premium (>2%) often precedes mean reversion. This is NOT captured by OFI/CVD — it's contract structure information.
 
-**Volume z-score threshold:** Currently -2.0. If D-21 shows high FP rate, may need to adjust. Algorithm is sound (calendar gate + volume confirmation), threshold is the tunable.
+**D-21 validation is gate:** Don't enable service until algorithm proves accurate. "Earn the right through proof."
 
-**5m as foundation:** Once 5m data exists, it unblocks multiple features — not just roll detection. HTF analysis, cleaner signals, faster queries.
+**5m view is trivial:** Just `CREATE VIEW market_data_5m AS SELECT * FROM market_data_ohlcv WHERE timeframe = '5m'`. No backfill needed.
 
 ---
 
 ## Deferred Ideas
 
-None — discussion stayed within phase scope.
+- **I7 plugin integration:** Downstream consumers of roll_premium_pct deferred to Phase 51+
+- **Roll premium as feature multiplier:** Aggregator weight adjustment based on roll premium (future)
 
 ---
 
 *Phase: 50-roll-monitor-graduation*
-*Context gathered: 2026-03-30 (build-out approach)*
+*Context gathered: 2026-03-30*
+*Approach: Full Renaissance DAG build-out*
