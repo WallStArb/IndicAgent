@@ -5,11 +5,24 @@ Last Updated: 2026-03-25
 Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Renaissance Principles
-- **Instrument everything** — no data point left uncaptured; every signal/outcome/LLM call is a labeled training sample
-- **Earn the right through proof** — p < 0.05, shadow mode before promotion, let automation run (don't override with intuition)
-- **Segment relentlessly** — rules that work in specific regimes beat global rules
-- **Degrade gracefully** — auto-feedback loops, not manual tuning; clean data beats smart models
-- **Agentic DAG:** I1-I6 ComputeAgents (DB-ignorant, Kafka-only) → tiered topics → DataWriterAgents (TimescaleDB); systemd scaling, Golden Signals observability
+- **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
+- **Let the system run.** Don't override data with intuition. Build the automation, then trust it.
+- **Earn the right through proof.** No model, strategy, or feature gets promoted to production without statistically significant evidence (p < 0.05, sufficient N). Shadow mode first, always.
+- **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
+- **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
+- **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
+- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered.
+
+## Renaissance Agentic DAG Principles (v2.1)
+- **Agentic DAG Architecture:** ComputeAgents (I1-I6) are DB-ignorant, publish to tiered topics (`intelligence.i{N}`), DataWriterAgents manage persistence
+- **The Persistence DAG:** WriterAgents use "Convergence Gate" (StreamMerger) to join tiered streams → single journal entry → atomic persistence
+- **DLQ pattern:** All agents maintain DLQ (`intelligence.[domain].journal.dlq`) for unprocessable payloads
+- **Observability:** Golden Signals (Traffic, Latency, Errors, Saturation) via Prometheus + Grafana
+- **Lifecycle:** Agents implement `SIGTERM` handlers for graceful drain
+- **Taxonomy:** Persistence logic in `src/persistence/repository/` (Repositories) + `src/persistence/writer/` (WriterAgents)
+- **Scaling:** systemd process management + Prometheus lag monitoring (no Kubernetes HPA)
+
+Apply this framing when: designing features, choosing approaches, deciding what to log, evaluating performance.
 
 # IndicAgent Market Intelligence Platform
 
@@ -150,9 +163,27 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 ### Cross-Layer Transformation Rules
 
-**Pattern:** concept_name → PascalCase → concept_kebab → topic_concept() (mechanically derivable)
+| Layer | Pattern | Example (`alpha_signal`) |
+|-------|---------|------------------------------|
+| Python file (Service) | `<concept>_service.py` | `alpha_signal_service.py` |
+| Python file (Agent) | `<concept>_agent.py` | `alpha_signal_agent.py` |
+| Python file (Plugin) | `src/intelligence/trading/<concept>.py` | `alpha_signal.py` |
+| Python class (Service) | `PascalCase` + `Service` | `AlphaSignalService` |
+| Python class (Agent) | `PascalCase` + agent role suffix | `AlphaSignalComputeAgent` |
+| Python class (Plugin) | `PascalCase` + `Plugin` | `AlphaSignalPlugin` |
+| Systemd unit | `indicagent-<concept-kebab>.service` | `indicagent-alpha-signal.service` |
+| Kafka topic fn | `topic_<concept>()` in `stream_keys.py` | `topic_alpha_signal()` |
+| Kafka topic string | `<env>.<domain>[.<sublayer>]` (dots only) | `dev.alpha_signal` |
+| DB table | `snake_case` plural noun | `alpha_signals` |
+| DB columns | `snake_case` | `ts`, `symbol`, `tf`, `i7` |
 
-**Agent role suffixes:** ProviderAgent, ComputeAgent, GeneratorAgent, WriterAgent, TrackerAgent, AuditorAgent
+**Agent role suffixes:**
+- `ProviderAgent` — external source→Kafka, no compute/DB
+- `ComputeAgent` — math/stats transform, DB-ignorant
+- `GeneratorAgent` — signal/trade fire
+- `WriterAgent` — DB persistence
+- `TrackerAgent` — business object lifecycle
+- `AuditorAgent` — data integrity validation + self-healing
 
 ### Active Service Map
 
@@ -256,9 +287,9 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
-- **I7 utilities:** atr_utils, confidence_utils, exhaustion_utils, microstructure_utils, plugin_utils, signal_schema, state_utils, volume_profile_utils — check before creating new
+- **I7 utilities** (check before creating new): `atr_utils.py` (get_atr), `confidence_utils.py` (compose_confidence, capture_signal_features), `exhaustion_utils.py`, `microstructure_utils.py`, `plugin_utils.py`, `signal_schema.py`, `state_utils.py`, `volume_profile_utils.py`
 - **Signal identity:** Never merge informationally distinct signals (OFI ≠ CVD, VWAP variants separate)
-- **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores (trend→ctf_trend_alignment, mean_reversion→ctf_regime_agreement, SMC/FVG→ctf_fvg_alignment/ctf_ob_alignment)
+- **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores (trend→ctf_trend_alignment, mean-reversion→ctf_regime_agreement, SMC/FVG→ctf_fvg_alignment/ctf_ob_alignment)
 
 ## Development Standards
 
