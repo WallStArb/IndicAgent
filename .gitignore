@@ -299,3 +299,4 @@ tod_adjuster
 winner_selector
 test_ng_contracts.py
 test_ng_quote.py
+.claude/worktrees/
