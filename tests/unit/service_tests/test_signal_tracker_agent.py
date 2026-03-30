@@ -8,11 +8,10 @@ import ast
 import asyncio
 import pathlib
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Task 2: Structural TDD tests (RED → GREEN)
