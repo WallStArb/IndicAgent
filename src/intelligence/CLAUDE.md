@@ -102,4 +102,16 @@ Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lif
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 
-**After plugin changes:** Restart `indicagent-feature-compute` (I1-I6) and `indicagent-signal-generator` (I7). See root CLAUDE.md Active Services table for canonical service names and metrics ports.
+**After plugin changes:** Restart `indicagent-intelligence-pipeline` (unified I1-I7). See root CLAUDE.md Active Services table for canonical service names and metrics ports.
+
+### Plugin Testing Workflow
+
+1. **Unit test:** Add test to `tests/unit/intelligence/` — use `__new__()` pattern per CLAUDE.md to avoid `__init__`
+2. **Integration test:** Run `.venv/bin/pytest tests/unit/test_intelligence_pipeline_agent.py` to verify I1-I7 pipeline
+3. **Service restart:** `sudo systemctl restart indicagent-intelligence-pipeline` (unified I1-I7)
+4. **Verify output:** `docker exec redpanda rpk topic consume development.intelligence --from-end` — check IntelligenceEvent output
+
+**Quick reference — `regime_type` values:**
+- `"trend"` — TrendFollowing, MomentumBreakout, etc.
+- `"mean_reversion"` — MeanReversion, VWAPDeviation, SqueezeExpansion
+- `"any"` — RegimeTransition, GapAnalysisSetup (works in all regimes)
