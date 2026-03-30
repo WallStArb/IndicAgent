@@ -35,6 +35,8 @@ def _make_agent():
     agent._consumer = MagicMock()
     agent._repo = MagicMock()
     agent._repo.insert_signals = AsyncMock()
+    agent._buffer = []
+    agent._last_flush = 0.0
     agent._events_consumed = _TEST_EVENTS
     agent._signals_written = _TEST_SIGNALS
     agent._write_errors = _TEST_ERRORS
@@ -212,13 +214,15 @@ class TestSignalWriterAgentFlush:
         agent = _make_agent()
         payload = _make_payload(n_signals=2)
         entries = _payload_to_ledger_entries(payload)
-        await agent._flush(entries)
+        agent._buffer.extend(entries)
+        await agent._flush()
         agent._repo.insert_signals.assert_called_once_with(entries)
+        assert agent._buffer == []
 
     @pytest.mark.asyncio
     async def test_flush_empty_buffer_is_noop(self):
         agent = _make_agent()
-        await agent._flush([])
+        await agent._flush()
         agent._repo.insert_signals.assert_not_called()
 
     @pytest.mark.asyncio
@@ -228,9 +232,12 @@ class TestSignalWriterAgentFlush:
         from services.signal_writer_agent import _payload_to_ledger_entries
 
         entries = _payload_to_ledger_entries(_make_payload(n_signals=1))
+        agent._buffer.extend(entries)
         before = _TEST_ERRORS._value.get()
-        await agent._flush(entries)
+        await agent._flush()
         assert _TEST_ERRORS._value.get() > before
+        # Buffer should NOT be cleared on error
+        assert len(agent._buffer) == 1
 
 
 # ---------------------------------------------------------------------------
