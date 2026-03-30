@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
@@ -86,7 +85,7 @@ class TestLedgerEntry:
         assert params[28] is None  # signal_computed_at (default None)
 
     def test_to_insert_params_with_cis_fields(self):
-        """LedgerEntry with CIS fields — bucket_scores serialized to JSON string at index 25."""
+        """LedgerEntry with CIS fields — bucket_scores as Python dict at index 25."""
         entry = _make_entry(
             cis_score=0.47,
             bucket_scores={
@@ -102,15 +101,15 @@ class TestLedgerEntry:
         )
         params = entry.to_insert_params()
 
-        assert len(params) == 60  # 58 prior + 2 Phase 57 attribution fields
-        assert params[24] == pytest.approx(0.47)
-        # index 25 (0-based) = $26 (1-based) = bucket_scores as JSON
-        parsed = json.loads(params[25])
-        assert parsed["trend"] == pytest.approx(0.4)
-        assert parsed["momentum"] == pytest.approx(0.3)
-        assert params[26] == 0  # weights_version
-        assert params[27] is None  # signal_quality still None at fire time
-        assert params[28] is None  # signal_computed_at default None
+        assert len(params) == 60  # 60 total fields in to_insert_params tuple
+        assert params[24] == pytest.approx(0.47)  # $25 cis_score
+        # index 25 (0-based) = $26 (1-based) = bucket_scores as dict (asyncpg serializes to jsonb)
+        bucket_scores = params[25]
+        assert bucket_scores["trend"] == pytest.approx(0.4)
+        assert bucket_scores["momentum"] == pytest.approx(0.3)
+        assert params[26] == 0  # $27 weights_version
+        assert params[27] is None  # $28 signal_quality still None at fire time
+        assert params[28] is None  # $29 signal_computed_at default None
 
 
 @pytest.mark.unit
