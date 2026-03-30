@@ -102,7 +102,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | **Training** | Model learning | `TrainingAgent` | `*_agent.py` | `FeatureTrainingAgent` | (future) |
 | **Swarm** | Multi-agent reasoning | `SwarmAgent` | `*_agent.py` | `SwarmIntelligenceAgent` | (future) |
 
-### Active Agent Inventory (Phase 52–54)
+### Active Agent Inventory (Phase 57)
 
 | Agent Class | File | Systemd Unit | Role | Publishes To |
 | :--- | :--- | :--- | :--- | :--- |
@@ -112,7 +112,9 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | `RollComputeAgent` | `services/roll_compute_agent.py` | `indicagent-roll-compute` | `ComputeAgent` | futures roll events |
 | `BarAuditorAgent` | `services/bar_auditor_agent.py` | `indicagent-bar-auditor` | `AuditorAgent` | `market.events.gap_requests` |
 | `BarWriterAgent` | `services/bar_writer_agent.py` | `indicagent-bar-writer` | `WriterAgent` | `market_data_ohlcv` (DB) |
+| `IntelligencePipelineComputeAgent` | `services/intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | ComputeAgent | `intelligence.i7.signals`, `intelligence.journal` |
 | `FeatureWriterAgent` | `services/feature_writer_agent.py` | `indicagent-feature-writer` | `WriterAgent` | `intelligence_features` (DB) |
+| `SignalWriterAgent` | `services/signal_writer_agent.py` | `indicagent-signal-writer` | `WriterAgent` | `signal_ledger` (DB) |
 | `SignalTrackerAgent` | `services/signal_tracker_agent.py` | `indicagent-signal-tracker` | `TrackerAgent` | `signal_ledger` (DB) |
 
 **Provider abstraction layer (Phase 54):**

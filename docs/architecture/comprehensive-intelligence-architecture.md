@@ -8,7 +8,7 @@
 
 IndicAgent is a real-time market intelligence platform that transforms raw market data into actionable trading intelligence through a layered plugin-native architecture. The full I1-I8 pipeline is production-complete: 121 plugins across 8 intelligence tiers, 2 aggregation components, and a typed event bus persisted to TimescaleDB.
 
-**Architecture Philosophy:** Plugin pipeline hosted within a unified `feature_compute_agent` for I1-I6, with separate services for signals (I7) and AI (I8). The real-time pipeline never touches the database directly — all cold persistence is decoupled through the `feature_writer_service`.
+**Architecture Philosophy:** Plugin pipeline hosted within a unified `IntelligencePipelineComputeAgent` for I1-I7, with separate services for AI (I8). The real-time pipeline never touches the database directly — all cold persistence is decoupled through WriterAgents (`FeatureWriterAgent`, `SignalWriterAgent`).
 
 ---
 
@@ -26,9 +26,10 @@ Layer 1: Data Foundation                   → Raw bar collection, multi-TF aggr
 IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr) →
   ProviderMergerAgent (market.bars) →
   BarAggregatorComputeAgent (market.bars.htf) →
-  feature_compute_agent (I1→I6, subscribes to market.bars + market.bars.htf) →
-  signal_generator_agent (I7) → signal_ledger + intelligence_features →
-  feature_writer_service → TimescaleDB → SSE → Dashboard
+  IntelligencePipelineComputeAgent (I1→I7, unified in-process) →
+    ├─→ intelligence.i7.signals (SignalWriterAgent) → signal_ledger
+    └─→ intelligence.journal (FeatureWriterAgent) → intelligence_features → TimescaleDB
+  AI Narrative Service (I8) → narratives:SIGNAL:TF → Dashboard
 ```
 
 ---
@@ -69,21 +70,21 @@ The provider layer uses an abstract base + adapter pattern to keep broker-specif
 - Topic keys constructed exclusively via `src/core/stream_keys.py`
 
 ### TimescaleDB (Cold Tier)
-- Populated only by `BarWriterAgent`, `feature_writer_service` (real-time), and `historical_backfill.py` (backfill)
+- Populated only by `BarWriterAgent`, `feature_writer_agent` (real-time), and `historical_backfill.py` (backfill)
 - Real-time pipeline services never write to the database directly
 - PostgreSQL/TimescaleDB Docker on :5432, database `indicagent`
 
 ---
 
-## Layer 2: Mathematical & Market Intelligence (I1–I6)
+## Layer 2: Mathematical & Market Intelligence (I1–I7)
 
-Unified in `services/feature_compute_agent.py`.
+Unified in `services/intelligence_pipeline_agent.py`.
 
 Subscribes to **both**:
 - `market.bars` — 1m canonical bars from ProviderMergerAgent
 - `market.bars.htf` — 5m–1d bars from BarAggregatorComputeAgent
 
-Each bar triggers an independent I1-I6 pipeline run for its symbol/timeframe.
+Each bar triggers an independent I1-I7 pipeline run for its symbol/timeframe. I6 outputs feed directly into I7 computation (in-process, no Kafka hop).
 
 ### I1-I6 Tiers
 Covers 121 plugins including technical indicators (RSI, MA, etc.), market structure (Swing, SR), regime context (VolRegime, GARCHVol), and Smart Money Concepts (BOS/CHoCH, FVG).
@@ -94,15 +95,17 @@ Output stream: `{env}.intelligence.{symbol}.{tf}` (typed `IntelligenceEvent`).
 
 ## Layer 3: Signal Intelligence (I7)
 
-Runs in `services/signal_generator_agent.py`.
+I7 computation runs **in-process** within `IntelligencePipelineComputeAgent` (Phase 57 unified pipeline).
 
 ### I7 — Setup Plugins + 2 Aggregation Components
 **Aggregation components:**
 - `CISScorer` — Composite Intelligence Score
 - `SignalAggregator` — selects winner from `all_ranked`
 
-Output stream: `{env}.signals.{symbol}.{tf}.aggregated`
-Cold persistence: `signal_ledger` table (all signals written per bar, not just winner)
+**SignalWriterAgent** (`services/signal_writer_agent.py`, :9114):
+- Publishes `{env}.intelligence.i7.signals` with all ranked signals
+- Persists all signals (winner + counterfactuals) to `signal_ledger` table
+- Captures attribution: `pre_quality_confidence`, `pre_calibration_confidence`
 
 ### SignalTrackerAgent (`services/signal_tracker_agent.py`, :9115)
 - Zone-aware lifecycle: activation, MAE/MFE tracking, 8-class outcome
@@ -112,7 +115,7 @@ Cold persistence: `signal_ledger` table (all signals written per bar, not just w
 
 ## Layer 4: AI Intelligence (I8)
 
-### AI Narrative Service (`services/ai_narrative_service.py`, :9113)
+### AI Narrative Service (`services/ai_narrative.py`, :9113)
 - Consumes `{env}.intelligence.{symbol}.{tf}` events
 - Calls local Ollama Docker (:11434)
   - **qwen3.5:9b** — per-signal narrative synthesis
@@ -132,8 +135,8 @@ All services are systemd-managed.
 | `indicagent-bar-aggregator-compute` | 1m → HTF bar aggregation via BarAccumulator; publishes to `market.bars.htf` | :9120 |
 | `indicagent-bar-writer` | `market.bars` + `market.bars.htf` → `market_data_ohlcv` batch writer | :9121 |
 | `indicagent-bar-auditor` | Gap detection → `market.events.gap_requests` | :9123 |
-| `indicagent-feature-compute` | Unified I1+I2+I3+I4+I5+SMC+I6 | :9125 |
-| `indicagent-signal-generator` | I7 → `signals:` + `signal_ledger` | :9112 |
+| `indicagent-intelligence-pipeline` | Unified I1-I7 pipeline; publishes to `intelligence.i7.signals` + `intelligence.journal` | :9125 |
+| `indicant-signal-writer` | I7 → `signals:` + `signal_ledger` | :9114 |
 | `indicagent-signal-tracker` | Zone-aware lifecycle, MAE/MFE tracking, 8-class outcome | :9115 |
 | `indicagent-ai-narrative` | I8 LLM → `narratives:` | :9113 |
 | `indicagent-feature-writer` | `intelligence:` → `intelligence_features` | :9116 |
@@ -148,13 +151,14 @@ All stream keys are constructed via `src/core/stream_keys.py`.
 | Stream | Producer | Consumer(s) |
 |---|---|---|
 | `{env}.market.bars.raw.{provider}` | IBKRProviderAgent | ProviderMergerAgent |
-| `{env}.market.bars` | ProviderMergerAgent | BarAggregatorComputeAgent, BarWriterAgent, BarAuditorAgent, feature_compute_agent |
-| `{env}.market.bars.htf` | BarAggregatorComputeAgent | feature_compute_agent, BarWriterAgent |
+| `{env}.market.bars` | ProviderMergerAgent | BarAggregatorComputeAgent, BarWriterAgent, BarAuditorAgent, intelligence_pipeline_agent |
+| `{env}.market.bars.htf` | BarAggregatorComputeAgent | intelligence_pipeline_agent, BarWriterAgent |
 | `{env}.market.events.gap_requests` | BarAuditorAgent | gap fill handlers |
-| `{env}.market.events.roll` | RollComputeAgent | signal_generator_agent |
+| `{env}.market.events.roll` | RollComputeAgent | intelligence_pipeline_agent |
 | `{env}.market.data.quality` | ProviderMergerAgent | observability consumers |
-| `{env}.intelligence.{symbol}.{tf}` | feature_compute_agent | signal_generator_agent, ai_narrative_service, feature_writer_service |
-| `{env}.signals.{symbol}.{tf}.aggregated` | signal_generator_agent | indicagent-api (SSE) |
+| `{env}.intelligence.i7.signals` | intelligence_pipeline_agent | signal_writer_agent |
+| `{env}.intelligence.journal` | intelligence_pipeline_agent | feature_writer_agent |
+| `{env}.signals.{symbol}.{tf}.aggregated` | signal_writer_agent | indicagent-api (SSE) |
 | `{env}.narratives.{symbol}.{tf}` | indicagent-ai-narrative | indicagent-api (SSE) |
 
 ---
