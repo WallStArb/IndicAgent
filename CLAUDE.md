@@ -96,6 +96,29 @@ After each phase completion, verify:
 4. **Orphaned files archived** — Any service without a systemd unit should be archived or documented
 5. **Service status verified** — All `enabled` services should be `active` (unless timer-triggered)
 
+### Service Audit Commands
+Verify service health and conventions:
+- `systemctl list-units --all | grep indicagent` — check all units + states (active/inactive/failed)
+- `grep "^class.*Agent.*:" services/*_agent.py | grep -v "BaseAgent\|archived"` — find agents missing BaseAgent inheritance
+- `systemctl status indicant-<name>` — check if systemd unit exists (typo = "not found")
+- `journalctl -u <service> --since "X hours ago"` — investigate why service stopped
+- `systemctl show <service> -p StartLimitBurst,StartLimitIntervalSec` — check restart limits
+- `grep -r "from services.<old_module>" . --include="*.py"` — find broken imports after archival
+
+### Archival Pattern
+When removing/replacing services (5 existing `_archived_*.py` files):
+1. Rename to `_archived_<name>.py`
+2. Add deprecation header: `"""DEPRECATED: <what> <when> — <why> — <where it went now>"""`
+3. Archive or update tests importing the module (`test_<old>.py` → `_archived_test_<old>.py`)
+4. Delete backward-compatibility shims immediately (don't wait "one release cycle")
+5. Verify no broken imports remain
+
+### Service Lifecycle Gotchas
+- Services can exit cleanly (status=0/SUCCESS) but fail to restart due to **StartLimitBurst** (5 failures in 300s = stop trying)
+- Journal rotation can hide exit reasons — check logs immediately after failure
+- `Restart=always` + `RestartSec=10` means "keep restarting", but StartLimitBurst overrides this
+- Timer-triggered services (data-quality, weight-updater) show `inactive (dead)` normally — check `TriggeredBy:` field
+
 ### Post-Milestone Housekeeping
 `git push origin main`, push tag (`git push origin vX.Y`), `/gsd:cleanup`, update README stats.
 **Design doc archive:** After each phase ships, move its `docs/plans/*.md` to `docs/plans/archive/` if `Status: Shipped`. Do this as part of post-phase cleanup, not just at milestone boundaries.
