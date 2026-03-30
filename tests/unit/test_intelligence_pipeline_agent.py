@@ -17,7 +17,6 @@ import pytest
 
 from src.core.state_serializer import StateSerializer
 
-
 # ---------------------------------------------------------------------------
 # Helper: create bare agent instance via __new__() pattern (CLAUDE.md)
 # ---------------------------------------------------------------------------
@@ -85,6 +84,12 @@ class TestEnqueue:
         assert agent._output_queue.qsize() == 1
 
 
+async def _stop_agent_after(agent, delay: float = 0.2) -> None:
+    """Signal agent stop after a short delay — used by drain tests."""
+    await asyncio.sleep(delay)
+    agent._stop_event.set()
+
+
 class TestDrainOutput:
     """Test _drain_output() publishes items from queue."""
 
@@ -95,12 +100,7 @@ class TestDrainOutput:
         # Enqueue an item
         agent._enqueue("test_topic", "test_key", {"data": "payload"})
 
-        # Stop the agent after one iteration
-        async def _stop_after_delay():
-            await asyncio.sleep(0.2)
-            agent._stop_event.set()
-
-        asyncio.create_task(_stop_after_delay())
+        asyncio.create_task(_stop_agent_after(agent))
         await agent._drain_output()
 
         # Verify producer was called
@@ -116,11 +116,7 @@ class TestDrainOutput:
         agent._kafka_producer.publish.side_effect = RuntimeError("kafka down")
         agent._enqueue("topic", "key", {"data": "val"})
 
-        async def _stop_after_delay():
-            await asyncio.sleep(0.2)
-            agent._stop_event.set()
-
-        asyncio.create_task(_stop_after_delay())
+        asyncio.create_task(_stop_agent_after(agent))
         await agent._drain_output()
 
         agent._output_publish_failures.inc.assert_called()
@@ -199,7 +195,7 @@ class TestStateRestore:
 
         async def _mock_messages():
             return
-            yield  # noqa: E501 — unreachable yield makes this an empty async generator
+            yield  # unreachable yield makes this an empty async generator
 
         mock_consumer.messages = MagicMock(return_value=_mock_messages())
 
@@ -234,7 +230,7 @@ class TestShadowMode:
     """Test shadow mode behavior."""
 
     def test_shadow_mode_enabled(self):
-        """Shadow mode can be enabled via constructor."""
+        """Shadow mode attribute can be set to True."""
         agent = _make_agent()
         agent._shadow_mode = True
         assert agent._shadow_mode is True

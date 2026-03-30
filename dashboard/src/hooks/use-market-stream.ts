@@ -24,6 +24,15 @@ import type {
   RankedSignal,
 } from "@/lib/types";
 
+const FLASH_DURATION_MS = 350;
+const STALE_BAR_THRESHOLD_MS = 5 * 60_000;
+
+function priceDirection(newPrice: number, oldPrice: number): "up" | "down" | null {
+  if (newPrice > oldPrice) return "up";
+  if (newPrice < oldPrice) return "down";
+  return null;
+}
+
 function emptySymbolData(symbol: string): SymbolData {
   return {
     symbol,
@@ -477,7 +486,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         if (!old) return prev;
         const price = parseFloat(String(payload.price || payload.last || old.tick.price));
         const prevPrice = old.tick.price;
-        flashDir = price > prevPrice ? "up" : price < prevPrice ? "down" : null;
+        flashDir = priceDirection(price, prevPrice);
         return {
           ...prev,
           [sym]: {
@@ -495,16 +504,14 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           },
         };
       });
-      // Clear tickFlash after 350ms — done OUTSIDE setSymbolData callback
+      // Flash-clear: CSS-like fade via delayed state reset
       if (flashDir) {
         setTimeout(() => {
-          setSymbolData((prev) => ({
-            ...prev,
-            [sym]: prev[sym]
-              ? { ...prev[sym], tickFlash: null, tick: { ...prev[sym].tick, tickFlash: null } }
-              : prev[sym],
-          }));
-        }, 350);
+          setSymbolData((prev) => {
+            const s = prev[sym];
+            return s ? { ...prev, [sym]: { ...s, tickFlash: null, tick: { ...s.tick, tickFlash: null } } } : prev;
+          });
+        }, FLASH_DURATION_MS);
       }
       touch();
     });
@@ -514,10 +521,11 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       const { payload } = JSON.parse(evt.data);
       const sym = contractToBase(payload.symbol || "");
       if (!sym) return;
+      const close = parseFloat(String(payload.close || 0));
+      let barFlash: "up" | "down" | null = null;
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
-        const close = parseFloat(String(payload.close || 0));
         const barHigh = parseFloat(String(payload.high || 0));
         const barLow = parseFloat(String(payload.low || 0));
         const barOpen = parseFloat(String(payload.open || 0));
@@ -537,6 +545,23 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
               date: barDate,
               sessionVolume: sess.sessionVolume + barVol,
             };
+        // Update tick price from bar close (5s RTB bars drive the price display)
+        // Guard: skip stale bars from gap-fill replay (older than 5 minutes)
+        const barTs = new Date(payload.timestamp || 0).getTime();
+        const staleBar = barTs > 0 && (Date.now() - barTs) > STALE_BAR_THRESHOLD_MS;
+        const prevTick = old.tick;
+        const tickFlash = priceDirection(close, prevTick.price);
+        barFlash = tickFlash;
+        const newTick = close > 0 && !staleBar
+          ? {
+              price: close,
+              bid: prevTick.bid || close,
+              ask: prevTick.ask || close,
+              timestamp: String(payload.timestamp || ""),
+              lastUpdate: Date.now(),
+              tickFlash,
+            }
+          : prevTick;
         return {
           ...prev,
           [sym]: {
@@ -553,10 +578,20 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
             // Only update prevClose when initializing session; REST seed takes priority.
             prevClose: notSeeded ? (old.bar.close || close) : old.prevClose,
             session: newSession,
+            tick: newTick,
+            tickFlash,
             lastUpdate: Date.now(),
           },
         };
       });
+      if (barFlash) {
+        setTimeout(() => {
+          setSymbolData((prev) => {
+            const s = prev[sym];
+            return s ? { ...prev, [sym]: { ...s, tickFlash: null, tick: { ...s.tick, tickFlash: null } } } : prev;
+          });
+        }, FLASH_DURATION_MS);
+      }
       touch();
     });
 

@@ -9,6 +9,9 @@ Type tag encoding:
     deque         -> {"__deque__": true, "data": [...], "maxlen": int|null}
     primitives    -> pass-through (int, float, str, bool, None)
     dict/list     -> recurse on values/items
+
+Note: dict keys are stringified (str(k)) during encoding. Tuple keys like
+(plugin_name, symbol, tf) are restored via ast.literal_eval in the consumer.
 """
 
 from __future__ import annotations
@@ -20,9 +23,12 @@ import msgpack
 import numpy as np
 from pydantic import BaseModel
 
-# Registry of Pydantic model classes by name — populated at import time.
+# Registry of Pydantic model classes by name — populated lazily on first decode().
 # Any Pydantic model stored in plugin state MUST be registered here.
 PYDANTIC_REGISTRY: dict[str, type[BaseModel]] = {}
+
+_PRIMITIVES = (int, float, str, bool, type(None))
+_default_models_registered = False
 
 
 def register_pydantic_model(cls: type[BaseModel]) -> None:
@@ -40,18 +46,25 @@ class StateSerializer:
     @staticmethod
     def encode(state: dict) -> bytes:
         """Walk state dict, apply type tags, return msgpack bytes."""
-        tagged = _tag_value(state)
-        return msgpack.packb(tagged, use_bin_type=True)
+        try:
+            tagged = _tag_value(state)
+            return msgpack.packb(tagged, use_bin_type=True)
+        except Exception as exc:
+            raise TypeError(f"State contains non-serializable data: {exc}") from exc
 
     @staticmethod
     def decode(payload: bytes) -> dict:
         """Deserialize msgpack bytes, reconstruct tagged types."""
+        _ensure_default_models_registered()
         raw = msgpack.unpackb(payload, raw=False)
         return _untag_value(raw)
 
 
 def _tag_value(obj: Any) -> Any:
     """Recursively tag special types for msgpack serialization."""
+    # Fast-path for common primitives — avoids 4 expensive isinstance checks
+    if isinstance(obj, _PRIMITIVES):
+        return obj
     if isinstance(obj, np.ndarray):
         return {"__ndarray__": True, "data": obj.tolist(), "dtype": str(obj.dtype)}
     if isinstance(obj, BaseModel):
@@ -62,7 +75,6 @@ def _tag_value(obj: Any) -> Any:
         return {str(k): _tag_value(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_tag_value(item) for item in obj]
-    # primitives: int, float, str, bool, None — pass through
     return obj
 
 
@@ -93,11 +105,15 @@ def _untag_value(obj: Any) -> Any:
 
 # ---------------------------------------------------------------------------
 # Auto-register intelligence schema models used in plugin state.
-# Import here (not at top) to avoid circular imports.
+# Lazy: called on first decode() to avoid eager import at module load time.
 # ---------------------------------------------------------------------------
 
 
-def _register_default_models() -> None:
+def _ensure_default_models_registered() -> None:
+    global _default_models_registered
+    if _default_models_registered:
+        return
+    _default_models_registered = True
     try:
         from src.intelligence.schemas import (
             I1Indicators,
@@ -121,6 +137,3 @@ def _register_default_models() -> None:
             register_pydantic_model(cls)
     except ImportError:
         pass  # schemas not available in all test contexts
-
-
-_register_default_models()

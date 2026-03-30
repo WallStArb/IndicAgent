@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import msgpack as _msgpack
+
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -598,7 +600,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 try:
                     if isinstance(payload, dict):
                         # messages() returns decoded dict; re-encode for StateSerializer
-                        import msgpack as _msgpack
                         raw = _msgpack.packb(payload, use_bin_type=True)
                         state = StateSerializer.decode(raw)
                     else:
@@ -662,7 +663,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             asyncio.create_task(self._process_loop()),
             asyncio.create_task(self._drain_output()),
             asyncio.create_task(self._health_monitor_loop()),
-            asyncio.create_task(self._resolution_listener_loop()),
             # Refresh loops
             asyncio.create_task(
                 self._run_refresh_loop(self._load_perf_weights, 3600)
@@ -703,17 +703,29 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _process_loop(self) -> None:
-        """Consume bars and process through I1-I7 pipeline."""
+        """Consume all topics and route: bar → I1-I7 pipeline; non-bar → caches."""
+        _cross_asset_topic = topic_cross_asset(self._settings.env_name)
+        _ticks_topic = topic_market_ticks(self._settings.env_name)
+        _system_topic = topic_system_events(self._settings.env_name)
         while self.running:
             try:
                 async for _topic, _key, payload in self._kafka_consumer.messages():
                     if not isinstance(payload, dict):
                         continue
                     try:
-                        bar = self._parse_bar(payload)
-                        if bar is None:
-                            continue
-                        await self._process_bar(bar)
+                        if _topic == _cross_asset_topic:
+                            tf = payload.get("tf", "1m")
+                            self._cross_asset_cache[tf] = payload
+                        elif _topic == _ticks_topic:
+                            symbol = payload.get("symbol", "")
+                            self._live_quotes[symbol] = payload
+                        elif _topic == _system_topic:
+                            await self._handle_system_event(payload)
+                        else:
+                            bar = self._parse_bar(payload)
+                            if bar is None:
+                                continue
+                            await self._process_bar(bar)
                     except Exception as exc:
                         self.logger.error(
                             "bar.process_error",
@@ -933,6 +945,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             except Exception:
                 self._output_publish_failures.inc()
                 self.logger.exception("output.publish_failed")
+                self._output_queue.task_done()
 
     # ------------------------------------------------------------------
     # I1 plugin execution
@@ -957,7 +970,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     with lock:
                         if "_state" in out:
                             self._plugin_states[state_key] = out.pop("_state")
-                        result.update({k: v for k, v in out.items() if k != "_state"})
+                        result.update(out)
             except Exception as exc:
                 self._pipeline_errors.inc()
                 self.logger.warning(
@@ -1003,9 +1016,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                             # smc_trend_direction rename
                             if tier_key == "smc" and "smc_trend_direction" in out:
                                 out["trend_direction"] = out.pop("smc_trend_direction")
-                            tier_result.update(
-                                {k: v for k, v in out.items() if k != "_state"}
-                            )
+                            tier_result.update(out)
                 except Exception as exc:
                     self._pipeline_errors.inc()
                     self.logger.warning(
@@ -1105,6 +1116,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "_plugin_states": self._plugin_states,
             "_kalman_state": self._kalman_state,
             "_tod_priors": self._tod_priors,
+            "_bar_history": self._bar_history._data,
             "_last_bar_offset": self._last_bar_offset,
         }
         encoded = StateSerializer.encode(state)
@@ -1144,32 +1156,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def _health_monitor_loop(self) -> None:
         """Periodic health check and metric reporting."""
         while self.running:
-            self._output_buffer_depth.set(self._output_queue.qsize())
             await asyncio.sleep(10)
-
-    # ------------------------------------------------------------------
-    # Resolution listener (ticks, cross-asset, system events)
-    # ------------------------------------------------------------------
-
-    async def _resolution_listener_loop(self) -> None:
-        """Listen for tick data, cross-asset updates, and system events."""
-        while self.running:
-            try:
-                async for _topic, _key, payload in self._kafka_consumer.messages():
-                    if not isinstance(payload, dict):
-                        continue
-                    # Route by topic
-                    if "cross_asset" in _topic:
-                        tf = payload.get("tf", "1m")
-                        self._cross_asset_cache[tf] = payload
-                    elif "ticks" in _topic:
-                        symbol = payload.get("symbol", "")
-                        self._live_quotes[symbol] = payload
-                    elif "system.events" in _topic:
-                        await self._handle_system_event(payload)
-            except Exception as exc:
-                self.logger.warning("resolution_listener.error", error=str(exc))
-                await asyncio.sleep(1)
 
     async def _handle_system_event(self, payload: dict) -> None:
         """Handle system events (pipeline reset, roll, etc.)."""
@@ -1252,7 +1239,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             for r in rows:
                 key = (r["regime_type"], r["tf"], r["hour_et"])
                 priors[key] = float(r["multiplier"])
-            self._tod_priors.update(priors)
+            self._tod_priors = {**self._tod_priors, **priors}
         except Exception as exc:
             self.logger.warning("tod_multipliers.load_failed", error=str(exc))
 
