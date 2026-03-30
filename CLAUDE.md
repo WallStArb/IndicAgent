@@ -85,6 +85,17 @@ Use `/gsd:add-todo` for implementation tasks. Use ROADMAP Backlog for milestone-
 ### Pre-Commit Quality Gate (Mandatory)
 Before committing: `/simplify` then `/coderabbit:code-review`.
 
+### Post-Phase Cleanup Checklist
+After each phase completion, verify:
+1. **No broken shims** — Search for `import.*from.*feature_compute_agent` (or other archived modules)
+2. **Test imports updated** — Any tests importing archived modules must be updated or archived
+3. **Systemd units audited** — Check all services are active/inactive as expected:
+   ```bash
+   systemctl list-units --all | grep indicagent
+   ```
+4. **Orphaned files archived** — Any service without a systemd unit should be archived or documented
+5. **Service status verified** — All `enabled` services should be `active` (unless timer-triggered)
+
 ### Post-Milestone Housekeeping
 `git push origin main`, push tag (`git push origin vX.Y`), `/gsd:cleanup`, update README stats.
 **Design doc archive:** After each phase ships, move its `docs/plans/*.md` to `docs/plans/archive/` if `Status: Shipped`. Do this as part of post-phase cleanup, not just at milestone boundaries.
