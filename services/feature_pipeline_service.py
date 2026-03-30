@@ -14,7 +14,6 @@ from services.feature_compute_agent import (  # noqa: F401
     PRICE_SENSITIVE_PLUGINS,
     VIX_REGIME_TF,
     FeatureComputeAgent as FeaturePipelineService,
-    _INSERT_OHLCV_SQL,
     _adjust_price_state,
 )
 
@@ -22,6 +21,9 @@ __all__ = [
     "FeaturePipelineService",
     "PRICE_SENSITIVE_PLUGINS",
     "VIX_REGIME_TF",
-    "_INSERT_OHLCV_SQL",
     "_adjust_price_state",
 ]
+
+# _INSERT_OHLCV_SQL was removed in Phase 53.1 when OHLCV writing moved to BarWriterAgent
+# Importing it from services.bar_writer_agent if needed for legacy compatibility
+# (Most tests should reference BarWriterAgent directly now)

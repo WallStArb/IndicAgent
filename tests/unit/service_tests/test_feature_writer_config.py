@@ -4,24 +4,17 @@ Ensures the default symbol list covers all 23 active H6/J6 contracts rather than
 the stale 6-symbol hardcoded list (ESH6, NQH6, RTYH6, CLK6, GCM6, NGK6).
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 def _make_service():
     """Construct FeatureWriterAgent with infrastructure mocked out."""
-    with (
-        patch("services.feature_writer_agent.start_metrics_server"),
-        patch("services.feature_writer_agent.DatabaseManager"),
-        patch("services.feature_writer_agent.counter", return_value=MagicMock()),
-        patch("services.feature_writer_agent.gauge", return_value=MagicMock()),
-    ):
-        import signal as _signal
+    # Only patch DatabaseManager - _load_config doesn't need metrics or signal patches
+    with patch("services.feature_writer_agent.DatabaseManager"):
+        from services.feature_writer_agent import FeatureWriterAgent
 
-        with patch.object(_signal, "signal"):
-            from services.feature_writer_agent import FeatureWriterAgent
-
-            service = FeatureWriterAgent.__new__(FeatureWriterAgent)
-            service.config = service._load_config(None)
+        service = FeatureWriterAgent.__new__(FeatureWriterAgent)
+        service.config = service._load_config(None)
     return service
 
 

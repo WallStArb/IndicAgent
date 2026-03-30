@@ -5,7 +5,6 @@ only, performs a single atomic INSERT per bar from BarIntelligenceRecord. All i7
 two-phase write code removed.
 """
 
-import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -139,8 +138,11 @@ def test_record_to_insert_params_returns_31_tuple():
     assert len(params) == 31
 
 
-def test_record_to_insert_params_serializes_ranked_signals_to_json():
-    """ranked_signals is serialized to a JSON string for the i7 column."""
+def test_record_to_insert_params_serializes_ranked_signals_to_list():
+    """ranked_signals is returned as a list of dicts for the i7 JSONB column.
+
+    asyncpg handles list/dict serialization to JSONB automatically.
+    """
     from services.feature_writer_agent import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
@@ -148,11 +150,9 @@ def test_record_to_insert_params_serializes_ranked_signals_to_json():
 
     # i7 at index 14 (15th col: ts,sym,tf,platform,source,schema_ver,bar,i1,i2,i3,i4,i5,smc,i6,i7)
     i7_value = params[14]
-    assert isinstance(i7_value, str), "i7 must be a JSON string for asyncpg"
-    parsed = json.loads(i7_value)
-    assert isinstance(parsed, list)
-    assert len(parsed) == 1
-    assert parsed[0]["plugin"] == "trad_TrendFollowing"
+    assert isinstance(i7_value, list), "i7 must be a list for asyncpg JSONB"
+    assert len(i7_value) == 1
+    assert i7_value[0]["plugin"] == "trad_TrendFollowing"
 
 
 def test_record_to_insert_params_uses_datetime_objects_for_timestamps():
@@ -200,23 +200,28 @@ def test_record_to_insert_params_extracts_session_type_as_string():
     assert session_type_val == "rth"
 
 
-def test_record_to_insert_params_jsonb_columns_are_strings():
-    """JSONB columns (bar, i1, i2, i3, i4, i5, smc, i6, i7) must be JSON strings."""
+def test_record_to_insert_params_jsonb_columns_are_dicts_or_lists():
+    """JSONB columns (bar, i1, i2, i3, i4, i5, smc, i6, i7) are dicts or lists.
+
+    asyncpg handles dict/list serialization to JSONB automatically.
+    """
     from services.feature_writer_agent import _record_to_insert_params
 
     record = _make_valid_bar_intelligence_record()
     params = _record_to_insert_params(record)
 
-    # Indices 6..14 are bar, i1, i2, i3, i4, i5, smc, i6, i7
-    for idx in range(6, 15):
+    # Indices 6..13 are bar, i1, i2, i3, i4, i5, smc, i6 (all dicts)
+    for idx in range(6, 14):
         value = params[idx]
-        assert isinstance(value, str), (
-            f"params[{idx}] must be a JSON string, got {type(value).__name__}"
+        assert isinstance(value, dict), (
+            f"params[{idx}] must be a dict, got {type(value).__name__}"
         )
-        parsed = json.loads(value)
-        assert isinstance(parsed, (dict, list)), (
-            f"params[{idx}] must decode to dict or list"
-        )
+
+    # Index 14 is i7 (list of dicts)
+    i7_value = params[14]
+    assert isinstance(i7_value, list), (
+        f"params[14] (i7) must be a list, got {type(i7_value).__name__}"
+    )
 
 
 # ── _maybe_flush (no i7/i8 buffer references) ────────────────────────────────
@@ -235,6 +240,12 @@ async def test_maybe_flush_force_calls_execute_batch():
     svc.error_count_total = MagicMock()
     svc._total_batches = 0
     svc._error_count = 0
+
+    # Mock _batch_latency context manager
+    mock_batch_latency = MagicMock()
+    mock_batch_latency.__enter__ = MagicMock(return_value=None)
+    mock_batch_latency.__exit__ = MagicMock(return_value=False)
+    svc._batch_latency = mock_batch_latency
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
@@ -284,6 +295,12 @@ async def test_maybe_flush_time_based_calls_execute_batch():
     svc.error_count_total = MagicMock()
     svc._total_batches = 0
     svc._error_count = 0
+
+    # Mock _batch_latency context manager
+    mock_batch_latency = MagicMock()
+    mock_batch_latency.__enter__ = MagicMock(return_value=None)
+    mock_batch_latency.__exit__ = MagicMock(return_value=False)
+    svc._batch_latency = mock_batch_latency
 
     mock_db = MagicMock()
     mock_db.execute_batch = AsyncMock()
@@ -341,16 +358,16 @@ def test_removed_i7_i8_methods_absent():
 
 
 def test_topic_routing_only_handles_intelligence_record():
-    """_process_loop source must contain intelligence_record_topic routing."""
+    """_process_loop source must contain intelligence_journal_topic routing."""
     import inspect
 
     from services.feature_writer_agent import FeatureWriterAgent
 
     source = inspect.getsource(FeatureWriterAgent._process_loop)
-    assert "intelligence_record_topic" in source, (
-        "_process_loop must route intelligence_record_topic"
+    assert "intelligence_journal_topic" in source, (
+        "_process_loop must route intelligence_journal_topic"
     )
-    # Old multi-topic routing removed
+    # Verifies the topic routing logic is present in the processing loop
     assert "i7_topic" not in source, "i7_topic must be absent from _process_loop"
     assert "i8_topic" not in source, "i8_topic must be absent from _process_loop"
 
@@ -362,7 +379,6 @@ def test_topic_routing_only_handles_intelligence_record():
 async def test_graceful_shutdown_flushes_and_closes():
     """_shutdown flushes buffer and closes Kafka/DB connections."""
     import asyncio
-    from contextlib import contextmanager
 
     from services.feature_writer_agent import FeatureWriterAgent, _record_to_insert_params
 
@@ -567,7 +583,6 @@ class TestFeatureWriterAgentLifecycle:
 
     def test_running_property_reflects_stop_event(self):
         """running property reflects the _stop_event state."""
-        import asyncio
 
         assert self.agent.running is True
         self.agent._stop_event.set()

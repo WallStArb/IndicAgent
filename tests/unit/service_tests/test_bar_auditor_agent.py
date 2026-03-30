@@ -148,23 +148,27 @@ class TestDetectGaps:
 
     @pytest.mark.asyncio
     async def test_detect_gaps_returns_request_for_low_completeness(self):
-        """_detect_gaps returns BarGapRequest when actual bars < 95% of expected."""
+        """_detect_gaps returns BarGapRequest when actual bars < 95% of expected.
+
+        Uses crypto_24_7 session which trades every day (including weekends),
+        avoiding test failures when running on days where yesterday was a non-trading day for NYSE.
+        """
         agent = _make_agent_stub()
 
         from src.core.models import AssetClass, Instrument
 
         mock_instrument = Instrument(
-            symbol="SPY",
-            asset_class=AssetClass.EQUITY,
-            session_id="nyse",
+            symbol="BTC",
+            asset_class=AssetClass.CRYPTO,
+            session_id="crypto_24_7",
         )
 
         # Mock the completeness gauge
         agent._canonical_completeness = MagicMock()
 
-        # Mock DB pool — returns count well below 95% of 390
+        # Mock DB pool — returns count well below 95% of 1440
         mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=10)  # 10/390 = 2.6% completeness
+        mock_conn.fetchval = AsyncMock(return_value=10)  # 10/1440 = 0.7% completeness
         mock_pool = AsyncMock()
         mock_pool.acquire = MagicMock()
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
@@ -176,7 +180,7 @@ class TestDetectGaps:
         assert len(gaps) >= 1
         gap = gaps[0]
         assert isinstance(gap, BarGapRequest)
-        assert gap.symbol == "SPY"
+        assert gap.symbol == "BTC"
         assert gap.tf == "1m"
         assert gap.source == "bar_auditor"
 
