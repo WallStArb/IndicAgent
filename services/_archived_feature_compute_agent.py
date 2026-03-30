@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-FeatureComputeAgent — Unified I1-I6 in-process pipeline.
+DEPRECATED: Replaced by IntelligencePipelineComputeAgent in Phase 57 (2026-03-29)
+
+This file is archived for reference only. The active I1-I7 pipeline is now:
+  services/intelligence_pipeline_agent.py
+
+FeatureComputeAgent — Unified I1-I6 in-process pipeline (LEGACY).
 
 Replaces indicator_service + market_analysis_service + timeframes_builder_service.
 Consumes 1m bars from development.market.bars AND HTF bars from
