@@ -1,6 +1,6 @@
 # IndicAgent Market Intelligence Platform
 
-**v2.0 · 123 plugins · 2641 tests · 60 instruments · <10ms end-to-end**
+**v2.1 · 121 plugins · 2746 tests · 60 instruments · <10ms end-to-end**
 
 > *Instrument everything · Signal with evidence · Learn from every outcome*
 
@@ -15,11 +15,11 @@ We have implemented a breakthrough "Renaissance-style" dual-path intelligence ar
 
 This architecture ensures that all production trades are backed by a verified research process, with automated promotion of experimental findings into the deterministic kernel.
 
-IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, and drift-corrected — in under 10ms. 123+ plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
+IndicAgent takes raw tick data from any real-time source and produces evidence-graded trading signals — regime-classified, institutionally contextualized, AI-narrated, and drift-corrected — in under 10ms. 121 plugins execute in dependency order across 8 intelligence tiers. Every output is published to a durable, replayable event stream, allowing any HTTP client to subscribe to live intelligence over SSE or pull via REST without pipeline changes.
 
 Signals don't fire on a single indicator. Our CIS (Confluence Intelligence Score) requires cross-tier agreement from at least 3 of 6 independent evidence buckets; regime conflicts veto, and signals lose confidence explicitly as they age. Every winner and every rejected counterfactual lands in the feature store with its full I1–I8 context, ensuring the system accumulates its own high-fidelity labeled training dataset with every bar it processes.
 
-Designed for resilience, reproducibility, and massive scale, our pipeline processes 123+ plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
+Designed for resilience, reproducibility, and massive scale, our pipeline processes 121 plugins across 8 intelligence tiers, building its own labeled training datasets in real-time. Every signal is multi-bucket adjudicated, regime-aware, and AI-synthesized, delivering actionable intelligence with institutional-grade transparency and self-correcting statistical integrity.
 
 IndicAgent enables you to build institutional-grade intelligence that is as self-correcting as it is transparent.
 
@@ -67,22 +67,22 @@ This is Separation of Concerns (SoC) as an architectural invariant, not a coding
 | Service | Owns |
 |---------|------|
 | TWS Daemon | Data collection from market feed |
-| Feature Pipeline | I1–I6 unified in-process computation — indicators, structure, regime, patterns, SMC, confluence |
-| Signal Generator | I7 setup detection and CIS adjudication |
-| Signal Lifecycle | Open trade tracking, MAE/MFE, outcome classification |
-| Feature Writer | Persistence of intelligence vectors to TimescaleDB |
+| Intelligence Pipeline | Unified I1–I7 in-process computation — indicators, structure, regime, patterns, SMC, confluence, trading signals |
+| Signal Writer | I7 signal persistence to signal_ledger (all ranked signals) |
+| Signal Tracker | Open trade tracking, MAE/MFE, outcome classification |
+| Feature Writer | Persistence of intelligence features to TimescaleDB |
 | LLM Writer | LLM call audit trail with outcome back-fill |
 | AI Narrative | I8 LLM analysis and group synthesis |
 | API | SSE fan-out and REST delivery to clients |
 
 Producers publish. Consumers subscribe. No service knows the others exist.
 
-Restart `feature_pipeline_service` to deploy a new plugin: zero effect on `signal_lifecycle_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
+Restart `intelligence_pipeline_service` to deploy a new plugin: zero effect on `signal_tracker_service` tracking open trades. The AI narrative service falls behind under load: indicator calculation is unaffected. A new consumer subscribes to the `intelligence:SYMBOL:TF` stream: existing producers don't change a line.
 
 ```
-IBKR TWS ──► [Redpanda topics] ──► feature_pipeline_service (I1–I6)
-                                    ──► signal_generator_service (I7) ──► signal_lifecycle_service
-                                    ──► feature_writer_service
+IBKR TWS ──► [Redpanda topics] ──► intelligence_pipeline_agent (I1–I7, unified in-process)
+                                    ──► signal_writer_agent (signal_ledger persistence)
+                                    ──► feature_writer_agent (intelligence_features)
                                     ──► ai_narrative_service (I8)
                                     ──► api_service ──► SSE ──► any HTTP client
 ```
@@ -130,6 +130,17 @@ Raw OHLCV
 
 ### Plugin count by tier
 
+| Tier | Count | Role |
+|------|-------|------|
+| I1 | 27 | Raw technical indicators — RSI, MACD, ATR, VWAP, ADX, Supertrend, HMA, OFI, CVD, and 18 more |
+| I2 | 11 | Discrete events derived from I1 — crossovers, threshold crossings, volume surges, momentum acceleration |
+| I3 | 7 | Market structure — swing detection, S/R zones, Market Profile, Fibonacci, session levels |
+| I4 | 11 | Regime classification — GARCH, Kalman filter, HMM, BOCPD, Hurst Exponent, Shannon Entropy, Volume Profile, Anchored VWAP, and more |
+| I5 | 15 | Pattern detection — RSI divergence, squeeze, chart patterns, trend confluence, key level reactions |
+| I6 SMC | 13 | Smart Money Concepts — BOS/CHoCH, FVG, order blocks, liquidity pools, ICT killzones, AMD cycles, BOCPD |
+| I6 confluence | 1 | Cross-timeframe SMC synthesis |
+| I7 setups | 36 | Trading setups — entry, stop, target logic; CIS-gated; includes OFI/CVD microstructure and cross-asset divergence |
+| Aggregation | 2 | CIS scorer + signal aggregator |
 
 ### Plugin Validation Layer
 
@@ -145,7 +156,7 @@ Comprehensive validation runs at service startup to ensure system integrity befo
 - Orphaned plugins — detects imported plugin modules with missing `.py` files
 - TREND_SETUPS sync — ensures hardcoded trend setups match TIER_I7 plugins with `regime_type="trend"`
 
-**Integration:** Called at startup of `feature_pipeline_service` and `signal_generator_service` before each service begins processing.
+**Integration:** Called at startup of `intelligence_pipeline_service` before the service begins processing.
 
 **Error handling:** Raises `RuntimeError` with `sys.exit(1)` if any validation fails, preventing services from starting with misconfigured plugins.
 
@@ -175,7 +186,7 @@ A daemon connects to IBKR TWS and forms **1m bars from high-frequency ticks** (1
 
 ### Layer 2: Mathematical Intelligence
 
-**I1 — Raw Indicators (25 plugins)**
+**I1 — Raw Indicators (27 plugins)**
 
 Incremental computation — each bar updates indicator state without recomputing history. RSI, MACD, Bollinger Bands, ATR, VWAP, Supertrend, Parabolic SAR, Stochastic RSI, Chaikin Money Flow, Aroon, SMA, EMA, OBV, ADX/DI, ROC, Awesome Oscillator, Accelerator Oscillator, Donchian Channels, CCI, Williams %R, MFI, Keltner Channels, Historical Volatility, Chandelier Exit, HMA. Every value published once per bar per symbol per timeframe.
 
@@ -183,11 +194,11 @@ Incremental computation — each bar updates indicator state without recomputing
 
 Discrete events derived from I1 outputs — crossovers, threshold crossings, volume surges. The standout plugins here are second-derivative: **MomentumAcceleration** detects inflection points *before* they complete using rate-of-change on RSI, MACD, and ROC; **ExhaustionScore** composites volume, RSI extreme, reversal candlestick, and ATR spike to identify when a trend is running out of fuel — a leading indicator for regime transition.
 
-**I3 — Market Structure (8 plugins)**
+**I3 — Market Structure (7 plugins)**
 
 Price action context above the indicator level: swing detection, S/R zones, Market Profile (volume distribution → POC, value area), Anchored VWAP, Fibonacci, session levels. **SwingMomentum** links live momentum readings directly to structural swing context — giving I5 divergence plugins a richer foundation to confirm or reject.
 
-**I4 — Regime Classification (7 plugins)**
+**I4 — Regime Classification (11 plugins)**
 
 The statistical core. Six models answer distinct questions about market state — see the [regime model stack](#the-regime-model-stack) below for the full breakdown. The two v1.8 additions are the most distinctive:
 
@@ -196,7 +207,7 @@ The statistical core. Six models answer distinct questions about market state �
 
 ### Layer 3: Pattern Intelligence
 
-**I5 — Pattern Detection (14 plugins)**
+**I5 — Pattern Detection (15 plugins)**
 
 Discrete pattern recognition on the mathematical foundation: RSI divergence (price and RSI diverging — a leading reversal signal), volatility squeeze (Bollinger Bands inside Keltner Channels — compression that precedes expansion), and completed chart patterns (H&S, double top/bottom, triangles, flags, cup and handle, measured move). All 14 feed directly into I6 confluence scoring.
 
@@ -209,7 +220,7 @@ Institutional order flow analysis — the interpretation of price action as the 
 - **BOCPD** (Bayesian Online Changepoint Detection) — detects the moment the *statistical properties* of the price series shift, in real time and without hindsight. Unlike HMM which classifies into known states, BOCPD detects the transition event itself — before a new regime is confirmed
 - **Liquidity pools · Order blocks · ICT Killzones · AMD cycles** — complete institutional order flow model; cross-timeframe confluence aggregates all 6 timeframes into a single directional score
 
-**I7 — Trading Setups (17 plugins + CIS aggregator)**
+**I7 — Trading Setups (36 plugins + CIS aggregator)**
 
 Each plugin defines a trade thesis with entry, stop-loss, and take-profit logic:
 
@@ -419,11 +430,11 @@ Every service exposes a Prometheus-compatible metrics endpoint:
 
 | Service | Metrics |
 |---------|---------|
-| `feature_pipeline_service` | :9125 |
-| `signal_generator_service` | :9112 |
+| `intelligence_pipeline_agent` | :9125 |
+| `signal_writer_agent` | :9117 |
 | `ai_narrative_service` | :9113 |
-| `signal_lifecycle_service` | :9115 |
-| `feature_writer_service` | :9116 |
+| `signal_tracker_agent` | :9115 |
+| `feature_writer_agent` | :9116 |
 | `llm_writer_service` | :9117 |
 | `cross_asset_service` | :9118 |
 
@@ -455,10 +466,10 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 
 | | |
 |---|---|
-| **Version** | v2.0 in progress — Signal Integrity & ML Foundation |
+| **Version** | v2.1 — Unified Intelligence Pipeline |
 | **Instruments** | 60 — equity index futures (ES, NQ, RTY, YM) · energy (CL) · metals (GC, SI, HG, PL) · rates (ZN, ZF, ZB, ZT) · volatility (VX) · agriculture (ZS, ZC, ZW) · FX (EURUSD, GBPUSD, USDJPY, USDCHF) · crypto (BTCUSD, ETHUSD, SOLUSD) · 38 ETFs |
 | **Plugins** | 121 across I1–I7 + 2 aggregation components |
-| **Tests** | 2641 passing (unit) |
+| **Tests** | 2746 passing (unit) |
 | **Latency** | <10ms bar-to-intelligence, feed-provider bound |
 | **Data in** | IBKR TWS: 100–500+ ticks/sec per instrument |
 | **Data out** | Redpanda Topics · TimescaleDB feature store · REST API · SSE |
@@ -471,17 +482,18 @@ Risk enforcement is a stream subscriber — not a wrapper around execution code.
 
 ## Current Status
 
-**v2.0 in progress — Signal Integrity & ML Foundation.**
+**v2.1 — Unified Intelligence Pipeline (Phase 57).**
 
 - **I1–I8 pipeline:** Fully operational. 121 plugins + 2 aggregation components, typed intelligence bus, feature store, CIS scorer with constituent contributions.
-- **v2.0 phases complete:** DAG Refactor (Phase 40) · Intelligence Gap Fill (Phase 41) · Candlestick Expansion (Phase 42) · I6 Confluence (Phase 43) · Feature Pipeline Renaissance (Phase 44.1 — `indicator_service` + `market_analysis_service` unified into `feature_pipeline_service`).
-- **Feature Pipeline:** I1–I6 now run as a single in-process pipeline (`feature_pipeline_service`) — eliminates inter-service hops, reduces end-to-end latency, simplifies service topology.
-- **Cross-asset intelligence:** OFI/CVD microstructure (I1) + 7 new I7 setups + `cross_asset_service` injecting spread dynamics into I7 for EQ index instruments.
+- **v2.1 phases complete:** Signal Integrity Foundation (Phases 48-53) · Unified Pipeline (Phase 57) — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline, `SignalWriterAgent` handles I7 persistence.
+- **Intelligence Pipeline:** I1–I7 now run as a unified in-process pipeline (`intelligence_pipeline_agent`) — I6 feeds I7 directly without Kafka hop, async output buffer prevents blocking, state checkpointing to compacted topics.
+- **Signal Writer:** I7 signals persisted to `signal_ledger` with full attribution (`pre_quality_confidence`, `pre_calibration_confidence`). All ranked signals written per bar, not just winner. (`signal_writer_agent`)
+- **Cross-asset intelligence:** OFI/CVD microstructure (I1) + I7 setups + `cross_asset_service` injecting spread dynamics into I7 for EQ index instruments.
 - **CIS pipeline:** Kalman filter → TOD multiplier → isotonic calibration → sorted by `calibrated_confidence`. Full audit trail per signal.
 - **API layer:** REST + SSE. Full intelligence accessible to any HTTP client over standard HTTP.
 - **Dashboard:** Price hero · multi-TF intelligence panels · SMC panel · I7 signal drill panel with DB history · Signal Scorecard (all ranked candidates) · AI narrative cards · tier tooltips throughout.
 - **AI Narratives:** OpenRouter (free models) / Ollama (conf > 0.7, 5m/15m/1h); group synthesis across 6 asset groups; full `llm_calls` audit trail with outcome back-fill.
-- **Next:** Phase 44.2 — Signal Generator consolidation.
+- **Observability:** Prometheus + Grafana dashboards — pipeline throughput, latency, signal rates, LLM success rates, per-plugin errors.
 
 ---
 
