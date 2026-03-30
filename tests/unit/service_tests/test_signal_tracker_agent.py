@@ -61,7 +61,7 @@ def _make_agent():
 
     agent = SignalTrackerAgent.__new__(SignalTrackerAgent)
     agent.name = "signal_tracker_agent"
-    agent.running = False
+    # running is a read-only property (computed from _stop_event), don't set it directly
     agent.shutdown_requested = False
     agent.start_time = datetime.now(tz=UTC)
     agent._stop_event = asyncio.Event()
