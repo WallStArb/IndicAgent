@@ -157,6 +157,16 @@ def topic_intelligence_journal(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.journal"
 
 
+def topic_intelligence_i7_signals(env_name: str) -> str:
+    """Kafka topic carrying all ranked I7 signals per bar (pre-ledger write).
+
+    Published by IntelligencePipelineComputeAgent after each bar's I7 run.
+    Consumed by SignalWriterAgent for signal_ledger persistence.
+    Payload schema: {symbol, tf, bar_ts, computed_at, signals: list[dict]}
+    """
+    return f"{env_prefix(env_name)}intelligence.i7.signals"
+
+
 def topic_intelligence_pipeline_state(env_name: str) -> str:
     """Kafka compacted topic for IntelligencePipelineComputeAgent state checkpoints.
 
