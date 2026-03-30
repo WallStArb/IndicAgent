@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """
-Drift Monitor Service — QUAL-09 KS distribution drift detection.
+DEPRECATED: Drift monitoring integrated into other services (Phase 30, shipped 2026-03-10)
 
+This standalone service has been replaced:
+  - KS drift_penalty → aggregator.py (automatic confidence adjustment)
+  - CUSUM → setup_performance_updater.py + drift_state table
+  - No systemd unit exists; functionality distributed across active services
+
+For current implementation, see:
+  - src/intelligence/aggregator.py (KS drift_penalty application)
+  - src/intelligence/setup_performance_updater.py (CUSUM + drift_state reads)
+  - production/migrations/030_drift_state.sql (drift_state table schema)
+
+Original service description:
+Drift Monitor Service — QUAL-09 KS distribution drift detection.
 Runs KSDriftMonitor.run_forever() for all active contracts × timeframes.
 Writes KS penalty severity to the drift_state DB table so signal_generator
 can automatically reduce confidence on features whose distributions have
