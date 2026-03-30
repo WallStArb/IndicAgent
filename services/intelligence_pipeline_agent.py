@@ -460,6 +460,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "Per-bar pipeline latency in milliseconds",
         )
         self._plugin_call_counts: dict = defaultdict(int)
+        self._plugin_skipped_total = counter(
+            "intelligence_pipeline_plugin_skipped_total",
+            "Plugin executions skipped due to asset class mismatch",
+        )
 
         self._vix_symbol: str | None = None
         for c in self._contracts:
@@ -483,29 +487,16 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _setup(self) -> None:
         # 1. Connect DB
-        self._db = DatabaseManager(settings=self._settings)
-        await self._db.connect()
+        self._db = DatabaseManager(self._settings.database_url)
+        await self._db.initialize()
 
-        # 2. Restore state from checkpoint topic
-        restored = await self._restore_state_checkpoint()
-
-        # 3. Fallback to BarHistorySeeder if checkpoint miss
-        if not restored:
-            self._state_checkpoint_fallback_total.inc()
-            self.logger.info("state.checkpoint_miss — seeding via BarHistorySeeder")
-            await self._seed_bar_history_from_db()
-
-        # 4. Setup Kafka clients
-        self._kafka_producer = KafkaProducerClient(settings=self._settings)
+        # 2. Setup Kafka clients (must come before checkpoint restore + seed)
+        # (moved to here so kafka_producer is available for BarHistorySeeder)
+        self._kafka_producer = KafkaProducerClient(
+            bootstrap_servers=self._settings.kafka_bootstrap_servers
+        )
         await self._kafka_producer.start()
 
-        self._kafka_consumer = KafkaConsumerClient(
-            settings=self._settings,
-            group_id=self._consumer_group,
-        )
-        await self._kafka_consumer.start()
-
-        # Subscribe to required topics
         topics = [
             topic_market_bars(self._settings.env_name),
             topic_market_bars_htf(self._settings.env_name),
@@ -513,8 +504,22 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             topic_cross_asset(self._settings.env_name),
             topic_market_ticks(self._settings.env_name),
         ]
-        self._kafka_consumer.subscribe(topics)
+        self._kafka_consumer = KafkaConsumerClient(
+            *topics,
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            group_id=self._consumer_group,
+        )
+        await self._kafka_consumer.start()
         self.logger.info("kafka.subscribed", topics=topics)
+
+        # 3. Restore state from checkpoint topic
+        restored = await self._restore_state_checkpoint()
+
+        # 4. Fallback to BarHistorySeeder if checkpoint miss
+        if not restored:
+            self._state_checkpoint_fallback_total.inc()
+            self.logger.info("state.checkpoint_miss — seeding via BarHistorySeeder")
+            await self._seed_bar_history_from_db()
 
         # 5. Load DB caches (I7 setup, same as SignalGeneratorAgent)
         await self._load_perf_weights()
@@ -538,37 +543,32 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Create the compacted state checkpoint topic if it doesn't exist."""
         state_topic = topic_intelligence_pipeline_state(self._settings.env_name)
         try:
-            await self._kafka_producer._admin.create_topic(
-                state_topic,
-                num_partitions=_STATE_TOPIC_PARTITIONS,
-                replication_factor=_STATE_TOPIC_REPLICATION,
-                topic_config={
-                    "cleanup.policy": "compact",
-                    "min.cleanable.dirty.ratio": "0.1",
-                    "segment.ms": "3600000",
-                    "retention.ms": str(_STATE_TOPIC_RETENTION_MS),
-                },
+            import subprocess
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    "docker", "exec", "redpanda", "rpk", "topic", "create", state_topic,
+                    "--partitions", str(_STATE_TOPIC_PARTITIONS),
+                    "--replicas", str(_STATE_TOPIC_REPLICATION),
+                    "--topic-config", "cleanup.policy=compact",
+                    "--topic-config", f"retention.ms={_STATE_TOPIC_RETENTION_MS}",
+                ],
+                capture_output=True,
+                timeout=10,
             )
+            if result.returncode != 0 and b"already exists" not in result.stderr:
+                self.logger.warning("state_topic.create_failed", stderr=result.stderr.decode())
         except Exception:
-            pass  # Topic may already exist
+            self.logger.debug("state_topic.create_skipped", reason="rpk unavailable")
 
     async def _seed_bar_history_from_db(self) -> None:
         """Seed BarHistory from intelligence_features (fallback)."""
         try:
             from src.core.bar_history_seeder import BarHistorySeeder
 
-            seeder = BarHistorySeeder(self._db)
-            for symbol in self._symbols:
-                for tf in self._timeframes:
-                    rows = await seeder.seed(symbol, tf, limit=200)
-                    if rows:
-                        self._bar_history.seed(symbol, tf, rows)
-                        self.logger.info(
-                            "bar_history.seeded",
-                            symbol=symbol,
-                            tf=tf,
-                            rows=len(rows),
-                        )
+            config = {"service": {"timeframes": list(self._timeframes)}}
+            seeder = BarHistorySeeder(self._settings, config, self._kafka_producer)
+            await seeder.seed(self._bar_history)
         except Exception as exc:
             self.logger.warning("bar_history.seed_failed", error=str(exc))
 
@@ -579,72 +579,64 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def _restore_state_checkpoint(self) -> bool:
         """Consume compacted state topic and restore all five state fields."""
         state_topic = topic_intelligence_pipeline_state(self._settings.env_name)
+        consumer = None
         try:
             consumer = KafkaConsumerClient(
-                settings=self._settings,
+                state_topic,
+                bootstrap_servers=self._settings.kafka_bootstrap_servers,
                 group_id=f"{self._consumer_group}_state_restore",
+                auto_offset_reset="earliest",
             )
             await consumer.start()
-            consumer.subscribe([state_topic])
 
-            restored_any = False
-            timeout_after = time.monotonic() + 5.0  # 5s max
+            result: list[bool] = [False]
 
-            async for _topic, key_str, payload in consumer.messages():
-                if time.monotonic() > timeout_after:
-                    break
-                if not key_str or not key_str.startswith(f"{_AGENT_VERSION}:"):
-                    # Version mismatch — wrong version prefix
-                    self._state_checkpoint_fallback_total.inc()
-                    continue
-                try:
-                    if isinstance(payload, dict):
-                        # messages() returns decoded dict; re-encode for StateSerializer
-                        raw = _msgpack.packb(payload, use_bin_type=True)
-                        state = StateSerializer.decode(raw)
-                    else:
-                        state = StateSerializer.decode(payload)
-                except Exception:
-                    self._state_checkpoint_failures_total.inc()
-                    continue
+            async def _drain() -> None:
+                async for _topic, key_str, payload in consumer.messages():  # type: ignore[union-attr]
+                    if not key_str or not key_str.startswith(f"{_AGENT_VERSION}:"):
+                        self._state_checkpoint_fallback_total.inc()
+                        continue
+                    try:
+                        if isinstance(payload, dict):
+                            raw = _msgpack.packb(payload, use_bin_type=True)
+                            state = StateSerializer.decode(raw)
+                        else:
+                            state = StateSerializer.decode(payload)
+                    except Exception:
+                        self._state_checkpoint_failures_total.inc()
+                        continue
 
-                # Parse key: "v1:SYMBOL:TF"
-                parts = key_str.split(":")
-                if len(parts) != 3:
-                    continue
-                _, symbol, tf = parts
+                    parts = key_str.split(":")
+                    if len(parts) != 3:
+                        continue
+                    _, symbol, tf = parts  # noqa: F841
 
-                # Restore fields
-                if "_plugin_states" in state:
-                    for k, v in state["_plugin_states"].items():
-                        key = _restore_tuple_key(k)
-                        self._plugin_states[key] = v
-                if "_kalman_state" in state:
-                    for k, v in state["_kalman_state"].items():
-                        key = _restore_tuple_key(k)
-                        self._kalman_state[key] = v
-                if "_tod_priors" in state:
-                    for k, v in state["_tod_priors"].items():
-                        key = _restore_tuple_key(k)
-                        self._tod_priors[key] = v
-                if "_bar_history" in state:
-                    for k, v in state["_bar_history"].items():
-                        self._bar_history._data[k] = v
-                if "_last_bar_offset" in state:
-                    for k, v in state["_last_bar_offset"].items():
-                        key = _restore_tuple_key(k)
-                        self._last_bar_offset[key] = v
+                    if "_plugin_states" in state:
+                        for k, v in state["_plugin_states"].items():
+                            self._plugin_states[_restore_tuple_key(k)] = v
+                    if "_kalman_state" in state:
+                        for k, v in state["_kalman_state"].items():
+                            self._kalman_state[_restore_tuple_key(k)] = v
+                    if "_tod_priors" in state:
+                        for k, v in state["_tod_priors"].items():
+                            self._tod_priors[_restore_tuple_key(k)] = v
+                    if "_bar_history" in state:
+                        for k, v in state["_bar_history"].items():
+                            self._bar_history._data[k] = v
+                    if "_last_bar_offset" in state:
+                        for k, v in state["_last_bar_offset"].items():
+                            self._last_bar_offset[_restore_tuple_key(k)] = v
+                    result[0] = True
 
-                restored_any = True
+            try:
+                await asyncio.wait_for(_drain(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass  # normal — drained all available messages
 
-            await consumer.stop()
-
+            restored_any = result[0]
             if restored_any and self._last_bar_offset:
                 self._state_offset_reset_total.inc()
-                self.logger.info(
-                    "state.restored",
-                    offsets=self._last_bar_offset,
-                )
+                self.logger.info("state.restored", offsets=self._last_bar_offset)
 
             return restored_any
 
@@ -652,6 +644,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.warning("state.restore_failed", error=str(exc))
             self._state_checkpoint_failures_total.inc()
             return False
+        finally:
+            if consumer is not None:
+                try:
+                    await consumer.stop()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # _run: main event loop
@@ -797,8 +795,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             self.logger.error("pipeline.i7_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
             self._pipeline_errors.inc()
 
-        # 7. State checkpoint
-        await self._checkpoint_state(bar)
+        # 7. State checkpoint (best-effort — non-serializable state is skipped)
+        try:
+            await self._checkpoint_state(bar)
+        except Exception:
+            self._state_checkpoint_failures_total.inc()
 
         self._bars_processed.inc()
 
@@ -938,7 +939,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     self._output_queue.get(), timeout=1.0
                 )
                 self._output_buffer_depth.set(self._output_queue.qsize())
-                await self._kafka_producer.publish(topic, key=key, value=value)
+                await self._kafka_producer.publish(topic, msg=value, key=key)
                 self._output_queue.task_done()
             except TimeoutError:
                 continue
@@ -958,14 +959,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
                 continue
-            if should_skip_plugin(plugin_name, symbol, tf):
+            if should_skip_plugin(plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name):
                 continue
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
             try:
-                out = await asyncio.to_thread(
-                    plugin.compute, frames, self._plugin_states.get(state_key, {})
-                )
+                out = await asyncio.to_thread(plugin.compute_full, frames)
                 if isinstance(out, dict):
                     with lock:
                         if "_state" in out:
@@ -1001,21 +1000,20 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 plugin = self._plugin_cache.get(plugin_name)
                 if plugin is None:
                     continue
-                if should_skip_plugin(plugin_name, symbol, tf):
+                if should_skip_plugin(plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name):
                     continue
                 state_key = (plugin_name, symbol, tf)
                 lock = self._get_state_lock(state_key)
                 try:
-                    out = await asyncio.to_thread(
-                        plugin.compute, frames, self._plugin_states.get(state_key, {})
-                    )
+                    out = await asyncio.to_thread(plugin.compute_full, frames)
                     if isinstance(out, dict):
                         with lock:
                             if "_state" in out:
                                 self._plugin_states[state_key] = out.pop("_state")
-                            # smc_trend_direction rename
-                            if tier_key == "smc" and "smc_trend_direction" in out:
-                                out["trend_direction"] = out.pop("smc_trend_direction")
+                            # SMC plugin outputs trend_direction; rename to smc_trend_direction
+                            # to avoid collision with I3Structure.trend_direction
+                            if tier_key == "smc" and "trend_direction" in out:
+                                out["smc_trend_direction"] = out.pop("trend_direction")
                             tier_result.update(out)
                 except Exception as exc:
                     self._pipeline_errors.inc()
@@ -1044,15 +1042,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
                 continue
-            if should_skip_plugin(plugin_name, symbol, tf):
+            if should_skip_plugin(plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name):
                 continue
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
             try:
-                out = await asyncio.to_thread(
-                    plugin.compute, {"main": None, **features},
-                    self._plugin_states.get(state_key, {}),
-                )
+                out = await asyncio.to_thread(plugin.compute_full, {"main": None, **features})
                 if isinstance(out, dict) and out.get("signal"):
                     sig = out["signal"]
                     sig["setup_plugin"] = plugin_name
@@ -1135,18 +1130,24 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self, bar: BarMessage, event: IntelligenceEvent, msg_key: str
     ) -> None:
         """Enqueue IntelligenceJournal record to output buffer."""
+        now = datetime.now(UTC)
+        symbol = bar.symbol
+        tf = bar.tf
         journal = IntelligenceJournal(
+            ts=now,
+            sid=f"intel_{symbol}_{tf}",
+            payload=event.model_dump(mode="json"),
             provenance=ProvenanceChain(
-                agent="intelligence_pipeline_agent",
-                version=_AGENT_VERSION,
-                computed_at=datetime.now(UTC),
+                origin_ts=now,
+                pipeline_id=f"intel_{symbol}_{tf}",
+                plugin_stack=["intelligence_pipeline_agent"],
+                compute_budget_ms=0.0,
             ),
-            event=event,
         )
         self._enqueue(
             topic_intelligence_journal(self._settings.env_name),
             msg_key,
-            journal.model_dump_json(),
+            journal.model_dump(mode="json"),
         )
 
     # ------------------------------------------------------------------

@@ -107,6 +107,10 @@ class KafkaSSEBroadcaster:
         _intelligence_record_topic = topic_intelligence_journal(env_name)
 
         async for topic, key, payload in consumer.messages():  # type: ignore[union-attr]
+            # Skip backfill/seed bars — ibkr_seed source means historical gap-fill data,
+            # not live market data. These must not reach dashboard clients.
+            if isinstance(payload, dict) and payload.get("source") == "ibkr_seed":
+                continue
             # Transform intelligence.record into signal_scorecard payload shape
             # so downstream SSE clients receive the same format as before.
             if topic == _intelligence_record_topic:

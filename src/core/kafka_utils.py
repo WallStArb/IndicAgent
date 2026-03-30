@@ -144,6 +144,14 @@ class KafkaConsumerClient:
         """
         await self._consumer.seek_to_beginning()
 
+    async def seek_to_end(self) -> None:
+        """Seek all assigned partitions to the latest offset.
+
+        Call after start() to skip all historical messages and consume only new
+        messages, regardless of any previously committed offsets.
+        """
+        await self._consumer.seek_to_end()
+
     async def messages(self) -> AsyncGenerator[tuple[str, str | None, dict]]:
         """Yield (topic, key, payload_dict) tuples from subscribed topics.
 
