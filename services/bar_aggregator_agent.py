@@ -234,6 +234,6 @@ if __name__ == "__main__":
     from src.core.service_utils import setup_service_logging
     from src.observability.otel import init_tracing
 
-    setup_service_logging("bar_aggregator_agent")
+    setup_service_logging("logs/bar_aggregator_agent.log")
     init_tracing("bar_aggregator_agent")
     asyncio.run(main())
