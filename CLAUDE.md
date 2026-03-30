@@ -4,27 +4,12 @@ Version: 5.32.0
 Last Updated: 2026-03-25
 Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
-## Renaissance Foundation Principles
-- **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
-- **Let the system run.** Don't override data with intuition. Build the automation, then trust it.
-- **Earn the right through proof.** No model, strategy, or feature gets promoted to production without statistically significant evidence (p < 0.05, sufficient N). Shadow mode first, always.
-- **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
-- **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
-- **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.
-- **Never drop data that could contain signal.** Storage is the cheapest thing we own. Every signal outcome, feature vector, and LLM call is a labeled training sample. Once gone, it cannot be recovered.
-
-## Renaissance Agentic DAG Principles (v2.1)
-- **Agentic DAG Architecture:** All pipeline nodes must be autonomous, event-driven Agents. Compute Agents (I1-I6) are DB-ignorant and publish to domain-specific Tiered Topics (`intelligence.i{N}`). DataWriterAgents manage all persistence.
-- **The Persistence DAG:** WriterAgents must use the "Convergence Gate" (StreamMerger) to join tiered streams into a single, unified journal entry before persistence, ensuring atomic data integrity.
-- **Resilience & Observability:** 
-    - All agents must be instrumented with the "Golden Signals" (Traffic, Latency, Errors, Saturation) via Prometheus + Grafana.
-    - Persistence agents must track `persistence_batch_latency` and `persistence_consumer_lag`.
-- **Lifecycle Management:** 
-    - Agents must implement `SIGTERM` handlers for graceful drain and maintain a DLQ (`intelligence.[domain].journal.dlq`) for unprocessable payloads.
-- **Taxonomy:** All persistence logic resides in `src/persistence/repository/` (Repositories) and `src/persistence/writer/` (WriterAgents).
-- **Scaling:** Scaling is managed via systemd process management and Prometheus-based lag monitoring. No manual Kubernetes HPA management.
-
-Apply this framing when: designing new features, choosing between approaches, deciding what to log, evaluating model/strategy performance, or questioning whether something is "good enough."
+## Renaissance Principles
+- **Instrument everything** — no data point left uncaptured; every signal/outcome/LLM call is a labeled training sample
+- **Earn the right through proof** — p < 0.05, shadow mode before promotion, let automation run (don't override with intuition)
+- **Segment relentlessly** — rules that work in specific regimes beat global rules
+- **Degrade gracefully** — auto-feedback loops, not manual tuning; clean data beats smart models
+- **Agentic DAG:** I1-I6 ComputeAgents (DB-ignorant, Kafka-only) → tiered topics → DataWriterAgents (TimescaleDB); systemd scaling, Golden Signals observability
 
 # IndicAgent Market Intelligence Platform
 
@@ -33,28 +18,12 @@ Real-time market intelligence platform with plugin-native architecture, Redpanda
 ## Quick Start
 
 ```bash
-# Setup
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Run tests
+python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 .venv/bin/pytest tests/unit/ -v
-
-# Code quality
-.venv/bin/ruff check . --fix    # Lint
-.venv/bin/black .                # Format
-
-# Start services
-sudo systemctl start indicagent-intelligence-pipeline  # or other services
-sudo systemctl status indicagent-intelligence-pipeline
-
-# Dashboard
-cd dashboard && npm run dev  # Runs on http://localhost:3000
-
-# Pre-commit workflow (mandatory before committing)
-/simplify                    # Review for reuse/quality/efficiency
-/coderabbit:code-review      # Run AI code review
+.venv/bin/ruff check . --fix && .venv/bin/black .
+sudo systemctl start indicagent-intelligence-pipeline
+cd dashboard && npm run dev
+/simplify && /coderabbit:code-review  # pre-commit mandatory
 ```
 
 ## Knowledge Hierarchy
@@ -181,22 +150,9 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 ### Cross-Layer Transformation Rules
 
-| Layer | Pattern | Example (`alpha_signal`) |
-|-------|---------|------------------------------|
-| Python file (Service) | `<concept>_service.py` | `alpha_signal_service.py` |
-| Python file (Agent) | `<concept>_agent.py` | `alpha_signal_agent.py` |
-| Python file (Plugin) | `src/intelligence/trading/<concept>.py` | `alpha_signal.py` |
-| Python class (Service) | `PascalCase` + `Service` | `AlphaSignalService` |
-| Python class (Agent) | `PascalCase` + agent role suffix (see below) | `AlphaSignalComputeAgent` |
-| Python class (Plugin) | `PascalCase` + `Plugin` | `AlphaSignalPlugin` |
-| Systemd unit | `indicagent-<concept-kebab>.service` | `indicagent-alpha-signal.service` |
-| Log file | `logs/<python_filename>.log` | `logs/alpha_signal_agent.log` |
-| Kafka topic fn | `topic_<concept>()` in `stream_keys.py` | `topic_alpha_signal()` |
-| Kafka topic string | `<env>.<domain>[.<sublayer>]` (dots only) | `dev.alpha_signal` |
-| DB table | `snake_case` plural noun | `alpha_signals` |
-| DB columns | `snake_case` | `ts`, `symbol`, `tf`, `i7` |
+**Pattern:** concept_name → PascalCase → concept_kebab → topic_concept() (mechanically derivable)
 
-**Agent role suffixes** (from `docs/architecture/AGENT_STANDARD.md`): `ProviderAgent` (external source→Kafka, no compute/DB), `ComputeAgent` (math/stats transform, DB-ignorant), `GeneratorAgent` (signal/trade fire), `WriterAgent` (DB persistence), `TrackerAgent` (business object lifecycle), `AuditorAgent` (data integrity validation + self-healing). Use `_agent.py` / `PascalCaseRoleAgent` for any service that is DB-ignorant and publishes to a Kafka topic. Use `_service.py` / `PascalCaseService` for services with mixed concerns or DB access.
+**Agent role suffixes:** ProviderAgent, ComputeAgent, GeneratorAgent, WriterAgent, TrackerAgent, AuditorAgent
 
 ### Active Service Map
 
@@ -291,13 +247,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - Aggregate views: `ohlcv_15m`, `ohlcv_1h`, `ohlcv_4h`, `ohlcv_1d`, `market_data_5m`, `market_data_15m`
 - **Volume Profile field selection**: `poc_price`/`vah`/`val` = session VP (resets daily — use for 1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (structural — use for 15m/1h). `price_in_value_area`, `distance_to_vah_atr`, `distance_to_val_atr` already computed in I4Context — no recalculation needed downstream.
 
-### TimescaleDB Gotchas (Common)
-- **DB shell:** `docker exec timescaledb psql -U postgres -d indicagent` — container is `timescaledb`
-- **VACUUM:** Cannot run inside a transaction block — use standalone `psql -c "VACUUM ..."`
-- **`instruments` table key is base symbol**: `symbol` column stores base (e.g., `PL`, `SOL`, `ES`), NOT the contract code. Contract code lives inside `contract_details->>'symbol'`. The API spreads `json.loads(contract_details)` so the JSONB `symbol` key overrides the DB key in API responses. To deactivate: `UPDATE instruments SET is_active = FALSE WHERE symbol IN ('PL', 'SOL')`.
-- **`instruments.contract_details` is stored as a JSON string**: `jsonb` column stores a serialized string value, not a JSON object. `jsonb_typeof(contract_details)` returns `"string"`, so `->>'field'` operators don't work directly in SQL. Use Python `json.loads()` to parse, or in SQL: `(contract_details #>> '{}')::jsonb->>'field'`.
-- **`market_data_ohlcv` missing index**: `CREATE INDEX ON market_data_ohlcv (symbol, timeframe, timestamp DESC);` — without this, ORDER BY DESC LIMIT queries scan all 10k chunks and time out. Omit CONCURRENTLY (not supported on hypertables).
-- **Advanced patterns:** See `docs/operations/timescaledb-gotchas.md` for autovacuum, chunk iteration, materialized views, compression jobs, pg_stat_statements, and migration patterns.
+### TimescaleDB Gotchas
+`docker exec timescaledb psql -U postgres -d indicagent` — `instruments.symbol` = base, contract code in `contract_details`. See `docs/operations/timescaledb-gotchas.md`
 
 ## Plugin System
 
@@ -305,23 +256,9 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 - Tier lists: `TIER_I1`…`TIER_I7` in `src/intelligence/register_plugins.py` — single source of truth
 - `registry.validate_tier()` hard-crashes at startup on any missing name
-- **LLM provider rotation**: `ai_narrative_service.py` uses `LLMChain` with ordered fallback. Multiple free OpenRouter models (`:free` suffix) prevent rate limit failures. Define shared provider lists as module-level constants to avoid duplication across chains.
-- **`order_blocks.py` pre-filters to unmitigated OBs**: `_check_mitigated()` runs before output — `ob_type/top/bottom` always represents an unmitigated block. Downstream scoring (I6, trade_framer) does not need to re-check mitigation status.
-- **`cross_timeframe.py` already has multi-TF data**: `compute_full(frames)` iterates `intel_<tf>` keys (lines 89-92) — FVG/OB/VP outputs from all active TFs flow through automatically. Cross-TF scoring only needs the scoring function, no new data routing.
-- **HTF frame injection pattern**: `signal_generator_service._cross_asset_cache: dict[str, dict]` (tf → payload) is the canonical pattern for injecting per-TF external data into plugin frames before `compute_full()`. Replicate for any new per-TF source (e.g., `_htf_intel_cache`). Zero new subscriptions — populate cache from existing stream, inject into `frames` dict.
-- **I7 utilities** (check before creating new): `exhaustion_utils.py` (`apply_exhaustion_boost`, `apply_exhaustion_guard`); `signal_schema.py` (`make_signal`, `validate_signal`); `plugin_utils.py` (`no_signal`, `extract_ohlcv`, `signal_type_for_direction`); `atr_utils.py` (`get_atr` — null-safe I1 accessor, never recompute ATR in I7); `state_utils.py` (`track_consecutive_state`, `reset_consecutive_state`); `confidence_utils.py` (`compose_confidence` — ALL I7 confidence values must route through this; `capture_signal_features` — writes shadow dict for ML training); `microstructure_utils.py` (`detect_spike_signal` — shared OFI/CVD spike logic); `volume_profile_utils.py` (`check_reversal_gate`, `format_reversal_supporting_factors`). `composites/common.py` utilities (`is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`) are I2-only — evaluate before using in I7.
-
-### Signal Identity Preservation (Renaissance Principle)
-
-**Never merge informationally distinct signals into a parameterized class.** OFI (order book intent) and CVD (aggressive execution) are separate ML feature columns — `trad_OFIDivergence` and `trad_CVDDivergence` must remain independent. Same rule for VWAP (3 plugins), liquidity (3 plugins). Extract shared *computation* to utilities; never collapse *identity*.
-
-### I6 → I7 Confluence Obligation (Renaissance Principle)
-
-**Every I7 plugin must consume relevant I6 `ctf_*` sub-scores in its confidence calculation.** Weight by setup family:
-- **Trend-following** → `ctf_trend_alignment`, `ctf_score` (heavy weight)
-- **Mean-reversion** → `ctf_regime_agreement`, `ctf_structure_alignment`
-- **SMC/FVG** → `ctf_fvg_alignment`, `ctf_ob_alignment`
-- **Microstructure** (OFI/CVD) → `ctf_score` as a *gate* (suppress signal if CTF disagrees)
+- **I7 utilities:** atr_utils, confidence_utils, exhaustion_utils, microstructure_utils, plugin_utils, signal_schema, state_utils, volume_profile_utils — check before creating new
+- **Signal identity:** Never merge informationally distinct signals (OFI ≠ CVD, VWAP variants separate)
+- **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores (trend→ctf_trend_alignment, mean_reversion→ctf_regime_agreement, SMC/FVG→ctf_fvg_alignment/ctf_ob_alignment)
 
 ## Development Standards
 
