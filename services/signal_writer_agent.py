@@ -47,6 +47,7 @@ from src.persistence.repository.signal_ledger_repository import (
 CONSUMER_GROUP = "signal_writer_group"
 BATCH_SIZE = 100  # flush after this many LedgerEntry rows
 FLUSH_INTERVAL_SECS = 5.0  # or after this many seconds, whichever comes first
+MAX_BUFFER_SIZE = 10_000  # drop oldest entries if buffer exceeds this (memory safety)
 
 
 class SignalWriterAgent(BaseAgent):
@@ -60,6 +61,8 @@ class SignalWriterAgent(BaseAgent):
         self._db: DatabaseManager | None = None
         self._consumer: KafkaConsumerClient | None = None
         self._repo: SignalLedgerRepository | None = None
+        self._buffer: list[LedgerEntry] = []
+        self._last_flush: float = 0.0
 
         # Metrics — Golden Signals
         self._events_consumed = counter(
@@ -73,6 +76,10 @@ class SignalWriterAgent(BaseAgent):
         self._write_errors = counter(
             "signal_writer_write_errors_total",
             "Failed batch inserts",
+        )
+        self._buffer_dropped = counter(
+            "signal_writer_buffer_dropped_total",
+            "Entries dropped due to buffer overflow",
         )
         self._batch_latency = PERSISTENCE_BATCH_LATENCY.labels(
             agent_id="signal_writer_agent"
@@ -90,52 +97,58 @@ class SignalWriterAgent(BaseAgent):
         await self._db.initialize()
         self._repo = SignalLedgerRepository(self._db)
 
+        topic = topic_intelligence_i7_signals(self._settings.env_name)
         self._consumer = KafkaConsumerClient(
-            topic_intelligence_i7_signals(self._settings.env_name),
+            topic,
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
             group_id=CONSUMER_GROUP,
             auto_offset_reset="earliest",
         )
         await self._consumer.start()
-        self.logger.info(
-            "signal_writer.started",
-            topic=topic_intelligence_i7_signals(self._settings.env_name),
-        )
+        self._last_flush = time.monotonic()
+        self.logger.info("signal_writer.started", topic=topic)
 
     async def _run(self) -> None:
-        buffer: list[LedgerEntry] = []
-        last_flush = time.monotonic()
-
         async for _topic, _key, payload in self._consumer.messages():
             if not isinstance(payload, dict):
                 continue
             self._events_consumed.inc()
 
-            entries = _payload_to_ledger_entries(payload)
-            buffer.extend(entries)
-            self._buffer_depth.set(len(buffer))
+            self._buffer.extend(_payload_to_ledger_entries(payload))
+
+            # Memory safety: drop oldest entries if buffer exceeds MAX_BUFFER_SIZE
+            if len(self._buffer) > MAX_BUFFER_SIZE:
+                dropped = len(self._buffer) - MAX_BUFFER_SIZE
+                self._buffer = self._buffer[-MAX_BUFFER_SIZE:]
+                self._buffer_dropped.inc(dropped)
+                self.logger.warning("signal_writer.buffer_overflow", dropped=dropped)
+
+            self._buffer_depth.set(len(self._buffer))
 
             now = time.monotonic()
-            if len(buffer) >= BATCH_SIZE or (now - last_flush) >= FLUSH_INTERVAL_SECS:
-                await self._flush(buffer)
-                buffer.clear()
-                last_flush = now
-                self._buffer_depth.set(0)
+            if len(self._buffer) >= BATCH_SIZE or (now - self._last_flush) >= FLUSH_INTERVAL_SECS:
+                await self._flush()
+                self._last_flush = now
 
-    async def _flush(self, buffer: list[LedgerEntry]) -> None:
-        if not buffer:
+    async def _flush(self) -> None:
+        if not self._buffer:
             return
+        batch = self._buffer[:]
         t0 = time.perf_counter()
         try:
-            await self._repo.insert_signals(buffer)
-            self._signals_written.inc(len(buffer))
+            await self._repo.insert_signals(batch)
+            self._buffer.clear()
+            self._buffer_depth.set(0)
+            self._signals_written.inc(len(batch))
             self._batch_latency.observe(time.perf_counter() - t0)
-            self.logger.info("signal_writer.flushed", count=len(buffer))
+            self.logger.info("signal_writer.flushed", count=len(batch))
         except Exception as exc:
             self._write_errors.inc()
             self.logger.error("signal_writer.flush_error", error=str(exc))
 
     async def _teardown(self) -> None:
+        if self._buffer:
+            await self._flush()
         if self._consumer:
             await self._consumer.stop()
         if self._db:
