@@ -54,12 +54,14 @@ from src.core.stream_keys import (
     message_key,
     topic_cross_asset,
     topic_intelligence,
+    topic_intelligence_i7_signals,
     topic_intelligence_journal,
     topic_intelligence_pipeline_state,
     topic_intelligence_shadow,
     topic_market_bars,
     topic_market_bars_htf,
     topic_market_ticks,
+    topic_signals_aggregated,
     topic_system_events,
 )
 from src.intelligence.context.vix_context import compute_vix_context
@@ -1091,12 +1093,57 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf)
         ranked = rank_signals(calibrated, self._perf_weights)
-        winner = select_winner(ranked)
 
+        # Annotate each ranked signal with ledger metadata before publishing
+        num_signals = len(ranked)
+        for rank_idx, sig in enumerate(ranked, start=1):
+            sig["composite_rank"] = rank_idx
+            sig["num_signals_bar"] = num_signals
+            sig["was_selected"] = False  # filled in after winner selection below
+            sig["status"] = (
+                "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
+            )
+            # Regime context from features (populated by _build_features_from_event)
+            sig["regime_type"] = features.get("regime_type")
+            sig["hmm_regime_at_fire"] = features.get("hmm_regime")
+            # is_shadow: check plugin class attribute via _plugin_cache
+            plugin_inst = self._plugin_cache.get(sig.get("setup_plugin", ""))
+            sig["is_shadow"] = bool(
+                plugin_inst is not None and getattr(plugin_inst, "IS_SHADOW", False)
+            )
+
+        # Select winner from regime-eligible signals only
+        winner = select_winner([s for s in ranked if s.get("regime_eligible", True)])
+        winner_plugin = winner.get("setup_plugin") if winner else None
+
+        # Mark the winner
+        if winner_plugin is not None:
+            for sig in ranked:
+                if (
+                    sig.get("setup_plugin") == winner_plugin
+                    and sig.get("regime_eligible", True)
+                ):
+                    sig["was_selected"] = True
+                    break
+
+        # Publish ALL ranked signals (including regime_suppressed) for SignalWriterAgent → signal_ledger
+        self._enqueue(
+            topic_intelligence_i7_signals(self._settings.env_name),
+            message_key(symbol, tf),
+            {
+                "symbol": symbol,
+                "tf": tf,
+                "bar_ts": bar.ts.isoformat(),
+                "computed_at": datetime.now(UTC).isoformat(),
+                "signals": ranked,
+            },
+        )
+
+        # Publish winner to signals.aggregated for signal_tracker_agent
         if winner:
             self._signals_selected.inc()
             self._enqueue(
-                topic_intelligence(self._settings.env_name),
+                topic_signals_aggregated(self._settings.env_name),
                 message_key(symbol, tf),
                 winner,
             )
