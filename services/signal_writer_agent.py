@@ -210,4 +210,4 @@ def _parse_ts(value: str | None) -> datetime | None:
 
 if __name__ == "__main__":
     agent = SignalWriterAgent()
-    asyncio.run(agent.run())
+    asyncio.run(agent.start())

@@ -1,0 +1,19 @@
+[Unit]
+Description=IndicAgent Signal Writer Agent — I7 signals → signal_ledger
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_writer_agent.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-signal-writer
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
