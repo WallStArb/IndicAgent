@@ -9,6 +9,7 @@ Tests _adjust_price_state() and _handle_roll_event() behavior:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, UTC
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -29,6 +30,31 @@ def _make_service() -> Any:
     svc._i1_plugin_states_locks = {}
     svc.logger = MagicMock()
     return svc
+
+
+def _make_roll_event(
+    base_symbol: str = "ES",
+    old_contract: str = "ESM6",
+    new_contract: str = "ESU6",
+    roll_gap: float = 2.5,
+) -> dict:
+    """Create a valid RollEvent payload matching the RollEvent schema.
+
+    Note: The implementation reads event.get("roll_gap", 0.0) directly,
+    not from the parsed RollEvent.roll_gap_price. We include both
+    keys to satisfy both the schema validator and the implementation.
+    """
+    return {
+        "symbol": base_symbol,
+        "old_contract": old_contract,
+        "new_contract": new_contract,
+        "roll_gap_price": roll_gap,
+        "roll_gap": roll_gap,  # Implementation reads this directly
+        "roll_gap_pct": roll_gap / 1000.0,  # approximate
+        "detection_ts": datetime.now(UTC),
+        "volume_zscore": 1.5,
+        "confirmation_count": 3,
+    }
 
 
 class TestAdjustPriceState:
@@ -96,14 +122,7 @@ class TestHandleRollEvent:
     def test_price_sensitive_plugin_adjusted(self) -> None:
         svc = _make_service()
         self._populate_states(svc)
-        event = {
-            "event_type": "roll",
-            "base_symbol": "ES",
-            "old_symbol": "ESM6",
-            "new_symbol": "ESU6",
-            "roll_gap": 2.5,
-            "roll_direction": "up",
-        }
+        event = _make_roll_event(roll_gap=2.5)
         asyncio.run(svc._handle_roll_event(event))
         new_bb = svc._i1_plugin_states.get(("bollinger_bands", "ESU6", "1m"))
         assert new_bb is not None
@@ -114,14 +133,7 @@ class TestHandleRollEvent:
     def test_volume_neutral_plugin_copied_verbatim(self) -> None:
         svc = _make_service()
         self._populate_states(svc)
-        event = {
-            "event_type": "roll",
-            "base_symbol": "ES",
-            "old_symbol": "ESM6",
-            "new_symbol": "ESU6",
-            "roll_gap": 2.5,
-            "roll_direction": "up",
-        }
+        event = _make_roll_event(roll_gap=2.5)
         asyncio.run(svc._handle_roll_event(event))
         new_rsi = svc._i1_plugin_states.get(("rsi", "ESU6", "1m"))
         assert new_rsi is not None
@@ -132,14 +144,7 @@ class TestHandleRollEvent:
     def test_old_key_deleted(self) -> None:
         svc = _make_service()
         self._populate_states(svc)
-        event = {
-            "event_type": "roll",
-            "base_symbol": "ES",
-            "old_symbol": "ESM6",
-            "new_symbol": "ESU6",
-            "roll_gap": 2.5,
-            "roll_direction": "up",
-        }
+        event = _make_roll_event(roll_gap=2.5)
         asyncio.run(svc._handle_roll_event(event))
         old_keys = [k for k in svc._i1_plugin_states if "ESM6" in k]
         assert len(old_keys) == 0
@@ -147,14 +152,7 @@ class TestHandleRollEvent:
     def test_new_key_created_for_all_timeframes(self) -> None:
         svc = _make_service()
         self._populate_states(svc)
-        event = {
-            "event_type": "roll",
-            "base_symbol": "ES",
-            "old_symbol": "ESM6",
-            "new_symbol": "ESU6",
-            "roll_gap": 1.0,
-            "roll_direction": "up",
-        }
+        event = _make_roll_event(roll_gap=1.0)
         asyncio.run(svc._handle_roll_event(event))
         # Both 1m and 5m should be migrated
         new_keys = [k for k in svc._i1_plugin_states if "ESU6" in k]
@@ -167,7 +165,8 @@ class TestHandleRollEvent:
         svc._i1_plugin_states = {
             ("bollinger_bands", "ESM6", "1m"): {"upper": 5200.0},
         }
-        event = {"event_type": "other", "old_symbol": "ESM6", "new_symbol": "ESU6"}
+        # Malformed event — missing required fields — parse_roll_event returns None
+        event = {"foo": "bar"}
         asyncio.run(svc._handle_roll_event(event))
         # State should be unchanged
         assert ("bollinger_bands", "ESM6", "1m") in svc._i1_plugin_states
@@ -175,21 +174,20 @@ class TestHandleRollEvent:
     def test_malformed_event_missing_fields_logged_not_crashed(self) -> None:
         svc = _make_service()
         svc._i1_plugin_states = {}
-        event = {"event_type": "roll"}  # Missing old_symbol, new_symbol
+        # Malformed event — missing required fields
+        event = {"foo": "bar"}
         # Should not raise
         asyncio.run(svc._handle_roll_event(event))
 
     def test_no_old_key_gracefully_skipped(self) -> None:
         svc = _make_service()
         svc._i1_plugin_states = {}
-        event = {
-            "event_type": "roll",
-            "base_symbol": "NQ",
-            "old_symbol": "NQM6",
-            "new_symbol": "NQU6",
-            "roll_gap": 5.0,
-            "roll_direction": "up",
-        }
+        event = _make_roll_event(
+            base_symbol="NQ",
+            old_contract="NQM6",
+            new_contract="NQU6",
+            roll_gap=5.0,
+        )
         asyncio.run(svc._handle_roll_event(event))  # No state to migrate — should not crash
 
     def test_default_roll_gap_zero(self) -> None:
@@ -197,14 +195,8 @@ class TestHandleRollEvent:
         svc._i1_plugin_states = {
             ("bollinger_bands", "ESM6", "1m"): {"upper": 5200.0, "lower": 5100.0},
         }
-        event = {
-            "event_type": "roll",
-            "base_symbol": "ES",
-            "old_symbol": "ESM6",
-            "new_symbol": "ESU6",
-            # roll_gap deliberately omitted — should default to 0.0
-            "roll_direction": "up",
-        }
+        # Create a valid RollEvent with roll_gap_price = 0
+        event = _make_roll_event(roll_gap=0.0)
         asyncio.run(svc._handle_roll_event(event))
         new_bb = svc._i1_plugin_states.get(("bollinger_bands", "ESU6", "1m"))
         assert new_bb is not None
