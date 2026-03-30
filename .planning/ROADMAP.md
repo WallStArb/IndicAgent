@@ -225,6 +225,9 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 57-01-PLAN.md — Kafka infrastructure, signal_ledger migration, systemd unit scaffolding
   - [x] 57-02-PLAN.md — I1-I6 in-process pipeline, state checkpointing, BarHistorySeeder warmup
   - [x] 57-03-PLAN.md — I7 integration, confidence attribution, output queue, async drain
+- [x] **Phase 57.1: SignalWriterAgent — signal_generator_agent Retirement** — New `intelligence.i7.signals` topic; thin `SignalWriterAgent` (WriterAgent) consumes all ranked I7 signals → `signal_ledger`; fix winner publish to `topic_signals_aggregated`; retire `signal_generator_agent`
+  Design doc: `docs/superpowers/plans/2026-03-30-signal-writer-agent.md`
+  - [x] 057.1-01-PLAN.md — stream key, pipeline publish fix, SignalWriterAgent, tests, systemd, retirement
 
 </details>
 
@@ -484,6 +487,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 53.1. BarWriterAgent + BarAuditorAgent | v2.2 | 3/3 | Complete | 2026-03-28 |
 | 54. Provider Abstraction Layer | v2.2 | 4/4 | Complete | 2026-03-28 |
 | 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete    | 2026-03-29 |
+| 57.1. SignalWriterAgent — signal_generator_agent Retirement | v2.2 | 1/1 | Complete | 2026-03-30 |
 
 ### Phase 52.5: Parity Auditor Agent
 

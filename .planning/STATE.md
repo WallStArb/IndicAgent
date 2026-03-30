@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Milestone complete
-last_updated: "2026-03-29T23:10:52.527Z"
+last_updated: "2026-03-30T13:12:34.677Z"
 progress:
   total_phases: 13
   completed_phases: 2
@@ -18,13 +18,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 57 — intelligencepipelinecomputeagent-unified-i1-i7-pipeline
+**Current focus:** Phase 57.1 — signal-writer-agent-retirement
 
 ## Current Position
 
-Phase: 57
-Plan: Not started
-Next: shadow validation + cutover
+Phase: 57.1
+Plan: 01 Complete (2026-03-30)
+Next: Phase 57.1 complete — signal_generator_agent retired, SignalWriterAgent live
 
 ## v2.1 Milestone Goal
 
@@ -120,6 +120,15 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 Recent additions:
 
 - 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
+
+### Decisions (Phase 57.1 Plan 01)
+
+- agent.start() not agent.run() — BaseAgent only exposes start(); design doc had run() which does not exist
+- PERSISTENCE_BATCH_LATENCY label is agent_id (not agent) — matched actual metrics.py definition
+- setup_service_logging requires full log path 'logs/signal_writer_agent.log' (not bare name)
+- BaseAgent.running is read-only property — removed agent.running = True from __new__ test bypass pattern
+- 3 test files updated to import from _archived_signal_generator_agent (file preserved for test documentation)
+- Signal flow verified: signal_writer_group consumer stable, topic created, pipeline processing backlog
 
 ### Decisions (Phase 57 Plan 03)
 
