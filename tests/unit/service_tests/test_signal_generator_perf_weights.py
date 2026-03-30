@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.signal_generator_agent import SignalGeneratorAgent
+from services._archived_signal_generator_agent import SignalGeneratorAgent
 
 # ---------------------------------------------------------------------------
 # Factory — bypass __init__ using __new__ pattern (per CLAUDE.md)
