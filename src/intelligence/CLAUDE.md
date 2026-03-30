@@ -1,25 +1,12 @@
 # Intelligence Layer — Developer Reference
 
-## Plugin Tiers (121 total + 2 aggregation)
+## Plugin Tiers (121 + 2 aggregation)
 
-### I1 Technical Indicators (27) — incremental `compute_next()`
-Trend, Momentum, Volatility, Volume. Full list: `TIER_I1` in `register_plugins.py`.
-
-### I2 Composite Events (11) — on I1 features, before I3
-MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAcceleration, DonchianPosition, OBVMomentum, DerivativeOscillator, ExhaustionScore, AccelerationRegime.
-Defined in `composites/`. Shared utilities in `composites/common.py`: `is_num`, `crossover_detect`, `threshold_cross`, `track_bars_ago`.
-
-### I3 Structure (7) · I4 Context (13)
-- **I3**: swing detector, S/R, trend structure, MarketProfile, SessionLevels, FibonacciZones, SwingMomentum
-- **I4**: vol/trend/momentum regime, GARCH volatility, HurstExponent, ShannonEntropy, Kalman trend, SessionContext, MTFVolatility, AnchoredVWAP, VolumeProfile, VIXRegimePlugin, CrossAssetContextPlugin (added Phase 46.1)
-
-### I5 Patterns (15) · I6 SMC (13) · I6 Confluence (1)
-- **I5**: RSI divergence, squeeze, vol divergence, MACD divergence, CMF divergence, confluence, trend confluence, DoubleTopBottom, HeadShoulders, TriangleWedge, Candlestick, FlagPennant, CupHandle, MeasuredMove, KeyLevelReaction
-- **I6 SMC**: BOS/CHoCH, FVG, Order Blocks, HMM regime, liquidity pools, supply/demand, BOCPD changepoint, liquidity sweeps, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount
-- **I6 Confluence**: CrossTimeframeConfluence — recency-weighted multi-TF alignment (14 output fields: ctf_score, ctf_trend_alignment, ctf_regime_agreement, ctf_structure_alignment, ctf_fvg_alignment, ctf_ob_alignment, ctf_confirming_tfs, ctf_conflicting_tfs, ctf_vix_level, ctf_vix_z, ctf_eq_spread_z, ctf_eq_pairs_confirming + 2 more; added in Phases 45-46)
-
-### I7 Trading Setups (36) + Aggregation (2)
-TrendFollowing, MeanReversion, LiquiditySweepReclaim, MTFAlignment, SqueezeExpansion, VWAPDeviation, MomentumBreakout, LiquidityHunt, SupplyDemandSetup, CHoCHReversal, FVGFill, PatternCompletion, DivergenceStack, RegimeTransition, GapAnalysisSetup, CandlestickPatternSetup, SessionExtremesSetup, FailedBreakout, ORB15, ORB30, PrevDayLevelTest, SecondLegContinuation, VCP, AnchoredVWAPReversion, VWAPReclaim, POCRejection, HVNRejection, LVNBreakout, OFIContinuation, OFIDivergence, OFISpike, CVDDivergence, CVDSpike, DeltaExhaustion, DualDivergence, CrossAssetDivergence.
+**I1** (27): Trend/Momentum/Volatility/Volume indicators — see `TIER_I1` in `register_plugins.py`
+**I2** (11): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
+**I3** (7): Structure (swing, S/R, MarketProfile, SessionLevels) · **I4** (13): Context (GARCH, Kalman, VWAP, VolumeProfile)
+**I5** (15): Patterns (divergence, squeeze, chart patterns) · **I6** (14): SMC + confluence (BOS/CHoCH, FVG, OB, multi-TF alignment)
+**I7** (36): Trading setups (TrendFollowing, MeanReversion, LiquiditySweepReclaim, etc.) + 2 aggregators
 
 **GARCH/Kalman quality gates** wired into MeanReversion, VWAPDeviation, SqueezeExpansion.
 
@@ -64,36 +51,14 @@ All live in `src/intelligence/trading/`:
 
 ## Signal Lifecycle (trading/)
 
-### Key files
-- `lifecycle_tracker.py` — pure `evaluate_signal()` function; returns `Transition | None`
-- `signal_ledger.py` — `LedgerEntry` dataclass + `insert_signals()` / `update_signal_status()`
-- `trade_framer.py` — `frame_trade()` → `TradeFrame` with `zone_low/zone_high`
+`lifecycle_tracker.py` — evaluate_signal() → Transition | None
+`signal_ledger.py` — LedgerEntry dataclass + insert/update_status
+`trade_framer.py` — frame_trade() → TradeFrame with zone_low/zone_high
 
-### Zone-aware activation
-`_check_zone_activation()` fires when `low <= zone_high AND high >= zone_low` (bar range overlaps zone).
-`zone_entry_pct`: 0.0 = proximal (ideal edge), 1.0 = distal (risky edge).
-
-### Entry zone bounds (trade_framer._resolve_zone_bounds)
-- `supply_demand_*` → nearest_demand/supply_low + high from features
-- `fvg_*` → fvg_bottom + fvg_top
-- `choch_*` / OB setups → ob_bottom + ob_top
-- `sweep_*` / `liquidity_hunt_*` → entry ± 0.5×ATR
-- All others → entry − 1.0×ATR to entry + 0.5×ATR
-
-### 8-class outcome taxonomy
-`never_activated` · `stopped_at_entry` · `stopped_in_trade` · `target_1` · `target_1_2` · `target_full` · `ttl_expired_ahead` · `ttl_expired_behind`
-
-Stop outcomes (`stopped_at_entry` vs `stopped_in_trade`) resolved in `signal_lifecycle_service._classify_stop_outcome()` using `bars_in_trade` and MFE threshold.
-
-### TTL computation
-`bars_elapsed = (current_bar_time - signal_timestamp).total_seconds() / tf_seconds` — timestamp-based, not counter-based (fixes old silent TTL bug).
-
-### DB fields written progressively
-- **At signal fire** (signal_generator_service): `determined_at`, `signal_computed_at`, `ask_at_signal`, `bid_at_signal`, `market_price_at_signal`, `entry_zone_low`, `entry_zone_high`, `zone_valid_at_signal`
-- **At activation** (signal_lifecycle_service): `activation_price`, `zone_entry_pct`, `bars_to_activation`
-- **At exit** (signal_lifecycle_service): `mae`, `mfe`, `bars_in_trade`, `outcome`
-- **`bar_close_price` is implicit** — not stored in `signal_ledger`; JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV
-- **`intelligence_features` i7/i8 columns**: `i7` JSONB array = all ranked setups that fired on that bar; `i8` JSONB = LLM narrative metadata (model, confidence, summary). Written by `feature_writer_service` via enrichment streams.
+**Zone activation:** bar range overlaps zone (`low <= zone_high AND high >= zone_low`)
+**Outcomes:** 8-class taxonomy (never_activated · stopped_at_entry/in · target_1/1_2/full · ttl_expired_ahead/behind)
+**TTL:** timestamp-based: `bars_elapsed = (current - signal_ts) / tf_seconds`
+**DB fields:** written progressively (fire → activation → exit); `bar_close_price` implicit via JOIN to `intelligence_features`
 
 ## Gotchas
 
