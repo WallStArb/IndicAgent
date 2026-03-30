@@ -12,7 +12,6 @@ from src.persistence.repository.signal_ledger_repository import (
     _SELECT_ACTIVE_SQL,
     LedgerEntry,
     SignalLedgerRepository,
-    update_signal_status,
 )
 
 # ---------------------------------------------------------------------------
