@@ -70,10 +70,10 @@ class TestLedgerEntry:
         # Index 0 = signal_id, 2 = symbol
         assert params[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         assert params[2] == "ES"
-        # JSONB fields are JSON strings
-        assert json.loads(params[9]) == [5110.0, 5120.0]
-        assert json.loads(params[13]) == ["ema_alignment", "adx_strong"]
-        assert json.loads(params[20]) == {"vol_regime": "normal"}
+        # JSONB fields are passed as Python objects (asyncpg handles serialization)
+        assert params[9] == [5110.0, 5120.0]  # targets
+        assert params[13] == ["ema_alignment", "adx_strong"]  # supporting_factors
+        assert params[20] == {"vol_regime": "normal"}  # market_context
         # feature_ts and feature_tf default to None ($23 and $24)
         assert params[22] is None  # feature_ts
         assert params[23] is None  # feature_tf
