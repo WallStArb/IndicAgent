@@ -143,28 +143,27 @@ async def check_intelligence_staleness(
     now = datetime.now(UTC)
 
     async with db.get_connection() as conn:
-        rows, sig_rows = await asyncio.gather(
-            conn.fetch(
-                """
-                SELECT symbol, tf, MAX(ts) AS last_ts
-                FROM intelligence_features
-                WHERE symbol = ANY($1)
-                  AND tf = ANY($2)
-                  AND ts > NOW() - INTERVAL '24 hours'
-                GROUP BY symbol, tf
-                """,
-                symbols, timeframes,
-            ),
-            conn.fetch(
-                """
-                SELECT symbol, MAX(timestamp) AS last_ts
-                FROM signal_ledger
-                WHERE symbol = ANY($1)
-                  AND timestamp > NOW() - INTERVAL '24 hours'
-                GROUP BY symbol
-                """,
-                symbols,
-            ),
+        rows = await conn.fetch(
+            """
+            SELECT symbol, tf, MAX(ts) AS last_ts
+            FROM intelligence_features
+            WHERE symbol = ANY($1)
+              AND tf = ANY($2)
+              AND ts > NOW() - INTERVAL '24 hours'
+            GROUP BY symbol, tf
+            """,
+            symbols, timeframes,
+        )
+    async with db.get_connection() as conn:
+        sig_rows = await conn.fetch(
+            """
+            SELECT symbol, MAX(timestamp) AS last_ts
+            FROM signal_ledger
+            WHERE symbol = ANY($1)
+              AND timestamp > NOW() - INTERVAL '24 hours'
+            GROUP BY symbol
+            """,
+            symbols,
         )
 
     seen: set[tuple[str, str]] = set()
@@ -273,27 +272,26 @@ async def check_ohlcv_completeness(db: DatabaseManager, symbols: list[str]) -> t
         expected_bars = RTH_BARS_EXPECTED
 
     async with db.get_connection() as conn:
-        rows, chunk_row = await asyncio.gather(
-            conn.fetch(
-                """
-                SELECT symbol, COUNT(*) AS bar_count
-                FROM market_data_ohlcv
-                WHERE symbol = ANY($1)
-                  AND timeframe = '1m'
-                  AND timestamp >= $2
-                  AND timestamp < $3
-                GROUP BY symbol
-                """,
-                symbols, today_start, today_end,
-            ),
-            conn.fetchrow(
-                """
-                SELECT COUNT(*) AS chunk_count
-                FROM timescaledb_information.chunks
-                WHERE hypertable_name = 'market_data_ohlcv'
-                  AND hypertable_schema = 'public'
-                """
-            ),
+        rows = await conn.fetch(
+            """
+            SELECT symbol, COUNT(*) AS bar_count
+            FROM market_data_ohlcv
+            WHERE symbol = ANY($1)
+              AND timeframe = '1m'
+              AND timestamp >= $2
+              AND timestamp < $3
+            GROUP BY symbol
+            """,
+            symbols, today_start, today_end,
+        )
+    async with db.get_connection() as conn:
+        chunk_row = await conn.fetchrow(
+            """
+            SELECT COUNT(*) AS chunk_count
+            FROM timescaledb_information.chunks
+            WHERE hypertable_name = 'market_data_ohlcv'
+              AND hypertable_schema = 'public'
+            """
         )
 
     bar_counts = {row["symbol"]: int(row["bar_count"]) for row in rows}
