@@ -218,7 +218,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
   - [x] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
 - [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation; apply `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` after D-07 gate *(unblocked — 53.3 RollComputeAgent validated 2026-03-28)*
-  Design docs: `docs/plans/2026-03-26-data-layer-dag-design.md`
+  Plans: 50.1 (D-21 validation), 50.2 (roll_premium_pct migration), 50.3 (enable flag), 50.4 (DualDivergence gate + promotion)
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
   Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
@@ -338,19 +338,19 @@ Plans:
 
 **Goal**: Graduate roll monitor and trad_DualDivergence from shadow mode after empirical validation.
 
-**Status**: 📋 Planned
+**Status**: 🚧 Ready to Execute
 
-**Depends on**: Phase 49 (market_data_5m backfill required for D-21 validation)
+**Depends on**: Phase 49 ✅ (market_data_5m exists), Phase 53.3 ✅ (RollComputeAgent validated)
 
-**Requirements**: ROLL-01, ROLL-02, DUAL-01
+**Requirements**: SHADOW-03, INTEL-04, SHADOW-04
 
 **Success Criteria** (what must be TRUE):
-  1. D-21 validation confirms roll detection works correctly with 5m backfilled data
+  1. D-21 validation confirms roll detection works correctly with 5m backfilled data (≥90% detection, ≤10% FP)
   2. Migration `049_roll_premium_pct.sql` applied; `roll_premium_pct` populated in intelligence_features
   3. `ROLL_MONITOR_ENABLED=true` set in production environment
   4. trad_DualDivergence promoted (IS_SHADOW=False) after D-07 gate passes (N≥100, 95% CI E[PnL_R] > 0)
 
-**Plans**: TBD (3-4 plans estimated)
+**Plans**: 4 plans (50.1: D-21 validation, 50.2: migration, 50.3: enable flag, 50.4: DualDivergence gate)
 
 ### Phase 51: Signal & Indicator Validation Framework
 

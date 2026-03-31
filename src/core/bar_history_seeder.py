@@ -9,7 +9,6 @@ remains DB-ignorant after seed() returns.
 """
 
 import asyncio
-from collections import deque
 from datetime import datetime
 from typing import Any
 
@@ -17,8 +16,11 @@ import structlog
 
 from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_symbols
+from src.core.bar_history import BarHistory
+from src.core.bar_normalizer import SOURCE_IBKR_SEED
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaProducerClient
+from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.service_utils import SEED_LOOKBACK_MULTIPLIER, TF_SECONDS, min_bars_for_tf
 from src.core.stream_keys import message_key, topic_intelligence
 from src.intelligence.schemas import (
@@ -56,7 +58,7 @@ class BarHistorySeeder:
         self._kafka_producer = kafka_producer
         self.logger = structlog.get_logger(__name__)
 
-    async def seed(self, bar_history: dict[str, deque]) -> None:
+    async def seed(self, bar_history: BarHistory) -> None:
         """Seed bar_history from DB, then close the DB connection.
 
         Falls back silently if DB is unavailable.
@@ -77,7 +79,7 @@ class BarHistorySeeder:
         finally:
             await db.close()
 
-    async def _run_seed(self, db: DatabaseManager, bar_history: dict[str, deque]) -> None:
+    async def _run_seed(self, db: DatabaseManager, bar_history: BarHistory) -> None:
         active_contracts = get_active_symbols()
         timeframes = self._config["service"]["timeframes"]
         seeded_bars = 0
@@ -111,23 +113,29 @@ class BarHistorySeeder:
                 if not rows:
                     return
 
-                key = f"{symbol}:{tf}"
+                bar_messages: list[BarMessage] = []
                 for row in reversed(rows):
                     bar_json = row["bar"]
                     try:
-                        bar_history[key].append(
-                            {
-                                "open": float(bar_json.get("o", 0)),
-                                "high": float(bar_json.get("h", 0)),
-                                "low": float(bar_json.get("l", 0)),
-                                "close": float(bar_json.get("c", 0)),
-                                "volume": int(bar_json.get("v", 0)),
-                                "timestamp": row["ts"],
-                            }
+                        bar_messages.append(
+                            BarMessage(
+                                ts=row["ts"],
+                                symbol=symbol,
+                                tf=tf,
+                                open=float(bar_json.get("o", 0)),
+                                high=float(bar_json.get("h", 0)),
+                                low=float(bar_json.get("l", 0)),
+                                close=float(bar_json.get("c", 0)),
+                                volume=int(bar_json.get("v", 0)),
+                                source=SOURCE_IBKR_SEED,
+                                session_type=SessionType.RTH,
+                            )
                         )
                         seeded_bars += 1
                     except Exception:
                         pass
+                if bar_messages:
+                    bar_history.seed(symbol, tf, bar_messages)
 
                 latest = rows[0]
                 try:
@@ -179,8 +187,7 @@ class BarHistorySeeder:
 
         async def _fallback_one(symbol: str, tf: str) -> None:
             nonlocal fallback_seeded
-            key = f"{symbol}:{tf}"
-            if len(bar_history[key]) >= min_bars_for_tf(tf):
+            if len(bar_history.get(symbol, tf)) >= min_bars_for_tf(tf):
                 return
             async with sem:
                 min_bars = min_bars_for_tf(tf) * 2
@@ -206,20 +213,25 @@ class BarHistorySeeder:
                     return
                 if not rows:
                     return
+                bar_messages: list[BarMessage] = []
                 for row in reversed(rows):
                     try:
                         bar_ts = row["timestamp"]
                         if isinstance(bar_ts, str):
                             bar_ts = datetime.fromisoformat(bar_ts)
-                        bar_history[key].append(
-                            {
-                                "open": float(row["open"]),
-                                "high": float(row["high"]),
-                                "low": float(row["low"]),
-                                "close": float(row["close"]),
-                                "volume": int(row["volume"]),
-                                "timestamp": bar_ts,
-                            }
+                        bar_messages.append(
+                            BarMessage(
+                                ts=bar_ts,
+                                symbol=symbol,
+                                tf=tf,
+                                open=float(row["open"]),
+                                high=float(row["high"]),
+                                low=float(row["low"]),
+                                close=float(row["close"]),
+                                volume=int(row["volume"]),
+                                source=SOURCE_IBKR_SEED,
+                                session_type=SessionType.RTH,
+                            )
                         )
                         fallback_seeded += 1
                     except Exception as e:
@@ -229,6 +241,8 @@ class BarHistorySeeder:
                             tf=tf,
                             error=str(e),
                         )
+                if bar_messages:
+                    bar_history.seed(symbol, tf, bar_messages)
 
         fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]
         await asyncio.gather(*fallback_tasks)

@@ -45,7 +45,6 @@ from src.core.schemas.intelligence_journal import IntelligenceJournal, Provenanc
 from src.core.service_utils import (
     TF_SECONDS,
     min_bars_for_tf,
-    parse_roll_event,
     setup_service_logging,
     should_skip_plugin,
 )
@@ -116,10 +115,6 @@ _STANDARD_TFS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
 
 VIX_REGIME_TF: str = "1h"
 
-PRICE_SENSITIVE_PLUGINS: frozenset[str] = frozenset(
-    {"bollinger_bands", "keltner_channel", "donchian_channel"}
-)
-
 I7_PLUGINS = TIER_I7
 
 # Minimum bars between published signals per timeframe
@@ -154,31 +149,6 @@ _CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
     "15m": {"Q": 0.01, "R": 0.04},
     "1h": {"Q": 0.01, "R": 0.02},
 }
-
-
-def _adjust_price_state(state: dict, roll_gap: float) -> dict:
-    """Return a deep copy of *state* with all numeric values shifted by *roll_gap*."""
-    result: dict = {}
-    for k, v in state.items():
-        if isinstance(v, float):
-            result[k] = v + roll_gap
-        elif isinstance(v, int) and not isinstance(v, bool):
-            result[k] = v + roll_gap
-        elif isinstance(v, list):
-            adjusted: list = []
-            for item in v:
-                if isinstance(item, float):
-                    adjusted.append(item + roll_gap)
-                elif isinstance(item, int) and not isinstance(item, bool):
-                    adjusted.append(item + roll_gap)
-                else:
-                    adjusted.append(item)
-            result[k] = adjusted
-        elif isinstance(v, dict):
-            result[k] = _adjust_price_state(v, roll_gap)
-        else:
-            result[k] = v
-    return result
 
 
 def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
@@ -871,17 +841,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._prev_i1_features[key] = dict(i1_result)
 
         self._last_events[key + "_i1"] = i1_result
-
-        # Roll event handling
-        if bar.gap_preceding:
-            roll_gap = parse_roll_event(bar, frames)
-            if roll_gap != 0.0:
-                for pname in PRICE_SENSITIVE_PLUGINS:
-                    state_key = (pname, symbol, tf)
-                    if state_key in self._plugin_states:
-                        self._plugin_states[state_key] = _adjust_price_state(
-                            self._plugin_states[state_key], roll_gap
-                        )
 
         # I2-I6
         tiered = await self._run_analysis_pipeline(symbol, tf, frames)
