@@ -35,17 +35,19 @@ class FeatureSnapshotRepository:
         """
         try:
             return await self._db.execute_query(
-                f"""
+                """
                 SELECT ts, bar, i1, i2, i3, i4, i5, smc, i6,
                        bar_close_ts, i1_computed_at, computed_at
                 FROM intelligence_features
                 WHERE symbol = $1 AND tf = $2
-                  AND ts > NOW() - INTERVAL '{lookback_secs} seconds'
+                  AND ts > NOW() - ($3 * INTERVAL '1 second')
                 ORDER BY ts DESC
-                LIMIT {limit}
+                LIMIT $4
                 """,
                 symbol,
                 tf,
+                lookback_secs,
+                limit,
             )
         except Exception as exc:
             logger.warning(
@@ -70,16 +72,18 @@ class FeatureSnapshotRepository:
         """
         try:
             return await self._db.execute_query(
-                f"""
+                """
                 SELECT timestamp, open, high, low, close, volume
                 FROM market_data_ohlcv
                 WHERE symbol = $1 AND timeframe = $2
-                  AND timestamp > NOW() - INTERVAL '{lookback_secs} seconds'
+                  AND timestamp > NOW() - ($3 * INTERVAL '1 second')
                 ORDER BY timestamp DESC
-                LIMIT {limit}
+                LIMIT $4
                 """,
                 symbol,
                 tf,
+                lookback_secs,
+                limit,
             )
         except Exception as exc:
             logger.warning(

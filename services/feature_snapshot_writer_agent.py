@@ -111,15 +111,15 @@ class FeatureSnapshotWriterAgent(BaseAgent):
         if not self._buffer or self._repo is None:
             return
         batch = self._buffer[:]
-        self._buffer.clear()
         t0 = datetime.now(UTC)
-        for params in batch:
-            try:
-                await self._repo.insert(params)
-                self._shadow_writes.inc()
-            except Exception as exc:
-                self.logger.error("shadow_write_failed", error=str(exc))
-                self._write_errors.inc()
+        try:
+            await self._repo.insert_batch(batch)
+            self._shadow_writes.inc(len(batch))
+            self._buffer.clear()
+        except Exception as exc:
+            self.logger.error("shadow_write_failed", error=str(exc), rows=len(batch))
+            self._write_errors.inc()
+            self._buffer.clear()  # shadow table — no retry, drop on failure
         duration = (datetime.now(UTC) - t0).total_seconds()
         PERSISTENCE_BATCH_LATENCY.labels(agent_id="feature_snapshot_writer").observe(duration)
         PERSISTENCE_CONSUMER_LAG.labels(agent_id="feature_snapshot_writer").set(len(self._buffer))

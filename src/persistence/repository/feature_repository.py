@@ -66,6 +66,13 @@ class FeatureRepository:
         await self._db_manager.execute_command(self._insert_sql, *params)
         logger.debug("feature_row_written", table=self.table_name)
 
+    async def insert_batch(self, params_list: list[tuple]) -> None:
+        """Insert multiple 31-element params tuples in a single batch. Skips conflicts."""
+        if not params_list:
+            return
+        await self._db_manager.execute_batch(self._insert_sql, params_list)
+        logger.debug("feature_batch_written", table=self.table_name, rows=len(params_list))
+
     # Legacy compat — callers passing a dict get a clear error instead of a silent noop.
     async def insertBatch(self, feature_data: Any) -> None:
         raise TypeError(
