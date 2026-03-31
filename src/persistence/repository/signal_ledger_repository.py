@@ -266,6 +266,7 @@ INSERT INTO signal_ledger (
     $55, $56, $57, $58,
     $59, $60
 )
+ON CONFLICT ON CONSTRAINT signal_ledger_pkey DO NOTHING
 """
 
 
