@@ -232,53 +232,66 @@ class BarAggregatorComputeAgent(BaseAgent):
                         )
                         last_health_log = time.monotonic()
 
+                    # NEW: Timeout protection for each bar
                     try:
-                        start_time = time.monotonic()
+                        async with asyncio.timeout(5.0):  # Max 5 seconds per bar
+                            start_time = time.monotonic()
 
-                        # Parse and process bar
-                        bar = self._parse_bar(payload)
-                        if bar is None:
-                            self._bars_skipped.labels(
-                                agent=self.name, reason=self._last_skip_reason
-                            ).inc()
-                            self._health_metrics.record_skip()
-                            continue
+                            # Parse and process bar
+                            bar = self._parse_bar(payload)
+                            if bar is None:
+                                self._bars_skipped.labels(
+                                    agent=self.name, reason=self._last_skip_reason
+                                ).inc()
+                                self._health_metrics.record_skip()
+                                continue
 
-                        # Record successful bar processing
-                        self._health_metrics.record_bar(bar.ts)
+                            self._health_metrics.record_bar(bar.ts)
 
-                        self._bars_processed.labels(agent=self.name).inc()
+                            self._bars_processed.labels(agent=self.name).inc()
 
-                        with self._processing_duration.labels(agent=self.name).time():
-                            completed_bars = self._bar_accumulator.update(bar)
+                            with self._processing_duration.labels(agent=self.name).time():
+                                completed_bars = self._bar_accumulator.update(bar)
 
-                        # Emit HTF bars
-                        for htf_bar in completed_bars:
-                            await self._kafka_producer.publish(
-                                htf_topic,
-                                htf_bar.model_dump(mode="json"),
-                                key=message_key(htf_bar.symbol, htf_bar.tf),
-                            )
-                            self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
-                            self._health_metrics.record_htf_bar()
-                            self.logger.debug(
-                                "bar_aggregator_agent.htf_bar_published",
-                                symbol=htf_bar.symbol,
-                                tf=htf_bar.tf,
-                                ts=htf_bar.ts.isoformat(),
-                            )
+                            # Emit HTF bars
+                            for htf_bar in completed_bars:
+                                await self._kafka_producer.publish(
+                                    htf_topic,
+                                    htf_bar.model_dump(mode="json"),
+                                    key=message_key(htf_bar.symbol, htf_bar.tf),
+                                )
+                                self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
+                                self._health_metrics.record_htf_bar()
+                                self.logger.debug(
+                                    "bar_aggregator_agent.htf_bar_published",
+                                    symbol=htf_bar.symbol,
+                                    tf=htf_bar.tf,
+                                    ts=htf_bar.ts.isoformat(),
+                                )
 
-                        # Check for slow processing
-                        duration = time.monotonic() - start_time
-                        if duration > 1.0:
-                            self.logger.warning(
-                                "bar_aggregator.slow_bar_processing",
-                                symbol=bar.symbol,
-                                duration_s=duration,
-                                htf_emitted=len(completed_bars),
-                            )
+                            # Check for slow processing
+                            duration = time.monotonic() - start_time
+                            if duration > 1.0:
+                                self.logger.warning(
+                                    "bar_aggregator.slow_bar_processing",
+                                    symbol=bar.symbol,
+                                    duration_s=duration,
+                                    htf_emitted=len(completed_bars),
+                                )
+
+                    except asyncio.TimeoutError:
+                        # Handle timeout for slow bar processing
+                        self._aggregation_errors.labels(agent=self.name).inc()
+                        self.logger.error(
+                            "bar_aggregator.processing_timeout",
+                            symbol=payload.get("symbol", "unknown"),
+                            ts=payload.get("ts") or payload.get("timestamp"),
+                            timeout_seconds=5
+                        )
+                        # Continue to next bar - don't let one slow bar block everything
 
                     except Exception as exc:
+                        # Handle other exceptions during bar processing
                         self._health_metrics.record_error()
                         self._aggregation_errors.labels(agent=self.name).inc()
                         self.logger.error(
