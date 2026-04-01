@@ -115,12 +115,9 @@ def _parse_ts(ts_raw: str) -> int:
 class TimeframeBuilder:
     """Aggregates 1m OHLCV bars into 5m/15m/1h/4h/1d bars.
 
-    Usage (as called by timeframes_builder_service.py):
-        builder = TimeframeBuilder(streams_manager)
-        await builder.start()
-        await builder.subscribe_to_symbols(["ESH6", "NQH6"])
-        # ... service runs processing loop ...
-        await builder.stop()
+    DEPRECATED: This class has been replaced by BarAccumulator in bar_accumulator.py.
+    The timeframes_builder_service.py that used this class has been removed.
+    This class is retained for reference only; use BarAccumulator for new code.
     """
 
     def __init__(self, streams_manager: Any) -> None:
