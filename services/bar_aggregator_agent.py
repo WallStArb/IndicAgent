@@ -29,7 +29,7 @@ from pydantic import ValidationError
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -138,7 +138,7 @@ class BarAggregatorComputeAgent(BaseAgent):
 
                 self._bars_processed.labels(agent=self.name).inc()
 
-                with self._aggregation_latency_lbl.time():
+                with self._processing_duration.labels(agent=self.name).time():
                     completed_bars = self._bar_accumulator.update(bar)
 
                 for htf_bar in completed_bars:
