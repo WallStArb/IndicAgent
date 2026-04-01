@@ -29,7 +29,7 @@ from pydantic import ValidationError
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, Gauge
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -60,35 +60,33 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
 
-        # Golden Signals (D-16) — direct prometheus_client for label support
-        _events_consumed = Counter(
-            "bar_agg_events_consumed_total",
-            "1m bars consumed from market.bars",
-            ["agent"],
+        # Replace existing metrics with:
+        self._bars_processed = Counter(
+            "bar_agg_bars_processed_total",
+            "Total 1m bars processed",
+            ["agent"]
         )
-        _htf_bars_produced = Counter(
-            "bar_agg_htf_bars_produced_total",
+        self._bars_skipped = Counter(
+            "bar_agg_bars_skipped_total",
+            "Bars skipped with reason",
+            ["agent", "reason"]
+        )
+        self._htf_bars_emitted = Counter(
+            "bar_agg_htf_bars_emitted_total",
             "HTF bars produced and published",
-            ["agent", "tf"],
+            ["agent", "tf"]
         )
-        _aggregation_latency = Histogram(
-            "bar_agg_aggregation_latency_seconds",
-            "Time to process a 1m bar and publish any HTF completions",
+        self._processing_duration = Histogram(
+            "bar_agg_processing_duration_seconds",
+            "Time to process one bar from receive to emit",
             ["agent"],
+            buckets=[0.001, 0.01, 0.1, 1.0, 10.0]  # 1ms to 10s
         )
-        _aggregation_errors = Counter(
+        self._aggregation_errors = Counter(
             "bar_agg_aggregation_errors_total",
             "Exceptions during bar processing",
-            ["agent"],
+            ["agent"]
         )
-        # Cache labeled children — avoids dict lookup on every bar (roll_compute_agent pattern)
-        self._events_consumed_lbl = _events_consumed.labels(agent=self.name)
-        self._aggregation_latency_lbl = _aggregation_latency.labels(agent=self.name)
-        self._aggregation_errors_lbl = _aggregation_errors.labels(agent=self.name)
-        _htf_tfs = ("5m", "15m", "1h", "4h", "1d")
-        self._htf_bars_produced_lbl: dict[str, Counter] = {
-            tf: _htf_bars_produced.labels(agent=self.name, tf=tf) for tf in _htf_tfs
-        }
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -138,7 +136,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                 if bar is None:
                     continue
 
-                self._events_consumed_lbl.inc()
+                self._bars_processed.labels(agent=self.name).inc()
 
                 with self._aggregation_latency_lbl.time():
                     completed_bars = self._bar_accumulator.update(bar)
@@ -149,8 +147,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                         htf_bar.model_dump(mode="json"),
                         key=message_key(htf_bar.symbol, htf_bar.tf),
                     )
-                    if htf_bar.tf in self._htf_bars_produced_lbl:
-                        self._htf_bars_produced_lbl[htf_bar.tf].inc()
+                    self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
                     self.logger.debug(
                         "bar_aggregator_agent.htf_bar_published",
                         symbol=htf_bar.symbol,
@@ -159,7 +156,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                     )
 
             except Exception as exc:
-                self._aggregation_errors_lbl.inc()
+                self._aggregation_errors.labels(agent=self.name).inc()
                 self.logger.error(
                     "bar_aggregator_agent.processing_error",
                     error=str(exc),
