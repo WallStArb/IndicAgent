@@ -114,6 +114,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._health_metrics = HealthMetrics()
+        self._last_skip_reason = "parse_failed"
 
         # Replace existing metrics with:
         self._bars_processed = Counter(
@@ -181,21 +182,36 @@ class BarAggregatorComputeAgent(BaseAgent):
     async def _run(self) -> None:
         """Main loop: consume 1m bars, aggregate, publish completed HTF bars."""
         htf_topic = topic_market_bars_htf(self._env_name)
+        last_health_log = time.monotonic()
+        last_minute_reset = time.monotonic()
 
         async for _topic, _key, payload in self._kafka_consumer.messages():
             if not self.running:
                 break
 
+            # Reset minute counters every 60 seconds
+            if time.monotonic() - last_minute_reset > 60:
+                self._health_metrics.reset_minute_counters()
+                last_minute_reset = time.monotonic()
+
             try:
+                start_time = time.monotonic()
+
+                # Parse and process bar
                 bar = self._parse_bar(payload)
                 if bar is None:
+                    self._bars_skipped.labels(agent=self.name, reason=self._last_skip_reason).inc()
                     continue
+
+                # Record successful bar processing
+                self._health_metrics.record_bar(bar.ts)
 
                 self._bars_processed.labels(agent=self.name).inc()
 
                 with self._processing_duration.labels(agent=self.name).time():
                     completed_bars = self._bar_accumulator.update(bar)
 
+                # Emit HTF bars
                 for htf_bar in completed_bars:
                     await self._kafka_producer.publish(
                         htf_topic,
@@ -203,6 +219,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                         key=message_key(htf_bar.symbol, htf_bar.tf),
                     )
                     self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
+                    self._health_metrics.record_htf_bar()
                     self.logger.debug(
                         "bar_aggregator_agent.htf_bar_published",
                         symbol=htf_bar.symbol,
@@ -210,10 +227,21 @@ class BarAggregatorComputeAgent(BaseAgent):
                         ts=htf_bar.ts.isoformat(),
                     )
 
+                # Check for slow processing
+                duration = time.monotonic() - start_time
+                if duration > 1.0:
+                    self.logger.warning(
+                        "bar_aggregator.slow_bar_processing",
+                        symbol=bar.symbol,
+                        duration_s=duration,
+                        htf_emitted=len(completed_bars)
+                    )
+
             except Exception as exc:
+                self._health_metrics.record_error()
                 self._aggregation_errors.labels(agent=self.name).inc()
                 self.logger.error(
-                    "bar_aggregator_agent.processing_error",
+                    "bar_aggregator.processing_error",
                     error=str(exc),
                     payload_preview=str(payload)[:200],
                 )
@@ -232,6 +260,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         try:
             return BarMessage.model_validate(payload)
         except ValidationError:
+            self._last_skip_reason = "validation_error"
             pass
 
         # Legacy / flat dict format from DataProviderAgent
@@ -239,6 +268,7 @@ class BarAggregatorComputeAgent(BaseAgent):
             symbol = payload.get("symbol", "")
             tf = payload.get("tf") or payload.get("timeframe", "1m")
             if not symbol or not tf:
+                self._last_skip_reason = "missing_symbol_or_tf"
                 return None
 
             ts_raw = payload.get("ts") or payload.get("timestamp")
@@ -264,6 +294,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                 is_flat_bar=bool(payload.get("is_flat_bar", False)),
             )
         except Exception as exc:
+            self._last_skip_reason = "parse_exception"
             self.logger.warning(
                 "bar_aggregator_agent.parse_failed",
                 error=str(exc),
