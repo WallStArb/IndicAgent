@@ -31,12 +31,66 @@ sys.path.insert(0, str(project_root))
 
 from prometheus_client import Counter, Histogram
 
+import time
+
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import BarAccumulator
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.stream_keys import message_key, topic_market_bars, topic_market_bars_htf
+
+
+class HealthMetrics:
+    """Track service health indicators for circuit breaker."""
+
+    def __init__(self):
+        self._last_bar_ts: datetime | None = None
+        self._bars_last_minute = 0
+        self._htf_bars_last_minute = 0
+        self._consecutive_errors = 0
+        self._last_reset = time.monotonic()
+
+    def record_bar(self, bar_ts: datetime):
+        """Record a successfully processed bar."""
+        self._last_bar_ts = bar_ts
+        self._bars_last_minute += 1
+
+    def record_htf_bar(self):
+        """Record an HTF bar emission."""
+        self._htf_bars_last_minute += 1
+
+    def record_error(self):
+        """Record a processing error."""
+        self._consecutive_errors += 1
+
+    def reset_minute_counters(self):
+        """Reset per-minute counters (called every 60s)."""
+        self._bars_last_minute = 0
+        self._htf_bars_last_minute = 0
+        self._last_reset = time.monotonic()
+
+    def is_healthy(self) -> tuple[bool, str]:
+        """Check if service is healthy. Returns (healthy, reason)."""
+        now = datetime.now(UTC)
+
+        # Check 1: Processing bars
+        if self._last_bar_ts is None:
+            return False, "never_processed"
+
+        time_since_last_bar = (now - self._last_bar_ts).total_seconds()
+        if time_since_last_bar > 300:  # 5 minutes with no bars
+            return False, f"no_bars_{int(time_since_last_bar)}s"
+
+        # Check 2: Too many errors
+        if self._consecutive_errors > 50:
+            return False, f"consecutive_errors_{self._consecutive_errors}"
+
+        # Check 3: Consuming but not emitting HTF bars
+        if self._bars_last_minute > 100 and self._htf_bars_last_minute == 0:
+            return False, "consuming_not_emitting"
+
+        return True, "healthy"
 
 
 class BarAggregatorComputeAgent(BaseAgent):
@@ -59,6 +113,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._bar_accumulator = BarAccumulator()
         self._kafka_producer: KafkaProducerClient | None = None
         self._kafka_consumer: KafkaConsumerClient | None = None
+        self._health_metrics = HealthMetrics()
 
         # Replace existing metrics with:
         self._bars_processed = Counter(
