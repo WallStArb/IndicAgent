@@ -30,6 +30,29 @@ All ib_insync logic is isolated here. **No ib_insync imports anywhere else.**
 
 Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200. NG/BZ valid in live account.
 
+### Adding New Contracts
+1. Add contract to `get_active_contracts()` in `src/config/settings.py`
+2. INSERT to `instruments` table with `contract_details` JSONB:
+   ```sql
+   INSERT INTO instruments (symbol, contract_details) 
+   VALUES ('ESM6', '{"exchange":"CME","currency":"USD",...}'::jsonb);
+   ```
+3. Restart `indicagent-ibkr-provider`
+4. Verify qualification: `journalctl -u indicagent-ibkr-provider | grep "Qualified"`
+5. Backfill historical data: see root CLAUDE.md "New contracts" command
+
+### Testing Provider Changes
+```bash
+# Test provider connection
+.venv/bin/python -m src.providers.ibkr --test-connection
+
+# Verify bars are flowing
+journalctl -u indicagent-ibkr-provider --since "1 minute ago" | grep "1m bar emitted"
+
+# Check Kafka output
+docker exec redpanda rpk topic consume development.market.bars.raw.ibkr --from-end
+```
+
 ### Troubleshooting
 - **TWS connection refused**: IBKR TWS at `192.168.1.157` — check trusted IPs in TWS API settings if connection fails.
 - **Contract rollover**: When futures expire (H6→M6/J6), restart `indicagent-ibkr-provider` to load new contracts:

@@ -2,6 +2,13 @@
 
 ## Plugin Tiers (121 + 2 aggregation)
 
+**Tier Flow:**
+```
+I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) → I5 (patterns) → I6 (SMC/confluence) → I7 (signals)
+```
+
+**I1** (27): Trend/Momentum/Volatility/Volume indicators — see `TIER_I1` in `register_plugins.py`
+
 **I1** (27): Trend/Momentum/Volatility/Volume indicators — see `TIER_I1` in `register_plugins.py`
 **I2** (11): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
 **I3** (7): Structure (swing, S/R, MarketProfile, SessionLevels) · **I4** (13): Context (GARCH, Kalman, VWAP, VolumeProfile)
@@ -18,7 +25,7 @@ All live in `src/intelligence/trading/`:
 | `plugin_utils.py` | `no_signal()`, `extract_ohlcv()`, `signal_type_for_direction()` | Canonical no-signal dict, OHLCV extraction, signal type naming |
 | `atr_utils.py` | `get_atr(features)` | Null-safe I1 ATR accessor — never recompute ATR in I7 |
 | `state_utils.py` | `track_consecutive_state()`, `reset_consecutive_state()` | Consecutive bar state counting |
-| `confidence_utils.py` | `compose_confidence(raw)`, `capture_signal_features()`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.10, 0.95], rounds to 4dp). `capture_signal_features()` writes `_shadow` dict (15 keys: 2 metadata, 6 I6 CTF, 4 I4 macro, 3 exhaustion) for ML training — zero confidence modification. Phase 49 will fill non-zero `ConfluenceWeightProfile` weights from XGBoost training. |
+| `confidence_utils.py` | `compose_confidence(raw)`, `capture_signal_features()`, `ConfluenceWeightProfile` | **ALL I7 confidence values must route through `compose_confidence()`** (clamps to [0.10, 0.95], rounds to 4dp). `capture_signal_features()` writes `_shadow` dict (15 keys: 2 metadata, 6 I6 CTF, 4 I4 macro, 3 exhaustion) for ML training — zero confidence modification. ML scoring (XGBoost) planned for v2.3. |
 | `microstructure_utils.py` | `detect_spike_signal()` | Shared spike detection for OFI/CVD — preserves signal identity (Renaissance) |
 | `volume_profile_utils.py` | `check_reversal_gate()`, `format_reversal_supporting_factors()` | POC/HVN reversal detection logic |
 | `exhaustion_utils.py` | `apply_exhaustion_boost()`, `apply_exhaustion_guard()` | Exhaustion-based confidence modifiers |
@@ -32,7 +39,17 @@ All live in `src/intelligence/trading/`:
 
 - Class: `PatternPlugin`. Register in `register_all_plugins()`, add to `TIER_*` constant.
 - Use `frozenset[str]` for `outputs`/`capability_tags`, `tuple[InputSpec, ...]` for `inputs` — not `set`/`list`.
-- Tier lists (`TIER_I1`…`TIER_I7`) in `register_plugins.py` — single source of truth; `validate_tier()` hard-crashes on missing names.
+- Tier lists (`TIER_I1`…`TIER_I7`) in `register_plugins.py` — single source of truth; `validate_tier()` hard-crashes at missing names.
+
+### Creating a New I7 Plugin
+1. Create file in `src/intelligence/trading/<name>.py`
+2. Extend `PatternPlugin`, set `regime_type` class attribute (`"trend"` | `"mean_reversion"` | `"any"`)
+3. Implement `compute()` using shared utilities from table above (esp. `compose_confidence()`, `make_signal()`)
+4. Add to `TIER_I7` list in `register_plugins.py`
+5. Add unit test to `tests/unit/intelligence/`
+6. Run integration test: `.venv/bin/pytest tests/unit/test_intelligence_pipeline_agent.py`
+7. Restart service: `sudo systemctl restart indicagent-intelligence-pipeline`
+8. Verify output: `docker exec redpanda rpk topic consume development.intelligence --from-end`
 
 ## LLM Provider Chain (`llm_providers.py`)
 

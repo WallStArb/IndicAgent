@@ -30,6 +30,12 @@ Real-time market intelligence platform with plugin-native architecture, Redpanda
 
 ## Quick Start
 
+### Prerequisites
+- Python 3.11+, pip, venv
+- Docker & Docker Compose (for TimescaleDB, Redpanda)
+- systemd (for service management)
+- Node.js 18+ (for dashboard)
+
 ```bash
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 .venv/bin/pytest tests/unit/ -v
