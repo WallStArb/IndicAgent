@@ -104,7 +104,6 @@ from src.intelligence.schemas import (
     SMCContext,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
-from time import perf_counter  # noqa: F401 - will be used in I1/I7 timing (Task 3, 5)
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     counter,
@@ -501,6 +500,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if c.symbol == "VX":
                 self._vix_symbol = "VX"
                 break
+
+    async def stop(self) -> None:
+        """Shutdown thread pool executor before stopping."""
+        self.logger.info("agent.shutdown_initiated", agent=self.name)
+        self._executor.shutdown(wait=True)
+        self.logger.info("agent.thread_pool_shutdown", agent=self.name)
+        await super().stop()
 
     # ------------------------------------------------------------------
     # State lock management
