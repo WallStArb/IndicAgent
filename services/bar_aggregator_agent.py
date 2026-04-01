@@ -194,6 +194,22 @@ class BarAggregatorComputeAgent(BaseAgent):
                 self._health_metrics.reset_minute_counters()
                 last_minute_reset = time.monotonic()
 
+            # Log health summary every 60 seconds
+            if time.monotonic() - last_health_log > 60:
+                healthy, reason = self._health_metrics.is_healthy()
+                lag = await self._get_consumer_lag()
+
+                self.logger.info(
+                    "bar_aggregator_health",
+                    healthy=healthy,
+                    reason=reason,
+                    processed_last_min=self._health_metrics._bars_last_minute,
+                    skipped_last_min=getattr(self._bars_skipped.labels(agent=self.name), '_value', {}).get('reason', 0),
+                    htf_emitted_last_min=self._health_metrics._htf_bars_last_minute,
+                    consumer_lag=lag
+                )
+                last_health_log = time.monotonic()
+
             try:
                 start_time = time.monotonic()
 
@@ -246,6 +262,31 @@ class BarAggregatorComputeAgent(BaseAgent):
                     payload_preview=str(payload)[:200],
                 )
                 # Don't crash on single bar failure — continue consuming
+
+    async def _get_consumer_lag(self) -> int:
+        """Get current consumer lag in seconds."""
+        try:
+            # This is expensive - only call for health summaries
+            import aiokafka
+            consumer = aiokafka.AIOKafkaConsumer(
+                bootstrap_servers=self._settings.kafka_bootstrap_servers,
+                group_id="bar_aggregator_consumer"
+            )
+            await consumer.start()
+
+            partitions = self._kafka_consumer._consumer.assignment()
+            if not partitions:
+                await consumer.stop()
+                return 0
+
+            tp = partitions[0]
+            end_offsets = await consumer.end_offsets([tp])
+            position = self._kafka_consumer._consumer.position(tp)
+
+            await consumer.stop()
+            return end_offsets[tp] - position if end_offsets[tp] >= position else 0
+        except Exception:
+            return 0  # Assume healthy if lag check fails
 
     def _parse_bar(self, payload: dict) -> BarMessage | None:
         """Parse a bar payload dict from Kafka into a typed BarMessage.
