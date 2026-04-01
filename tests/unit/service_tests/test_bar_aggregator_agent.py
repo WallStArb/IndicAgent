@@ -63,6 +63,7 @@ def _make_agent():
     agent._bar_accumulator = BarAccumulator()
     agent._health_metrics = HealthMetrics()
     agent._last_skip_reason = "parse_failed"
+    agent._consumer_restart_requested = asyncio.Event()
     # Create mock metrics that have the expected interface
     agent._bars_processed = MagicMock()
     agent._bars_skipped = MagicMock()
@@ -240,8 +241,6 @@ async def test_no_publish_for_mid_period_bar():
 
 def test_golden_signals_are_correct_types():
     """Golden Signals cached children must be the correct prometheus types."""
-    from prometheus_client import Counter, Histogram
-
     agent = _make_agent()
 
     assert hasattr(agent._events_consumed_lbl, "inc")
