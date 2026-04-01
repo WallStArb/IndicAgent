@@ -22,11 +22,14 @@ TradingSession:
 
 from __future__ import annotations
 
+import structlog
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
 
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.timeframe_builder import _floor_to_period
+
+logger = structlog.get_logger(__name__)
 
 # Module-level constant: timeframe string → minutes
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
@@ -113,6 +116,7 @@ class BarAccumulator:
         self._timeframes = timeframes or _ALL_TFS
         self._session = session or TradingSession()
         self._accumulators: dict[str, dict] = {}  # key = "{symbol}:{tf}"
+        self._last_session_boundary_log: dict[str, float] = {}  # key -> timestamp
 
     def update(self, bar_1m: BarMessage) -> list[BarMessage]:
         """Process a 1m bar and return any completed HTF bars.
@@ -148,9 +152,22 @@ class BarAccumulator:
             acc = self._accumulators.get(key)
 
             if acc is not None:
-                # Check session break first (D-14)
+                # Session break check with logging
                 if self._session.is_session_break(acc["last_ts"], curr_ts):
-                    # Close partial bar at session boundary
+                    # Log session boundary (rate limited to prevent spam)
+                    now = datetime.now(UTC)
+                    last_log = self._last_session_boundary_log.get(key, 0)
+                    if now.timestamp() - last_log > 300:  # Log at most once per 5min per symbol
+                        logger.info(
+                            "bar_accumulator.session_boundary",
+                            symbol=bar_1m.symbol,
+                            tf=tf,
+                            prev_ts=datetime.fromtimestamp(acc["last_ts"], UTC).isoformat(),
+                            curr_ts=datetime.fromtimestamp(curr_ts, UTC).isoformat(),
+                        )
+                        self._last_session_boundary_log[key] = now.timestamp()
+
+                    # Close partial bar
                     completed.append(self._build_bar(bar_1m.symbol, tf, acc))
                     acc = None
 
