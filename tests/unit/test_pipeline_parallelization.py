@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,6 +48,12 @@ def _make_agent():
     agent._calibration_curves = {}  # Added for I7 tests
     agent._perf_weights = {}  # Added for I7 tests
     agent._output_queue = asyncio.Queue(maxsize=500)  # Added for I7 tests
+    # Create executor for parallel execution (matches __init__)
+    cpu_count = os.cpu_count() or 24
+    agent._executor = ThreadPoolExecutor(
+        max_workers=cpu_count * 2,
+        thread_name_prefix="test_intel_"
+    )
     return agent
 
 
