@@ -29,9 +29,9 @@ from pydantic import ValidationError
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from prometheus_client import Counter, Histogram
-
 import time
+
+from prometheus_client import Counter, Histogram
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -118,30 +118,22 @@ class BarAggregatorComputeAgent(BaseAgent):
 
         # Replace existing metrics with:
         self._bars_processed = Counter(
-            "bar_agg_bars_processed_total",
-            "Total 1m bars processed",
-            ["agent"]
+            "bar_agg_bars_processed_total", "Total 1m bars processed", ["agent"]
         )
         self._bars_skipped = Counter(
-            "bar_agg_bars_skipped_total",
-            "Bars skipped with reason",
-            ["agent", "reason"]
+            "bar_agg_bars_skipped_total", "Bars skipped with reason", ["agent", "reason"]
         )
         self._htf_bars_emitted = Counter(
-            "bar_agg_htf_bars_emitted_total",
-            "HTF bars produced and published",
-            ["agent", "tf"]
+            "bar_agg_htf_bars_emitted_total", "HTF bars produced and published", ["agent", "tf"]
         )
         self._processing_duration = Histogram(
             "bar_agg_processing_duration_seconds",
             "Time to process one bar from receive to emit",
             ["agent"],
-            buckets=[0.001, 0.01, 0.1, 1.0, 10.0]  # 1ms to 10s
+            buckets=[0.001, 0.01, 0.1, 1.0, 10.0],  # 1ms to 10s
         )
         self._aggregation_errors = Counter(
-            "bar_agg_aggregation_errors_total",
-            "Exceptions during bar processing",
-            ["agent"]
+            "bar_agg_aggregation_errors_total", "Exceptions during bar processing", ["agent"]
         )
 
     @property
@@ -204,9 +196,13 @@ class BarAggregatorComputeAgent(BaseAgent):
                     healthy=healthy,
                     reason=reason,
                     processed_last_min=self._health_metrics._bars_last_minute,
-                    skipped_last_min=getattr(self._bars_skipped.labels(agent=self.name), '_value', {}).get('reason', 0),
+                    skipped_last_min=(
+                        getattr(self._bars_skipped.labels(agent=self.name), "_value", {}).get(
+                            "reason", 0
+                        )
+                    ),
                     htf_emitted_last_min=self._health_metrics._htf_bars_last_minute,
-                    consumer_lag=lag
+                    consumer_lag=lag,
                 )
                 last_health_log = time.monotonic()
 
@@ -250,7 +246,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                         "bar_aggregator.slow_bar_processing",
                         symbol=bar.symbol,
                         duration_s=duration,
-                        htf_emitted=len(completed_bars)
+                        htf_emitted=len(completed_bars),
                     )
 
             except Exception as exc:
@@ -268,9 +264,10 @@ class BarAggregatorComputeAgent(BaseAgent):
         try:
             # This is expensive - only call for health summaries
             import aiokafka
+
             consumer = aiokafka.AIOKafkaConsumer(
                 bootstrap_servers=self._settings.kafka_bootstrap_servers,
-                group_id="bar_aggregator_consumer"
+                group_id="bar_aggregator_consumer",
             )
             await consumer.start()
 
