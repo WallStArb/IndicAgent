@@ -1096,8 +1096,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         features = _build_features_from_event(event)
         i7_computed_at = datetime.now(UTC)
 
-        # Run all I7 plugins
+        # Run all I7 plugins in parallel
+        i7_start = time.perf_counter()
+
         raw_signals: list[dict] = []
+        tasks = []
+
+        # Build parallel tasks
         for plugin_name in I7_PLUGINS:
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
@@ -1106,26 +1111,52 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 continue
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
-            try:
-                out = await asyncio.to_thread(plugin.compute_full, {"main": None, **features})
-                if isinstance(out, dict) and out.get("signal"):
+
+            # Create parallel task: (coroutine, plugin_name, state_key, lock, bar)
+            tasks.append((
+                asyncio.to_thread(plugin.compute_full, {"main": None, **features}),
+                plugin_name,
+                state_key,
+                lock,
+                bar
+            ))
+
+        # Execute all I7 plugins in parallel
+        results = await asyncio.gather(*[t[0] for t in tasks], return_exceptions=True)
+
+        # Collect results
+        for i, (_, plugin_name, state_key, lock, bar) in enumerate(tasks):
+            out = results[i]
+            if isinstance(out, Exception):
+                self._pipeline_errors.inc()
+                self.logger.warning(
+                    "i7.plugin.error",
+                    plugin=plugin_name,
+                    error=str(out)
+                )
+            elif isinstance(out, dict):
+                # Handle state update
+                if "_state" in out:
+                    with lock:
+                        self._plugin_states[state_key] = out["_state"]
+
+                # Handle signal generation
+                if out.get("signal"):
                     sig = out["signal"]
                     sig["setup_plugin"] = plugin_name
                     sig["symbol"] = symbol
                     sig["tf"] = tf
+
                     # Alpha decay
                     fire_key = (symbol, tf, plugin_name, sig.get("direction", 0))
                     _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
+
                     raw_signals.append(sig)
                     self._signals_generated.inc()
-                if isinstance(out, dict) and "_state" in out:
-                    with lock:
-                        self._plugin_states[state_key] = out["_state"]
-            except Exception as exc:
-                self._pipeline_errors.inc()
-                self.logger.warning(
-                    "i7.plugin.error", plugin=plugin_name, error=str(exc)
-                )
+
+        # Record timing metric
+        i7_latency_ms = (time.perf_counter() - i7_start) * 1000
+        self._i7_latency_ms.set(i7_latency_ms)
 
         if not raw_signals:
             return {
