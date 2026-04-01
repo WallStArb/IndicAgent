@@ -297,9 +297,11 @@ class BarAggregatorComputeAgent(BaseAgent):
             lag = await self._get_consumer_lag()
             self._consumer_lag_seconds.labels(agent=self.name).set(lag)
 
+            # Update time_since_last_bar (only if we've processed bars; None means never processed)
             if self._health_metrics._last_bar_ts:
                 time_since = (datetime.now(UTC) - self._health_metrics._last_bar_ts).total_seconds()
                 self._time_since_last_bar_seconds.labels(agent=self.name).set(time_since)
+            # When _last_bar_ts is None, metric remains at 0 (never processed)
 
             await asyncio.sleep(15)
 
