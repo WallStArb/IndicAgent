@@ -505,7 +505,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Shutdown thread pool executor before stopping."""
         self.logger.info("agent.shutdown_initiated", agent=self.name)
         # Run shutdown in executor to avoid blocking event loop
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._executor.shutdown, True)
         self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
@@ -989,6 +989,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         result: dict[str, Any] = {}
         tasks = []
+        loop = asyncio.get_running_loop()
 
         # Build parallel tasks
         for plugin_name in TIER_I1:
@@ -1003,7 +1004,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Create parallel task: (coroutine, plugin_name, state_key, lock)
             tasks.append((
-                asyncio.to_thread(plugin.compute_full, frames),
+                loop.run_in_executor(self._executor, plugin.compute_full, frames),
                 plugin_name,
                 state_key,
                 lock
@@ -1104,6 +1105,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         raw_signals: list[dict] = []
         tasks = []
         plugin_input = {"main": None, **features}  # Pre-compute to avoid 36x dict construction
+        loop = asyncio.get_running_loop()
 
         # Build parallel tasks
         for plugin_name in I7_PLUGINS:
@@ -1117,7 +1119,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Create parallel task: (coroutine, plugin_name, state_key, lock, bar)
             tasks.append((
-                asyncio.to_thread(plugin.compute_full, plugin_input),
+                loop.run_in_executor(self._executor, plugin.compute_full, plugin_input),
                 plugin_name,
                 state_key,
                 lock,
