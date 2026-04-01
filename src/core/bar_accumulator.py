@@ -178,28 +178,30 @@ class BarAccumulator:
 
             if acc is None:
                 # Start a new accumulator
-                self._accumulators[key] = {
-                    "period_ts": period_ts,
-                    "open": bar_1m.open,
-                    "high": bar_1m.high,
-                    "low": bar_1m.low,
-                    "close": bar_1m.close,
-                    "volume": bar_1m.volume,
-                    "last_ts": curr_ts,
-                    "session_type": bar_1m.session_type,
-                    "all_flat": bar_1m.is_flat_bar,
-                }
+                self._accumulators[key] = self._new_accumulator(bar_1m, period_ts)
             else:
-                # Update existing accumulator
-                acc["high"] = max(acc["high"], bar_1m.high)
-                acc["low"] = min(acc["low"], bar_1m.low)
-                acc["close"] = bar_1m.close
-                acc["volume"] += bar_1m.volume
-                acc["last_ts"] = curr_ts
-                # Update period_ts in case it shifted (shouldn't happen but be safe)
-                acc["period_ts"] = period_ts
-                # HTF is_flat_bar = True only when ALL constituent 1m bars were flat (D-10)
-                acc["all_flat"] = acc["all_flat"] and bar_1m.is_flat_bar
+                # NEW: Defensive check for corruption
+                if not self._is_accumulator_valid(acc):
+                    logger.warning(
+                        "bar_accumulator.corrupted_state",
+                        symbol=bar_1m.symbol,
+                        tf=tf,
+                        accumulator_keys=list(acc.keys()),
+                        resetting=True
+                    )
+                    acc = None
+                    self._accumulators[key] = self._new_accumulator(bar_1m, period_ts)
+                else:
+                    # Update existing accumulator
+                    acc["high"] = max(acc["high"], bar_1m.high)
+                    acc["low"] = min(acc["low"], bar_1m.low)
+                    acc["close"] = bar_1m.close
+                    acc["volume"] += bar_1m.volume
+                    acc["last_ts"] = curr_ts
+                    # Update period_ts in case it shifted (shouldn't happen but be safe)
+                    acc["period_ts"] = period_ts
+                    # HTF is_flat_bar = True only when ALL constituent 1m bars were flat (D-10)
+                    acc["all_flat"] = acc["all_flat"] and bar_1m.is_flat_bar
 
         return completed
 
@@ -215,6 +217,38 @@ class BarAccumulator:
         if acc is None:
             return None
         return self._build_bar(symbol, tf, acc)
+
+    def _new_accumulator(self, bar: BarMessage, period_ts: int) -> dict:
+        """Create new accumulator state."""
+        return {
+            "period_ts": period_ts,
+            "open": bar.open,
+            "high": bar.high,
+            "low": bar.low,
+            "close": bar.close,
+            "volume": bar.volume,
+            "last_ts": int(bar.ts.timestamp()),
+            "session_type": bar.session_type,
+            "all_flat": bar.is_flat_bar,
+        }
+
+    def _is_accumulator_valid(self, acc: dict) -> bool:
+        """Defensive check for accumulator state corruption."""
+        required_keys = {"period_ts", "open", "high", "low", "close", "volume", "last_ts"}
+        if not all(k in acc for k in required_keys):
+            return False
+
+        # Validate data types
+        if not isinstance(acc["high"], (int, float)):
+            return False
+        if not isinstance(acc["low"], (int, float)):
+            return False
+
+        # Validate OHLC sanity
+        if acc["high"] < acc["low"]:  # Invalid: high can't be less than low
+            return False
+
+        return True
 
     def _build_bar(self, symbol: str, tf: str, acc: dict) -> BarMessage:
         """Build a BarMessage from accumulator state."""
