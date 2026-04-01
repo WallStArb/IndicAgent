@@ -2,8 +2,10 @@
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+import pytest
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
+@pytest.mark.asyncio
 async def test_session_boundary_under_load():
     """Test bar aggregator with real Kafka across session boundary."""
 

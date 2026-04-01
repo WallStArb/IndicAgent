@@ -1,5 +1,4 @@
 """Test session boundary handling in BarAccumulator."""
-import pytest
 from datetime import UTC, datetime, timedelta
 from src.core.bar_accumulator import BarAccumulator
 from src.core.schemas.bar_message import BarMessage, SessionType

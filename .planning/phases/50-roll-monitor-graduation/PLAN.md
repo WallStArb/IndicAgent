@@ -89,9 +89,13 @@ This phase graduates the shadow mode by validating against real 5m data and enab
    -- Should show roll_premium_pct numeric nullable
    ```
 
-3. Update `FeatureComputeAgent` to capture `roll_premium_pct` from `topic_roll_events` and include in feature vector
+3. Verify `feature_writer_agent` already handles `roll_premium_pct` (already implemented — `_handle_roll_event` in `services/feature_writer_agent.py:548`):
+   ```bash
+   grep -n "roll_premium_pct" services/feature_writer_agent.py
+   # Should show _handle_roll_event reading and persisting roll_premium_pct
+   ```
 
-**Exit Criteria:** Column exists, `RollComputeAgent` emissions include `premium_pct` field
+**Exit Criteria:** Column exists in `intelligence_features` schema AND `feature_writer_agent` persists `roll_premium_pct` into it during roll windows (verified via `SELECT roll_premium_pct FROM intelligence_features WHERE roll_premium_pct IS NOT NULL LIMIT 1` after next roll event)
 
 ---
 
@@ -103,10 +107,10 @@ This phase graduates the shadow mode by validating against real 5m data and enab
 
 **Tasks:**
 
-1. Update environment variable in production:
+1. Update environment variable in production (use `/etc/indicagent/production.env` — the acceptance check greps this file):
    ```bash
-   # Edit /etc/indicagent/production.env or systemd unit
-   ROLL_MONITOR_ENABLED=true
+   echo 'ROLL_MONITOR_ENABLED=true' | sudo tee -a /etc/indicagent/production.env
+   grep "ROLL_MONITOR_ENABLED" /etc/indicagent/production.env  # verify
    ```
 
 2. Restart `indicagent-signal-generator` (now consuming `topic_roll_events`):
@@ -168,4 +172,5 @@ After all plans complete:
 grep "ROLL_MONITOR_ENABLED=true" /etc/indicagent/production.env
 grep "IS_SHADOW = False" src/intelligence/trading/dual_divergence.py
 docker exec timescaledb psql -U postgres -d indicagent -c "\d intelligence_features" | grep roll_premium_pct
+docker exec timescaledb psql -U postgres -d indicagent -c "SELECT COUNT(*) FROM intelligence_features WHERE roll_premium_pct IS NOT NULL"
 ```

@@ -132,8 +132,13 @@ class BarHistorySeeder:
                             )
                         )
                         seeded_bars += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.logger.debug(
+                            "Primary bar parse failed — skipping row",
+                            symbol=symbol,
+                            tf=tf,
+                            error=str(e),
+                        )
                 if bar_messages:
                     bar_history.seed(symbol, tf, bar_messages)
 
