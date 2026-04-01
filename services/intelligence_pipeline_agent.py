@@ -980,28 +980,56 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _run_i1(self, frames: dict, symbol: str, tf: str) -> dict:
-        """Run all I1 plugins and return merged result dict."""
+        """Run all I1 plugins in parallel and return merged result."""
+
+        # Start timing
+        i1_start = time.perf_counter()
+
         result: dict[str, Any] = {}
+        tasks = []
+
+        # Build parallel tasks
         for plugin_name in TIER_I1:
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
                 continue
-            if should_skip_plugin(plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name):
+            if should_skip_plugin(plugin, self._instrument_map.get(symbol),
+                               self._plugin_skipped_total, plugin_name):
                 continue
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
-            try:
-                out = await asyncio.to_thread(plugin.compute_full, frames)
-                if isinstance(out, dict):
-                    with lock:
-                        if "_state" in out:
-                            self._plugin_states[state_key] = out.pop("_state")
-                        result.update(out)
-            except Exception as exc:
+
+            # Create parallel task: (coroutine, plugin_name, state_key, lock)
+            tasks.append((
+                asyncio.to_thread(plugin.compute_full, frames),
+                plugin_name,
+                state_key,
+                lock
+            ))
+
+        # Execute all I1 plugins in parallel
+        results = await asyncio.gather(*[t[0] for t in tasks], return_exceptions=True)
+
+        # Collect results with state locking
+        for i, (_, plugin_name, state_key, lock) in enumerate(tasks):
+            out = results[i]
+            if isinstance(out, Exception):
                 self._pipeline_errors.inc()
                 self.logger.warning(
-                    "plugin.error", plugin=plugin_name, error=str(exc)
+                    "plugin.error",
+                    plugin=plugin_name,
+                    error=str(out)
                 )
+            elif isinstance(out, dict):
+                with lock:
+                    if "_state" in out:
+                        self._plugin_states[state_key] = out.pop("_state")
+                    result.update(out)
+
+        # Record timing metric
+        i1_latency_ms = (time.perf_counter() - i1_start) * 1000
+        self._i1_latency_ms.set(i1_latency_ms)
+
         return result
 
     # ------------------------------------------------------------------
