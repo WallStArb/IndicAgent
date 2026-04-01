@@ -194,8 +194,9 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main loop: consume 1m bars, aggregate, publish completed HTF bars."""
-        # Start health metrics background task
+        # Start background tasks
         health_task = asyncio.create_task(self._update_health_metrics())
+        checker_task = asyncio.create_task(self._health_checker())
 
         try:
             htf_topic = topic_market_bars_htf(self._env_name)
@@ -283,8 +284,13 @@ class BarAggregatorComputeAgent(BaseAgent):
 
         finally:
             health_task.cancel()
+            checker_task.cancel()
             try:
                 await health_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await checker_task
             except asyncio.CancelledError:
                 pass
 
@@ -304,6 +310,45 @@ class BarAggregatorComputeAgent(BaseAgent):
             # When _last_bar_ts is None, metric remains at 0 (never processed)
 
             await asyncio.sleep(15)
+
+    async def _health_checker(self):
+        """Background task: monitor health and take action."""
+        while self.running:
+            await asyncio.sleep(30)  # Check every 30 seconds
+
+            healthy, reason = self._health_metrics.is_healthy()
+
+            if not healthy:
+                self.logger.error(
+                    "bar_aggregator.unhealthy",
+                    reason=reason,
+                    bars_last_min=self._health_metrics._bars_last_minute,
+                    htf_last_min=self._health_metrics._htf_bars_last_minute,
+                    consecutive_errors=self._health_metrics._consecutive_errors,
+                    last_bar=self._health_metrics._last_bar_ts.isoformat() if self._health_metrics._last_bar_ts else None
+                )
+
+                # HEALTH CHECK FAILED - take action
+                await self._handle_unhealthy_state(reason)
+
+    async def _handle_unhealthy_state(self, reason: str):
+        """Handle unhealthy state with automated recovery."""
+        if "no_bars" in reason or "consuming_not_emitting" in reason:
+            self.logger.warning("bar_aggregator.attempting_consumer_reset")
+
+            # Stop consumer
+            await self._kafka_consumer.stop()
+            await asyncio.sleep(1)
+
+            # Start consumer (this resets to latest offset)
+            await self._kafka_consumer.start()
+
+            # Reset health state
+            self._health_metrics._consecutive_errors = 0
+            self._health_metrics._bars_last_minute = 0
+            self._health_metrics._htf_bars_last_minute = 0
+
+            self.logger.info("bar_aggregator.consumer_reset_complete")
 
     async def _get_consumer_lag(self) -> int:
         """Get current consumer lag in seconds."""
