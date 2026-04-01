@@ -405,12 +405,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_events: dict = {}
         self._pattern_reliability: dict = {}
 
-        # Create custom executor with more workers (4x CPU cores)
+        # Create custom executor with more workers
+        cpu_count = os.cpu_count() or 24
         self._executor = ThreadPoolExecutor(
-            max_workers=96,  # 24 cores * 4
+            max_workers=cpu_count * 2,  # 2x CPU cores for CPU-bound work
             thread_name_prefix="intel_"
         )
-        asyncio.get_event_loop().set_default_executor(self._executor)
 
         # CIS / aggregator state
         self._cis_scorer = CISScorer()
@@ -504,7 +504,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def stop(self) -> None:
         """Shutdown thread pool executor before stopping."""
         self.logger.info("agent.shutdown_initiated", agent=self.name)
-        self._executor.shutdown(wait=True)
+        # Run shutdown in executor to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._executor.shutdown, True)
         self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
 
@@ -1101,6 +1103,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         raw_signals: list[dict] = []
         tasks = []
+        plugin_input = {"main": None, **features}  # Pre-compute to avoid 36x dict construction
 
         # Build parallel tasks
         for plugin_name in I7_PLUGINS:
@@ -1114,7 +1117,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Create parallel task: (coroutine, plugin_name, state_key, lock, bar)
             tasks.append((
-                asyncio.to_thread(plugin.compute_full, {"main": None, **features}),
+                asyncio.to_thread(plugin.compute_full, plugin_input),
                 plugin_name,
                 state_key,
                 lock,
