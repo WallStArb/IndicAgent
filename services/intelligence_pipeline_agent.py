@@ -41,10 +41,12 @@ from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
-from src.core.schemas.intelligence_journal import IntelligenceJournal, ProvenanceChain
+from uuid import uuid4
+
 from src.core.service_utils import (
     TF_SECONDS,
     min_bars_for_tf,
+    normalize_session_type,
     setup_service_logging,
     should_skip_plugin,
 )
@@ -88,6 +90,7 @@ from src.intelligence.register_plugins import (
     register_all_plugins,
 )
 from src.intelligence.schemas import (
+    BarIntelligenceRecord,
     I1Indicators,
     I2Events,
     I3Structure,
@@ -96,6 +99,7 @@ from src.intelligence.schemas import (
     I6Confluence,
     IntelligenceEvent,
     OHLCVBar,
+    RankedSignal,
     SMCContext,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
@@ -104,6 +108,44 @@ from src.observability.metrics import (
     counter,
     gauge,
 )
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Fields consumed by explicit keyword args in _signal_dict_to_ranked — excluded from **extras.
+_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset({
+    "signal_id", "setup_plugin", "direction", "pre_quality_confidence",
+    "confidence", "calibrated_confidence", "regime_eligible", "quality_score",
+    "tod_multiplier", "adjusted_rank", "was_selected",
+})
+
+
+def _signal_dict_to_ranked(sig: dict) -> RankedSignal:
+    """Map a pipeline signal dict to a RankedSignal model.
+
+    Signal dicts use different field names than RankedSignal schema:
+      setup_plugin → plugin
+      pre_quality_confidence (or confidence) → raw_confidence
+      was_selected → is_winner
+    calibrated_confidence may be None — fall back to confidence.
+    """
+    return RankedSignal(
+        signal_id=str(sig.get("signal_id") or uuid4()),
+        plugin=sig.get("setup_plugin", "unknown"),
+        direction=int(sig.get("direction", 0)),
+        raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
+        calibrated_confidence=float(
+            sig.get("calibrated_confidence") if sig.get("calibrated_confidence") is not None else sig.get("confidence", 0.0)
+        ),
+        regime_eligible=bool(sig.get("regime_eligible", True)),
+        quality_score=float(sig.get("quality_score", 1.0)),
+        tod_multiplier=float(sig.get("tod_multiplier", 1.0)),
+        adjusted_rank=float(sig.get("adjusted_rank", 0.0)),
+        is_winner=bool(sig.get("was_selected", False)),
+        **{k: v for k, v in sig.items() if k not in _RANKED_CONSUMED_KEYS},
+    )
+
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -757,15 +799,16 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         )
         self._enqueue(output_topic, msg_key, {"event": intel_event.model_dump_json()})
 
-        # Also publish intelligence journal
-        self._enqueue_intel_journal(bar, intel_event, msg_key)
-
         # 6. Run I7 pipeline (in-process, no Kafka)
+        i7_result: dict | None = None
         try:
-            await self._run_i7(bar, intel_event, tiered)
+            i7_result = await self._run_i7(bar, intel_event, tiered)
         except Exception as exc:
             self.logger.error("pipeline.i7_error", symbol=bar.symbol, tf=bar.tf, error=str(exc))
             self._pipeline_errors.inc()
+
+        # Publish BarIntelligenceRecord to journal (after I7 so ranked_signals are available)
+        self._enqueue_intel_journal(bar, intel_event, t0, msg_key, i7_result)
 
         # 7. State checkpoint (best-effort — non-serializable state is skipped)
         try:
@@ -992,10 +1035,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     async def _run_i7(
         self, bar: BarMessage, event: IntelligenceEvent, tiered: dict
-    ) -> None:
-        """Run I7 plugins → quality gate → regime gate → calibration → rank → select."""
+    ) -> dict:
+        """Run I7 plugins → quality gate → regime gate → calibration → rank → select.
+
+        Returns a dict of I7 results for BarIntelligenceRecord construction:
+            ranked, winner, n_raw, n_quality, n_regime, n_tod, n_calibrated, i7_computed_at
+        """
         symbol, tf = bar.symbol, bar.tf
         features = _build_features_from_event(event)
+        i7_computed_at = datetime.now(UTC)
 
         # Run all I7 plugins
         raw_signals: list[dict] = []
@@ -1029,7 +1077,16 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 )
 
         if not raw_signals:
-            return
+            return {
+                "ranked": [],
+                "winner": None,
+                "signals_evaluated": 0,
+                "signals_after_quality": 0,
+                "signals_after_regime": 0,
+                "signals_after_tod": 0,
+                "signals_after_calibration": 0,
+                "i7_computed_at": i7_computed_at,
+            }
 
         # Attribution capture: BEFORE quality gate
         for sig in raw_signals:
@@ -1107,6 +1164,17 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 winner,
             )
 
+        return {
+            "ranked": ranked,
+            "winner": winner,
+            "signals_evaluated": len(raw_signals),
+            "signals_after_quality": len(quality_gated),
+            "signals_after_regime": len(regime_gated),
+            "signals_after_tod": len(tod_adjusted),
+            "signals_after_calibration": len(calibrated),
+            "i7_computed_at": i7_computed_at,
+        }
+
     # ------------------------------------------------------------------
     # State checkpointing
     # ------------------------------------------------------------------
@@ -1133,27 +1201,43 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     def _enqueue_intel_journal(
-        self, bar: BarMessage, event: IntelligenceEvent, msg_key: str
+        self,
+        bar: BarMessage,
+        event: IntelligenceEvent,
+        t0: float,
+        msg_key: str,
+        i7_result: dict | None,
     ) -> None:
-        """Enqueue IntelligenceJournal record to output buffer."""
-        now = datetime.now(UTC)
-        symbol = bar.symbol
-        tf = bar.tf
-        journal = IntelligenceJournal(
-            ts=now,
-            sid=f"intel_{symbol}_{tf}",
-            payload=event.model_dump(mode="json"),
-            provenance=ProvenanceChain(
-                origin_ts=now,
-                pipeline_id=f"intel_{symbol}_{tf}",
-                plugin_stack=["intelligence_pipeline_agent"],
-                compute_budget_ms=0.0,
-            ),
+        """Build and enqueue BarIntelligenceRecord to the intelligence journal topic."""
+        i7 = i7_result or {}
+        ranked_dicts: list[dict] = i7.get("ranked", [])
+        winner: dict | None = i7.get("winner")
+        i7_computed_at: datetime = i7.get("i7_computed_at", datetime.now(UTC))
+
+        ranked_signals = [_signal_dict_to_ranked(s) for s in ranked_dicts]
+
+        record = BarIntelligenceRecord(
+            intelligence=event,
+            ranked_signals=ranked_signals,
+            winner_plugin=winner.get("setup_plugin") if winner else None,
+            winner_confidence=(
+                winner.get("calibrated_confidence") if winner.get("calibrated_confidence") is not None else winner.get("confidence")
+            ) if winner else None,
+            winner_direction=winner.get("direction") if winner else None,
+            signals_evaluated=i7.get("signals_evaluated", 0),
+            signals_after_quality=i7.get("signals_after_quality", 0),
+            signals_after_regime=i7.get("signals_after_regime", 0),
+            signals_after_tod=i7.get("signals_after_tod", 0),
+            signals_after_calibration=i7.get("signals_after_calibration", 0),
+            ledger_written=len(ranked_dicts) > 0,
+            session_type=normalize_session_type(event.session_type),
+            i7_computed_at=i7_computed_at,
+            pipeline_latency_ms=(time.perf_counter() - t0) * 1000,
         )
         self._enqueue(
             topic_intelligence_journal(self._settings.env_name),
             msg_key,
-            journal.model_dump(mode="json"),
+            record.model_dump(mode="json"),
         )
 
     # ------------------------------------------------------------------
