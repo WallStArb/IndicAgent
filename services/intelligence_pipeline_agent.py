@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 import zoneinfo
+from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,6 +104,7 @@ from src.intelligence.schemas import (
     SMCContext,
 )
 from src.intelligence.trading.cis_scorer import CISScorer
+from time import perf_counter  # noqa: F401 - will be used in I1/I7 timing (Task 3, 5)
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
     counter,
@@ -404,6 +406,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_events: dict = {}
         self._pattern_reliability: dict = {}
 
+        # Create custom executor with more workers (4x CPU cores)
+        self._executor = ThreadPoolExecutor(
+            max_workers=96,  # 24 cores * 4
+            thread_name_prefix="intel_"
+        )
+        asyncio.get_event_loop().set_default_executor(self._executor)
+
         # CIS / aggregator state
         self._cis_scorer = CISScorer()
         self._cis_weights_cache: dict = {}
@@ -456,6 +465,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._bars_processed = counter(
             "intelligence_pipeline_bars_processed_total",
             "Bars processed through I1-I7 pipeline",
+        )
+        self._i1_latency_ms = gauge(
+            "intelligence_pipeline_i1_latency_ms",
+            "I1 tier execution time in milliseconds"
+        )
+        self._i7_latency_ms = gauge(
+            "intelligence_pipeline_i7_latency_ms",
+            "I7 tier execution time in milliseconds"
         )
         self._signals_generated = counter(
             "intelligence_pipeline_signals_generated_total",
