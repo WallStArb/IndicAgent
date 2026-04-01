@@ -31,7 +31,7 @@ sys.path.insert(0, str(project_root))
 
 import time
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, Gauge
 
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
@@ -141,6 +141,21 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._aggregation_errors = Counter(
             "bar_agg_aggregation_errors_total", "Exceptions during bar processing", ["agent"]
         )
+        self._health_status = Gauge(
+            "bar_agg_health_status",
+            "Service health status (1=healthy, 0=unhealthy)",
+            ["agent"]
+        )
+        self._consumer_lag_seconds = Gauge(
+            "bar_agg_consumer_lag_seconds",
+            "How far behind the consumer is (head offset - current offset)",
+            ["agent"]
+        )
+        self._time_since_last_bar_seconds = Gauge(
+            "bar_agg_time_since_last_bar_seconds",
+            "Seconds since last bar was processed",
+            ["agent"]
+        )
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -179,88 +194,114 @@ class BarAggregatorComputeAgent(BaseAgent):
 
     async def _run(self) -> None:
         """Main loop: consume 1m bars, aggregate, publish completed HTF bars."""
-        htf_topic = topic_market_bars_htf(self._env_name)
-        last_health_log = time.monotonic()
-        last_minute_reset = time.monotonic()
+        # Start health metrics background task
+        health_task = asyncio.create_task(self._update_health_metrics())
 
-        async for _topic, _key, payload in self._kafka_consumer.messages():
-            if not self.running:
-                break
+        try:
+            htf_topic = topic_market_bars_htf(self._env_name)
+            last_health_log = time.monotonic()
+            last_minute_reset = time.monotonic()
 
-            # Reset minute counters every 60 seconds
-            if time.monotonic() - last_minute_reset > 60:
-                self._health_metrics.reset_minute_counters()
-                last_minute_reset = time.monotonic()
+            async for _topic, _key, payload in self._kafka_consumer.messages():
+                if not self.running:
+                    break
 
-            # Log health summary every 60 seconds
-            if time.monotonic() - last_health_log > 60:
-                healthy, reason = self._health_metrics.is_healthy()
-                lag = await self._get_consumer_lag()
+                # Reset minute counters every 60 seconds
+                if time.monotonic() - last_minute_reset > 60:
+                    self._health_metrics.reset_minute_counters()
+                    last_minute_reset = time.monotonic()
 
-                self.logger.info(
-                    "bar_aggregator_health",
-                    healthy=healthy,
-                    reason=reason,
-                    processed_last_min=self._health_metrics._bars_last_minute,
-                    skipped_last_min=self._health_metrics._bars_skipped_last_minute,
-                    htf_emitted_last_min=self._health_metrics._htf_bars_last_minute,
-                    consumer_lag=lag,
-                )
-                last_health_log = time.monotonic()
+                # Log health summary every 60 seconds
+                if time.monotonic() - last_health_log > 60:
+                    healthy, reason = self._health_metrics.is_healthy()
+                    lag = await self._get_consumer_lag()
 
+                    self.logger.info(
+                        "bar_aggregator_health",
+                        healthy=healthy,
+                        reason=reason,
+                        processed_last_min=self._health_metrics._bars_last_minute,
+                        skipped_last_min=self._health_metrics._bars_skipped_last_minute,
+                        htf_emitted_last_min=self._health_metrics._htf_bars_last_minute,
+                        consumer_lag=lag,
+                    )
+                    last_health_log = time.monotonic()
+
+                try:
+                    start_time = time.monotonic()
+
+                    # Parse and process bar
+                    bar = self._parse_bar(payload)
+                    if bar is None:
+                        self._bars_skipped.labels(agent=self.name, reason=self._last_skip_reason).inc()
+                        self._health_metrics.record_skip()
+                        continue
+
+                    # Record successful bar processing
+                    self._health_metrics.record_bar(bar.ts)
+
+                    self._bars_processed.labels(agent=self.name).inc()
+
+                    with self._processing_duration.labels(agent=self.name).time():
+                        completed_bars = self._bar_accumulator.update(bar)
+
+                    # Emit HTF bars
+                    for htf_bar in completed_bars:
+                        await self._kafka_producer.publish(
+                            htf_topic,
+                            htf_bar.model_dump(mode="json"),
+                            key=message_key(htf_bar.symbol, htf_bar.tf),
+                        )
+                        self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
+                        self._health_metrics.record_htf_bar()
+                        self.logger.debug(
+                            "bar_aggregator_agent.htf_bar_published",
+                            symbol=htf_bar.symbol,
+                            tf=htf_bar.tf,
+                            ts=htf_bar.ts.isoformat(),
+                        )
+
+                    # Check for slow processing
+                    duration = time.monotonic() - start_time
+                    if duration > 1.0:
+                        self.logger.warning(
+                            "bar_aggregator.slow_bar_processing",
+                            symbol=bar.symbol,
+                            duration_s=duration,
+                            htf_emitted=len(completed_bars),
+                        )
+
+                except Exception as exc:
+                    self._health_metrics.record_error()
+                    self._aggregation_errors.labels(agent=self.name).inc()
+                    self.logger.error(
+                        "bar_aggregator.processing_error",
+                        error=str(exc),
+                        payload_preview=str(payload)[:200],
+                    )
+                    # Don't crash on single bar failure — continue consuming
+
+        finally:
+            health_task.cancel()
             try:
-                start_time = time.monotonic()
+                await health_task
+            except asyncio.CancelledError:
+                pass
 
-                # Parse and process bar
-                bar = self._parse_bar(payload)
-                if bar is None:
-                    self._bars_skipped.labels(agent=self.name, reason=self._last_skip_reason).inc()
-                    self._health_metrics.record_skip()
-                    continue
+    async def _update_health_metrics(self):
+        """Update Prometheus health metrics every 15 seconds."""
+        while self.running:
+            healthy, _ = self._health_metrics.is_healthy()
+            self._health_status.labels(agent=self.name).set(1 if healthy else 0)
 
-                # Record successful bar processing
-                self._health_metrics.record_bar(bar.ts)
+            lag = await self._get_consumer_lag()
+            self._consumer_lag_seconds.labels(agent=self.name).set(lag)
 
-                self._bars_processed.labels(agent=self.name).inc()
+            if self._health_metrics._last_bar_ts:
+                time_since = (datetime.now(UTC) - self._health_metrics._last_bar_ts).total_seconds()
+                self._time_since_last_bar_seconds.labels(agent=self.name).set(time_since)
 
-                with self._processing_duration.labels(agent=self.name).time():
-                    completed_bars = self._bar_accumulator.update(bar)
-
-                # Emit HTF bars
-                for htf_bar in completed_bars:
-                    await self._kafka_producer.publish(
-                        htf_topic,
-                        htf_bar.model_dump(mode="json"),
-                        key=message_key(htf_bar.symbol, htf_bar.tf),
-                    )
-                    self._htf_bars_emitted.labels(agent=self.name, tf=htf_bar.tf).inc()
-                    self._health_metrics.record_htf_bar()
-                    self.logger.debug(
-                        "bar_aggregator_agent.htf_bar_published",
-                        symbol=htf_bar.symbol,
-                        tf=htf_bar.tf,
-                        ts=htf_bar.ts.isoformat(),
-                    )
-
-                # Check for slow processing
-                duration = time.monotonic() - start_time
-                if duration > 1.0:
-                    self.logger.warning(
-                        "bar_aggregator.slow_bar_processing",
-                        symbol=bar.symbol,
-                        duration_s=duration,
-                        htf_emitted=len(completed_bars),
-                    )
-
-            except Exception as exc:
-                self._health_metrics.record_error()
-                self._aggregation_errors.labels(agent=self.name).inc()
-                self.logger.error(
-                    "bar_aggregator.processing_error",
-                    error=str(exc),
-                    payload_preview=str(payload)[:200],
-                )
-                # Don't crash on single bar failure — continue consuming
+            await asyncio.sleep(15)
 
     async def _get_consumer_lag(self) -> int:
         """Get current consumer lag in seconds."""
