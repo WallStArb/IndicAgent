@@ -48,6 +48,7 @@ class HealthMetrics:
         self._last_bar_ts: datetime | None = None
         self._bars_last_minute = 0
         self._htf_bars_last_minute = 0
+        self._bars_skipped_last_minute = 0
         self._consecutive_errors = 0
         self._last_reset = time.monotonic()
 
@@ -68,7 +69,12 @@ class HealthMetrics:
         """Reset per-minute counters (called every 60s)."""
         self._bars_last_minute = 0
         self._htf_bars_last_minute = 0
+        self._bars_skipped_last_minute = 0
         self._last_reset = time.monotonic()
+
+    def record_skip(self):
+        """Record a skipped bar."""
+        self._bars_skipped_last_minute += 1
 
     def is_healthy(self) -> tuple[bool, str]:
         """Check if service is healthy. Returns (healthy, reason)."""
@@ -196,11 +202,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                     healthy=healthy,
                     reason=reason,
                     processed_last_min=self._health_metrics._bars_last_minute,
-                    skipped_last_min=(
-                        getattr(self._bars_skipped.labels(agent=self.name), "_value", {}).get(
-                            "reason", 0
-                        )
-                    ),
+                    skipped_last_min=self._health_metrics._bars_skipped_last_minute,
                     htf_emitted_last_min=self._health_metrics._htf_bars_last_minute,
                     consumer_lag=lag,
                 )
@@ -213,6 +215,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                 bar = self._parse_bar(payload)
                 if bar is None:
                     self._bars_skipped.labels(agent=self.name, reason=self._last_skip_reason).inc()
+                    self._health_metrics.record_skip()
                     continue
 
                 # Record successful bar processing
