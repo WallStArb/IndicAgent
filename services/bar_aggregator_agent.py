@@ -157,6 +157,15 @@ class BarAggregatorComputeAgent(BaseAgent):
             "Seconds since last bar was processed",
             ["agent"]
         )
+        # Add aggregation latency metric (missing from class)
+        self._aggregation_latency = Histogram(
+            "bar_aggregation_latency_seconds",
+            "Latency for bar aggregation processing",
+            ["agent"],
+            buckets=[0.001, 0.01, 0.1, 1.0, 10.0]
+        )
+        # Add label for aggregation latency metric
+        self._aggregation_latency_lbl = self._aggregation_latency.labels(agent=self.name)
 
     @property
     def topics_consumed(self) -> list[str]:
