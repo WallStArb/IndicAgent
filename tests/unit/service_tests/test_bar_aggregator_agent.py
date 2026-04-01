@@ -50,7 +50,7 @@ _TEST_AGGREGATION_ERRORS = Counter(
 
 def _make_agent():
     """Build BarAggregatorComputeAgent using __new__ (service test pattern)."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
+    from services.bar_aggregator_agent import BarAggregatorComputeAgent, HealthMetrics
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
     agent.name = "bar_aggregator_agent"
@@ -61,6 +61,14 @@ def _make_agent():
     agent._kafka_producer = AsyncMock()
     agent._kafka_consumer = AsyncMock()
     agent._bar_accumulator = BarAccumulator()
+    agent._health_metrics = HealthMetrics()
+    agent._last_skip_reason = "parse_failed"
+    # Create mock metrics that have the expected interface
+    agent._bars_processed = MagicMock()
+    agent._bars_skipped = MagicMock()
+    agent._htf_bars_emitted = MagicMock()
+    agent._processing_duration = MagicMock()
+    agent._aggregation_errors = MagicMock()
     # Wire module-level test metrics via cached label children (matches production pattern)
     agent._events_consumed_lbl = _TEST_EVENTS_CONSUMED.labels(agent="bar_aggregator_agent")
     agent._aggregation_latency_lbl = _TEST_AGGREGATION_LATENCY.labels(agent="bar_aggregator_agent")
