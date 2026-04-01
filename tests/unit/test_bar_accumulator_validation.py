@@ -1,4 +1,3 @@
-import pytest
 from datetime import UTC, datetime
 from src.core.bar_accumulator import BarAccumulator
 from src.core.schemas.bar_message import BarMessage, SessionType

@@ -28,6 +28,7 @@ services:
     image: docker.redpanda.com/redpandadata/redpanda:v25.3.10
     container_name: redpanda
     restart: unless-stopped
+    mem_limit: 6g
     command:
       - redpanda
       - start
