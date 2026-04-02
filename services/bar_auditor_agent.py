@@ -35,10 +35,10 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base import BaseAgent
-from src.core.kafka_utils import KafkaProducerClient
+from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import TradingSession
 from src.core.schemas.market_events import BarGapRequest
-from src.core.stream_keys import topic_gap_requests
+from src.core.stream_keys import topic_contract_updates, topic_gap_requests
 from src.observability.otel import init_tracing
 
 # ---------------------------------------------------------------------------
@@ -46,8 +46,10 @@ from src.observability.otel import init_tracing
 # ---------------------------------------------------------------------------
 
 _AUDIT_INTERVAL = 300  # seconds between audits (5 minutes)
-_COMPLETENESS_THRESHOLD = 0.95  # flag gap if actual/expected < 95%
+# Per-session threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
+_COMPLETENESS_GATE = 0.97
 _DEFAULT_LOOKBACK_DAYS = 3
+_HTF_TIMEFRAME_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "4h": 240}
 
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
@@ -98,6 +100,8 @@ class BarAuditorAgent(BaseAgent):
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
+        self._contract_consumer: KafkaConsumerClient | None = None
+        self._active_contracts_last_refresh: float = 0.0
 
         # Dedup: track (symbol, date_str) pairs already requested today.
         # Prevents the infinite retry loop when IBKR can't fully cover a gap
@@ -120,15 +124,15 @@ class BarAuditorAgent(BaseAgent):
 
     @property
     def topics_consumed(self) -> list[str]:
-        """No Kafka consumption — audit is DB-loop-driven (per D-10)."""
-        return []
+        """Subscribe to contract updates for cache invalidation."""
+        return [topic_contract_updates(self._env_name)]
 
     @property
     def topics_produced(self) -> list[str]:
         return [topic_gap_requests(self._env_name)]
 
     async def _setup(self) -> None:
-        """Connect asyncpg pool and Kafka producer."""
+        """Connect asyncpg pool, Kafka producer, and contract update consumer."""
         self._db_pool = await asyncpg.create_pool(
             self._settings.database_url, min_size=1, max_size=3
         )
@@ -136,13 +140,23 @@ class BarAuditorAgent(BaseAgent):
             bootstrap_servers=self._settings.kafka_bootstrap_servers
         )
         await self._kafka_producer.start()
+        self._contract_consumer = KafkaConsumerClient(
+            topic_contract_updates(self._env_name),
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            group_id="bar_auditor_contract_updates_consumer",
+            auto_offset_reset="latest",
+        )
+        await self._contract_consumer.start()
         self.logger.info(
             "bar_auditor_agent.setup_complete",
             topics_produced=self.topics_produced,
+            topics_consumed=self.topics_consumed,
         )
 
     async def _teardown(self) -> None:
-        """Stop producer and close DB pool."""
+        """Stop producer, contract consumer, and close DB pool."""
+        if self._contract_consumer is not None:
+            await self._contract_consumer.stop()
         if self._kafka_producer is not None:
             await self._kafka_producer.stop()
         if self._db_pool is not None:
@@ -155,6 +169,7 @@ class BarAuditorAgent(BaseAgent):
         wakes the wait and exits cleanly.
         """
         # Startup audit (D-12)
+        await self._drain_contract_updates()
         await self._run_audit()
 
         while self.running:
@@ -173,6 +188,7 @@ class BarAuditorAgent(BaseAgent):
             if not self.running:
                 break
 
+            await self._drain_contract_updates()
             instruments = get_active_contracts(self._settings)
             if self._any_session_open(instruments):
                 await self._run_audit(instruments)
@@ -180,6 +196,31 @@ class BarAuditorAgent(BaseAgent):
     # ------------------------------------------------------------------
     # Business logic
     # ------------------------------------------------------------------
+
+    async def _drain_contract_updates(self) -> None:
+        """Check for ContractUpdateEvent messages and invalidate contract cache.
+
+        Non-blocking drain — processes any pending messages without waiting.
+        Topic absence degrades gracefully to TTL-only cache (60s lag).
+        """
+        if self._contract_consumer is None:
+            return
+        try:
+            count = 0
+            # Drain all pending messages via the async iterator with a short timeout
+            async for _topic, _key, _payload in self._contract_consumer.messages():
+                count += 1
+                # Reset refresh timestamp to force re-fetch on next audit cycle
+                self._active_contracts_last_refresh = 0.0
+                if count >= 100:  # Safety cap — avoid blocking on message flood
+                    break
+            if count > 0:
+                self.logger.info(
+                    "bar_auditor_agent.contract_update_received",
+                    count=count,
+                )
+        except Exception:
+            pass  # Graceful degradation — TTL cache handles it
 
     @staticmethod
     def _expected_bars_for_date(session: TradingSession, target_date: date) -> int:
@@ -233,10 +274,12 @@ class BarAuditorAgent(BaseAgent):
         """Detect missing bars across all active instruments for last N days.
 
         For each instrument and each of the last lookback_days calendar dates:
-        - Compute expected 1m bar count from TradingSession
-        - Skip non-trading days (expected == 0)
-        - Query market_data_ohlcv for actual count
-        - If completeness < _COMPLETENESS_THRESHOLD, create BarGapRequest
+        - Compute session-aligned UTC window from session_window_for_date()
+        - Skip non-trading days (window returns (None, None))
+        - Query market_data_ohlcv for actual count within session window
+        - Derive per-session threshold: session.max_achievable_pct() * _COMPLETENESS_GATE
+        - If completeness < threshold, create BarGapRequest
+        - Observe HTF completeness metrics (5m/15m/1h/4h) — log warnings, NO gap requests
 
         Returns:
             list[BarGapRequest]: one request per (instrument, date) that needs gap fill
@@ -248,16 +291,18 @@ class BarAuditorAgent(BaseAgent):
         async with self._db_pool.acquire() as conn:
             for instrument in instruments:
                 session = instrument.trading_session
+                threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
                 for days_back in range(1, lookback_days + 1):
                     target_date = today - timedelta(days=days_back)
                     expected = self._expected_bars_for_date(session, target_date)
                     if expected == 0:
                         continue
 
-                    date_start_utc = datetime(
-                        target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=UTC
-                    )
-                    date_end_utc = date_start_utc + timedelta(days=1)
+                    # Session-aligned UTC window (replaces midnight-to-midnight)
+                    window = session.session_window_for_date(target_date)
+                    if window[0] is None or window[1] is None:
+                        continue  # Non-trading day — skip
+                    date_start_utc, date_end_utc = window
 
                     actual = await conn.fetchval(
                         """
@@ -280,7 +325,7 @@ class BarAuditorAgent(BaseAgent):
                         agent=self.name, symbol=instrument.symbol, tf="1m"
                     ).set(completeness)
 
-                    if completeness < _COMPLETENESS_THRESHOLD:
+                    if completeness < threshold:
                         # Dedup: skip if already requested today (prevents infinite
                         # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
                         today_str = str(date.today())
@@ -298,6 +343,7 @@ class BarAuditorAgent(BaseAgent):
                             actual=actual,
                             expected=expected,
                             completeness=round(completeness, 3),
+                            threshold=round(threshold, 3),
                         )
                         gaps.append(
                             BarGapRequest(
@@ -308,6 +354,45 @@ class BarAuditorAgent(BaseAgent):
                             )
                         )
                         self._requested_today.add(gap_key)
+
+                    # HTF completeness — observe metrics, DO NOT issue gap requests
+                    for tf_name, tf_minutes in _HTF_TIMEFRAME_MINUTES.items():
+                        expected_htf = expected // tf_minutes
+                        if expected_htf == 0:
+                            continue
+                        actual_htf = await conn.fetchval(
+                            """
+                            SELECT COUNT(*)
+                            FROM market_data_ohlcv
+                            WHERE symbol = $1
+                              AND timeframe = $2
+                              AND timestamp >= $3
+                              AND timestamp < $4
+                            """,
+                            instrument.symbol,
+                            tf_name,
+                            date_start_utc,
+                            date_end_utc,
+                        ) or 0
+                        completeness_htf = actual_htf / expected_htf
+                        self._canonical_completeness.labels(
+                            agent=self.name, symbol=instrument.symbol, tf=tf_name
+                        ).set(completeness_htf)
+                        if completeness_htf < threshold:
+                            self.logger.warning(
+                                "bar_auditor_agent.htf_gap_detected",
+                                symbol=instrument.symbol,
+                                tf=tf_name,
+                                date=str(target_date),
+                                actual=actual_htf,
+                                expected=expected_htf,
+                                completeness=round(completeness_htf, 3),
+                                threshold=round(threshold, 3),
+                                note=(
+                                    "HTF gaps are observable only — no gap request"
+                                    " issued (gap fill is 1m-only)"
+                                ),
+                            )
 
         return gaps
 
