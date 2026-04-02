@@ -107,6 +107,9 @@ from src.intelligence.schemas import (
 from src.intelligence.trading.cis_scorer import CISScorer
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import (
+    PLUGIN_DURATION_MS,
+    PLUGIN_ERRORS_TOTAL,
+    THREAD_POOL_WORKERS,
     counter,
     gauge,
 )
@@ -335,6 +338,14 @@ _STATE_TOPIC_RETENTION_MS = 604800000  # 7 days
 _OUTPUT_QUEUE_MAXSIZE = 500
 
 
+def _timed_plugin_call(plugin, frames):
+    """Wrapper that returns (result, duration_ms) tuple for per-plugin timing."""
+    t0 = time.perf_counter()
+    result = plugin.compute_full(frames)
+    duration_ms = (time.perf_counter() - t0) * 1000
+    return result, duration_ms
+
+
 @dataclass
 class PluginTask:
     """Container for parallel plugin execution metadata."""
@@ -361,14 +372,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
+        self._settings = Settings()
         super().__init__(
             name="intelligence_pipeline_agent",
-            metrics_port=9125,
+            metrics_port=self._settings.pipeline_metrics_port,
         )
 
-        setup_service_logging("logs/intelligence_pipeline_agent.log")
+        _log_file = os.environ.get("LOG_FILE", "logs/intelligence_pipeline_agent.log")
+        setup_service_logging(_log_file)
 
-        self._settings = Settings()
         self._contracts = get_active_contracts(self._settings)
         self._symbols = [c.symbol for c in self._contracts]
         self._timeframes = list(_STANDARD_TFS)
@@ -416,12 +428,15 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_events: dict = {}
         self._pattern_reliability: dict = {}
 
-        # Create custom executor with more workers
+        # Create custom executor with configurable or auto worker count
         cpu_count = os.cpu_count() or 24
+        _configured = self._settings.intelligence_thread_pool_workers
+        _workers = _configured if _configured > 0 else cpu_count * 2
         self._executor = ThreadPoolExecutor(
-            max_workers=cpu_count * 2,  # 2x CPU cores for CPU-bound work
+            max_workers=_workers,
             thread_name_prefix="intel_"
         )
+        THREAD_POOL_WORKERS.set(_workers)
 
         # CIS / aggregator state
         self._cis_scorer = CISScorer()
@@ -1001,7 +1016,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self,
         tasks: list[PluginTask],
         results: list,
-        log_prefix: str = "plugin"
+        log_prefix: str = "plugin",
+        tier: str = "I1",
     ) -> list[dict]:
         """Collect results from parallel plugin execution.
 
@@ -1009,6 +1025,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             tasks: List of PluginTask objects
             results: List of results from asyncio.gather (may contain Exceptions)
             log_prefix: Prefix for log messages (e.g., "plugin" or "i7.plugin")
+            tier: Intelligence tier label for metrics (e.g., "I1" or "I7")
 
         Returns:
             List of successful dict outputs (exceptions are logged and skipped)
@@ -1018,12 +1035,22 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             out = results[i]
             if isinstance(out, Exception):
                 self._pipeline_errors.inc()
+                PLUGIN_ERRORS_TOTAL.labels(plugin_name=task.plugin_name, tier=tier).inc()
                 self.logger.warning(
                     f"{log_prefix}.error",
                     plugin=task.plugin_name,
                     error=str(out)
                 )
+            elif isinstance(out, tuple) and len(out) == 2:
+                result_dict, duration_ms = out
+                PLUGIN_DURATION_MS.labels(
+                    plugin_name=task.plugin_name, tier=tier
+                ).observe(duration_ms)
+                if isinstance(result_dict, dict):
+                    self._update_plugin_state(task, result_dict)
+                    outputs.append(result_dict)
             elif isinstance(out, dict):
+                # Backward compat: bare dict (no timing wrapper)
                 self._update_plugin_state(task, out)
                 outputs.append(out)
         return outputs
@@ -1055,7 +1082,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Create PluginTask with coroutine
             tasks.append(PluginTask(
-                coroutine=loop.run_in_executor(self._executor, plugin.compute_full, frames),
+                coroutine=loop.run_in_executor(self._executor, _timed_plugin_call, plugin, frames),
                 plugin_name=plugin_name,
                 state_key=state_key,
                 lock=lock
@@ -1065,7 +1092,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
 
         # Collect results using common helper
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin", tier="I1")
         for output in outputs:
             result.update(output)
 
@@ -1159,7 +1186,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Create PluginTask with coroutine and bar context
             tasks.append(PluginTask(
-                coroutine=loop.run_in_executor(self._executor, plugin.compute_full, plugin_input),
+                coroutine=loop.run_in_executor(
+                    self._executor, _timed_plugin_call, plugin, plugin_input
+                ),
                 plugin_name=plugin_name,
                 state_key=state_key,
                 lock=lock,
@@ -1170,7 +1199,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
 
         # Collect results using common helper
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin")
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin", tier="I7")
 
         # Process I7-specific signal generation
         for task, output in zip(tasks, outputs):
