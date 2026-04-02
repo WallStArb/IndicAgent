@@ -82,6 +82,7 @@ def _make_agent():
     agent._bars_written_lbl: dict[str, Counter] = {
         tf: _TEST_BARS_WRITTEN.labels(agent="bar_writer_agent", tf=tf) for tf in _tfs
     }
+    agent._instruments_cache: dict[str, str] = {}  # symbol -> base mapping
     return agent
 
 
@@ -147,7 +148,7 @@ def test_topics_produced():
 
 
 def test_buffer_bar_appends_tuple():
-    """_buffer_bar appends a 9-element tuple to self._buffer."""
+    """_buffer_bar appends a 10-element tuple to self._buffer."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m")
 
@@ -155,9 +156,9 @@ def test_buffer_bar_appends_tuple():
 
     assert len(agent._buffer) == 1
     row = agent._buffer[0]
-    assert len(row) == 9
+    assert len(row) == 10
     assert row[1] == "ESM6"   # symbol
-    assert row[2] == "1m"     # timeframe
+    assert row[3] == "1m"     # timeframe (index 3 after base added at index 2)
     assert isinstance(row[0], datetime)  # ts must be a datetime object
 
 
@@ -174,9 +175,9 @@ def test_buffer_bar_source_tagging():
     agent._buffer_bar(_make_bar_payload(tf="5m"))
     agent._buffer_bar(_make_bar_payload(tf="1h"))
 
-    assert agent._buffer[0][8] == "live_1m"
-    assert agent._buffer[1][8] == "live_htf"
-    assert agent._buffer[2][8] == "live_htf"
+    assert agent._buffer[0][9] == "live_1m"
+    assert agent._buffer[1][9] == "live_htf"
+    assert agent._buffer[2][9] == "live_htf"
 
 
 # ---------------------------------------------------------------------------
