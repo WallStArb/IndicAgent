@@ -140,3 +140,29 @@ PYTHONPATH=/home/bg/dev/indicagent .venv/bin/python production/scripts/phase0_pr
 - `measure_information_rate.py` - Information rate measurement
 - `README_PROFILING.md` - This file
 - `phase0_results.json` - Output (generated after running)
+
+## Thread Pool Benchmark (Phase 58)
+
+Benchmarks `ThreadPoolExecutor` pool size for the intelligence pipeline's
+`asyncio.gather` + `run_in_executor` pattern.
+
+### How to run
+
+```bash
+.venv/bin/python production/scripts/benchmark_thread_pool.py > benchmark_results.csv
+```
+
+### Pool sizes tested
+
+[28, 48, 64, 96, 128] — covers range from slightly above CPU count (24) to 5x.
+
+### Interpreting results
+
+- `bars_per_sec` = primary metric (higher is better)
+- Look for the "knee" — the pool size after which throughput plateaus
+- Set `INTELLIGENCE_THREAD_POOL_WORKERS=<optimal>` in `.env`
+- If results are flat, default (`cpu_count * 2 = 48`) is fine
+
+### Results
+
+_(Run benchmark and paste CSV output here)_
