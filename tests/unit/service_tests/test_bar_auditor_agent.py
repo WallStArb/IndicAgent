@@ -37,7 +37,7 @@ class TestBarAuditorAgentInit:
         assert agent._metrics_port == 9123
 
     def test_topics_consumed_returns_empty_list(self):
-        """topics_consumed returns [] — audit-loop-driven, no Kafka consumption."""
+        """topics_consumed returns [contract_update topic] — subscribes to contract changes."""
         from services.bar_auditor_agent import BarAuditorAgent
 
         with patch("services.bar_auditor_agent.Settings") as mock_settings:
@@ -47,7 +47,9 @@ class TestBarAuditorAgentInit:
             agent = BarAuditorAgent.__new__(BarAuditorAgent)
             agent._env_name = "development"
             # Inject the property via the class
-            assert BarAuditorAgent.topics_consumed.fget(agent) == []
+            topics = BarAuditorAgent.topics_consumed.fget(agent)
+            assert len(topics) == 1
+            assert "contract_update" in topics[0]
 
     def test_topics_produced_returns_gap_requests_topic(self):
         """topics_produced returns [topic_gap_requests(env)]."""
@@ -140,6 +142,8 @@ def _make_agent_stub(env_name="development"):
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
+    agent._requested_today: set = set()
+    agent._requested_today_date: str = ""
     return agent
 
 
