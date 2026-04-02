@@ -50,7 +50,7 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 journalctl -u indicagent-ibkr-provider --since "1 minute ago" | grep "1m bar emitted"
 
 # Check Kafka output
-docker exec redpanda rpk topic consume development.market.bars.raw.ibkr --from-end
+docker exec redpanda rpk topic consume market.bars.raw.ibkr --from-end
 ```
 
 ### Troubleshooting
