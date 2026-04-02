@@ -531,6 +531,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 54. Provider Abstraction Layer | v2.2 | 4/4 | Complete | 2026-03-28 |
 | 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete    | 2026-03-29 |
 | 57.1. SignalWriterAgent — signal_generator_agent Retirement | v2.2 | 1/1 | Complete | 2026-03-30 |
+| 58. Pipeline Parallelization — Renaissance Completion | v2.2 | 0/TBD | Planned |  |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -614,3 +615,11 @@ Plans:
 **Goal:** Merge `feature_compute_agent` (I1-I6) and `signal_generator_agent` (I7) into a single `IntelligencePipelineComputeAgent`. Eliminate Kafka as an inter-compute bus (I6→I7 round-trip removed). Add state checkpointing to a compacted Kafka topic so restarts are zero-warmup. Add `pre_quality_confidence` and `pre_calibration_confidence` columns to `signal_ledger` for full per-stage attribution.
 **Design doc:** `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
 **Plans:** 3/3 plans complete — shipped 2026-03-29
+
+### Phase 58: Pipeline Parallelization — Renaissance Completion
+
+**Goal:** Close the Renaissance gaps left after initial I1/I7 parallelization. Deliver per-plugin observability (latency histograms, error counters), empirically validate and configure thread pool size, prove correctness via determinism and exception isolation tests, and convert the systemd unit to a template for horizontal scaling readiness.
+**Design doc:** `docs/superpowers/specs/2026-04-02-pipeline-parallelization-renaissance-completion-design.md`
+**Requirements**: [PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06]
+**Depends on:** Phase 57 (IntelligencePipelineComputeAgent ✅)
+**Plans:** 0/TBD

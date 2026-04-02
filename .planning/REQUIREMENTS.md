@@ -139,6 +139,17 @@
 - Mapped to phases: 41
 - Unmapped: 0
 
+## Phase 58: Pipeline Parallelization — Renaissance Completion
+
+| ID | Requirement | Phase |
+|----|-------------|-------|
+| PIPE-01 | Per-plugin latency histogram (`intelligence_pipeline_plugin_duration_ms` labeled by `plugin_name`, `tier`) visible in Prometheus after one RTH session | Phase 58 |
+| PIPE-02 | Per-plugin error counter (`intelligence_pipeline_plugin_errors_total`) increments on plugin exception | Phase 58 |
+| PIPE-03 | Thread pool size configurable via `INTELLIGENCE_THREAD_POOL_WORKERS` env var (defaults to `cpu_count * 2`); optimal value set in `.env` from benchmark | Phase 58 |
+| PIPE-04 | Determinism test passes: 100 bars sequential vs parallel outputs identical (`i1` keys/values, `i7` signal list, `winner_plugin`, `winner_confidence`, `winner_direction`) | Phase 58 |
+| PIPE-05 | Exception isolation test passes: plugin failure never crashes pipeline; downstream tiers receive partial output; `PLUGIN_ERRORS_TOTAL` increments | Phase 58 |
+| PIPE-06 | Systemd template unit `indicagent-intelligence-pipeline@.service` installed and running as `@1` instance; metrics port configurable via `METRICS_PORT` env var | Phase 58 |
+
 ---
 *Requirements defined: 2026-03-19*
-*Last updated: 2026-03-22 — SHADOW-01/04 definitions updated per Phase 47 D-01/D-07 locked decisions; SHADOW-02/03 expanded with graduation criteria; traceability updated Phase 44 -> Phase 47*
+*Last updated: 2026-04-01 — Phase 58 PIPE-01/06 requirements added*

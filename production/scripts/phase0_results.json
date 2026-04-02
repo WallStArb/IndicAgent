@@ -1,0 +1,87 @@
+{
+  "timestamp": "2026-04-02T02:54:48.903543+00:00",
+  "timeframe": "1m",
+  "symbols": null,
+  "measurements": {
+    "delta_distribution": {
+      "total_bars": 346400,
+      "p50": 0.00014467592592592592,
+      "p75": 0.0004166666666666667,
+      "p90": 0.000860477679097746,
+      "p95": 0.0013573311641788496,
+      "p99": 0.002654756796110944,
+      "mean": 0.0003479859639919797,
+      "std": 0.0007449575936353227,
+      "recommendation": "filter"
+    },
+    "information_rate": {
+      "i1": {
+        "weighted_change_rate": 0.9975610747530588,
+        "median_change_rate": 0.9994266055045872,
+        "p75_change_rate": 0.9994266055045872,
+        "p90_change_rate": 0.9994266055045872,
+        "total_bars": 24601,
+        "total_changes": 24541
+      },
+      "i2": {
+        "weighted_change_rate": 0.9991463761635706,
+        "median_change_rate": 0.9994266055045872,
+        "p75_change_rate": 0.9994266055045872,
+        "p90_change_rate": 0.9994266055045872,
+        "total_bars": 24601,
+        "total_changes": 24580
+      },
+      "i3": {
+        "weighted_change_rate": 0.9975610747530588,
+        "median_change_rate": 0.9994266055045872,
+        "p75_change_rate": 0.9994266055045872,
+        "p90_change_rate": 0.9994266055045872,
+        "total_bars": 24601,
+        "total_changes": 24541
+      },
+      "i4": {
+        "weighted_change_rate": 0.9991463761635706,
+        "median_change_rate": 0.9994266055045872,
+        "p75_change_rate": 0.9994266055045872,
+        "p90_change_rate": 0.9994266055045872,
+        "total_bars": 24601,
+        "total_changes": 24580
+      },
+      "i5": {
+        "weighted_change_rate": 0.9823990894679078,
+        "median_change_rate": 0.9988532110091743,
+        "p75_change_rate": 0.9994266055045872,
+        "p90_change_rate": 0.9994266055045872,
+        "total_bars": 24601,
+        "total_changes": 24168
+      },
+      "i6": {
+        "weighted_change_rate": 0.0,
+        "median_change_rate": 0.0,
+        "p75_change_rate": 0.0,
+        "p90_change_rate": 0.0,
+        "total_bars": 24601,
+        "total_changes": 0
+      },
+      "i7": {
+        "weighted_change_rate": 0.0,
+        "median_change_rate": 0.0,
+        "p75_change_rate": 0.0,
+        "p90_change_rate": 0.0,
+        "total_bars": 24601,
+        "total_changes": 0
+      }
+    }
+  },
+  "recommendations": {
+    "primary_strategy": "Delta-based filtering",
+    "secondary_strategies": [
+      "Conservative delta filtering (75% threshold)"
+    ],
+    "expected_improvement": "10x throughput (90% fewer bars)",
+    "complexity": "Low (1-2 days)",
+    "rationale": [
+      "90% of bars move < 0.086% (noise)"
+    ]
+  }
+}

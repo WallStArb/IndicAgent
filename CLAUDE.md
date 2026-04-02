@@ -153,7 +153,7 @@ Use `context7` MCP for FastAPI, SQLAlchemy, pytest, Redpanda/Kafka, TimescaleDB,
 
 > Full reference: `docs/cheatsheet.md` (pipeline reset, backfill scripts, service management, metrics ports)
 
-**Consumer debugging:** `docker exec redpanda rpk group describe feature_pipeline -t` — shows consumer lag per topic. `docker exec redpanda rpk topic consume development.market.bars.htf` — verify HTF bars are being published correctly.
+**Consumer debugging:** `docker exec redpanda rpk group describe feature_pipeline -t` — shows consumer lag per topic. `docker exec redpanda rpk topic consume market.bars.htf` — verify HTF bars are being published correctly.
 
 **Roadmap consistency check:** `node gsd-tools.cjs roadmap analyze` — detects disk-vs-roadmap mismatches. Run after any phase completion.
 **GSD decimal phases not resolvable by gsd-tools**: `init execute-phase "57.1"` returns `phase_found: false` — tools only parse whole-number phases from ROADMAP.md. Execute decimal phases manually: read PLAN.md directly, spawn gsd-executor with explicit `phase_dir`, skip gsd-tools state update calls (executor handles ROADMAP/STATE directly).
@@ -253,7 +253,7 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
 | LLM Writer | `indicagent-llm-writer` | `llm.calls` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
-| Cross-Asset Service | `indicagent-cross-asset` | Cross-asset spread dynamics + I7 feed → `development.cross_asset` | :9118 |
+| Cross-Asset Service | `indicagent-cross-asset` | Cross-asset spread dynamics + I7 feed → `cross_asset` | :9118 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
 
 ### Core Runtime Files
@@ -357,8 +357,9 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
 - **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
 - **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `development.market.bars`. Always via `stream_keys.py`.
-- **Redpanda topic retention**: All `development.*` topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`. Confirmed set on `development.indicators` 2026-03-15.
+- **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `market.bars` (no prefix when `INDICAGENT_ENV` is unset). Always via `stream_keys.py`.
+- **`INDICAGENT_ENV` mismatch between services**: Services bake their topic prefix at startup from `.env`. If `INDICAGENT_ENV` changes between restarts, services use different topic names and bars stop flowing silently. Symptom: IBKR provider emits to `market.bars.raw.ibkr` but merger consumes `development.market.bars.raw.ibkr`. Fix: restart all pipeline services together after any `INDICAGENT_ENV` change. Diagnose: `grep topics_consumed logs/provider_merger_agent.log`.
+- **Redpanda topic retention**: Topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-ibkr-provider`. Verify: `journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"`
 - **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — they come back automatically. No manual `docker start` needed after reboot.
@@ -371,7 +372,7 @@ When investigating "service not writing to database":
 3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
 4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
 5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
-6. **Kafka/IBKRProvider verification** — `docker exec redpanda rpk topic consume development.market.bars --offset N` (or `--from-end`). Provider emissions: `journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`. Merger routing: `journalctl -u indicagent-provider-merger --since "2 minutes ago"`.
+6. **Kafka/IBKRProvider verification** — `docker exec redpanda rpk topic consume market.bars --offset N` (or `--from-end`). Provider emissions: `journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`. Merger routing: `journalctl -u indicagent-provider-merger --since "2 minutes ago"`.
 
 ## Environment Variables
 

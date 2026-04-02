@@ -8,8 +8,6 @@ I1 (indicators) → I2 (composite events) → I3 (structure) → I4 (context) �
 ```
 
 **I1** (27): Trend/Momentum/Volatility/Volume indicators — see `TIER_I1` in `register_plugins.py`
-
-**I1** (27): Trend/Momentum/Volatility/Volume indicators — see `TIER_I1` in `register_plugins.py`
 **I2** (11): Composite events (MACDEvents, RSIEvents, etc.) — defined in `composites/`
 **I3** (7): Structure (swing, S/R, MarketProfile, SessionLevels) · **I4** (13): Context (GARCH, Kalman, VWAP, VolumeProfile)
 **I5** (15): Patterns (divergence, squeeze, chart patterns) · **I6** (14): SMC + confluence (BOS/CHoCH, FVG, OB, multi-TF alignment)
@@ -49,7 +47,7 @@ All live in `src/intelligence/trading/`:
 5. Add unit test to `tests/unit/intelligence/`
 6. Run integration test: `.venv/bin/pytest tests/unit/test_intelligence_pipeline_agent.py`
 7. Restart service: `sudo systemctl restart indicagent-intelligence-pipeline`
-8. Verify output: `docker exec redpanda rpk topic consume development.intelligence --from-end`
+8. Verify output: `docker exec redpanda rpk topic consume intelligence --from-end`
 
 ## LLM Provider Chain (`llm_providers.py`)
 
@@ -91,7 +89,7 @@ All live in `src/intelligence/trading/`:
 1. **Unit test:** Add test to `tests/unit/intelligence/` — use `__new__()` pattern per CLAUDE.md to avoid `__init__`
 2. **Integration test:** Run `.venv/bin/pytest tests/unit/test_intelligence_pipeline_agent.py` to verify I1-I7 pipeline
 3. **Service restart:** `sudo systemctl restart indicagent-intelligence-pipeline` (unified I1-I7)
-4. **Verify output:** `docker exec redpanda rpk topic consume development.intelligence --from-end` — check IntelligenceEvent output
+4. **Verify output:** `docker exec redpanda rpk topic consume intelligence --from-end` — check IntelligenceEvent output
 
 **Quick reference — `regime_type` values:**
 - `"trend"` — TrendFollowing, MomentumBreakout, etc.
