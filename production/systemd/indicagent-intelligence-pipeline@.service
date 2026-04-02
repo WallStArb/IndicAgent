@@ -1,0 +1,26 @@
+[Unit]
+Description=IndicAgent Intelligence Pipeline - Unified I1-I7 compute agent (instance %i)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=METRICS_PORT=9125
+Environment=INSTANCE_ID=%i
+Environment=LOG_FILE=logs/intelligence_pipeline_%i.log
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/intelligence_pipeline_agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-intelligence-pipeline@%i
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
