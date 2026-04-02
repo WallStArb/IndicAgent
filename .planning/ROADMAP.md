@@ -424,6 +424,24 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 | ML Mixture-of-Experts | Soft blending across regime-specific models (once hard routing proves stable). | — |
 | Online learning | Incremental model updates between weekly retraining cycles. | — |
 
+### Phase 999.1: Intelligence Pipeline Horizontal Scaling (BACKLOG)
+
+**Goal:** Scale intelligence pipeline beyond IBKR's ~100-symbol constraint to 5000+ symbols when a second data source is added.
+**Trigger:** Second data source integration (Tier 3 backlog item "Broker-agnostic instrument provider").
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Key work:
+- Repartition `market.bars` + `market.bars.htf` from 1 → 50 partitions (one-time `rpk topic alter`)
+- Convert `indicagent-intelligence-pipeline.service` to systemd template unit (`@.service`) — enables `systemctl start indicagent-intelligence-pipeline@2`
+- Add auto-scaler agent: monitors consumer lag via `rpk group describe`, manages instance count via systemd, no manual intervention
+- Metrics port parameterization: `METRICS_PORT=912%i` in template unit
+
+**Note:** Intra-instance parallelization (I1+I7 asyncio.gather) is a prerequisite — handled by the pipeline parallelization phase. Code is designed with zero single-instance assumptions so this becomes a purely operational change.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when second data source is added)
+
 ### Tier 3 — Separate products / long horizon
 
 | Item | Notes | Analysis |
