@@ -1,0 +1,24 @@
+[Unit]
+Description=IndicAgent Contract Metadata Writer Agent — contract_metadata seeding and roll promotion
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=METRICS_PORT=9124
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/contract_metadata_writer_agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-contract-metadata-writer
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
