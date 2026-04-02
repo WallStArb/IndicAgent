@@ -589,7 +589,7 @@ Plans:
 **Goal:** Eliminate all manual futures roll tasks via a four-stage DAG: seed contract_metadata from settings, detect rolls via RollComputeAgent, promote front-month atomically via ContractMetadataWriterAgent, and audit bars with session-aligned windows.
 **Requirements**: [CLA-01, CLA-02, CLA-03, CLA-04, CLA-05]
 **Depends on:** Phase 58
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [x] 58.1-01-PLAN.md — Foundation types: TradingSession methods, stream keys, ContractUpdateEvent schema
