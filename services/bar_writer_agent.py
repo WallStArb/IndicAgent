@@ -49,8 +49,8 @@ _BATCH_SIZE: int = 50
 _FLUSH_INTERVAL: float = 5.0
 
 _INSERT_OHLCV_SQL: str = """
-INSERT INTO market_data_ohlcv (timestamp, symbol, timeframe, open, high, low, close, volume, source)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO market_data_ohlcv (timestamp, symbol, base, timeframe, open, high, low, close, volume, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
@@ -113,6 +113,7 @@ class BarWriterAgent(BaseAgent):
 
         self._buffer: list[tuple] = []
         self._last_flush: float = 0.0
+        self._instruments_cache: dict[str, str] = {}  # symbol -> base mapping (Renaissance design)
 
         # Cache labeled children — avoids dict lookup on every bar
         self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
@@ -135,6 +136,7 @@ class BarWriterAgent(BaseAgent):
     async def _setup(self) -> None:
         """Connect asyncpg pool and Kafka consumer."""
         self._db_pool = await asyncpg.create_pool(self._settings.database_url)
+        await self._load_instruments_cache()  # Load symbol->base mapping (Renaissance design)
 
         self._kafka_consumer = KafkaConsumerClient(
             topic_market_bars(self._env_name),
@@ -147,6 +149,7 @@ class BarWriterAgent(BaseAgent):
         self.logger.info(
             "bar_writer_agent.setup_complete",
             topics_consumed=self.topics_consumed,
+            instruments_cached=len(self._instruments_cache),
         )
 
     async def _teardown(self) -> None:
@@ -157,6 +160,23 @@ class BarWriterAgent(BaseAgent):
             await self._kafka_consumer.stop()
         if self._db_pool is not None:
             await self._db_pool.close()
+
+    async def _load_instruments_cache(self) -> None:
+        """Load instruments table into memory cache for O(1) symbol->base lookups.
+
+        Renaissance design: Compute base at write time (persistence layer), not read time.
+        Cache size: ~60 instruments → trivial memory footprint.
+        Lookup cost: O(1) dict.get() vs DB join on every query.
+        """
+        query = "SELECT symbol, base FROM instruments WHERE base IS NOT NULL;"
+        async with self._db_pool.acquire() as conn:
+            rows = await conn.fetch(query)
+
+        self._instruments_cache = {row["symbol"]: row["base"] for row in rows}
+        self.logger.info(
+            "bar_writer_agent.instruments_cached",
+            count=len(self._instruments_cache),
+        )
 
     async def _run(self) -> None:
         """Main loop: consume bars, buffer, flush on batch size or interval."""
@@ -186,26 +206,31 @@ class BarWriterAgent(BaseAgent):
             self._persistence_consumer_lag_lbl.set(len(self._buffer))
 
     def _buffer_bar(self, payload: dict) -> None:
-        """Parse payload and append a 9-tuple to the write buffer.
+        """Parse payload and append a 10-tuple to the write buffer.
 
-        Tuple layout: (ts, symbol, tf, open, high, low, close, volume, source)
+        Tuple layout: (ts, symbol, base, tf, open, high, low, close, volume, source)
         source: "live_1m" for 1m bars, "live_htf" for all HTF bars (D-04).
         """
         bar = self._parse_bar(payload)
         if bar is None:
             return
 
+        # Renaissance design: Lookup base from instruments cache (O(1))
+        # Fallback to symbol if not in cache (ETFs, FX, crypto - no base mapping)
+        base = self._instruments_cache.get(bar.symbol, bar.symbol)
+
         source = "live_1m" if bar.tf == "1m" else "live_htf"
         self._buffer.append((
             bar.ts,      # $1 timestamp — Python datetime (asyncpg requirement)
-            bar.symbol,  # $2 symbol
-            bar.tf,      # $3 timeframe
-            bar.open,    # $4 open
-            bar.high,    # $5 high
-            bar.low,     # $6 low
-            bar.close,   # $7 close
-            bar.volume,  # $8 volume
-            source,      # $9 source
+            bar.symbol,  # $2 symbol (contract code: ESM6, SPY, etc.)
+            base,        # $3 base (ES for futures, same as symbol for ETFs/FX)
+            bar.tf,      # $4 timeframe
+            bar.open,    # $5 open
+            bar.high,    # $6 high
+            bar.low,     # $7 low
+            bar.close,   # $8 close
+            bar.volume,  # $9 volume
+            source,      # $10 source
         ))
 
     async def _flush_buffer(self) -> None:

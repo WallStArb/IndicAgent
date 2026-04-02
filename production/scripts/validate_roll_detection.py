@@ -223,7 +223,7 @@ async def main() -> int:
                 """
                 SELECT timestamp, volume
                 FROM market_data_5m
-                WHERE symbol = $1
+                WHERE base = $1
                   AND timestamp > NOW() - INTERVAL '365 days'
                 ORDER BY timestamp ASC
                 """,
