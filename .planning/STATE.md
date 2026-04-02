@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: In progress
-last_updated: "2026-04-02T08:20:01.018Z"
+last_updated: "2026-04-02T09:37:02.130Z"
 progress:
   total_phases: 14
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -23,8 +23,8 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 ## Current Position
 
 Phase: 58
-Plan: 01 Complete (2026-04-02)
-Next: Phase 58 Plan 02 — TDD tests for per-plugin observability metrics
+Plan: 03 Complete (2026-04-01)
+Next: Phase 58 Plan 04 — next plan in pipeline parallelization series
 
 ## v2.1 Milestone Goal
 
@@ -120,6 +120,13 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 Recent additions:
 
 - 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
+
+### Decisions (Phase 58 Plan 03)
+
+- METRICS_PORT=9125 hardcoded in systemd template unit (not computed from %i) — prevents firewall/Prometheus config proliferation when scaling to multiple instances
+- Shared consumer group intelligence_pipeline_consumer across template instances — Kafka partition distribution handles load automatically
+- Old production/systemd/indicagent-intelligence-pipeline.service archived with _archived_ prefix — preserves pre-template configuration record
+- INSTANCE_ID=%i passed as env var in template unit — zero cost, enables downstream observability labeling for future use
 
 ### Decisions (Phase 58 Plan 01)
 
