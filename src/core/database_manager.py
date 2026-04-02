@@ -115,15 +115,15 @@ class DatabaseManager:
             Number of contracts upserted.
         """
         sql = """
-            INSERT INTO instruments (symbol, contract_details, is_active, updated_at)
-            VALUES ($1, $2::jsonb, $3, NOW())
+            INSERT INTO instruments (symbol, base, contract_details, is_active, updated_at)
+            VALUES ($1, $2, $3::jsonb, $4, NOW())
             ON CONFLICT (symbol) DO UPDATE
                 SET contract_details = EXCLUDED.contract_details,
                     is_active = EXCLUDED.is_active,
                     updated_at = NOW()
         """
 
-        params = [(c.base, c.model_dump(), True) for c in contracts]
+        params = [(c.base, c.base, c.model_dump(), True) for c in contracts]
         await self.execute_batch(sql, params)
         logger.info("Upserted instruments", count=len(params))
         return len(params)

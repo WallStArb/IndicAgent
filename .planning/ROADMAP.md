@@ -582,3 +582,13 @@ Plans:
 - [x] 58-01-PLAN.md — Observability foundation: PLUGIN_DURATION_MS Histogram, PLUGIN_ERRORS_TOTAL Counter, THREAD_POOL_WORKERS Gauge, configurable Settings fields
 - [x] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
 - [x] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port
+
+### Phase 58.1: Contract Lifecycle Automation (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 58
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 58.1 to break down)
