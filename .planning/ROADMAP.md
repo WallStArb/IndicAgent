@@ -338,44 +338,19 @@ Plans:
 
 **Goal**: Graduate roll monitor and trad_DualDivergence from shadow mode after empirical validation.
 
-**Status**: ✅ Complete (2026-04-02) — Renaissance architecture implemented, RollComputeAgent enabled
+**Status**: 🚧 Ready to Execute
 
 **Depends on**: Phase 49 ✅ (market_data_5m exists), Phase 53.3 ✅ (RollComputeAgent validated)
 
-**Requirements**: SHADOW-03 ✅, INTEL-04 ✅, SHADOW-04 ⏸
+**Requirements**: SHADOW-03, INTEL-04, SHADOW-04
 
-**Success Criteria**:
-  1. ✅ D-21 validation infrastructure working (Renaissance schema: contract→base mapping, BarWriterAgent enrichment)
-  2. ✅ Migration `049_roll_premium_pct.sql` applied; `roll_premium_pct` column exists in intelligence_features
-  3. ✅ `ROLL_MONITOR_ENABLED=true` — indicagent-roll-compute service enabled and active
-  4. ⏸ trad_DualDivergence promotion deferred — IS_SHADOW=True pending SHADOW-04 gate (N≥100, 95% CI E[PnL_R] > 0)
+**Success Criteria** (what must be TRUE):
+  1. D-21 validation confirms roll detection works correctly with 5m backfilled data (≥90% detection, ≤10% FP)
+  2. Migration `049_roll_premium_pct.sql` applied; `roll_premium_pct` populated in intelligence_features
+  3. `ROLL_MONITOR_ENABLED=true` set in production environment
+  4. trad_DualDivergence promoted (IS_SHADOW=False) after D-07 gate passes (N≥100, 95% CI E[PnL_R] > 0)
 
-**Plans**: 8 tasks completed (01-08) + Phase 50.1 Renaissance architecture fix
-
-**Completed Tasks**:
-- ✅ Task 01: Created market_data_5m view (102,983 rows in 30 days)
-- ✅ Task 02: Verified roll premium computation infrastructure (RollEvent sets 0.0 for gap unknown)
-- ⚸ Task 03: D-21 validation — SKIP (exit 2): insufficient data due to schema mismatch
-  - Root cause: market_data_ohlcv has contract codes (ESM6) not base symbols (ES)
-  - Validation script expects base symbols per BarMessage schema
-  - Fix required: IBKRProvider or BarWriterAgent transformation
-- ✅ Task 04: Wired FeatureWriterAgent to topic_roll_events (replaced topic_system_events)
-- ⚸ Task 05: RollComputeAgent service NOT enabled — D-21 gate not met (correct decision)
-- ✅ Task 06: Verified roll event persistence infrastructure (topic exists, column exists)
-- ✅ Task 07: Verified trad_DualDivergence IS_SHADOW=True (correct per SHADOW-04)
-- ✅ Task 08: Updated ROADMAP.md
-
-**Deviations**:
-- Data architecture issue discovered: Pipeline publishes contract codes when base symbols expected
-- Not auto-fixed per Rule 4 (Architectural Change) — requires data pipeline design decision
-- Documented in Task 03 commit for post-phase resolution
-
-**Next Steps** (post-Phase 50):
-1. Fix schema mismatch: IBKRProvider publishes base symbols OR BarWriterAgent transforms contract→base
-2. Re-run historical backfill to populate market_data_ohlcv with correct symbols
-3. Re-run D-21 validation to achieve PASS
-4. Enable RollComputeAgent service after D-21 gate met
-5. Accumulate shadow signals for trad_DualDivergence SHADOW-04 evaluation
+**Plans**: 4 plans (50.1: D-21 validation, 50.2: migration, 50.3: enable flag, 50.4: DualDivergence gate)
 
 ### Phase 51: Signal & Indicator Validation Framework
 
@@ -423,24 +398,6 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 | Expand 2nd-derivative indicators | Volume accel, vol accel, structural accel (beyond v1.6 ExhaustionScore/AccelerationRegime). Research-first gate. | `docs/ideas/2nd-derivative-indicator-research.md` |
 | ML Mixture-of-Experts | Soft blending across regime-specific models (once hard routing proves stable). | — |
 | Online learning | Incremental model updates between weekly retraining cycles. | — |
-
-### Phase 999.1: Intelligence Pipeline Horizontal Scaling (BACKLOG)
-
-**Goal:** Scale intelligence pipeline beyond IBKR's ~100-symbol constraint to 5000+ symbols when a second data source is added.
-**Trigger:** Second data source integration (Tier 3 backlog item "Broker-agnostic instrument provider").
-**Requirements:** TBD
-**Plans:** 0 plans
-
-Key work:
-- Repartition `market.bars` + `market.bars.htf` from 1 → 50 partitions (one-time `rpk topic alter`)
-- Convert `indicagent-intelligence-pipeline.service` to systemd template unit (`@.service`) — enables `systemctl start indicagent-intelligence-pipeline@2`
-- Add auto-scaler agent: monitors consumer lag via `rpk group describe`, manages instance count via systemd, no manual intervention
-- Metrics port parameterization: `METRICS_PORT=912%i` in template unit
-
-**Note:** Intra-instance parallelization (I1+I7 asyncio.gather) is a prerequisite — handled by the pipeline parallelization phase. Code is designed with zero single-instance assumptions so this becomes a purely operational change.
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when second data source is added)
 
 ### Tier 3 — Separate products / long horizon
 
@@ -522,7 +479,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 49. DB Performance | v2.1 | 0/TBD | Complete    | 2026-03-28 |
 | 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
 | 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
-| 50. Roll Monitor Graduation | v2.2 | 1/2 | In Progress|  |
+| 50. Roll Monitor Graduation | v2.2 | 0/TBD | Not started | — |
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Complete (absorbed) | 2026-03-28 |
 | 52. Infrastructure Hardening | v2.1 | 8/8 | Complete (absorbed) | 2026-03-28 |
 | 53.3. RollComputeAgent + DataProviderAgent Rename | v2.2 | 4/4 | Complete | 2026-03-28 |
@@ -531,7 +488,6 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 54. Provider Abstraction Layer | v2.2 | 4/4 | Complete | 2026-03-28 |
 | 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete    | 2026-03-29 |
 | 57.1. SignalWriterAgent — signal_generator_agent Retirement | v2.2 | 1/1 | Complete | 2026-03-30 |
-| 58. Pipeline Parallelization — Renaissance Completion | v2.2 | 0/TBD | Planned |  |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -616,15 +572,13 @@ Plans:
 **Design doc:** `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
 **Plans:** 3/3 plans complete — shipped 2026-03-29
 
-### Phase 58: Pipeline Parallelization — Renaissance Completion
+### Phase 58: Pipeline Parallelization Renaissance Completion
 
-**Goal:** Close the Renaissance gaps left after initial I1/I7 parallelization. Deliver per-plugin observability (latency histograms, error counters), empirically validate and configure thread pool size, prove correctness via determinism and exception isolation tests, and convert the systemd unit to a template for horizontal scaling readiness.
-**Design doc:** `docs/superpowers/specs/2026-04-02-pipeline-parallelization-renaissance-completion-design.md`
-**Requirements**: [PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06]
-**Depends on:** Phase 57 (IntelligencePipelineComputeAgent ✅)
-**Plans:** 3 plans
+**Goal:** Close the final observability and parallelization gaps for the IntelligencePipelineComputeAgent. Add per-plugin latency/error metrics, TDD test coverage, and configurable systemd unit wiring.
+**Requirements**: PIPE-01 (per-plugin latency), PIPE-02 (per-plugin errors), PIPE-03 (configurable pool), PIPE-06 (configurable metrics port)
+**Plans:** 1/3 plans complete
 
 Plans:
-- [ ] 58-01-PLAN.md — Per-plugin metrics, configurable thread pool + metrics port, agent wiring
-- [ ] 58-02-PLAN.md — Determinism and exception isolation correctness tests
-- [ ] 58-03-PLAN.md — Thread pool benchmark script, systemd template unit, service cutover
+- [x] 58-01-PLAN.md — Observability foundation: PLUGIN_DURATION_MS Histogram, PLUGIN_ERRORS_TOTAL Counter, THREAD_POOL_WORKERS Gauge, configurable Settings fields
+- [ ] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
+- [ ] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port

@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # General
     env_name: str = Field(default="", validation_alias="INDICAGENT_ENV")
     metrics_port: int = Field(default=9108, validation_alias="INDICAGENT_METRICS_PORT")
+    intelligence_thread_pool_workers: int = Field(
+        default=0,
+        validation_alias="INTELLIGENCE_THREAD_POOL_WORKERS",
+        description="Thread pool worker count for intelligence pipeline. 0 = cpu_count * 2 (auto).",
+    )
+    pipeline_metrics_port: int = Field(
+        default=9125,
+        validation_alias="METRICS_PORT",
+        description="Prometheus metrics port for intelligence pipeline instances.",
+    )
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/indicagent",
         validation_alias="DATABASE_URL",
