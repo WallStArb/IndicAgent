@@ -576,9 +576,9 @@ Plans:
 
 **Goal:** Close the final observability and parallelization gaps for the IntelligencePipelineComputeAgent. Add per-plugin latency/error metrics, TDD test coverage, and configurable systemd unit wiring.
 **Requirements**: PIPE-01 (per-plugin latency), PIPE-02 (per-plugin errors), PIPE-03 (configurable pool), PIPE-06 (configurable metrics port)
-**Plans:** 1/3 plans complete
+**Plans:** 2/3 plans executed
 
 Plans:
 - [x] 58-01-PLAN.md — Observability foundation: PLUGIN_DURATION_MS Histogram, PLUGIN_ERRORS_TOTAL Counter, THREAD_POOL_WORKERS Gauge, configurable Settings fields
-- [ ] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
+- [x] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
 - [ ] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port
