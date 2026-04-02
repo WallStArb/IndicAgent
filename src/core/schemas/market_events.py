@@ -42,20 +42,6 @@ class RollEvent(BaseModel):
     confirmation_count: int  # number of bars confirming volume shift (D-13)
 
 
-class ContractUpdateEvent(BaseModel):
-    """Contract promotion event published by ContractMetadataWriterAgent.
-
-    Published to topic_contract_updates after each successful roll promotion.
-    Consumers use this to invalidate contract caches and trigger downstream
-    reconfiguration (e.g. BarAuditorAgent cache invalidation).
-    """
-
-    base_symbol: str  # ES, CL
-    old_contract: str  # ESH6
-    new_contract: str  # ESM6
-    promoted_at: datetime  # UTC
-
-
 class BarGapRequest(BaseModel):
     """Gap fill request published by BarAuditorAgent to topic_gap_requests.
 
