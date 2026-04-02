@@ -72,6 +72,7 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 ### Roadmap Evolution
 
+- Phase 58.1 inserted after Phase 58: Contract Lifecycle Automation (URGENT)
 - Phase 54 added: Provider Abstraction Layer — Broker-Agnostic Data Foundation (2026-03-28)
 - Phase 49.2 inserted after Phase 49: HMM Operational Fixes — observability, fallback logging, warm-up noise (URGENT)
 - Phase 48.1 added: Signal Generator Warmup Seed (2026-03-23) — fix bars_processed=0, restore DB seed from startup

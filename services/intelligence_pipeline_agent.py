@@ -1049,10 +1049,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 if isinstance(result_dict, dict):
                     self._update_plugin_state(task, result_dict)
                     outputs.append(result_dict)
-            elif isinstance(out, dict):
-                # Backward compat: bare dict (no timing wrapper)
-                self._update_plugin_state(task, out)
-                outputs.append(out)
         return outputs
 
     # ------------------------------------------------------------------

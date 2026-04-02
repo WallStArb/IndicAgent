@@ -71,7 +71,7 @@ PLUGIN_STATE_SIZE_GAUGE = Gauge(
     "plugin_state_size_bytes", "Plugin state size in bytes", ["plugin_name", "symbol", "timeframe"]
 )
 
-# Per-plugin pipeline metrics (Phase 58 — Renaissance observability)
+# Per-plugin pipeline metrics
 PLUGIN_DURATION_MS = Histogram(
     "intelligence_pipeline_plugin_duration_ms",
     "Per-plugin execution latency",

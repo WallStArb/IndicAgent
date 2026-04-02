@@ -19,7 +19,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-POOL_SIZES = [28, 48, 64, 96, 128]
+POOL_SIZES = [28, 48, 64, 96, 128]  # 28=below-default; 48=auto default on 24-core
 NUM_PLUGINS = 27  # Match TIER_I1 count
 NUM_BARS = 200  # Bars to process per pool size
 PLUGIN_SLEEP_MS = 1.0  # Simulated per-plugin latency (1ms)
