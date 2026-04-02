@@ -24,6 +24,7 @@ import time
 import zoneinfo
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -334,6 +335,16 @@ _STATE_TOPIC_RETENTION_MS = 604800000  # 7 days
 _OUTPUT_QUEUE_MAXSIZE = 500
 
 
+@dataclass
+class PluginTask:
+    """Container for parallel plugin execution metadata."""
+    coroutine: Any
+    plugin_name: str
+    state_key: tuple
+    lock: threading.Lock
+    bar: BarMessage | None = None  # Only for I7 tasks
+
+
 class IntelligencePipelineComputeAgent(BaseAgent):
     """Unified I1-I7 in-process pipeline agent.
 
@@ -504,9 +515,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def stop(self) -> None:
         """Shutdown thread pool executor before stopping."""
         self.logger.info("agent.shutdown_initiated", agent=self.name)
-        # Run shutdown in executor to avoid blocking event loop
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._executor.shutdown, True)
+        # Synchronous shutdown is safe in async context - prevents deadlock
+        self._executor.shutdown(wait=True)
         self.logger.info("agent.thread_pool_shutdown", agent=self.name)
         await super().stop()
 
@@ -978,6 +988,47 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 self._output_queue.task_done()
 
     # ------------------------------------------------------------------
+    # Common plugin execution helpers
+    # ------------------------------------------------------------------
+
+    def _update_plugin_state(self, task: PluginTask, output: dict) -> None:
+        """Extract and store plugin state from output dict."""
+        if "_state" in output:
+            with task.lock:
+                self._plugin_states[task.state_key] = output.pop("_state")
+
+    def _collect_plugin_results(
+        self,
+        tasks: list[PluginTask],
+        results: list,
+        log_prefix: str = "plugin"
+    ) -> list[dict]:
+        """Collect results from parallel plugin execution.
+
+        Args:
+            tasks: List of PluginTask objects
+            results: List of results from asyncio.gather (may contain Exceptions)
+            log_prefix: Prefix for log messages (e.g., "plugin" or "i7.plugin")
+
+        Returns:
+            List of successful dict outputs (exceptions are logged and skipped)
+        """
+        outputs = []
+        for i, task in enumerate(tasks):
+            out = results[i]
+            if isinstance(out, Exception):
+                self._pipeline_errors.inc()
+                self.logger.warning(
+                    f"{log_prefix}.error",
+                    plugin=task.plugin_name,
+                    error=str(out)
+                )
+            elif isinstance(out, dict):
+                self._update_plugin_state(task, out)
+                outputs.append(out)
+        return outputs
+
+    # ------------------------------------------------------------------
     # I1 plugin execution
     # ------------------------------------------------------------------
 
@@ -988,7 +1039,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         i1_start = time.perf_counter()
 
         result: dict[str, Any] = {}
-        tasks = []
+        tasks: list[PluginTask] = []
         loop = asyncio.get_running_loop()
 
         # Build parallel tasks
@@ -1002,32 +1053,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
 
-            # Create parallel task: (coroutine, plugin_name, state_key, lock)
-            tasks.append((
-                loop.run_in_executor(self._executor, plugin.compute_full, frames),
-                plugin_name,
-                state_key,
-                lock
+            # Create PluginTask with coroutine
+            tasks.append(PluginTask(
+                coroutine=loop.run_in_executor(self._executor, plugin.compute_full, frames),
+                plugin_name=plugin_name,
+                state_key=state_key,
+                lock=lock
             ))
 
         # Execute all I1 plugins in parallel
-        results = await asyncio.gather(*[t[0] for t in tasks], return_exceptions=True)
+        results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
 
-        # Collect results with state locking
-        for i, (_, plugin_name, state_key, lock) in enumerate(tasks):
-            out = results[i]
-            if isinstance(out, Exception):
-                self._pipeline_errors.inc()
-                self.logger.warning(
-                    "plugin.error",
-                    plugin=plugin_name,
-                    error=str(out)
-                )
-            elif isinstance(out, dict):
-                with lock:
-                    if "_state" in out:
-                        self._plugin_states[state_key] = out.pop("_state")
-                    result.update(out)
+        # Collect results using common helper
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
+        for output in outputs:
+            result.update(output)
 
         # Record timing metric
         i1_latency_ms = (time.perf_counter() - i1_start) * 1000
@@ -1103,7 +1143,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         i7_start = time.perf_counter()
 
         raw_signals: list[dict] = []
-        tasks = []
+        tasks: list[PluginTask] = []
         plugin_input = {"main": None, **features}  # Pre-compute to avoid 36x dict construction
         loop = asyncio.get_running_loop()
 
@@ -1117,47 +1157,35 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
 
-            # Create parallel task: (coroutine, plugin_name, state_key, lock, bar)
-            tasks.append((
-                loop.run_in_executor(self._executor, plugin.compute_full, plugin_input),
-                plugin_name,
-                state_key,
-                lock,
-                bar
+            # Create PluginTask with coroutine and bar context
+            tasks.append(PluginTask(
+                coroutine=loop.run_in_executor(self._executor, plugin.compute_full, plugin_input),
+                plugin_name=plugin_name,
+                state_key=state_key,
+                lock=lock,
+                bar=bar
             ))
 
         # Execute all I7 plugins in parallel
-        results = await asyncio.gather(*[t[0] for t in tasks], return_exceptions=True)
+        results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
 
-        # Collect results
-        for i, (_, plugin_name, state_key, lock, bar) in enumerate(tasks):
-            out = results[i]
-            if isinstance(out, Exception):
-                self._pipeline_errors.inc()
-                self.logger.warning(
-                    "i7.plugin.error",
-                    plugin=plugin_name,
-                    error=str(out)
-                )
-            elif isinstance(out, dict):
-                # Handle state update
-                if "_state" in out:
-                    with lock:
-                        self._plugin_states[state_key] = out["_state"]
+        # Collect results using common helper
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin")
 
-                # Handle signal generation
-                if out.get("signal"):
-                    sig = out["signal"]
-                    sig["setup_plugin"] = plugin_name
-                    sig["symbol"] = symbol
-                    sig["tf"] = tf
+        # Process I7-specific signal generation
+        for task, output in zip(tasks, outputs):
+            if output.get("signal"):
+                sig = output["signal"]
+                sig["setup_plugin"] = task.plugin_name
+                sig["symbol"] = symbol
+                sig["tf"] = tf
 
-                    # Alpha decay
-                    fire_key = (symbol, tf, plugin_name, sig.get("direction", 0))
-                    _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
+                # Alpha decay
+                fire_key = (symbol, tf, task.plugin_name, sig.get("direction", 0))
+                _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
 
-                    raw_signals.append(sig)
-                    self._signals_generated.inc()
+                raw_signals.append(sig)
+                self._signals_generated.inc()
 
         # Record timing metric
         i7_latency_ms = (time.perf_counter() - i7_start) * 1000

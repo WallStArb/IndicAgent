@@ -117,6 +117,7 @@ class BarAccumulator:
         self._session = session or TradingSession()
         self._accumulators: dict[str, dict] = {}  # key = "{symbol}:{tf}"
         self._last_session_boundary_log: dict[str, float] = {}  # key -> timestamp
+        self._session_boundary_log_max_size = 100  # Prevent unbounded growth
 
     def update(self, bar_1m: BarMessage) -> list[BarMessage]:
         """Process a 1m bar and return any completed HTF bars.
@@ -155,9 +156,9 @@ class BarAccumulator:
                 # Session break check with logging
                 if self._session.is_session_break(acc["last_ts"], curr_ts):
                     # Log session boundary (rate limited to prevent spam)
-                    now = datetime.now(UTC)
+                    # Use bar timestamp instead of system call to avoid hot-path overhead
                     last_log = self._last_session_boundary_log.get(key, 0)
-                    if now.timestamp() - last_log > 300:  # Log at most once per 5min per symbol
+                    if bar_1m.ts.timestamp() - last_log > 300:  # Log at most once per 5min per symbol
                         logger.info(
                             "bar_accumulator.session_boundary",
                             symbol=bar_1m.symbol,
@@ -165,7 +166,9 @@ class BarAccumulator:
                             prev_ts=datetime.fromtimestamp(acc["last_ts"], UTC).isoformat(),
                             curr_ts=datetime.fromtimestamp(curr_ts, UTC).isoformat(),
                         )
-                        self._last_session_boundary_log[key] = now.timestamp()
+                        self._last_session_boundary_log[key] = bar_1m.ts.timestamp()
+                        # Prune old entries to prevent unbounded growth
+                        self._prune_session_boundary_log()
 
                     # Close partial bar
                     completed.append(self._build_bar(bar_1m.symbol, tf, acc))
@@ -180,8 +183,8 @@ class BarAccumulator:
                 # Start a new accumulator
                 self._accumulators[key] = self._new_accumulator(bar_1m, period_ts)
             else:
-                # NEW: Defensive check for corruption
-                if not self._is_accumulator_valid(acc):
+                # Defensive check for corruption (debug mode only to avoid hot-path overhead)
+                if __debug__ and not self._is_accumulator_valid(acc):
                     logger.warning(
                         "bar_accumulator.corrupted_state",
                         symbol=bar_1m.symbol,
@@ -249,6 +252,18 @@ class BarAccumulator:
             return False
 
         return True
+
+    def _prune_session_boundary_log(self) -> None:
+        """Remove oldest entries from session boundary log to prevent unbounded growth."""
+        if len(self._last_session_boundary_log) > self._session_boundary_log_max_size:
+            # Remove oldest 20% of entries
+            num_to_remove = len(self._last_session_boundary_log) // 5
+            oldest_items = sorted(
+                self._last_session_boundary_log.items(),
+                key=lambda x: x[1]
+            )[:num_to_remove]
+            for key, _ in oldest_items:
+                del self._last_session_boundary_log[key]
 
     def _build_bar(self, symbol: str, tf: str, acc: dict) -> BarMessage:
         """Build a BarMessage from accumulator state."""

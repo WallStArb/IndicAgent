@@ -121,7 +121,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         self._kafka_consumer: KafkaConsumerClient | None = None
         self._health_metrics = HealthMetrics()
         self._last_skip_reason = "parse_failed"
-        self._consumer_restart_requested = asyncio.Event()
+        self._consumer_restart_needed = False  # Flag for consumer restart
 
         # Replace existing metrics with:
         self._bars_processed = Counter(
@@ -215,9 +215,9 @@ class BarAggregatorComputeAgent(BaseAgent):
 
             # Outer loop: re-enter on consumer restart
             while self.running:
+                self._consumer_restart_needed = False
                 async for _topic, _key, payload in self._kafka_consumer.messages():
-                    if not self.running or self._consumer_restart_requested.is_set():
-                        self._consumer_restart_requested.clear()
+                    if not self.running or self._consumer_restart_needed:
                         break
 
                     # Reset minute counters every 60 seconds
@@ -369,7 +369,7 @@ class BarAggregatorComputeAgent(BaseAgent):
             self.logger.warning("bar_aggregator.attempting_consumer_reset")
 
             # Signal main loop to break out of consumer iteration
-            self._consumer_restart_requested.set()
+            self._consumer_restart_needed = True
 
             try:
                 # Stop consumer
