@@ -71,6 +71,23 @@ PLUGIN_STATE_SIZE_GAUGE = Gauge(
     "plugin_state_size_bytes", "Plugin state size in bytes", ["plugin_name", "symbol", "timeframe"]
 )
 
+# Per-plugin pipeline metrics (Phase 58 — Renaissance observability)
+PLUGIN_DURATION_MS = Histogram(
+    "intelligence_pipeline_plugin_duration_ms",
+    "Per-plugin execution latency",
+    ["plugin_name", "tier"],
+    buckets=[0.1, 0.5, 1, 2, 5, 10, 20, 50, 100],
+)
+PLUGIN_ERRORS_TOTAL = Counter(
+    "intelligence_pipeline_plugin_errors_total",
+    "Plugin execution errors",
+    ["plugin_name", "tier"],
+)
+THREAD_POOL_WORKERS = Gauge(
+    "intelligence_pipeline_thread_pool_workers",
+    "Current thread pool worker count",
+)
+
 # LangGraph workflow metrics
 LANGGRAPH_WORKFLOW_EXECUTION_TOTAL = Counter(
     "langgraph_workflow_executions_total",
