@@ -622,4 +622,9 @@ Plans:
 **Design doc:** `docs/superpowers/specs/2026-04-02-pipeline-parallelization-renaissance-completion-design.md`
 **Requirements**: [PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06]
 **Depends on:** Phase 57 (IntelligencePipelineComputeAgent ✅)
-**Plans:** 0/TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 58-01-PLAN.md — Per-plugin metrics, configurable thread pool + metrics port, agent wiring
+- [ ] 58-02-PLAN.md — Determinism and exception isolation correctness tests
+- [ ] 58-03-PLAN.md — Thread pool benchmark script, systemd template unit, service cutover
