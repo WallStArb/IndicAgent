@@ -7,15 +7,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.core.bar_normalizer import SOURCE_IBKR_GENERIC, SOURCE_IBKR_NAMED
-from src.core.models import AssetClass, Instrument
+from src.core.models import Instrument
 from src.core.schemas.bar_message import BarMessage
 from src.providers.base import DataProviderAdapter
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -272,15 +271,18 @@ class TestQualifyInstrument:
 
 
 class TestSettingsNestedProviderMeta:
-    def test_vxj6_settings_nested_provider_meta(self):
-        """VXJ6 in Settings must have provider_meta == {'ibkr': {'trading_class': 'VX'}}."""
+    def test_vx_settings_nested_provider_meta(self):
+        """VX base symbol in Settings must have provider_meta == {'ibkr': {'trading_class': 'VX'}}.
+
+        Phase 58.1-05 replaced front-month codes (VXJ6) with base-symbol templates (VX).
+        """
         from src.config.settings import Settings
 
         settings = Settings()
-        vxj6 = next(
-            (c for c in settings.contracts if c.symbol == "VXJ6"), None
+        vx = next(
+            (c for c in settings.contracts if c.symbol == "VIX"), None
         )
-        assert vxj6 is not None, "VXJ6 not found in default contracts"
-        assert vxj6.provider_meta == {"ibkr": {"trading_class": "VX"}}, (
-            f"Expected nested provider_meta, got {vxj6.provider_meta!r}"
+        assert vx is not None, "VIX not found in default contracts"
+        assert vx.provider_meta == {"ibkr": {"trading_class": "VX"}}, (
+            f"Expected nested provider_meta, got {vx.provider_meta!r}"
         )
