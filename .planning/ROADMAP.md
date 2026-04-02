@@ -504,7 +504,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 49. DB Performance | v2.1 | 0/TBD | Complete    | 2026-03-28 |
 | 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
 | 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
-| 50. Roll Monitor Graduation | v2.2 | 0/TBD | Not started | — |
+| 50. Roll Monitor Graduation | v2.2 | 1/2 | In Progress|  |
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Complete (absorbed) | 2026-03-28 |
 | 52. Infrastructure Hardening | v2.1 | 8/8 | Complete (absorbed) | 2026-03-28 |
 | 53.3. RollComputeAgent + DataProviderAgent Rename | v2.2 | 4/4 | Complete | 2026-03-28 |
