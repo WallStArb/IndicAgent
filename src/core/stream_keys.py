@@ -70,12 +70,18 @@ def topic_contract_updates(env_name: str) -> str:
 
     Published after each successful front-month promotion.
     Consumers (e.g. BarAuditorAgent) use this to invalidate contract caches.
+    Purpose: latency optimization — live services flush contract cache on receipt.
+    NOT required for correctness; services converge within TTL cache cycle (60s).
     """
     return f"{env_prefix(env_name)}market.events.contract_update"
 
 
 def topic_roll_dlq(env_name: str) -> str:
-    """Dead-letter queue topic for malformed or unprocessable RollEvent messages."""
+    """Kafka DLQ topic for malformed RollEvent payloads.
+
+    ContractMetadataWriterAgent routes unprocessable roll events here instead of
+    crashing. Enables investigation without data loss. Pattern: DLQ per domain.
+    """
     return f"{env_prefix(env_name)}market.events.roll.dlq"
 
 
