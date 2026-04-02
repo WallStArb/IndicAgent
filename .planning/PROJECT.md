@@ -186,7 +186,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 
 ## Context
 
-### Current State (v2.2 Operational Excellence — Phase 58 complete)
+### Current State (v2.2 Operational Excellence — Phase 58.1 complete)
 
 - 121 plugins + 2 aggregation (I1: 27, I2: 8, I3: 3, I4: 11, I5: 15, SMC: 11+1 confluence, I7: 36 setups + 2 agg)
 - 9 active systemd services: feature-pipeline, signal-generator, signal-lifecycle, ai-narrative, feature-writer, llm-writer, cross-asset, api, gap-fill-timer
@@ -273,4 +273,4 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 54: Provider Abstraction Layer — DataProviderAdapter Protocol, IBKRAdapter, IBKRProviderAgent + ProviderMergerAgent two-service stack; broker-agnostic data foundation (2026-03-28 ✅)
 
 ---
-*Last updated: 2026-04-02 — v2.2 Operational Excellence complete. Phase 58 complete: per-plugin Prometheus observability (PLUGIN_DURATION_MS/PLUGIN_ERRORS_TOTAL), configurable thread pool, pipeline correctness tests (determinism + exception isolation), benchmark tooling, systemd template unit for horizontal scaling. All 2689 unit tests passing.*
+*Last updated: 2026-04-02 — Phase 58.1 complete: contract lifecycle automation. ContractMetadataWriterAgent seeds contract_metadata on startup and promotes front-month on RollEvents. BarAuditorAgent upgraded to session-aligned gap detection (RTH windows, max_achievable_pct ceiling). build_contracts() defaults converted to base-symbol templates (no more manual quarterly code updates). RollComputeAgent graduation deferred to June roll (H6 bars absent; backtest script ready). All 2747 unit tests passing.*
