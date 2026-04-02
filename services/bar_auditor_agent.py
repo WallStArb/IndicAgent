@@ -99,6 +99,13 @@ class BarAuditorAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
 
+        # Dedup: track (symbol, date_str) pairs already requested today.
+        # Prevents the infinite retry loop when IBKR can't fully cover a gap
+        # (e.g. CME overnight sessions where actual/expected < 95% permanently).
+        # Cleared at UTC midnight each audit cycle.
+        self._requested_today: set[tuple[str, str]] = set()
+        self._requested_today_date: str = ""  # YYYY-MM-DD of last clear
+
         # Cache labeled children — avoids .labels() lookup on every audit cycle
         self._audits_run = _AUDITS_RUN.labels(agent=self.name)
         self._gap_requests_published = _GAP_REQUESTS_PUBLISHED.labels(agent=self.name)
@@ -274,6 +281,16 @@ class BarAuditorAgent(BaseAgent):
                     ).set(completeness)
 
                     if completeness < _COMPLETENESS_THRESHOLD:
+                        # Dedup: skip if already requested today (prevents infinite
+                        # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
+                        today_str = str(date.today())
+                        if self._requested_today_date != today_str:
+                            self._requested_today.clear()
+                            self._requested_today_date = today_str
+                        gap_key = (instrument.symbol, str(target_date))
+                        if gap_key in self._requested_today:
+                            continue
+
                         self.logger.warning(
                             "bar_auditor_agent.gap_detected",
                             symbol=instrument.symbol,
@@ -290,6 +307,7 @@ class BarAuditorAgent(BaseAgent):
                                 end_ts=date_end_utc,
                             )
                         )
+                        self._requested_today.add(gap_key)
 
         return gaps
 
