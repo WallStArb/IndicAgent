@@ -33,7 +33,7 @@ from src.core.service_utils import normalize_session_type, parse_roll_event, set
 from src.core.stream_keys import (
     topic_cross_asset,
     topic_intelligence_journal,
-    topic_system_events,
+    topic_roll_events,
 )
 from src.intelligence.cross_asset_features import _EQ_INDEX_BASES
 from src.intelligence.schemas import BarIntelligenceRecord
@@ -407,11 +407,11 @@ class FeatureWriterAgent(BaseAgent):
         # Build topics list
         topics = [
             topic_intelligence_journal(self._env_name),
-            topic_system_events(self._env_name),
+            topic_roll_events(self._env_name),
             topic_cross_asset(self._env_name),
         ]
 
-        # Single consumer subscribed to intelligence.record, system.events, and cross_asset
+        # Single consumer subscribed to intelligence.record, roll_events, and cross_asset
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
             bootstrap_servers=self._kafka_bootstrap,
@@ -671,15 +671,15 @@ class FeatureWriterAgent(BaseAgent):
             return
 
         intelligence_journal_topic = topic_intelligence_journal(self._env_name)
-        sys_events_topic = topic_system_events(self._env_name)
+        roll_events_topic = topic_roll_events(self._env_name)
         cross_asset_topic = topic_cross_asset(self._env_name)
 
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
             if not self.running:
                 break
             try:
-                # Route system.events to roll handler (no symbol/tf key required)
-                if kafka_topic == sys_events_topic:
+                # Route roll_events to roll handler (no symbol/tf key required)
+                if kafka_topic == roll_events_topic:
                     await self._handle_roll_event(payload)
                     continue
 
