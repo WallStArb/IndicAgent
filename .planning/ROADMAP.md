@@ -589,11 +589,11 @@ Plans:
 **Goal:** Eliminate all manual futures roll tasks via a four-stage DAG: seed contract_metadata from settings, detect rolls via RollComputeAgent, promote front-month atomically via ContractMetadataWriterAgent, and audit bars with session-aligned windows.
 **Requirements**: [CLA-01, CLA-02, CLA-03, CLA-04, CLA-05]
 **Depends on:** Phase 58
-**Plans:** 1/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
-- [ ] 58.1-01-PLAN.md — Foundation types: TradingSession methods, stream keys, ContractUpdateEvent schema
+- [x] 58.1-01-PLAN.md — Foundation types: TradingSession methods, stream keys, ContractUpdateEvent schema
 - [x] 58.1-02-PLAN.md — ContractMetadataWriterAgent: seed + roll promotion + DLQ + systemd unit
-- [ ] 58.1-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
-- [ ] 58.1-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
+- [x] 58.1-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
+- [x] 58.1-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
 - [ ] 58.1-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
