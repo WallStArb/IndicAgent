@@ -3,8 +3,8 @@ Core data models for the Multi-Timeframe Trading Signal Platform.
 """
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, time, timedelta
 from datetime import date as _date
-from datetime import datetime, time
 from datetime import datetime as _datetime
 from enum import StrEnum
 from typing import Any
@@ -93,6 +93,95 @@ class TradingSession:
         if session_total <= 0:
             return None
         return max(0.0, min(1.0, elapsed / session_total))
+
+    def session_window_for_date(
+        self, target_date: _date
+    ) -> tuple[_datetime | None, _datetime | None]:
+        """Return the UTC (start, end) window for target_date's trading session.
+
+        Returns (None, None) for non-trading days.
+
+        All-day sessions (open_time == close_time): returns midnight-to-midnight UTC.
+        Same-day sessions (open_time < close_time): converts local open/close to UTC.
+        Overnight sessions (open_time > close_time): session starts previous calendar
+          day in local time; start = prev_day open_time in UTC, end = target_date
+          close_time in UTC.
+
+        Used by BarAuditorAgent to compute expected bar count for completeness checks.
+        """
+        if target_date.weekday() not in self.trading_days:
+            return (None, None)
+
+        # All-day session (open == close, e.g. crypto, fx_24_5)
+        if self.open_time == self.close_time:
+            start_utc = _datetime(
+                target_date.year, target_date.month, target_date.day, tzinfo=UTC
+            )
+            end_utc = start_utc + timedelta(days=1)
+            return (start_utc, end_utc)
+
+        tz = ZoneInfo(self.timezone)
+
+        # Same-day session (open < close, e.g. nyse, tse)
+        if self.open_time < self.close_time:
+            start_local = _datetime.combine(target_date, self.open_time, tzinfo=tz)
+            end_local = _datetime.combine(target_date, self.close_time, tzinfo=tz)
+            return (start_local.astimezone(UTC), end_local.astimezone(UTC))
+
+        # Overnight session (open > close, e.g. futures_24_5)
+        # Session opens on the previous calendar day in local time
+        prev_day = target_date - timedelta(days=1)
+        start_local = _datetime.combine(prev_day, self.open_time, tzinfo=tz)
+        end_local = _datetime.combine(target_date, self.close_time, tzinfo=tz)
+        return (start_local.astimezone(UTC), end_local.astimezone(UTC))
+
+    def max_achievable_pct(self) -> float:
+        """Structurally achievable bar completeness from session geometry.
+
+        Returns the ratio of active trading minutes to total session window minutes.
+        Sessions with no breaks return 1.0. Sessions with encoded breaks return < 1.0.
+
+        Used by BarAuditorAgent to set a realistic completeness ceiling rather than
+        flagging break periods as missing bars.
+        """
+        # All-day session: always fully achievable
+        if self.open_time == self.close_time:
+            return 1.0
+
+        # Use a reference week (2026-03-02 = Monday) + weekday offset
+        reference_monday = _date(2026, 3, 2)
+        test_date: _date | None = None
+        for wd in range(7):
+            if wd in self.trading_days:
+                # Weekday 0=Monday, 6=Sunday; reference_monday is weekday 0
+                test_date = reference_monday + timedelta(days=wd)
+                break
+
+        if test_date is None:
+            return 1.0  # No trading days — degenerate case
+
+        start, end = self.session_window_for_date(test_date)
+        if start is None or end is None:
+            return 1.0
+
+        total_window_minutes = (end - start).total_seconds() / 60
+        if total_window_minutes <= 0:
+            return 1.0
+
+        # Subtract break duration from active minutes
+        active_minutes = total_window_minutes
+        anchor = _date(2000, 1, 2)  # arbitrary Monday for time arithmetic
+        for brk_start, brk_end in self.trading_breaks:
+            brk_duration = (
+                _datetime.combine(anchor, brk_end)
+                - _datetime.combine(anchor, brk_start)
+            ).total_seconds() / 60
+            active_minutes -= brk_duration
+
+        if active_minutes <= 0:
+            return 1.0
+
+        return active_minutes / total_window_minutes
 
 
 EXCHANGE_SESSIONS: dict[str, "TradingSession"] = {
