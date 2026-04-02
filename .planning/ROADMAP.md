@@ -571,3 +571,14 @@ Plans:
 **Goal:** Merge `feature_compute_agent` (I1-I6) and `signal_generator_agent` (I7) into a single `IntelligencePipelineComputeAgent`. Eliminate Kafka as an inter-compute bus (I6→I7 round-trip removed). Add state checkpointing to a compacted Kafka topic so restarts are zero-warmup. Add `pre_quality_confidence` and `pre_calibration_confidence` columns to `signal_ledger` for full per-stage attribution.
 **Design doc:** `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
 **Plans:** 3/3 plans complete — shipped 2026-03-29
+
+### Phase 58: Pipeline Parallelization Renaissance Completion
+
+**Goal:** Close the final observability and parallelization gaps for the IntelligencePipelineComputeAgent. Add per-plugin latency/error metrics, TDD test coverage, and configurable systemd unit wiring.
+**Requirements**: PIPE-01 (per-plugin latency), PIPE-02 (per-plugin errors), PIPE-03 (configurable pool), PIPE-06 (configurable metrics port)
+**Plans:** 1/3 plans complete
+
+Plans:
+- [x] 58-01-PLAN.md — Observability foundation: PLUGIN_DURATION_MS Histogram, PLUGIN_ERRORS_TOTAL Counter, THREAD_POOL_WORKERS Gauge, configurable Settings fields
+- [ ] 58-02-PLAN.md — TDD tests for per-plugin observability metrics
+- [ ] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port

@@ -22,9 +22,9 @@ See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 ## Current Position
 
-Phase: 57.1
-Plan: 01 Complete (2026-03-30)
-Next: Phase 57.1 complete — signal_generator_agent retired, SignalWriterAgent live
+Phase: 58
+Plan: 01 Complete (2026-04-02)
+Next: Phase 58 Plan 02 — TDD tests for per-plugin observability metrics
 
 ## v2.1 Milestone Goal
 
@@ -120,6 +120,14 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 Recent additions:
 
 - 2026-03-24: Signal quality and pipeline integrity audit (comprehensive — confluence, regime suppression, ML data gaps, performance metrics)
+
+### Decisions (Phase 58 Plan 01)
+
+- LOG_FILE env var overrides setup_service_logging path — justified exception to no-os.environ rule since logging is bootstrapped before Settings is available
+- intelligence_thread_pool_workers default=0 means auto (cpu_count*2) — avoids hard-coded surprise on different hardware
+- pipeline_metrics_port uses METRICS_PORT alias — non-colliding with existing INDICAGENT_METRICS_PORT on metrics_port field
+- PLUGIN_DURATION_MS/PLUGIN_ERRORS_TOTAL use prometheus_client directly (not metrics.py helpers) — helpers lack label support; consistent with BarAggregatorComputeAgent pattern (Phase 053.2)
+- Backward-compat branch in _collect_plugin_results handles bare dict results — safe fallback if caller bypasses _timed_plugin_call
 
 ### Decisions (Phase 57.1 Plan 01)
 
