@@ -238,3 +238,49 @@ async def test_metrics_server_not_started_when_port_none() -> None:
         await a.start()
 
     mock_start.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Watchdog notify tests
+# ---------------------------------------------------------------------------
+
+
+class _ConcreteAgent(BaseAgent):
+    async def _run(self) -> None:
+        self._stop_event.set()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_notify_noop_when_no_socket():
+    """_watchdog_notify exits immediately when NOTIFY_SOCKET is not set."""
+    import os
+
+    agent = _ConcreteAgent("test_agent")
+    with patch.dict(os.environ, {}, clear=True):
+        task = asyncio.create_task(agent._watchdog_notify())
+        await asyncio.sleep(0.05)
+        assert task.done()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_notify_sends_when_socket_set():
+    """_watchdog_notify calls sdnotify.notify('WATCHDOG=1') when socket is set."""
+    import os
+    from unittest.mock import MagicMock
+
+    agent = _ConcreteAgent("test_agent")
+    agent._stop_event = asyncio.Event()
+
+    with patch.dict(os.environ, {"NOTIFY_SOCKET": "/run/test.sock", "WATCHDOG_USEC": "2000000"}):
+        with patch("sdnotify.SystemdNotifier") as mock_cls:
+            mock_notifier = MagicMock()
+            mock_cls.return_value = mock_notifier
+
+            task = asyncio.create_task(agent._watchdog_notify())
+            await asyncio.sleep(0.15)
+            agent._stop_event.set()
+            await asyncio.sleep(0.05)
+            task.cancel()
+
+            assert mock_notifier.notify.call_count >= 1
+            mock_notifier.notify.assert_called_with("WATCHDOG=1")

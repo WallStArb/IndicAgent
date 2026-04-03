@@ -1,8 +1,9 @@
 [Unit]
-Description=IndicAgent Cross-Asset Intelligence Service — spread dynamics and EQ index features
-After=network-online.target
+Description=IndicAgent RollComputeAgent — futures roll detection
+After=network-online.target indicagent-ibkr-provider.service
+Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
-StartLimitBurst=0
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,16 +11,14 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-Environment=CROSS_ASSET_ENABLED=true
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/cross_asset_service.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/roll_compute_agent.py
 Restart=always
 WatchdogSec=60
 NotifyAccess=main
-TimeoutStopSec=30
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-cross-asset
+SyslogIdentifier=indicagent-roll-compute
 LimitNOFILE=65536
 
 [Install]

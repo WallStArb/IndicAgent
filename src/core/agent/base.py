@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import os
 import signal
 
 import structlog
@@ -74,6 +75,7 @@ class BaseAgent(abc.ABC):
         self.logger.info("agent.starting", agent=self.name)
         await self._setup()
         lag_task = asyncio.create_task(self._report_consumer_lag())
+        watchdog_task = asyncio.create_task(self._watchdog_notify())
         try:
             await self._run()
         except Exception:
@@ -81,10 +83,12 @@ class BaseAgent(abc.ABC):
             raise
         finally:
             lag_task.cancel()
-            try:
-                await lag_task
-            except asyncio.CancelledError:
-                pass
+            watchdog_task.cancel()
+            for t in (lag_task, watchdog_task):
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
             await self._teardown()
             await self.stop()
 
@@ -134,6 +138,24 @@ class BaseAgent(abc.ABC):
         """
         while not self._stop_event.is_set():
             await asyncio.sleep(15)
+
+    async def _watchdog_notify(self) -> None:
+        """Notify systemd watchdog so it doesn't kill a healthy process.
+
+        No-op when NOTIFY_SOCKET or WATCHDOG_USEC is not set (direct run / tests).
+        Notifies at half WatchdogSec interval to stay well within the deadline.
+        """
+        socket_path = os.getenv("NOTIFY_SOCKET", "")
+        usec = int(os.getenv("WATCHDOG_USEC", "0"))
+        if not socket_path or usec <= 0:
+            return
+        import sdnotify
+
+        notifier = sdnotify.SystemdNotifier()
+        interval_s = usec / 2_000_000
+        while self.running:
+            notifier.notify("WATCHDOG=1")
+            await asyncio.sleep(interval_s)
 
     async def _send_to_dlq(self, payload: dict, error: Exception) -> None:
         """Route unprocessable payload to DLQ. Default: log and discard.

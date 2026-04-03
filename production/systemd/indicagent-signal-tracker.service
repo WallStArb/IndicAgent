@@ -1,7 +1,6 @@
 [Unit]
 Description=IndicAgent SignalTrackerAgent — signal lifecycle tracking
-After=network-online.target indicagent-signal-generator.service
-Wants=indicagent-signal-generator.service
+After=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -13,6 +12,8 @@ Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_tracker_agent.py
 Restart=always
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
