@@ -130,7 +130,8 @@ class TradingSession:
             return (start_local.astimezone(UTC), end_local.astimezone(UTC))
 
         # Overnight session (open > close, e.g. futures_24_5)
-        # Session opens on the previous calendar day in local time
+        # Session opens on the previous calendar day in local time.
+        # prev_day intentionally may not be in trading_days (e.g. CME Sunday opens Saturday 18:00 CST).
         prev_day = target_date - timedelta(days=1)
         start_local = _datetime.combine(prev_day, self.open_time, tzinfo=tz)
         end_local = _datetime.combine(target_date, self.close_time, tzinfo=tz)

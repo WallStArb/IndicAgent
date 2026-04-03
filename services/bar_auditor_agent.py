@@ -52,6 +52,8 @@ _DEFAULT_LOOKBACK_DAYS = 3
 # Subset of _TF_MINUTES from bar_accumulator — excludes "1d" because daily bar
 # completeness has different semantics (session vs calendar day).
 _HTF_TIMEFRAME_MINUTES: dict[str, int] = {k: v for k, v in _TF_MINUTES.items() if k != "1d"}
+# Pre-computed for SQL ANY($N) — avoids list() allocation on every audit iteration.
+_HTF_TF_NAMES_LIST: list[str] = list(_HTF_TIMEFRAME_MINUTES.keys())
 
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
@@ -208,9 +210,7 @@ class BarAuditorAgent(BaseAgent):
         if self._contract_consumer is None:
             return
         try:
-            # getmany(timeout_ms=0) returns immediately with buffered messages.
-            # Using messages() would block forever waiting for the next message.
-            records = await self._contract_consumer._consumer.getmany(timeout_ms=0, max_records=100)
+            records = await self._contract_consumer.getmany(timeout_ms=0, max_records=100)
             count = sum(len(msgs) for msgs in records.values())
             if count > 0:
                 invalidate_active_contracts_cache()
@@ -261,7 +261,11 @@ class BarAuditorAgent(BaseAgent):
                         continue  # Non-trading day — skip
                     date_start_utc, date_end_utc = window
 
-                    expected = session.expected_bars_for_date(target_date)
+                    # Derive expected bars from the window we already have,
+                    # avoiding a second session_window_for_date() call inside
+                    # expected_bars_for_date().
+                    total_minutes = int((date_end_utc - date_start_utc).total_seconds() / 60)
+                    expected = max(0, total_minutes - session._break_minutes())
                     if expected == 0:
                         continue
 
@@ -289,7 +293,7 @@ class BarAuditorAgent(BaseAgent):
                     if completeness < threshold:
                         # Dedup: skip if already requested today (prevents infinite
                         # retry loop for gaps IBKR can't fully fill, e.g. CME overnight)
-                        today_str = str(date.today())
+                        today_str = str(today)
                         if self._requested_today_date != today_str:
                             self._requested_today.clear()
                             self._requested_today_date = today_str
@@ -318,7 +322,6 @@ class BarAuditorAgent(BaseAgent):
 
                     # HTF completeness — observe metrics, DO NOT issue gap requests.
                     # Single GROUP BY query replaces N separate COUNT(*) queries.
-                    htf_tf_names = tuple(_HTF_TIMEFRAME_MINUTES.keys())
                     htf_rows = await conn.fetch(
                         """
                         SELECT timeframe, COUNT(*) AS cnt
@@ -330,7 +333,7 @@ class BarAuditorAgent(BaseAgent):
                         GROUP BY timeframe
                         """,
                         instrument.symbol,
-                        list(htf_tf_names),
+                        _HTF_TF_NAMES_LIST,
                         date_start_utc,
                         date_end_utc,
                     )

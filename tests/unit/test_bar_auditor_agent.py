@@ -364,11 +364,9 @@ async def test_drain_contract_updates_invalidates_module_cache(agent):
     """Receiving a contract update calls invalidate_active_contracts_cache()."""
     import unittest.mock as mock
 
-    # _drain_contract_updates calls _contract_consumer._consumer.getmany(timeout_ms=0)
     mock_consumer = MagicMock()
-    mock_consumer._consumer = AsyncMock()
     # getmany returns {TopicPartition: [messages]} — we just need non-empty values
-    mock_consumer._consumer.getmany = AsyncMock(return_value={"tp0": [MagicMock()]})
+    mock_consumer.getmany = AsyncMock(return_value={"tp0": [MagicMock()]})
     agent._contract_consumer = mock_consumer
 
     with mock.patch("services.bar_auditor_agent.invalidate_active_contracts_cache") as mock_inv:

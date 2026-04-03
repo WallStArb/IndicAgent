@@ -152,6 +152,19 @@ class KafkaConsumerClient:
         """
         await self._consumer.seek_to_end()
 
+    async def getmany(
+        self, *, timeout_ms: int = 0, max_records: int = 100
+    ) -> dict:
+        """Non-blocking batch fetch — thin delegation to AIOKafkaConsumer.getmany().
+
+        Returns {TopicPartition: [ConsumerRecord, ...]} immediately with any
+        buffered messages (when timeout_ms=0). Used by agents that need to drain
+        messages without blocking (e.g. BarAuditorAgent contract cache invalidation).
+        """
+        return await self._consumer.getmany(
+            timeout_ms=timeout_ms, max_records=max_records
+        )
+
     async def messages(self) -> AsyncGenerator[tuple[str, str | None, dict]]:
         """Yield (topic, key, payload_dict) tuples from subscribed topics.
 
