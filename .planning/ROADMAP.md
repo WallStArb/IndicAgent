@@ -596,4 +596,4 @@ Plans:
 - [x] 58.1-02-PLAN.md — ContractMetadataWriterAgent: seed + roll promotion + DLQ + systemd unit
 - [x] 58.1-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
 - [x] 58.1-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
-- [ ] 58.1-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
+- [x] 58.1-05-PLAN.md — settings.py SoT cleanup: base-symbol templates

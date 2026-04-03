@@ -33,8 +33,9 @@ sys.path.insert(0, str(project_root))
 import asyncpg
 from prometheus_client import Counter, Gauge, Histogram
 
-from src.config.settings import Settings, get_active_contracts
+from src.config.settings import Settings, get_active_contracts, invalidate_active_contracts_cache
 from src.core.agent.base import BaseAgent
+from src.core.bar_accumulator import _TF_MINUTES
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.models import TradingSession
 from src.core.schemas.market_events import BarGapRequest
@@ -49,7 +50,11 @@ _AUDIT_INTERVAL = 300  # seconds between audits (5 minutes)
 # Per-session threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
 _COMPLETENESS_GATE = 0.97
 _DEFAULT_LOOKBACK_DAYS = 3
-_HTF_TIMEFRAME_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60, "4h": 240}
+# Subset of _TF_MINUTES from bar_accumulator — excludes "1d" because daily bar
+# completeness has different semantics (session vs calendar day).
+_HTF_TIMEFRAME_MINUTES: dict[str, int] = {
+    k: v for k, v in _TF_MINUTES.items() if k != "1d"
+}
 
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
@@ -101,7 +106,6 @@ class BarAuditorAgent(BaseAgent):
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._contract_consumer: KafkaConsumerClient | None = None
-        self._active_contracts_last_refresh: float = 0.0
 
         # Dedup: track (symbol, date_str) pairs already requested today.
         # Prevents the infinite retry loop when IBKR can't fully cover a gap
@@ -200,27 +204,32 @@ class BarAuditorAgent(BaseAgent):
     async def _drain_contract_updates(self) -> None:
         """Check for ContractUpdateEvent messages and invalidate contract cache.
 
-        Non-blocking drain — processes any pending messages without waiting.
+        Non-blocking drain — uses getmany(timeout_ms=0) to return immediately
+        with any buffered messages. Does NOT block if no messages are pending.
         Topic absence degrades gracefully to TTL-only cache (60s lag).
         """
         if self._contract_consumer is None:
             return
         try:
-            count = 0
-            # Drain all pending messages via the async iterator with a short timeout
-            async for _topic, _key, _payload in self._contract_consumer.messages():
-                count += 1
-                # Reset refresh timestamp to force re-fetch on next audit cycle
-                self._active_contracts_last_refresh = 0.0
-                if count >= 100:  # Safety cap — avoid blocking on message flood
-                    break
+            # getmany(timeout_ms=0) returns immediately with buffered messages.
+            # Using messages() would block forever waiting for the next message.
+            records = await self._contract_consumer._consumer.getmany(
+                timeout_ms=0, max_records=100
+            )
+            count = sum(len(msgs) for msgs in records.values())
             if count > 0:
+                invalidate_active_contracts_cache()
                 self.logger.info(
                     "bar_auditor_agent.contract_update_received",
                     count=count,
                 )
-        except Exception:
-            pass  # Graceful degradation — TTL cache handles it
+        except asyncio.TimeoutError:
+            pass  # Expected — no messages available
+        except Exception as exc:
+            self.logger.debug(
+                "bar_auditor_agent.contract_drain_error",
+                error=str(exc),
+            )
 
     @staticmethod
     def _expected_bars_for_date(session: TradingSession, target_date: date) -> int:

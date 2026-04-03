@@ -271,6 +271,7 @@ Every intelligence output — indicator, pattern, signal, narrative — flows th
 - Phase 53.1: BarWriterAgent + BarCompletenessAgent — compute/persistence separation; self-healing gap loop; retires gap_fill_service
 - Phase 50: Roll Monitor + DualDivergence Graduation — D-21 validation; ROLL_MONITOR_ENABLED; trad_DualDivergence promotion
 - Phase 54: Provider Abstraction Layer — DataProviderAdapter Protocol, IBKRAdapter, IBKRProviderAgent + ProviderMergerAgent two-service stack; broker-agnostic data foundation (2026-03-28 ✅)
+- Phase 58.1: Contract Lifecycle Automation — ContractMetadataWriterAgent (seed + roll promotion + DLQ); BarAuditorAgent session-aligned gap detection (RTH windows, max_achievable_pct ceiling); build_contracts() base-symbol templates (no quarterly code edits); RollComputeAgent backtest script; graduation deferred to June roll (2026-04-02 ✅)
 
 ---
 *Last updated: 2026-04-02 — Phase 58.1 complete: contract lifecycle automation. ContractMetadataWriterAgent seeds contract_metadata on startup and promotes front-month on RollEvents. BarAuditorAgent upgraded to session-aligned gap detection (RTH windows, max_achievable_pct ceiling). build_contracts() defaults converted to base-symbol templates (no more manual quarterly code updates). RollComputeAgent graduation deferred to June roll (H6 bars absent; backtest script ready). All 2747 unit tests passing.*

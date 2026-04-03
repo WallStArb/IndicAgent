@@ -63,9 +63,8 @@ class TestSessionWindowForDate:
         """CME futures: Sunday is a trading day (trading_days includes 6)."""
         session = SESSION_REGISTRY["futures_24_5"]
         start, end = session.session_window_for_date(date(2026, 3, 22))  # Sunday
-        # Sunday session starts Saturday 18:00 CST = Saturday 00:00 UTC
-        assert start is not None
-        assert end is not None
+        assert start == datetime(2026, 3, 22, 0, 0, tzinfo=UTC)
+        assert end == datetime(2026, 3, 22, 23, 0, tzinfo=UTC)
 
     def test_crypto_24_7_all_day(self):
         """Crypto 24/7: any day is full 24h UTC window."""

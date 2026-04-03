@@ -349,6 +349,12 @@ class ContractMetadataWriterAgent(BaseAgent):
                 self.logger.error(
                     "contract_metadata_writer.unhandled_error",
                     error=str(exc),
+                    payload=payload,
+                )
+                await self._kafka_producer.publish(
+                    topic_roll_dlq(self._env_name),
+                    payload,
+                    key=(payload.get("symbol", "unknown") if isinstance(payload, dict) else "unknown"),
                 )
 
 
