@@ -16,6 +16,8 @@ Environment=INSTANCE_ID=%i
 Environment=LOG_FILE=logs/intelligence_pipeline_%i.log
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/intelligence_pipeline_agent.py
 Restart=always
+WatchdogSec=60
+NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
