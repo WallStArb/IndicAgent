@@ -347,7 +347,7 @@ async def test_dry_run_skips_db_write(agent):
     agent._kafka_producer.publish.assert_called_once()
     publish_args = agent._kafka_producer.publish.call_args[0]
     assert publish_args[1].get("dry_run") is True
-    assert "dry_run" not in publish_args[0]  # not sent to DLQ
+    assert "dlq" not in publish_args[0]  # not sent to DLQ
 
 
 # ---------------------------------------------------------------------------
