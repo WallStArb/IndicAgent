@@ -14,7 +14,7 @@ Tests verify:
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -38,7 +38,6 @@ def agent():
     a._db_pool = AsyncMock()
     a._kafka_producer = AsyncMock()
     a._contract_consumer = None
-    a._active_contracts_last_refresh = 0.0
     a._requested_today: set[tuple[str, str]] = set()
     a._requested_today_date = ""
     a._canonical_completeness = MagicMock()
@@ -59,13 +58,24 @@ def _make_instrument(session_id: str, symbol: str = "ES") -> Instrument:
     )
 
 
-def _make_conn_mock(fetchval_side_effect: list | None = None, fetchval_default: int = 0):
-    """Build an asyncpg connection mock with configurable fetchval responses."""
+def _make_conn_mock(
+    fetchval_return: int = 0,
+    htf_counts: dict[str, int] | None = None,
+):
+    """Build an asyncpg connection mock with configurable 1m and HTF responses.
+
+    fetchval_return: value returned by fetchval (used for 1m COUNT query).
+    htf_counts: dict of {timeframe: count} for the batched HTF fetch query.
+        Returns rows as dicts with "timeframe" and "cnt" keys.
+    """
     mock_conn = AsyncMock()
-    if fetchval_side_effect is not None:
-        mock_conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    mock_conn.fetchval = AsyncMock(return_value=fetchval_return)
+    if htf_counts is not None:
+        mock_conn.fetch = AsyncMock(
+            return_value=[{"timeframe": tf, "cnt": cnt} for tf, cnt in htf_counts.items()]
+        )
     else:
-        mock_conn.fetchval = AsyncMock(return_value=fetchval_default)
+        mock_conn.fetch = AsyncMock(return_value=[])
     return mock_conn
 
 
@@ -128,14 +138,15 @@ async def test_detect_gaps_session_aligned_nyse(agent):
     """
     instrument = _make_instrument("nyse")
 
-    # 390 for 1m, then HTF: 78 for 5m, 26 for 15m, 6 for 1h, 1 for 4h
-    mock_conn = _make_conn_mock(fetchval_side_effect=[350, 78, 26, 6, 1])
+    # 350 for 1m (below threshold), HTF: all above threshold
+    mock_conn = _make_conn_mock(
+        fetchval_return=350,
+        htf_counts={"5m": 78, "15m": 26, "1h": 6, "4h": 1},
+    )
     _set_db_pool(agent, mock_conn)
 
     # Patch date.today() to return the day after target so days_back=1 hits target_date
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         mock_date.today.return_value = date(2026, 3, 24)  # Tuesday
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
         gaps = await agent._detect_gaps([instrument], lookback_days=1)
@@ -146,13 +157,13 @@ async def test_detect_gaps_session_aligned_nyse(agent):
     assert gap.tf == "1m"
 
     # start_ts must be 13:30 UTC (NOT midnight UTC)
-    assert gap.start_ts == datetime(2026, 3, 23, 13, 30, tzinfo=UTC), (
-        f"Expected 13:30 UTC, got {gap.start_ts}"
-    )
+    assert gap.start_ts == datetime(
+        2026, 3, 23, 13, 30, tzinfo=UTC
+    ), f"Expected 13:30 UTC, got {gap.start_ts}"
     # end_ts must be 20:00 UTC (NOT next midnight)
-    assert gap.end_ts == datetime(2026, 3, 23, 20, 0, tzinfo=UTC), (
-        f"Expected 20:00 UTC, got {gap.end_ts}"
-    )
+    assert gap.end_ts == datetime(
+        2026, 3, 23, 20, 0, tzinfo=UTC
+    ), f"Expected 20:00 UTC, got {gap.end_ts}"
 
 
 @pytest.mark.asyncio
@@ -166,13 +177,14 @@ async def test_detect_gaps_session_aligned_futures_overnight(agent):
     """
     instrument = _make_instrument("futures_24_5")
 
-    # 1300 for 1m, HTF: 260 for 5m, 86 for 15m, 21 for 1h, 5 for 4h
-    mock_conn = _make_conn_mock(fetchval_side_effect=[1300, 260, 86, 21, 5])
+    # 1300 for 1m (below threshold), HTF counts
+    mock_conn = _make_conn_mock(
+        fetchval_return=1300,
+        htf_counts={"5m": 260, "15m": 86, "1h": 21, "4h": 5},
+    )
     _set_db_pool(agent, mock_conn)
 
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         mock_date.today.return_value = date(2026, 3, 24)
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
         gaps = await agent._detect_gaps([instrument], lookback_days=1)
@@ -181,13 +193,13 @@ async def test_detect_gaps_session_aligned_futures_overnight(agent):
     gap = gaps[0]
 
     # Overnight session: start = previous day 18:00 CST = 00:00 UTC of target_date
-    assert gap.start_ts == datetime(2026, 3, 23, 0, 0, tzinfo=UTC), (
-        f"Expected 00:00 UTC March 23, got {gap.start_ts}"
-    )
+    assert gap.start_ts == datetime(
+        2026, 3, 23, 0, 0, tzinfo=UTC
+    ), f"Expected 00:00 UTC March 23, got {gap.start_ts}"
     # End = 17:00 CST = 23:00 UTC of target_date
-    assert gap.end_ts == datetime(2026, 3, 23, 23, 0, tzinfo=UTC), (
-        f"Expected 23:00 UTC March 23, got {gap.end_ts}"
-    )
+    assert gap.end_ts == datetime(
+        2026, 3, 23, 23, 0, tzinfo=UTC
+    ), f"Expected 23:00 UTC March 23, got {gap.end_ts}"
 
 
 # ---------------------------------------------------------------------------
@@ -207,21 +219,19 @@ async def test_detect_gaps_derived_threshold_no_false_positive(agent):
     instrument = _make_instrument("futures_24_5")
 
     # 1350 for 1m = 1350/1380 = 0.978 > 0.97 threshold (no gap)
-    # HTF: 270 for 5m, 90 for 15m, 22 for 1h, 5 for 4h (all above threshold)
-    mock_conn = _make_conn_mock(fetchval_side_effect=[1350, 270, 90, 22, 5])
+    mock_conn = _make_conn_mock(
+        fetchval_return=1350,
+        htf_counts={"5m": 270, "15m": 90, "1h": 22, "4h": 5},
+    )
     _set_db_pool(agent, mock_conn)
 
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         mock_date.today.return_value = date(2026, 3, 24)
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
         gaps = await agent._detect_gaps([instrument], lookback_days=1)
 
     # 0.978 > 0.97 threshold — no gap request
-    assert len(gaps) == 0, (
-        f"Expected no gap requests for 0.978 completeness, got {len(gaps)}"
-    )
+    assert len(gaps) == 0, f"Expected no gap requests for 0.978 completeness, got {len(gaps)}"
 
 
 @pytest.mark.asyncio
@@ -233,12 +243,13 @@ async def test_detect_gaps_below_derived_threshold_triggers_request(agent):
     """
     instrument = _make_instrument("nyse")
 
-    mock_conn = _make_conn_mock(fetchval_side_effect=[330, 78, 26, 6, 1])
+    mock_conn = _make_conn_mock(
+        fetchval_return=330,
+        htf_counts={"5m": 78, "15m": 26, "1h": 6, "4h": 1},
+    )
     _set_db_pool(agent, mock_conn)
 
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         mock_date.today.return_value = date(2026, 3, 24)
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
         gaps = await agent._detect_gaps([instrument], lookback_days=1)
@@ -259,12 +270,10 @@ async def test_detect_gaps_skips_non_trading_day(agent):
     """
     instrument = _make_instrument("nyse")
 
-    mock_conn = _make_conn_mock(fetchval_default=0)
+    mock_conn = _make_conn_mock(fetchval_return=0)
     _set_db_pool(agent, mock_conn)
 
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         # days_back=1 -> target_date = Saturday March 21
         mock_date.today.return_value = date(2026, 3, 22)  # Sunday
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
@@ -273,6 +282,7 @@ async def test_detect_gaps_skips_non_trading_day(agent):
     assert len(gaps) == 0
     # No DB query should be made for non-trading days
     mock_conn.fetchval.assert_not_called()
+    mock_conn.fetch.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -289,13 +299,14 @@ async def test_htf_completeness_metric_emitted(agent):
     """
     instrument = _make_instrument("nyse")
 
-    # 1m=390 (above threshold), then 5m=78, 15m=26, 1h=6, 4h=1
-    mock_conn = _make_conn_mock(fetchval_side_effect=[390, 78, 26, 6, 1])
+    # 1m=390 (above threshold), HTF: all above threshold
+    mock_conn = _make_conn_mock(
+        fetchval_return=390,
+        htf_counts={"5m": 78, "15m": 26, "1h": 6, "4h": 1},
+    )
     _set_db_pool(agent, mock_conn)
 
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         mock_date.today.return_value = date(2026, 3, 24)
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
         gaps = await agent._detect_gaps([instrument], lookback_days=1)
@@ -318,13 +329,14 @@ async def test_htf_gap_logged_not_requested(agent):
     """
     instrument = _make_instrument("nyse")
 
-    # 1m=390 (passes), 5m=50 (fails), 15m=26, 1h=6, 4h=1
-    mock_conn = _make_conn_mock(fetchval_side_effect=[390, 50, 26, 6, 1])
+    # 1m=390 (passes), 5m=50 (below threshold), rest above
+    mock_conn = _make_conn_mock(
+        fetchval_return=390,
+        htf_counts={"5m": 50, "15m": 26, "1h": 6, "4h": 1},
+    )
     _set_db_pool(agent, mock_conn)
 
-    import unittest.mock as mock
-
-    with mock.patch("services.bar_auditor_agent.date") as mock_date:
+    with patch("services.bar_auditor_agent.date") as mock_date:
         mock_date.today.return_value = date(2026, 3, 24)
         mock_date.side_effect = lambda *args, **kw: date(*args, **kw)
         gaps = await agent._detect_gaps([instrument], lookback_days=1)
@@ -335,12 +347,11 @@ async def test_htf_gap_logged_not_requested(agent):
     # But a warning MUST be logged for the HTF gap
     warning_calls = agent.logger.warning.call_args_list
     htf_warnings = [
-        c for c in warning_calls
-        if c.args and c.args[0] == "bar_auditor_agent.htf_gap_detected"
+        c for c in warning_calls if c.args and c.args[0] == "bar_auditor_agent.htf_gap_detected"
     ]
-    assert len(htf_warnings) >= 1, (
-        f"Expected at least one 'htf_gap_detected' warning log, got: {warning_calls}"
-    )
+    assert (
+        len(htf_warnings) >= 1
+    ), f"Expected at least one 'htf_gap_detected' warning log, got: {warning_calls}"
 
 
 # ---------------------------------------------------------------------------
@@ -349,30 +360,29 @@ async def test_htf_gap_logged_not_requested(agent):
 
 
 @pytest.mark.asyncio
-async def test_drain_contract_updates_resets_refresh_timestamp(agent):
-    """Receiving a contract update resets _active_contracts_last_refresh to 0."""
+async def test_drain_contract_updates_invalidates_module_cache(agent):
+    """Receiving a contract update calls invalidate_active_contracts_cache()."""
+    import unittest.mock as mock
 
-    class _MockConsumer:
-        """Async generator mock that yields one message then stops."""
+    # _drain_contract_updates calls _contract_consumer._consumer.getmany(timeout_ms=0)
+    mock_consumer = MagicMock()
+    mock_consumer._consumer = AsyncMock()
+    # getmany returns {TopicPartition: [messages]} — we just need non-empty values
+    mock_consumer._consumer.getmany = AsyncMock(return_value={"tp0": [MagicMock()]})
+    agent._contract_consumer = mock_consumer
 
-        async def messages(self):
-            yield "market.events.contract_update", "ES", {"base_symbol": "ES"}
-
-    agent._contract_consumer = _MockConsumer()
-    agent._active_contracts_last_refresh = 999.0
-
-    await agent._drain_contract_updates()
-
-    assert agent._active_contracts_last_refresh == 0.0
+    with mock.patch("services.bar_auditor_agent.invalidate_active_contracts_cache") as mock_inv:
+        await agent._drain_contract_updates()
+        mock_inv.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_drain_contract_updates_noop_when_no_consumer(agent):
     """_drain_contract_updates is a no-op when _contract_consumer is None."""
+    import unittest.mock as mock
+
     agent._contract_consumer = None
-    agent._active_contracts_last_refresh = 42.0
 
-    await agent._drain_contract_updates()
-
-    # Should not change anything
-    assert agent._active_contracts_last_refresh == 42.0
+    with mock.patch("services.bar_auditor_agent.invalidate_active_contracts_cache") as mock_inv:
+        await agent._drain_contract_updates()
+        mock_inv.assert_not_called()

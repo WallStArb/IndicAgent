@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from services.contract_metadata_writer_agent import ContractMetadataWriterAgent
+from src.core.models import AssetClass
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,9 +83,7 @@ def agent():
     a._settings.kafka_bootstrap_servers = "localhost:19092"
     a._env_name = ""
     a._dry_run = False
-    a._db_pool = _make_pool_mock(
-        old_row={"base_symbol": "ES", "exchange": "CME"}
-    )
+    a._db_pool = _make_pool_mock(old_row={"base_symbol": "ES", "exchange": "CME"})
     a._kafka_producer = AsyncMock()
     a._kafka_consumer = AsyncMock()
     # Cache labeled metric children
@@ -118,7 +117,13 @@ async def test_seed_missing_contracts_inserts_futures(agent):
     ]
 
     conn = _make_conn_mock()
-    conn.execute = AsyncMock(return_value="INSERT 0 1")
+    # Batch INSERT uses conn.fetch() with RETURNING — return 2 inserted rows
+    conn.fetch = AsyncMock(
+        return_value=[
+            {"symbol": "ESM6", "base_symbol": "ES"},
+            {"symbol": "NQM6", "base_symbol": "NQ"},
+        ]
+    )
 
     pool = AsyncMock()
 
@@ -148,8 +153,8 @@ async def test_seed_missing_contracts_skips_existing(agent):
     ]
 
     conn = _make_conn_mock()
-    # "INSERT 0 0" = conflict — row already existed
-    conn.execute = AsyncMock(return_value="INSERT 0 0")
+    # Batch INSERT with RETURNING — empty list means all rows conflicted
+    conn.fetch = AsyncMock(return_value=[])
 
     pool = AsyncMock()
 
@@ -311,10 +316,11 @@ async def test_handle_roll_event_exchange_copied_from_old_row(agent):
 
     # Second execute call is the UPSERT for new contract
     upsert_call = conn.execute.call_args_list[1]
-    # The positional args after the SQL string include exchange at position 3 ($3)
+    # The positional args after the SQL string:
+    # (sql, new_contract, base_symbol, asset_class, exchange, old_contract, detection_ts, count)
     upsert_args = upsert_call[0]  # positional tuple
-    # args: (sql, new_contract, base_symbol, exchange, old_contract, detection_ts, count)
-    assert upsert_args[3] == "CME"
+    assert upsert_args[3] == AssetClass.FUTURES
+    assert upsert_args[4] == "CME"
 
 
 # ---------------------------------------------------------------------------

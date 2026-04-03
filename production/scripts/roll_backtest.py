@@ -124,7 +124,6 @@ def validate_detection_in_window(
     detections: list[datetime],
     window_start: datetime,
     window_end: datetime,
-    base_symbol: str,
 ) -> tuple[bool, str]:
     """Assert at least one detection falls within the known roll window."""
     in_window = [d for d in detections if window_start <= d <= window_end]

@@ -9,7 +9,7 @@ Tests _adjust_price_state() and _handle_roll_event() behavior:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 

@@ -288,7 +288,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                                     htf_emitted=len(completed_bars),
                                 )
 
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         # Handle timeout for slow bar processing
                         self._aggregation_errors.labels(agent=self.name).inc()
                         self.logger.error(

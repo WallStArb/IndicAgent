@@ -1,6 +1,7 @@
-import pytest
 import asyncio
 import time
+
+import pytest
 
 
 def test_timeout_mechanism_concept():
@@ -24,7 +25,7 @@ def test_timeout_mechanism_concept():
             # Should complete successfully, take ~3s
             assert result == "success"
             assert end - start < 4.0  # Allow some overhead
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail("Normal processing should not timeout")
 
     # Test timeout on slow processing
@@ -35,7 +36,7 @@ def test_timeout_mechanism_concept():
                 result = await very_slow_processing_function()
             # If we get here, something is wrong - should have timed out
             pytest.fail("Very slow processing should have timed out")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             end = time.monotonic()
             # Should timeout after ~5s
             assert end - start >= 5.0
@@ -57,7 +58,7 @@ def test_timeout_protection_logic():
                     # Simulate bar processing
                     result = await processing_function(payload)
                     return "success", result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # This is what should happen in the actual implementation
                 return "timeout", None
             except Exception as exc:
@@ -115,7 +116,7 @@ def test_timeout_scenarios():
                 raise ValueError("Processing failed")
         except ValueError as e:
             return str(e)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail("Should not timeout on ValueError")
 
     # Test scenarios

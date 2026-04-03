@@ -2,8 +2,10 @@
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+
 import pytest
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
 
 @pytest.mark.asyncio
 async def test_session_boundary_under_load():
@@ -95,7 +97,7 @@ async def test_session_boundary_under_load():
                     # Since we produced 11 bars, we should see the offset increase
                     # We can't be certain without knowing the previous offset,
                     # but we can verify the topic is accessible
-                    print(f"✓ Bars successfully produced to topic")
+                    print("✓ Bars successfully produced to topic")
                     break
             else:
                 print("⚠ Could not parse topic offset, but topic appears accessible")
@@ -135,14 +137,14 @@ async def test_session_boundary_under_load():
 
     try:
         await asyncio.wait_for(htf_timeout, timeout=60)  # 60 second timeout
-    except asyncio.TimeoutError:
+    except TimeoutError:
         print(f"HTF timeout: only collected {len(htf_bars)} HTF bars")
 
     await htf_consumer.stop()
 
     # Final validation
     print(f"Collected {len(htf_bars)} HTF bars")
-    print(f"Session boundary test completed with HTF bars detected")
+    print("Session boundary test completed with HTF bars detected")
 
     # Basic validation: We successfully tested the Kafka infrastructure
     # and verified that topics are accessible

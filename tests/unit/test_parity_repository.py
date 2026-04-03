@@ -7,7 +7,7 @@ Phase 52.5: ParityAuditorAgent
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -131,10 +131,10 @@ async def test_parity_repository_accepts_valid_tables():
 
 def test_parity_metrics_exist_in_metrics_module():
     """Test 12: PARITY_MATCH_RATE and SHADOW_AHEAD_ROWS_TOTAL exist in metrics.py."""
-    from src.observability.metrics import PARITY_MATCH_RATE, SHADOW_AHEAD_ROWS_TOTAL
-
     # Verify they're usable (Gauge/Counter with labels)
     from prometheus_client import Counter, Gauge
+
+    from src.observability.metrics import PARITY_MATCH_RATE, SHADOW_AHEAD_ROWS_TOTAL
 
     assert isinstance(PARITY_MATCH_RATE, Gauge)
     assert isinstance(SHADOW_AHEAD_ROWS_TOTAL, Counter)
@@ -142,16 +142,18 @@ def test_parity_metrics_exist_in_metrics_module():
 
 def test_parity_violations_total_exists():
     """PARITY_VIOLATIONS_TOTAL counter exists in metrics.py."""
-    from src.observability.metrics import PARITY_VIOLATIONS_TOTAL
     from prometheus_client import Counter
+
+    from src.observability.metrics import PARITY_VIOLATIONS_TOTAL
 
     assert isinstance(PARITY_VIOLATIONS_TOTAL, Counter)
 
 
 def test_parity_cycles_total_exists():
     """PARITY_CYCLES_TOTAL counter exists in metrics.py."""
-    from src.observability.metrics import PARITY_CYCLES_TOTAL
     from prometheus_client import Counter
+
+    from src.observability.metrics import PARITY_CYCLES_TOTAL
 
     assert isinstance(PARITY_CYCLES_TOTAL, Counter)
 
@@ -163,6 +165,7 @@ def test_parity_cycles_total_exists():
 async def test_insert_violations_calls_executemany():
     """insert_violations batches FieldViolations using executemany."""
     import uuid
+
     from src.core.schemas.parity import FieldViolation
     from src.persistence.repository.parity_repository import ParityRepository
 

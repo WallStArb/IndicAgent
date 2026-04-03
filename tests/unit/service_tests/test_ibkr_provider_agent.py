@@ -6,7 +6,6 @@ method implementations (agent name, metrics port, provider name, adapter type).
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # Test 12: IBKRProviderAgent inherits from BaseProviderAgent
 # ---------------------------------------------------------------------------
@@ -27,7 +26,6 @@ def test_inherits_base_provider_agent():
 
 def test_create_adapter_returns_ibkr_adapter():
     """_create_adapter() must return an IBKRAdapter instance."""
-    import asyncio
     from unittest.mock import MagicMock
 
     from services.ibkr_provider_agent import IBKRProviderAgent

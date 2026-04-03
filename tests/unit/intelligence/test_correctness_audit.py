@@ -656,7 +656,9 @@ class TestLiquidityPoolsCorrectness:
 class TestSupplyDemandCorrectness:
     def test_freshness_decreases_or_zones_clear_after_retest(self):
         """demand_freshness should drop (or zones clear) after price revisits zone."""
-        from src.intelligence.features.smc_context.supply_demand_zones import SupplyDemandZonesPlugin
+        from src.intelligence.features.smc_context.supply_demand_zones import (
+            SupplyDemandZonesPlugin,
+        )
 
         close = np.concatenate(
             [

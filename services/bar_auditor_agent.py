@@ -37,7 +37,6 @@ from src.config.settings import Settings, get_active_contracts, invalidate_activ
 from src.core.agent.base import BaseAgent
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
-from src.core.models import TradingSession
 from src.core.schemas.market_events import BarGapRequest
 from src.core.stream_keys import topic_contract_updates, topic_gap_requests
 from src.observability.otel import init_tracing
@@ -52,9 +51,7 @@ _COMPLETENESS_GATE = 0.97
 _DEFAULT_LOOKBACK_DAYS = 3
 # Subset of _TF_MINUTES from bar_accumulator — excludes "1d" because daily bar
 # completeness has different semantics (session vs calendar day).
-_HTF_TIMEFRAME_MINUTES: dict[str, int] = {
-    k: v for k, v in _TF_MINUTES.items() if k != "1d"
-}
+_HTF_TIMEFRAME_MINUTES: dict[str, int] = {k: v for k, v in _TF_MINUTES.items() if k != "1d"}
 
 # Module-level metric objects — prevents duplicate registration if the agent class
 # is imported more than once in the same process (e.g., unit tests without isolation)
@@ -213,9 +210,7 @@ class BarAuditorAgent(BaseAgent):
         try:
             # getmany(timeout_ms=0) returns immediately with buffered messages.
             # Using messages() would block forever waiting for the next message.
-            records = await self._contract_consumer._consumer.getmany(
-                timeout_ms=0, max_records=100
-            )
+            records = await self._contract_consumer._consumer.getmany(timeout_ms=0, max_records=100)
             count = sum(len(msgs) for msgs in records.values())
             if count > 0:
                 invalidate_active_contracts_cache()
@@ -223,57 +218,13 @@ class BarAuditorAgent(BaseAgent):
                     "bar_auditor_agent.contract_update_received",
                     count=count,
                 )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # Expected — no messages available
         except Exception as exc:
             self.logger.debug(
                 "bar_auditor_agent.contract_drain_error",
                 error=str(exc),
             )
-
-    @staticmethod
-    def _expected_bars_for_date(session: TradingSession, target_date: date) -> int:
-        """Expected 1m bar count for target_date given trading session rules.
-
-        Args:
-            session: TradingSession instance (open_time, close_time, timezone, trading_days)
-            target_date: calendar date to evaluate
-
-        Returns:
-            int: number of expected 1m bars; 0 if non-trading day.
-
-        Session types handled:
-        - 24/7 (crypto_24_7): open_time == close_time, 7 trading days → 1440 min
-        - 24/6 (fx_24_5): open_time == close_time, 6 trading days → 1440 min on trading days
-        - Overnight wrap (futures_24_5): open_time > close_time → count across midnight
-        - Same-day (nyse, etc.): open_time < close_time → simple window
-        """
-        weekday = target_date.weekday()
-        if weekday not in session.trading_days:
-            return 0
-
-        # All-day session (open_time == close_time)
-        if session.open_time == session.close_time:
-            return 1440
-
-        # Overnight wrap (e.g., CME futures: 18:00 CST → 17:00 CST next day = 23h = 1380m)
-        if session.open_time > session.close_time:
-            open_mins = session.open_time.hour * 60 + session.open_time.minute
-            close_mins = session.close_time.hour * 60 + session.close_time.minute
-            total_mins = (24 * 60 - open_mins) + close_mins
-        else:
-            # Same-day session (e.g., NYSE: 09:30-16:00 = 390m)
-            open_mins = session.open_time.hour * 60 + session.open_time.minute
-            close_mins = session.close_time.hour * 60 + session.close_time.minute
-            total_mins = close_mins - open_mins
-
-        # Subtract trading breaks
-        for brk_start, brk_end in session.trading_breaks:
-            brk_start_mins = brk_start.hour * 60 + brk_start.minute
-            brk_end_mins = brk_end.hour * 60 + brk_end.minute
-            total_mins -= brk_end_mins - brk_start_mins
-
-        return max(0, total_mins)
 
     async def _detect_gaps(
         self,
@@ -303,15 +254,16 @@ class BarAuditorAgent(BaseAgent):
                 threshold = session.max_achievable_pct() * _COMPLETENESS_GATE
                 for days_back in range(1, lookback_days + 1):
                     target_date = today - timedelta(days=days_back)
-                    expected = self._expected_bars_for_date(session, target_date)
-                    if expected == 0:
-                        continue
 
-                    # Session-aligned UTC window (replaces midnight-to-midnight)
+                    # Session-aligned UTC window — also gates non-trading days
                     window = session.session_window_for_date(target_date)
                     if window[0] is None or window[1] is None:
                         continue  # Non-trading day — skip
                     date_start_utc, date_end_utc = window
+
+                    expected = session.expected_bars_for_date(target_date)
+                    if expected == 0:
+                        continue
 
                     actual = await conn.fetchval(
                         """
@@ -364,25 +316,31 @@ class BarAuditorAgent(BaseAgent):
                         )
                         self._requested_today.add(gap_key)
 
-                    # HTF completeness — observe metrics, DO NOT issue gap requests
+                    # HTF completeness — observe metrics, DO NOT issue gap requests.
+                    # Single GROUP BY query replaces N separate COUNT(*) queries.
+                    htf_tf_names = tuple(_HTF_TIMEFRAME_MINUTES.keys())
+                    htf_rows = await conn.fetch(
+                        """
+                        SELECT timeframe, COUNT(*) AS cnt
+                        FROM market_data_ohlcv
+                        WHERE symbol = $1
+                          AND timeframe = ANY($2)
+                          AND timestamp >= $3
+                          AND timestamp < $4
+                        GROUP BY timeframe
+                        """,
+                        instrument.symbol,
+                        list(htf_tf_names),
+                        date_start_utc,
+                        date_end_utc,
+                    )
+                    htf_counts = {r["timeframe"]: r["cnt"] for r in htf_rows}
+
                     for tf_name, tf_minutes in _HTF_TIMEFRAME_MINUTES.items():
                         expected_htf = expected // tf_minutes
                         if expected_htf == 0:
                             continue
-                        actual_htf = await conn.fetchval(
-                            """
-                            SELECT COUNT(*)
-                            FROM market_data_ohlcv
-                            WHERE symbol = $1
-                              AND timeframe = $2
-                              AND timestamp >= $3
-                              AND timestamp < $4
-                            """,
-                            instrument.symbol,
-                            tf_name,
-                            date_start_utc,
-                            date_end_utc,
-                        ) or 0
+                        actual_htf = htf_counts.get(tf_name, 0)
                         completeness_htf = actual_htf / expected_htf
                         self._canonical_completeness.labels(
                             agent=self.name, symbol=instrument.symbol, tf=tf_name
@@ -397,10 +355,6 @@ class BarAuditorAgent(BaseAgent):
                                 expected=expected_htf,
                                 completeness=round(completeness_htf, 3),
                                 threshold=round(threshold, 3),
-                                note=(
-                                    "HTF gaps are observable only — no gap request"
-                                    " issued (gap fill is 1m-only)"
-                                ),
                             )
 
         return gaps

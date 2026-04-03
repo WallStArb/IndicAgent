@@ -99,7 +99,6 @@ def test_no_on_roll_confirmed_on_agent():
 
 def test_topics_consumed():
     """topics_consumed returns [topic_market_bars(env_name)]."""
-    from services.roll_compute_agent import RollComputeAgent
     from src.core.stream_keys import topic_market_bars
 
     agent = _make_agent()
@@ -109,7 +108,6 @@ def test_topics_consumed():
 
 def test_topics_produced():
     """topics_produced returns [topic_roll_events(env_name)]."""
-    from services.roll_compute_agent import RollComputeAgent
     from src.core.stream_keys import topic_roll_events
 
     agent = _make_agent()
@@ -125,9 +123,8 @@ def test_topics_produced():
 @pytest.mark.asyncio
 async def test_publishes_roll_event_on_confirmed_roll():
     """When check_roll returns True, agent publishes a RollEvent with volume_zscore > 0."""
-    from services.roll_compute_agent import RollComputeAgent
+
     from src.core.stream_keys import topic_roll_events
-    import json
 
     agent = _make_agent()
 
@@ -248,7 +245,7 @@ def test_golden_signals_are_counter_instances():
     """events_consumed_total and rolls_detected_total must be Counter instances."""
     from prometheus_client import Counter
 
-    from services.roll_compute_agent import _EVENTS_CONSUMED, _DETECTION_ERRORS, _ROLLS_DETECTED
+    from services.roll_compute_agent import _DETECTION_ERRORS, _EVENTS_CONSUMED, _ROLLS_DETECTED
 
     assert isinstance(_EVENTS_CONSUMED, Counter)
     assert isinstance(_ROLLS_DETECTED, Counter)
@@ -283,8 +280,9 @@ def test_paper_account_hosts_accessible():
 
 def test_roll_monitor_captures_zscore_before_reset():
     """RollMonitor._last_volume_zscore and _last_confirmation_count exist after init."""
-    from services.roll_compute_agent import RollMonitor
     from unittest.mock import MagicMock
+
+    from services.roll_compute_agent import RollMonitor
 
     s = MagicMock()
     s.ib_host = "192.168.1.158"

@@ -12,14 +12,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.core.agent.base import BaseAgent
-
-
 # ---------------------------------------------------------------------------
 # Module-level test metrics (created once to avoid duplicate registration)
 # ---------------------------------------------------------------------------
-
 from prometheus_client import Counter, Gauge
+
+from src.core.agent.base import BaseAgent
 
 _TEST_BARS_PRODUCED = Counter(
     "test_bpa_bars_produced_total",
@@ -62,7 +60,6 @@ def test_inherits_base_agent():
 
 def test_create_adapter_is_abstract():
     """_create_adapter() must be abstract (cannot instantiate BaseProviderAgent)."""
-    import abc
 
     from src.providers.base_provider_agent import BaseProviderAgent
 
@@ -157,7 +154,6 @@ def _make_concrete_agent():
 
 def test_reconnect_exponential_backoff():
     """Backoff must double: 2, 4, 8, 16, 32, 60 (capped)."""
-    from src.providers.base_provider_agent import BaseProviderAgent
 
     expected = [2, 4, 8, 16, 32, 60]
     for attempt, expected_delay in enumerate(expected):
@@ -239,7 +235,7 @@ async def test_gap_fills_published_to_raw_topic():
     """Gap-fill bars must publish to topic_market_bars_raw(env, provider), not market.bars."""
     from datetime import UTC, datetime
 
-    from src.core.schemas.bar_message import BarMessage, SessionType
+    from src.core.schemas.bar_message import BarMessage
     from src.core.schemas.market_events import BarGapRequest
     from src.core.stream_keys import topic_market_bars, topic_market_bars_raw
 

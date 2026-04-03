@@ -4,8 +4,8 @@ Tests use AST parsing and source inspection (no service imports needed) to
 verify the structural constraints of services/indicator_compute_agent.py.
 """
 
-import asyncio
 import ast
+import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock
 

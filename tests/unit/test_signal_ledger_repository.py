@@ -1,6 +1,5 @@
 """Unit tests for SignalLedgerRepository — TDD RED phase."""
 
-import pytest
 from src.persistence.repository.signal_ledger_repository import SignalLedgerRepository
 
 
