@@ -227,6 +227,18 @@ def topic_market_bars_raw(env_name: str, provider: str) -> str:
     return f"{env_prefix(env_name)}market.bars.raw.{provider}"
 
 
+def topic_health_events(env_name: str) -> str:
+    """Service health state transitions published by ServiceAuditorAgent."""
+    prefix = f"{env_name}." if env_name else ""
+    return f"{prefix}system.health.events"
+
+
+def topic_health_events_dlq(env_name: str) -> str:
+    """DLQ for services that exceed the escalation restart threshold."""
+    prefix = f"{env_name}." if env_name else ""
+    return f"{prefix}intelligence.service_auditor.journal.dlq"
+
+
 def topic_market_data_quality(env_name: str) -> str:
     """ProviderQualityEvent side-channel: provider latency, gaps, failovers.
 
