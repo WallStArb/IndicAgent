@@ -6,32 +6,54 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: "indicagent-indicator"
+  - job_name: "indicagent-ibkr-provider"
     static_configs:
-      - targets: ["host.docker.internal:9109"]
-    metrics_path: /metrics
+      - targets: ["host.docker.internal:9129"]
 
-  - job_name: "indicagent-market-analysis"
+  - job_name: "indicagent-provider-merger"
     static_configs:
-      - targets: ["host.docker.internal:9114"]
-    metrics_path: /metrics
+      - targets: ["host.docker.internal:9130"]
 
-  - job_name: "indicagent-signal-generator"
+  - job_name: "indicagent-bar-aggregator-compute"
     static_configs:
-      - targets: ["host.docker.internal:9112"]
-    metrics_path: /metrics
+      - targets: ["host.docker.internal:9120"]
+
+  - job_name: "indicagent-bar-writer"
+    static_configs:
+      - targets: ["host.docker.internal:9121"]
+
+  - job_name: "indicagent-bar-auditor"
+    static_configs:
+      - targets: ["host.docker.internal:9123"]
+
+  - job_name: "indicagent-intelligence-pipeline"
+    static_configs:
+      - targets: ["host.docker.internal:9125"]
 
   - job_name: "indicagent-signal-tracker"
     static_configs:
       - targets: ["host.docker.internal:9115"]
-    metrics_path: /metrics
+
+  - job_name: "indicagent-signal-writer"
+    static_configs:
+      - targets: ["host.docker.internal:9119"]
 
   - job_name: "indicagent-ai-narrative"
     static_configs:
       - targets: ["host.docker.internal:9113"]
-    metrics_path: /metrics
 
   - job_name: "indicagent-feature-writer"
     static_configs:
       - targets: ["host.docker.internal:9116"]
-    metrics_path: /metrics
+
+  - job_name: "indicagent-llm-writer"
+    static_configs:
+      - targets: ["host.docker.internal:9117"]
+
+  - job_name: "indicagent-cross-asset"
+    static_configs:
+      - targets: ["host.docker.internal:9118"]
+
+  - job_name: "indicagent-service-auditor"
+    static_configs:
+      - targets: ["host.docker.internal:9131"]
