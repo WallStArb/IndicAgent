@@ -70,6 +70,7 @@ class TestBuildContractsBaseSymbolTemplates:
         """All futures templates should use futures_24_5 session."""
         s = Settings()
         futures = [c for c in s.contracts if c.asset_class == AssetClass.FUTURES]
+        assert len(futures) > 0, "No futures instruments found"
         for f in futures:
             assert f.session_id == "futures_24_5", (
                 f"{f.symbol} has session_id={f.session_id!r}, expected 'futures_24_5'"

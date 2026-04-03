@@ -260,25 +260,23 @@ class ContractMetadataWriterAgent(BaseAgent):
 
         with self._processing_latency.time():
             async with self._db_pool.acquire() as conn:
-                # Step 1: Fetch old_contract row to copy exchange. DLQ if unknown symbol.
-                old_row = await conn.fetchrow(
-                    "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1",
-                    event.old_contract,
-                )
-                if old_row is None:
-                    self._roll_errors.inc()
-                    self.logger.error(
-                        "contract_metadata_writer.unknown_old_contract",
-                        old_contract=event.old_contract,
-                        base=event.symbol,
-                    )
-                    await self._publish_to_dlq(payload, key=event.symbol)
-                    return
-
-                exchange = old_row["exchange"]
-
                 # Step 2: DRY_RUN — log and publish but skip DB write
                 if self._dry_run:
+                    # Fetch without lock — dry-run never modifies
+                    old_row = await conn.fetchrow(
+                        "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1",
+                        event.old_contract,
+                    )
+                    if old_row is None:
+                        self._roll_errors.inc()
+                        self.logger.error(
+                            "contract_metadata_writer.unknown_old_contract",
+                            old_contract=event.old_contract,
+                            base=event.symbol,
+                        )
+                        await self._publish_to_dlq(payload, key=event.symbol)
+                        return
+                    exchange = old_row["exchange"]
                     self.logger.warning(
                         "contract_metadata_writer.DRY_RUN_promotion_skipped",
                         base=event.symbol,
@@ -301,6 +299,21 @@ class ContractMetadataWriterAgent(BaseAgent):
 
                 # Step 3: Atomic promotion in transaction
                 async with conn.transaction():
+                    # Lock old row first — prevents concurrent roll from racing
+                    old_row = await conn.fetchrow(
+                        "SELECT base_symbol, exchange FROM contract_metadata WHERE symbol = $1 FOR UPDATE",
+                        event.old_contract,
+                    )
+                    if old_row is None:
+                        self._roll_errors.inc()
+                        self.logger.error(
+                            "contract_metadata_writer.unknown_old_contract",
+                            old_contract=event.old_contract,
+                            base=event.symbol,
+                        )
+                        await self._publish_to_dlq(payload, key=event.symbol)
+                        return
+                    exchange = old_row["exchange"]
                     await conn.execute(
                         """UPDATE contract_metadata
                            SET is_front_month = false, updated_at = NOW()
@@ -354,7 +367,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                 base=event.symbol,
                 old_contract=event.old_contract,
                 new_contract=event.new_contract,
-                action="sudo systemctl restart indicagent-ibkr-provider on 192.168.1.157",
+                action=f"sudo systemctl restart indicagent-ibkr-provider on {self._settings.ibkr_host}",
             )
 
     async def _run(self) -> None:
