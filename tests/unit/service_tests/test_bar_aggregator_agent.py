@@ -248,3 +248,22 @@ def test_golden_signals_are_correct_types():
     assert hasattr(agent._aggregation_errors_lbl, "inc")
     assert isinstance(agent._htf_bars_produced_lbl, dict)
     assert all(hasattr(v, "inc") for v in agent._htf_bars_produced_lbl.values())
+
+
+# ---------------------------------------------------------------------------
+# Test 7: _handle_unhealthy_state only sets flag — no stop/start
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_unhealthy_state_only_sets_flag():
+    """_handle_unhealthy_state must NOT call stop/start — only set the flag."""
+    agent = _make_agent()
+    agent._kafka_consumer = AsyncMock()
+    agent._consumer_restart_needed = False
+
+    await agent._handle_unhealthy_state("no_bars_1000s")
+
+    assert agent._consumer_restart_needed is True
+    agent._kafka_consumer.stop.assert_not_called()
+    agent._kafka_consumer.start.assert_not_called()
