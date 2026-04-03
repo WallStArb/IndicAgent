@@ -143,3 +143,20 @@ def test_topic_market_data_quality_distinct_from_pipeline() -> None:
     from src.core.stream_keys import topic_data_quality, topic_market_data_quality
 
     assert topic_market_data_quality("development") != topic_data_quality("development")
+
+
+# ---------------------------------------------------------------------------
+# Service health event stream key tests (ServiceAuditorAgent)
+# ---------------------------------------------------------------------------
+
+
+from src.core.stream_keys import topic_health_events, topic_health_events_dlq
+
+
+def test_topic_health_events_format():
+    assert topic_health_events("dev") == "dev.system.health.events"
+    assert topic_health_events("") == "system.health.events"
+
+
+def test_topic_health_events_dlq_format():
+    assert topic_health_events_dlq("") == "intelligence.service_auditor.journal.dlq"
