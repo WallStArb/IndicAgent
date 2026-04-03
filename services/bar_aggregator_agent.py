@@ -310,6 +310,21 @@ class BarAggregatorComputeAgent(BaseAgent):
                         )
                         # Don't crash on single bar failure — continue consuming
 
+                # Consumer restart — safe to stop/start here, async-for has exited cleanly
+                if self._consumer_restart_needed and self.running:
+                    try:
+                        await self._kafka_consumer.stop()
+                        await asyncio.sleep(1)
+                        await self._kafka_consumer.start()
+                        self._health_metrics._consecutive_errors = 0
+                        self._health_metrics._bars_last_minute = 0
+                        self._health_metrics._htf_bars_last_minute = 0
+                        self.logger.info("bar_aggregator.consumer_reset_complete")
+                    except Exception as exc:
+                        self.logger.error(
+                            "bar_aggregator.consumer_reset_failed", error=str(exc)
+                        )
+
         finally:
             health_task.cancel()
             checker_task.cancel()
@@ -364,35 +379,10 @@ class BarAggregatorComputeAgent(BaseAgent):
                 await self._handle_unhealthy_state(reason)
 
     async def _handle_unhealthy_state(self, reason: str):
-        """Handle unhealthy state with automated recovery."""
+        """Signal main loop to restart consumer. Stop/start is the outer loop's job."""
         if "no_bars" in reason or "consuming_not_emitting" in reason:
             self.logger.warning("bar_aggregator.attempting_consumer_reset")
-
-            # Signal main loop to break out of consumer iteration
             self._consumer_restart_needed = True
-
-            try:
-                # Stop consumer
-                await self._kafka_consumer.stop()
-                await asyncio.sleep(1)
-
-                # Start consumer (this resets to latest offset)
-                await self._kafka_consumer.start()
-
-                # Reset health state
-                self._health_metrics._consecutive_errors = 0
-                self._health_metrics._bars_last_minute = 0
-                self._health_metrics._htf_bars_last_minute = 0
-                self._last_skip_reason = "none"
-
-                self.logger.info("bar_aggregator.consumer_reset_complete")
-            except Exception as exc:
-                self.logger.error(
-                    "bar_aggregator.consumer_reset_failed",
-                    error=str(exc),
-                    reason=reason
-                )
-                # Don't reset counters - let health check fail again and retry
 
     async def _get_consumer_lag(self) -> int:
         """Get current consumer lag in seconds."""
