@@ -64,69 +64,48 @@ class TestBarAuditorAgentInit:
 
 
 class TestExpectedBarsForDate:
-    """Test _expected_bars_for_date for various session types."""
+    """Test TradingSession.expected_bars_for_date for various session types.
 
-    @pytest.fixture
-    def agent(self):
-        from services.bar_auditor_agent import BarAuditorAgent
+    Moved from BarAuditorAgent._expected_bars_for_date (static method) to
+    TradingSession.expected_bars_for_date (instance method) in Phase 58.1 to
+    eliminate duplication with session_window_for_date().
+    """
 
-        a = BarAuditorAgent.__new__(BarAuditorAgent)
-        a._env_name = "development"
-        return a
-
-    def test_crypto_24_7_trading_day_returns_1440(self, agent):
+    def test_crypto_24_7_trading_day_returns_1440(self):
         """crypto_24_7 on any day of week returns 1440 minutes."""
-        from services.bar_auditor_agent import BarAuditorAgent
-
         session = SESSION_REGISTRY["crypto_24_7"]
         monday = date(2026, 3, 23)  # weekday 0
-        result = BarAuditorAgent._expected_bars_for_date(session, monday)
-        assert result == 1440
+        assert session.expected_bars_for_date(monday) == 1440
 
-    def test_crypto_24_7_sunday_returns_1440(self, agent):
+    def test_crypto_24_7_sunday_returns_1440(self):
         """crypto_24_7 on Sunday (weekday=6) also returns 1440 — trades 24/7."""
-        from services.bar_auditor_agent import BarAuditorAgent
-
         session = SESSION_REGISTRY["crypto_24_7"]
         sunday = date(2026, 3, 22)  # weekday 6
-        result = BarAuditorAgent._expected_bars_for_date(session, sunday)
-        assert result == 1440
+        assert session.expected_bars_for_date(sunday) == 1440
 
-    def test_nyse_weekday_returns_390(self, agent):
+    def test_nyse_weekday_returns_390(self):
         """nyse on a weekday returns 390 minutes (09:30-16:00)."""
-        from services.bar_auditor_agent import BarAuditorAgent
-
         session = SESSION_REGISTRY["nyse"]
         monday = date(2026, 3, 23)  # weekday 0
-        result = BarAuditorAgent._expected_bars_for_date(session, monday)
-        assert result == 390
+        assert session.expected_bars_for_date(monday) == 390
 
-    def test_nyse_saturday_returns_zero(self, agent):
+    def test_nyse_saturday_returns_zero(self):
         """nyse on a Saturday returns 0 — non-trading day."""
-        from services.bar_auditor_agent import BarAuditorAgent
-
         session = SESSION_REGISTRY["nyse"]
         saturday = date(2026, 3, 21)  # weekday 5
-        result = BarAuditorAgent._expected_bars_for_date(session, saturday)
-        assert result == 0
+        assert session.expected_bars_for_date(saturday) == 0
 
-    def test_futures_24_5_trading_day_returns_1380(self, agent):
+    def test_futures_24_5_trading_day_returns_1380(self):
         """futures_24_5 on Mon-Fri returns 1380 minutes (23h CME session)."""
-        from services.bar_auditor_agent import BarAuditorAgent
-
         session = SESSION_REGISTRY["futures_24_5"]
         monday = date(2026, 3, 23)  # weekday 0
-        result = BarAuditorAgent._expected_bars_for_date(session, monday)
-        assert result == 1380
+        assert session.expected_bars_for_date(monday) == 1380
 
-    def test_futures_24_5_saturday_returns_zero(self, agent):
+    def test_futures_24_5_saturday_returns_zero(self):
         """futures_24_5 on Saturday returns 0 — not in trading_days."""
-        from services.bar_auditor_agent import BarAuditorAgent
-
         session = SESSION_REGISTRY["futures_24_5"]
         saturday = date(2026, 3, 21)  # weekday 5 — not in {0,1,2,3,4,6}
-        result = BarAuditorAgent._expected_bars_for_date(session, saturday)
-        assert result == 0
+        assert session.expected_bars_for_date(saturday) == 0
 
 
 def _make_agent_stub(env_name="development"):

@@ -1,8 +1,10 @@
 """Test session boundary handling in BarAccumulator."""
 from datetime import UTC, datetime, timedelta
+
 from src.core.bar_accumulator import BarAccumulator
-from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.bar_normalizer import SOURCE_IBKR_GENERIC
+from src.core.schemas.bar_message import BarMessage, SessionType
+
 
 def _create_bars(symbol: str, start_time: datetime, count: int) -> list[BarMessage]:
     """Helper to create test bars."""

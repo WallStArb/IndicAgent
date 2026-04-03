@@ -22,8 +22,8 @@ import sys
 import threading
 import time
 import zoneinfo
-from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +34,8 @@ import msgpack as _msgpack
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from uuid import uuid4
+
 import structlog
 from pydantic import ValidationError
 
@@ -43,8 +45,6 @@ from src.core.bar_history import BarHistory
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient, KafkaProducerClient
 from src.core.schemas.bar_message import BarMessage
-from uuid import uuid4
-
 from src.core.service_utils import (
     TF_SECONDS,
     min_bars_for_tf,
@@ -694,7 +694,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             try:
                 await asyncio.wait_for(_drain(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal — drained all available messages
 
             restored_any = result[0]

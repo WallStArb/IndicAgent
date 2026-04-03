@@ -22,9 +22,10 @@ TradingSession:
 
 from __future__ import annotations
 
-import structlog
 from datetime import UTC, date, datetime, time
 from zoneinfo import ZoneInfo
+
+import structlog
 
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.core.timeframe_builder import _floor_to_period

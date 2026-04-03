@@ -7,6 +7,7 @@ from datetime import UTC, datetime, time, timedelta
 from datetime import date as _date
 from datetime import datetime as _datetime
 from enum import StrEnum
+from functools import cache
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -135,6 +136,35 @@ class TradingSession:
         end_local = _datetime.combine(target_date, self.close_time, tzinfo=tz)
         return (start_local.astimezone(UTC), end_local.astimezone(UTC))
 
+    def _break_minutes(self) -> int:
+        """Total minutes consumed by intra-session trading breaks."""
+        total = 0
+        anchor = _date(2000, 1, 2)  # arbitrary date for time arithmetic
+        for brk_start, brk_end in self.trading_breaks:
+            total += int(
+                (
+                    _datetime.combine(anchor, brk_end)
+                    - _datetime.combine(anchor, brk_start)
+                ).total_seconds()
+                / 60
+            )
+        return total
+
+    def expected_bars_for_date(self, target_date: _date) -> int:
+        """Expected 1m bar count for target_date's trading session.
+
+        Derives the count from session_window_for_date() minus break minutes.
+        Returns 0 for non-trading days.
+
+        Used by BarAuditorAgent for completeness checks.
+        """
+        window = self.session_window_for_date(target_date)
+        if window[0] is None or window[1] is None:
+            return 0
+        total_minutes = int((window[1] - window[0]).total_seconds() / 60)
+        return max(0, total_minutes - self._break_minutes())
+
+    @cache  # noqa: B019 — frozen dataclass, finite module-level instances
     def max_achievable_pct(self) -> float:
         """Structurally achievable bar completeness from session geometry.
 
@@ -144,7 +174,6 @@ class TradingSession:
         Used by BarAuditorAgent to set a realistic completeness ceiling rather than
         flagging break periods as missing bars.
         """
-        # All-day session: always fully achievable
         if self.open_time == self.close_time:
             return 1.0
 
@@ -153,31 +182,21 @@ class TradingSession:
         test_date: _date | None = None
         for wd in range(7):
             if wd in self.trading_days:
-                # Weekday 0=Monday, 6=Sunday; reference_monday is weekday 0
                 test_date = reference_monday + timedelta(days=wd)
                 break
 
         if test_date is None:
-            return 1.0  # No trading days — degenerate case
-
-        start, end = self.session_window_for_date(test_date)
-        if start is None or end is None:
             return 1.0
 
-        total_window_minutes = (end - start).total_seconds() / 60
+        window = self.session_window_for_date(test_date)
+        if window[0] is None or window[1] is None:
+            return 1.0
+
+        total_window_minutes = (window[1] - window[0]).total_seconds() / 60
         if total_window_minutes <= 0:
             return 1.0
 
-        # Subtract break duration from active minutes
-        active_minutes = total_window_minutes
-        anchor = _date(2000, 1, 2)  # arbitrary Monday for time arithmetic
-        for brk_start, brk_end in self.trading_breaks:
-            brk_duration = (
-                _datetime.combine(anchor, brk_end)
-                - _datetime.combine(anchor, brk_start)
-            ).total_seconds() / 60
-            active_minutes -= brk_duration
-
+        active_minutes = total_window_minutes - self._break_minutes()
         if active_minutes <= 0:
             return 1.0
 

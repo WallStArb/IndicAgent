@@ -12,7 +12,6 @@ from datetime import UTC, datetime
 
 from src.persistence.repository.signal_ledger_repository import LedgerEntry
 
-
 # ---------------------------------------------------------------------------
 # Invariant helpers (mirror the logic from IntelligencePipelineComputeAgent)
 # ---------------------------------------------------------------------------
@@ -93,5 +92,5 @@ class TestAttributionInvariant:
         )
         params = entry.to_insert_params()
         assert len(params) == 60, f"Expected 60 params, got {len(params)}"
-        assert params[58] == 0.80, f"pre_quality_confidence should be $59 (index 58)"
-        assert params[59] == 0.68, f"pre_calibration_confidence should be $60 (index 59)"
+        assert params[58] == 0.80, "pre_quality_confidence should be $59 (index 58)"
+        assert params[59] == 0.68, "pre_calibration_confidence should be $60 (index 59)"

@@ -278,7 +278,7 @@ def _make_flat_1m_bar(
     symbol: str = "ES",
     minute_offset: int = 0,
     price: float = 5250.0,
-) -> "BarMessage":
+) -> BarMessage:
     """Helper: create a zero-volume flat bar (is_flat_bar=True)."""
     from src.core.schemas.bar_message import BarMessage, SessionType
 

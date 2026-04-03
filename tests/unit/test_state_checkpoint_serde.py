@@ -7,12 +7,10 @@ import pytest
 from pydantic import BaseModel
 
 from src.core.state_serializer import (
-    PYDANTIC_REGISTRY,
     StateDeserializationError,
     StateSerializer,
     register_pydantic_model,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test-local Pydantic model for round-trip tests

@@ -112,9 +112,7 @@ class ContractMetadataWriterAgent(BaseAgent):
         self._last_roll_ts = _LAST_ROLL_TS.labels(agent=self.name)
 
         if self._dry_run:
-            self.logger.warning(
-                "contract_metadata_writer.DRY_RUN_ENABLED — DB writes suppressed"
-            )
+            self.logger.warning("contract_metadata_writer.DRY_RUN_ENABLED — DB writes suppressed")
 
     @property
     def topics_consumed(self) -> list[str]:
@@ -169,27 +167,60 @@ class ContractMetadataWriterAgent(BaseAgent):
         Runs once in _setup(). Idempotent via ON CONFLICT (symbol) DO NOTHING.
         Only futures instruments are seeded — non-futures instruments are not
         tracked in contract_metadata.
+
+        Uses a single multi-row INSERT instead of N sequential round-trips.
         """
         instruments = get_active_contracts(self._settings)
         futures = [i for i in instruments if i.asset_class == AssetClass.FUTURES]
+        if not futures:
+            return
         async with self._db_pool.acquire() as conn:
-            for instrument in futures:
-                result = await conn.execute(
-                    """INSERT INTO contract_metadata
-                           (symbol, base_symbol, asset_class, exchange, is_front_month)
-                       VALUES ($1, $2, 'futures', $3, true)
-                       ON CONFLICT (symbol) DO NOTHING""",
-                    instrument.symbol,
-                    instrument.base,
-                    instrument.exchange,
+            # Build multi-row VALUES clause: ($1,$2,$3), ($4,$5,$6), ...
+            params: list = []
+            value_clauses: list[str] = []
+            for idx, instrument in enumerate(futures):
+                base_idx = idx * 4
+                value_clauses.append(
+                    f"(${base_idx + 1}, ${base_idx + 2}, ${base_idx + 3}, ${base_idx + 4}, true)"
                 )
-                if result == "INSERT 0 1":
-                    self._seeds_inserted.inc()
-                    self.logger.info(
-                        "contract_metadata_writer.seeded",
-                        symbol=instrument.symbol,
-                        base=instrument.base,
-                    )
+                params.extend(
+                    [
+                        instrument.symbol,
+                        instrument.base,
+                        AssetClass.FUTURES,
+                        instrument.exchange,
+                    ]
+                )
+
+            result = await conn.fetch(
+                f"""INSERT INTO contract_metadata
+                        (symbol, base_symbol, asset_class, exchange, is_front_month)
+                    VALUES {', '.join(value_clauses)}
+                    ON CONFLICT (symbol) DO NOTHING
+                    RETURNING symbol, base_symbol""",
+                *params,
+            )
+            for row in result:
+                self._seeds_inserted.inc()
+                self.logger.info(
+                    "contract_metadata_writer.seeded",
+                    symbol=row["symbol"],
+                    base=row["base_symbol"],
+                )
+
+    async def _publish_to_dlq(self, payload: dict, key: str = "unknown") -> None:
+        """Route an unprocessable payload to the roll DLQ topic."""
+        await self._kafka_producer.publish(
+            topic_roll_dlq(self._env_name),
+            payload,
+            key=key,
+        )
+
+    def _extract_dlq_key(self, payload: dict) -> str:
+        """Extract a routing key from a raw payload dict (pre-validation)."""
+        if isinstance(payload, dict):
+            return payload.get("symbol", "unknown")
+        return "unknown"
 
     async def _handle_roll_event(self, payload: dict) -> None:
         """Process a single RollEvent: validate, promote front-month, broadcast update.
@@ -214,11 +245,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                 "contract_metadata_writer.invalid_roll_event",
                 error=str(exc),
             )
-            await self._kafka_producer.publish(
-                topic_roll_dlq(self._env_name),
-                payload,
-                key=payload.get("symbol", "unknown") if isinstance(payload, dict) else "unknown",
-            )
+            await self._publish_to_dlq(payload, key=self._extract_dlq_key(payload))
             return
 
         if not event.old_contract or not event.new_contract:
@@ -228,11 +255,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                 old=event.old_contract,
                 new=event.new_contract,
             )
-            await self._kafka_producer.publish(
-                topic_roll_dlq(self._env_name),
-                payload,
-                key=event.symbol,
-            )
+            await self._publish_to_dlq(payload, key=event.symbol)
             return
 
         with self._processing_latency.time():
@@ -249,11 +272,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                         old_contract=event.old_contract,
                         base=event.symbol,
                     )
-                    await self._kafka_producer.publish(
-                        topic_roll_dlq(self._env_name),
-                        payload,
-                        key=event.symbol,
-                    )
+                    await self._publish_to_dlq(payload, key=event.symbol)
                     return
 
                 exchange = old_row["exchange"]
@@ -292,7 +311,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                         """INSERT INTO contract_metadata
                                (symbol, base_symbol, asset_class, exchange, is_front_month,
                                 roll_from, roll_detected_at, confirmation_count, updated_at)
-                           VALUES ($1, $2, 'futures', $3, true, $4, $5, $6, NOW())
+                           VALUES ($1, $2, $3, $4, true, $5, $6, $7, NOW())
                            ON CONFLICT (symbol) DO UPDATE SET
                                is_front_month = true,
                                roll_from = EXCLUDED.roll_from,
@@ -301,6 +320,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                                updated_at = NOW()""",
                         event.new_contract,
                         event.symbol,  # base_symbol from RollEvent
+                        AssetClass.FUTURES,
                         exchange,  # copied from old_contract row
                         event.old_contract,
                         event.detection_ts,
@@ -351,11 +371,7 @@ class ContractMetadataWriterAgent(BaseAgent):
                     error=str(exc),
                     payload=payload,
                 )
-                await self._kafka_producer.publish(
-                    topic_roll_dlq(self._env_name),
-                    payload,
-                    key=(payload.get("symbol", "unknown") if isinstance(payload, dict) else "unknown"),
-                )
+                await self._publish_to_dlq(payload, key=self._extract_dlq_key(payload))
 
 
 # ---------------------------------------------------------------------------

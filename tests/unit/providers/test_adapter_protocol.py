@@ -6,7 +6,7 @@ TDD RED phase — all tests fail until production code is implemented in Task 2.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -66,9 +66,9 @@ class TestDataProviderAdapterProtocol:
 
     def test_minimal_implementation_satisfies_protocol(self):
         """A class implementing all methods must satisfy isinstance check."""
-        from src.providers.base import DataProviderAdapter
-        from src.core.schemas.bar_message import BarMessage
         from src.core.models import Instrument
+        from src.core.schemas.bar_message import BarMessage
+        from src.providers.base import DataProviderAdapter
 
         class MinimalAdapter:
             provider_name = "test"
@@ -129,8 +129,9 @@ class TestProviderQualityEvent:
 
     def test_provider_quality_event_ts_must_be_utc(self):
         """ProviderQualityEvent must reject naive datetime for ts field."""
-        from src.core.schemas.provider_quality import ProviderQualityEvent
         from pydantic import ValidationError
+
+        from src.core.schemas.provider_quality import ProviderQualityEvent
 
         with pytest.raises(ValidationError):
             ProviderQualityEvent(
@@ -146,8 +147,9 @@ class TestProviderQualityEvent:
 
     def test_provider_quality_event_publish_ts_must_be_utc(self):
         """ProviderQualityEvent must reject naive publish_ts."""
-        from src.core.schemas.provider_quality import ProviderQualityEvent
         from pydantic import ValidationError
+
+        from src.core.schemas.provider_quality import ProviderQualityEvent
 
         with pytest.raises(ValidationError):
             ProviderQualityEvent(
@@ -163,8 +165,9 @@ class TestProviderQualityEvent:
 
     def test_provider_quality_event_consume_ts_must_be_utc(self):
         """ProviderQualityEvent must reject naive consume_ts."""
-        from src.core.schemas.provider_quality import ProviderQualityEvent
         from pydantic import ValidationError
+
+        from src.core.schemas.provider_quality import ProviderQualityEvent
 
         with pytest.raises(ValidationError):
             ProviderQualityEvent(
@@ -180,7 +183,6 @@ class TestProviderQualityEvent:
 
     def test_provider_quality_event_types(self):
         """event_type Literal only accepts the four defined values."""
-        from src.core.schemas.provider_quality import ProviderQualityEvent
         from pydantic import ValidationError
 
         valid_types = ["bar_received", "gap_detected", "failover", "recovery"]

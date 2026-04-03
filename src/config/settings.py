@@ -849,6 +849,16 @@ _active_contracts_last_refresh: float = 0.0
 _ACTIVE_CONTRACTS_TTL = 60.0  # seconds
 
 
+def invalidate_active_contracts_cache() -> None:
+    """Force next get_active_contracts() call to re-query the database.
+
+    Called by services that receive ContractUpdateEvent to reduce contract-switch
+    latency from ~60s (TTL expiry) to ~1s (next audit cycle).
+    """
+    global _active_contracts_last_refresh  # noqa: PLW0603
+    _active_contracts_last_refresh = 0.0
+
+
 def _default_settings() -> Settings:
     """Lazily create a module-level Settings instance."""
     global _settings_singleton  # noqa: PLW0603
