@@ -663,6 +663,10 @@ class IBKRProvider:
                 continue
 
             sec_type = getattr(contract, "secType", "")
+            # CRYPTO: AGGTRADES not supported with keepUpToDate=True (IBKR error 321).
+            # Skip official bar stream for crypto — RTBs provide coverage.
+            if sec_type == "CRYPTO":
+                continue
             what = "MIDPOINT" if sec_type == "CASH" else "TRADES"
 
             # 1-day duration is the minimum for keepUpToDate
