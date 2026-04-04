@@ -198,17 +198,51 @@ class IBKRAdapter:
             except asyncio.CancelledError:
                 pass
 
+        # Watchdog: detect TWS disconnect so _stream_loop can reconnect.
+        # After error 1100 (TWS lost), ib_insync restores the TCP connection
+        # (error 1102) but keepUpToDate and RTB subscriptions must be
+        # re-established. We signal via a sentinel on bar_queue so stream_bars
+        # raises and _stream_loop catches it, calling _reconnect().
+        _RECONNECT = object()  # sentinel — not a BarMessage
+        _DISCONNECT_GRACE = 120  # seconds: allow TWS to auto-reconnect before raising
+
+        async def _connection_watchdog() -> None:
+            disconnect_at: float | None = None
+            was_disconnected = False
+            while True:
+                await asyncio.sleep(15)
+                connected = self._provider.is_connected()
+                if not connected:
+                    if disconnect_at is None:
+                        disconnect_at = asyncio.get_event_loop().time()
+                        was_disconnected = True
+                        logger.warning("ibkr_adapter.tws_disconnected")
+                    elif asyncio.get_event_loop().time() - disconnect_at > _DISCONNECT_GRACE:
+                        logger.warning("ibkr_adapter.tws_disconnect_timeout_forcing_restart")
+                        await bar_queue.put(_RECONNECT)
+                        return
+                else:
+                    if was_disconnected:
+                        # Reconnected — force stream restart to re-subscribe
+                        logger.info("ibkr_adapter.tws_reconnected_forcing_restart")
+                        await bar_queue.put(_RECONNECT)
+                        return
+                    disconnect_at = None
+
         official_task = asyncio.ensure_future(_official_bars_stream())
         crypto_task = asyncio.ensure_future(_crypto_rtb_stream())
+        watchdog_task = asyncio.ensure_future(_connection_watchdog())
 
         try:
             while True:
                 bar = await bar_queue.get()
+                if bar is _RECONNECT:
+                    raise ConnectionError("TWS reconnect detected — restarting streams to re-subscribe")
                 yield bar
         except asyncio.CancelledError:
             pass
         finally:
-            for task in (official_task, crypto_task):
+            for task in (official_task, crypto_task, watchdog_task):
                 if task and not task.done():
                     task.cancel()
                     try:
