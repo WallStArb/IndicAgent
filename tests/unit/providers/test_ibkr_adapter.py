@@ -58,18 +58,6 @@ def adapter():
     return IBKRAdapter(host="127.0.0.1", port=7497, client_id=35)
 
 
-def _make_rtb(minute_ts: datetime, price: float = 100.0) -> MagicMock:
-    """Create a mock RealTimeBar-like object."""
-    rtb = MagicMock()
-    rtb.time = minute_ts.replace(tzinfo=UTC) if minute_ts.tzinfo is None else minute_ts
-    rtb.open_ = price
-    rtb.high = price + 1.0
-    rtb.low = price - 1.0
-    rtb.close = price + 0.5
-    rtb.volume = 100.0
-    return rtb
-
-
 # ---------------------------------------------------------------------------
 # Protocol compliance
 # ---------------------------------------------------------------------------
@@ -91,23 +79,28 @@ class TestProtocol:
 
 
 def _make_mock_provider_for_stream(instrument: Instrument) -> MagicMock:
-    """Build a mock IBKRProvider with both RTB and official-bars streams stubbed."""
+    """Build a mock IBKRProvider with official-bars stream stubbed."""
+    from src.providers.base import OHLCVBar
+    from src.core.bar_normalizer import SOURCE_IBKR_GENERIC
+
     ts1 = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
     ts2 = datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC)
-    rtb1 = _make_rtb(ts1)
-    rtb2 = _make_rtb(ts2)
-
-    async def _fake_rtb(symbols):
-        yield (instrument.symbol, rtb1)
-        yield (instrument.symbol, rtb2)
+    bar1 = OHLCVBar(
+        symbol=instrument.symbol, timeframe="1m", timestamp=ts1,
+        open=100.0, high=101.0, low=99.0, close=100.5, volume=100,
+        source=SOURCE_IBKR_GENERIC,
+    )
+    bar2 = OHLCVBar(
+        symbol=instrument.symbol, timeframe="1m", timestamp=ts2,
+        open=100.5, high=101.5, low=99.5, close=101.0, volume=120,
+        source=SOURCE_IBKR_GENERIC,
+    )
 
     async def _fake_official(symbols, timeframe="1m"):
-        # Yield nothing — no official bars in test
-        return
-        yield  # make it an async generator
+        yield (instrument.symbol, bar1)
+        yield (instrument.symbol, bar2)
 
     provider = MagicMock()
-    provider.stream_real_time_bars = _fake_rtb
     provider.stream_official_bars = _fake_official
     return provider
 
