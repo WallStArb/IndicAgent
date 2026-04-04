@@ -1,0 +1,25 @@
+[Unit]
+Description=IndicAgent Service Auditor — pipeline health monitor and self-healer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=METRICS_PORT=9131
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/service_auditor_agent.py
+Restart=always
+RestartSec=10
+WatchdogSec=120
+NotifyAccess=main
+StartLimitIntervalSec=0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-service-auditor
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
