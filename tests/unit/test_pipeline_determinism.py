@@ -117,7 +117,7 @@ class TestPipelineDeterminism:
             patch("services.intelligence_pipeline_agent.apply_tod_adjustment", side_effect=lambda sigs, *a, **kw: sigs),
             patch("services.intelligence_pipeline_agent.apply_calibration", side_effect=lambda sigs, *a, **kw: sigs),
             patch("services.intelligence_pipeline_agent.rank_signals", side_effect=lambda sigs, *a, **kw: sigs),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=None),
+            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             for _ in range(100):

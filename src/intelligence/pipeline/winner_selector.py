@@ -1,38 +1,34 @@
 """Winner Selector pipeline stage.
 
 Selects winning signal using CIS override or priority/majority tiebreak.
-No Kafka, no DB dependencies. Requires injected CISScorer (stateful service object).
+No Kafka, no DB, no service dependencies — pure function.
+Accepts a pre-computed CIS result from the caller (avoids double scoring).
 """
 
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 from typing import Any
 
 from src.intelligence.enums.signal_status import SignalStatus
 from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
-from src.intelligence.trading.cis_scorer import CISScorer
-
-_log = logging.getLogger(__name__)
 
 
 def select_winner(
     signals: list[dict],
-    cis_scorer: CISScorer,
-    features: dict | None = None,
+    cis_result: Any = None,
 ) -> tuple[dict | None, list[dict], str]:
     """Select winning signal from all ranked signals for a bar.
 
     Parameters
     ----------
     signals:
-        All ranked signals for this bar. Each must have "regime_eligible",
-        "direction", "adjusted_rank", "setup_plugin", "confidence".
-    cis_scorer:
-        CISScorer instance. score() called with features and plugin_outputs.
-    features:
-        Feature dict for CIS scoring. Defaults to None (from signals[0] features).
+        All ranked signals for this bar (including regime-suppressed).
+        Each must have "regime_eligible", "direction", "adjusted_rank",
+        "setup_plugin", "confidence".
+    cis_result:
+        Pre-computed CIS result from the caller (bar-level, Kalman-filtered).
+        Must have a ``direction`` attribute (+1/-1/0). None → skip CIS override.
 
     Returns
     -------
@@ -50,18 +46,6 @@ def select_winner(
 
     if not active:
         return None, signals, "no_signal"
-
-    # Attempt CIS override
-    if features is None:
-        features = signals[0].get("features") or {}
-
-    cis_result = None
-    try:
-        plugin_outputs = {s["setup_plugin"]: s for s in signals if "setup_plugin" in s}
-        cis_result = cis_scorer.score(features, plugin_outputs)
-    except Exception as _e:
-        _log.warning("cis_score_error", exc_info=_e)
-        cis_result = None
 
     if cis_result is not None and getattr(cis_result, "direction", 0) != 0:
         winner, method = _aggregate_via_cis(active, cis_result, signals)

@@ -80,8 +80,8 @@ class TestProtocol:
 
 def _make_mock_provider_for_stream(instrument: Instrument) -> MagicMock:
     """Build a mock IBKRProvider with official-bars stream stubbed."""
-    from src.providers.base import OHLCVBar
     from src.core.bar_normalizer import SOURCE_IBKR_GENERIC
+    from src.providers.base import OHLCVBar
 
     ts1 = datetime(2026, 3, 28, 14, 0, 0, tzinfo=UTC)
     ts2 = datetime(2026, 3, 28, 14, 1, 0, tzinfo=UTC)

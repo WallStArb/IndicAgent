@@ -104,7 +104,7 @@ class TestI1ParallelExecution:
             patch("services.intelligence_pipeline_agent.apply_tod_adjustment", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_calibration", return_value=[]),
             patch("services.intelligence_pipeline_agent.rank_signals", return_value=[]),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=None),
+            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             i7_result1 = await agent._run_i7(bar, event, {})
@@ -150,7 +150,7 @@ class TestI7ParallelExecution:
             patch("services.intelligence_pipeline_agent.apply_tod_adjustment", return_value=[]),
             patch("services.intelligence_pipeline_agent.apply_calibration", return_value=[]),
             patch("services.intelligence_pipeline_agent.rank_signals", return_value=[]),
-            patch("services.intelligence_pipeline_agent.select_winner", return_value=None),
+            patch("services.intelligence_pipeline_agent.select_winner", return_value=(None, [], "no_signal")),
             patch("services.intelligence_pipeline_agent._apply_alpha_decay"),
         ):
             start = time.perf_counter()
