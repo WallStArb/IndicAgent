@@ -12,7 +12,12 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock
 
-from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
+from services.intelligence_pipeline_agent import (
+    IntelligencePipelineComputeAgent,
+    _load_cis_kalman_params,
+)
+from src.core.bar_history import BarHistory
+from src.intelligence.trading.cis_scorer import CISScorer
 
 
 def make_agent() -> IntelligencePipelineComputeAgent:
@@ -40,6 +45,10 @@ def make_agent() -> IntelligencePipelineComputeAgent:
     agent._settings.env_name = "dev"
     agent._settings.intelligence_thread_pool_workers = 0
     agent._settings.pipeline_metrics_port = 9125
+    agent._bar_history = BarHistory(maxlen=200)
+    agent._kalman_state = {}
+    agent._cis_scorer = CISScorer()
+    agent._cis_kalman_params = _load_cis_kalman_params()
     agent._regime_cache = {}
     agent._tod_priors = {}
     agent._calibration_curves = {}

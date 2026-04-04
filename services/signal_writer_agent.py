@@ -205,6 +205,11 @@ def _payload_to_ledger_entries(payload: dict) -> list[LedgerEntry]:
                 is_shadow=bool(sig.get("is_shadow", False)),
                 pre_quality_confidence=sig.get("pre_quality_confidence"),
                 pre_calibration_confidence=sig.get("pre_calibration_confidence"),
+                cis_score=sig.get("filtered_cis_score"),
+                raw_cis_score=sig.get("raw_cis_score"),
+                filtered_cis_score=sig.get("filtered_cis_score"),
+                bucket_scores=sig.get("bucket_scores"),
+                weights_version=sig.get("weights_version"),
             )
         )
     return entries

@@ -123,10 +123,10 @@ class SignalTrackerAgent(BaseAgent):
     """
 
     def __init__(self, config_file: str | None = None, db_manager: DatabaseManager | None = None):
+        self.config = self._load_config(config_file)
+        self._setup_logging()  # must run before super().__init__ to avoid logger cache miss
         super().__init__(name="signal_tracker_agent")
         self.start_time = datetime.now(tz=UTC)
-        self.config = self._load_config(config_file)
-        self._setup_logging()
 
         self.db_manager: DatabaseManager | None = db_manager
         self._ledger_repo: SignalLedgerRepository | None = (

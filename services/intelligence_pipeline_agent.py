@@ -195,6 +195,9 @@ _CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
     "5m": {"Q": 0.01, "R": 0.06},
     "15m": {"Q": 0.01, "R": 0.04},
     "1h": {"Q": 0.01, "R": 0.02},
+    "4h": {"Q": 0.01, "R": 0.01},
+    "1d": {"Q": 0.01, "R": 0.01},
+    "default": {"Q": 0.01, "R": 0.05},
 }
 
 
@@ -1199,8 +1202,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Collect results using common helper
         outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin", tier="I7")
 
-        # Process I7-specific signal generation
-        for task, output in zip(tasks, outputs):
+        # Process I7-specific signal generation — also build plugin_outputs for CIS scoring
+        plugin_outputs: dict[str, dict] = {}
+        for task, output in zip(tasks, outputs):  # noqa: B905 — lengths differ on plugin exceptions
             if output.get("signal"):
                 sig = output["signal"]
                 sig["setup_plugin"] = task.plugin_name
@@ -1212,6 +1216,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 _apply_alpha_decay(sig, tf, self._setup_last_fire.get(fire_key))
 
                 raw_signals.append(sig)
+                plugin_outputs[task.plugin_name] = sig
                 self._signals_generated.inc()
 
         # Record timing metric
@@ -1230,11 +1235,26 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 "i7_computed_at": i7_computed_at,
             }
 
+        # Compute CIS score once per bar (bar-level, not signal-level)
+        cis_result = self._cis_scorer.score(features, plugin_outputs)
+        raw_cis = cis_result.cis_score
+
+        # Kalman-filter the CIS score to smooth bar-to-bar noise
+        kalman_key = (symbol, tf)
+        if kalman_key not in self._kalman_state:
+            kp = self._cis_kalman_params.get(tf) or self._cis_kalman_params["default"]
+            self._kalman_state[kalman_key] = {"x": raw_cis, "P": 1.0, "Q": kp["Q"], "R": kp["R"]}
+        ks = self._kalman_state[kalman_key]
+        filtered_cis, new_P = _cis_kalman_update(raw_cis, ks["x"], ks["P"], ks["Q"], ks["R"])
+        self._kalman_state[kalman_key]["x"] = filtered_cis
+        self._kalman_state[kalman_key]["P"] = new_P
+
         # Attribution capture: BEFORE quality gate
         for sig in raw_signals:
             sig["pre_quality_confidence"] = sig.get("confidence", 0.0)
 
         # Pipeline stages
+        hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = apply_quality_gate(raw_signals, features)
         regime_gated = apply_regime_gate(
             quality_gated,
@@ -1243,14 +1263,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             _REGIME_AUTHORITY_TF,
             features,
         )
-        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, features)
+        tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et)
 
         # Attribution capture: BEFORE calibration
         for sig in tod_adjusted:
             sig["pre_calibration_confidence"] = sig.get("confidence", 0.0)
 
         calibrated = apply_calibration(tod_adjusted, self._calibration_curves, tf)
-        ranked = rank_signals(calibrated, self._perf_weights)
+        ranked = rank_signals(calibrated, self._perf_weights, tf)
 
         # Annotate each ranked signal with ledger metadata before publishing
         num_signals = len(ranked)
@@ -1269,9 +1289,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["is_shadow"] = bool(
                 plugin_inst is not None and getattr(plugin_inst, "IS_SHADOW", False)
             )
+            # Stamp CIS fields (bar-level score, same for all signals in this bar)
+            sig["raw_cis_score"] = round(raw_cis, 4)
+            sig["filtered_cis_score"] = round(filtered_cis, 4)
+            sig["bucket_scores"] = cis_result.bucket_scores
+            sig["weights_version"] = cis_result.weights_version
 
-        # Select winner from regime-eligible signals only
-        winner = select_winner([s for s in ranked if s.get("regime_eligible", True)])
+        # Select winner — pass all ranked signals (select_winner filters active internally)
+        winner, _, resolution_method = select_winner(ranked, cis_result)
         winner_plugin = winner.get("setup_plugin") if winner else None
 
         # Mark the winner
