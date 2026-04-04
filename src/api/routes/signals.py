@@ -190,9 +190,8 @@ async def get_active_signals(
             LEFT JOIN setup_performance sp ON sp.setup_plugin = sl.setup_plugin
             WHERE sl.status IN ('pending', 'active')
               AND sl.is_shadow = false
-              AND sl.timestamp >= NOW() - INTERVAL '8 days'  -- buffer for chunk exclusion
-              AND sl.effective_ts >= NOW() - INTERVAL '7 days'
-            ORDER BY sl.symbol, sl.timeframe, sl.effective_ts DESC
+              AND sl.timestamp >= NOW() - INTERVAL '7 days'
+            ORDER BY sl.symbol, sl.timeframe, sl.signal_computed_at DESC
             LIMIT 500
         """
         rows = await db_manager.fetch(query)
@@ -308,7 +307,7 @@ async def get_recent_signals(
                 sl.outcome,
                 sl.exit_price,
                 sl.pnl_r,
-                sl.effective_ts AS signal_computed_at,
+                sl.signal_computed_at,
                 sl.timeframe,
                 sl.symbol,
                 sp.win_rate   AS setup_win_rate,
@@ -319,7 +318,7 @@ async def get_recent_signals(
               AND ($2::text IS NULL OR sl.timeframe = $2)
               AND (NOT $4::boolean OR sl.was_selected = true)
               AND (NOT $5::boolean OR (sl.confidence >= 0.40 AND sl.cis_score IS NOT NULL AND abs(sl.cis_score) > 0.35))
-            ORDER BY sl.effective_ts DESC
+            ORDER BY sl.signal_computed_at DESC
             LIMIT $3
         """
         rows = await db_manager.fetch(

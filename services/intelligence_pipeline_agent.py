@@ -441,6 +441,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # CIS / aggregator state
         self._cis_scorer = CISScorer()
         self._cis_weights_cache: dict = {}
+        self._cis_kalman_params: dict = _load_cis_kalman_params()
         self._calibration_curves: dict = {}
         self._perf_weights: dict = {}
         self._drift_penalties: dict = {}
@@ -1167,7 +1168,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         raw_signals: list[dict] = []
         tasks: list[PluginTask] = []
-        plugin_input = {"main": None, **features}  # Pre-compute to avoid 36x dict construction
+        main_df = self._bar_history.to_dataframe(symbol, tf)
+        plugin_input = {"main": main_df, "features": features}
         loop = asyncio.get_running_loop()
 
         # Build parallel tasks
@@ -1439,7 +1441,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 "SELECT version, weights FROM cis_weights ORDER BY version DESC LIMIT 1"
             )
             if rows:
-                self._cis_weights_cache = rows[0].get("weights", {})
+                weights = rows[0].get("weights", {})
+                version = int(rows[0].get("version", 0))
+                self._cis_weights_cache = weights
+                if weights:
+                    self._cis_scorer.update_weights(weights, version)
         except Exception as exc:
             self.logger.warning("cis_weights.load_failed", error=str(exc))
 
