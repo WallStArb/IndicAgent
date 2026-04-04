@@ -16,7 +16,7 @@ import asyncio
 import logging
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from src.core.bar_normalizer import SOURCE_IBKR_GENERIC, SOURCE_IBKR_NAMED
 from src.core.models import Instrument
@@ -85,8 +85,9 @@ class IBKRAdapter:
 
         Primary source: IBKRProvider.stream_official_bars() with keepUpToDate=True
         (IBKR's audited historical stream, ~2-5s after bar close). Crypto symbols
-        (BTCUSD, ETHUSD) use a polling fallback every 65s because keepUpToDate=True
-        is unsupported for AGGTRADES (IBKR error 321).
+        (BTCUSD, ETHUSD) use reqRealTimeBars (TRADES, 5s) aggregated to 1m —
+        keepUpToDate+AGGTRADES = IBKR error 321, and the AGGTRADES historical
+        feed stops serving data on weekends.
         """
         symbols = [i.symbol for i in instruments]
         sym_to_instrument: dict[str, Instrument] = {i.symbol: i for i in instruments}
@@ -136,8 +137,13 @@ class IBKRAdapter:
             except Exception as exc:
                 logger.warning("official_bars_stream error", exc_info=exc)
 
-        async def _crypto_poll_loop() -> None:
-            """Crypto fallback: poll last 3 min every 65s (keepUpToDate+AGGTRADES = error 321)."""
+        async def _crypto_rtb_stream() -> None:
+            """Crypto live bars via reqRealTimeBars (TRADES, 5s).
+
+            keepUpToDate+AGGTRADES = IBKR error 321, and AGGTRADES historical
+            feed stops serving data on weekends. RTBs with TRADES work 24/7.
+            Aggregates 5s bars into 1m OHLCV bars and emits on minute boundary.
+            """
             crypto_symbols = [
                 sym for sym in symbols
                 if sym_to_instrument.get(sym)
@@ -145,34 +151,55 @@ class IBKRAdapter:
             ]
             if not crypto_symbols:
                 return
+
+            # Accumulator: symbol → {minute_ts, open, high, low, close, volume}
+            acc: dict[str, dict] = {}
+
+            def _flush(sym: str, minute_ts: datetime) -> BarMessage | None:
+                a = acc.pop(sym, None)
+                if not a:
+                    return None
+                bar = OHLCVBar(
+                    timestamp=a["minute_ts"],
+                    open=a["open"],
+                    high=a["high"],
+                    low=a["low"],
+                    close=a["close"],
+                    volume=a["volume"],
+                )
+                return _make_bar_msg(sym, bar)
+
             try:
-                while True:
-                    await asyncio.sleep(65)
-                    now = datetime.now(UTC)
-                    start = now - timedelta(minutes=3)
-                    for sym in crypto_symbols:
-                        try:
-                            bars = await self._provider.fetch_historical_bars(
-                                symbol=sym,
-                                timeframe="1m",
-                                start=start,
-                                end=now,
-                            )
-                            for bar in bars:
-                                msg = _make_bar_msg(sym, bar)
-                                if msg:
-                                    await bar_queue.put(msg)
-                        except Exception as exc:
-                            logger.warning(
-                                "crypto_poll_loop error",
-                                extra={"symbol": sym},
-                                exc_info=exc,
-                            )
+                async for sym, rtb in self._provider.stream_real_time_bars(crypto_symbols):
+                    bar_dt = datetime.fromtimestamp(rtb.time, tz=UTC)
+                    minute_ts = bar_dt.replace(second=0, microsecond=0)
+
+                    if sym in acc and acc[sym]["minute_ts"] != minute_ts:
+                        # Minute boundary crossed — emit accumulated bar
+                        msg = _flush(sym, acc[sym]["minute_ts"])
+                        if msg:
+                            await bar_queue.put(msg)
+
+                    if sym not in acc:
+                        acc[sym] = {
+                            "minute_ts": minute_ts,
+                            "open": rtb.open,
+                            "high": rtb.high,
+                            "low": rtb.low,
+                            "close": rtb.close,
+                            "volume": rtb.volume,
+                        }
+                    else:
+                        a = acc[sym]
+                        a["high"] = max(a["high"], rtb.high)
+                        a["low"] = min(a["low"], rtb.low)
+                        a["close"] = rtb.close
+                        a["volume"] += rtb.volume
             except asyncio.CancelledError:
                 pass
 
         official_task = asyncio.ensure_future(_official_bars_stream())
-        crypto_task = asyncio.ensure_future(_crypto_poll_loop())
+        crypto_task = asyncio.ensure_future(_crypto_rtb_stream())
 
         try:
             while True:
