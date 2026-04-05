@@ -49,7 +49,7 @@ class OFIPlugin:
         tick_buf = frames.get("tick_buffer") or []
         symbol = frames.get("__symbol__", "_")
         tf = frames.get("__timeframe__", "_")
-        state_key = (symbol, tf)
+        state_key = f"{symbol}_{tf}"
 
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -88,15 +88,17 @@ class OFIPlugin:
 
         # OFI z-score (exclude current bar from history for z-score base)
         if len(ofi_history) >= _MIN_HISTORY:
-            hist = np.array(list(ofi_history)[:-1])
-            spike_z = (raw_ofi - float(np.mean(hist))) / (float(np.std(hist)) + 1e-9)
+            hist = np.array(list(ofi_history))[:-1]
+            mean_ofi = float(np.mean(hist))
+            spike_z = (raw_ofi - mean_ofi) / (float(np.std(hist)) + 1e-9)
         else:
             spike_z = 0.0
 
         # Price return z-score (same structure)
         if len(ret_history) >= _MIN_HISTORY:
-            ret_arr = np.array(list(ret_history)[:-1])
-            price_return_z = (price_return - float(np.mean(ret_arr))) / (float(np.std(ret_arr)) + 1e-9)
+            ret_arr = np.array(list(ret_history))[:-1]
+            mean_ret = float(np.mean(ret_arr))
+            price_return_z = (price_return - mean_ret) / (float(np.std(ret_arr)) + 1e-9)
         else:
             price_return_z = 0.0
 
