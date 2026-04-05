@@ -163,7 +163,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                 await asyncio.wait_for(
                     self._stop_event.wait(), timeout=self._interval_seconds
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # normal — time to run next cycle
 
     async def _run_compute_cycle(self) -> None:
