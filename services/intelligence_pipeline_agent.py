@@ -1256,13 +1256,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Pipeline stages
         hour_et = bar.ts.astimezone(_ET).hour
         quality_gated = apply_quality_gate(raw_signals, features)
-        regime_gated = apply_regime_gate(
-            quality_gated,
-            self._regime_cache,
-            tf,
-            _REGIME_AUTHORITY_TF,
-            features,
-        )
+        regime_gated = apply_regime_gate(quality_gated, features)
         tod_adjusted = apply_tod_adjustment(regime_gated, self._tod_priors, tf, hour_et)
 
         # Attribution capture: BEFORE calibration
