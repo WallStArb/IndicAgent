@@ -1,5 +1,15 @@
 import type { SignalData } from "./types";
 
+/** Window summary statistics from /api/signals/recent endpoint */
+export interface SignalWindowSummary {
+  total: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  win_rate: number | null;
+  avg_pnl_r: number | null;
+}
+
 /** DB signal row shape from /api/signals/recent endpoint */
 export interface DbSignalRow {
   signal_id: string;

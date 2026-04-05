@@ -204,7 +204,7 @@ function SignalDetailPanel({
     const fetchSignalDetail = async () => {
       setLoading(true);
       try {
-        const d = await fetchJson(`${getApiBase()}/api/signals/detail/${signalId}`);
+        const d = await fetchJson<Record<string, unknown>>(`${getApiBase()}/api/signals/detail/${signalId}`);
         setDetail(d);
       } catch (err) {
         console.error("Failed to fetch signal detail:", err);
@@ -385,8 +385,8 @@ export function SignalLedger({ filters }: { filters: FilterState }) {
   useEffect(() => {
     const qs = buildQueryParams(filters);
 
-    fetchJson(`${getApiBase()}/api/signals/recent?${qs}`)
-      .then((d: { signals?: LedgerSignal[] }) => setSignals(d.signals ?? []))
+    fetchJson<{ signals?: LedgerSignal[] }>(`${getApiBase()}/api/signals/recent?${qs}`)
+      .then((d) => setSignals(d.signals ?? []))
       .catch((err) => {
         console.error("Failed to fetch signals:", err);
         setSignals([]);
