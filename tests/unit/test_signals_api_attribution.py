@@ -1,4 +1,4 @@
-"""Tests for GET /api/signals/attribution."""
+"""Tests for GET /api/signals/attribution — reads pre-computed signal_metrics table."""
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,15 +9,21 @@ from src.api.main import app
 
 
 def _row(**kwargs):
+    """Mock row matching signal_metrics + LEFT JOIN signal_metrics_ic columns."""
     defaults = {
         "group_key": "trad_TrendFollowing",
         "n": 120,
         "win_rate": 0.58,
         "avg_pnl_r": 0.42,
-        "std_pnl_r": 1.1,
-        "n_pnl": 100,
+        "sharpe_proxy": 1.35,
+        "p_value": 0.003,
+        "n_outliers": 2,
+        "never_activated_pct": 0.05,
+        "ic_score": 0.12,
+        "ic_significant": True,
     }
     return {**defaults, **kwargs}
+
 
 @pytest.mark.unit
 class TestSignalsApiAttribution:
@@ -46,31 +52,43 @@ class TestSignalsApiAttribution:
         assert "sharpe_proxy" in g
         assert "p_value" in g
 
-    def test_p_value_significant_for_large_n(self):
-        """N=1000, avg=0.3, std=1.0 → t=9.5 → p < 0.05."""
+    def test_p_value_passed_through_from_signal_metrics(self):
+        """p_value is read directly from signal_metrics — no inline computation."""
         mock_db = AsyncMock()
-        mock_db.fetch = AsyncMock(
-            return_value=[_row(n=1000, avg_pnl_r=0.3, std_pnl_r=1.0, n_pnl=1000)]
-        )
+        mock_db.fetch = AsyncMock(return_value=[_row(p_value=0.001)])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup").json()
-        assert data["groups"][0]["p_value"] < 0.05
+        assert data["groups"][0]["p_value"] == pytest.approx(0.001)
 
-    def test_p_value_not_significant_for_small_n(self):
-        """N=5, avg=0.1, std=2.0 → t=0.11 → p > 0.05."""
+    def test_p_value_none_when_null_in_db(self):
+        """NULL p_value in DB → None in response."""
         mock_db = AsyncMock()
-        mock_db.fetch = AsyncMock(return_value=[_row(n=5, avg_pnl_r=0.1, std_pnl_r=2.0, n_pnl=5)])
+        mock_db.fetch = AsyncMock(return_value=[_row(p_value=None)])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup").json()
-        assert data["groups"][0]["p_value"] > 0.05
+        assert data["groups"][0]["p_value"] is None
 
-    def test_sharpe_zero_std_returns_none(self):
-        """std_pnl_r=0 → sharpe_proxy=None (guard division by zero)."""
+    def test_sharpe_passed_through_from_signal_metrics(self):
+        """sharpe read from signal_metrics.sharpe column directly."""
         mock_db = AsyncMock()
-        mock_db.fetch = AsyncMock(return_value=[_row(std_pnl_r=0.0)])
+        mock_db.fetch = AsyncMock(return_value=[_row(sharpe_proxy=2.5)])
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         data = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup").json()
-        assert data["groups"][0]["sharpe_proxy"] is None
+        assert data["groups"][0]["sharpe_proxy"] == pytest.approx(2.5)
+
+    def test_track_param_zone_accepted(self):
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        resp = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup&track=zone")
+        assert resp.status_code == 200
+
+    def test_track_param_market_accepted(self):
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        resp = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup&track=market")
+        assert resp.status_code == 200
 
     def test_window_param_7d_accepted(self):
         mock_db = AsyncMock()
@@ -78,3 +96,17 @@ class TestSignalsApiAttribution:
         app.dependency_overrides[get_db_manager] = lambda: mock_db
         resp = TestClient(app).get("/api/signals/attribution?window=7d&group_by=setup")
         assert resp.status_code == 200
+
+    def test_insufficient_data_flag_set_when_n_lt_30(self):
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[_row(n=15)])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup").json()
+        assert data["groups"][0]["insufficient_data"] is True
+
+    def test_insufficient_data_false_when_n_gte_30(self):
+        mock_db = AsyncMock()
+        mock_db.fetch = AsyncMock(return_value=[_row(n=30)])
+        app.dependency_overrides[get_db_manager] = lambda: mock_db
+        data = TestClient(app).get("/api/signals/attribution?window=30d&group_by=setup").json()
+        assert data["groups"][0]["insufficient_data"] is False

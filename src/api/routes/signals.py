@@ -5,7 +5,6 @@ Provides access to signal_ledger with optional JOIN to intelligence_features
 for full feature context at signal time.
 """
 
-import math
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
@@ -13,7 +12,6 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from scipy import stats as _scipy_stats
 
 from ...config.settings import Settings
 from ...core.database_manager import DatabaseManager
@@ -61,17 +59,6 @@ def _compute_signal_tier(
     if was_selected:
         return "monitored"
     return "candidate"
-
-
-def _compute_p_value(avg_pnl_r: float, std_pnl_r: float, n: int) -> float | None:
-    """Two-sided one-sample t-test p-value against null hypothesis mean=0.
-
-    Returns None if inputs are invalid (n < 2, std near-zero or NaN/Inf).
-    """
-    if n < 2 or std_pnl_r < 1e-9 or math.isnan(std_pnl_r) or math.isinf(std_pnl_r):
-        return None
-    t_stat = avg_pnl_r / (std_pnl_r / math.sqrt(n))
-    return float(_scipy_stats.t.sf(abs(t_stat), df=n - 1) * 2)
 
 
 def _build_signal_row(row: Any, include_features: bool) -> dict[str, Any]:
