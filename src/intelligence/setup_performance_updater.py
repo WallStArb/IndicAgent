@@ -123,64 +123,37 @@ def _compute_perf_multipliers(stats: dict[str, dict]) -> dict[str, float]:
 async def run_setup_performance_update(
     db_manager: Any,
 ) -> dict[str, float]:
-    """Query DB, compute stats, upsert setup_performance table.
+    """Read perf weights from signal_metrics (market track, 'all' regime, 30d window).
 
-    Returns perf_weights dict (empty if no eligible setups).
+    SignalMetricsWriterAgent keeps setup_performance in sync as a shim.
+    This function now reads that shim table and returns perf_weights dict
+    for backward compatibility with callers.
 
-    Parameters
-    ----------
-    db_manager:
-        DatabaseManager instance with execute_query / execute_command methods.
+    Returns empty dict if no eligible setups (n < MIN_SAMPLE_SIZE).
     """
-    rows = await db_manager.execute_query("""
-        SELECT setup_plugin, pnl_r, exit_at
-        FROM signal_ledger
-        WHERE pnl_r IS NOT NULL
-          AND exit_at > now() - INTERVAL '30 days'
-          AND setup_plugin IS NOT NULL
-        ORDER BY setup_plugin
-        """)
+    rows = await db_manager.execute_query(
+        """
+        SELECT setup_plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio
+        FROM setup_performance
+        WHERE sample_size >= $1
+        """,
+        MIN_SAMPLE_SIZE,
+    )
 
     if not rows:
-        logger.info("setup_performance: no resolved signals in last 30 days")
+        logger.info("setup_performance: no eligible setups (n<%d)", MIN_SAMPLE_SIZE)
         return {}
 
-    stats = compute_setup_performance(list(rows))
-    if not stats:
-        logger.info("setup_performance: no eligible setups (n<%d for all)", MIN_SAMPLE_SIZE)
-        return {}
+    stats = {
+        row["setup_plugin"]: {
+            "win_rate": row["win_rate"],
+            "avg_pnl_r": row["avg_pnl_r"],
+            "sample_size": row["sample_size"],
+            "sharpe_ratio": row["sharpe_ratio"],
+        }
+        for row in rows
+    }
 
-    # Upsert stats to setup_performance table
-    for plugin, s in stats.items():
-        await db_manager.execute_command(
-            """
-            INSERT INTO setup_performance
-                (setup_plugin, win_rate, avg_pnl_r, sample_size, sharpe_ratio, updated_at)
-            VALUES ($1, $2, $3, $4, $5, now())
-            ON CONFLICT (setup_plugin) DO UPDATE
-                SET win_rate = EXCLUDED.win_rate,
-                    avg_pnl_r = EXCLUDED.avg_pnl_r,
-                    sample_size = EXCLUDED.sample_size,
-                    sharpe_ratio = EXCLUDED.sharpe_ratio,
-                    updated_at = EXCLUDED.updated_at
-            """,
-            plugin,
-            s["win_rate"],
-            s["avg_pnl_r"],
-            s["sample_size"],
-            s["sharpe_ratio"],
-        )
-
-    # Compute perf multipliers (base from setup_performance table)
     perf_weights = _compute_perf_multipliers(stats)
-
-    # Phase 30: CUSUM penalty adjustments and Redis write removed.
-    # signal_generator_service._load_perf_weights_from_db() reads directly from
-    # setup_performance table. CUSUM state is in drift_state table (read by
-    # signal_generator_service via _refresh_drift_penalties_from_db()).
-
-    logger.info(
-        "setup_performance: upserted %d setups",
-        len(stats),
-    )
+    logger.info("setup_performance: loaded %d setups from signal_metrics shim", len(stats))
     return perf_weights
