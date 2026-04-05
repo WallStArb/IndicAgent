@@ -234,3 +234,16 @@ class TestShadowMode:
         agent = _make_agent()
         agent._shadow_mode = True
         assert agent._shadow_mode is True
+
+
+def test_i1_frames_contain_symbol_and_timeframe():
+    """I1 frames must include __symbol__ and __timeframe__ for stateful plugins."""
+    import inspect
+
+    from services import intelligence_pipeline_agent as m
+
+    src = inspect.getsource(m.IntelligencePipelineComputeAgent._run_i1_to_i6)
+    assert '"__symbol__"' in src or "'__symbol__'" in src, \
+        "__symbol__ must be injected into I1 frames"
+    assert '"__timeframe__"' in src or "'__timeframe__'" in src, \
+        "__timeframe__ must be injected into I1 frames"
