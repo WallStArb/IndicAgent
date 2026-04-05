@@ -214,9 +214,13 @@ def aggregate(
             **cis_kwargs,
         )
 
-    # CIS override path: fires when threshold met and agreeing buckets >= 3
+    # CIS override path: fires when threshold met and agreeing buckets >= 3.
+    # Falls through when CIS fires but no regime-eligible plugin matches its direction
+    # (CIS never synthesizes a signal — returns None in that case).
     if cis_result is not None and cis_result.direction != 0:
-        return _aggregate_via_cis(active, cis_result, all_ranked, cis_kwargs)
+        result = _aggregate_via_cis(active, cis_result, all_ranked, cis_kwargs)
+        if result is not None:
+            return result
 
     # Fallback path: priority / majority / regime tiebreak
     return _aggregate_fallback(active, trend_regime, all_ranked, cis_kwargs)
@@ -233,43 +237,43 @@ def _aggregate_via_cis(
     cis_result: Any,
     all_ranked: list[dict],
     cis_kwargs: dict,
-) -> AggregatedResult:
-    """Select winner using CIS direction (Phase B CIS override path)."""
+) -> AggregatedResult | None:
+    """Select winner using CIS direction (Phase B CIS override path).
+
+    Returns None when CIS fires but no regime-eligible plugins match its direction.
+    The caller falls through to _aggregate_fallback in that case — CIS never
+    manufactures a signal by flipping a plugin's direction.
+    """
     cis_direction = cis_result.direction  # +1 or -1
 
     # Gather signals matching CIS direction, sorted by priority
     matching = [s for s in active if s.get("direction", 0) == cis_direction]
     opposing = [s for s in active if s.get("direction", 0) != cis_direction]
 
-    if matching:
-        matching = _sort_by_priority(matching)
-        selected = _pick_with_method(matching)
+    if not matching:
+        # CIS fired but no plugin agrees — do not synthesize; caller falls back.
+        return None
 
-        # Confidence boost from agreeing plugins
-        extra_agreeing = len(matching) - 1
-        boosted_confidence = min(
-            1.0,
-            selected.get("confidence", 0.0) + _CONFIDENCE_BOOST_PER_AGREE * extra_agreeing,
-        )
-        selected = {**selected, "confidence": round(boosted_confidence, 4)}
+    matching = _sort_by_priority(matching)
+    selected = _pick_with_method(matching)
 
-        # Merge supporting_factors
-        seen: set[str] = set()
-        merged_factors: list[str] = []
-        for sig in matching:
-            for factor in sig.get("supporting_factors", []):
-                if factor not in seen:
-                    seen.add(factor)
-                    merged_factors.append(factor)
-        selected = {**selected, "supporting_factors": merged_factors}
-    else:
-        # CIS fires but no plugin matches direction — synthesize a minimal signal
-        # using the highest-priority signal in any direction, overriding its direction
-        all_sorted = _sort_by_priority(active)
-        template = all_sorted[0]
-        selected = {**template, "direction": cis_direction}
-        matching = [selected]
-        opposing = [s for s in active if s is not template]
+    # Confidence boost from agreeing plugins
+    extra_agreeing = len(matching) - 1
+    boosted_confidence = min(
+        1.0,
+        selected.get("confidence", 0.0) + _CONFIDENCE_BOOST_PER_AGREE * extra_agreeing,
+    )
+    selected = {**selected, "confidence": round(boosted_confidence, 4)}
+
+    # Merge supporting_factors
+    seen: set[str] = set()
+    merged_factors: list[str] = []
+    for sig in matching:
+        for factor in sig.get("supporting_factors", []):
+            if factor not in seen:
+                seen.add(factor)
+                merged_factors.append(factor)
+    selected = {**selected, "supporting_factors": merged_factors}
 
     # Attach CIS fields to selected signal
     selected = {
@@ -282,7 +286,7 @@ def _aggregate_via_cis(
     return AggregatedResult(
         selected_signal=selected,
         all_ranked=all_ranked,
-        resolution_method="cis",
+        resolution_method="cis_override",
         num_signals_fired=len(active),
         num_agreeing=len(matching),
         num_conflicting=len(opposing),

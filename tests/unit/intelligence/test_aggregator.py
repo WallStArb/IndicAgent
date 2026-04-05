@@ -273,12 +273,12 @@ class TestAggregateCISIntegration:
 
     @pytest.mark.unit
     def test_aggregate_cis_resolution_method_when_fires(self):
-        """resolution_method == 'cis' when CIS fires."""
+        """resolution_method == 'cis_override' when CIS fires and matching plugin exists."""
         sig = _signal("trad_TrendFollowing", 1, confidence=0.8)
         result = aggregate([sig], trend_regime=0.8, features=_bullish_features())
-        # With CIS firing bullish and a long signal present -> resolution_method = "cis"
+        # With CIS firing bullish and a long signal present -> resolution_method = "cis_override"
         if result.cis_score is not None and abs(result.cis_score) > 0.35:
-            assert result.resolution_method == "cis"
+            assert result.resolution_method == "cis_override"
 
     @pytest.mark.unit
     def test_aggregate_empty_signals_with_features_returns_no_signal(self):
