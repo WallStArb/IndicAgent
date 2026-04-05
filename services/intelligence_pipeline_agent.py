@@ -1161,7 +1161,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         raw_signals: list[dict] = []
         tasks: list[PluginTask] = []
         main_df = self._bar_history.to_dataframe(symbol, tf)
-        plugin_input = {"main": main_df, "features": features}
+        plugin_input = {"main": main_df, "features": features, "__symbol__": symbol, "__timeframe__": tf, "timeframe": tf}
         loop = asyncio.get_running_loop()
 
         # Build parallel tasks
