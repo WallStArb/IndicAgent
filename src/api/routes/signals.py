@@ -27,7 +27,9 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-_TERMINAL_STATUSES: frozenset[str] = frozenset({SignalStatus.PENDING.value, SignalStatus.ACTIVE.value})
+_TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {SignalStatus.PENDING.value, SignalStatus.ACTIVE.value}
+)
 
 
 @lru_cache(maxsize=1)
@@ -241,14 +243,10 @@ async def get_active_signals(
                         else None
                     ),
                     "bar_close_ts": (
-                        row["bar_close_ts"].isoformat()
-                        if row["bar_close_ts"] is not None
-                        else None
+                        row["bar_close_ts"].isoformat() if row["bar_close_ts"] is not None else None
                     ),
                     "timestamp": (
-                        row["timestamp"].isoformat()
-                        if row["timestamp"] is not None
-                        else None
+                        row["timestamp"].isoformat() if row["timestamp"] is not None else None
                     ),
                     "setup_win_rate": _f(row["setup_win_rate"]),
                     "setup_avg_pnl_r": _f(row["setup_avg_pnl_r"]),
@@ -323,11 +321,11 @@ async def get_recent_signals(
         """
         rows = await db_manager.fetch(
             main_query,
-            resolved_symbol,   # $1
-            timeframe,         # $2
-            limit,             # $3
+            resolved_symbol,  # $1
+            timeframe,  # $2
+            limit,  # $3
             require_selected,  # $4
-            require_hero_gate, # $5
+            require_hero_gate,  # $5
         )
 
         signals = [
@@ -581,24 +579,31 @@ async def get_signals_attribution(
                   AND sm.window_days = $2
                 ORDER BY sm.avg_r DESC NULLS LAST
                 """,
-                track, window_days,
+                track,
+                window_days,
             )
 
             groups = []
             for row in rows:
-                groups.append({
-                    "name": str(row["group_key"]),
-                    "n": int(row["n"] or 0),
-                    "win_rate": _f(row["win_rate"]),
-                    "avg_pnl_r": _f(row["avg_pnl_r"]),
-                    "sharpe_proxy": _f(row["sharpe_proxy"]),
-                    "p_value": _f(row["p_value"]),
-                    "n_outliers": int(row["n_outliers"] or 0),
-                    "never_activated_pct": _f(row["never_activated_pct"]),
-                    "ic_score": _f(row["ic_score"]),
-                    "ic_significant": bool(row["ic_significant"]) if row["ic_significant"] is not None else None,
-                    "insufficient_data": int(row["n"] or 0) < 30,
-                })
+                groups.append(
+                    {
+                        "name": str(row["group_key"]),
+                        "n": int(row["n"] or 0),
+                        "win_rate": _f(row["win_rate"]),
+                        "avg_pnl_r": _f(row["avg_pnl_r"]),
+                        "sharpe_proxy": _f(row["sharpe_proxy"]),
+                        "p_value": _f(row["p_value"]),
+                        "n_outliers": int(row["n_outliers"] or 0),
+                        "never_activated_pct": _f(row["never_activated_pct"]),
+                        "ic_score": _f(row["ic_score"]),
+                        "ic_significant": (
+                            bool(row["ic_significant"])
+                            if row["ic_significant"] is not None
+                            else None
+                        ),
+                        "insufficient_data": int(row["n"] or 0) < 30,
+                    }
+                )
 
         else:  # asset_class
             # Group by symbol, then bucket into asset classes
@@ -616,7 +621,8 @@ async def get_signals_attribution(
                   AND sm.regime_type = 'all'
                   AND sm.window_days = $2
                 """,
-                track, window_days,
+                track,
+                window_days,
             )
             contracts = _get_settings().contracts
             sym_to_sector: dict[str, str] = {
@@ -632,9 +638,15 @@ async def get_signals_attribution(
                         return sym_to_sector[base]
                 return "unknown"
 
-            buckets: dict[str, dict] = defaultdict(lambda: {
-                "n": 0, "pnl_r_sum": 0.0, "win_wins": 0, "win_total": 0, "n_pnl": 0,
-            })
+            buckets: dict[str, dict] = defaultdict(
+                lambda: {
+                    "n": 0,
+                    "pnl_r_sum": 0.0,
+                    "win_wins": 0,
+                    "win_total": 0,
+                    "n_pnl": 0,
+                }
+            )
             for row in rows:
                 sector = _classify(str(row["group_key"]))
                 b = buckets[sector]
@@ -655,15 +667,17 @@ async def get_signals_attribution(
                 n_pnl = b["n_pnl"]
                 avg_r = round(b["pnl_r_sum"] / n_pnl, 4) if n_pnl > 0 else None
                 win_r = round(b["win_wins"] / b["win_total"], 4) if b["win_total"] > 0 else None
-                groups.append({
-                    "name": sector,
-                    "n": b["n"],
-                    "win_rate": win_r,
-                    "avg_pnl_r": avg_r,
-                    "sharpe_proxy": None,
-                    "p_value": None,
-                    "insufficient_data": b["n"] < 30,
-                })
+                groups.append(
+                    {
+                        "name": sector,
+                        "n": b["n"],
+                        "win_rate": win_r,
+                        "avg_pnl_r": avg_r,
+                        "sharpe_proxy": None,
+                        "p_value": None,
+                        "insufficient_data": b["n"] < 30,
+                    }
+                )
 
         return {"track": track, "window": window, "groups": groups}
 
