@@ -377,7 +377,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
           timestamp: row.timestamp ?? "",
           signal_computed_at: row.signal_computed_at ?? undefined,
           bar_close_ts: row.bar_close_ts ?? undefined,
-          pipeline_lag_s: pipelineLagS(row.signal_computed_at ?? null, row.bar_close_ts ?? null) ?? undefined,
+          pipeline_lag_s: pipelineLagS(row.signal_computed_at ?? undefined, row.bar_close_ts ?? undefined) ?? undefined,
           market_price_at_signal: row.market_price_at_signal ?? undefined,
           ask_at_signal: row.ask_at_signal ?? undefined,
           bid_at_signal: row.bid_at_signal ?? undefined,

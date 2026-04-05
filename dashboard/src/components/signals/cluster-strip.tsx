@@ -73,7 +73,7 @@ export function ClusterStrip({
 
         setClusters(found.sort((a, b) => b.symbols.length - a.symbols.length));
       } catch (err) {
-        if (err.name === 'AbortError') {
+        if (err instanceof Error && err.name === 'AbortError') {
           // AbortError is expected when component unmounts
           return;
         }

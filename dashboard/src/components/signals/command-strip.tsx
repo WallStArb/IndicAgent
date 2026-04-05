@@ -97,6 +97,7 @@ export function CommandStrip() {
         label="Avg confidence"
         value={confToday}
         sub={conf7d}
+        color="var(--text-secondary)"
       />
       <StatPill
         label="P50 latency"
@@ -105,16 +106,18 @@ export function CommandStrip() {
       />
       <StatPill
         label="P95 latency"
-        value={latP95}
+        value={latP95 ?? "—"}
         color={latencyColor(s?.pipeline_latency_p95 ?? null)}
       />
       <StatPill
         label="7d alpha"
-        value={alpha7d}
+        value={alpha7d ?? "—"}
+        color="var(--text-secondary)"
       />
       <StatPill
         label="30d alpha"
-        value={alpha30d}
+        value={alpha30d ?? "—"}
+        color="var(--text-secondary)"
       />
     </div>
   );

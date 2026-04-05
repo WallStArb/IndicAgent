@@ -98,7 +98,7 @@ export function DirectionalPill({
  * Maps regime strings to appropriate color coding.
  */
 export function VolatilityPill({ regime }: { regime?: string }) {
-  const colorClass = VOLATILITY_COLORS[regime ?? ""] ?? VOLATILITY_COLORS.normal;
+  const colorClass = (VOLATILITY_COLORS as Record<string, string>)[regime ?? ""] ?? VOLATILITY_COLORS.normal;
 
   return (
     <span
