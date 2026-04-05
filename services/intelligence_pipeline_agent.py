@@ -176,16 +176,6 @@ _HMM_REGIME_LABEL: dict[int, str] = {0: "ranging", 1: "trending", 2: "trending"}
 # Alpha decay half-life bars
 ALPHA_HALF_LIFE_BARS: dict[str, int] = {"1m": 10, "5m": 8, "15m": 8, "1h": 6}
 
-# Regime authority TF mapping
-_REGIME_AUTHORITY_TF: dict[str, str] = {
-    "1m": "5m",
-    "5m": "15m",
-    "15m": "1h",
-    "1h": "4h",
-    "4h": "1d",
-    "1d": "1d",
-}
-
 # Phase 35: Eastern Time zone for hour extraction
 _ET = zoneinfo.ZoneInfo("America/New_York")
 
@@ -421,7 +411,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._signal_gate: dict = {}  # (symbol, tf) -> gate dict
         self._setup_cooldown: dict = {}  # (symbol, tf, plugin, direction) -> datetime
         self._setup_last_fire: dict = {}  # (symbol, tf, plugin, direction) -> {bars_since}
-        self._regime_cache: dict = defaultdict(dict)
         self._cross_asset_cache: dict = {}
         self._htf_intel_cache: dict = {}
         self._live_quotes: dict = {}
