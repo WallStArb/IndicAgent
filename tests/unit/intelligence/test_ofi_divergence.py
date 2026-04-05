@@ -106,9 +106,10 @@ class TestOFIDivergencePlugin:
         for _ in range(2):
             r_high = plugin_high.compute_full(frames_high)
 
-        if r_low.get("direction") and r_high.get("direction"):
-            assert r_high["confidence"] > r_low["confidence"], \
-                "Higher divergence magnitude must produce higher confidence"
+        assert r_low.get("direction"), "Expected plugin to fire for low divergence"
+        assert r_high.get("direction"), "Expected plugin to fire for high divergence"
+        assert r_high["confidence"] > r_low["confidence"], \
+            "Higher divergence magnitude must produce higher confidence"
 
     def test_ewma_agreement_boosts_confidence(self):
         """Fast EWMA agreeing with divergence direction boosts confidence."""
@@ -124,9 +125,10 @@ class TestOFIDivergencePlugin:
         for _ in range(2):
             r_disagree = plugin_disagree.compute_full(frames_disagree)
 
-        if r_agree.get("direction") and r_disagree.get("direction"):
-            assert r_agree["confidence"] > r_disagree["confidence"], \
-                "EWMA agreement must boost confidence vs disagreement"
+        assert r_agree.get("direction"), "Expected plugin to fire with agreeing EWMA"
+        assert r_disagree.get("direction"), "Expected plugin to fire with disagreeing EWMA"
+        assert r_agree["confidence"] > r_disagree["confidence"], \
+            "EWMA agreement must boost confidence vs disagreement"
 
     def test_regime_type_is_any(self):
         """Plugin must declare regime_type='any' — no aggregator suppression."""
@@ -145,21 +147,21 @@ class TestOFIDivergencePlugin:
         frames = _make_frames(ofi_divergence=2.0)
         for _ in range(2):
             result = self.plugin.compute_full(frames)
-        if result.get("direction"):
-            factors = result.get("supporting_factors", [])
-            factor_str = " ".join(factors)
-            assert "ofi_divergence" in factor_str
-            assert "peak_abs" in factor_str
-            assert "bars_persistent" in factor_str
+        assert result.get("direction"), "Expected plugin to fire"
+        factors = result.get("supporting_factors", [])
+        factor_str = " ".join(factors)
+        assert "ofi_divergence" in factor_str
+        assert "peak_abs" in factor_str
+        assert "bars_persistent" in factor_str
 
     def test_shadow_metadata_present(self):
         """_shadow dict present with existing_confidence key (capture_signal_features schema)."""
         frames = _make_frames(ofi_divergence=2.0)
         for _ in range(2):
             result = self.plugin.compute_full(frames)
-        if result.get("direction"):
-            assert "_shadow" in result
-            assert "existing_confidence" in result["_shadow"]
+        assert result.get("direction"), "Expected plugin to fire"
+        assert "_shadow" in result
+        assert "existing_confidence" in result["_shadow"]
 
     def test_plugin_module_export(self):
         """Module-level plugin singleton has correct name."""

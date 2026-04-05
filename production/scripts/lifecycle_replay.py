@@ -521,6 +521,10 @@ async def _process_symbol_tf(
     return stats
 
 
+def _enum_value(v):
+    return v.value if hasattr(v, "value") else v
+
+
 async def _flush_writes(conn, writes: list[tuple]) -> None:
     """Execute pending DB writes using asyncpg.
 
@@ -540,15 +544,21 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
             activations.append((sid, ts, data["activated_at"], data["activation_price"],
                                  data["zone_entry_pct"], data["bars_to_activation"]))
         elif kind == "zone_exit":
-            zone_exits.append((sid, ts, data["status"], data["exit_at"], data["exit_price"],
+            status = data["status"]
+            outcome = data["outcome"]
+            zone_exits.append((sid, ts, _enum_value(status),
+                                data["exit_at"], data["exit_price"],
                                 data["exit_reason"], data["pnl_ticks"], data["pnl_r"],
                                 data["pnl_dollars"], data["signal_quality"],
-                                data["mae"], data["mfe"], data["bars_in_trade"], data["outcome"]))
+                                data["mae"], data["mfe"], data["bars_in_trade"],
+                                _enum_value(outcome)))
         elif kind == "market":
+            m_outcome = data["market_entry_outcome"]
             markets.append((sid, ts, data["market_entry_at"], data["market_entry_exit_price"],
                              data["market_entry_exit_at"], data["market_entry_pnl_r"],
                              data["market_entry_mae"], data["market_entry_mfe"],
-                             data["market_entry_bars_in_trade"], data["market_entry_outcome"],
+                             data["market_entry_bars_in_trade"],
+                             _enum_value(m_outcome),
                              data["market_entry_gap_bars"]))
 
     # Must be set per-transaction — timescaledb decompression limit is transaction-scoped.
@@ -557,8 +567,8 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
     if zone_exits:
         # Build VALUES clause manually for zone_exits
         values_clause = ",".join(
-            f"($${i}::uuid, $${i+1}::timestamptz, $${i+2}, $${i+3}::timestamptz, $${i+4}::float, $${i+5}, $${i+6}::float, $${i+7}::float, $${i+8}::float, $${i+9}::float, $${i+10}::float, $${i+11}::float, $${i+12}::int, $${i+13})"
-            for i in range(1, len(zone_exits) * 13 + 1, 13)
+            f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::text, ${i+3}::timestamptz, ${i+4}::float, ${i+5}::text, ${i+6}::float, ${i+7}::float, ${i+8}::float, ${i+9}::float, ${i+10}::float, ${i+11}::float, ${i+12}::int, ${i+13}::text)"
+            for i in range(1, len(zone_exits) * 14 + 1, 14)
         )
         flat_values = [v for row in zone_exits for v in row]
         await conn.execute(
@@ -572,14 +582,14 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                    mae, mfe, bars_in_trade, outcome)
                WHERE sl.signal_id = v.signal_id
                  AND sl."timestamp" = v.ts""",
-            flat_values,
+            *flat_values,
         )
 
     if markets:
         # Build VALUES clause manually for markets
         values_clause = ",".join(
-            f"($${i}::uuid, $${i+1}::timestamptz, $${i+2}::timestamptz, $${i+3}::float, $${i+4}::timestamptz, $${i+5}::float, $${i+6}::float, $${i+7}::float, $${i+8}::int, $${i+9}, $${i+10}::int)"
-            for i in range(1, len(markets) * 10 + 1, 10)
+            f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::timestamptz, ${i+5}::float, ${i+6}::float, ${i+7}::float, ${i+8}::int, ${i+9}::text, ${i+10}::int)"
+            for i in range(1, len(markets) * 11 + 1, 11)
         )
         flat_values = [v for row in markets for v in row]
         await conn.execute(
@@ -593,14 +603,14 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                    exit_at, pnl_r, mae, mfe, bars_in_trade, outcome, gap_bars)
                WHERE sl.signal_id = v.signal_id
                  AND sl."timestamp" = v.ts""",
-            flat_values,
+            *flat_values,
         )
 
     if activations:
         # Build VALUES clause manually for activations
         values_clause = ",".join(
-            f"($${i}::uuid, $${i+1}::timestamptz, $${i+2}::timestamptz, $${i+3}, $${i+4}, $${i+5})"
-            for i in range(1, len(activations) * 5 + 1, 5)
+            f"(${i}::uuid, ${i+1}::timestamptz, ${i+2}::timestamptz, ${i+3}::float, ${i+4}::float, ${i+5}::int)"
+            for i in range(1, len(activations) * 6 + 1, 6)
         )
         flat_values = [v for row in activations for v in row]
         await conn.execute(
@@ -612,7 +622,7 @@ async def _flush_writes(conn, writes: list[tuple]) -> None:
                    activation_price, zone_entry_pct, bars_to_activation)
                WHERE sl.signal_id = v.signal_id
                  AND sl."timestamp" = v.ts""",
-            flat_values,
+            *flat_values,
         )
 
 

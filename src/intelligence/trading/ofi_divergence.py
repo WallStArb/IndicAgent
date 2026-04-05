@@ -116,8 +116,10 @@ class OFIDivergencePlugin:
 
         ofi_ewma_5 = features.get("ofi_ewma_5")
         ofi_ewma_20 = features.get("ofi_ewma_20")
-        ewma5_sign = (1 if float(ofi_ewma_5) > 0 else -1) if ofi_ewma_5 is not None else 0
-        ewma20_sign = (1 if float(ofi_ewma_20) > 0 else -1) if ofi_ewma_20 is not None else 0
+        v5 = float(ofi_ewma_5) if ofi_ewma_5 is not None else None
+        v20 = float(ofi_ewma_20) if ofi_ewma_20 is not None else None
+        ewma5_sign = (1 if v5 > 0 else (-1 if v5 < 0 else 0)) if v5 is not None else 0
+        ewma20_sign = (1 if v20 > 0 else (-1 if v20 < 0 else 0)) if v20 is not None else 0
 
         # Fast EWMA: soft factor (boost or reduce), NOT a hard gate
         if ewma5_sign == direction:
