@@ -436,14 +436,20 @@ export interface AttributionGroup {
   n: number;
   win_rate: number | null;
   avg_pnl_r: number | null;
-  std_pnl_r: number | null;
+  std_pnl_r?: number | null;
   sharpe_proxy: number | null;
   p_value: number | null;
+  n_outliers?: number;
+  never_activated_pct?: number | null;
+  ic_score?: number | null;
+  ic_significant?: boolean | null;
+  insufficient_data?: boolean;
 }
 
 export interface SignalAttributionData {
+  track?: string;
   window: string;
-  group_by: string;
+  group_by?: string;
   groups: AttributionGroup[];
 }
 
