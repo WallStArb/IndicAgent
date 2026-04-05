@@ -437,6 +437,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._calibration_curves: dict = {}
         self._perf_weights: dict = {}
         self._drift_penalties: dict = {}
+        # Last-observed HMM regime integer (0=ranging, 1/2=trending); updated per bar
+        self._last_hmm_regime: int | None = None
 
         # I7 config
         self._regime_prob_min: float = 0.30
@@ -1155,6 +1157,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         features = _build_features_from_event(event)
         i7_computed_at = datetime.now(UTC)
 
+        # Track last-known HMM regime for regime-conditioned perf_weights loading
+        hmm_val = features.get("hmm_regime")
+        if isinstance(hmm_val, (int, float)):
+            self._last_hmm_regime = int(hmm_val)
+
         # Run all I7 plugins in parallel
         i7_start = time.perf_counter()
 
@@ -1418,21 +1425,79 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             except Exception as exc:
                 self.logger.warning("refresh_loop.error", error=str(exc))
 
+    def _current_hmm_regime_label(self) -> str:
+        """Map last-observed HMM regime integer to signal_metrics regime_type string.
+
+        0 = ranging  -> 'mean_reversion'
+        1/2 = trending -> 'trend'
+        None (no bars yet) -> 'all'
+        """
+        hmm = self._last_hmm_regime
+        if hmm == 0:
+            return "mean_reversion"
+        if hmm in (1, 2):
+            return "trend"
+        return "all"
+
     async def _load_perf_weights(self) -> None:
-        """Load perf_weights from setup_performance table."""
+        """Load perf_weights from signal_metrics (market track, regime-conditioned).
+
+        Queries signal_metrics WHERE track='market' AND regime_type=current_regime
+        AND window_days=30 AND n>=30. Falls back to 'all' regime rollup when the
+        current regime has insufficient data (bootstrap phase).
+
+        Weights are ranked by Sharpe ascending so the best Sharpe gets the lowest
+        multiplier (sorts first under ascending adjusted_rank in rank_signals).
+        """
         if self._db is None:
             return
         try:
-            rows = await self._db.execute_query("""
-                SELECT setup_plugin, direction, win_rate, avg_pnl_r, sample_size
-                FROM setup_performance
-                WHERE sample_size >= 30
-            """)
+            current_regime = self._current_hmm_regime_label()
+
+            rows = await self._db.execute_query(
+                """
+                SELECT setup_plugin, sharpe
+                FROM signal_metrics
+                WHERE track = 'market'
+                  AND regime_type = $1
+                  AND window_days = 30
+                  AND n >= 30
+                """,
+                current_regime,
+            )
+
+            if not rows:
+                # Fallback to 'all' regime rollup (bootstrap phase — no regime data yet)
+                rows = await self._db.execute_query(
+                    """
+                    SELECT setup_plugin, sharpe
+                    FROM signal_metrics
+                    WHERE track = 'market'
+                      AND regime_type = 'all'
+                      AND window_days = 30
+                      AND n >= 30
+                    """
+                )
+
+            if not rows:
+                self._perf_weights = {}
+                self.logger.info("perf_weights.empty", regime=current_regime)
+                return
+
+            # Rank by Sharpe ascending (worst=rank 0, best=rank n-1)
+            # Best Sharpe → lowest multiplier → sorts first under ascending adjusted_rank
+            ranked = sorted(rows, key=lambda r: (r["sharpe"] or 0.0))
+            n = len(ranked)
             weights: dict = {}
-            for r in rows:
-                key = (r["setup_plugin"], r["direction"])
-                weights[key] = r.get("win_rate", 0.5)
+            for rank, row in enumerate(ranked):
+                weights[row["setup_plugin"]] = round(0.5 + ((n - 1 - rank) / n), 4)
+
             self._perf_weights = weights
+            self.logger.info(
+                "perf_weights.loaded",
+                regime=current_regime,
+                n_setups=n,
+            )
         except Exception as exc:
             self.logger.warning("perf_weights.load_failed", error=str(exc))
 
