@@ -7,6 +7,13 @@ Two computation paths:
   `(close - low) / (high - low) * volume`. ofi_variant="proxy".
 
 Outputs: ofi_ewma_5, ofi_ewma_20, ofi_divergence, ofi_spike_z, ofi_variant
+
+ofi_divergence is a continuous z-score factor:
+  ofi_divergence = ofi_spike_z - price_return_z
+Both z-scores use a 100-bar rolling window. Positive = OFI more bullish than price.
+
+State is keyed by (symbol, tf) from frames["__symbol__"] / frames["__timeframe__"]
+to prevent cross-symbol contamination in multi-symbol deployments.
 """
 
 from __future__ import annotations
@@ -21,6 +28,8 @@ import pandas as pd
 from src.intelligence.plugins import InputSpec
 
 _PROXY_EPSILON: float = 1e-9
+_HISTORY_MAXLEN: int = 100
+_MIN_HISTORY: int = 5
 
 
 @dataclass
@@ -38,6 +47,9 @@ class OFIPlugin:
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
         df = frames.get("main")
         tick_buf = frames.get("tick_buffer") or []
+        symbol = frames.get("__symbol__", "_")
+        tf = frames.get("__timeframe__", "_")
+        state_key = (symbol, tf)
 
         if df is None or len(df) < self.min_lookback:
             return {}
@@ -50,47 +62,51 @@ class OFIPlugin:
             raw_ofi = self._compute_proxy_ofi(df)
             variant = "proxy"
 
-        # Update OFI history for z-score
-        if "ofi_history" not in self._state:
-            self._state["ofi_history"] = deque(maxlen=100)
-        self._state["ofi_history"].append(raw_ofi)
+        # Per-(symbol, tf) state
+        state = self._state.setdefault(state_key, {})
+
+        # OFI history for spike z-score
+        ofi_history: deque = state.setdefault("ofi_history", deque(maxlen=_HISTORY_MAXLEN))
+        ofi_history.append(raw_ofi)
+
+        # Price return history for price_return_z — same 100-bar window
+        close_series = df["close"]
+        if len(close_series) >= 2:
+            price_return = float(close_series.iloc[-1]) - float(close_series.iloc[-2])
+        else:
+            price_return = 0.0
+        ret_history: deque = state.setdefault("ret_history", deque(maxlen=_HISTORY_MAXLEN))
+        ret_history.append(price_return)
 
         # EWMA update
         alpha5 = 2.0 / (5 + 1)
         alpha20 = 2.0 / (20 + 1)
-        if "ewma5" not in self._state:
-            self._state["ewma5"] = raw_ofi
-        if "ewma20" not in self._state:
-            self._state["ewma20"] = raw_ofi
-        self._state["ewma5"] = self._state["ewma5"] * (1 - alpha5) + raw_ofi * alpha5
-        self._state["ewma20"] = self._state["ewma20"] * (1 - alpha20) + raw_ofi * alpha20
+        state.setdefault("ewma5", raw_ofi)
+        state.setdefault("ewma20", raw_ofi)
+        state["ewma5"] = state["ewma5"] * (1 - alpha5) + raw_ofi * alpha5
+        state["ewma20"] = state["ewma20"] * (1 - alpha20) + raw_ofi * alpha20
 
-        # Z-score: compare raw_ofi vs history of all-but-last
-        history = list(self._state["ofi_history"])
-        if len(history) >= 5:
-            hist_arr = np.array(history[:-1])  # exclude current bar
-            mean = float(np.mean(hist_arr))
-            std = float(np.std(hist_arr)) + 1e-9
-            spike_z = (raw_ofi - mean) / std
+        # OFI z-score (exclude current bar from history for z-score base)
+        if len(ofi_history) >= _MIN_HISTORY:
+            hist = np.array(list(ofi_history)[:-1])
+            spike_z = (raw_ofi - float(np.mean(hist))) / (float(np.std(hist)) + 1e-9)
         else:
             spike_z = 0.0
 
-        # Divergence: sign of raw_ofi vs sign of price change
-        close_series = df["close"]
-        if len(close_series) >= 2:
-            price_change = float(close_series.iloc[-1]) - float(close_series.iloc[-2])
-            price_dir = 1 if price_change > 0 else (-1 if price_change < 0 else 0)
+        # Price return z-score (same structure)
+        if len(ret_history) >= _MIN_HISTORY:
+            ret_arr = np.array(list(ret_history)[:-1])
+            price_return_z = (price_return - float(np.mean(ret_arr))) / (float(np.std(ret_arr)) + 1e-9)
         else:
-            price_dir = 0
-        ofi_dir = 1 if raw_ofi > 0 else (-1 if raw_ofi < 0 else 0)
-        divergence = float(ofi_dir - price_dir)
+            price_return_z = 0.0
 
-        self._state["prev_close"] = float(df["close"].iloc[-1])
+        # Continuous divergence factor: positive = OFI more bullish than price
+        divergence = round(spike_z - price_return_z, 4)
 
         return {
-            "ofi_ewma_5": round(float(self._state["ewma5"]), 6),
-            "ofi_ewma_20": round(float(self._state["ewma20"]), 6),
-            "ofi_divergence": round(divergence, 4),
+            "ofi_ewma_5": round(float(state["ewma5"]), 6),
+            "ofi_ewma_20": round(float(state["ewma20"]), 6),
+            "ofi_divergence": divergence,
             "ofi_spike_z": round(spike_z, 4),
             "ofi_variant": variant,
         }
@@ -111,7 +127,6 @@ class OFIPlugin:
                     buy_vol += size
                 elif price < prev_price:
                     sell_vol += size
-                # equal: neutral, no contribution
             prev_price = price
         return buy_vol - sell_vol
 
