@@ -6,8 +6,8 @@ import pytest
 from src.intelligence.metrics.compute import (
     HMM_TO_REGIME,
     MIN_SAMPLE_SIZE,
-    compute_signal_metrics,
     compute_ic_metrics,
+    compute_signal_metrics,
 )
 
 
