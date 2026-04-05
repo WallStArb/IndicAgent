@@ -597,3 +597,25 @@ Plans:
 - [x] 58.1-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
 - [x] 58.1-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
 - [x] 58.1-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
+
+### Phase 59: OFI Divergence Redesign
+
+**Goal:** Replace discrete `{-2..+2}` `ofi_divergence` I1 field with a continuous z-score factor. Fix multi-symbol state corruption in OFIPlugin. Rewrite `OFIDivergencePlugin` (I7) with persistence, peak magnitude tracking, EWMA soft factor, and principled `tanh` confidence.
+**Design doc:** `docs/plans/2026-04-05-ofi-divergence-redesign-design.md`
+**Plans:** 1/1 plan complete
+**Depends on:** Phase 58.1
+
+Plans:
+- [ ] 59-PLAN.md — Full rewrite: I1 state keyed by (symbol, tf), continuous ofi_divergence z-score, I7 OFIDivergencePlugin persistence + tanh confidence
+
+### Phase 60: Signal Metrics Redesign — Renaissance-Aligned Performance System
+
+**Goal:** Replace the broken signal performance system (pnl_r = ±∞ when stop ≈ entry, inline SQL aggregation, no regime conditioning, two tracks collapsed) with a DAG ComputeAgent/WriterAgent pipeline. Adds DataQualityValidator (4-gate DQ), regime-conditioned segmentation, zone vs market track separation, and IC metrics. Fixes CVDDivergence Sharpe = -496 at root.
+**Design doc:** `docs/plans/2026-04-05-signal-metrics-redesign.md`
+**Plans:** 0/3 plans complete
+**Depends on:** Phase 58.1
+
+Plans:
+- [ ] 60-01-PLAN.md — Foundation: DB migration (3 tables), topic_signal_metrics(), DataQualityValidator, compute_signal_metrics(), compute_ic_metrics()
+- [ ] 60-02-PLAN.md — Agents: SignalMetricsComputeAgent (timer 15min, :9126), SignalMetricsWriterAgent (:9127), systemd units
+- [ ] 60-03-PLAN.md — Integration: API attribution endpoint (two tracks), intelligence_pipeline_agent regime-conditioned perf_multiplier, setup_performance shim, dashboard two-track layout
