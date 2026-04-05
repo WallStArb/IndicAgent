@@ -1475,7 +1475,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             rows = await self._db.execute_query(
                 """
-                SELECT setup_plugin, sharpe
+                SELECT setup_plugin, tf, sharpe
                 FROM signal_metrics
                 WHERE track = 'market'
                   AND regime_type = $1
@@ -1488,7 +1488,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if not rows:
                 # Fallback to 'all' regime rollup (bootstrap phase — no regime data yet)
                 rows = await self._db.execute_query("""
-                    SELECT setup_plugin, sharpe
+                    SELECT setup_plugin, tf, sharpe
                     FROM signal_metrics
                     WHERE track = 'market'
                       AND regime_type = 'all'
@@ -1503,11 +1503,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             # Rank by Sharpe ascending (worst=rank 0, best=rank n-1)
             # Best Sharpe → lowest multiplier → sorts first under ascending adjusted_rank
+            # Keys are (setup_plugin, tf) tuples to match rank_signals() in ranker.py
             ranked = sorted(rows, key=lambda r: (r["sharpe"] or 0.0))
             n = len(ranked)
             weights: dict = {}
             for rank, row in enumerate(ranked):
-                weights[row["setup_plugin"]] = round(0.5 + ((n - 1 - rank) / n), 4)
+                weights[(row["setup_plugin"], row["tf"])] = round(0.5 + ((n - 1 - rank) / n), 4)
 
             self._perf_weights = weights
             self.logger.info(
