@@ -602,7 +602,7 @@ Plans:
 
 **Goal:** Replace discrete `{-2..+2}` `ofi_divergence` I1 field with a continuous z-score factor. Fix multi-symbol state corruption in OFIPlugin. Rewrite `OFIDivergencePlugin` (I7) with persistence, peak magnitude tracking, EWMA soft factor, and principled `tanh` confidence.
 **Design doc:** `docs/plans/2026-04-05-ofi-divergence-redesign-design.md`
-**Plans:** 1/1 plan complete
+**Plans:** 0/1 plan complete
 **Depends on:** Phase 58.1
 
 Plans:
