@@ -666,7 +666,7 @@ async def get_signals_attribution(
                     }
                 )
 
-        return {"track": track, "window": window, "groups": groups}
+        return {"track": track, "window": window, "group_by": group_by, "groups": groups}
 
     except Exception as exc:
         logger.error("Error fetching signal attribution", error=str(exc))
