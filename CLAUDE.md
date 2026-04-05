@@ -52,7 +52,7 @@ cd dashboard && npm run dev
 | **Captures** | `.planning/IDEAS.md` | Bullet list of ideas; links to detailed files when fleshed out |
 | **Research** | `docs/ideas/*.md` | Per-idea files — status/priority/milestone in frontmatter; reviewed by human + LLM |
 | **Tech stack** | `docs/ideas/tech-stack.md` | Stack decisions with reasoning — living document |
-| **Design docs** | `docs/plans/*.md` | `brainstorming` output — reviewed before planning |
+| **Design docs** | `docs/plans/*.md` | `brainstorming` output — reviewed before planning. Archive to `docs/plans/archive/` after phase ships. |
 | **Todos** | `.planning/todos/pending/` | Fixes, refactors, small improvements (`/gsd:add-todo`) |
 | **Roadmap** | `.planning/ROADMAP.md` | Current milestone phases + backlog (GSD-managed) |
 | **Plans** | `.planning/phases/*/PLAN.md` | Detailed TDD implementation plans (`/gsd:plan-phase`) |
@@ -112,10 +112,14 @@ When removing/replacing services (5 existing `_archived_*.py` files):
 **Design doc archive:** After each phase ships, move its `docs/plans/*.md` to `docs/plans/archive/` if `Status: Shipped`. Do this as part of post-phase cleanup, not just at milestone boundaries.
 **Todo store:** `.planning/todos/pending/` (active) and `.planning/todos/done/` (completed). GSD config reports `completed_dir` but actual dir on disk is `done/`.
 
+### Skill Output Path Overrides
+The `brainstorming` skill saves to `docs/superpowers/specs/` by default — **override: save to `docs/plans/YYYY-MM-DD-<topic>-design.md`**.
+The `writing-plans` skill saves to `docs/superpowers/plans/` by default — **override: implementation plans live in `.planning/phases/` (GSD-managed); do NOT create a separate file in docs**.
+
 ### Feature Development (any new plugin, service, or significant change)
 **Mandatory skill chain — do not skip steps:**
 1. `brainstorming` — design approval → `docs/plans/YYYY-MM-DD-<topic>-design.md`
-2. `writing-plans` — TDD implementation plan
+2. `writing-plans` — TDD implementation plan → `.planning/phases/` (GSD manages this)
 3. `executing-plans` — task-by-task with review checkpoints
 4. `verification-before-completion` — full test suite + lint
 5. `finishing-a-development-branch` — clean git history, decide merge/PR/cleanup

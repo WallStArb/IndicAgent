@@ -1205,8 +1205,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Process I7-specific signal generation — also build plugin_outputs for CIS scoring
         plugin_outputs: dict[str, dict] = {}
         for task, output in zip(tasks, outputs):  # noqa: B905 — lengths differ on plugin exceptions
-            if output.get("signal"):
-                sig = output["signal"]
+            if output.get("direction", 0) != 0:
+                sig = output
                 sig["setup_plugin"] = task.plugin_name
                 sig["symbol"] = symbol
                 sig["tf"] = tf
