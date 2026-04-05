@@ -119,11 +119,21 @@ from src.observability.metrics import (
 # ---------------------------------------------------------------------------
 
 # Fields consumed by explicit keyword args in _signal_dict_to_ranked — excluded from **extras.
-_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset({
-    "signal_id", "setup_plugin", "direction", "pre_quality_confidence",
-    "confidence", "calibrated_confidence", "regime_eligible", "quality_score",
-    "tod_multiplier", "adjusted_rank", "was_selected",
-})
+_RANKED_CONSUMED_KEYS: frozenset[str] = frozenset(
+    {
+        "signal_id",
+        "setup_plugin",
+        "direction",
+        "pre_quality_confidence",
+        "confidence",
+        "calibrated_confidence",
+        "regime_eligible",
+        "quality_score",
+        "tod_multiplier",
+        "adjusted_rank",
+        "was_selected",
+    }
+)
 
 
 def _signal_dict_to_ranked(sig: dict) -> RankedSignal:
@@ -141,7 +151,9 @@ def _signal_dict_to_ranked(sig: dict) -> RankedSignal:
         direction=int(sig.get("direction", 0)),
         raw_confidence=float(sig.get("pre_quality_confidence", sig.get("confidence", 0.0))),
         calibrated_confidence=float(
-            sig.get("calibrated_confidence") if sig.get("calibrated_confidence") is not None else sig.get("confidence", 0.0)
+            sig.get("calibrated_confidence")
+            if sig.get("calibrated_confidence") is not None
+            else sig.get("confidence", 0.0)
         ),
         regime_eligible=bool(sig.get("regime_eligible", True)),
         quality_score=float(sig.get("quality_score", 1.0)),
@@ -342,6 +354,7 @@ def _timed_plugin_call(plugin, frames):
 @dataclass
 class PluginTask:
     """Container for parallel plugin execution metadata."""
+
     coroutine: Any
     plugin_name: str
     state_key: tuple
@@ -381,9 +394,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Plugin registry
         register_all_plugins()
         for tier_list, tier_name in [
-            (TIER_I1, "I1"), (TIER_I2, "I2"), (TIER_I3, "I3"),
-            (TIER_I4, "I4"), (TIER_I5, "I5"), (TIER_SMC, "SMC"),
-            (TIER_I6, "I6"), (TIER_I7, "I7"),
+            (TIER_I1, "I1"),
+            (TIER_I2, "I2"),
+            (TIER_I3, "I3"),
+            (TIER_I4, "I4"),
+            (TIER_I5, "I5"),
+            (TIER_SMC, "SMC"),
+            (TIER_I6, "I6"),
+            (TIER_I7, "I7"),
         ]:
             registry.validate_tier(tier_list, tier_name)
 
@@ -391,10 +409,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._plugin_cache: dict[str, Any] = {}
         for n in TIER_I1:
             self._plugin_cache[n] = registry.get_indicator(n)
-        for n in (
-            TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5
-            + TIER_SMC + TIER_I6 + TIER_I7
-        ):
+        for n in TIER_I2 + TIER_I3 + TIER_I4 + TIER_I5 + TIER_SMC + TIER_I6 + TIER_I7:
             self._plugin_cache[n] = registry.get_pattern(n)
 
         self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
@@ -424,10 +439,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         cpu_count = os.cpu_count() or 24
         _configured = self._settings.intelligence_thread_pool_workers
         _workers = _configured if _configured > 0 else cpu_count * 2
-        self._executor = ThreadPoolExecutor(
-            max_workers=_workers,
-            thread_name_prefix="intel_"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
         THREAD_POOL_WORKERS.set(_workers)
 
         # CIS / aggregator state
@@ -445,14 +457,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._regime_dur_min: float = 0.30
 
         # Output buffer
-        self._output_queue: asyncio.Queue = asyncio.Queue(
-            maxsize=_OUTPUT_QUEUE_MAXSIZE
-        )
+        self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=_OUTPUT_QUEUE_MAXSIZE)
 
         # Shadow mode
-        self._shadow_mode: bool = (
-            os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
-        )
+        self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
 
         # Consumer group
         self._consumer_group = "intelligence_pipeline_group"
@@ -487,12 +495,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             "Bars processed through I1-I7 pipeline",
         )
         self._i1_latency_ms = gauge(
-            "intelligence_pipeline_i1_latency_ms",
-            "I1 tier execution time in milliseconds"
+            "intelligence_pipeline_i1_latency_ms", "I1 tier execution time in milliseconds"
         )
         self._i7_latency_ms = gauge(
-            "intelligence_pipeline_i7_latency_ms",
-            "I7 tier execution time in milliseconds"
+            "intelligence_pipeline_i7_latency_ms", "I7 tier execution time in milliseconds"
         )
         self._signals_generated = counter(
             "intelligence_pipeline_signals_generated_total",
@@ -603,14 +609,25 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         state_topic = topic_intelligence_pipeline_state(self._settings.env_name)
         try:
             import subprocess
+
             result = await asyncio.to_thread(
                 subprocess.run,
                 [
-                    "docker", "exec", "redpanda", "rpk", "topic", "create", state_topic,
-                    "--partitions", str(_STATE_TOPIC_PARTITIONS),
-                    "--replicas", str(_STATE_TOPIC_REPLICATION),
-                    "--topic-config", "cleanup.policy=compact",
-                    "--topic-config", f"retention.ms={_STATE_TOPIC_RETENTION_MS}",
+                    "docker",
+                    "exec",
+                    "redpanda",
+                    "rpk",
+                    "topic",
+                    "create",
+                    state_topic,
+                    "--partitions",
+                    str(_STATE_TOPIC_PARTITIONS),
+                    "--replicas",
+                    str(_STATE_TOPIC_REPLICATION),
+                    "--topic-config",
+                    "cleanup.policy=compact",
+                    "--topic-config",
+                    f"retention.ms={_STATE_TOPIC_RETENTION_MS}",
                 ],
                 capture_output=True,
                 timeout=10,
@@ -721,21 +738,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             asyncio.create_task(self._drain_output()),
             asyncio.create_task(self._health_monitor_loop()),
             # Refresh loops
-            asyncio.create_task(
-                self._run_refresh_loop(self._load_perf_weights, 3600)
-            ),
-            asyncio.create_task(
-                self._run_refresh_loop(self._refresh_drift_penalties, 14400)
-            ),
-            asyncio.create_task(
-                self._run_refresh_loop(self._load_cis_weights, 1800)
-            ),
-            asyncio.create_task(
-                self._run_refresh_loop(self._load_calibration_curves, 1800)
-            ),
-            asyncio.create_task(
-                self._run_refresh_loop(self._load_tod_multipliers, 14400)
-            ),
+            asyncio.create_task(self._run_refresh_loop(self._load_perf_weights, 3600)),
+            asyncio.create_task(self._run_refresh_loop(self._refresh_drift_penalties, 14400)),
+            asyncio.create_task(self._run_refresh_loop(self._load_cis_weights, 1800)),
+            asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
+            asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -890,9 +897,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 intel_dict = cached_evt.model_dump()
                 flattened = {}
                 for tier_name, tier_data in intel_dict.items():
-                    if (
-                        tier_name in ("i1", "i2", "i3", "i4", "i5", "smc", "i6")
-                        and isinstance(tier_data, dict)
+                    if tier_name in ("i1", "i2", "i3", "i4", "i5", "smc", "i6") and isinstance(
+                        tier_data, dict
                     ):
                         flattened.update(tier_data)
                     else:
@@ -961,7 +967,9 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         except ValidationError as exc:
             self.logger.error(
                 "IntelligenceEvent validation failed",
-                symbol=symbol, tf=tf, error=str(exc),
+                symbol=symbol,
+                tf=tf,
+                error=str(exc),
             )
             self._pipeline_errors.inc()
             return None, None
@@ -984,9 +992,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         """Background task: drain output queue and publish to Kafka."""
         while self.running or not self._output_queue.empty():
             try:
-                topic, key, value = await asyncio.wait_for(
-                    self._output_queue.get(), timeout=1.0
-                )
+                topic, key, value = await asyncio.wait_for(self._output_queue.get(), timeout=1.0)
                 self._output_buffer_depth.set(self._output_queue.qsize())
                 await self._kafka_producer.publish(topic, msg=value, key=key)
                 self._output_queue.task_done()
@@ -1031,16 +1037,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             if isinstance(out, Exception):
                 self._pipeline_errors.inc()
                 PLUGIN_ERRORS_TOTAL.labels(plugin_name=task.plugin_name, tier=tier).inc()
-                self.logger.warning(
-                    f"{log_prefix}.error",
-                    plugin=task.plugin_name,
-                    error=str(out)
-                )
+                self.logger.warning(f"{log_prefix}.error", plugin=task.plugin_name, error=str(out))
             elif isinstance(out, tuple) and len(out) == 2:
                 result_dict, duration_ms = out
-                PLUGIN_DURATION_MS.labels(
-                    plugin_name=task.plugin_name, tier=tier
-                ).observe(duration_ms)
+                PLUGIN_DURATION_MS.labels(plugin_name=task.plugin_name, tier=tier).observe(
+                    duration_ms
+                )
                 if isinstance(result_dict, dict):
                     self._update_plugin_state(task, result_dict)
                     outputs.append(result_dict)
@@ -1065,19 +1067,24 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
                 continue
-            if should_skip_plugin(plugin, self._instrument_map.get(symbol),
-                               self._plugin_skipped_total, plugin_name):
+            if should_skip_plugin(
+                plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name
+            ):
                 continue
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
 
             # Create PluginTask with coroutine
-            tasks.append(PluginTask(
-                coroutine=loop.run_in_executor(self._executor, _timed_plugin_call, plugin, frames),
-                plugin_name=plugin_name,
-                state_key=state_key,
-                lock=lock
-            ))
+            tasks.append(
+                PluginTask(
+                    coroutine=loop.run_in_executor(
+                        self._executor, _timed_plugin_call, plugin, frames
+                    ),
+                    plugin_name=plugin_name,
+                    state_key=state_key,
+                    lock=lock,
+                )
+            )
 
         # Execute all I1 plugins in parallel
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
@@ -1097,9 +1104,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # I2-I6 analysis pipeline
     # ------------------------------------------------------------------
 
-    async def _run_analysis_pipeline(
-        self, symbol: str, tf: str, frames: dict
-    ) -> dict | None:
+    async def _run_analysis_pipeline(self, symbol: str, tf: str, frames: dict) -> dict | None:
         """Run I2 → I3 → I4 → I5 → SMC → I6 and return tiered dict."""
         tiered: dict[str, dict] = {}
         tier_map = [
@@ -1116,7 +1121,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 plugin = self._plugin_cache.get(plugin_name)
                 if plugin is None:
                     continue
-                if should_skip_plugin(plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name):
+                if should_skip_plugin(
+                    plugin,
+                    self._instrument_map.get(symbol),
+                    self._plugin_skipped_total,
+                    plugin_name,
+                ):
                     continue
                 state_key = (plugin_name, symbol, tf)
                 lock = self._get_state_lock(state_key)
@@ -1145,9 +1155,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # I7 signal generation pipeline
     # ------------------------------------------------------------------
 
-    async def _run_i7(
-        self, bar: BarMessage, event: IntelligenceEvent, tiered: dict
-    ) -> dict:
+    async def _run_i7(self, bar: BarMessage, event: IntelligenceEvent, tiered: dict) -> dict:
         """Run I7 plugins → quality gate → regime gate → calibration → rank → select.
 
         Returns a dict of I7 results for BarIntelligenceRecord construction:
@@ -1168,7 +1176,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         raw_signals: list[dict] = []
         tasks: list[PluginTask] = []
         main_df = self._bar_history.to_dataframe(symbol, tf)
-        plugin_input = {"main": main_df, "features": features, "__symbol__": symbol, "__timeframe__": tf, "timeframe": tf}
+        plugin_input = {
+            "main": main_df,
+            "features": features,
+            "__symbol__": symbol,
+            "__timeframe__": tf,
+            "timeframe": tf,
+        }
         loop = asyncio.get_running_loop()
 
         # Build parallel tasks
@@ -1176,21 +1190,25 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             plugin = self._plugin_cache.get(plugin_name)
             if plugin is None:
                 continue
-            if should_skip_plugin(plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name):
+            if should_skip_plugin(
+                plugin, self._instrument_map.get(symbol), self._plugin_skipped_total, plugin_name
+            ):
                 continue
             state_key = (plugin_name, symbol, tf)
             lock = self._get_state_lock(state_key)
 
             # Create PluginTask with coroutine and bar context
-            tasks.append(PluginTask(
-                coroutine=loop.run_in_executor(
-                    self._executor, _timed_plugin_call, plugin, plugin_input
-                ),
-                plugin_name=plugin_name,
-                state_key=state_key,
-                lock=lock,
-                bar=bar
-            ))
+            tasks.append(
+                PluginTask(
+                    coroutine=loop.run_in_executor(
+                        self._executor, _timed_plugin_call, plugin, plugin_input
+                    ),
+                    plugin_name=plugin_name,
+                    state_key=state_key,
+                    lock=lock,
+                    bar=bar,
+                )
+            )
 
         # Execute all I7 plugins in parallel
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
@@ -1268,9 +1286,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             sig["composite_rank"] = rank_idx
             sig["num_signals_bar"] = num_signals
             sig["was_selected"] = False  # filled in after winner selection below
-            sig["status"] = (
-                "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
-            )
+            sig["status"] = "pending" if sig.get("regime_eligible", True) else "regime_suppressed"
             # Regime context from features (populated by _build_features_from_event)
             sig["regime_type"] = features.get("regime_type")
             sig["hmm_regime_at_fire"] = features.get("hmm_regime")
@@ -1292,10 +1308,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Mark the winner
         if winner_plugin is not None:
             for sig in ranked:
-                if (
-                    sig.get("setup_plugin") == winner_plugin
-                    and sig.get("regime_eligible", True)
-                ):
+                if sig.get("setup_plugin") == winner_plugin and sig.get("regime_eligible", True):
                     sig["was_selected"] = True
                     break
 
@@ -1378,8 +1391,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ranked_signals=ranked_signals,
             winner_plugin=winner.get("setup_plugin") if winner else None,
             winner_confidence=(
-                winner.get("calibrated_confidence") if winner.get("calibrated_confidence") is not None else winner.get("confidence")
-            ) if winner else None,
+                (
+                    winner.get("calibrated_confidence")
+                    if winner.get("calibrated_confidence") is not None
+                    else winner.get("confidence")
+                )
+                if winner
+                else None
+            ),
             winner_direction=winner.get("direction") if winner else None,
             signals_evaluated=i7.get("signals_evaluated", 0),
             signals_after_quality=i7.get("signals_after_quality", 0),
@@ -1468,16 +1487,14 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
             if not rows:
                 # Fallback to 'all' regime rollup (bootstrap phase — no regime data yet)
-                rows = await self._db.execute_query(
-                    """
+                rows = await self._db.execute_query("""
                     SELECT setup_plugin, sharpe
                     FROM signal_metrics
                     WHERE track = 'market'
                       AND regime_type = 'all'
                       AND window_days = 30
                       AND n >= 30
-                    """
-                )
+                    """)
 
             if not rows:
                 self._perf_weights = {}
