@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
 status: Milestone complete
-last_updated: "2026-04-05T15:39:18.089Z"
+last_updated: "2026-04-05T16:08:17.304Z"
 progress:
   total_phases: 17
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 12
-  completed_plans: 11
-  percent: 92
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -19,13 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 58.1 — contract-lifecycle-automation
+**Current focus:** Phase 60 — Signal Metrics Redesign (Plans 60-01 through 60-03 complete)
 
 ## Current Position
 
-Phase: 58.1
-Plan: Not started
-Next: Phase 58 Plan 04 — next plan in pipeline parallelization series
+Phase: 60
+Plan: 03 (complete)
+Next: Phase 60 complete — signal_metrics pipeline fully wired; await first compute cycle for live data
 
 ## v2.1 Milestone Goal
 
@@ -196,6 +196,15 @@ Recent additions:
 - IBKRProviderAgent client_id = ib_client_id + 1 (36) during transition; DataProviderAgent uses base 35
 - gap_requests_loop consumer group: {provider_name}_provider_gap_consumer — distinct from DataProviderAgent's data_provider_consumer
 - PluginCircuitBreaker not used in reconnect — designed for plugin/workflow protection, not connection backoff; exponential cap at 60s provides equivalent safety
+
+### Decisions (Phase 60 Plan 03)
+
+- API attribution endpoint reads signal_metrics with regime_type='all' filter; track param selects zone (IC primary) or market (Sharpe primary)
+- _last_hmm_regime tracked per-bar in intelligence_pipeline_agent; _current_hmm_regime_label() maps 0->mean_reversion, 1/2->trend, None->all
+- perf_multiplier falls back to regime_type='all' when current regime has N<30 (bootstrap phase)
+- setup_performance_updater is now a thin shim reading from setup_performance table (written by SignalMetricsWriterAgent)
+- Dashboard two-track attribution row fetches zone+market in parallel; N<30 rows dimmed with tooltip badge
+- 7 pre-existing TypeScript build errors fixed as Rule 3 blocker (SignalWindowSummary phantom type, unknown err narrowing, missing required props)
 
 ### Decisions (Phase 54 Plan 04)
 
