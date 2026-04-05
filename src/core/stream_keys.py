@@ -235,6 +235,15 @@ def topic_health_events_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.service_auditor.journal.dlq"
 
 
+def topic_signal_metrics(env_name: str) -> str:
+    """Kafka topic for SignalMetricsComputeAgent output events.
+
+    Consumed by SignalMetricsWriterAgent to upsert signal_metrics,
+    signal_metrics_ic, and signal_metrics_dq_failures tables.
+    """
+    return f"{env_prefix(env_name)}intelligence.signal_metrics"
+
+
 def topic_market_data_quality(env_name: str) -> str:
     """ProviderQualityEvent side-channel: provider latency, gaps, failovers.
 
