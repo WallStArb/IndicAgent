@@ -1,5 +1,6 @@
 """Tests for SignalMetricsComputeAgent."""
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from services.signal_metrics_compute_agent import SignalMetricsComputeAgent
