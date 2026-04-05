@@ -33,9 +33,11 @@ ofi_divergence = ofi_spike_z - price_return_z
 ```
 
 - `ofi_spike_z` is already computed (z-score of raw OFI vs 100-bar history).
-- `price_return_z` is computed from a new 50-bar rolling price return history stored in plugin `_state`.
+- `price_return_z` is computed from a new **100-bar** rolling price return history stored in plugin `_state` — same window as OFI history so both z-scores share the same distributional basis before subtraction.
 - Result: continuous z-score units. `+2.5` = OFI is 2.5σ more bullish than price. Scale: roughly `{-6…+6}` in practice.
 - Same output key `ofi_divergence` — no schema change needed (`I1Indicators` has `extra='allow'`).
+
+**State keying:** all `_state` entries in `OFIPlugin` must be keyed by `(symbol, tf)`. Currently the state is a flat dict shared across all symbols — adding price return history to the same flat state would corrupt divergence calculations in multi-symbol deployments (ES and MNQ polluting each other's history). Derive `(symbol, tf)` from the df's index metadata or the symbol injected via frames. This is a pre-existing bug being fixed as part of this change.
 
 ### Layer 2: I7 — `ofi_divergence.py`
 
@@ -45,7 +47,6 @@ Full rewrite of `OFIDivergencePlugin`.
 ```
 abs(ofi_divergence) >= 1.5              # 1.5σ minimum — recalibrate from data
 sign(ofi_divergence) stable >= 2 bars  # persistence via state_utils
-sign(ofi_ewma_5) == sign(ofi_divergence)  # fast EWMA confirms direction
 ```
 
 The persistence filter is critical: a single-bar divergence is noise. Two consecutive bars with consistent sign is a pattern. State is keyed on `(symbol, tf)` using `frames.get("__symbol__")` / `frames.get("__timeframe__")`.
@@ -59,7 +60,9 @@ The persistence filter is critical: a single-bar divergence is noise. Two consec
 mag = peak_abs_ofi_div   # peak across persistence window, not just current bar
 base = 0.42
 + 0.25 * tanh(mag / 3.0)                              # magnitude, principled soft cap
-+ 0.08 if sign(ofi_ewma_5) == sign(ofi_ewma_20)       # slow EWMA also confirms
++ 0.08 if sign(ofi_ewma_5) == sign(ofi_divergence)    # fast EWMA agrees → boost
+- 0.04 if sign(ofi_ewma_5) != sign(ofi_divergence)    # fast EWMA disagrees → reduce
++ 0.06 if sign(ofi_ewma_5) == sign(ofi_ewma_20)       # slow EWMA also confirms
 + 0.06 if rel_volume >= 1.5                            # volume validates OFI spike
 + 0.06 if hmm_regime == 0 else -0.06 if hmm_regime in (1, 2) else 0  # soft hint
 → compose_confidence(result)                           # clamp [0.10, 0.95]
@@ -67,7 +70,8 @@ base = 0.42
 
 Coefficients rationale:
 - `tanh(mag / 3.0)`: at 1.5σ → ~0.46; at 3σ → ~0.76; at 6σ → ~0.96. Monotonic, bounded, no arbitrary cap.
-- EWMA alignment `+0.08`: sustained OFI pressure (slow EWMA agrees) is meaningfully stronger.
+- EWMA fast alignment `+0.08 / -0.04`: not a hard gate — a strong signal with a slightly negative ewma_5 still fires but at lower conviction. Asymmetric (boost > penalty) because the divergence magnitude already captures the core edge.
+- EWMA slow alignment `+0.06`: sustained OFI pressure (slow EWMA agrees) is meaningfully stronger.
 - Volume `+0.06`: validates the spike is real, not thin-book noise.
 - Regime `±0.06`: soft hint only. `regime_type = "any"` means aggregator does not suppress in any regime.
 
