@@ -82,34 +82,49 @@ class TestOFIContinuation:
 
 
 # ─── OFIDivergence ────────────────────────────────────────────────────────────
+# Phase 59: Redesigned — continuous z-score factor, 2-bar persistence, regime_type="any".
+# Full coverage: tests/unit/intelligence/test_ofi_divergence.py
 
 class TestOFIDivergence:
     def _make_plugin(self):
         from src.intelligence.trading.ofi_divergence import OFIDivergencePlugin
         return OFIDivergencePlugin()
 
-    def test_fires_when_ofi_disagrees_with_price(self):
-        """ofi_divergence < -1.5 (sell pressure but price rising) fires mean_reversion signal."""
+    def _make_frames_n(self, close_arr, features=None, n=2, symbol="ES", tf="1m"):
+        """Return list of n identical frame dicts for persistence warm-up."""
+        return [_make_frames(close_arr, features, symbol, tf) for _ in range(n)]
+
+    def test_fires_after_two_bars_bearish_divergence(self):
+        """ofi_divergence = -1.8 for 2 bars → direction=-1 (price-discovery short)."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
-        # ofi_divergence = -1.8: OFI bearish vs price bullish → bearish mean reversion
-        frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_20": -100.0, "atr_14": 2.0})
-        result = plugin.compute_full(frames)
+        frames = _make_frames(close, {"ofi_divergence": -1.8, "ofi_ewma_5": -0.5, "atr_14": 2.0})
+        plugin.compute_full(frames)  # bar 1 — no fire
+        result = plugin.compute_full(frames)  # bar 2 — should fire
         assert result.get("direction") == -1, f"Expected -1, got {result.get('direction')}: {result}"
         assert result.get("confidence", 0) > 0
         if result.get("direction") != 0:
-            assert isinstance(result.get("stop_loss"), float), f"stop_loss must be float, got {type(result.get('stop_loss'))}"
-            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0, "targets must be non-empty list"
-            assert all(isinstance(t, float) for t in result["targets"]), "all targets must be float"
-            assert isinstance(result.get("regime_context"), str), f"regime_context must be str, got {type(result.get('regime_context'))}"
+            assert isinstance(result.get("stop_loss"), float)
+            assert isinstance(result.get("targets"), list) and len(result["targets"]) > 0
+            assert all(isinstance(t, float) for t in result["targets"])
+            assert isinstance(result.get("regime_context"), str)
 
-    def test_fires_bullish_divergence(self):
-        """ofi_divergence > 1.5: OFI bullish vs price falling → bullish mean reversion."""
+    def test_fires_after_two_bars_bullish_divergence(self):
+        """ofi_divergence = 1.8 for 2 bars → direction=1 (price-discovery long)."""
         plugin = self._make_plugin()
         close = np.linspace(5010.0, 5000.0, 25)
-        frames = _make_frames(close, {"ofi_divergence": 1.8, "ofi_ewma_20": 100.0, "atr_14": 2.0})
-        result = plugin.compute_full(frames)
+        frames = _make_frames(close, {"ofi_divergence": 1.8, "ofi_ewma_5": 0.5, "atr_14": 2.0})
+        plugin.compute_full(frames)  # bar 1
+        result = plugin.compute_full(frames)  # bar 2
         assert result.get("direction") == 1, f"Expected 1, got {result.get('direction')}: {result}"
+
+    def test_no_fire_single_bar(self):
+        """Single bar above threshold does not fire — persistence requires >= 2 bars."""
+        plugin = self._make_plugin()
+        close = np.linspace(5000.0, 5010.0, 25)
+        frames = _make_frames(close, {"ofi_divergence": -1.8, "atr_14": 2.0})
+        result = plugin.compute_full(frames)
+        assert result.get("direction", 0) == 0, "Must not fire on first bar"
 
     def test_no_signal_when_aligned(self):
         """ofi_divergence near 0 (aligned), no signal."""
@@ -120,17 +135,18 @@ class TestOFIDivergence:
         assert result.get("direction") == 0
 
     def test_no_signal_below_threshold(self):
-        """ofi_divergence = 1.2 (below 1.5 threshold), no signal."""
+        """ofi_divergence = 1.2 (below 1.5 threshold), no signal even after persistence."""
         plugin = self._make_plugin()
         close = np.linspace(5000.0, 5010.0, 25)
         frames = _make_frames(close, {"ofi_divergence": 1.2})
-        result = plugin.compute_full(frames)
+        for _ in range(3):
+            result = plugin.compute_full(frames)
         assert result.get("direction") == 0
 
-    def test_regime_type_is_mean_reversion(self):
-        """plugin.regime_type must be 'mean_reversion'."""
+    def test_regime_type_is_any(self):
+        """Phase 59: regime_type must be 'any' — no aggregator suppression."""
         plugin = self._make_plugin()
-        assert plugin.regime_type == "mean_reversion"
+        assert plugin.regime_type == "any"
 
     def test_no_signal_when_ofi_divergence_missing(self):
         """Missing ofi_divergence → no signal."""
