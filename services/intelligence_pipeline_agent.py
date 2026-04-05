@@ -874,7 +874,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
         # Build frames dict
         main_df = self._bar_history.to_dataframe(symbol, tf)
-        frames: dict[str, Any] = {"main": main_df}
+        frames: dict[str, Any] = {"main": main_df, "__symbol__": symbol, "__timeframe__": tf}
 
         # Inject cross-TF data
         for other_tf in _STANDARD_TFS:
