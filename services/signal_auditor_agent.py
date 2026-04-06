@@ -250,7 +250,7 @@ class SignalAuditorAgent(BaseAgent):
                         SELECT COUNT(*)
                         FROM signal_ledger
                         WHERE symbol = $1
-                          AND tf = $2
+                          AND timeframe = $2
                           AND feature_ts >= $3
                           AND feature_ts < $4
                         """,
@@ -305,7 +305,7 @@ class SignalAuditorAgent(BaseAgent):
                           percentile_cont(0.95) WITHIN GROUP (ORDER BY pipeline_lag_ms) AS p95
                         FROM signal_ledger
                         WHERE symbol = $1
-                          AND tf = $2
+                          AND timeframe = $2
                           AND feature_ts >= NOW() - INTERVAL '1 hour'
                           AND pipeline_lag_ms IS NOT NULL
                         """,
@@ -350,7 +350,7 @@ class SignalAuditorAgent(BaseAgent):
                       AVG(cis_score)    AS cis_mean,
                       STDDEV(cis_score) AS cis_stddev
                     FROM signal_ledger
-                    WHERE tf = $1
+                    WHERE timeframe = $1
                       AND feature_ts >= NOW() - ($2 * INTERVAL '1 day')
                     """,
                     tf,
