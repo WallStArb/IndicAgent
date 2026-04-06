@@ -247,3 +247,41 @@ def test_i1_frames_contain_symbol_and_timeframe():
         "__symbol__ must be injected into I1 frames"
     assert '"__timeframe__"' in src or "'__timeframe__'" in src, \
         "__timeframe__ must be injected into I1 frames"
+
+
+def test_cis_assertion_publishes_to_dlq_on_null_raw_cis():
+    """When a ranked signal has raw_cis_score=None, the DLQ counter increments
+    and the signal is NOT published to intelligence.i7.signals."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
+
+    agent = IntelligencePipelineComputeAgent.__new__(IntelligencePipelineComputeAgent)
+    agent.logger = MagicMock()
+    agent._settings = MagicMock()
+    agent._settings.env_name = ""
+    agent._output_queue = asyncio.Queue(maxsize=500)
+    agent._output_buffer_drops = MagicMock()
+    agent._signal_dlq_total = MagicMock()
+
+    bad_signal = {
+        "setup_plugin": "TestPlugin",
+        "direction": "long",
+        "confidence": 0.8,
+        "raw_cis_score": None,        # broken field
+        "filtered_cis_score": 0.6,
+    }
+
+    bar = MagicMock()
+    bar.ts.isoformat.return_value = "2026-04-06T14:30:00+00:00"
+
+    result = agent._publish_signals_or_dlq([bad_signal], "ES", "1m", bar)
+
+    assert result is False
+    agent._signal_dlq_total.inc.assert_called_once()
+    assert agent._output_queue.qsize() == 1
+    topic, key, payload = agent._output_queue.get_nowait()
+    assert "signal.dlq" in topic
+    assert payload["reason"] == "cis_score_null"
+    assert payload["symbol"] == "ES"
+    assert payload["tf"] == "1m"
