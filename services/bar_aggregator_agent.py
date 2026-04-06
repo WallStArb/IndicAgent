@@ -175,6 +175,15 @@ class BarAggregatorComputeAgent(BaseAgent):
     def topics_produced(self) -> list[str]:
         return [topic_market_bars_htf(self._env_name)]
 
+    def _make_consumer(self) -> KafkaConsumerClient:
+        """Create a fresh KafkaConsumerClient for market.bars."""
+        return KafkaConsumerClient(
+            topic_market_bars(self._env_name),
+            bootstrap_servers=self._settings.kafka_bootstrap_servers,
+            group_id="bar_aggregator_consumer",
+            auto_offset_reset="latest",
+        )
+
     async def _setup(self) -> None:
         """Connect Kafka producer and consumer."""
         self._kafka_producer = KafkaProducerClient(
@@ -182,12 +191,7 @@ class BarAggregatorComputeAgent(BaseAgent):
         )
         await self._kafka_producer.start()
 
-        self._kafka_consumer = KafkaConsumerClient(
-            topic_market_bars(self._env_name),
-            bootstrap_servers=self._settings.kafka_bootstrap_servers,
-            group_id="bar_aggregator_consumer",
-            auto_offset_reset="latest",
-        )
+        self._kafka_consumer = self._make_consumer()
         await self._kafka_consumer.start()
         self.logger.info(
             "bar_aggregator_agent.setup_complete",
@@ -310,11 +314,13 @@ class BarAggregatorComputeAgent(BaseAgent):
                         )
                         # Don't crash on single bar failure — continue consuming
 
-                # Consumer restart — safe to stop/start here, async-for has exited cleanly
+                # Consumer restart — recreate consumer object to avoid aiokafka
+                # "Did you call start twice?" error on stop()+start() of same instance.
                 if self._consumer_restart_needed and self.running:
                     try:
                         await self._kafka_consumer.stop()
                         await asyncio.sleep(1)
+                        self._kafka_consumer = self._make_consumer()
                         await self._kafka_consumer.start()
                         self._health_metrics._consecutive_errors = 0
                         self._health_metrics._bars_last_minute = 0
@@ -324,6 +330,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                         self.logger.error(
                             "bar_aggregator.consumer_reset_failed", error=str(exc)
                         )
+                        raise  # unrecoverable — let systemd restart clean
 
         finally:
             health_task.cancel()
