@@ -252,16 +252,7 @@ def test_i1_frames_contain_symbol_and_timeframe():
 def test_cis_assertion_publishes_to_dlq_on_null_raw_cis():
     """When a ranked signal has raw_cis_score=None, the DLQ counter increments
     and the signal is NOT published to intelligence.i7.signals."""
-    import asyncio
-    from unittest.mock import MagicMock
-    from services.intelligence_pipeline_agent import IntelligencePipelineComputeAgent
-
-    agent = IntelligencePipelineComputeAgent.__new__(IntelligencePipelineComputeAgent)
-    agent.logger = MagicMock()
-    agent._settings = MagicMock()
-    agent._settings.env_name = ""
-    agent._output_queue = asyncio.Queue(maxsize=500)
-    agent._output_buffer_drops = MagicMock()
+    agent = _make_agent()
     agent._signal_dlq_total = MagicMock()
 
     bad_signal = {
@@ -281,7 +272,8 @@ def test_cis_assertion_publishes_to_dlq_on_null_raw_cis():
     agent._signal_dlq_total.inc.assert_called_once()
     assert agent._output_queue.qsize() == 1
     topic, key, payload = agent._output_queue.get_nowait()
-    assert "signal.dlq" in topic
+    assert topic == "dev.intelligence.signal.dlq"
     assert payload["reason"] == "cis_score_null"
     assert payload["symbol"] == "ES"
     assert payload["tf"] == "1m"
+    assert payload["signal_count"] == 1
