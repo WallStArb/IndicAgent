@@ -51,6 +51,7 @@ class HealthMetrics:
         self._bars_skipped_last_minute = 0
         self._consecutive_errors = 0
         self._last_reset = time.monotonic()
+        self._last_htf_emit_ts: float = time.monotonic()  # track last HTF emission time
 
     def record_bar(self, bar_ts: datetime):
         """Record a successfully processed bar."""
@@ -60,6 +61,7 @@ class HealthMetrics:
     def record_htf_bar(self):
         """Record an HTF bar emission."""
         self._htf_bars_last_minute += 1
+        self._last_htf_emit_ts = time.monotonic()
 
     def record_error(self):
         """Record a processing error."""
@@ -92,8 +94,12 @@ class HealthMetrics:
         if self._consecutive_errors > 50:
             return False, f"consecutive_errors_{self._consecutive_errors}"
 
-        # Check 3: Consuming but not emitting HTF bars
-        if self._bars_last_minute > 100 and self._htf_bars_last_minute == 0:
+        # Check 3: Consuming but not emitting HTF bars.
+        # Only flag after 7 minutes of no HTF emission — a 5m bar only closes
+        # once per 5 minutes, and counters are zeroed on each consumer reset,
+        # so a 30s check window will always see 0 HTF after a fresh restart.
+        secs_since_htf = time.monotonic() - self._last_htf_emit_ts
+        if self._bars_last_minute > 100 and secs_since_htf > 420:
             return False, "consuming_not_emitting"
 
         return True, "healthy"
@@ -325,6 +331,7 @@ class BarAggregatorComputeAgent(BaseAgent):
                         self._health_metrics._consecutive_errors = 0
                         self._health_metrics._bars_last_minute = 0
                         self._health_metrics._htf_bars_last_minute = 0
+                        self._health_metrics._last_htf_emit_ts = time.monotonic()
                         self.logger.info("bar_aggregator.consumer_reset_complete")
                     except Exception as exc:
                         self.logger.error(
