@@ -511,7 +511,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         )
         self._signal_dlq_total = counter(
             "intelligence_pipeline_signal_dlq_total",
-            "Signals dropped to DLQ due to CIS assertion failure",
+            "Bars dropped to DLQ due to CIS assertion failure (one count per bar)",
         )
         self._pipeline_errors = counter(
             "intelligence_pipeline_pipeline_errors_total",
