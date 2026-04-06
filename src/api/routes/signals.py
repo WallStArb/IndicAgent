@@ -545,16 +545,16 @@ async def get_signals_attribution(
             rows = await db_manager.fetch(
                 """
                 SELECT
-                    sm.setup_plugin     AS group_key,
-                    sm.n,
-                    sm.win_rate,
-                    sm.avg_r            AS avg_pnl_r,
-                    sm.sharpe           AS sharpe_proxy,
-                    sm.p_value,
-                    sm.n_outliers,
-                    sm.never_activated_pct,
-                    ic.ic               AS ic_score,
-                    ic.is_significant   AS ic_significant
+                    sm.setup_plugin                                                         AS group_key,
+                    SUM(sm.n)                                                               AS n,
+                    SUM(sm.n_outliers)                                                      AS n_outliers,
+                    SUM(sm.win_rate * sm.n)           / NULLIF(SUM(sm.n), 0)               AS win_rate,
+                    SUM(sm.avg_r * sm.n)              / NULLIF(SUM(sm.n), 0)               AS avg_pnl_r,
+                    SUM(sm.sharpe * sm.n)             / NULLIF(SUM(sm.n), 0)               AS sharpe_proxy,
+                    MAX(sm.p_value)                                                         AS p_value,
+                    SUM(sm.never_activated_pct * sm.n) / NULLIF(SUM(sm.n), 0)              AS never_activated_pct,
+                    SUM(ic.ic * sm.n) / NULLIF(SUM(sm.n) FILTER (WHERE ic.ic IS NOT NULL), 0) AS ic_score,
+                    BOOL_OR(ic.is_significant)                                              AS ic_significant
                 FROM signal_metrics sm
                 LEFT JOIN signal_metrics_ic ic
                        ON ic.setup_plugin = sm.setup_plugin
@@ -564,7 +564,8 @@ async def get_signals_attribution(
                 WHERE sm.track       = $1
                   AND sm.regime_type = 'all'
                   AND sm.window_days = $2
-                ORDER BY sm.avg_r DESC NULLS LAST
+                GROUP BY sm.setup_plugin
+                ORDER BY avg_pnl_r DESC NULLS LAST
                 """,
                 track,
                 window_days,
