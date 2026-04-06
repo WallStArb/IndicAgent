@@ -19,10 +19,12 @@ import abc
 import asyncio
 import os
 import signal
+import sys
+import time
 
 import structlog
 
-from src.observability.metrics import start_metrics_server
+from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS, start_metrics_server
 from src.observability.otel import get_tracer
 
 
@@ -37,10 +39,19 @@ class BaseAgent(abc.ABC):
     4. ``stop()`` — called after ``_teardown()``; override to add flush logic.
     """
 
-    def __init__(self, name: str, metrics_port: int | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        metrics_port: int | None = None,
+        max_idle_seconds: int = 0,
+    ) -> None:
         self.name = name
         self._metrics_port = metrics_port
+        self.max_idle_seconds = max_idle_seconds
         self._stop_event: asyncio.Event = asyncio.Event()
+        self._last_message_ts: float | None = None
+        # Cache labeled Prometheus child once — avoids dict lookup on every message.
+        self._last_msg_ts_gauge = AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.labels(agent=name)
         # NOTE: attribute is self.logger (not self.log) to match the 20+ call sites
         # in existing agents that use self.logger.
         self.logger: structlog.BoundLogger = structlog.get_logger().bind(agent=name)
@@ -80,6 +91,7 @@ class BaseAgent(abc.ABC):
             raise
         lag_task = asyncio.create_task(self._report_consumer_lag())
         watchdog_task = asyncio.create_task(self._watchdog_notify())
+        stall_task = asyncio.create_task(self._stall_watchdog())
         try:
             await self._run()
         except Exception:
@@ -88,7 +100,8 @@ class BaseAgent(abc.ABC):
         finally:
             lag_task.cancel()
             watchdog_task.cancel()
-            for t in (lag_task, watchdog_task):
+            stall_task.cancel()
+            for t in (lag_task, watchdog_task, stall_task):
                 try:
                     await t
                 except asyncio.CancelledError:
@@ -143,9 +156,47 @@ class BaseAgent(abc.ABC):
         while not self._stop_event.is_set():
             await asyncio.sleep(15)
 
-    async def _watchdog_notify(self) -> None:
-        """Notify systemd watchdog so it doesn't kill a healthy process.
+    def _record_message_consumed(self) -> None:
+        """Call once per successfully consumed Kafka message.
 
+        Updates the monotonic stall clock and the Prometheus liveness gauge.
+        Required for _stall_watchdog() and _watchdog_notify() liveness gating to
+        work. Agents that never call this behave as before (no stall detection).
+        """
+        # monotonic for stall detection (immune to clock skew); wall-clock for observability
+        self._last_message_ts = time.monotonic()
+        self._last_msg_ts_gauge.set(time.time())
+
+    async def _stall_watchdog(self) -> None:
+        """Exit the process if no messages consumed for max_idle_seconds.
+
+        Only active when max_idle_seconds > 0. Waits for the first message
+        (startup grace) before the stall clock starts. On detection: logs and
+        calls sys.exit(1) so systemd restarts the service.
+        """
+        if self.max_idle_seconds <= 0:
+            return
+        check_interval = max(10, min(60, self.max_idle_seconds // 5))
+        while not self._stop_event.is_set():
+            await asyncio.sleep(check_interval)
+            if self._last_message_ts is None:
+                continue  # startup grace — no messages received yet
+            idle_secs = time.monotonic() - self._last_message_ts
+            if idle_secs > self.max_idle_seconds:
+                self.logger.error(
+                    "agent.stall_detected",
+                    agent=self.name,
+                    idle_seconds=int(idle_secs),
+                    max_idle_seconds=self.max_idle_seconds,
+                )
+                sys.exit(1)
+
+    async def _watchdog_notify(self) -> None:
+        """Notify systemd watchdog — gated on liveness when max_idle_seconds > 0.
+
+        When max_idle_seconds is 0 (default): pings unconditionally (backward-compatible).
+        When max_idle_seconds > 0: stops pinging once _last_message_ts goes stale,
+        allowing systemd's WatchdogSec to fire as a secondary restart backstop.
         No-op when NOTIFY_SOCKET or WATCHDOG_USEC is not set (direct run / tests).
         Notifies at half WatchdogSec interval to stay well within the deadline.
         """
@@ -158,7 +209,11 @@ class BaseAgent(abc.ABC):
         notifier = sdnotify.SystemdNotifier()
         interval_s = usec / 2_000_000
         while self.running:
-            notifier.notify("WATCHDOG=1")
+            should_notify = True
+            if self.max_idle_seconds > 0 and self._last_message_ts is not None:
+                should_notify = (time.monotonic() - self._last_message_ts) < interval_s * 2
+            if should_notify:
+                notifier.notify("WATCHDOG=1")
             await asyncio.sleep(interval_s)
 
     async def _send_to_dlq(self, payload: dict, error: Exception) -> None:

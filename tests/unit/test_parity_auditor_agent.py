@@ -302,11 +302,11 @@ async def test_compare_cycle_publishes_certified_when_all_pairs_clean():
 # ── Test 9: Agent uses port :9120 ─────────────────────────────────────────────
 
 
-def test_agent_uses_port_9120():
-    """Test 9: Agent uses port :9120 (per D-04/D-08)."""
+def test_agent_uses_port_9133():
+    """Test 9: Agent uses port :9133 (per D-04/D-08)."""
     from services.parity_auditor_agent import METRICS_PORT
 
-    assert METRICS_PORT == 9120
+    assert METRICS_PORT == 9133
 
 
 # ── Test 10: Comparison window is 10 minutes (2x COMPARISON_INTERVAL_SECS) ───

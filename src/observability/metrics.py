@@ -258,6 +258,13 @@ SHADOW_PROMOTION_READY = Gauge(
 )
 
 
+# Agent liveness — last message timestamp per agent (stall detection)
+AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS = Gauge(
+    "agent_last_message_timestamp_seconds",
+    "Unix timestamp of last successfully processed Kafka message per agent",
+    ["agent"],
+)
+
 # Parity Auditor metrics (Phase 52.5)
 PARITY_MATCH_RATE = Gauge(
     "parity_match_rate",

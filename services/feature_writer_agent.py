@@ -258,7 +258,11 @@ class FeatureWriterAgent(BaseAgent):
 
         config = self._load_config(config_file)
         metrics_port = config.get("service", {}).get("metrics_port", 9116)
-        super().__init__(name="feature_writer_agent", metrics_port=metrics_port)
+        super().__init__(
+            name="feature_writer_agent",
+            metrics_port=metrics_port,
+            max_idle_seconds=300,
+        )
         self.config = config
         self._setup_logging()
 
@@ -677,6 +681,7 @@ class FeatureWriterAgent(BaseAgent):
         async for kafka_topic, key, payload in self._kafka_consumer.messages():
             if not self.running:
                 break
+            self._record_message_consumed()
             try:
                 # Route roll_events to roll handler (no symbol/tf key required)
                 if kafka_topic == roll_events_topic:
