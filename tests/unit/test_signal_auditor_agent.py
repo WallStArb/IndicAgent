@@ -214,11 +214,12 @@ async def test_cis_distribution_sets_gauges(agent):
     assert agent._cis_mean.labels.call_count == len(_COVERAGE_TFS)
     agent._cis_mean.labels.return_value.set.assert_called_with(0.52)
     agent._cis_stddev.labels.return_value.set.assert_called_with(0.18)
+    assert agent._cis_stddev.labels.call_count == len(_COVERAGE_TFS)
 
 
 def test_topics_produced(agent):
     """topics_produced returns the signal audit topic for the configured env."""
-    assert topic_signal_audit("dev") in agent.topics_produced
+    assert topic_signal_audit(agent._env_name) in agent.topics_produced
 
 
 def test_topics_consumed_is_empty(agent):
