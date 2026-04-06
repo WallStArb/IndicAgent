@@ -284,3 +284,57 @@ async def test_watchdog_notify_sends_when_socket_set():
 
             assert mock_notifier.notify.call_count >= 1
             mock_notifier.notify.assert_called_with("WATCHDOG=1")
+
+
+# ---------------------------------------------------------------------------
+# Fix: _setup() failure must be logged (agent.setup_failed)
+# RED: fails before the try/except around _setup() is added to BaseAgent.start()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_setup_failure_logs_agent_setup_failed() -> None:
+    """When _setup() raises, agent.setup_failed is logged with exception info."""
+
+    class BrokenSetupAgent(BaseAgent):
+        async def _setup(self) -> None:
+            raise RuntimeError("kafka connection refused")
+
+        async def _run(self) -> None:  # never reached
+            pass
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = BrokenSetupAgent(name="broken")
+        mock_logger = MagicMock()
+        a.logger = mock_logger
+        with pytest.raises(RuntimeError, match="kafka connection refused"):
+            await a.start()
+
+    logged_events = [c[0][0] for c in mock_logger.exception.call_args_list]
+    assert "agent.setup_failed" in logged_events, (
+        "Expected agent.setup_failed to be logged via logger.exception when _setup() raises"
+    )
+
+
+@pytest.mark.asyncio
+async def test_setup_failure_does_not_log_run_failed() -> None:
+    """When _setup() raises, agent.run_failed is NOT logged (run was never called)."""
+
+    class BrokenSetupAgent(BaseAgent):
+        async def _setup(self) -> None:
+            raise RuntimeError("boom")
+
+        async def _run(self) -> None:
+            pass
+
+    with patch("src.core.agent.base.BaseAgent._register_signal_handlers"):
+        a = BrokenSetupAgent(name="broken2")
+        mock_logger = MagicMock()
+        a.logger = mock_logger
+        with pytest.raises(RuntimeError):
+            await a.start()
+
+    logged_events = [c[0][0] for c in mock_logger.exception.call_args_list]
+    assert "agent.run_failed" not in logged_events, (
+        "agent.run_failed must not be logged when _setup() fails — _run() was never called"
+    )

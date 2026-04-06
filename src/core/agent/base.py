@@ -73,7 +73,11 @@ class BaseAgent(abc.ABC):
         if self._metrics_port is not None:
             start_metrics_server(port=self._metrics_port)
         self.logger.info("agent.starting", agent=self.name)
-        await self._setup()
+        try:
+            await self._setup()
+        except Exception:
+            self.logger.exception("agent.setup_failed", agent=self.name)
+            raise
         lag_task = asyncio.create_task(self._report_consumer_lag())
         watchdog_task = asyncio.create_task(self._watchdog_notify())
         try:
