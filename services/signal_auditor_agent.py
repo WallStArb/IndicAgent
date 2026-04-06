@@ -199,6 +199,7 @@ class SignalAuditorAgent(BaseAgent):
                 await self._check_pipeline_lag(instruments)
                 await self._check_cis_distribution()
 
+            assert self._kafka_producer is not None
             for event in gap_events:
                 await self._kafka_producer.publish(
                     topic_signal_audit(self._env_name),
@@ -370,7 +371,8 @@ class SignalAuditorAgent(BaseAgent):
             session = instrument.trading_session
             if session.is_open(now_utc):
                 return True
-            # Check if we are within buffer after session close
+            # Check within post-close buffer — yesterday's session_end is the reference
+            # because is_open() already returned False (session has ended for today's date)
             yesterday = date.today() - timedelta(days=1)
             window = session.session_window_for_date(yesterday)
             if window[1] is not None and now_utc <= window[1] + buffer:
