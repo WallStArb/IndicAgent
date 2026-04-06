@@ -867,6 +867,27 @@ def _default_settings() -> Settings:
     return _settings_singleton
 
 
+# CME/CBOT futures month codes → YYYYMM suffix for IBKR lastTradeDateOrContractMonth
+_FUTURES_MONTH_CODES: dict[str, int] = {
+    "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
+    "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12,
+}
+
+
+def _derive_expiry_from_symbol(symbol: str, base_symbol: str) -> str:
+    """Derive IBKR lastTradeDateOrContractMonth (YYYYMM) from a futures symbol.
+
+    E.g. 'ESM6' with base 'ES' → suffix 'M6' → month=6, year=2026 → '202606'.
+    Returns '' if the suffix cannot be parsed.
+    """
+    suffix = symbol[len(base_symbol):]
+    if len(suffix) == 2 and suffix[0] in _FUTURES_MONTH_CODES and suffix[1].isdigit():
+        month = _FUTURES_MONTH_CODES[suffix[0]]
+        year = 2020 + int(suffix[1])
+        return f"{year}{month:02d}"
+    return ""
+
+
 def _build_instrument_from_db_row(
     row: tuple,
     config_by_base: dict[str, Instrument],
@@ -884,9 +905,16 @@ def _build_instrument_from_db_row(
     # Look up config-file template to inherit non-DB fields
     template = config_by_symbol.get(symbol) or config_by_base.get(base_symbol)
 
+    # Derive expiry from symbol suffix (e.g. 'ESM6' → '202606') so IBKR
+    # qualifies the right contract. The base-symbol template has expiry=''
+    # since phase 58.1-05 removed hardcoded contract codes.
+    derived_expiry = _derive_expiry_from_symbol(symbol, base_symbol)
+
     if template is not None:
-        # Inherit all fields from config but use DB symbol (may be a new front-month)
-        return template.model_copy(update={"symbol": symbol})
+        updates: dict = {"symbol": symbol}
+        if derived_expiry and not template.expiry:
+            updates["expiry"] = derived_expiry
+        return template.model_copy(update=updates)
 
     # No config template — build with available DB data and sensible defaults
     return Instrument(
@@ -894,6 +922,7 @@ def _build_instrument_from_db_row(
         base=base_symbol,
         exchange=exchange or "",
         asset_class=AssetClass.FUTURES,
+        expiry=derived_expiry,
     )
 
 

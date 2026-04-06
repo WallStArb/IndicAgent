@@ -29,6 +29,10 @@ services:
     container_name: redpanda
     restart: unless-stopped
     mem_limit: 6g
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     command:
       - redpanda
       - start
