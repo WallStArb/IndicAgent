@@ -1,10 +1,9 @@
-"""Data quality Prometheus metrics — continuously updated by data_quality_check.py.
+"""Data quality Prometheus metrics — observability for the intelligence pipeline.
 
-Metrics are module-level constants (prevent duplicate registration across imports).
-All gauges are labeled by dimension (symbol, timeframe) for drill-down visibility.
-
-Renaissance principle: "Instrument everything." Data quality is observable state,
-not assumed correctness.
+Null-rate metrics (DQ_NULL_CIS_RATE, DQ_NULL_CONFIDENCE_RATE) were removed in
+Phase 61 — null CIS is now prevented by DB NOT NULL constraint (migration 057)
+and source assertion in intelligence_pipeline_agent. Remaining metrics:
+staleness, pipeline lag, OHLCV completeness, IC health.
 """
 
 from prometheus_client import Gauge
