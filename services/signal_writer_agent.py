@@ -54,7 +54,7 @@ class SignalWriterAgent(BaseAgent):
     """WriterAgent: intelligence.i7.signals → signal_ledger."""
 
     def __init__(self) -> None:
-        super().__init__(name="signal_writer_agent", metrics_port=9119)
+        super().__init__(name="signal_writer_agent", metrics_port=9119, max_idle_seconds=300)
         setup_service_logging("logs/signal_writer_agent.log")
 
         self._settings = Settings()
@@ -112,6 +112,7 @@ class SignalWriterAgent(BaseAgent):
         async for _topic, _key, payload in self._consumer.messages():
             if not isinstance(payload, dict):
                 continue
+            self._record_message_consumed()
             self._events_consumed.inc()
 
             self._buffer.extend(_payload_to_ledger_entries(payload))

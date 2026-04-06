@@ -383,6 +383,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         super().__init__(
             name="intelligence_pipeline_agent",
             metrics_port=self._settings.pipeline_metrics_port,
+            max_idle_seconds=300,
         )
 
         _log_file = os.environ.get("LOG_FILE", "logs/intelligence_pipeline_agent.log")
@@ -781,6 +782,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 async for _topic, _key, payload in self._kafka_consumer.messages():
                     if not isinstance(payload, dict):
                         continue
+                    self._record_message_consumed()
                     try:
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
