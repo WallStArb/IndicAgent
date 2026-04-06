@@ -9,20 +9,6 @@ not assumed correctness.
 
 from prometheus_client import Gauge
 
-# --- NULL RATE METRICS ---
-
-DQ_NULL_CIS_RATE = Gauge(
-    "dq_null_cis_rate",
-    "Fraction of signal_ledger rows with NULL cis_score (recoverable nulls only)",
-    ["symbol"],
-)
-
-DQ_NULL_CONFIDENCE_RATE = Gauge(
-    "dq_null_confidence_rate",
-    "Fraction of signal_ledger rows with NULL confidence",
-    ["symbol"],
-)
-
 # --- STALENESS METRICS ---
 
 DQ_INTELLIGENCE_STALENESS_SECONDS = Gauge(

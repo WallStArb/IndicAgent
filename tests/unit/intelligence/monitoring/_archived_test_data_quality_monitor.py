@@ -1,3 +1,10 @@
+"""ARCHIVED: 2026-04-06 Phase 61 — DataQualityMonitor null-rate tests.
+DataQualityMonitor (src/intelligence/monitoring/data_quality_monitor.py) still
+exists but null-rate checks are now enforced by DB constraint (migration 057).
+These tests validated monitoring of a broken invariant, not a feature.
+"""
+# --- ARCHIVED BELOW ---
+
 """Tests for DataQualityMonitor schema validation.
 
 Behavior tests:
