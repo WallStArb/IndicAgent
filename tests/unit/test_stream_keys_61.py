@@ -1,5 +1,6 @@
 """Tests for Phase 61 stream key additions — signal DLQ and audit topics."""
-from src.core.stream_keys import topic_signal_dlq, topic_signal_audit
+
+from src.core.stream_keys import topic_signal_audit, topic_signal_dlq
 
 
 def test_topic_signal_dlq_no_env():
