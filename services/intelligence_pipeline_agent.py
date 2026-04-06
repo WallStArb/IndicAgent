@@ -64,6 +64,7 @@ from src.core.stream_keys import (
     topic_market_bars,
     topic_market_bars_htf,
     topic_market_ticks,
+    topic_signal_dlq,
     topic_signals_aggregated,
     topic_system_events,
 )
@@ -507,6 +508,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._signals_selected = counter(
             "intelligence_pipeline_signals_selected_total",
             "Winner signals selected by aggregator",
+        )
+        self._signal_dlq_total = counter(
+            "intelligence_pipeline_signal_dlq_total",
+            "Signals dropped to DLQ due to CIS assertion failure",
         )
         self._pipeline_errors = counter(
             "intelligence_pipeline_pipeline_errors_total",
@@ -1312,18 +1317,19 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     sig["was_selected"] = True
                     break
 
-        # Publish ALL ranked signals (including regime_suppressed) for SignalWriterAgent → signal_ledger
-        self._enqueue(
-            topic_intelligence_i7_signals(self._settings.env_name),
-            message_key(symbol, tf),
-            {
-                "symbol": symbol,
-                "tf": tf,
-                "bar_ts": bar.ts.isoformat(),
-                "computed_at": datetime.now(UTC).isoformat(),
-                "signals": ranked,
-            },
-        )
+        # Publish ALL ranked signals — assertion + DLQ gating inside
+        published = self._publish_signals_or_dlq(ranked, symbol, tf, bar)
+        if not published:
+            return {
+                "ranked": [],
+                "winner": None,
+                "signals_evaluated": len(raw_signals),
+                "signals_after_quality": len(quality_gated),
+                "signals_after_regime": len(regime_gated),
+                "signals_after_tod": len(tod_adjusted),
+                "signals_after_calibration": len(calibrated),
+                "i7_computed_at": i7_computed_at,
+            }
 
         # Publish winner to signals.aggregated for signal_tracker_agent
         if winner:
@@ -1365,6 +1371,57 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             checkpoint_key,
             encoded,
         )
+
+    def _publish_signals_or_dlq(
+        self,
+        ranked: list[dict],
+        symbol: str,
+        tf: str,
+        bar: BarMessage,
+    ) -> bool:
+        """Assert all ranked signals have non-null CIS before publishing.
+
+        Returns True if signals were published to intelligence.i7.signals.
+        Returns False and publishes to intelligence.signal.dlq if CIS assertion fails.
+        This prevents null-CIS signals from entering the Kafka pipeline or signal_ledger.
+        """
+        # CIS assertion — every signal must have been stamped by _run_i7_pipeline
+        for sig in ranked:
+            if sig.get("raw_cis_score") is None or sig.get("filtered_cis_score") is None:
+                self._signal_dlq_total.inc()
+                self._enqueue(
+                    topic_signal_dlq(self._settings.env_name),
+                    message_key(symbol, tf),
+                    {
+                        "symbol": symbol,
+                        "tf": tf,
+                        "bar_ts": bar.ts.isoformat(),
+                        "reason": "cis_score_null",
+                        "signal_count": len(ranked),
+                        "ts": datetime.now(UTC).isoformat(),
+                    },
+                )
+                self.logger.error(
+                    "intelligence_pipeline_agent.cis_assertion_failed",
+                    symbol=symbol,
+                    tf=tf,
+                    signal_count=len(ranked),
+                )
+                return False
+
+        # Assertion passed — publish all ranked signals to i7.signals
+        self._enqueue(
+            topic_intelligence_i7_signals(self._settings.env_name),
+            message_key(symbol, tf),
+            {
+                "symbol": symbol,
+                "tf": tf,
+                "bar_ts": bar.ts.isoformat(),
+                "computed_at": datetime.now(UTC).isoformat(),
+                "signals": ranked,
+            },
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Intelligence journal
