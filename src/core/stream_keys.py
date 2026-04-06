@@ -235,6 +235,27 @@ def topic_health_events_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.service_auditor.journal.dlq"
 
 
+def topic_signal_dlq(env_name: str) -> str:
+    """DLQ for signals that fail CIS assertion before publish.
+
+    Published by intelligence_pipeline_agent when a ranked signal has
+    raw_cis_score IS None or filtered_cis_score IS None — indicates a
+    regression in the CIS stamping path. Never lets null-CIS signals
+    enter intelligence.i7.signals.
+    """
+    return f"{env_prefix(env_name)}intelligence.signal.dlq"
+
+
+def topic_signal_audit(env_name: str) -> str:
+    """Audit events from signal_auditor_agent.
+
+    Receives SignalCoverageGapEvent payloads when a (symbol, tf) pair had
+    zero signals in the last completed trading session. Future: intelligence
+    pipeline subscribes to trigger bar replay for covered symbols.
+    """
+    return f"{env_prefix(env_name)}intelligence.signal.audit"
+
+
 def topic_signal_metrics(env_name: str) -> str:
     """Kafka topic for SignalMetricsComputeAgent output events.
 
