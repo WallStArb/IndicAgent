@@ -8,7 +8,7 @@ Runs a 5-minute audit loop during market hours. Checks:
 
 Emits SignalCoverageGapEvent to intelligence.signal.audit on coverage gaps.
 DB-aware (reads signal_ledger). AuditorAgent role — read-only, never writes.
-Metrics port: :9126
+Metrics port: :9128
 
 Golden Signals:
 - Traffic: signal_auditor_audits_run_total, signal_auditor_coverage_gaps_published_total
@@ -109,14 +109,14 @@ class SignalAuditorAgent(BaseAgent):
     Reads signal_ledger every 5 minutes during market hours.
     Emits SignalCoverageGapEvent to intelligence.signal.audit for missing coverage.
 
-    DB-aware (reads signal_ledger). Never writes. Metrics port: :9126.
+    DB-aware (reads signal_ledger). Never writes. Metrics port: :9128.
     """
 
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention)
         self._settings = Settings()
         self._env_name: str = self._settings.env_name or ""
-        super().__init__(name="signal_auditor_agent", metrics_port=9126)
+        super().__init__(name="signal_auditor_agent", metrics_port=9128)
 
         self._kafka_producer: KafkaProducerClient | None = None
         self._db_pool: asyncpg.Pool | None = None
