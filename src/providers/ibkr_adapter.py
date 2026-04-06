@@ -93,6 +93,7 @@ class IBKRAdapter:
         sym_to_instrument: dict[str, Instrument] = {i.symbol: i for i in instruments}
 
         bar_queue: asyncio.Queue[BarMessage] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _make_bar_msg(sym: str, bar: OHLCVBar) -> BarMessage | None:
             """Convert OHLCVBar → BarMessage with dedup guard. Returns None if duplicate."""
@@ -125,12 +126,17 @@ class IBKRAdapter:
                 is_flat_bar=False,
             )
 
+        # Shared mutable state for bar-flow watchdog.
+        # last_bar_wall[0] is updated via loop.time() each time a bar arrives.
+        last_bar_wall: list[float] = [loop.time()]
+
         async def _official_bars_stream() -> None:
             """Primary live bar source: keepUpToDate official bars (non-crypto)."""
             try:
                 async for sym, bar in self._provider.stream_official_bars(symbols):
                     msg = _make_bar_msg(sym, bar)
                     if msg:
+                        last_bar_wall[0] = loop.time()
                         await bar_queue.put(msg)
             except asyncio.CancelledError:
                 pass
@@ -205,6 +211,31 @@ class IBKRAdapter:
         # raises and _stream_loop catches it, calling _reconnect().
         _RECONNECT = object()  # sentinel — not a BarMessage
         _DISCONNECT_GRACE = 120  # seconds: allow TWS to auto-reconnect before raising
+        # Renaissance: detect keepUpToDate silent dropout (still TCP-connected but
+        # no bars arriving). Threshold > IBKR maintenance window (~15 min) so we
+        # don't restart during a normal nightly pause, but catch indefinite silence.
+        _NO_BAR_TIMEOUT_S = 1200  # 20 minutes
+
+        async def _bar_flow_watchdog() -> None:
+            """Reconnect when bars stop flowing despite TCP connection being alive.
+
+            keepUpToDate streams silently die after IBKR maintenance windows
+            without triggering error 1100/1102. _connection_watchdog cannot
+            detect this because is_connected() stays True. This watchdog
+            watches the wall-clock arrival time of bars and forces a restart when silence exceeds
+            _NO_BAR_TIMEOUT_S while the provider reports itself connected.
+            """
+            while True:
+                await asyncio.sleep(60)
+                silence_s = loop.time() - last_bar_wall[0]
+                if silence_s > _NO_BAR_TIMEOUT_S and self._provider.is_connected():
+                    logger.warning(
+                        "ibkr_adapter.bar_flow_timeout_forcing_restart",
+                        silence_seconds=int(silence_s),
+                        threshold_seconds=_NO_BAR_TIMEOUT_S,
+                    )
+                    await bar_queue.put(_RECONNECT)
+                    return
 
         async def _connection_watchdog() -> None:
             disconnect_at: float | None = None
@@ -214,10 +245,10 @@ class IBKRAdapter:
                 connected = self._provider.is_connected()
                 if not connected:
                     if disconnect_at is None:
-                        disconnect_at = asyncio.get_event_loop().time()
+                        disconnect_at = loop.time()
                         was_disconnected = True
                         logger.warning("ibkr_adapter.tws_disconnected")
-                    elif asyncio.get_event_loop().time() - disconnect_at > _DISCONNECT_GRACE:
+                    elif loop.time() - disconnect_at > _DISCONNECT_GRACE:
                         logger.warning("ibkr_adapter.tws_disconnect_timeout_forcing_restart")
                         await bar_queue.put(_RECONNECT)
                         return
@@ -232,6 +263,7 @@ class IBKRAdapter:
         official_task = asyncio.ensure_future(_official_bars_stream())
         crypto_task = asyncio.ensure_future(_crypto_rtb_stream())
         watchdog_task = asyncio.ensure_future(_connection_watchdog())
+        bar_flow_task = asyncio.ensure_future(_bar_flow_watchdog())
 
         try:
             while True:
@@ -242,7 +274,7 @@ class IBKRAdapter:
         except asyncio.CancelledError:
             pass
         finally:
-            for task in (official_task, crypto_task, watchdog_task):
+            for task in (official_task, crypto_task, watchdog_task, bar_flow_task):
                 if task and not task.done():
                     task.cancel()
                     try:
