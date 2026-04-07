@@ -1,6 +1,6 @@
 # Architecture Reference — IndicAgent Unified Intelligence Bus
 
-Last Updated: 2026-03-29
+Last Updated: 2026-04-07
 
 > Source of truth for architectural decisions. The *why* behind the build sequence.
 > Full design doc: `docs/plans/2026-02-22-unified-intelligence-data-bus-design.md`
@@ -19,14 +19,18 @@ IBKR TWS → IBKRProviderAgent (market.bars.raw.ibkr)
                 │              ├─ BarWriterAgent → market_data_ohlcv
                 │              └─ BarAuditorAgent → market.events.gap_requests
                 │
-                ↓ feature_compute_agent (I1-I6, subscribes market.bars + market.bars.htf)
+                ↓ IntelligencePipelineComputeAgent (I1-I7, subscribes market.bars + market.bars.htf)
                 │              → intelligence:{symbol}:{tf}
+                │              → intelligence.i7.signals
                 │
-                ├─ signal_generator_agent (I7) → signal_ledger
+                ├─ ai_narrative_service (I8) → narratives:{symbol}:{tf}
                 ├─ ai_narrative_service (I8) → narratives:{symbol}:{tf}
                 │
                 ↓ feature_writer_agent (async, decoupled)
           TimescaleDB intelligence_features hypertable
+                │
+                ↓ signal_writer_agent (async, decoupled)
+          TimescaleDB signal_ledger
                 │
                 ↓ REST API (/api/features, /api/signals)
           Next.js dashboard (via localhost SSE + REST)
@@ -49,7 +53,7 @@ class IntelligenceEvent(BaseModel):
     schema_version: Literal["1.0"] = "1.0"
     ts: datetime; symbol: str; tf: str
     bar: OHLCVBar
-    i1: dict[str, float]   # indicator outputs (25 I1 raw + 11 I2 composite plugins)
+    i1: dict[str, float]   # indicator outputs (27 I1 plugins)
     i3: dict[str, Any]     # structure: swing, S/R, trend
     i4: dict[str, float]   # context: regimes, GARCH (4 fields), Kalman (7 fields)
     i5: dict[str, Any]     # patterns: divergence, squeeze, confluence
@@ -60,7 +64,7 @@ class IntelligenceEvent(BaseModel):
 
 **Why tiered sub-dicts vs flat:** Surgical queries (`SELECT i4->>'garch_sigma'`), smaller GIN indexes per tier, cleaner schema evolution per tier, better TimescaleDB compression.
 
-**Why i7 is NOT in this event:** Signal generation is downstream (signal_generator_service), separate domain. I8 narratives are in a separate `narratives:SYMBOL:TF` stream.
+**Why i7 is NOT in this event:** Signal generation is downstream in IntelligencePipelineComputeAgent, published to `intelligence.i7.signals`. I8 narratives are in a separate `narratives:SYMBOL:TF` stream.
 
 ### 3. intelligence_features hypertable — no retention policy
 ```sql
@@ -103,8 +107,8 @@ The `PluginStateManager` (Redis-backed) in `src/core/plugin_state_manager.py` ex
 {service_short_name}:{purpose}          # internal
 ext:{app_name}:{purpose}               # external
 
-feature_writer:persist    → feature_writer_service
-signal_gen:i7             → signal_generator_service
+feature_writer:persist    → feature_writer_agent
+signal_writer:i7          → signal_writer_agent
 narrative_agent:i8        → ai_narrative_service
 ext:vercel_dashboard:realtime
 ext:ml_trainer:batch
@@ -171,8 +175,8 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 {env}.market.events.gap_requests   # gap fill requests (BarAuditorAgent)
 {env}.market.events.roll           # roll detection events (RollComputeAgent)
 {env}.market.data.quality          # ProviderQualityEvent side-channel (ProviderMergerAgent)
-{env}.intelligence.{symbol}.{tf}   # I1-I6 IntelligenceEvent (feature_compute_agent)
-{env}.signals.{symbol}.{tf}.aggregated  # I7 signals (signal_generator_agent)
+{env}.intelligence.{symbol}.{tf}   # I1-I6 IntelligenceEvent (IntelligencePipelineComputeAgent)
+{env}.intelligence.i7.signals      # I7 signals (IntelligencePipelineComputeAgent)
 {env}.narratives.{symbol}.{tf}     # I8 AI narratives (ai_narrative_service)
 ```
 
@@ -189,9 +193,9 @@ All stream keys are constructed via `src/core/stream_keys.py` — never hardcode
 | `services/bar_aggregator_agent.py` | BarAggregatorComputeAgent — 1m → HTF via BarAccumulator → market.bars.htf |
 | `services/bar_writer_agent.py` | BarWriterAgent — market.bars + market.bars.htf → market_data_ohlcv |
 | `services/bar_auditor_agent.py` | BarAuditorAgent — gap detection → market.events.gap_requests |
-| `services/feature_compute_agent.py` | Unified I1-I6 pipeline; subscribes market.bars + market.bars.htf |
+| `services/intelligence_pipeline_agent.py` | Unified I1-I7 pipeline; subscribes market.bars + market.bars.htf |
 | `services/feature_writer_agent.py` | intelligence:SYMBOL:TF → intelligence_features (async persistence) |
-| `services/signal_generator_agent.py` | I7 signals → signal_ledger |
+| `services/signal_writer_agent.py` | intelligence.i7.signals → signal_ledger |
 | `services/signal_tracker_agent.py` | Zone-aware signal lifecycle, MAE/MFE, 8-class outcome |
 | `services/llm_writer_service.py` | LLM audit log → llm_calls hypertable + model scoring |
 | `src/core/stream_keys.py` | Stream name constants (always use helpers, never hardcode) |

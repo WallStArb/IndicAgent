@@ -1,77 +1,210 @@
-# Renaissance Pipeline Evolution Strategy
+# Renaissance Pipeline Architecture
 
-## Context
-This document tracks the evolution of the `indicagent` data layer from a monolithic service architecture toward the current agentic DAG. It captures both what shipped and where the design is headed next.
-
----
-
-## Baseline (v2.0, shipped 2026-03-22): Data Layer Foundation
-
-Phases 39–47 established the foundation:
-
-- **Clock-Driven Data Flow:** Guaranteed 1-minute bar emission via internal heartbeat, ensuring temporal alignment for stateful models.
-- **Multi-Stream Reconciliation:** Dual-stream comparison (5s real-time vs 1m audited) provides drift detection.
-- **Zero-Loss Guarantee:** Kafka consumers migrated to `auto_offset_reset="earliest"` with explicit `commit()` operations, ensuring mathematical continuity after service crashes.
-- **I1-I6 Unified Pipeline:** `feature_compute_agent` runs the full indicator-through-confluence stack in a single service, subscribing to both `market.bars` (1m) and `market.bars.htf` (aggregated timeframes).
+**Concept:** Event-driven DAG with clear separation between compute (DB-ignorant) and persistence (DB-aware). Intelligence flows from raw bars through seven analytical tiers (I1-I7), with Kafka as the reliable backbone.
 
 ---
 
-## v2.1 Shipped: Agentic DAG Refactor (Phases 52–54)
+## Core Architecture Principles
 
-### Phase 52-53: BaseAgent Unification
+### Agentic Decomposition
 
-All pipeline services now extend `BaseAgent` (`src/core/agent/base.py`), providing a unified lifecycle: graceful SIGTERM drain, Golden Signals instrumentation (Traffic, Latency, Errors, Saturation via Prometheus), and a consistent startup/shutdown contract.
+Every service in the pipeline is an autonomous event-driven agent with clear boundaries:
 
-New dedicated agents were introduced with clear role separation:
+**Role Separation:**
+- **Compute Agents** — Transform data, never touch DB. Publish to Kafka topics.
+- **Writer Agents** — Consume from Kafka, own all persistence logic.
+- **Provider Agents** — Bridge external data sources to canonical bar format.
+- **Tracker Agents** — Manage business object lifecycles (signals, positions).
+- **Auditor Agents** — Validate data integrity, self-heal when possible.
 
-| Agent | Role | DB Access |
-|-------|------|-----------|
-| `BarAggregatorComputeAgent` | 1m → HTF bar aggregation via `BarAccumulator` | None (compute only) |
-| `BarWriterAgent` | Persists `market.bars` + `market.bars.htf` → `market_data_ohlcv` | Write |
-| `BarAuditorAgent` | Gap detection, emits `market.events.gap_requests` | None (compute only) |
-| `RollComputeAgent` | Futures roll premium computation | None (compute only) |
-| `SignalTrackerAgent` | Zone-aware signal lifecycle: activation, MAE/MFE, 8-class outcome | Write |
+**Why:** Database outages never affect hot path. Compute agents resume from committed Kafka offset on restart — nothing lost.
 
-The principle is explicit: **DB-ignorant compute agents** publish to Kafka topics; **DB-aware writer agents** consume from those topics and own all persistence. No compute agent touches the database.
+### BaseAgent Contract
 
-### Phase 54: Provider Abstraction Layer
+All agents extend `BaseAgent` (`src/core/agent/base.py`), providing:
 
-The previous `TwsDaemon` / `tws_daemon` was replaced by a proper provider abstraction:
+- **Graceful SIGTERM drain** — finish processing, commit offsets, exit cleanly
+- **Golden Signals instrumentation** — Traffic, Latency, Errors, Saturation via Prometheus
+- **Consistent lifecycle** — startup → warmup → run → drain → shutdown
+- **Structured logging** — all logs to `logs/<service>.log` (not journald)
 
-- **`BaseProviderAgent`** — abstract base defining the instrument qualification protocol and gap-fill loop. Provider-agnostic by design.
-- **`IBKRAdapter`** — thin adapter pattern wrapping `IBKRProvider`, translating IBKR-specific events to the canonical bar schema.
-- **`IBKRProviderAgent`** — extends `BaseProviderAgent`, wires `IBKRAdapter` into the agent lifecycle.
-- **`ProviderMergerAgent`** — canonical bar authority. Consumes from provider-specific raw topics (`market.bars.raw.<provider>`), performs multi-provider auto-failover on primary silence, and publishes to the single canonical `market.bars` topic. Emits `ProviderQualityEvent` on the quality side-channel.
-
-The raw/canonical topic split (`market.bars.raw.ibkr` → `ProviderMergerAgent` → `market.bars`) means downstream consumers are fully provider-agnostic. Switching or adding a data source only requires a new `BaseProviderAgent` subclass — nothing downstream changes.
+**Benefits:**
+- New agents get observability and graceful shutdown for free
+- Consistent monitoring across entire pipeline
+- No silent data loss on crashes
 
 ---
 
-## Next: Intelligence Pipeline Unification (Phase 57, Planned)
+## Data Flow Architecture
 
-The current pipeline still uses Kafka for inter-service communication between `feature_compute_agent` (I1-I6) and `signal_generator_agent` (I7). The Phase 57 design (`IntelligencePipelineComputeAgent`) will merge these into a single agent with an internal `asyncio.Queue` as the I6→I7 bus — eliminating one Kafka hop and simplifying state management.
+### Provider Layer (Data Ingestion)
 
-Key elements of the Phase 57 design:
-- Single `services/intelligence_pipeline_agent.py`, unit `indicagent-intelligence-pipeline`, port `:9125`
-- Async Kafka output via `asyncio.Queue(maxsize=500)` — compute hot path zero I/O blocking
-- State checkpointing to a compacted Kafka topic (`development.intelligence.pipeline.state`) — eliminates warmup on restart
-- `BarHistorySeeder` retained as cold-start fallback only (checkpoint miss or agent version bump)
-- Shadow rollout via `intelligence.shadow` topic before cutover
+```
+IBKR TWS → IBKRProviderAgent → market.bars.raw.ibkr
+                                          ↓
+                              ProviderMergerAgent
+                              (failover, routing)
+                                          ↓
+                              market.bars (canonical 1m)
+```
 
-**This has not shipped yet.** Kafka is still the inter-service bus for I1-I7. Any reference to an "in-process intelligence engine" or "eliminating Kafka" describes this future work, not current reality.
+**Provider Isolation Pattern:**
+- Raw topics: `market.bars.raw.<provider>` — provider-specific format
+- Canonical topic: `market.bars` — unified format, downstream consumers never see provider changes
+- Multi-provider failover: Merger auto-switches on primary silence
 
-### Further Future Direction: Renaissance Validation Framework
+**Benefits:** Adding a data source = one subclass. Nothing downstream changes.
 
-Once the intelligence pipeline is unified, the next evolution is the **Renaissance Alpha Pipeline** — a validation framework ensuring all alpha contributors earn the right through statistical proof:
+### Aggregation Layer (Timeframe Unification)
 
+```
+market.bars (1m) → BarAggregatorComputeAgent → market.bars.htf
+                                        (5m/15m/1h/4h/1d)
+```
+
+**BarAccumulator:** Stateless windowed aggregation. Accumulates 1m bars, emits HTF bar on period boundary (e.g., 5m mark). Session break logic prevents cross-session contamination.
+
+**Why not in DB:** Real-time consumers need HTF bars immediately, not after DB write latency.
+
+### Intelligence Layer (I1-I7 Pipeline)
+
+```
+market.bars (1m) ─────┐
+market.bars.htf ──────┤ → IntelligencePipelineComputeAgent
+                       │   (I1→I7 unified, IN-PROCESS)
+                       └───→ BarHistorySeeder (cold-start)
+                                  ↓
+                    intelligence.journal (tiered JSONB)
+                    intelligence.i7.signals (winner signal)
+```
+
+**In-Process Design:**
+- I1-I7 execute in single process — no inter-service Kafka hops
+- Internal `asyncio.Queue(maxsize=500)` for I6→I7 handoff — zero I/O on hot path
+- State checkpointing to compacted topic — eliminates warmup on restart
+
+**Why Not Pure Microservices:**
+- Kafka overhead (serialization, network) dominates for single-bar processing
+- In-process is 10-20x faster for tight coupling (I6→I7 is direct dependency)
+- Writer agents still separate (DB-ignorant compute principle)
+
+---
+
+## Tier Parallelization Strategy
+
+### Current State
+
+**Parallelized:**
+- I1 (27 plugins) — `asyncio.gather` + ThreadPoolExecutor
+- I7 (36 plugins) — `asyncio.gather` + ThreadPoolExecutor
+
+**Sequential:**
+- I2-I6 tiers — executed one after another (current bottleneck)
+
+**Why:** Python's GIL prevents threading from achieving true parallelism. Only one thread executes Python bytecode at a time. CPU-bound work (plugin compute) cannot utilize multiple cores.
+
+**Latency Impact:**
+- I1 (parallel): 30ms
+- I2-I6 (sequential): 160ms (73% of total)
+- I7 (parallel): 20ms
+
+### Batch Processing (Proposed)
+
+**Concept:** Process 100+ bars through each tier in parallel (not 1 bar through all tiers sequentially).
+
+**Expected Benefit:** 10-50x throughput improvement (amortizes sequential tier cost across bars).
+
+**Trade-off:** Increased latency (accumulate 100 bars OR 5s timeout) vs higher throughput.
+
+**See:** `docs/architecture/PIPELINE_OPTIMIZATION.md` for detailed strategy.
+
+---
+
+## Persistence Architecture
+
+### Writer Agent Pattern
+
+```
+IntelligencePipelineComputeAgent → intelligence.journal (Kafka)
+                                              ↓
+                                    FeatureWriterAgent
+                                              ↓
+                                  intelligence_features (DB)
+```
+
+**Convergence Gate:** All tiered outputs (I1, I3, I4, SMC) join into single, unified `intelligence.journal` entry before persistence. Guarantees atomicity — no partial writes, no orphaned tiers.
+
+**Why:** DB writes are batch operations. Compute agents should never block on DB latency.
+
+### Database Schema
+
+**Hypertables (TimescaleDB):**
+- `market_data_ohlcv` — raw OHLCV ground truth (keep forever)
+- `intelligence_features` — full I1-I7 feature vectors (ML training dataset)
+- `signal_ledger` — ALL I7 signals + lifecycle outcomes
+- `llm_calls` — LLM audit log + outcomes
+
+**Design Principle:** Never drop data that could contain signal. Storage is cheapest, data is irreplaceable.
+
+---
+
+## Evolution History
+
+### v2.0 Foundation (Data Layer)
+
+Established core patterns:
+- Clock-driven data flow — guaranteed 1-minute bar emission
+- Zero-loss guarantee — `auto_offset_reset="earliest"` + explicit `commit()`
+- Multi-stream reconciliation — 5s real-time vs 1m audited comparison
+
+### v2.1 Agentic DAG Refactor
+
+Introduced agent role separation:
+- BaseAgent unification — lifecycle, instrumentation, graceful shutdown
+- Dedicated writer agents — DB-ignorant compute principle
+- Provider abstraction — `BaseProviderAgent` + adapter pattern
+
+### v2.2 Unified Intelligence Pipeline
+
+Consolidated I1-I7 into single process:
+- Eliminated Kafka hops between tiers (I6→I7 is direct dependency)
+- State checkpointing — no warmup on restart
+- Parallelized I1/I7 tiers — 60% latency reduction
+- Identified I2-I6 sequential bottleneck — current optimization target
+
+---
+
+## Future Directions
+
+### Renaissance Validation Framework
+
+Transform from "feature factory" to "validated alpha engine":
 - Shadow-first validation (14-day correlation gate)
-- Automated promotion/demotion based on Pearson r
+- Automated promotion/demotion based on statistical significance
 - `IAlphaContributor` interface for all signal sources
-- LLMs in research-only, offline mode (no real-time calls in hot path)
+- LLMs in research-only mode (no real-time hot path calls)
 
-This transforms the system from "feature factory" to "validated alpha engine." Design in `docs/ideas/renaissance-alpha-pipeline.md`.
+**Design:** `docs/ideas/renaissance-alpha-pipeline.md`
+
+### Pipeline Parallelization
+
+Achieve 60+ bars/sec via batch processing:
+- Dual-mode architecture (real-time + batch)
+- Adaptive mode selection (volatility, staleness guards)
+- 10-50x expected throughput improvement
+
+**Strategy:** `docs/architecture/PIPELINE_OPTIMIZATION.md`
 
 ---
 
-*Analysis Date: 2026-03-22*
-*Updated: 2026-03-29 — reflect v2.1 shipped state (phases 52–54); mark Phase 57 intelligence unification as planned, not shipped*
+## Related Documentation
+
+- **Current State:** `docs/architecture/CURRENT_STATE.md` — active services, data flow, plugin counts
+- **Optimization:** `docs/architecture/PIPELINE_OPTIMIZATION.md` — performance strategy, batch processing
+- **Plugin Protocol:** `docs/architecture/PLUGIN_PROTOCOL.md` — how plugins work
+- **Observability:** `docs/architecture/OBSERVABILITY.md` — metrics and monitoring
+- **DAG Topology:** `docs/architecture/DAG_TOPOLOGY.md` — agent dependencies and data flow
+
+---
+
+*Focus: Architecture concepts and patterns, not implementation timelines*
