@@ -1004,6 +1004,8 @@ class SignalTrackerAgent(BaseAgent):
         self._register_signal_handlers()
         self.logger.info("Starting SignalTrackerAgent")
         reseed_task: asyncio.Task | None = None
+        watchdog_task: asyncio.Task | None = None
+        lag_task: asyncio.Task | None = None
         try:
             await self._connect_database()
             start_metrics_server(port=self.config.get("metrics_port", 9115))
@@ -1012,6 +1014,7 @@ class SignalTrackerAgent(BaseAgent):
             await self._seed_active_index()
             reseed_task = asyncio.create_task(self._active_index_reseed_loop())
             lag_task = asyncio.create_task(self._report_consumer_lag())
+            watchdog_task = asyncio.create_task(self._watchdog_notify())
             tasks = [
                 asyncio.create_task(self._process_loop()),
                 asyncio.create_task(self._health_monitor_loop()),
@@ -1022,18 +1025,13 @@ class SignalTrackerAgent(BaseAgent):
             self.logger.error("Failed to start", error=str(e))
             raise
         finally:
-            if reseed_task and not reseed_task.done():
-                reseed_task.cancel()
-                try:
-                    await reseed_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-            if "lag_task" in dir() and not lag_task.done():
-                lag_task.cancel()
-                try:
-                    await lag_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+            for t in (reseed_task, lag_task, watchdog_task):
+                if t and not t.done():
+                    t.cancel()
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
             await self.stop()
 
     async def stop(self) -> None:
