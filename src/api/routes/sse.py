@@ -233,9 +233,9 @@ def _event_name_for_topic(topic: str) -> str:
     if candidate == "indicators" or candidate.startswith("indicators"):
         return "indicator_data"
     # intelligence.journal — BarIntelligenceRecord transformed to scorecard shape by broadcaster
-    if candidate == "intelligence.journal" or candidate.startswith("intelligence.journal"):
+    if candidate == "intelligence.journal" or candidate.startswith("intelligence.journal."):
         return "signal_scorecard"
-    if candidate == "intelligence.record" or candidate.startswith("intelligence.record"):
+    if candidate == "intelligence.record" or candidate.startswith("intelligence.record."):
         return "signal_scorecard"
     if candidate == "intelligence.i8" or candidate.startswith("intelligence.i8"):
         return "narrative_data"
