@@ -145,7 +145,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 **Intelligence Focus:** Regime-gated setup detection, 6-bucket scoring, adaptive weight learning
 
 - **Input:** I2–I6 confluence-validated intelligence
-- **Output:** Setup events → `signal_ledger` (TimescaleDB); aggregated signal on `signals:SYMBOL:TF:aggregated`
+- **Output:** Setup events → `intelligence.i7.signals` (Kafka) → `signal_ledger` (TimescaleDB via `SignalWriterAgent`); winner signal on `signals.aggregated`
 - **Code Location:** `src/intelligence/trading/`
 - **Setup Plugins (17):**
   - *Original 9:* `TrendFollowing`, `MeanReversion`, `LiquiditySweepReclaim`, `MTFAlignment`, `SqueezeExpansion`, `VWAPDeviation`, `MomentumBreakout`, `LiquidityHunt`, `SupplyDemandSetup`
@@ -167,14 +167,13 @@ The Intelligence Engine implements progressive intelligence extraction through e
 **Intelligence Focus:** Natural language market analysis, per-signal + asset-group synthesis
 
 - **Input:** High-confidence I7 signals (`confidence > 0.7`) on 5m / 15m / 1h timeframes
-- **Output:** Narrative text published to Redis
-- **Service:** `services/ai_narrative_service.py` (systemd: `indicagent-ai-narrative`, metrics :9113)
-- **Streams:**
-  - `narratives:SYMBOL:TF` — per-signal narrative
-  - `narratives:group:GROUP_NAME` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
+- **Output:** Narrative text published to `narratives` Kafka topic (keyed `SYMBOL:TF`)
+- **Service:** `services/ai_narrative_agent.py` (systemd: `indicagent-ai-narrative`, metrics :9113)
+- **Topics:**
+  - `narratives` (keyed `SYMBOL:TF`) — per-signal narrative
+  - `narratives.group` — 6-asset-group synthesis (equity/energy/metals/rates/fx/crypto)
 - **LLM Chain:** Ollama local Docker — qwen3.5:9b (per-signal narratives) + phi4-mini:3.8b (asset-group synthesis)
-- **Streams:** `narratives:SYMBOL:TF` (per-signal) published to Redis; consumed by `indicagent-api` for SSE
-- **Audit:** Every LLM call published to `llm_calls:stream` → `llm_writer_service` persists to `llm_calls` hypertable
+- **Audit:** Every LLM call published to `llm.calls` → `indicagent-llm-writer` persists to `llm_calls` hypertable
 
 ---
 
@@ -182,14 +181,14 @@ The Intelligence Engine implements progressive intelligence extraction through e
 
 ### **Canonical Stream Keys**
 ```yaml
-indicators:SYMBOL:TF           # I1 output — raw indicator values
-intelligence:SYMBOL:TF         # I2–I6 output — typed IntelligenceEvent (tiered JSONB: i1/i3/i4/i5/smc/i6)
-signals:SYMBOL:TF:aggregated   # I7 output — CISScorer aggregated signal
-narratives:SYMBOL:TF           # I8 output — per-signal AI narrative
-narratives:group:GROUP_NAME    # I8 output — asset-group synthesis narrative
+intelligence                   # I1–I7 output — typed IntelligenceEvent (tiered JSONB: i1/i3/i4/i5/smc/i6), keyed SYMBOL:TF
+intelligence.i7.signals        # I7 output — all ranked signals per bar (pre-ledger write), keyed SYMBOL:TF
+signals.aggregated             # I7 output — CISScorer winner signal
+narratives                     # I8 output — per-signal AI narrative, keyed SYMBOL:TF
+narratives.group               # I8 output — asset-group synthesis narrative
 ```
 
-All keys are env-prefixed (e.g., `development:indicators:ES:1m`) — always build via `src/core/stream_keys.py`.
+All topics are env-prefixed with a dot separator (e.g., `development.intelligence`) — always build via `src/core/stream_keys.py`.
 
 **Canonical event model:** `IntelligenceEvent` in `src/intelligence/schemas.py` — tiered JSONB (`i1`, `i3`, `i4`, `i5`, `smc`, `i6`), versioned, replaces the old flat string key-value stream messages.
 
@@ -294,12 +293,10 @@ capability_tags = {
 ### **Service Architecture Integration**
 The I1-I8 framework integrates seamlessly with IndicAgent's service-based architecture:
 
-- **Data Foundation:** `indicagent-feature-compute` (`feature_compute_agent.py`) provides I1+I2 raw features and composite events
-- **Intelligence Pipeline:** `indicagent-market-analysis` (`market_analysis_service.py`) runs I3→I4→I5→SMC→I6
-- **Signal Generation:** `indicagent-signal-generator` runs I7 setup plugins + CISScorer aggregation
-- **AI Narrative:** `indicagent-ai-narrative` (`ai_narrative_service.py`) runs I8 via Ollama
-- **Distribution:** Redis Streams distribute intelligence across all tiers
-- **Consumption:** External intelligence consumers access processed intelligence
+- **Unified Intelligence Pipeline:** `indicagent-intelligence-pipeline` (`intelligence_pipeline_agent.py`) runs I1–I7 fully in-process per bar; outputs `intelligence` (IntelligenceEvent) and `intelligence.i7.signals`
+- **AI Narrative:** `indicagent-ai-narrative` (`ai_narrative_agent.py`) runs I8 via Ollama; publishes to `narratives` topic
+- **Distribution:** Redpanda (Kafka-compatible) distributes intelligence across all tiers
+- **Persistence:** Dedicated WriterAgents (`indicagent-feature-writer`, `indicagent-signal-writer`, `indicagent-llm-writer`) consume from topics and write to TimescaleDB
 
 ---
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=IndicAgent CIS Weight Updater
+After=network-online.target docker.service
+Documentation=https://github.com/bg/indicagent
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/bin/sh -c 'until docker exec timescaledb pg_isready -U postgres 2>/dev/null; do sleep 2; done'
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m src.intelligence.weight_updater
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-weight-updater

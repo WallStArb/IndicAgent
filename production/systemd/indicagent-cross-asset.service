@@ -2,7 +2,7 @@
 Description=IndicAgent Cross-Asset Intelligence Service — spread dynamics and EQ index features
 After=network-online.target
 StartLimitIntervalSec=300
-StartLimitBurst=0
+StartLimitBurst=5
 
 [Service]
 Type=simple

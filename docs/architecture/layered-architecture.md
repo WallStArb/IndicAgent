@@ -46,16 +46,20 @@ The central architectural principle: **the real-time compute pipeline never touc
 
 ---
 
-### Layer 2: Feature Computation (I1–I6)
+### Layer 2: Intelligence Computation (I1–I7)
 
-**Purpose:** Incremental indicator computation, market context classification, and pattern recognition. DB-ignorant.
+**Purpose:** Incremental indicator computation, market context classification, pattern recognition, and signal generation. DB-ignorant — all persistence handled by WriterAgents downstream.
 
-**Service:** `services/feature_compute_agent.py` (`FeatureComputeAgent`) — subscribes to both `market.bars` (1m) and `market.bars.htf` (HTF bars). Each bar triggers an independent I1–I6 pipeline run. Outputs `intelligence:{SYMBOL}:{TF}` (typed `IntelligenceEvent` with tiered JSONB: bar/i1/i2/i3/i4/i5/smc/i6).
+**Service:** `services/intelligence_pipeline_agent.py` (`IntelligencePipelineComputeAgent`) — subscribes to both `market.bars` (1m) and `market.bars.htf` (HTF bars). Each bar triggers an independent I1–I7 in-process pipeline run. Outputs:
+- `intelligence` topic (typed `IntelligenceEvent` with tiered JSONB: bar/i1/i2/i3/i4/i5/smc/i6), keyed `SYMBOL:TF`
+- `intelligence.i7.signals` topic (all ranked I7 signals per bar, pre-ledger write)
+- `signals.aggregated` topic (CISScorer winner signal)
 
 **I1–I2 (Indicators):** RSI, MA, MACD, ATR, Bollinger, Stochastic, Volume Profile, and more — 27 I1 plugins.
 **I3–I4 (Market Structure + Context):** SMC order blocks, FVGs, liquidity, HTF regime classification — 7 I3 + 11 I4 plugins.
 **I5 (Pattern Recognition):** Divergence, exhaustion, momentum confluence — 15 I5 plugins.
 **I6 (Cross-Timeframe Confluence):** `cross_timeframe.py` — scores trend alignment, FVG/OB alignment, and regime agreement across all active TFs.
+**I7 (Signal Generation):** 36 setup plugins + CISScorer. Every fired signal written to `intelligence.i7.signals`; winner published to `signals.aggregated`.
 
 All plugins use `compute_next()` for incremental, stateful computation.
 
@@ -63,19 +67,19 @@ All plugins use `compute_next()` for incremental, stateful computation.
 
 ---
 
-### Layer 3: Signal Generation (I7)
+### Layer 3: Signal Lifecycle & Persistence
 
-**Purpose:** Pattern confluence, setup detection, signal generation. DB-ignorant compute; WriterAgents handle persistence.
+**Purpose:** Track signal lifecycle outcomes; WriterAgents persist compute-layer output to DB.
 
 **Components:**
-- `services/signal_generator_agent.py` (`SignalGeneratorAgent`) — I7: 36 setup plugins + CISScorer + SignalAggregator. Consumes `intelligence:{SYMBOL}:{TF}` stream. Writes every fired signal to `signal_ledger` regardless of regime eligibility; publishes winner to `signals.aggregated`. Bar history fed from IntelligenceEvent stream.
 - `services/signal_tracker_agent.py` (`SignalTrackerAgent`) — zone-aware lifecycle tracking: entry activation, MAE/MFE, 8-class outcome classification. Updates `signal_ledger` with lifecycle outcomes.
+- `services/signal_writer_agent.py` (`SignalWriterAgent`) — batch-consumes `intelligence.i7.signals`, writes all signals to `signal_ledger`.
 
 **8-class signal outcomes:** `never_activated`, `stopped_at_entry`, `stopped_in_trade`, `target_1`, `target_1_2`, `target_full`, `ttl_expired_ahead`, `ttl_expired_behind`
 
 **DB writes:** `signal_ledger` (all signals + lifecycle outcomes, keep forever)
 
-**Metrics:** SignalGeneratorAgent `:9112`, SignalTrackerAgent `:9115`
+**Metrics:** SignalTrackerAgent `:9115`, SignalWriterAgent `:9119`
 
 ---
 
@@ -99,13 +103,12 @@ All plugins use `compute_next()` for incremental, stateful computation.
 **Purpose:** LLM-powered market narrative synthesis and model performance tracking.
 
 **Components:**
-- `services/intelligence_compute_agent.py` (`IntelligenceComputeAgent`) — standalone I7/I8 compute loop; warmup via `BarHistorySeeder`; publishes to `intelligence:{SYMBOL}:{TF}`
-- `services/ai_narrative_agent.py` (`AINarrativeAgent`) — Ollama qwen3.5:9b per-signal analysis → `narratives:{SYMBOL}:{TF}`
+- `services/ai_narrative_agent.py` (`AINarrativeAgent`) — Ollama qwen3.5:9b per-signal analysis → `narratives` topic (keyed `SYMBOL:TF`)
 - `services/llm_writer_agent.py` (`LLMWriterAgent`) — `llm.calls` → `llm_calls` hypertable; outcome back-fill; `llm_model_scores` refresh every 15 min
 
 **DB writes:** `llm_calls` (full LLM audit log, keep forever), `llm_model_scores` (per-model win rate)
 
-**Metrics:** IntelligenceComputeAgent `:9114`, AINarrativeAgent `:9113`, LLMWriterAgent `:9117`
+**Metrics:** AINarrativeAgent `:9113`, LLMWriterAgent `:9117`
 
 ---
 
@@ -130,19 +133,16 @@ IBKR TWS
                       │    └─ market.bars.htf  (5m-1d)
                       │         └─ BarWriterAgent → market_data_ohlcv (TimescaleDB)
                       ├─ BarAuditorAgent → market.events.gap_requests
-                      ├─ FeatureComputeAgent  (also subscribes to market.bars.htf)
-                      │    └─ intelligence:{SYMBOL}:{TF}  (IntelligenceEvent JSONB)
-                      │         ├─ SignalGeneratorAgent (I7)
-                      │         │    ├─ signals.aggregated
-                      │         │    └─ signal_ledger (TimescaleDB)
-                      │         │         └─ SignalTrackerAgent
-                      │         │              └─ signal_ledger lifecycle updates
-                      │         ├─ IntelligenceComputeAgent / AINarrativeAgent (I8)
-                      │         │    ├─ narratives:{SYMBOL}:{TF}
-                      │         │    └─ llm.calls
-                      │         │         └─ LLMWriterAgent → llm_calls (TimescaleDB)
-                      │         └─ FeatureWriterAgent
-                      │              └─ intelligence_features (TimescaleDB)
+                      └─ IntelligencePipelineComputeAgent  (I1-I7 unified; also subscribes to market.bars.htf)
+                           ├─ intelligence  (IntelligenceEvent JSONB, keyed SYMBOL:TF)
+                           │    ├─ FeatureWriterAgent → intelligence_features (TimescaleDB)
+                           │    └─ AINarrativeAgent (I8)
+                           │         ├─ narratives  (keyed SYMBOL:TF)
+                           │         └─ llm.calls
+                           │              └─ LLMWriterAgent → llm_calls (TimescaleDB)
+                           └─ intelligence.i7.signals
+                                ├─ SignalWriterAgent → signal_ledger (TimescaleDB)
+                                └─ SignalTrackerAgent → signal_ledger lifecycle updates
 ```
 
 ---
@@ -154,8 +154,9 @@ All persistence is handled by dedicated WriterAgents. No compute agent writes to
 | WriterAgent | Source Stream | DB Table |
 |---|---|---|
 | `BarWriterAgent` | `market.bars`, `market.bars.htf` | `market_data_ohlcv` |
-| `FeatureWriterAgent` | `intelligence:{SYMBOL}:{TF}` | `intelligence_features` |
-| `SignalTrackerAgent` | `signal_ledger` writes + lifecycle events | `signal_ledger` |
+| `FeatureWriterAgent` | `intelligence` | `intelligence_features` |
+| `SignalWriterAgent` | `intelligence.i7.signals` | `signal_ledger` (new rows) |
+| `SignalTrackerAgent` | lifecycle events | `signal_ledger` (lifecycle updates) |
 | `LLMWriterAgent` | `llm.calls` | `llm_calls`, `llm_model_scores` |
 
 ---

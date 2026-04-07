@@ -51,18 +51,18 @@ All live in `src/intelligence/trading/`:
 
 ## LLM Provider Chain (`llm_providers.py`)
 
-**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (qwen3.5:9b on AMD ROCm iGPU).
+**AI Narrative Service:** consumer group `"ai_narrative"`, starts at `"$"` (skips backlog), timeframes `["1m", "5m", "15m", "1h"]`, Ollama timeout 60s (gemma4:e4b on AMD ROCm iGPU).
 
 | Tier | Provider | Model | Role |
 |------|----------|-------|------|
 | 1 | `OpenRouterProvider` | free models | Primary |
-| 2 | `OllamaProvider` | qwen3.5:9b / phi4-mini:3.8b | Offline fallback |
+| 2 | `OllamaProvider` | gemma4:e4b / phi4-mini:3.8b | Offline fallback |
 
 - `LLMChain` tries in order, returns first non-None. `chain.last_provider_id` = which succeeded.
 - Adding providers: implement `async generate(prompt, system, max_tokens, timeout) -> str | None`, add Settings fields `*_api_key`, `*_base_url`, `*_model`, `*_timeout_sec`.
 - Keys in `.env`: `openrouter_api_key` (empty string → chain skips, falls back to Ollama).
 
-**LLM audit streams**: every call → `llm_calls:stream` (maxlen=500); every signal exit → `llm_outcomes:stream` (maxlen=200). `llm_writer_service` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
+**LLM audit streams**: every call → `llm.calls` (Kafka); every signal exit → `llm.outcomes`. `indicagent-llm-writer` consumes both, writes to `llm_calls` hypertable, back-fills outcome fields, recomputes `llm_model_scores` every 15 min. Adaptive routing: when a model reaches `is_significant=True` (p<0.05, n≥30), it moves to position 0 in the provider chain for that `call_type + regime` combination.
 
 ## Signal Lifecycle (trading/)
 
@@ -78,7 +78,7 @@ All live in `src/intelligence/trading/`:
 ## Gotchas
 
 - **Qwen3 thinking mode**: `content` empty if `num_predict < 500` (thinking tokens consume budget). Use `/no_think` prefix or `num_predict ≥ 500`.
-- **Local Ollama models**: qwen3.5:9b (per-signal), phi4-mini:3.8b (group synthesis) (Docker `:11434`).
+- **Local Ollama models**: gemma4:e4b (per-signal), phi4-mini:3.8b (group synthesis) (Docker `:11434`).
 - **Plugin state write-back is load-bearing**: GARCH/HMM fully reassign `_state` — always write back after `compute_full()`.
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 

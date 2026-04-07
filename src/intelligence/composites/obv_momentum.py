@@ -36,17 +36,11 @@ class OBVMomentumPlugin(PatternPlugin):
         close = df["close"].to_numpy(dtype=float)
         volume = df["volume"].to_numpy(dtype=float)
 
-        # Compute OBV
-        obv = np.zeros(len(close))
-        for i in range(1, len(close)):
-            if close[i] > close[i - 1]:
-                obv[i] = obv[i - 1] + volume[i]
-            elif close[i] < close[i - 1]:
-                obv[i] = obv[i - 1] - volume[i]
-            else:
-                obv[i] = obv[i - 1]
+        # Vectorized OBV calculation (releases GIL vs Python loop)
+        price_changes = np.sign(close[1:] - close[:-1])
+        obv_changes = volume[1:] * price_changes
+        obv = np.concatenate([[0], obv_changes]).cumsum()
 
-        # Linear regression slope over last _WINDOW bars
         window = obv[-_WINDOW:]
         x = np.arange(len(window), dtype=float)
         slope = float(np.polyfit(x, window, 1)[0])

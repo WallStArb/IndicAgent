@@ -35,7 +35,6 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_intelligence_journal, topic_system_events
 from src.intelligence.schemas import BarIntelligenceRecord
 from src.observability.metrics import (
@@ -53,7 +52,7 @@ CONSUMER_TOPIC_FN = topic_intelligence_journal
 SHADOW_TABLE: str = "feature_snapshots_shadow"
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
-METRICS_PORT: int = 9119
+METRICS_PORT: int = 9132
 
 
 class FeatureSnapshotWriterAgent(BaseAgent):
@@ -65,8 +64,6 @@ class FeatureSnapshotWriterAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="FeatureSnapshotWriterAgent")
-
-        setup_service_logging("logs/feature_snapshot_writer_agent.log")
 
         self._settings = Settings()
         self._env_name = self._settings.env_name.strip()

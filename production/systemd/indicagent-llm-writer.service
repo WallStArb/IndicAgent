@@ -3,7 +3,7 @@ Description=IndicAgent LLM Writer Service — Redpanda streams to TimescaleDB
 After=network-online.target indicagent-feature-writer.service
 Wants=indicagent-feature-writer.service
 StartLimitIntervalSec=300
-StartLimitBurst=0
+StartLimitBurst=5
 
 [Service]
 Type=simple

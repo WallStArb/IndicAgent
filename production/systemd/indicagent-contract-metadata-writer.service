@@ -1,8 +1,8 @@
 [Unit]
-Description=IndicAgent ParityAuditorAgent — shadow vs primary parity validation
+Description=IndicAgent ContractMetadataWriterAgent — contract roll promotion
 Requires=indicagent-redpanda-ready.service
-After=network-online.target indicagent-feature-snapshot-writer.service indicagent-redpanda-ready.service
-Wants=indicagent-feature-snapshot-writer.service
+After=network-online.target indicagent-roll-compute.service indicagent-redpanda-ready.service
+Wants=indicagent-roll-compute.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -12,12 +12,12 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/parity_auditor_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/contract_metadata_writer_agent.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-parity-auditor
+SyslogIdentifier=indicagent-contract-metadata-writer
 LimitNOFILE=65536
 
 [Install]

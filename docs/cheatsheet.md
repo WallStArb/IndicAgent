@@ -18,33 +18,43 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 ## System Operations
 ```bash
 # All services are systemd-managed (Restart=always, start on boot)
-# Authoritative unit files: production/systemd/
+# Authoritative unit files: /etc/systemd/system/ (templates in production/systemd/)
 sudo systemctl status 'indicagent-*'
-sudo systemctl restart indicagent-data-provider
-sudo systemctl restart indicagent-feature-compute
-sudo systemctl restart indicagent-signal-generator
+sudo systemctl restart indicagent-ibkr-provider
+sudo systemctl restart indicagent-provider-merger
+sudo systemctl restart indicagent-bar-aggregator-compute
+sudo systemctl restart indicagent-intelligence-pipeline
+sudo systemctl restart indicagent-signal-writer
 sudo systemctl restart indicagent-signal-tracker
-sudo systemctl restart indicagent-ai-narrative
 sudo systemctl restart indicagent-feature-writer
 sudo systemctl restart indicagent-llm-writer
+sudo systemctl restart indicagent-ai-narrative
 sudo systemctl restart indicagent-cross-asset
 sudo systemctl restart indicagent-api
 
-journalctl -u indicagent-data-provider -f    # live logs for any service (print() only; structured logs in logs/<service>.log)
+journalctl -u indicagent-intelligence-pipeline -f    # live logs (print() only; structured logs in logs/<service>.log)
 
-# Start all services (e.g. after reboot — start docker first: docker start timescaledb redpanda)
-sudo systemctl start indicagent-data-provider indicagent-feature-compute \
-  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative \
-  indicagent-feature-writer indicagent-llm-writer indicagent-cross-asset indicagent-api
-
-# Health / metrics
-curl http://localhost:9112/metrics   # Signal Generator
+# Health / metrics (ports 9113, 9115–9133)
 curl http://localhost:9113/metrics   # AI Narrative
-curl http://localhost:9115/metrics   # Signal Lifecycle
+curl http://localhost:9115/metrics   # Signal Tracker
 curl http://localhost:9116/metrics   # Feature Writer
 curl http://localhost:9117/metrics   # LLM Writer
 curl http://localhost:9118/metrics   # Cross-Asset
-curl http://localhost:9125/metrics   # Feature Pipeline
+curl http://localhost:9119/metrics   # Signal Writer
+curl http://localhost:9120/metrics   # Bar Aggregator
+curl http://localhost:9121/metrics   # Bar Writer
+curl http://localhost:9122/metrics   # Roll Compute
+curl http://localhost:9123/metrics   # Bar Auditor
+curl http://localhost:9124/metrics   # Contract Metadata Writer
+curl http://localhost:9125/metrics   # Intelligence Pipeline
+curl http://localhost:9126/metrics   # Signal Metrics Compute
+curl http://localhost:9127/metrics   # Signal Metrics Writer
+curl http://localhost:9128/metrics   # Signal Auditor
+curl http://localhost:9129/metrics   # IBKR Provider
+curl http://localhost:9130/metrics   # Provider Merger
+curl http://localhost:9131/metrics   # Service Auditor
+curl http://localhost:9132/metrics   # Feature Snapshot Writer
+curl http://localhost:9133/metrics   # Parity Auditor
 
 # Grafana & Prometheus (optional — dashboards and alerts)
 cd production && docker compose up -d prometheus grafana
@@ -75,12 +85,12 @@ cd production && docker compose up -d prometheus grafana
 # Step 2 — full reset (requires TWS connected at 10.0.0.33:7497; expect 30–60 min)
 .venv/bin/python production/scripts/pipeline_reset.py
 # → when prompted to STOP, run:
-sudo systemctl stop indicagent-feature-compute indicagent-signal-generator indicagent-signal-tracker \
+sudo systemctl stop indicagent-intelligence-pipeline indicagent-signal-writer indicagent-signal-tracker \
   indicagent-feature-writer indicagent-ai-narrative
 # → press Enter, let fetch + replay complete
 # → when prompted to START, run:
-sudo systemctl start indicagent-feature-compute indicagent-feature-writer \
-  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative
+sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-writer \
+  indicagent-signal-writer indicagent-signal-tracker indicagent-ai-narrative
 
 # Fast reset — skip IBKR fetch, re-replay from existing market_data_ohlcv
 # (use after plugin/signal logic changes, no IBKR connection needed)

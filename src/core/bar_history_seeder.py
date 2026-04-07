@@ -14,6 +14,16 @@ from typing import Any
 
 import structlog
 
+# Batch size for concurrent tasks (prevents event loop overwhelm)
+_SEED_BATCH_SIZE = 8
+
+
+async def _gather_in_batches(tasks: list, batch_size: int = _SEED_BATCH_SIZE) -> None:
+    """Execute async tasks in batches to avoid overwhelming the event loop."""
+    for i in range(0, len(tasks), batch_size):
+        batch = tasks[i:i + batch_size]
+        await asyncio.gather(*batch)
+
 from src.api.utils import parse_jsonb
 from src.config.settings import Settings, get_active_symbols
 from src.core.bar_history import BarHistory
@@ -184,8 +194,8 @@ class BarHistorySeeder:
                 except Exception as e:
                     self.logger.warning("Seed publish failed", symbol=symbol, tf=tf, error=str(e))
 
-        tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
-        await asyncio.gather(*tasks)
+        all_tasks = [_seed_one(sym, tf) for sym in active_contracts for tf in timeframes]
+        await _gather_in_batches(all_tasks)
 
         # Fallback: seed bar_history from market_data_ohlcv for combos still below threshold
         fallback_seeded = 0
@@ -250,7 +260,7 @@ class BarHistorySeeder:
                     bar_history.seed(symbol, tf, bar_messages)
 
         fallback_tasks = [_fallback_one(sym, tf) for sym in active_contracts for tf in timeframes]
-        await asyncio.gather(*fallback_tasks)
+        await _gather_in_batches(fallback_tasks)
 
         self.logger.info(
             "Seeded bar_history and published intelligence",

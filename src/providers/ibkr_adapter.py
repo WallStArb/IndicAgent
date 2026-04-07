@@ -177,7 +177,10 @@ class IBKRAdapter:
 
             try:
                 async for sym, rtb in self._provider.stream_real_time_bars(crypto_symbols):
-                    bar_dt = datetime.fromtimestamp(rtb.time, tz=UTC)
+                    # ib_insync RealTimeBar.time is a datetime; older versions return int
+                    bar_dt = rtb.time if isinstance(rtb.time, datetime) else datetime.fromtimestamp(rtb.time, tz=UTC)
+                    if bar_dt.tzinfo is None:
+                        bar_dt = bar_dt.replace(tzinfo=UTC)
                     minute_ts = bar_dt.replace(second=0, microsecond=0)
 
                     if sym in acc and acc[sym]["minute_ts"] != minute_ts:

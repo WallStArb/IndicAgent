@@ -38,7 +38,6 @@ from aiokafka import AIOKafkaProducer
 from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.schemas.parity import FieldViolation
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_system_events
 from src.observability.metrics import (
     PARITY_CYCLES_TOTAL,
@@ -54,7 +53,7 @@ from src.persistence.repository.parity_repository import ParityRepository
 NUMERIC_TOLERANCE: float = 1e-9
 CERTIFICATION_THRESHOLD: int = 12  # 12 × 5 min = 60 consecutive clean minutes
 COMPARISON_INTERVAL_SECS: int = 300  # 5 minutes
-METRICS_PORT: int = 9120  # D-04/D-08: port :9120 for parity auditor
+METRICS_PORT: int = 9133  # port :9133 (9119/9120 already taken by signal_writer/bar_aggregator)
 
 # Join keys — not comparison targets
 _SKIP_COLUMNS: tuple[str, ...] = ("ts", "symbol", "tf")
@@ -191,8 +190,6 @@ class ParityAuditorAgent(BaseAgent):
 
     def __init__(self) -> None:
         super().__init__(name="ParityAuditorAgent")
-
-        setup_service_logging("logs/parity_auditor_agent.log")
 
         self._settings = Settings()
         self._pool: asyncpg.Pool | None = None

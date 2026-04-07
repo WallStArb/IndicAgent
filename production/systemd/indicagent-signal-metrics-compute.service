@@ -1,8 +1,7 @@
 [Unit]
-Description=IndicAgent Signal Auditor Agent — coverage validation + lag monitoring
-After=network-online.target indicagent-signal-writer.service indicagent-redpanda-ready.service
+Description=IndicAgent Signal Metrics Compute Agent — timer-triggered signal performance metrics
 Requires=indicagent-redpanda-ready.service
-Wants=network-online.target indicagent-signal-writer.service
+After=network-online.target indicagent-intelligence-pipeline.service indicagent-redpanda-ready.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -13,12 +12,12 @@ WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_auditor_agent.py
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/signal_metrics_compute_agent.py
 Restart=always
-RestartSec=10
+RestartSec=30
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-signal-auditor
+SyslogIdentifier=indicagent-signal-metrics-compute
 LimitNOFILE=65536
 
 [Install]

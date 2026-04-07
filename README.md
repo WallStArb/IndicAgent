@@ -458,13 +458,26 @@ Every service exposes a Prometheus-compatible metrics endpoint:
 
 | Service | Metrics |
 |---------|---------|
+| `ibkr_provider_agent` | :9129 |
+| `provider_merger_agent` | :9130 |
+| `bar_aggregator_agent` | :9120 |
+| `bar_writer_agent` | :9121 |
+| `bar_auditor_agent` | :9123 |
+| `roll_compute_agent` | :9122 |
+| `contract_metadata_writer_agent` | :9124 |
 | `intelligence_pipeline_agent` | :9125 |
-| `signal_writer_agent` | :9117 |
-| `ai_narrative_service` | :9113 |
+| `signal_writer_agent` | :9119 |
 | `signal_tracker_agent` | :9115 |
+| `signal_metrics_compute_agent` | :9126 |
+| `signal_metrics_writer_agent` | :9127 |
+| `signal_auditor_agent` | :9128 |
 | `feature_writer_agent` | :9116 |
+| `feature_snapshot_writer_agent` | :9132 |
+| `parity_auditor_agent` | :9133 |
 | `llm_writer_service` | :9117 |
+| `ai_narrative_service` | :9113 |
 | `cross_asset_service` | :9118 |
+| `service_auditor_agent` | :9131 |
 
 Grafana dashboards: pipeline throughput per symbol/TF · per-service P50/P95/P99 latency · signal generation and regime gate drop rates · LLM call success and fallback rates · per-plugin error rates.
 

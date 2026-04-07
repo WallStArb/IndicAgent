@@ -2,7 +2,7 @@
 
 Provides the Renaissance Agentic DAG standard lifecycle:
 - SIGTERM/SIGINT drain via asyncio event (asyncio.get_running_loop, not deprecated get_event_loop)
-- Structured logging via structlog bound with agent name
+- Structured logging via structlog bound with agent name (configured before logger creation)
 - Consumer lag reporting scaffolding (override in concrete agents)
 - OTel tracer via get_tracer(name) — no-op when init_tracing() not called
 - Optional Prometheus metrics auto-start via metrics_port parameter
@@ -11,6 +11,14 @@ Provides the Renaissance Agentic DAG standard lifecycle:
 - topics_consumed/topics_produced/lag_threshold_messages for ProcessManifest (Plan 03)
 - _send_to_dlq() stub — logs and discards; override when DLQ topics are provisioned
 - start/stop/run contract enforced via abc.ABC
+
+Logging Setup:
+  BaseAgent auto-configures logging before creating the logger using convention-over-configuration:
+  - Default: log path derived from agent name (PascalCase → snake_case conversion: logs/{name}.log)
+  - Override: call setup_service_logging(custom_path) BEFORE super().__init__() for custom paths
+    (e.g., from environment variable or config file)
+  This fixes the ordering bug where setup_service_logging() was called after super().__init__(),
+  causing loggers to be created with default config (no file output).
 """
 
 from __future__ import annotations
@@ -24,6 +32,7 @@ import time
 
 import structlog
 
+from src.core.service_utils import setup_service_logging
 from src.observability.metrics import AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS, start_metrics_server
 from src.observability.otel import get_tracer
 
@@ -45,6 +54,13 @@ class BaseAgent(abc.ABC):
         metrics_port: int | None = None,
         max_idle_seconds: int = 0,
     ) -> None:
+        # Configure logging BEFORE creating logger using convention-over-configuration
+        # Convert PascalCase agent names to snake_case for log files
+        import re
+        log_name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+        log_path = f"logs/{log_name}.log"
+        setup_service_logging(log_path)
+
         self.name = name
         self._metrics_port = metrics_port
         self.max_idle_seconds = max_idle_seconds
@@ -54,6 +70,7 @@ class BaseAgent(abc.ABC):
         self._last_msg_ts_gauge = AGENT_LAST_MESSAGE_TIMESTAMP_SECONDS.labels(agent=name)
         # NOTE: attribute is self.logger (not self.log) to match the 20+ call sites
         # in existing agents that use self.logger.
+        # Logger is created AFTER setup_service_logging() when log_file is provided.
         self.logger: structlog.BoundLogger = structlog.get_logger().bind(agent=name)
         # OTel tracer — no-op when init_tracing() has not been called; safe before init.
         self.tracer = get_tracer(name)

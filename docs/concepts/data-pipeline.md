@@ -21,26 +21,28 @@ The real-time pipeline **never touches the database directly**. All live process
 **Technology:** Redpanda (Kafka-compatible, :19092) — replaced DragonflyDB (Phase 30, 2026-03-14)
 **Latency:** Sub-millisecond writes
 
-The DataProviderAgent (`indicagent-data-provider`) connects to IBKR at `10.0.0.33:7497` and writes completed bars to Redpanda topics as they arrive. All stream keys are constructed via `src/core/stream_keys.py` and are environment-prefixed.
+The `IBKRProviderAgent` (`indicagent-ibkr-provider`) connects to IBKR TWS at `192.168.1.157:7497`, collects 5s real-time bars, and publishes them to `market.bars.raw.ibkr`. The `ProviderMergerAgent` (`indicagent-provider-merger`) consumes all provider raw topics and routes to the canonical `market.bars` topic with automatic primary-silence failover. All topic names are constructed via `src/core/stream_keys.py` and are environment-prefixed.
 
-### Stream Key Convention
+### Topic Convention
 
 ```
-{env}:indicators:{SYMBOL}:{TF}          # I1+I2 indicator output
-{env}:intelligence:{SYMBOL}:{TF}        # I3–I6 typed IntelligenceEvent
-{env}:signals:{SYMBOL}:{TF}:aggregated  # I7 CISScorer aggregated signal
-{env}:narratives:{SYMBOL}:{TF}          # I8 per-signal AI narrative
-{env}:llm_calls:stream                  # Every LLM call audit record (maxlen=500)
-{env}:llm_outcomes:stream               # Signal lifecycle exits with pnl_r/mae/mfe (maxlen=200)
+{env}.market.bars.raw.{provider}   # Per-provider raw bars (e.g. market.bars.raw.ibkr)
+{env}.market.bars                  # Canonical 1m bars from ProviderMergerAgent
+{env}.market.bars.htf              # Aggregated HTF bars (5m–1d) from BarAggregatorComputeAgent
+{env}.intelligence                 # I1–I7 IntelligenceEvent output (keyed SYMBOL:TF)
+{env}.intelligence.i7.signals      # All ranked I7 signals per bar (pre-ledger write)
+{env}.signals.aggregated           # I7 CISScorer winner signal
+{env}.narratives                   # I8 per-signal AI narrative (keyed SYMBOL:TF)
+{env}.llm.calls                    # Every LLM call audit record
+{env}.llm.outcomes                 # Signal lifecycle exits with pnl_r/mae/mfe
+# Producer: indicant-signal-tracker publishes signal lifecycle outcomes (exit events)
 ```
 
-Environment prefix is set by `INDICAGENT_ENV` (e.g., `development:` in dev, no prefix in production). **Always build keys via `src/core/stream_keys.py`** — never hardcode.
+Environment prefix is `{env}.` (e.g., `development.` in dev, empty string in production). **Always build topics via `src/core/stream_keys.py`** — never hardcode.
 
 ### Consumer Groups
 
-Each service reads its input streams via an exclusive consumer group. The consumer group tracks what each service has processed, enabling independent progress per service and automatic replay after restart.
-
-**Gotcha:** `xgroup_create(..., "$")` silently fails when the group already exists and leaves the stream position at its current offset. Use `ensure_consumer_group_with_reset()` from `src/core/stream_utils` to safely initialize or reset consumer groups.
+Each service reads its input topics via an exclusive Kafka consumer group. The group offset is tracked by Redpanda, enabling independent progress per service and automatic replay on restart. Consumer group names follow the pattern `<concept>_consumer` (idempotent on restart).
 
 ---
 
@@ -58,13 +60,15 @@ Each service reads from one or more Redpanda topics, computes intelligence, and 
 
 | Service | Reads From | Writes To |
 |---------|-----------|-----------|
-| `indicagent-feature-compute` | IBKR bar streams | `indicators:SYMBOL:TF` |
-| `indicagent-market-analysis` | `indicators:SYMBOL:TF` | `intelligence:SYMBOL:TF` |
-| `indicagent-signal-generator` | `intelligence:SYMBOL:TF` | `signals:SYMBOL:TF:aggregated` + `signal_ledger` (new rows) |
-| `indicagent-signal-tracker` | `market:SYMBOL:1m` | `signal_ledger` (lifecycle updates) + `llm_outcomes:stream` |
-| `indicagent-ai-narrative` | `signals:SYMBOL:TF:aggregated` | `narratives:SYMBOL:TF` + `llm_calls:stream` |
-| `indicagent-feature-writer` | `intelligence:SYMBOL:TF` | `intelligence_features` (TimescaleDB) |
-| `indicagent-llm-writer` | `llm_calls:stream` + `llm_outcomes:stream` | `llm_calls` hypertable + `llm_model_scores` |
+| `indicagent-ibkr-provider` | IBKR TWS (5s real-time bars) | `market.bars.raw.ibkr` |
+| `indicagent-provider-merger` | `market.bars.raw.*` | `market.bars` (canonical 1m) |
+| `indicagent-bar-aggregator-compute` | `market.bars` | `market.bars.htf` (5m–1d) |
+| `indicagent-intelligence-pipeline` | `market.bars` + `market.bars.htf` | `intelligence` + `intelligence.i7.signals` + `signals.aggregated` |
+| `indicagent-signal-writer` | `intelligence.i7.signals` | `signal_ledger` (new rows) |
+| `indicagent-signal-tracker` | `market.bars` | `signal_ledger` (lifecycle updates) |
+| `indicagent-ai-narrative` | `signals.aggregated` | `narratives` + `llm.calls` |
+| `indicagent-feature-writer` | `intelligence` | `intelligence_features` (TimescaleDB) |
+| `indicagent-llm-writer` | `llm.calls` + `llm.outcomes` | `llm_calls` hypertable + `llm_model_scores` |
 
 ### Multi-Stream Reading
 
@@ -92,9 +96,9 @@ async for msg in self._consumer:
 |-------|-----------|---------|
 | `market_data_ohlcv` | `historical_backfill.py` only | Raw OHLCV cold storage — never written by live pipeline |
 | `intelligence_features` | `feature_writer_service` | Full feature vectors per bar (tiered JSONB: bar/i1/i3/i4/i5/smc/i6) — ML training dataset |
-| `signal_ledger` | `signal_generator_service` (new rows) + `signal_tracker_agent` (lifecycle updates) | I7 signals with lifecycle state, MAE/MFE, 8-class outcome |
-| `llm_calls` | `llm_writer_service` | Full LLM call audit — request, response, outcome back-filled on signal close |
-| `llm_model_scores` | `llm_writer_service` (refreshed every 15 min) | Per-model win rate, avg pnl_r, p-value — drives model selection |
+| `signal_ledger` | `indicant-signal-writer` (new rows) + `indicant-signal-tracker` (lifecycle updates) | I7 signals with lifecycle state, MAE/MFE, 8-class outcome |
+| `llm_calls` | `indicant-llm-writer` | Full LLM call audit — request, response, outcome back-filled on signal close |
+| `llm_model_scores` | `indicant-llm-writer` (refreshed every 15 min) | Per-model win rate, avg pnl_r, p-value — drives model selection |
 | `setup_performance` | weight-updater (nightly) | Per-setup rolling 30d stats — drives I7 signal ranking; only rows with `sample_size >= 30` |
 
 The live pipeline never writes to `market_data_ohlcv` directly. If TWS disconnects, gaps are filled with `historical_backfill.py --days 2`.
@@ -141,27 +145,27 @@ Downstream plugins read from this single event rather than subscribing to multip
 
 ```
 IBKR TWS
-  └─► bar stream (hot, Redpanda)
-        └─► indicator_service (I1+I2, warm)
-              └─► indicators:SYMBOL:TF stream
-                    └─► market_analysis_service (I3–I6, warm)
-                          └─► intelligence:SYMBOL:TF stream
-                                ├─► signal_generator_service (I7, warm)
-                                │     ├─► signal_ledger (cold, TimescaleDB — new rows)
-                                │     └─► signals:SYMBOL:TF:aggregated (hot)
-                                │           └─► ai_narrative_service (I8, warm)
-                                │                 ├─► narratives:SYMBOL:TF (hot)
-                                │                 └─► llm_calls:stream (hot)
-                                │                       └─► llm_writer_service
-                                │                             ├─► llm_calls (cold, TimescaleDB)
-                                │                             └─► llm_model_scores (cold)
-                                └─► feature_writer_service (warm → cold)
-                                      └─► intelligence_features (TimescaleDB)
-
-market:SYMBOL:1m
-  └─► signal_tracker_agent
-        ├─► signal_ledger (cold — lifecycle updates, MAE/MFE, outcome)
-        └─► llm_outcomes:stream → llm_writer_service (outcome back-fill)
+  └─► IBKRProviderAgent (hot)
+        └─► market.bars.raw.ibkr
+              └─► ProviderMergerAgent
+                    └─► market.bars (canonical 1m, hot)
+                          ├─► BarAggregatorComputeAgent
+                          │     └─► market.bars.htf (5m–1d, hot)
+                          │           └─► BarWriterAgent → market_data_ohlcv (cold)
+                          └─► IntelligencePipelineComputeAgent (I1–I7 unified, warm)
+                                  (also subscribes to market.bars.htf)
+                                ├─► intelligence (IntelligenceEvent, keyed SYMBOL:TF)
+                                │     ├─► indicant-feature-writer → intelligence_features (cold)
+                                │     └─► indicant-ai-narrative (I8, warm)
+                                │           ├─► narratives (keyed SYMBOL:TF, hot)
+                                │           └─► llm.calls
+                                │                 └─► indicant-llm-writer
+                                │                       ├─► llm_calls (cold, TimescaleDB)
+                                │                       └─► llm_model_scores (cold)
+                                └─► intelligence.i7.signals
+                                      ├─► indicant-signal-writer → signal_ledger (cold — new rows)
+                                      └─► indicant-signal-tracker
+                                            └─► signal_ledger (cold — lifecycle updates)
 ```
 
 ---

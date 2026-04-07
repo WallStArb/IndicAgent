@@ -3,7 +3,7 @@ Description=IndicAgent FastAPI — SSE bridge and REST API
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300
-StartLimitBurst=0
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -13,8 +13,6 @@ Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 Restart=always
-WatchdogSec=60
-NotifyAccess=main
 TimeoutStopSec=30
 RestartSec=5
 StandardOutput=journal

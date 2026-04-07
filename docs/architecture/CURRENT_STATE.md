@@ -25,13 +25,24 @@ IndicAgent v2.1 is a real-time market intelligence platform with a unified I1-I7
 | Bar Aggregator | `bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF (5m-1d) aggregation |
 | Bar Writer | `bar_writer_agent.py` | `indicagent-bar-writer` | :9121 | Writes `market_data_ohlcv` (batch) |
 | Bar Auditor | `bar_auditor_agent.py` | `indicagent-bar-auditor` | :9123 | Gap detection → `market.events.gap_requests` |
+| Roll Compute | `roll_compute_agent.py` | `indicagent-roll-compute` | :9122 | Calendar + volume z-score roll detection |
+| Contract Metadata Writer | `contract_metadata_writer_agent.py` | `indicagent-contract-metadata-writer` | :9124 | Consumes roll events → promotes front-month in `contract_metadata` |
 | Intelligence Pipeline | `intelligence_pipeline_agent.py` | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified, in-process |
+| Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9119 | Writes `signal_ledger` (batch) |
 | Signal Tracker | `signal_tracker_agent.py` | `indicagent-signal-tracker` | :9115 | Signal lifecycle (activation, MAE/MFE, outcome) |
+| Signal Metrics Compute | `signal_metrics_compute_agent.py` | `indicagent-signal-metrics-compute` | :9126 | Timer-triggered signal performance metrics |
+| Signal Metrics Writer | `signal_metrics_writer_agent.py` | `indicagent-signal-metrics-writer` | :9127 | Persists signal metrics to DB |
+| Signal Auditor | `signal_auditor_agent.py` | `indicagent-signal-auditor` | :9128 | Coverage validation + lag monitoring |
 | Feature Writer | `feature_writer_agent.py` | `indicagent-feature-writer` | :9116 | Writes `intelligence_features` (batch) |
-| Signal Writer | `signal_writer_agent.py` | `indicagent-signal-writer` | :9117 | Writes `signal_ledger` (batch) |
+| Feature Snapshot Writer | `feature_snapshot_writer_agent.py` | `indicagent-feature-snapshot-writer` | :9132 | Shadow dual-write → `feature_snapshots_shadow` |
+| Parity Auditor | `parity_auditor_agent.py` | `indicagent-parity-auditor` | :9133 | 5-min parity comparison; certifies after 60 clean cycles |
+| LLM Writer | `llm_writer_service.py` | `indicagent-llm-writer` | :9117 | Writes `llm_calls` + outcome back-fill |
 | AI Narrative | `ai_narrative_service.py` | `indicagent-ai-narrative` | :9113 | I8 LLM analysis |
 | Cross Asset | `cross_asset_service.py` | `indicagent-cross-asset` | :9118 | Cross-asset spread dynamics |
+| Service Auditor | `service_auditor_agent.py` | `indicagent-service-auditor` | :9131 | Pipeline health monitor and self-healer |
 | API | `src/api/main.py` | `indicagent-api` | :8000 | FastAPI + SSE |
+| Dashboard | `dashboard/` | `indicagent-dashboard` | :3000 | Next.js dev server |
+| Weight Updater | `src/intelligence/weight_updater.py` | `indicagent-weight-updater` | — (oneshot) | Daily CIS weight refresh |
 
 ## Data Flow
 

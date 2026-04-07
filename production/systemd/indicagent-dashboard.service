@@ -1,0 +1,22 @@
+# REFERENCE TEMPLATE: Copy to /etc/systemd/system/ and override WorkingDirectory/ExecStart
+# for production deployment paths (e.g., /opt/indicagent/dashboard instead of /home/bg/dev/...)
+[Unit]
+Description=IndicAgent Dashboard — Next.js production server
+After=network-online.target indicagent-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent/dashboard
+Environment=NODE_ENV=production
+ExecStart=/home/bg/dev/indicagent/dashboard/node_modules/.bin/next start --port 3000 --hostname 0.0.0.0
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicagent-dashboard
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,7 @@
 Description=IndicAgent AI Narrative Service — I8 narratives
 After=network-online.target
 StartLimitIntervalSec=300
-StartLimitBurst=0
+StartLimitBurst=5
 
 [Service]
 Type=simple
