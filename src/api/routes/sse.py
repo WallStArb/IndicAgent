@@ -156,7 +156,7 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
     settings = _get_settings()
     env_name = settings.env_name or ""
     topics: list[str] = []
-    # market.ticks removed — no active publisher; intelligence_pipeline caches live quotes
+    # market.ticks removed — IBKRProvider publishes bars not ticks; intelligence_pipeline subscribes internally
     # indicators removed — only archived services published to this topic
     topics.append(topic_market_bars(env_name))
     topics.append(topic_market_bars_htf(env_name))
