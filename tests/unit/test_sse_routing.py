@@ -53,3 +53,38 @@ class TestEventNameForTopic:
     def test_intelligence_other_subtopic_maps_to_intelligence_data(self):
         """intelligence.anything (not journal/record/i7/i8) stays as intelligence_data."""
         assert self.fn("intelligence.someotherthing") == "intelligence_data"
+
+
+class TestBuildTopicList:
+    def _get_topics(self):
+        from unittest.mock import MagicMock, patch
+        mock_settings = MagicMock()
+        mock_settings.env_name = ""
+        with patch("src.api.routes.sse._get_settings", return_value=mock_settings):
+            from src.api.routes.sse import _build_topic_list
+            return _build_topic_list(["ES"], "1m")
+
+    def test_no_dead_indicators_topic(self):
+        """indicators topic has no active producer — must not be in SSE subscription list."""
+        topics = self._get_topics()
+        assert "indicators" not in topics, "indicators topic has no active producer"
+
+    def test_no_dead_market_ticks_topic(self):
+        """market.ticks has no active publisher — must not be in SSE subscription list."""
+        topics = self._get_topics()
+        assert "market.ticks" not in topics, "market.ticks has no publisher for SSE"
+
+    def test_active_topics_present(self):
+        """Core active topics must be in SSE subscription list."""
+        topics = self._get_topics()
+        for expected in [
+            "market.bars",
+            "market.bars.htf",
+            "intelligence",
+            "intelligence.journal",
+            "intelligence.i8",
+            "signals.aggregated",
+            "narratives",
+            "narratives.group",
+        ]:
+            assert expected in topics, f"{expected} missing from topic list"
