@@ -1,7 +1,7 @@
 # IndicAgent Layered Architecture
 
 **Version:** 2.1
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-04-07
 **Status:** I1-I8 production complete — 121 plugins + 2 aggregation components
 
 ## Overview
@@ -52,8 +52,7 @@ The central architectural principle: **the real-time compute pipeline never touc
 
 **Service:** `services/intelligence_pipeline_agent.py` (`IntelligencePipelineComputeAgent`) — subscribes to both `market.bars` (1m) and `market.bars.htf` (HTF bars). Each bar triggers an independent I1–I7 in-process pipeline run. Outputs:
 - `intelligence` topic (typed `IntelligenceEvent` with tiered JSONB: bar/i1/i2/i3/i4/i5/smc/i6), keyed `SYMBOL:TF`
-- `intelligence.i7.signals` topic (all ranked I7 signals per bar, pre-ledger write)
-- `signals.aggregated` topic (CISScorer winner signal)
+- `intelligence.i7.signals` topic (all ranked I7 signals per bar including CISScorer winner)
 
 **I1–I2 (Indicators):** RSI, MA, MACD, ATR, Bollinger, Stochastic, Volume Profile, and more — 27 I1 plugins.
 **I3–I4 (Market Structure + Context):** SMC order blocks, FVGs, liquidity, HTF regime classification — 7 I3 + 11 I4 plugins.

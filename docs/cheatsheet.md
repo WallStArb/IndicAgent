@@ -63,10 +63,10 @@ cd production && docker compose up -d prometheus grafana
 # Note: 3001 avoids conflict with IndicAgent dashboard (Next.js on 3000)
 
 # Direct invocation (debugging only)
-.venv/bin/python services/data_provider_agent.py
-.venv/bin/python services/feature_compute_agent.py
-.venv/bin/python services/signal_generator_service.py
-.venv/bin/python services/feature_writer_service.py
+.venv/bin/python services/ibkr_provider_agent.py
+.venv/bin/python services/intelligence_pipeline_agent.py
+.venv/bin/python services/signal_writer_agent.py
+.venv/bin/python services/feature_writer_agent.py
 .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 ```
 

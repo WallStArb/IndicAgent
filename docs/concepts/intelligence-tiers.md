@@ -1,7 +1,7 @@
 # Intelligence Engine Tiers (I1–I8)
 
 **Current State:** See [STATUS.md](../STATUS.md) for plugin counts and tier status
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-04-07
 
 ## Overview
 
@@ -145,7 +145,7 @@ The Intelligence Engine implements progressive intelligence extraction through e
 **Intelligence Focus:** Regime-gated setup detection, 6-bucket scoring, adaptive weight learning
 
 - **Input:** I2–I6 confluence-validated intelligence
-- **Output:** Setup events → `intelligence.i7.signals` (Kafka) → `signal_ledger` (TimescaleDB via `SignalWriterAgent`); winner signal on `signals.aggregated`
+- **Output:** Setup events → `intelligence.i7.signals` (Kafka) → `signal_ledger` (TimescaleDB via `SignalWriterAgent`)
 - **Code Location:** `src/intelligence/trading/`
 - **Setup Plugins (17):**
   - *Original 9:* `TrendFollowing`, `MeanReversion`, `LiquiditySweepReclaim`, `MTFAlignment`, `SqueezeExpansion`, `VWAPDeviation`, `MomentumBreakout`, `LiquidityHunt`, `SupplyDemandSetup`
@@ -183,7 +183,6 @@ The Intelligence Engine implements progressive intelligence extraction through e
 ```yaml
 intelligence                   # I1–I7 output — typed IntelligenceEvent (tiered JSONB: i1/i3/i4/i5/smc/i6), keyed SYMBOL:TF
 intelligence.i7.signals        # I7 output — all ranked signals per bar (pre-ledger write), keyed SYMBOL:TF
-signals.aggregated             # I7 output — CISScorer winner signal
 narratives                     # I8 output — per-signal AI narrative, keyed SYMBOL:TF
 narratives.group               # I8 output — asset-group synthesis narrative
 ```
@@ -306,18 +305,18 @@ The I1-I8 framework integrates seamlessly with IndicAgent's service-based archit
 
 | Tier | Plugins | Notes |
 |------|---------|-------|
-| I1 Technical Indicators | 25 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA — all incremental `compute_next()` |
+| I1 Technical Indicators | 27 | RSI, MACD, MA/EMA, MACompare, Bollinger, ATR, Stochastic, CCI, Williams %R, MFI, OBV, VWAP, Supertrend, PSAR, StochRSI, CMF, Aroon, ChandelierExit, HistoricalVolatility, ROC/PPO, ADX, Keltner, Donchian, ACOscillator, HMA — all incremental `compute_next()` |
 | I2 Composite Events | 11 | MACDEvents, RSIEvents, StochasticEvents, ADXEvents, VolumeEvents, MomentumAccel, DonchianPos, OBVMomentum, DerivOsc, ExhaustionScore, AccelerationRegime |
-| I3 Market Structure | 8 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones, SwingMomentum |
-| I4 Context / Regime | 9 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, MTFVolatility |
-| I5 Patterns | 14 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction |
+| I3 Market Structure | 15 | SwingDetector, SupportResistance, TrendStructure, MarketProfile, SessionLevels, AnchoredVWAP, FibonacciZones, SwingMomentum |
+| I4 Context / Regime | 11 | VolatilityRegime, TrendRegime, MomentumContext, GARCHVolatility, HurstExponent, ShannonEntropy, KalmanTrend, SessionContext, MTFVolatility |
+| I5 Patterns | 15 | RSIDivergence, BollingerSqueeze, VolumeDivergence, Confluence, TrendConfluence, DoubleTopBottom, HeadShoulders, TriangleWedge, CandlestickPatterns, FlagPennant, CupHandle, MeasuredMove, VolumeProfile, KeyLevelReaction |
 | I6 SMC | 13 | BOS/CHoCH, FairValueGap, OrderBlocks, LiquiditySweeps, BOCPDChangepoint, HMMRegime, LiquidityPools, SupplyDemandZones, ICTKillzones, AMDCycle, BreakerBlocks, MitigationBlocks, PremiumDiscount |
 | I6 Confluence | 1 | CrossTimeframeConfluence — recency-weighted multi-TF alignment, 10 output fields |
-| I7 Trading Setups | 17 + 2 agg | 17 setup plugins (9 original + 5 CIS contributors + 3 new: GapAnalysis, CandlestickPatternSetup, SessionExtremes) + CISScorer aggregator + SignalAggregator |
+| I7 Trading Setups | 36 + 2 agg | 36 setup plugins (9 original + 5 CIS contributors + 3 new: GapAnalysis, CandlestickPatternSetup, SessionExtremes + 19 others) + CISScorer aggregator + SignalAggregator |
 | I8 AI Narrative | 1 service | `ai_narrative_service` — Ollama qwen3.5:9b (per-signal, conf>0.7, 5m/15m/1h) + phi4-mini:3.8b (group synthesis) |
 
 ### **Totals**
-- **98 registered plugins + 2 aggregation components:** 25 I1 + 11 I2 + 8 I3 + 9 I4 + 14 I5 + 13 SMC + 1 I6 + 17 I7
+- **121 registered plugins + 2 aggregation components:** 27 I1 + 15 I3 + 11 I4 + 15 I5 + 13 SMC + 1 I6 Confluence + 36 I7
 - **1754 unit tests passing**, 106 ruff errors (E501 line-too-long)
 
 ---

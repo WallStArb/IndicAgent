@@ -1,11 +1,11 @@
 # Composite Intelligence Score (CIS)
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-04-07
 **Code:** `src/intelligence/trading/cis_scorer.py`
 
 ## The Problem CIS Solves
 
-The I7 tier runs 17 setup plugins against every bar. On a typical bar during an active session, multiple plugins fire simultaneously — a TrendFollowing setup, a VWAPDeviation setup, and a CHoCHReversal might all trigger with different directions and confidence scores. How do you decide which signal to publish?
+The I7 tier runs 36 setup plugins against every bar. On a typical bar during an active session, multiple plugins fire simultaneously — a TrendFollowing setup, a VWAPDeviation setup, and a CHoCHReversal might all trigger with different directions and confidence scores. How do you decide which signal to publish?
 
 The naive approach (highest confidence wins) is fragile: a plugin with high confidence in the wrong regime still produces a bad trade. Majority voting ignores signal quality. Any hand-tuned priority ordering goes stale as market regimes shift.
 
@@ -100,7 +100,7 @@ The agreement floor prevents a single very-high-weight bucket from dominating. E
 ## Decision Flow
 
 ```
-17 I7 plugins fire → aggregator receives signals
+36 I7 plugins fire → aggregator receives signals
         │
         ▼
   Regime gate (HMM eligibility filter, slow-clock 5m/15m)
@@ -177,7 +177,7 @@ Promotion gate: setup only receives a performance weight when sample_size ≥ 30
   → prevents overfitting on insufficient data
 ```
 
-Weights are written to `{env}:setup_performance:weights` in Redis and read by `signal_generator_service` at startup and every 60 minutes. Floor of 0.5 ensures no setup is fully suppressed before sufficient evidence accumulates.
+Weights are written to `{env}:setup_performance:weights` in Redis and read by `IntelligencePipelineComputeAgent` at startup and every 60 minutes. Floor of 0.5 ensures no setup is fully suppressed before sufficient evidence accumulates.
 
 **The two systems compose cleanly:** CIS governs which *direction* has cross-tier confirmation; performance weights govern which *setup plugin* to prefer within the eligible pool. Neither overwrites the other.
 

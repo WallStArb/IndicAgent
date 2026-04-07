@@ -1,6 +1,6 @@
 # Signal Lifecycle
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-04-07
 
 ## Overview
 
@@ -17,7 +17,7 @@ This data becomes the **labeled training dataset** for the ML scoring model.
 
 ## Signal Origin: I7 Setup Detection
 
-The I7 tier (17 setup plugins + CISScorer aggregator + SignalAggregator) fires signals when it detects high-confidence trading setups. Each signal is written to `signal_ledger` (TimescaleDB) with:
+The I7 tier (36 setup plugins + CISScorer aggregator) fires signals when it detects high-confidence trading setups. Each signal is written to `signal_ledger` (TimescaleDB) with:
 
 - `symbol`, `feature_ts`, `feature_tf` — join key back to `intelligence_features`
 - `direction` — `long` or `short`

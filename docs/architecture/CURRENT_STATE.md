@@ -181,6 +181,57 @@ IndicAgent v2.1 is a real-time market intelligence platform with a unified I1-I7
 
 ---
 
+## Performance Characteristics
+
+### Current Throughput
+
+| Metric | Value | Context |
+|--------|-------|---------|
+| **Throughput** | ~4.5 bars/sec | Single symbol, all timeframes |
+| **Latency** | ~220ms/bar | End-to-end I1→I7 |
+| **Plugin Count** | 121 total | 27 I1, 15 I3, 11 I4, 36 I7 |
+
+### Parallelization Architecture
+
+**Tier Parallelization:**
+- **I1 (27 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
+- **I7 (36 plugins)** — parallelized via `asyncio.gather` + ThreadPoolExecutor
+- **I2-I6** — sequential execution (current bottleneck)
+
+**Latency Breakdown (Per Bar):**
+- I1 (parallel): ~30ms
+- I2 (sequential): ~40ms
+- I3 (sequential, 15 plugins): ~50ms
+- I4 (sequential, 11 plugins): ~40ms
+- I5-I6 (sequential): ~30ms
+- I7 (parallel): ~20ms
+
+**GIL Bottleneck:** Python's Global Interpreter Lock prevents ThreadPoolExecutor from achieving true parallelism. Only one thread executes Python bytecode at a time, regardless of worker count. CPU-bound work (plugin compute) cannot utilize multiple cores.
+
+### Optimization Strategies
+
+**Individual Plugin Vectorization:**
+- **What:** Rewrite plugins in numpy vectorized form
+- **Impact:** 46x faster for OBVMomentum (8057ms → 177ms)
+- **Throughput gain:** **None** — bottleneck is sequential tier execution, not plugin speed
+- **When useful:** If tier itself becomes bottleneck after parallelization
+
+**Batch Processing:**
+- **What:** Process 100+ bars in single pass through all tiers
+- **Impact:** Expected 10-50x throughput improvement (amortizes sequential tier cost)
+- **Trade-off:** Increased latency (accumulate 100 bars OR 5s timeout)
+- **Status:** Planned optimization
+
+**Process-Level Parallelism:**
+- **What:** Use multiprocessing instead of threading (bypasses GIL)
+- **Impact:** Could parallelize I2-I6 tiers across processes
+- **Trade-off:** High overhead (process spawn, IPC serialization)
+- **Status:** Not pursued unless batch processing insufficient
+
+**See:** `docs/architecture/PIPELINE_OPTIMIZATION.md` for detailed strategy and `docs/ideas/pipeline-throughput-bottleneck-analysis.md` for profiling analysis.
+
+---
+
 ## What Makes This Architecture Unique
 
 | Aspect | Typical Systems | IndicAgent | Advantage |

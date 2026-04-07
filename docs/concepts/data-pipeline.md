@@ -1,6 +1,6 @@
 # Data Pipeline
 
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-04-07
 
 ## Overview
 
@@ -31,7 +31,7 @@ The `IBKRProviderAgent` (`indicagent-ibkr-provider`) connects to IBKR TWS at `19
 {env}.market.bars.htf              # Aggregated HTF bars (5m–1d) from BarAggregatorComputeAgent
 {env}.intelligence                 # I1–I7 IntelligenceEvent output (keyed SYMBOL:TF)
 {env}.intelligence.i7.signals      # All ranked I7 signals per bar (pre-ledger write)
-{env}.signals.aggregated           # I7 CISScorer winner signal
+{env}.intelligence.i7.signals      # I7 signals (all ranked + winner)
 {env}.narratives                   # I8 per-signal AI narrative (keyed SYMBOL:TF)
 {env}.llm.calls                    # Every LLM call audit record
 {env}.llm.outcomes                 # Signal lifecycle exits with pnl_r/mae/mfe
@@ -63,7 +63,7 @@ Each service reads from one or more Redpanda topics, computes intelligence, and 
 | `indicagent-ibkr-provider` | IBKR TWS (5s real-time bars) | `market.bars.raw.ibkr` |
 | `indicagent-provider-merger` | `market.bars.raw.*` | `market.bars` (canonical 1m) |
 | `indicagent-bar-aggregator-compute` | `market.bars` | `market.bars.htf` (5m–1d) |
-| `indicagent-intelligence-pipeline` | `market.bars` + `market.bars.htf` | `intelligence` + `intelligence.i7.signals` + `signals.aggregated` |
+| `indicagent-intelligence-pipeline` | `market.bars` + `market.bars.htf` | `intelligence` + `intelligence.i7.signals` |
 | `indicagent-signal-writer` | `intelligence.i7.signals` | `signal_ledger` (new rows) |
 | `indicagent-signal-tracker` | `market.bars` | `signal_ledger` (lifecycle updates) |
 | `indicagent-ai-narrative` | `signals.aggregated` | `narratives` + `llm.calls` |
