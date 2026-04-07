@@ -198,6 +198,7 @@ def _event_name_for_topic(topic: str) -> str:
         "market.ticks",
         "market.bars",
         "indicators",
+        "intelligence.journal",
         "intelligence.record",
         "intelligence.i7",
         "intelligence.i8",
@@ -231,6 +232,9 @@ def _event_name_for_topic(topic: str) -> str:
         return "market_data"
     if candidate == "indicators" or candidate.startswith("indicators"):
         return "indicator_data"
+    # intelligence.journal — BarIntelligenceRecord transformed to scorecard shape by broadcaster
+    if candidate == "intelligence.journal" or candidate.startswith("intelligence.journal"):
+        return "signal_scorecard"
     if candidate == "intelligence.record" or candidate.startswith("intelligence.record"):
         return "signal_scorecard"
     if candidate == "intelligence.i8" or candidate.startswith("intelligence.i8"):
