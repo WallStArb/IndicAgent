@@ -195,12 +195,21 @@ increase(merger_failovers_total[1h])
 | Bar Aggregator | 9120 | `http://localhost:9120/metrics` |
 | Bar Writer | 9121 | `http://localhost:9121/metrics` |
 | Bar Auditor | 9123 | `http://localhost:9123/metrics` |
+| Roll Compute | 9122 | `http://localhost:9122/metrics` |
+| Contract Metadata Writer | 9124 | `http://localhost:9124/metrics` |
 | Intelligence Pipeline | 9125 | `http://localhost:9125/metrics` |
+| Signal Writer | 9119 | `http://localhost:9119/metrics` |
 | Signal Tracker | 9115 | `http://localhost:9115/metrics` |
+| Signal Metrics Compute | 9126 | `http://localhost:9126/metrics` |
+| Signal Metrics Writer | 9127 | `http://localhost:9127/metrics` |
+| Signal Auditor | 9128 | `http://localhost:9128/metrics` |
 | Feature Writer | 9116 | `http://localhost:9116/metrics` |
-| Signal Writer | 9117 | `http://localhost:9117/metrics` |
+| Feature Snapshot Writer | 9132 | `http://localhost:9132/metrics` |
+| Parity Auditor | 9133 | `http://localhost:9133/metrics` |
+| LLM Writer | 9117 | `http://localhost:9117/metrics` |
 | AI Narrative | 9113 | `http://localhost:9113/metrics` |
 | Cross Asset | 9118 | `http://localhost:9118/metrics` |
+| Service Auditor | 9131 | `http://localhost:9131/metrics` |
 
 ## Recording Rules (Recommended)
 

@@ -227,7 +227,7 @@ See "Active Services" table in Key Components section below. Source service file
 ## Architecture Overview
 
 ```
-Layer 4: AI Intelligence (I8)              -> LLM analysis, Ollama qwen3.5:9b
+Layer 4: AI Intelligence (I8)              -> LLM analysis, Ollama gemma4:e4b
 Layer 3: Pattern Intelligence (I5-I7)      -> Pattern detection, confluence, trading signals
 Layer 2: Mathematical Intelligence (I1-I4) -> Technical indicators, context classification
 Layer 1: Data Foundation                   -> HF collection, aggregation, typed event bus
@@ -252,13 +252,24 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 | Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator; publishes to `market.bars.htf` | :9120 |
 | Bar Writer | `indicagent-bar-writer` | market.bars + market.bars.htf → market_data_ohlcv batch writer | :9121 |
 | Bar Auditor | `indicagent-bar-auditor` | Gap detection → market.events.gap_requests | :9123 |
+| Roll Compute | `indicagent-roll-compute` | Calendar + volume z-score roll detection → `market.events.roll` | :9122 |
+| Contract Metadata Writer | `indicagent-contract-metadata-writer` | Consumes `market.events.roll` → promotes front-month in `contract_metadata` → broadcasts `ContractUpdateEvent` | :9124 |
 | Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics | :9125 |
+| Signal Writer | `indicagent-signal-writer` | `intelligence.*` → `signal_ledger` batch writer | :9119 |
 | Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome (Phase 52.4: renamed from signal-lifecycle, inherits BaseAgent) | :9115 |
+| Signal Metrics Compute | `indicagent-signal-metrics-compute` | Timer-triggered signal performance metrics compute | :9126 |
+| Signal Metrics Writer | `indicagent-signal-metrics-writer` | Signal metrics events → DB persistence | :9127 |
+| Signal Auditor | `indicagent-signal-auditor` | Coverage validation + lag monitoring | :9128 |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
+| Feature Snapshot Writer | `indicagent-feature-snapshot-writer` | Shadow dual-write: `intelligence.journal` → `feature_snapshots_shadow` via `FeatureRepository` (parity validation) | :9132 |
+| Parity Auditor | `indicagent-parity-auditor` | 5-min timer: compares `intelligence_features` vs `feature_snapshots_shadow`; publishes `SHADOW_PARITY_CERTIFIED` after 60 clean cycles | :9133 |
 | LLM Writer | `indicagent-llm-writer` | `llm.calls` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
 | Cross-Asset Service | `indicagent-cross-asset` | Cross-asset spread dynamics + I7 feed → `cross_asset` | :9118 |
+| Service Auditor | `indicagent-service-auditor` | Pipeline health monitor and self-healer | :9131 |
 | API | `indicagent-api` | FastAPI + SSE on :8000 | — |
+| Dashboard | `indicagent-dashboard` | Next.js dev server on :3000 | — |
+| Weight Updater | `indicagent-weight-updater` | Daily (02:00): CIS weight refresh from `setup_performance` | — (oneshot) |
 
 ### Core Runtime Files
 - `src/core/stream_keys.py` — all stream/topic key construction
@@ -380,7 +391,7 @@ When investigating "service not writing to database":
 
 ## Environment Variables
 
-`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=192.168.1.157`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=qwen3.5:9b`
+`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=192.168.1.157`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=gemma4:e4b`
 
 ## Roadmap
 

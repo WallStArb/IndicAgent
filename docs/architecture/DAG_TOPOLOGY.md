@@ -57,15 +57,21 @@ graph TD
 
     subgraph PersistTier["Persistence Tier"]
         FWRITE["FeatureWriterAgent\n:9116"]
-        SWRITE["SignalWriterAgent\n:9117"]
+        SWRITE["SignalWriterAgent\n:9119"]
         STRACK["SignalTrackerAgent\n:9115"]
         LLMWRITE["LLMWriterService\n:9117"]
+        CMWRITE["ContractMetadataWriterAgent\n:9124"]
+        SMCOMP["SignalMetricsComputeAgent\n:9126"]
+        SMWRITE["SignalMetricsWriterAgent\n:9127"]
     end
 
     subgraph SidePaths["Parallel / Side-Channel"]
         CROSS["CrossAssetService\n:9118"]
-        PARITY["ParityAuditorAgent\n:9124"]
+        SNAP["FeatureSnapshotWriterAgent\n:9132"]
+        PARITY["ParityAuditorAgent\n:9133"]
         NARR["AINarrativeService\n:9113\nI8"]
+        SAUDIT["SignalAuditorAgent\n:9128"]
+        SVCAUDIT["ServiceAuditorAgent\n:9131"]
     end
 
     subgraph DB["TimescaleDB"]
@@ -278,14 +284,20 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 | `services/bar_writer_agent.py` | `BarWriterAgent` | `indicagent-bar-writer` | :9121 |
 | `services/bar_auditor_agent.py` | `BarAuditorAgent` | `indicagent-bar-auditor` | :9123 |
 | `services/roll_compute_agent.py` | `RollComputeAgent` | `indicagent-roll-compute` | :9122 |
+| `services/contract_metadata_writer_agent.py` | `ContractMetadataWriterAgent` | `indicagent-contract-metadata-writer` | :9124 |
 | `services/intelligence_pipeline_agent.py` | `IntelligencePipelineComputeAgent` | `indicagent-intelligence-pipeline` | :9125 |
-| `services/feature_writer_agent.py` | `FeatureWriterAgent` | `indicagent-feature-writer` | :9116 |
-| `services/signal_writer_agent.py` | `SignalWriterAgent` | `indicagent-signal-writer` | :9117 |
+| `services/signal_writer_agent.py` | `SignalWriterAgent` | `indicagent-signal-writer` | :9119 |
 | `services/signal_tracker_agent.py` | `SignalTrackerAgent` | `indicagent-signal-tracker` | :9115 |
-| `services/ai_narrative_service.py` | `AINarrativeService` | `indicagent-ai-narrative` | :9113 |
+| `services/signal_metrics_compute_agent.py` | `SignalMetricsComputeAgent` | `indicagent-signal-metrics-compute` | :9126 |
+| `services/signal_metrics_writer_agent.py` | `SignalMetricsWriterAgent` | `indicagent-signal-metrics-writer` | :9127 |
+| `services/signal_auditor_agent.py` | `SignalAuditorAgent` | `indicagent-signal-auditor` | :9128 |
+| `services/feature_writer_agent.py` | `FeatureWriterAgent` | `indicagent-feature-writer` | :9116 |
+| `services/feature_snapshot_writer_agent.py` | `FeatureSnapshotWriterAgent` | `indicagent-feature-snapshot-writer` | :9132 |
+| `services/parity_auditor_agent.py` | `ParityAuditorAgent` | `indicagent-parity-auditor` | :9133 |
 | `services/llm_writer_service.py` | `LLMWriterService` | `indicagent-llm-writer` | :9117 |
+| `services/ai_narrative_service.py` | `AINarrativeService` | `indicagent-ai-narrative` | :9113 |
 | `services/cross_asset_service.py` | `CrossAssetService` | `indicagent-cross-asset` | :9118 |
-| `services/parity_auditor_agent.py` | `ParityAuditorAgent` | `indicagent-parity-auditor` | :9124 |
+| `services/service_auditor_agent.py` | `ServiceAuditorAgent` | `indicagent-service-auditor` | :9131 |
 
 ---
 

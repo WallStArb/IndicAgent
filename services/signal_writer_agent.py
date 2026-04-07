@@ -26,7 +26,6 @@ from src.config.settings import Settings
 from src.core.agent.base import BaseAgent
 from src.core.database_manager import DatabaseManager
 from src.core.kafka_utils import KafkaConsumerClient
-from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import topic_intelligence_i7_signals
 from src.observability.metrics import (
     PERSISTENCE_BATCH_LATENCY,
@@ -54,8 +53,11 @@ class SignalWriterAgent(BaseAgent):
     """WriterAgent: intelligence.i7.signals → signal_ledger."""
 
     def __init__(self) -> None:
-        super().__init__(name="signal_writer_agent", metrics_port=9119, max_idle_seconds=300)
-        setup_service_logging("logs/signal_writer_agent.log")
+        super().__init__(
+            name="signal_writer_agent",
+            metrics_port=9119,
+            max_idle_seconds=300,
+        )
 
         self._settings = Settings()
         self._db: DatabaseManager | None = None

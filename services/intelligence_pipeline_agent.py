@@ -49,7 +49,6 @@ from src.core.service_utils import (
     TF_SECONDS,
     min_bars_for_tf,
     normalize_session_type,
-    setup_service_logging,
     should_skip_plugin,
 )
 from src.core.state_serializer import StateSerializer
@@ -63,7 +62,6 @@ from src.core.stream_keys import (
     topic_intelligence_shadow,
     topic_market_bars,
     topic_market_bars_htf,
-    topic_market_ticks,
     topic_signal_dlq,
     topic_signals_aggregated,
     topic_system_events,
@@ -360,6 +358,7 @@ class PluginTask:
     plugin_name: str
     state_key: tuple
     lock: threading.Lock
+    tier_key: str = "I1"  # Track which tier this plugin belongs to
     bar: BarMessage | None = None  # Only for I7 tasks
 
 
@@ -380,14 +379,19 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     def __init__(self) -> None:
         self._settings = Settings()
+
+        # Override convention-based log path if LOG_FILE env var is set
+        # Must call setup_service_logging BEFORE super().__init__() to override default
+        _log_file = os.environ.get("LOG_FILE")
+        if _log_file:
+            from src.core.service_utils import setup_service_logging
+            setup_service_logging(_log_file)
+
         super().__init__(
             name="intelligence_pipeline_agent",
             metrics_port=self._settings.pipeline_metrics_port,
             max_idle_seconds=300,
         )
-
-        _log_file = os.environ.get("LOG_FILE", "logs/intelligence_pipeline_agent.log")
-        setup_service_logging(_log_file)
 
         self._contracts = get_active_contracts(self._settings)
         self._symbols = [c.symbol for c in self._contracts]
@@ -573,7 +577,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             topic_market_bars_htf(self._settings.env_name),
             topic_system_events(self._settings.env_name),
             topic_cross_asset(self._settings.env_name),
-            topic_market_ticks(self._settings.env_name),
         ]
         self._kafka_consumer = KafkaConsumerClient(
             *topics,
@@ -750,7 +753,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             asyncio.create_task(self._run_refresh_loop(self._load_calibration_curves, 1800)),
             asyncio.create_task(self._run_refresh_loop(self._load_tod_multipliers, 14400)),
         ]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Log any task exceptions (swallowed by return_exceptions=True)
+        task_names = [
+            "_process_loop", "_drain_output", "_health_monitor_loop",
+            "_load_perf_weights", "_refresh_drift_penalties",
+            "_load_cis_weights", "_load_calibration_curves", "_load_tod_multipliers"
+        ]
+        for name, result in zip(task_names, results):
+            if isinstance(result, Exception):
+                self.logger.error(
+                    "task.failed_silent",
+                    task=name,
+                    error=str(result),
+                    error_type=type(result).__name__,
+                )
 
     async def _teardown(self) -> None:
         """Drain output queue, close connections."""
@@ -775,7 +792,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     async def _process_loop(self) -> None:
         """Consume all topics and route: bar → I1-I7 pipeline; non-bar → caches."""
         _cross_asset_topic = topic_cross_asset(self._settings.env_name)
-        _ticks_topic = topic_market_ticks(self._settings.env_name)
         _system_topic = topic_system_events(self._settings.env_name)
         while self.running:
             try:
@@ -787,9 +803,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                         if _topic == _cross_asset_topic:
                             tf = payload.get("tf", "1m")
                             self._cross_asset_cache[tf] = payload
-                        elif _topic == _ticks_topic:
-                            symbol = payload.get("symbol", "")
-                            self._live_quotes[symbol] = payload
                         elif _topic == _system_topic:
                             await self._handle_system_event(payload)
                         else:
@@ -1033,7 +1046,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             tasks: List of PluginTask objects
             results: List of results from asyncio.gather (may contain Exceptions)
             log_prefix: Prefix for log messages (e.g., "plugin" or "i7.plugin")
-            tier: Intelligence tier label for metrics (e.g., "I1" or "I7")
+            tier: Intelligence tier label for metrics (e.g., "I1" or "I7") - DEPRECATED: use task.tier_key
 
         Returns:
             List of successful dict outputs (exceptions are logged and skipped)
@@ -1041,16 +1054,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         outputs = []
         for i, task in enumerate(tasks):
             out = results[i]
+            tier = task.tier_key  # Use tier_key from task
             if isinstance(out, Exception):
                 self._pipeline_errors.inc()
                 PLUGIN_ERRORS_TOTAL.labels(plugin_name=task.plugin_name, tier=tier).inc()
-                self.logger.warning(f"{log_prefix}.error", plugin=task.plugin_name, error=str(out))
+                self.logger.warning(f"{log_prefix}.error", plugin=task.plugin_name, tier=tier, error=str(out))
             elif isinstance(out, tuple) and len(out) == 2:
                 result_dict, duration_ms = out
                 PLUGIN_DURATION_MS.labels(plugin_name=task.plugin_name, tier=tier).observe(
                     duration_ms
                 )
                 if isinstance(result_dict, dict):
+                    # Handle SMC-specific field renaming
+                    if tier == "smc" and "trend_direction" in result_dict:
+                        result_dict["smc_trend_direction"] = result_dict.pop("trend_direction")
+                    result_dict["_tier_key"] = tier  # Tag for tier grouping
                     self._update_plugin_state(task, result_dict)
                     outputs.append(result_dict)
         return outputs
@@ -1097,7 +1115,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
 
         # Collect results using common helper
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin", tier="I1")
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
         for output in outputs:
             result.update(output)
 
@@ -1112,8 +1130,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _run_analysis_pipeline(self, symbol: str, tf: str, frames: dict) -> dict | None:
-        """Run I2 → I3 → I4 → I5 → SMC → I6 and return tiered dict."""
-        tiered: dict[str, dict] = {}
+        """Run I2 → I3 → I4 → I5 → SMC → I6 in parallel and return tiered dict."""
         tier_map = [
             ("i2", TIER_I2),
             ("i3", TIER_I3),
@@ -1122,8 +1139,12 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ("smc", TIER_SMC),
             ("i6", TIER_I6),
         ]
+
+        # Build parallel tasks for all I2-I6 plugins
+        tasks: list[PluginTask] = []
+        loop = asyncio.get_running_loop()
+
         for tier_key, tier_list in tier_map:
-            tier_result: dict[str, Any] = {}
             for plugin_name in tier_list:
                 plugin = self._plugin_cache.get(plugin_name)
                 if plugin is None:
@@ -1137,24 +1158,35 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                     continue
                 state_key = (plugin_name, symbol, tf)
                 lock = self._get_state_lock(state_key)
-                try:
-                    out = await asyncio.to_thread(plugin.compute_full, frames)
-                    if isinstance(out, dict):
-                        with lock:
-                            if "_state" in out:
-                                self._plugin_states[state_key] = out.pop("_state")
-                            # SMC plugin outputs trend_direction; rename to smc_trend_direction
-                            # to avoid collision with I3Structure.trend_direction
-                            if tier_key == "smc" and "trend_direction" in out:
-                                out["smc_trend_direction"] = out.pop("trend_direction")
-                            tier_result.update(out)
-                except Exception as exc:
-                    self._pipeline_errors.inc()
-                    self.logger.warning(
-                        "plugin.error", plugin=plugin_name, tier=tier_key, error=str(exc)
+
+                # Create PluginTask with coroutine
+                tasks.append(
+                    PluginTask(
+                        coroutine=loop.run_in_executor(
+                            self._executor, _timed_plugin_call, plugin, frames
+                        ),
+                        plugin_name=plugin_name,
+                        tier_key=tier_key,  # Track which tier this plugin belongs to
+                        state_key=state_key,
+                        lock=lock,
                     )
+                )
+
+        # Execute all I2-I6 plugins in parallel
+        results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
+
+        # Collect results and group by tier
+        tiered: dict[str, dict] = {}
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
+        for output in outputs:
+            tier_key = output.pop("_tier_key")  # Extract tier key
+            tier_result = tiered.get(tier_key, {})
+            tier_result.update(output)
             tiered[tier_key] = tier_result
-            frames[tier_key] = tier_result
+
+        # Update frames with tiered results for downstream tiers
+        for tier_key, tier_data in tiered.items():
+            frames[tier_key] = tier_data
 
         return tiered
 
@@ -1221,7 +1253,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
 
         # Collect results using common helper
-        outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin", tier="I7")
+        outputs = self._collect_plugin_results(tasks, results, log_prefix="i7.plugin")
 
         # Process I7-specific signal generation — also build plugin_outputs for CIS scoring
         plugin_outputs: dict[str, dict] = {}

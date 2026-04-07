@@ -3,7 +3,7 @@
 AI Narrative Service — I8 LLM synthesis of trading signals into human-readable narratives
 
 Subscribes to signals:SYMBOL:TF:aggregated stream. For each selected signal,
-builds a structured prompt, calls Ollama (qwen3:8b), and publishes a narrative
+builds a structured prompt, calls Ollama (gemma4:e4b), and publishes a narrative
 to narratives:SYMBOL:TF stream and narrative:SYMBOL:TF:latest hash.
 
 Version: 1.0.0
@@ -481,7 +481,7 @@ _FREE_OPENROUTER_MODELS = [
     {"type": "openrouter", "model": "arcee-ai/trinity-large-preview:free"},
 ]
 
-_PER_SIGNAL_FALLBACK = {"type": "ollama", "model": "qwen3.5:9b"}
+_PER_SIGNAL_FALLBACK = {"type": "ollama", "model": "gemma4:e4b"}
 _GROUP_FALLBACK = {"type": "ollama", "model": "phi4-mini:3.8b"}
 
 
@@ -637,7 +637,7 @@ class AINarrativeService:
             },
             "ollama": {
                 "base_url": "http://localhost:11434",
-                "model": "qwen3.5:9b",
+                "model": "gemma4:e4b",
                 "group_model": "phi4-mini:3.8b",
                 "timeout_sec": 60.0,
                 "num_predict": 500,

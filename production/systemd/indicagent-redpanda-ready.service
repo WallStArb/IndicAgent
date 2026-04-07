@@ -1,0 +1,21 @@
+[Unit]
+Description=Redpanda Kafka readiness gate — blocks dependents until broker accepts connections
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  for i in $(seq 1 60); do \
+    docker exec redpanda rpk cluster info >/dev/null 2>&1 && \
+    echo "Redpanda ready" && exit 0; \
+    echo "Redpanda not ready yet, retrying in 5s..."; \
+    sleep 5; \
+  done; \
+  echo "Redpanda did not become ready within 300s"; \
+  exit 1'
+TimeoutStartSec=310
+
+[Install]
+WantedBy=multi-user.target

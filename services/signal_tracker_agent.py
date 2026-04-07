@@ -124,7 +124,11 @@ class SignalTrackerAgent(BaseAgent):
 
     def __init__(self, config_file: str | None = None, db_manager: DatabaseManager | None = None):
         self.config = self._load_config(config_file)
-        self._setup_logging()  # must run before super().__init__ to avoid logger cache miss
+        # Override convention-based log path with config file path and level
+        # Must call setup_service_logging BEFORE super().__init__() to override default
+        log_file = self.config["logging"]["file"]
+        log_level = self.config["logging"].get("level", "INFO")
+        setup_service_logging(log_file, level=log_level)
         super().__init__(name="signal_tracker_agent")
         self.start_time = datetime.now(tz=UTC)
 
@@ -218,12 +222,6 @@ class SignalTrackerAgent(BaseAgent):
                 else:
                     default[k] = v
         return default
-
-    def _setup_logging(self) -> None:
-        setup_service_logging(
-            self.config["logging"]["file"],
-            level=self.config["logging"].get("level", "INFO"),
-        )
 
     def _on_task_done(self, task: asyncio.Task) -> None:
         """Remove completed task from tracking set and log any failures."""
