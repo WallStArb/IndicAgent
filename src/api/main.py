@@ -37,13 +37,11 @@ async def lifespan(app: FastAPI):
         # Initialize Kafka SSE broadcaster
         from src.core.kafka_utils import KafkaConsumerClient
         from src.core.stream_keys import (
-            topic_indicators,
             topic_intelligence,
             topic_intelligence_i8,
             topic_intelligence_journal,
             topic_market_bars,
             topic_market_bars_htf,
-            topic_market_ticks,
             topic_narratives,
             topic_narratives_group,
             topic_signals_aggregated,
@@ -56,10 +54,8 @@ async def lifespan(app: FastAPI):
 
         dependencies.kafka_broadcaster = KafkaSSEBroadcaster()
         _sse_consumer = KafkaConsumerClient(
-            topic_market_ticks(env_name),
             topic_market_bars(env_name),
             topic_market_bars_htf(env_name),
-            topic_indicators(env_name),
             topic_intelligence(env_name),
             topic_intelligence_journal(env_name),
             topic_intelligence_i8(env_name),

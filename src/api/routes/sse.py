@@ -18,13 +18,11 @@ from ...core.stream_keys import narratives_group as sk_narratives_group
 from ...core.stream_keys import signals_aggregated as sk_signals_aggregated
 from ...core.stream_keys import system_events as sk_system_events
 from ...core.stream_keys import (
-    topic_indicators,
     topic_intelligence,
     topic_intelligence_i8,
     topic_intelligence_journal,
     topic_market_bars,
     topic_market_bars_htf,
-    topic_market_ticks,
     topic_narratives,
     topic_narratives_group,
     topic_signals_aggregated,
@@ -158,11 +156,10 @@ def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
     settings = _get_settings()
     env_name = settings.env_name or ""
     topics: list[str] = []
-    # Market ticks + bars + indicators + intelligence (all symbols/TFs share one topic each)
-    topics.append(topic_market_ticks(env_name))
+    # market.ticks removed — no active publisher; intelligence_pipeline caches live quotes
+    # indicators removed — only archived services published to this topic
     topics.append(topic_market_bars(env_name))
     topics.append(topic_market_bars_htf(env_name))
-    topics.append(topic_indicators(env_name))
     topics.append(topic_intelligence(env_name))
     topics.append(topic_intelligence_journal(env_name))
     topics.append(topic_intelligence_i8(env_name))
