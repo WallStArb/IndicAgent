@@ -49,3 +49,7 @@ class TestEventNameForTopic:
 
     def test_narratives_group_maps_to_narrative_data(self):
         assert self.fn("narratives.group") == "narrative_data"
+
+    def test_intelligence_other_subtopic_maps_to_intelligence_data(self):
+        """intelligence.anything (not journal/record/i7/i8) stays as intelligence_data."""
+        assert self.fn("intelligence.someotherthing") == "intelligence_data"
