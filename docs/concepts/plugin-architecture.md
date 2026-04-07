@@ -1,7 +1,7 @@
 # Plugin Architecture
 
-**Current Plugin Count:** See [STATUS.md](../STATUS.md)
-**Last Updated:** 2026-03-15
+**Current Plugin Count:** 121 plugins + 2 aggregation (see `PLUGIN_PROTOCOL.md`)
+**Last Updated:** 2026-04-07
 
 ## Executive Summary
 
@@ -40,7 +40,7 @@ The framework processes intelligence through data contracts aligned with the I1-
 - **`insight.v1`** - I8 AI Intelligence (planned — not yet implemented)
 
 ### Data Format Standards
-- **Stream Format:** String-encoded key-value pairs in Redis Streams
+- **Stream Format:** Kafka (Redpanda-compatible) with JSONB payloads
 - **Storage Format:** JSONB for flexible `features` and `intelligence_data` columns
 - **Field Naming:** Flat, snake_case keys (e.g., `rsi_14`, `adx_14`, `bb_20_2_mid`)
 - **Timestamps:** UTC ISO-8601 format
@@ -182,7 +182,7 @@ from .indicators.adx import plugin as adx_plugin
 def register_all_plugins() -> None:
     registry.register_indicator(rsi_plugin)
     registry.register_indicator(adx_plugin)
-    # ... 25 I1 indicators total ...
+    # ... 27 I1 indicators total ...
     registry.register_pattern(rsi_div_plugin)
     # ... 70 patterns/structure/context/SMC/I7 total ...
 ```
@@ -191,11 +191,11 @@ No auto-discovery or hot-reload — registration is explicit Python code.
 
 ---
 
-## Registered Plugins (98 Total + 2 Aggregation)
+## Registered Plugins (121 Total + 2 Aggregation)
 
 See [Intelligence Tiers](intelligence-tiers.md) for the full plugin list. Summary below.
 
-### I1 Indicator Plugins (25) — All support incremental `compute_next()`
+### I1 Indicator Plugins (27) — All support incremental `compute_next()`
 
 | Plugin | Category | Key Outputs |
 |--------|----------|-------------|
@@ -413,7 +413,7 @@ Each plugin call is wrapped with error isolation. If a plugin raises an exceptio
 market:ES:1m          # OHLCV bars
 indicators:ES:1m      # I1+I2 indicator features
 intelligence:ES:1m    # I3-I6 IntelligenceEvent (tiered JSONB)
-signals:ES:1m:aggregated  # I7 winner signal
+intelligence.i7.signals  # I7 winner signal
 narratives:ES:1m      # I8 AI narrative
 ticks:ES:live         # Raw tick data
 ```
@@ -432,7 +432,7 @@ ticks:ES:live         # Raw tick data
 - **Tick Ingestion:** 100-500+ ticks/sec during RTH
 - **Hot Path Latency:** Sub-millisecond Redpanda stream writes
 - **Indicator Calculation:** <1ms per plugin via incremental compute_next()
-- **Full Recomputation:** ~50-100ms for all 25 indicators (batch mode)
+- **Full Recomputation:** ~50-100ms for all 27 indicators (batch mode)
 - **Incremental vs Batch:** 141x speedup measured
 
 ### SLO Targets

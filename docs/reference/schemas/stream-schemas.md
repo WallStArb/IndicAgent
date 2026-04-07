@@ -1,8 +1,8 @@
 # Intelligence Stream Schemas & Data Contracts
 
-**Version:** 2.2.0
-**Last Updated:** 2026-03-15
-**Status:** bar.v1, features.v1, signals.aggregated, and narratives.v1 operational; composite/pattern/regime schemas defined for future tiers. Transport: Redpanda (Kafka-compatible) as of Phase 30, 2026-03-14 — replaced Redis Streams.
+**Version:** 3.0.0
+**Last Updated:** 2026-04-07
+**Status:** IntelligenceEvent (unified I1-I7 tiered JSONB) and intelligence.i7.signals operational. I8 narratives via narratives:*:* topics. Transport: Redpanda (Kafka-compatible) with dot-separated topic names.
 
 ## Executive Summary
 
@@ -10,7 +10,7 @@ This document defines the complete data contracts for IndicAgent's intelligence 
 
 **Core Purpose:** Standardized data contracts that enable seamless intelligence processing from raw market data to AI-powered insights. I1-I5 schemas are in production use; I6-I8 are defined for future tiers.
 
-**Runtime stream names (code):** The app builds Kafka topic names in `src/core/stream_keys.py`. Post-Redpanda migration (Phase 30), topics use dot-separated names: `dev.market.bars`, `dev.indicators`, `dev.intelligence`, `dev.signals`, `dev.signals.aggregated`, `dev.narratives`. The names in the "Data Flow Architecture" section below (bar, features, composite, etc.) are schema/contract names; implementation uses the stream_keys patterns.
+**Runtime stream names (code):** The app builds Kafka topic names in `src/core/stream_keys.py`. Topics use dot-separated names with optional env prefix: `market.bars`, `intelligence.journal`, `intelligence.i7.signals`, `narratives:SYMBOL:TF`.
 
 ---
 
@@ -36,12 +36,54 @@ prod:insight:ES:1h       # I8 AI Intelligence
 
 ---
 
-## **Foundation Data Schemas**
+## Current Implementation (IntelligenceEvent)
 
-### **`bar.v1` - Market Data (OHLCV)**
-**Intelligence Tier:** Foundation (Feeds I1-I8)
-**Schema Version:** `bar/1.0`
-**Stream Pattern:** `env:bar:SYMBOL:TIMEFRAME`
+IndicAgent now uses a unified `IntelligenceEvent` schema defined in `src/intelligence/schemas.py` that carries all tier outputs in tiered JSONB sub-fields:
+
+```python
+class IntelligenceEvent(BaseModel):
+    ts: datetime
+    symbol: str
+    tf: str
+    bar: OHLCVBar
+    i1: dict[str, float]   # I1 Technical indicators (27 plugins)
+    i3: dict[str, Any]     # I3 Market structure (15 plugins)
+    i4: dict[str, float]   # I4 Context/regime (11 plugins)
+    i5: dict[str, Any]     # I5 Patterns (15 plugins)
+    smc: dict[str, Any]    # I6 SMC (13 plugins)
+    i6: dict[str, float]   # I6 Confluence scoring
+    bar_close_ts: Optional[datetime]
+    i1_computed_at: Optional[datetime]
+    computed_at: datetime
+```
+
+### I7 Signal Schema
+
+```python
+class SignalEvent(BaseModel):
+    ts: datetime
+    symbol: str
+    tf: str
+    direction: str  # "long" | "short"
+    entry_low: float
+    entry_high: float
+    stop_loss: float
+    target_1: float
+    target_2: float
+    target_full: float
+    ttl_bars: int
+    confidence: float
+    cis_score: float
+    calibrated_confidence: float
+    is_winner: bool
+    source: str
+```
+
+---
+
+## Legacy Schema Reference (Historical)
+
+The following schemas were defined in earlier versions but have been superseded by the unified IntelligenceEvent:
 
 ```python
 {
@@ -449,9 +491,9 @@ VOLUME_TYPE = int                                  # Volume as integer
 
 ### **Current Status**
 - **`bar.v1`** - Operational. The `source` field distinguishes: `tick_derived` (provisional bar published at :00 from live ticks), `authoritative` (correction published at :05 from reqHistoricalData), `ibkr_live` (legacy)
-- **`features.v1`** - Operational with 17 I1 indicator plugins, output via `indicators:SYMBOL:TF` stream
+- **`IntelligenceEvent`** - Operational. Published by `IntelligencePipelineComputeAgent` to `intelligence.journal` with full I1-I6 tiered JSONB
+- **`SignalEvent`** - Operational. Published by `IntelligencePipelineComputeAgent` to `intelligence.i7.signals` with all ranked I7 signals
 - **`narrative.v1`** - Operational. Published by `AINarrativeService` to `narratives:SYMBOL:TF`; cached to `narrative:SYMBOL:TF:latest` hash with 90s TTL
-- **`signals:aggregated`** - Operational. Published by `SignalOrchestrator` with all I7 signal fields
 
 ### **Schema Gaps (Future Implementation)**
 - **`composite.v1`** - Schema defined; intelligence:SYMBOL:TF stream carries I3-I6 data in practice (not strict composite.v1 format)
