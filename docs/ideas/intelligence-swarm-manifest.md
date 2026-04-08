@@ -1,5 +1,12 @@
 # Intelligence Swarm Manifest: "The Renaissance Loop"
 
+**Status:** Active Reference — Core swarm architecture principles
+**Created:** 2026-03-07  
+**Updated:** 2026-04-08
+**Related:** 
+- `docs/plans/2026-04-08-ai-layer-refactor-design.md` — Phase 3 swarm integration
+- `docs/plans/2026-04-08-ai-extensions-design.md` — Swarm extensions roadmap
+
 ---
 
 ## 7. POC: Dual-Path Integration (Deterministic DAG vs. LLM-Swarm)
@@ -89,9 +96,24 @@ To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pat
 
 ---
 
-## 6. Implementation Roadmap
-1.  **Manifest Approval:** Review and refine the registry.
-2.  **Schema Definition:** Formalize `PydanticAI` schemas for the agents (include telemetry fields).
-3.  **Hook Implementation:** Inject `AlphaMultiplier` logic (with `SafeSwarmWrapper` checks) into `signal_lifecycle_service.py`.
-4.  **Shadow Deployment:** Deploy all agents in "shadow mode" (log outputs to Postgres, don't execute).
-5.  **Correlation Audit:** Analyze shadow performance; tune weights; enable production.
+## 6. Implementation Status
+
+**✅ Architecture Defined** (2026-03-07)
+- Manifest approved with 9 core agents
+- IAlphaContributor protocol established
+- Shadow-first validation framework designed
+
+**🔄 Integration In Progress** (2026-04-08)
+- **Phase 3 of AI Layer Refactor:** Integrating swarm agents with shared LLM infrastructure
+- See: `docs/plans/2026-04-08-ai-layer-refactor-design.md#phase-3`
+- Framework wiring: Context enrichment, Kafka bridge, shadow-table schema sync
+
+**📋 Extensions Roadmap** (2026-04-08)
+- 14 new swarm agents designed (S1-S7 + narrative extensions N1-N6)
+- See: `docs/plans/2026-04-08-ai-extensions-design.md#part-2-swarm-agents-improvements`
+- Priority: S6 (SkepticAgent), S1 (Correlation Cluster), S2 (Volume Profile)
+
+**🎯 Next Steps:**
+1. Complete AI Layer Refactor Phase 3 (Week 2)
+2. Implement shadow-mode validation for existing agents
+3. Begin high-priority extensions (S6, S1, S2)

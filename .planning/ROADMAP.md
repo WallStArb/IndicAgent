@@ -14,8 +14,8 @@
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
-- 🚧 **v2.2 Operational Excellence** — Phases 53.3, 53.2, 53.1, 50, 54, 57 (planned)
-- ⏸ **v2.3 ML Foundation** — Phases 55-56 (deferred until 30+ days clean signal data)
+- ✅ **v2.2 Operational Excellence** — Phases 53.1–58, 60–63 (shipped 2026-04-08)
+- ⏸ **v2.3 ML Foundation** — Phases 55-56, 59 (deferred until 30+ days clean signal data)
 
 ## Phases
 
@@ -198,7 +198,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>🚧 v2.2 Operational Excellence (Phases 53.3→53.2→53.1→50) — IN PROGRESS</summary>
+<summary>✅ v2.2 Operational Excellence (Phases 53.1–58, 60–63) — SHIPPED 2026-04-08</summary>
 
 **Milestone Goal:** Complete the data layer DAG decomposition, automate gap healing, graduate shadow modes with empirical evidence, and expose a clean and stable system externally. Every agent has exactly one job. Zero manual operational steps.
 
@@ -217,14 +217,14 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
   - [x] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
   - [x] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
-- [x] **Phase 50: Roll Monitor + DualDivergence Graduation** ✅ Infrastructure Complete 2026-04-08 — market_data_5m view, FeatureWriterAgent→topic_roll_events, trad_DualDivergence shadow verified; graduation deferred to Phase 58.1; base symbol fix added to Phase 58.1-06
+- [x] **Phase 50: Roll Monitor + DualDivergence Graduation** ✅ Infrastructure Complete 2026-04-08 — market_data_5m view, FeatureWriterAgent→topic_roll_events, trad_DualDivergence shadow verified; graduation deferred to Phase 63
   - [x] 50-PLAN.md — Infrastructure built (8/8 tasks executed 2026-04-02)
   - [x] market_data_5m view created
   - [x] FeatureWriterAgent wired to topic_roll_events
   - [x] Roll premium computation verified (0.0 = gap unknown)
   - [x] trad_DualDivergence shadow confirmed (IS_SHADOW=True)
-  - ⏸ D-21 validation blocked by schema mismatch → fix in Phase 58.1-06
-  - ⏸ RollComputeAgent graduation → handled by Phase 58.1-04
+  - ⏸ D-21 validation blocked by schema mismatch → fix in Phase 63
+  - ⏸ RollComputeAgent graduation → handled by Phase 63
   - ⏸ trad_DualDivergence promotion → awaiting SHADOW-04 gate (N≥100 signals)
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
@@ -421,7 +421,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 in progress — Phase 53.1 complete; next: Phase 50 (Roll Monitor + DualDivergence Graduation).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–63 shipped 2026-04-08). v2.3 deferred (Phases 55-56, awaiting 30+ days clean signal data).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -487,7 +487,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 49. DB Performance | v2.1 | 0/TBD | Complete    | 2026-03-28 |
 | 49.1. Regime Gate Fix — write all signals to signal_ledger | v2.1 | 1/1 | Complete | 2026-03-23 |
 | 49.2. HMM Operational Fixes — observability, fallback logging, warm-up noise | v2.1 | 1/1 | Complete    | 2026-03-23 |
-| 50. Roll Monitor Graduation | v2.2 | 0/TBD | Not started | — |
+| 50. Roll Monitor Graduation | v2.2 | 1/1 | Complete | 2026-04-08 |
 | 51. Signal Validation Framework | v2.1 | 0/TBD | Complete (absorbed) | 2026-03-28 |
 | 52. Infrastructure Hardening | v2.1 | 8/8 | Complete (absorbed) | 2026-03-28 |
 | 53.3. RollComputeAgent + DataProviderAgent Rename | v2.2 | 4/4 | Complete | 2026-03-28 |
@@ -496,6 +496,12 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 54. Provider Abstraction Layer | v2.2 | 4/4 | Complete | 2026-03-28 |
 | 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete    | 2026-03-29 |
 | 57.1. SignalWriterAgent — signal_generator_agent Retirement | v2.2 | 1/1 | Complete | 2026-03-30 |
+| 58. Pipeline Parallelization Renaissance | v2.2 | 3/3 | Complete | 2026-03-28 |
+| 59. OFI Divergence Redesign | v2.3 | 0/1 | Planned | — |
+| 60. Signal Metrics Redesign | v2.2 | 3/3 | Complete | 2026-04-05 |
+| 61. Signal Auditor & CIS Contract Enforcement | v2.2 | 1/1 | Complete | 2026-04-06 |
+| 62. Service Watchdog + SSE Cleanup | v2.2 | 1/1 | Complete | 2026-04-07 |
+| 63. Contract Lifecycle Automation | v2.2 | 5/5 | Complete | 2026-04-08 |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -592,7 +598,7 @@ Plans:
 - [x] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port
 
 
-### Phase 58.1: Contract Lifecycle Automation (INSERTED)
+### Phase 63: Contract Lifecycle Automation
 
 **Goal:** Eliminate all manual futures roll tasks via a four-stage DAG: seed contract_metadata from settings, detect rolls via RollComputeAgent, promote front-month atomically via ContractMetadataWriterAgent, and audit bars with session-aligned windows.
 **Requirements**: [CLA-01, CLA-02, CLA-03, CLA-04, CLA-05]
@@ -611,7 +617,7 @@ Plans:
 **Goal:** Replace discrete `{-2..+2}` `ofi_divergence` I1 field with a continuous z-score factor. Fix multi-symbol state corruption in OFIPlugin. Rewrite `OFIDivergencePlugin` (I7) with persistence, peak magnitude tracking, EWMA soft factor, and principled `tanh` confidence.
 **Design doc:** `docs/plans/2026-04-05-ofi-divergence-redesign-design.md`
 **Plans:** 0/1 plan complete
-**Depends on:** Phase 58.1
+**Depends on:** Phase 63
 
 Plans:
 - [ ] 59-PLAN.md — Full rewrite: I1 state keyed by (symbol, tf), continuous ofi_divergence z-score, I7 OFIDivergencePlugin persistence + tanh confidence
@@ -621,7 +627,6 @@ Plans:
 **Goal:** Replace the broken signal performance system (pnl_r = ±∞ when stop ≈ entry, inline SQL aggregation, no regime conditioning, two tracks collapsed) with a DAG ComputeAgent/WriterAgent pipeline. Adds DataQualityValidator (4-gate DQ), regime-conditioned segmentation, zone vs market track separation, and IC metrics. Fixes CVDDivergence Sharpe = -496 at root.
 **Design doc:** `docs/plans/2026-04-05-signal-metrics-redesign.md`
 **Plans:** 3/3 plans complete ✅ Shipped 2026-04-05 · **UAT verified 2026-04-08** (9/11 pass, window filtering bug fixed, IC gradient improvement todoed)
-**Depends on:** Phase 58.1
 
 Plans:
 - [x] 60-01-PLAN.md — Foundation: DB migration (3 tables), topic_signal_metrics(), DataQualityValidator, compute_signal_metrics(), compute_ic_metrics()

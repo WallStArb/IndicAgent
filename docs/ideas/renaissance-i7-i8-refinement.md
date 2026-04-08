@@ -2,8 +2,11 @@
 
 **Status:** Future Research — 105 ideas across 48 sections
 **Created:** 2026-03-07
-**Updated:** 2026-03-07
-**Reference:** `docs/ideas/renaissance-framing.md` (10 Simons principles)
+**Updated:** 2026-04-08
+**Reference:** 
+- `docs/ideas/renaissance-framing.md` (10 Simons principles)
+- `docs/plans/2026-04-08-ai-extensions-design.md` (Implementation roadmap)
+- `docs/plans/2026-04-08-ai-layer-refactor-design.md` (Infrastructure work)
 
 ---
 

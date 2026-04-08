@@ -311,6 +311,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **I7 utilities** (check before creating new): `atr_utils.py` (get_atr), `confidence_utils.py` (compose_confidence, capture_signal_features), `exhaustion_utils.py`, `microstructure_utils.py`, `plugin_utils.py`, `signal_schema.py`, `state_utils.py`, `volume_profile_utils.py`
 - **Signal identity:** Never merge informationally distinct signals (OFI ≠ CVD, VWAP variants separate)
 - **I6→I7 confluence:** Every I7 must consume relevant `ctf_*` sub-scores (trend→ctf_trend_alignment, mean-reversion→ctf_regime_agreement, SMC/FVG→ctf_fvg_alignment/ctf_ob_alignment)
+- **Pipeline optimization status:** I1/I7 tiers are parallelized (via `asyncio.gather` + ThreadPoolExecutor in `intelligence_pipeline_agent.py`), but I2-I6 tiers remain sequential — this is the current bottleneck. GIL contention prevents threading from achieving true parallelism; individual plugin vectorization (e.g., OBVMomentum 46x faster) doesn't improve overall throughput.
+- **When optimizing plugins:** Profile first with Renaissance principles — measure → fix biggest lever → measure. Don't optimize individual plugins without confirming the bottleneck is in that tier.
 
 ## Development Standards
 
@@ -322,6 +324,7 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
 - **Simplify workflow**: Launches 3 parallel agents (reuse, quality, efficiency) — finds duplication, missing utilities, inefficient patterns.
 - **Documentation accuracy**: Docs may contain fabricated content (nonexistent classes, functions, DB tables) written as forward-looking specs never implemented. Always verify doc claims against actual code (`src/`) before trusting them — if a doc references a class or function, grep for it first.
+- **Pre-commit hook exclusions:** When adding non-plugin infrastructure classes (e.g., LLM providers, chains), update `.git/hooks/pre-commit` line 54 grep pattern to prevent false positives. Current exclusions: Plugin|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain
 
 ### Key Rules
 
@@ -378,6 +381,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
 - **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-ibkr-provider`. Verify: `journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"`
 - **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — they come back automatically. No manual `docker start` needed after reboot.
+- **Pre-commit hook location:** `.git/hooks/pre-commit` (not in version control). When exclusions need updating for non-plugin classes, edit line 54 grep pattern.
+- **Systemd unit conventions:** `production/systemd/` contains reference templates with headers explaining this. Installed units live in `/etc/systemd/system/` — always check `systemctl status` for the authoritative unit.
 
 ## Data Pipeline Debugging
 
