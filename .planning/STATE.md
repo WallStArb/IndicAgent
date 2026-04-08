@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.2
 milestone_name: Operational Excellence
-status: Milestone complete
-last_updated: "2026-04-05T16:08:17.304Z"
+status: Ready to execute
+last_updated: "2026-04-08T06:05:00.060Z"
 progress:
-  total_phases: 17
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 13
-  percent: 100
+  total_phases: 18
+  completed_phases: 5
+  total_plans: 15
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State
@@ -19,13 +19,13 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-03-22)
 
 **Core value:** Every intelligence output flows through one canonical typed bus that both consumers can trust.
-**Current focus:** Phase 60 — Signal Metrics Redesign (Plans 60-01 through 60-03 complete)
+**Current focus:** Phase 60 verified + shipped. Window filtering bug fixed. IC gradient improvement todoed. Next: Phase 58.1 or 56.
 
 ## Current Position
 
-Phase: 60
-Plan: 03 (complete)
-Next: Phase 60 complete — signal_metrics pipeline fully wired; await first compute cycle for live data
+Phase: 60 (complete, archived)
+Plan: UAT verified 2026-04-08
+Next: Phase 58.1 (Contract Lifecycle) or Phase 56 (AI Layer Refactor v3)
 
 ## v2.1 Milestone Goal
 
