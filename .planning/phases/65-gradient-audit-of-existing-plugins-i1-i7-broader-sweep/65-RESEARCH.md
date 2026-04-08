@@ -745,22 +745,18 @@ ema_9_cross_21 = 1 if crossed_up else -1                        # crossover even
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should session flags preserve backward compatibility?**
+1. **Should session flags preserve backward compatibility?** ✅ RESOLVED
    - What we know: `session_asia = 1.0 / 0.0` is consumed by downstream I7 plugins as a binary gate
-   - What's unclear: do I7 plugins check `if session_ny > 0.5` (threshold-safe) or `if session_ny == 1.0` (equality-unsafe)?
-   - Recommendation: scan I7 plugins for `session_asia`/`session_ny`/etc. usage before changing; add new `session_asia_progress` field alongside old `session_asia` to avoid breaking existing logic
+   - Resolution: I7 plugins use `> 0.5` threshold checks (threshold-safe), not `== 1.0` equality. Additive approach confirmed: new `session_*_progress` companion fields added alongside existing binary flags. Old flags remain untouched to avoid breaking I7 gating logic.
 
-2. **HMM probability field names**
-   - What we know: HMM outputs `hmm_prob_0`, `hmm_prob_1`, `hmm_prob_2` (from HMMRegimePlugin)
-   - What's unclear: are these consistently available in I7 `features` dict at compute time? Verify in `intelligence_pipeline_agent.py` feature injection order
-   - Recommendation: Check `test_i2_registration.py` and pipeline agent to confirm HMM outputs are available to I7 tier
+2. **HMM probability field names** ✅ RESOLVED
+   - What we know: HMM outputs are `hmm_prob_ranging`, `hmm_prob_trending_up`, `hmm_prob_trending_down` (verified in `schemas.py` lines 633-635 — NOT hmm_prob_0/1/2 as initially assumed)
+   - Resolution: Fields are consistently available in I7 `features` dict — they are schema-registered fields on `IntelligenceEvent.i2` and propagated through the pipeline. The `hmm_regime_weight` function in gradient_utils.py MUST use these exact field names. All Plan 04 tasks updated accordingly.
 
-3. **Direction integer vs direction float in SMC fields**
-   - Some fields use `int 1/-1`, some use `float 1.0/-1.0` for direction encoding
-   - What's unclear: does FVG type use `int` or `float`? Current code: `if fvg_type == 1` vs `fvg_type == float(direction)`
-   - Recommendation: standardize to `int` direction encoding across all plugins; don't mix
+3. **Direction integer vs direction float in SMC fields** ✅ RESOLVED
+   - Resolution: Direction encoding uses `int` throughout. `fvg_type` is `int`. All direction comparisons use `== 1` / `== -1` (int equality). Plans 03 and 04 preserve this — direction fields are in the scanner allowlist and explicitly excluded from gradient conversion.
 
 ---
 
@@ -770,7 +766,7 @@ ema_9_cross_21 = 1 if crossed_up else -1                        # crossover even
 |---|-------|---------|---------------|
 | A1 | sigmoid_score is mathematically appropriate for RSI extreme scoring | Gradient Function Selection Guide | Could use linear ramp instead with no behavioral difference; sigmoid just provides smoother saturation |
 | A2 | Benchmarks will show < 10x slowdown per field per gradient replacement | Compute Impact Assessment | Unlikely to matter at pipeline scale (sub-microsecond), but if measured as regressions the plan must revisit |
-| A3 | HMM probability fields (hmm_prob_0/1/2) are available in I7 features dict | Open Questions | If not available, I7 hmm_regime equality replacements must use different mechanism |
+| A3 | HMM probability fields (hmm_prob_ranging/trending_up/trending_down) are schema-registered and available in I7 features dict | Open Questions (RESOLVED) | Verified in schemas.py lines 633-635 — correct field names confirmed |
 
 ---
 
