@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -211,9 +211,19 @@ class SignalMetricsComputeAgent(BaseAgent):
                 )
 
         # Compute and publish metrics for each window and track
+        now = datetime.now(UTC)
         for window_days in WINDOWS:
+            # Filter rows to the actual window — compute_signal_metrics labels but doesn't filter
+            cutoff = now - timedelta(days=window_days)
+            window_rows = [
+                r for r in rows
+                if r.get("exit_at") and (
+                    r["exit_at"] if isinstance(r["exit_at"], datetime)
+                    else datetime.fromisoformat(str(r["exit_at"]).replace("Z", "+00:00"))
+                ) >= cutoff
+            ]
             for track in ("zone", "market"):
-                metric_rows = compute_signal_metrics(rows, track=track, window_days=window_days)
+                metric_rows = compute_signal_metrics(window_rows, track=track, window_days=window_days)
                 for mr in metric_rows:
                     await self._producer.publish(
                         topic,
@@ -240,7 +250,7 @@ class SignalMetricsComputeAgent(BaseAgent):
                     )
 
             # IC metrics (measures confidence predictive power; not track-split)
-            ic_rows = compute_ic_metrics(rows, window_days=window_days)
+            ic_rows = compute_ic_metrics(window_rows, window_days=window_days)
             for ir in ic_rows:
                 await self._producer.publish(
                     topic,
