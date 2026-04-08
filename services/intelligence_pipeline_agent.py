@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import msgpack as _msgpack
 
@@ -203,12 +203,23 @@ _CIS_KALMAN_DEFAULTS: dict[str, dict[str, float]] = {
 
 
 def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
-    """Load per-TF CIS Kalman Q/R from config/kalman_parameters.json."""
+    """Load per-TF CIS Kalman Q/R from config/kalman_parameters.json.
+
+    Config file can override defaults for specific timeframes, but "default"
+    key is always guaranteed via merge with hardcoded defaults.
+    """
     config_path = Path(__file__).parent.parent / "config" / "kalman_parameters.json"
     try:
         data = json.loads(config_path.read_text())
-        params = data.get("cis_kalman", _CIS_KALMAN_DEFAULTS)
-        return {tf: dict(v) for tf, v in params.items()}
+        config_params = data.get("cis_kalman", {})
+        # DEEP MERGE: per-TF config overrides individual keys without losing defaults
+        merged = {}
+        all_tfs = set(_CIS_KALMAN_DEFAULTS) | set(config_params)
+        for tf in all_tfs:
+            base = dict(_CIS_KALMAN_DEFAULTS.get(tf, _CIS_KALMAN_DEFAULTS["default"]))
+            base.update(config_params.get(tf, {}))
+            merged[tf] = base
+        return merged
     except Exception:
         return dict(_CIS_KALMAN_DEFAULTS)
 
@@ -1038,7 +1049,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         tasks: list[PluginTask],
         results: list,
         log_prefix: str = "plugin",
-        tier: str = "I1",
     ) -> list[dict]:
         """Collect results from parallel plugin execution.
 
@@ -1046,7 +1056,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             tasks: List of PluginTask objects
             results: List of results from asyncio.gather (may contain Exceptions)
             log_prefix: Prefix for log messages (e.g., "plugin" or "i7.plugin")
-            tier: Intelligence tier label for metrics (e.g., "I1" or "I7") - DEPRECATED: use task.tier_key
 
         Returns:
             List of successful dict outputs (exceptions are logged and skipped)
@@ -1126,67 +1135,93 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         return result
 
     # ------------------------------------------------------------------
-    # I2-I6 analysis pipeline
+    # I2-I6 analysis pipeline — sequential tier execution
     # ------------------------------------------------------------------
 
-    async def _run_analysis_pipeline(self, symbol: str, tf: str, frames: dict) -> dict | None:
-        """Run I2 → I3 → I4 → I5 → SMC → I6 in parallel and return tiered dict."""
-        tier_map = [
-            ("i2", TIER_I2),
-            ("i3", TIER_I3),
-            ("i4", TIER_I4),
-            ("i5", TIER_I5),
-            ("smc", TIER_SMC),
-            ("i6", TIER_I6),
-        ]
+    # Tier definitions in register_plugins.py ARE the dependency declaration:
+    # I2 depends on I1, I3 depends on I1-I2, I4 on I1-I3, etc.
+    # The engine simply executes them in order — no manual wave grouping.
+    _ANALYSIS_TIER_ORDER: ClassVar[tuple[tuple[str, tuple[str, ...]], ...]] = (
+        ("i2", TIER_I2),
+        ("i3", TIER_I3),
+        ("i4", TIER_I4),
+        ("i5", TIER_I5),
+        ("smc", TIER_SMC),
+        ("i6", TIER_I6),
+    )
 
-        # Build parallel tasks for all I2-I6 plugins
+    async def _run_tier(
+        self,
+        tier_key: str,
+        tier_plugins: tuple[str, ...],
+        symbol: str,
+        tf: str,
+        frames: dict,
+        loop: asyncio.AbstractEventLoop,
+    ) -> dict[str, Any]:
+        """Run one tier's plugins in parallel, merge outputs into frames."""
         tasks: list[PluginTask] = []
-        loop = asyncio.get_running_loop()
-
-        for tier_key, tier_list in tier_map:
-            for plugin_name in tier_list:
-                plugin = self._plugin_cache.get(plugin_name)
-                if plugin is None:
-                    continue
-                if should_skip_plugin(
-                    plugin,
-                    self._instrument_map.get(symbol),
-                    self._plugin_skipped_total,
-                    plugin_name,
-                ):
-                    continue
-                state_key = (plugin_name, symbol, tf)
-                lock = self._get_state_lock(state_key)
-
-                # Create PluginTask with coroutine
-                tasks.append(
-                    PluginTask(
-                        coroutine=loop.run_in_executor(
-                            self._executor, _timed_plugin_call, plugin, frames
-                        ),
-                        plugin_name=plugin_name,
-                        tier_key=tier_key,  # Track which tier this plugin belongs to
-                        state_key=state_key,
-                        lock=lock,
-                    )
+        for plugin_name in tier_plugins:
+            plugin = self._plugin_cache.get(plugin_name)
+            if plugin is None:
+                continue
+            if should_skip_plugin(
+                plugin,
+                self._instrument_map.get(symbol),
+                self._plugin_skipped_total,
+                plugin_name,
+            ):
+                continue
+            state_key = (plugin_name, symbol, tf)
+            lock = self._get_state_lock(state_key)
+            tasks.append(
+                PluginTask(
+                    coroutine=loop.run_in_executor(
+                        self._executor, _timed_plugin_call, plugin, frames
+                    ),
+                    plugin_name=plugin_name,
+                    tier_key=tier_key,
+                    state_key=state_key,
+                    lock=lock,
                 )
+            )
 
-        # Execute all I2-I6 plugins in parallel
+        if not tasks:
+            return {}
+
         results = await asyncio.gather(*[t.coroutine for t in tasks], return_exceptions=True)
-
-        # Collect results and group by tier
-        tiered: dict[str, dict] = {}
         outputs = self._collect_plugin_results(tasks, results, log_prefix="plugin")
-        for output in outputs:
-            tier_key = output.pop("_tier_key")  # Extract tier key
-            tier_result = tiered.get(tier_key, {})
-            tier_result.update(output)
-            tiered[tier_key] = tier_result
 
-        # Update frames with tiered results for downstream tiers
-        for tier_key, tier_data in tiered.items():
-            frames[tier_key] = tier_data
+        tier_output: dict[str, Any] = {}
+        for output in outputs:
+            output.pop("_tier_key", None)
+            tier_output.update(output)
+
+        # Merge into frames so next tier sees this tier's outputs
+        frames[tier_key] = tier_output
+        features = frames.get("features") or {}
+        features.update(tier_output)
+        frames["features"] = features
+
+        return tier_output
+
+    async def _run_analysis_pipeline(self, symbol: str, tf: str, frames: dict) -> dict | None:
+        """Run I2→I3→I4→I5→SMC→I6 — one tier at a time, parallel within each tier.
+
+        Execution order is derived from _ANALYSIS_TIER_ORDER which mirrors the
+        tier definitions in register_plugins.py. Each tier runs all its plugins
+        in parallel via ThreadPoolExecutor, then merges outputs into `frames`
+        before the next tier executes. This guarantees that downstream plugins
+        see all upstream tier outputs without any manual wave configuration.
+        """
+        loop = asyncio.get_running_loop()
+        tiered: dict[str, dict] = {}
+
+        for tier_key, tier_plugins in self._ANALYSIS_TIER_ORDER:
+            tier_output = await self._run_tier(
+                tier_key, tier_plugins, symbol, tf, frames, loop
+            )
+            tiered[tier_key] = tier_output
 
         return tiered
 
@@ -1243,6 +1278,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                         self._executor, _timed_plugin_call, plugin, plugin_input
                     ),
                     plugin_name=plugin_name,
+                    tier_key="i7",
                     state_key=state_key,
                     lock=lock,
                     bar=bar,
@@ -1258,6 +1294,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         # Process I7-specific signal generation — also build plugin_outputs for CIS scoring
         plugin_outputs: dict[str, dict] = {}
         for task, output in zip(tasks, outputs):  # noqa: B905 — lengths differ on plugin exceptions
+            output.pop("_tier_key", None)
             if output.get("direction", 0) != 0:
                 sig = output
                 sig["setup_plugin"] = task.plugin_name
