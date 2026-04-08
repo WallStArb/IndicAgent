@@ -15,7 +15,7 @@
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–58, 60–63 (shipped 2026-04-08)
-- ⏸ **v2.3 ML Foundation** — Phases 55-56, 59 (deferred until 30+ days clean signal data)
+- ⏸ **v2.3 ML Foundation** — Phases 55-56, 59, 64 (deferred until 30+ days clean signal data)
 
 ## Phases
 
@@ -633,6 +633,34 @@ Plans:
 - [x] 60-02-PLAN.md — Agents: SignalMetricsComputeAgent (timer 15min, :9126), SignalMetricsWriterAgent (:9127), systemd units
 - [x] 60-03-PLAN.md — Integration: API attribution endpoint (two tracks), intelligence_pipeline_agent regime-conditioned perf_multiplier, setup_performance shim, dashboard two-track layout
 
+### Phase 64: I6 Confluence Expansion — Cross-TF Plugins + Macro Context Service
+
+**Goal:** Expand I6 from single-plugin cross-timeframe confluence to multi-dimensional intelligence across three axes: time-scale (cross-TF), cross-asset (macro context), and market-structure (yield curve, credit, sectors). Build one plugin at a time; validate with p < 0.05 before building next.
+
+**Architecture:** Hybrid approach matching existing patterns:
+- **Cross-TF plugins** — run in-process within `IntelligencePipelineComputeAgent`, reading `frames["intel_*"]` (already cached). Zero new Kafka topics, zero new services.
+- **Cross-asset/macro plugins** — new `MacroContextComputeAgent` service subscribes to `market.bars` for non-signal instruments (FX, rates, ETFs), computes macro metrics, publishes to `intelligence.macro_context` Kafka topic. Pipeline injects via `frames["macro"]`. Pure DAG: separate lifecycle, separate scaling, compute-once-per-bar (not per-symbol).
+
+**Design doc:** `docs/ideas/i6-confluence-expansion.md` (v2.0 — 21 ideas, 3-tier roadmap)
+**Architecture note:** `.planning/notes/i6-confluence-architecture.md`
+
+**Depends on:** v2.2 completion, todo 030 (wave restructuring — DONE)
+
+**Success Criteria:**
+1. CrossTFMomentumDivergence plugin implemented with continuous gradient scoring (not binary)
+2. I6Confluence schema extended with new fields (all gradient [-1,+1] or [0,1])
+3. MacroContextComputeAgent created — computes USD strength, yield curve, flight-to-quality, credit stress, sector rotation from bar history
+4. Pipeline receives macro context via `frames["macro"]` — pure injection, no coupling
+5. Each new plugin tracked to `signal_ledger` with `_shadow` dict for future ML validation
+6. First plugin validated: N≥30 signals, p<0.05 before building second
+
+**Plans:** 3 plans (Wave 1: Plan 01 + Plan 02 parallel, Wave 2: Plan 03 after validation gate)
+
+Plans:
+- [ ] 64-01-PLAN.md — IC fix (continuous pnl_r) + cross-asset instrument constants + CrossTFMomentumDivergence plugin + I6Confluence schema extension + _shadow capture
+- [ ] 64-02-PLAN.md — MacroContextComputeAgent + 3 macro factors (USD strength, yield curve, flight-to-quality) + topic_macro_context + systemd unit
+- [ ] 64-03-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (N>=30, p<0.05)
+
 ### Phase 56: AI Layer Refactor v3 — Shared Infrastructure + Narrative Refactor
 
 **Goal**: Build shared LLM infrastructure (provider chain, circuit breaker, outcomes), refactor narrative service from 1,327-line monolith to modular components, establish foundation for 6 prioritized AI ideas (build 1 at a time).
@@ -657,3 +685,13 @@ Plans:
 - [ ] 56-02-PLAN.md — Narrative module extraction (orchestrator, synthesizer, prompts, parsers)
 - [ ] 56-03-PLAN.md — Service refactor (ai_narrative_agent.py thin coordinator, archive monolith)
 
+
+### Phase 65: Gradient audit of existing plugins I1-I7 broader sweep
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 64
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 65 to break down)
