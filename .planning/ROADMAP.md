@@ -686,12 +686,17 @@ Plans:
 - [ ] 56-03-PLAN.md — Service refactor (ai_narrative_agent.py thin coordinator, archive monolith)
 
 
+
 ### Phase 65: Gradient audit of existing plugins I1-I7 broader sweep
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Scan all 121 plugins (I1-I7) for binary scoring shortcuts and replace with continuous gradients. Create shared gradient utility module. Add automated verification.
+**Requirements**: [GRAD-UTILS, GRAD-SCANNER, GRAD-I4-SESSION, GRAD-I4-VWAP, GRAD-I4-TREND, GRAD-I4-VOL, GRAD-I2-MA, GRAD-I2-VOL, GRAD-I2-RSI, GRAD-I3-STRUCT, GRAD-SMC, GRAD-I5-PATTERNS, GRAD-I7-HMM, GRAD-I7-CONFIDENCE, GRAD-VERIFY, GRAD-CI]
 **Depends on:** Phase 64
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 65 to break down)
+- [ ] 65-01-PLAN.md — Shared gradient_utils.py library + binary pattern scanner
+- [ ] 65-02-PLAN.md — I4 SessionContext/AnchoredVWAP/TrendRegime/VolRegime + I2 composites to gradients
+- [ ] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
+- [ ] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement
+- [ ] 65-05-PLAN.md — Verification: scanner zero violations + CI test gate + full suite
