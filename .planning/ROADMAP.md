@@ -217,8 +217,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] 053.1-01-PLAN.md — Shared schemas (topic_gap_requests, BarGapRequest) + BarWriterAgent implementation + tests
   - [x] 053.1-02-PLAN.md — BarAuditorAgent + DataProviderAgent gap-requests loop + tests
   - [x] 053.1-03-PLAN.md — FCA cleanup (remove _ohlcv_buffer) + systemd units + gap_fill_service retirement + CLAUDE.md
-- [ ] **Phase 50: Roll Monitor + DualDivergence Graduation** — D-21 validation; apply `049_roll_premium_pct.sql`; enable `ROLL_MONITOR_ENABLED`; promote `trad_DualDivergence` after D-07 gate *(unblocked — 53.3 RollComputeAgent validated 2026-03-28)*
-  Plans: 50.1 (D-21 validation), 50.2 (roll_premium_pct migration), 50.3 (enable flag), 50.4 (DualDivergence gate + promotion)
+- [x] **Phase 50: Roll Monitor + DualDivergence Graduation** ✅ Infrastructure Complete 2026-04-08 — market_data_5m view, FeatureWriterAgent→topic_roll_events, trad_DualDivergence shadow verified; graduation deferred to Phase 58.1; base symbol fix added to Phase 58.1-06
+  - [x] 50-PLAN.md — Infrastructure built (8/8 tasks executed 2026-04-02)
+  - [x] market_data_5m view created
+  - [x] FeatureWriterAgent wired to topic_roll_events
+  - [x] Roll premium computation verified (0.0 = gap unknown)
+  - [x] trad_DualDivergence shadow confirmed (IS_SHADOW=True)
+  - ⏸ D-21 validation blocked by schema mismatch → fix in Phase 58.1-06
+  - ⏸ RollComputeAgent graduation → handled by Phase 58.1-04
+  - ⏸ trad_DualDivergence promotion → awaiting SHADOW-04 gate (N≥100 signals)
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
   Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
@@ -237,7 +244,8 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
 
 - [ ] **Phase 55: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
-- [ ] **Phase 56: Renaissance Observability** — DAG performance attribution, A/B experiment framework, causal inference, counterfactual analysis, LLM gate optimizer, intelligence tier audit surface, staleness as first-class quality signal
+- [ ] **Phase 56: AI Layer Refactor v3** — Shared LLM infrastructure (providers, outcomes, circuit breaker), narrative refactor (1,327→200 lines), 6 prioritized AI ideas (build 1 at a time, validate with data: SkepticAgent, Volume Profile Anomaly, Regime Explainer, Trade Journal, Counterfactual Narratives, Correlation Cluster)
+  Design doc: `docs/plans/2026-04-08-ai-layer-refactor-design-v3.md`
 
 </details>
 
@@ -612,10 +620,35 @@ Plans:
 
 **Goal:** Replace the broken signal performance system (pnl_r = ±∞ when stop ≈ entry, inline SQL aggregation, no regime conditioning, two tracks collapsed) with a DAG ComputeAgent/WriterAgent pipeline. Adds DataQualityValidator (4-gate DQ), regime-conditioned segmentation, zone vs market track separation, and IC metrics. Fixes CVDDivergence Sharpe = -496 at root.
 **Design doc:** `docs/plans/2026-04-05-signal-metrics-redesign.md`
-**Plans:** 3/3 plans complete ✅ Shipped 2026-04-05
+**Plans:** 3/3 plans complete ✅ Shipped 2026-04-05 · **UAT verified 2026-04-08** (9/11 pass, window filtering bug fixed, IC gradient improvement todoed)
 **Depends on:** Phase 58.1
 
 Plans:
 - [x] 60-01-PLAN.md — Foundation: DB migration (3 tables), topic_signal_metrics(), DataQualityValidator, compute_signal_metrics(), compute_ic_metrics()
 - [x] 60-02-PLAN.md — Agents: SignalMetricsComputeAgent (timer 15min, :9126), SignalMetricsWriterAgent (:9127), systemd units
 - [x] 60-03-PLAN.md — Integration: API attribution endpoint (two tracks), intelligence_pipeline_agent regime-conditioned perf_multiplier, setup_performance shim, dashboard two-track layout
+
+### Phase 56: AI Layer Refactor v3 — Shared Infrastructure + Narrative Refactor
+
+**Goal**: Build shared LLM infrastructure (provider chain, circuit breaker, outcomes), refactor narrative service from 1,327-line monolith to modular components, establish foundation for 6 prioritized AI ideas (build 1 at a time).
+
+**Status**: 🚧 Ready to Execute
+
+**Depends on**: v2.2 completion (Phases 53.3, 53.2, 53.1, 50, 54, 57)
+
+**Success Criteria** (what must be TRUE):
+1. Shared LLM infrastructure created (src/core/llm/ with providers, circuit_breaker, outcomes)
+2. Narrative service refactored (1,327 → ~200 lines, 85% reduction)
+3. Narrative logic extracted to src/intelligence/narrative/ (orchestrator, synthesizer, prompts, parsers)
+4. LLM calls tracked to llm.calls topic via LLMProviderChain
+5. Circuit breaker prevents cascading LLM failures
+6. All narrative components unit-tested (TDD)
+7. Foundation ready for Priority 1 (SkepticAgent) implementation
+
+**Plans**: 3 plans (56-01: infrastructure, 56-02: narrative refactor, 56-03: service refactor)
+
+Plans:
+- [ ] 56-01-PLAN.md — Shared LLM infrastructure (LLMProviderChain, CircuitBreaker, llm.calls tracking)
+- [ ] 56-02-PLAN.md — Narrative module extraction (orchestrator, synthesizer, prompts, parsers)
+- [ ] 56-03-PLAN.md — Service refactor (ai_narrative_agent.py thin coordinator, archive monolith)
+
