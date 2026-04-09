@@ -261,9 +261,9 @@ def compute_ic_metrics(
         window_days: rolling window
     """
     # Per-regime IC accumulators keyed by (plugin, tf, regime_label)
-    ic_accs: dict[tuple, tuple[list, list]] = defaultdict(lambda: ([], []))
+    ic_accs: dict[tuple, tuple[list, list, list]] = defaultdict(lambda: ([], [], []))
     # Rollup IC accumulators keyed by (plugin, tf)
-    all_ic_accs: dict[tuple, tuple[list, list]] = defaultdict(lambda: ([], []))
+    all_ic_accs: dict[tuple, tuple[list, list, list]] = defaultdict(lambda: ([], [], []))
 
     for row in rows:
         plugin = row.get("setup_plugin")
@@ -271,6 +271,7 @@ def compute_ic_metrics(
         hmm = row.get("hmm_regime_at_fire")
         conf = row.get("confidence")
         outcome = row.get("outcome")
+        pnl_r = row.get("pnl_r")  # None for never_activated
 
         if not plugin or not tf_val or conf is None or outcome is None:
             continue
@@ -281,8 +282,10 @@ def compute_ic_metrics(
 
         ic_accs[(plugin, tf_val, regime_label)][0].append(float(conf))
         ic_accs[(plugin, tf_val, regime_label)][1].append(outcome)
+        ic_accs[(plugin, tf_val, regime_label)][2].append(pnl_r)
         all_ic_accs[(plugin, tf_val)][0].append(float(conf))
         all_ic_accs[(plugin, tf_val)][1].append(outcome)
+        all_ic_accs[(plugin, tf_val)][2].append(pnl_r)
 
     result: list[ICMetricsResult] = []
     now = datetime.now(UTC)
@@ -293,8 +296,9 @@ def compute_ic_metrics(
         regime_label: str,
         confs: list[float],
         outcomes: list[str],
+        pnl_rs: list[float | None],
     ) -> ICMetricsResult | None:
-        ic_score, p_val, n_used = compute_ic(confs, outcomes)
+        ic_score, p_val, n_used = compute_ic(confs, pnl_rs)
         if n_used < IC_MIN_SAMPLE_SIZE:
             return None
         sig = is_ic_significant(ic_score, p_val, n_used)
@@ -310,13 +314,13 @@ def compute_ic_metrics(
             computed_at=now,
         )
 
-    for (plugin, tf_val, regime_label), (confs, outcomes) in ic_accs.items():
-        r = _make_ic_result(plugin, tf_val, regime_label, confs, outcomes)
+    for (plugin, tf_val, regime_label), (confs, outcomes, pnl_rs) in ic_accs.items():
+        r = _make_ic_result(plugin, tf_val, regime_label, confs, outcomes, pnl_rs)
         if r:
             result.append(r)
 
-    for (plugin, tf_val), (confs, outcomes) in all_ic_accs.items():
-        r = _make_ic_result(plugin, tf_val, "all", confs, outcomes)
+    for (plugin, tf_val), (confs, outcomes, pnl_rs) in all_ic_accs.items():
+        r = _make_ic_result(plugin, tf_val, "all", confs, outcomes, pnl_rs)
         if r:
             result.append(r)
 

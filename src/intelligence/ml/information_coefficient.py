@@ -1,6 +1,6 @@
 """Information Coefficient (IC) computation for IndicAgent signal quality measurement.
 
-IC = Pearson r(calibrated_confidence, binary_outcome) per plugin per regime.
+IC = Pearson r(calibrated_confidence, pnl_r) per plugin per regime.
 
 Renaissance principle: "Earn the right through proof." IC is the quantifiable measure of
 whether a signal's confidence score has predictive power. IC > 0.05 with p < 0.05 and
@@ -20,8 +20,6 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats
-
-from src.intelligence.trading.signal_outcome import WIN_OUTCOMES
 
 logger = logging.getLogger(__name__)
 
@@ -76,38 +74,35 @@ class ICResult:
 
 def compute_ic(
     confidences: list[float],
-    outcomes: list[str | None],
+    pnl_rs: list[float | None],
 ) -> tuple[float | None, float | None, int]:
-    """Compute Pearson IC between confidence scores and binary outcomes.
+    """Compute Pearson IC between confidence scores and continuous pnl_r outcomes.
 
     Args:
         confidences: calibrated_confidence values per signal
-        outcomes: outcome strings per signal (None = unresolved, skipped)
+        pnl_rs:      zone pnl_r per signal (None = never_activated, skipped)
 
     Returns:
         (ic_score, p_value, n_used) -- None values if insufficient data
     """
-    # Filter to resolved signals only (outcome IS NOT NULL)
+    # Filter to resolved signals only (pnl_r IS NOT NULL)
     pairs = [
-        (c, o) for c, o in zip(confidences, outcomes, strict=True)
-        if o is not None and c is not None
+        (c, r) for c, r in zip(confidences, pnl_rs, strict=True)
+        if r is not None and c is not None
     ]
 
     if len(pairs) < IC_MIN_SAMPLE_SIZE:
         return None, None, len(pairs)
 
     conf_arr = np.array([c for c, _ in pairs], dtype=float)
-    binary_outcome = np.array(
-        [1.0 if o in WIN_OUTCOMES else -1.0 for _, o in pairs],
-        dtype=float,
-    )
+    pnl_arr = np.array([r for _, r in pairs], dtype=float)
 
     # Guard: zero-variance inputs produce nan correlation
-    if conf_arr.std() < 1e-9 or binary_outcome.std() < 1e-9:
+    if conf_arr.std() < 1e-9 or pnl_arr.std() < 1e-9:
         logger.warning("ic_zero_variance n=%d", len(pairs))
         return None, None, len(pairs)
 
-    ic_score, p_value = stats.pearsonr(conf_arr, binary_outcome)
+    ic_score, p_value = stats.pearsonr(conf_arr, pnl_arr)
     return float(ic_score), float(p_value), len(pairs)
 
 
