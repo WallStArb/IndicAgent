@@ -99,10 +99,10 @@ class TestDualDivergence:
         result = plugin.compute_full(_make_frames(close, features))
         assert result.get("direction") == 0
 
-    def test_has_is_shadow_true(self):
-        """plugin.IS_SHADOW must be True."""
+    def test_has_is_shadow_false(self):
+        """plugin.IS_SHADOW must be False — plugin promoted from shadow to live."""
         plugin = self._make_plugin()
-        assert getattr(plugin, "IS_SHADOW", False) is True
+        assert getattr(plugin, "IS_SHADOW", True) is False
 
     def test_regime_type_is_mean_reversion(self):
         """plugin.regime_type must be 'mean_reversion'."""

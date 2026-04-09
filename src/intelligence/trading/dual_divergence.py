@@ -1,15 +1,10 @@
-"""trad_DualDivergence — I7 shadow plugin: both OFI AND CVD diverging simultaneously.
+"""trad_DualDivergence — I7 plugin: both OFI AND CVD diverging simultaneously.
 
 The highest-confidence microstructure divergence signal: requires both order flow
 imbalance (OFI) AND cumulative volume delta (CVD) to disagree with price direction
 for N consecutive confirmation bars.
 
-Starts in SHADOW MODE (IS_SHADOW = True) to accumulate labeled training data
-before live deployment. The signal_generator_service respects IS_SHADOW class
-attribute to mark all entries from this plugin as is_shadow=True.
-
 Renaissance principles:
-- Earn the right through proof: shadow mode until statistical significance (p<0.05, N>=100)
 - Segment relentlessly: dual confirmation gate — OFI AND CVD both diverging
 - Instrument everything: both divergence values, slope, confirmation_bars all logged
 """
@@ -33,7 +28,7 @@ _CVD_DIV_THRESHOLD: float = 1.0   # minimum abs(cvd_divergence)
 
 @dataclass
 class DualDivergencePlugin:
-    """Shadow I7 plugin: both OFI and CVD diverge simultaneously for N bars.
+    """I7 plugin: both OFI and CVD diverge simultaneously for N bars.
 
     Gates (all required):
     - abs(ofi_divergence) >= 1.0
@@ -41,15 +36,12 @@ class DualDivergencePlugin:
     - Both disagree with price direction for N=3 consecutive bars
     - Both divergence directions must agree with each other
 
-    IS_SHADOW = True: all entries from this plugin are written as is_shadow=True
-    until promoted via promote_shadow.py after statistical validation.
-
     Direction: based on divergence direction (sign of ofi_divergence)
     Confidence: compose_confidence(0.60 + abs(ofi_divergence) * 0.05 + abs(cvd_divergence) * 0.05)
     """
 
     # Plugin-level shadow flag — ClassVar so it's not an instance field
-    IS_SHADOW: ClassVar[bool] = True
+    IS_SHADOW: ClassVar[bool] = False
     name: str = "trad_DualDivergence"
     outputs: frozenset[str] = frozenset(
         {
