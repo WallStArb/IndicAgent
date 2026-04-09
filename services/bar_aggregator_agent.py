@@ -213,6 +213,13 @@ class BarAggregatorComputeAgent(BaseAgent):
                 )
                 return
             except _KCE as exc:
+                # Clean up partially-started producer before retry/raise
+                if self._kafka_producer is not None:
+                    try:
+                        await self._kafka_producer.stop()
+                    except Exception:
+                        pass
+                    self._kafka_producer = None
                 if attempt == _MAX_ATTEMPTS:
                     self.logger.error(
                         "bar_aggregator_agent.setup_failed",

@@ -1,9 +1,8 @@
 """Unit tests for backfill_htf_bars script."""
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
-UTC = timezone.utc
+import pytest
 
 
 def _make_1m_bar(symbol="ES", ts=None, o=5100.0, h=5102.0, l=5098.0, c=5101.0, v=500):

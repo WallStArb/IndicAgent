@@ -121,8 +121,10 @@ async def _amain(args: argparse.Namespace) -> None:
     print(f"Backfilling HTF bars for {symbols} from {since} to {until}")
 
     conn = await asyncpg.connect(settings.database_url)
-    rows = await _fetch_1m_bars(conn, symbols, since, until)
-    await conn.close()
+    try:
+        rows = await _fetch_1m_bars(conn, symbols, since, until)
+    finally:
+        await conn.close()
     print(f"  Fetched {len(rows)} 1m bars from market_data_ohlcv")
 
     # Group by symbol and replay each symbol independently
@@ -135,16 +137,16 @@ async def _amain(args: argparse.Namespace) -> None:
         bootstrap_servers=settings.kafka_bootstrap_servers
     )
     await producer.start()
-
-    total_published = 0
-    for symbol, symbol_rows in by_symbol.items():
-        acc = BarAccumulator()
-        htf_bars = _replay_bars(acc, symbol_rows)
-        await _publish_htf_bars(producer, htf_bars, topic=htf_topic)
-        print(f"  {symbol}: {len(symbol_rows)} 1m bars -> {len(htf_bars)} HTF bars published")
-        total_published += len(htf_bars)
-
-    await producer.stop()
+    try:
+        total_published = 0
+        for symbol, symbol_rows in by_symbol.items():
+            acc = BarAccumulator()
+            htf_bars = _replay_bars(acc, symbol_rows)
+            await _publish_htf_bars(producer, htf_bars, topic=htf_topic)
+            print(f"  {symbol}: {len(symbol_rows)} 1m bars -> {len(htf_bars)} HTF bars published")
+            total_published += len(htf_bars)
+    finally:
+        await producer.stop()
     print(f"Done. Published {total_published} HTF bars to {htf_topic}")
 
 
@@ -155,6 +157,9 @@ def main() -> None:
     group.add_argument("--since", type=str, help="ISO date start (use with --until)")
     parser.add_argument("--until", type=str, default=None, help="ISO date end (default: now)")
     args = parser.parse_args()
+
+    if args.hours and args.until:
+        parser.error("--until cannot be used with --hours; use --since/--until instead")
 
     if args.since and not args.until:
         args.until = datetime.now(UTC).isoformat()

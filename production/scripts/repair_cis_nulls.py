@@ -77,7 +77,10 @@ async def _repair_chunk(
         symbol, tf, day_start, day_end,
     )
     # asyncpg returns "UPDATE N" — parse the integer
-    return int(result.split()[-1]) if result else 0
+    if not result:
+        return 0
+    parts = result.split()
+    return int(parts[-1]) if parts else 0
 
 
 async def _amain(args: argparse.Namespace) -> None:
@@ -86,34 +89,34 @@ async def _amain(args: argparse.Namespace) -> None:
     symbols = [c.symbol for c in contracts]
 
     conn = await asyncpg.connect(settings.database_url)
+    try:
+        # Determine date range from earliest signal_ledger row
+        first_ts = await conn.fetchval(
+            "SELECT min(feature_ts) FROM signal_ledger WHERE raw_cis_score IS NULL"
+        )
+        if first_ts is None:
+            print("No NULL rows found — already clean.")
+            return
 
-    # Determine date range from earliest signal_ledger row
-    first_ts = await conn.fetchval(
-        "SELECT min(feature_ts) FROM signal_ledger WHERE raw_cis_score IS NULL"
-    )
-    if first_ts is None:
-        print("No NULL rows found — already clean.")
+        start_date = first_ts.date()
+        end_date = datetime.now(UTC).date()
+
+        total_updated = 0
+        current = start_date
+        while current <= end_date:
+            for symbol in symbols:
+                for tf in _TFS:
+                    n = await _repair_chunk(conn, symbol, tf, current, args.dry_run)
+                    if n > 0:
+                        mode = "would update" if args.dry_run else "updated"
+                        print(f"  {current} {symbol} {tf}: {mode} {n} rows")
+                        total_updated += n
+            current += timedelta(days=1)
+
+        mode = "Would update" if args.dry_run else "Updated"
+        print(f"\nDone. {mode} {total_updated} rows total.")
+    finally:
         await conn.close()
-        return
-
-    start_date = first_ts.date()
-    end_date = datetime.now(UTC).date()
-
-    total_updated = 0
-    current = start_date
-    while current <= end_date:
-        for symbol in symbols:
-            for tf in _TFS:
-                n = await _repair_chunk(conn, symbol, tf, current, args.dry_run)
-                if n > 0:
-                    mode = "would update" if args.dry_run else "updated"
-                    print(f"  {current} {symbol} {tf}: {mode} {n} rows")
-                    total_updated += n
-        current += timedelta(days=1)
-
-    await conn.close()
-    mode = "Would update" if args.dry_run else "Updated"
-    print(f"\nDone. {mode} {total_updated} rows total.")
 
 
 def main() -> None:

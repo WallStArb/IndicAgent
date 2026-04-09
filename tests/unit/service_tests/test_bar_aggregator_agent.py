@@ -277,8 +277,9 @@ async def test_handle_unhealthy_state_only_sets_flag():
 @pytest.mark.asyncio
 async def test_setup_retries_on_kafka_connection_error():
     """_setup() must retry up to 3 times before propagating a KafkaConnectionError."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
     from aiokafka.errors import KafkaConnectionError
+
+    from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
     agent._settings = MagicMock()
@@ -307,8 +308,9 @@ async def test_setup_retries_on_kafka_connection_error():
 @pytest.mark.asyncio
 async def test_setup_raises_after_max_retries():
     """_setup() must re-raise after exhausting all retry attempts."""
-    from services.bar_aggregator_agent import BarAggregatorComputeAgent
     from aiokafka.errors import KafkaConnectionError
+
+    from services.bar_aggregator_agent import BarAggregatorComputeAgent
 
     agent = BarAggregatorComputeAgent.__new__(BarAggregatorComputeAgent)
     agent._settings = MagicMock()
