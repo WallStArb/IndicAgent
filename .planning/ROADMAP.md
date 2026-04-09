@@ -244,8 +244,8 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 **Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
 
 - [ ] **Phase 55: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
-- [ ] **Phase 56: AI Layer Refactor v3** — Shared LLM infrastructure (providers, outcomes, circuit breaker), narrative refactor (1,327→200 lines), 6 prioritized AI ideas (build 1 at a time, validate with data: SkepticAgent, Volume Profile Anomaly, Regime Explainer, Trade Journal, Counterfactual Narratives, Correlation Cluster)
-  Design doc: `docs/plans/2026-04-08-ai-layer-refactor-design-v3.md`
+- [ ] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 7 plans, shadow-only, 49 TDD tests
+  Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 
 </details>
 
@@ -662,29 +662,42 @@ Plans:
 - [ ] 64-02-PLAN.md — MacroContextComputeAgent + 3 macro factors (USD strength, yield curve, flight-to-quality) + topic_macro_context + systemd unit
 - [ ] 64-03-PLAN.md — 4 additional Tier 1 cross-TF plugins (S/R confluence, regime agreement, squeeze/expansion, orderflow alignment) — requires Plan 01 validation gate (N>=30, p<0.05)
 
-### Phase 56: AI Layer Refactor v3 — Shared Infrastructure + Narrative Refactor
+### Phase 56: Swarm Foundation
 
-**Goal**: Build shared LLM infrastructure (provider chain, circuit breaker, outcomes), refactor narrative service from 1,327-line monolith to modular components, establish foundation for 6 prioritized AI ideas (build 1 at a time).
+**Goal**: Build shared LLM layer, fix DAG protocols, extract narrative module, wire two new shadow-only swarm services, and create `alpha_multiplier_shadow` hypertable for regime-segmented validation.
 
 **Status**: 🚧 Ready to Execute
 
-**Depends on**: v2.2 completion (Phases 53.3, 53.2, 53.1, 50, 54, 57)
+**Depends on**: v2.2 completion
+
+**Wave Structure**:
+- Wave 1 (parallel): 56-01 + 56-02
+- Wave 2 (parallel): 56-03 + 56-04
+- Wave 3: 56-05 (needs Wave 1)
+- Wave 4: 56-06 (needs Wave 2)
+- Wave 5: 56-07 (needs Wave 4)
 
 **Success Criteria** (what must be TRUE):
-1. Shared LLM infrastructure created (src/core/llm/ with providers, circuit_breaker, outcomes)
-2. Narrative service refactored (1,327 → ~200 lines, 85% reduction)
-3. Narrative logic extracted to src/intelligence/narrative/ (orchestrator, synthesizer, prompts, parsers)
-4. LLM calls tracked to llm.calls topic via LLMProviderChain
-5. Circuit breaker prevents cascading LLM failures
-6. All narrative components unit-tested (TDD)
-7. Foundation ready for Priority 1 (SkepticAgent) implementation
+1. `LLMProviderChain` in `src/core/llm/` — all imports updated
+2. `ai_narrative_service.py` archived → `ai_narrative_agent.py` ≤ 210 lines
+3. `IAlphaContributor.compute(SwarmContext)` is the only contract — no `get_multiplier` callers
+4. `SafeSwarmWrapper` wraps instances, reports violations to Prometheus
+5. `SwarmOrchestratorAgent` publishes Path A within 10ms of signal
+6. `alpha_multiplier_shadow` hypertable exists and receives writes
+7. All agents `shadow_only=True` — no production promotion without segment-level ρ ≥ 0.4
+8. DLQ topics wired for both services
+9. 49 TDD tests pass
 
-**Plans**: 3 plans (56-01: infrastructure, 56-02: narrative refactor, 56-03: service refactor)
+**Plans**: 7 plans across 5 waves
 
 Plans:
-- [ ] 56-01-PLAN.md — Shared LLM infrastructure (LLMProviderChain, CircuitBreaker, llm.calls tracking)
-- [ ] 56-02-PLAN.md — Narrative module extraction (orchestrator, synthesizer, prompts, parsers)
-- [ ] 56-03-PLAN.md — Service refactor (ai_narrative_agent.py thin coordinator, archive monolith)
+- [ ] 56-01-PLAN.md — Move `llm_providers.py` → `src/core/llm/providers.py`, add `call_type` + Kafka audit
+- [ ] 56-02-PLAN.md — Create `src/intelligence/narrative/` (orchestrator, synthesizer, prompts, parsers)
+- [ ] 56-03-PLAN.md — Fix `IAlphaContributor` protocol, add `SwarmContext`/`SwarmContextCache`, extend schemas
+- [ ] 56-04-PLAN.md — Rewrite `SafeSwarmWrapper`, create `SwarmAggregator`, `SwarmMetrics`, `PromptRegistry`
+- [ ] 56-05-PLAN.md — Write thin `ai_narrative_agent.py` (~200 lines), archive monolith, update systemd
+- [ ] 56-06-PLAN.md — Add 5 swarm stream key functions, write `058_alpha_multiplier_shadow.sql` migration
+- [ ] 56-07-PLAN.md — Create `SwarmOrchestratorAgent` + `SwarmWriterAgent`, systemd units, regime-segmented promotion
 
 
 
