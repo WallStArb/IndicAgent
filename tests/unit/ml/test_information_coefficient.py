@@ -79,11 +79,12 @@ def test_compute_ic_noise_signal_large_n():
 
 def test_compute_ic_skips_none_pnl_rs():
     """None pnl_rs (never_activated) must be excluded from IC computation."""
-    conf = [0.7] * 50 + [0.3] * 50
-    pnl_rs = [1.0] * 50 + [None] * 50
+    conf = [0.8] * 25 + [0.4] * 25 + [0.5] * 50
+    pnl_rs = [2.0] * 25 + [-1.0] * 25 + [None] * 50
     ic, pv, n = compute_ic(conf, pnl_rs)
     # Only 50 resolved signals used
     assert n == 50
+    assert ic is not None
 
 
 def test_compute_ic_zero_variance_confidence():

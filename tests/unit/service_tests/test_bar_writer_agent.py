@@ -145,7 +145,11 @@ def test_init_name_and_metrics_port():
 
 def test_topics_consumed():
     """topics_consumed returns [topic_market_bars, topic_market_bars_htf, topic_contract_updates]."""
-    from src.core.stream_keys import topic_contract_updates, topic_market_bars, topic_market_bars_htf
+    from src.core.stream_keys import (
+        topic_contract_updates,
+        topic_market_bars,
+        topic_market_bars_htf,
+    )
 
     agent = _make_agent()
     expected = [

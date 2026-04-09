@@ -25,20 +25,21 @@ MIN_N = 30
 async def _amain() -> None:
     settings = Settings()
     conn = await asyncpg.connect(settings.database_url)
-
-    rows = await conn.fetch(
-        """
-        SELECT setup_plugin, count(*) AS resolved_n
-        FROM signal_ledger
-        WHERE setup_plugin = ANY($1)
-          AND outcome IS NOT NULL
-          AND outcome != 'never_activated'
-        GROUP BY setup_plugin
-        ORDER BY setup_plugin
-        """,
-        BOOTSTRAP_PLUGINS,
-    )
-    await conn.close()
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT setup_plugin, count(*) AS resolved_n
+            FROM signal_ledger
+            WHERE setup_plugin = ANY($1)
+              AND outcome IS NOT NULL
+              AND outcome != 'never_activated'
+            GROUP BY setup_plugin
+            ORDER BY setup_plugin
+            """,
+            BOOTSTRAP_PLUGINS,
+        )
+    finally:
+        await conn.close()
 
     counts = {r["setup_plugin"]: r["resolved_n"] for r in rows}
 
