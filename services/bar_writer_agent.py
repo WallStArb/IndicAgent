@@ -124,7 +124,8 @@ class BarWriterAgent(BaseAgent):
 
         self._buffer: list[tuple] = []
         self._last_flush: float = 0.0
-        self._contract_cache: dict[str, str] = {}  # contract_code -> base_symbol (SoT: contract_metadata)
+        # contract_code -> base_symbol (SoT: contract_metadata)
+        self._contract_cache: dict[str, str] = {}
 
         # Cache labeled children — avoids dict lookup on every bar
         self._events_consumed_lbl = _EVENTS_CONSUMED.labels(agent=self.name)
@@ -207,8 +208,11 @@ class BarWriterAgent(BaseAgent):
         if cache_size == 0:
             self.logger.warning(
                 "bar_writer_agent.contract_cache_empty",
-                msg="contract_metadata has no rows — ContractMetadataWriterAgent may not have seeded yet. "
-                    "Futures bars will fall back to contract code as base symbol until cache is populated.",
+                msg=(
+                    "contract_metadata has no rows — ContractMetadataWriterAgent may not have "
+                    "seeded yet. Futures bars will fall back to contract code as base symbol "
+                    "until cache is populated."
+                ),
             )
         else:
             self.logger.info(
@@ -265,18 +269,20 @@ class BarWriterAgent(BaseAgent):
         base = self._contract_cache.get(bar.symbol, bar.symbol)
 
         source = "live_1m" if bar.tf == "1m" else "live_htf"
-        self._buffer.append((
-            bar.ts,      # $1 timestamp — Python datetime (asyncpg requirement)
-            bar.symbol,  # $2 symbol (contract code: ESM6, SPY, etc.)
-            base,        # $3 base (ES for futures, same as symbol for ETFs/FX)
-            bar.tf,      # $4 timeframe
-            bar.open,    # $5 open
-            bar.high,    # $6 high
-            bar.low,     # $7 low
-            bar.close,   # $8 close
-            bar.volume,  # $9 volume
-            source,      # $10 source
-        ))
+        self._buffer.append(
+            (
+                bar.ts,  # $1 timestamp — Python datetime (asyncpg requirement)
+                bar.symbol,  # $2 symbol (contract code: ESM6, SPY, etc.)
+                base,  # $3 base (ES for futures, same as symbol for ETFs/FX)
+                bar.tf,  # $4 timeframe
+                bar.open,  # $5 open
+                bar.high,  # $6 high
+                bar.low,  # $7 low
+                bar.close,  # $8 close
+                bar.volume,  # $9 volume
+                source,  # $10 source
+            )
+        )
 
     async def _flush_buffer(self) -> None:
         """Batch-write _buffer to market_data_ohlcv.
