@@ -239,13 +239,14 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>⏸ v2.3 ML Foundation (Phases 55-56) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
+<summary>⏸ v2.3 ML Foundation (Phases 55-56, 66) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
 
 **Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
 
 - [ ] **Phase 55: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
 - [ ] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 7 plans, shadow-only, 49 TDD tests
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
+- [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. `IAlphaContributor`: "what's wrong with this signal?" Tracks predictions to `alpha_multiplier_shadow`, validates p < 0.05 n ≥ 30 before next agent.
 
 </details>
 
@@ -388,7 +389,8 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 |------|-------|---------|
 | **Intelligence Swarm** | 9 autonomous agents (Regime Sentinel, Volatility Arbiter, SMC Validator, Liquidity Decay, Correlation Contagion, Macro Event Observer, Execution Quality, SkepticAgent) providing alpha multipliers; shadow-first validation; `AlphaMultiplier` schema; hook into signal_lifecycle_service. Requires PydanticAI safety wrapper + 14-day correlation analysis infra. | `docs/ideas/intelligence-swarm-manifest.md` |
 | **Phase 55: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 55` in Phase Details section |
-| **Phase 56: Renaissance Observability** | Deferred from v2.0 — depends on Phase 55 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. Renaissance gap analysis D1–D5 items feed this phase. | `docs/ideas/renaissance-gap-analysis.md` |
+| **Phase 66: SkepticAgent** | First swarm agent built on Phase 56 infrastructure. `IAlphaContributor` that asks "what's wrong with this signal?" — predicts failure probability via LLM. Tracks predictions to `alpha_multiplier_shadow`. Gate: p < 0.05, n ≥ 30 before building next agent. | `docs/ideas/intelligence-swarm-manifest.md` |
+| **Renaissance Observability** | Deferred from v2.0 — depends on Phase 55 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
