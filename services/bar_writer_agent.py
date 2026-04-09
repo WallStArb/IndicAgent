@@ -204,7 +204,8 @@ class BarWriterAgent(BaseAgent):
         if cache_size == 0:
             self.logger.warning(
                 "bar_writer_agent.contract_cache_empty",
-                reason="ContractMetadataWriterAgent may not have seeded yet — futures fall back to contract code",
+                reason="ContractMetadataWriterAgent may not have seeded yet"
+                "— futures fall back to contract code as base symbol",
             )
         else:
             self.logger.info(
