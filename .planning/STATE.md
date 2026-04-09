@@ -73,6 +73,7 @@ Earn the right to trust the numbers. Fix the live data foundation (tick aggregat
 
 ### Roadmap Evolution
 
+- Phase 65 added: Gradient audit of existing plugins I1-I7 broader sweep
 - Phase 58.1 inserted after Phase 58: Contract Lifecycle Automation (URGENT)
 - Phase 54 added: Provider Abstraction Layer — Broker-Agnostic Data Foundation (2026-03-28)
 - Phase 49.2 inserted after Phase 49: HMM Operational Fixes — observability, fallback logging, warm-up noise (URGENT)

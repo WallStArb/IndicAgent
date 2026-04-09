@@ -74,7 +74,7 @@ from .composites.derivative_oscillator import plugin as deriv_osc_plugin
 from .composites.donchian_position import plugin as donchian_pos_plugin
 from .composites.exhaustion_score import plugin as exhaustion_score_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
-from .composites.macd_events import plugin as macd_events_plugin
+from src.intelligence.features.i3_structure.macd_events import plugin as macd_events_plugin
 from .composites.momentum_accel import plugin as momentum_accel_plugin
 from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
@@ -87,7 +87,7 @@ from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
-from .context.mtf_volatility import plugin as mtf_vol_plugin
+from src.intelligence.features.i5_patterns.mtf_volatility import plugin as mtf_vol_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
@@ -144,15 +144,15 @@ def validate_schema_coverage() -> None:
     I1 and I2 are skipped (extra='allow').
     """
     tier_checks: list[tuple[str, list, type]] = [
-        ("I3", [swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
+        ("I3", [macd_events_plugin, swing_plugin, sr_plugin, trend_plugin, market_profile_plugin,
                 session_levels_plugin, fib_zones_plugin,
                 swing_momentum_plugin], I3Structure),
         ("I4", [vol_regime_plugin, trend_regime_plugin, momentum_ctx_plugin,
                 garch_vol_plugin, hurst_plugin, shannon_plugin,
-                kalman_trend_plugin, session_ctx_plugin, mtf_vol_plugin,
+                kalman_trend_plugin, session_ctx_plugin,
                 anchored_vwap_plugin, volume_profile_plugin,
                 vix_regime_plugin, cross_asset_ctx_plugin], I4Context),
-        ("I5", [rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
+        ("I5", [mtf_vol_plugin, rsi_div_plugin, squeeze_plugin, vol_div_plugin, confluence_plugin,
                 trend_confluence_plugin, double_tb_plugin, head_shoulders_plugin,
                 triangle_wedge_plugin, candlestick_plugin, flag_pennant_plugin,
                 cup_handle_plugin, measured_move_plugin,
@@ -213,7 +213,6 @@ def register_all_plugins() -> None:
     registry.register_indicator(cvd_plugin)
 
     # I2: Composite event plugins — run on I1 features, before I3
-    registry.register_pattern(macd_events_plugin)
     registry.register_pattern(rsi_events_plugin)
     registry.register_pattern(stoch_events_plugin)
     registry.register_pattern(adx_events_plugin)
@@ -233,6 +232,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(confluence_plugin)
     registry.register_pattern(trend_confluence_plugin)
 
+    registry.register_pattern(macd_events_plugin)
     registry.register_pattern(swing_plugin)
     registry.register_pattern(sr_plugin)
     registry.register_pattern(trend_plugin)
@@ -250,7 +250,6 @@ def register_all_plugins() -> None:
     registry.register_pattern(shannon_plugin)
     registry.register_pattern(kalman_trend_plugin)
     registry.register_pattern(session_ctx_plugin)
-    registry.register_pattern(mtf_vol_plugin)
     registry.register_pattern(vix_regime_plugin)
     registry.register_pattern(cross_asset_ctx_plugin)
 
@@ -271,6 +270,7 @@ def register_all_plugins() -> None:
     registry.register_pattern(ctf_plugin)
 
     # I5 Chart Patterns
+    registry.register_pattern(mtf_vol_plugin)
     registry.register_pattern(double_tb_plugin)
     registry.register_pattern(head_shoulders_plugin)
     registry.register_pattern(triangle_wedge_plugin)
@@ -359,7 +359,6 @@ TIER_I1: list[str] = [
 ]
 
 TIER_I2: list[str] = [
-    macd_events_plugin.name,
     rsi_events_plugin.name,
     stoch_events_plugin.name,
     adx_events_plugin.name,
@@ -373,6 +372,7 @@ TIER_I2: list[str] = [
 ]
 
 TIER_I3: list[str] = [
+    macd_events_plugin.name,
     swing_plugin.name,
     sr_plugin.name,
     trend_plugin.name,
@@ -391,7 +391,6 @@ TIER_I4: list[str] = [
     shannon_plugin.name,
     kalman_trend_plugin.name,
     session_ctx_plugin.name,
-    mtf_vol_plugin.name,
     anchored_vwap_plugin.name,  # "ctx_AnchoredVWAP"
     volume_profile_plugin.name,  # "ctx_VolumeProfile"
     vix_regime_plugin.name,           # "ctx_VIXRegime" — Phase 46.1
@@ -399,6 +398,7 @@ TIER_I4: list[str] = [
 ]
 
 TIER_I5: list[str] = [
+    mtf_vol_plugin.name,
     rsi_div_plugin.name,
     squeeze_plugin.name,
     vol_div_plugin.name,
@@ -434,6 +434,67 @@ TIER_SMC: list[str] = [
 
 TIER_I6: list[str] = [
     ctf_plugin.name,
+]
+
+# ---------------------------------------------------------------------------
+# Sub-wave definitions for dependency-respecting parallel execution.
+# Wave structure: independent plugins first, then dependent plugins that
+# read their outputs. Union of sub-waves equals the parent TIER_* list.
+# ---------------------------------------------------------------------------
+
+# I2: momentum_accel produces rsi_curvature + macd_hist_slope
+#     → acceleration_regime and exhaustion_score consume them
+I2_WAVE_A: list[str] = [
+    momentum_accel_plugin.name,
+    rsi_events_plugin.name,
+    stoch_events_plugin.name,
+    adx_events_plugin.name,
+    volume_events_plugin.name,
+    donchian_pos_plugin.name,
+    obv_momentum_plugin.name,
+    deriv_osc_plugin.name,
+]
+I2_WAVE_B: list[str] = [
+    accel_regime_plugin.name,
+    exhaustion_score_plugin.name,
+]
+
+# I4: garch_volatility produces garch_sigma → kalman_trend consumes it
+I4_WAVE_A: list[str] = [
+    vol_regime_plugin.name,
+    trend_regime_plugin.name,
+    momentum_ctx_plugin.name,
+    garch_vol_plugin.name,
+    hurst_plugin.name,
+    shannon_plugin.name,
+    session_ctx_plugin.name,
+    anchored_vwap_plugin.name,
+    volume_profile_plugin.name,
+    vix_regime_plugin.name,
+    cross_asset_ctx_plugin.name,
+]
+I4_WAVE_B: list[str] = [
+    kalman_trend_plugin.name,
+]
+
+# SMC: order_blocks + fvg + liquidity_pools must complete before
+#      supply_demand_zones, breaker_blocks, mitigation_blocks
+SMC_WAVE_A: list[str] = [
+    bos_choch_plugin.name,
+    fvg_plugin.name,
+    ob_plugin.name,
+    liq_sweep_plugin.name,
+    bocpd_plugin.name,
+    hmm_plugin.name,
+    liquidity_pools_plugin.name,
+    ict_killzones_plugin.name,
+    amd_cycle_plugin.name,
+    premium_discount_plugin.name,
+]
+SMC_WAVE_B: list[str] = [
+    supply_demand_zones_plugin.name,
+    breaker_blocks_plugin.name,
+    mitigation_blocks_plugin.name,
 ]
 
 TIER_I7: list[str] = [

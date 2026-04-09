@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Version: 5.32.0
-Last Updated: 2026-03-25
-Status: v2.1 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
+Version: 5.33.0
+Last Updated: 2026-04-08
+Status: v2.2 IN PROGRESS — see `.planning/ROADMAP.md` for current phase.
 
 ## Renaissance Principles
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
@@ -244,32 +244,18 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 
 ## Key Components
 
-### Active Services
-| Service | Unit | Purpose | Metrics |
-|---------|------|---------|---------|
-| IBKR Provider | `indicagent-ibkr-provider` | IBKR dual streams: 5s RTB → 1m aggregation + official reconciliation; publishes to `market.bars.raw.ibkr` | :9129 |
-| Provider Merger | `indicagent-provider-merger` | Routes `market.bars.raw.<provider>` → `market.bars`; auto-failover on primary silence; ProviderQualityEvent quality side-channel | :9130 |
-| Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator; publishes to `market.bars.htf` | :9120 |
-| Bar Writer | `indicagent-bar-writer` | market.bars + market.bars.htf → market_data_ohlcv batch writer | :9121 |
-| Bar Auditor | `indicagent-bar-auditor` | Gap detection → market.events.gap_requests | :9123 |
-| Roll Compute | `indicagent-roll-compute` | Calendar + volume z-score roll detection → `market.events.roll` | :9122 |
-| Contract Metadata Writer | `indicagent-contract-metadata-writer` | Consumes `market.events.roll` → promotes front-month in `contract_metadata` → broadcasts `ContractUpdateEvent` | :9124 |
-| Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics | :9125 |
-| Signal Writer | `indicagent-signal-writer` | `intelligence.*` → `signal_ledger` batch writer | :9119 |
-| Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome (Phase 52.4: renamed from signal-lifecycle, inherits BaseAgent) | :9115 |
-| Signal Metrics Compute | `indicagent-signal-metrics-compute` | Timer-triggered signal performance metrics compute | :9126 |
-| Signal Metrics Writer | `indicagent-signal-metrics-writer` | Signal metrics events → DB persistence | :9127 |
-| Signal Auditor | `indicagent-signal-auditor` | Coverage validation + lag monitoring | :9128 |
-| AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` | :9113 |
-| Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer | :9116 |
-| Feature Snapshot Writer | `indicagent-feature-snapshot-writer` | Shadow dual-write: `intelligence.journal` → `feature_snapshots_shadow` via `FeatureRepository` (parity validation) | :9132 |
-| Parity Auditor | `indicagent-parity-auditor` | 5-min timer: compares `intelligence_features` vs `feature_snapshots_shadow`; publishes `SHADOW_PARITY_CERTIFIED` after 60 clean cycles | :9133 |
-| LLM Writer | `indicagent-llm-writer` | `llm.calls` → `llm_calls` hypertable + outcome back-fill + score cache | :9117 |
-| Cross-Asset Service | `indicagent-cross-asset` | Cross-asset spread dynamics + I7 feed → `cross_asset` | :9118 |
-| Service Auditor | `indicagent-service-auditor` | Pipeline health monitor and self-healer | :9131 |
-| API | `indicagent-api` | FastAPI + SSE on :8000 | — |
-| Dashboard | `indicagent-dashboard` | Next.js dev server on :3000 | — |
-| Weight Updater | `indicagent-weight-updater` | Daily (02:00): CIS weight refresh from `setup_performance` | — (oneshot) |
+### Active Services (key services — full list: `systemctl list-units --all | grep indicagent`)
+
+| Service | Unit | Purpose |
+|---------|------|---------|
+| Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics |
+| IBKR Provider | `indicagent-ibkr-provider` | IBKR dual streams: 5s RTB → 1m aggregation + official reconciliation |
+| Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator |
+| Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer |
+| Signal Writer | `indicagent-signal-writer` | `intelligence.*` → `signal_ledger` batch writer |
+| Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome |
+| AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` |
+| API | `indicagent-api` | FastAPI + SSE on :8000 |
 
 ### Core Runtime Files
 - `src/core/stream_keys.py` — all stream/topic key construction
@@ -316,15 +302,10 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 ## Development Standards
 
-**Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues.
+**Code Quality:** No bandit/safety/snyk installed — `/coderabbit:code-review` catches security issues. See `docs/operations/infrastructure-reference.md` for CodeRabbit limits and pre-commit hook details.
 - **Enum migrations:** When replacing raw strings with enums, update function signatures to return the enum type (not `str`). Extend enum from `str` (e.g., `class SignalOutcome(str, Enum)`) for DB compatibility without migrations.
 - **Hot-path optimization:** Extract repeated list/struct construction to module-level constant tuples to avoid allocation in loops. Use tuples for immutability.
-- **Re-exports:** Use explicit `__all__` export list instead of `# noqa` comments for backward compatibility re-exports.
-- **CodeRabbit limits**: 150 files max per review. Use `--base HEAD~N` to review recent commits. Process can get killed (exit code 137/OOM) on large diffs — review smaller chunks.
-- **CodeRabbit on main**: `coderabbit review --plain -t all` fails with "no merge base" when on main. Use `-t uncommitted` instead.
-- **Simplify workflow**: Launches 3 parallel agents (reuse, quality, efficiency) — finds duplication, missing utilities, inefficient patterns.
-- **Documentation accuracy**: Docs may contain fabricated content (nonexistent classes, functions, DB tables) written as forward-looking specs never implemented. Always verify doc claims against actual code (`src/`) before trusting them — if a doc references a class or function, grep for it first.
-- **Pre-commit hook exclusions:** When adding non-plugin infrastructure classes (e.g., LLM providers, chains), update `.git/hooks/pre-commit` line 54 grep pattern to prevent false positives. Current exclusions: Plugin|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain
+- **Documentation accuracy:** Docs may contain fabricated content (nonexistent classes, functions, DB tables) written as forward-looking specs never implemented. Always verify doc claims against actual code (`src/`) before trusting them — if a doc references a class or function, grep for it first.
 
 ### Key Rules
 
@@ -372,34 +353,17 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 ## Infrastructure
 
-- **Sudo:** `echo 'PASSWORD' | /usr/bin/sudo.ws -S <cmd>` — plain sudo active via `update-alternatives` (switched 2026-03-15; sudo-rs blocked stdin). For heredocs, write to `/tmp` first then `sudo cp`. Password stored in memory, not here.
-- **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157` — if TWS connection refused, check trusted IPs in TWS API settings.
-- **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only. See `src/providers/CLAUDE.md` for asset-class details.
-- **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons — `market.bars` (no prefix when `INDICAGENT_ENV` is unset). Always via `stream_keys.py`.
-- **`INDICAGENT_ENV` mismatch between services**: Services bake their topic prefix at startup from `.env`. If `INDICAGENT_ENV` changes between restarts, services use different topic names and bars stop flowing silently. Symptom: IBKR provider emits to `market.bars.raw.ibkr` but merger consumes `development.market.bars.raw.ibkr`. Fix: restart all pipeline services together after any `INDICAGENT_ENV` change. Diagnose: `grep topics_consumed logs/provider_merger_agent.log`.
-- **Redpanda topic retention**: Topics must have `retention.ms=604800000` (7 days) set explicitly — broker default is shorter and purges seeded I1 messages over weekends. Set with: `docker exec redpanda rpk topic alter-config <topic> --set retention.ms=604800000`.
+- **Server IP:** `192.168.1.158` (Ethernet, `enp2s0`). IBKR TWS at `192.168.1.157`.
+- **IBKR**: VIX=`"VX"`, client IDs 35+. All ib_insync in `src/providers/ibkr.py` only.
+- **Redpanda**: Kafka-compatible streaming backbone. Topic naming: dots not colons. Always via `stream_keys.py`.
+- **Redpanda topic retention**: Set `retention.ms=604800000` (7 days) explicitly — broker default purges seeded I1 messages over weekends.
 - **Contracts**: always use `get_active_contracts()` from `src/config/settings.py` — never hardcode.
-- **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. When futures expire (H6→M6/J6), restart: `sudo systemctl restart indicagent-ibkr-provider`. Verify: `journalctl -u indicagent-ibkr-provider | grep "KafkaProducerClient started"`
-- **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — they come back automatically. No manual `docker start` needed after reboot.
-- **Pre-commit hook location:** `.git/hooks/pre-commit` (not in version control). When exclusions need updating for non-plugin classes, edit line 54 grep pattern.
-- **Systemd unit conventions:** `production/systemd/` contains reference templates with headers explaining this. Installed units live in `/etc/systemd/system/` — always check `systemctl status` for the authoritative unit.
+- **IBKRProviderAgent contract rollover**: Daemon reads contracts ONCE at startup. Restart on futures expiry: `sudo systemctl restart indicagent-ibkr-provider`.
+- **Docker containers on reboot**: `timescaledb` and `redpanda` both have `restart: unless-stopped` — no manual start needed.
+- **Systemd unit conventions:** `production/systemd/` is reference templates. Installed units in `/etc/systemd/system/` — check `systemctl status` for authoritative state.
 
-## Data Pipeline Debugging
-
-When investigating "service not writing to database":
-1. **Check service health metrics first** — `events_consumed` and `batches_written` in logs. If increasing, service is working.
-2. **Check which symbols ARE in target table** — `SELECT DISTINCT symbol FROM intelligence_features WHERE ts > NOW() - INTERVAL '2 hours';`
-3. **Trace data flow upstream** — TWS → bars → indicator → intelligence → feature_writer → DB
-4. **Verify service configs include the symbol** — Check startup logs for `"symbols"` list
-5. **Check prerequisite data exists** — New contracts need historical backfill before intelligence pipeline processes them
-6. **Kafka/IBKRProvider verification** — `docker exec redpanda rpk topic consume market.bars --offset N` (or `--from-end`). Provider emissions: `journalctl -u indicagent-ibkr-provider --since "2 minutes ago" | grep "1m bar emitted"`. If bars emitted but Kafka stale: `grep "Published to Kafka successfully"`. Merger routing: `journalctl -u indicagent-provider-merger --since "2 minutes ago"`.
-
-## Environment Variables
-
-`INDICAGENT_ENV`, `DATABASE_URL` (postgres), `IBKR_HOST=192.168.1.157`, `IBKR_PORT=7497`, `OLLAMA_BASE_URL=:11434`, `OLLAMA_DEFAULT_MODEL=gemma4:e4b`
+> Sudo details, INDICAGENT_ENV mismatch, and debugging procedures: `docs/operations/infrastructure-reference.md`
 
 ## Roadmap
 
-**v2.1 SHIPPED 2026-03-28** — Phases 48-53.3. DAG decomposition complete: BarAggregatorComputeAgent, BarWriterAgent, BarAuditorAgent, RollComputeAgent, DataProviderAgent, ProviderMergerAgent all standalone.
-**v2.2 IN PROGRESS** — Phases 53.3→54→57 complete; Phase 50 (Roll Monitor graduation) remaining. See `.planning/ROADMAP.md` for active phase details.
-**v2.3 DEFERRED** — Phases 55-56: ML scoring + Renaissance observability. Requires 30+ days clean signal data from v2.2.
+See `.planning/ROADMAP.md` for current milestone status and phase details.

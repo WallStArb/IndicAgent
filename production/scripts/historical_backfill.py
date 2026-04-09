@@ -382,7 +382,6 @@ I1_PLUGINS = [
     "ind_StochRSI",
 ]
 I2_PLUGINS = [
-    "evt_MACDEvents",
     "evt_RSIEvents",
     "evt_StochasticEvents",
     "evt_ADXEvents",
@@ -394,7 +393,7 @@ I2_PLUGINS = [
     "cmp_ExhaustionScore",
     "cmp_AccelerationRegime",
 ]
-I3_PLUGINS = ["struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
+I3_PLUGINS = ["struct_MACDEvents", "struct_SwingDetector", "struct_SupportResistance", "struct_TrendStructure"]
 I4_PLUGINS = [
     "ctx_VolatilityRegime",
     "ctx_TrendRegime",

@@ -17,7 +17,7 @@ def test_intelligence_event_has_i2_field():
 
 
 def test_macd_events_outputs_has_new_accel_fields():
-    from src.intelligence.composites.macd_events import plugin as macd_events_plugin
+    from src.intelligence.features.i3_structure.macd_events import plugin as macd_events_plugin
 
     assert "macd_hist_accel" in macd_events_plugin.outputs
     assert "macd_hist_contracting" in macd_events_plugin.outputs

@@ -3,15 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..plugins import InputSpec
-from ..utils import clamp
+from src.intelligence.plugins import InputSpec
+from src.intelligence.utils import clamp
 
 
 @dataclass
 class MTFVolatilityPlugin:
     """Multi-timeframe volatility context from cached intel dicts."""
 
-    name: str = "ctx_MTFVolatility"
+    name: str = "patt_MTFVolatility"
     outputs: frozenset[str] = frozenset(
         {
             "mtf_vol_expansion_15m",
