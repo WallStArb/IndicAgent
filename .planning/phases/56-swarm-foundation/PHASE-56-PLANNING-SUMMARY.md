@@ -49,6 +49,8 @@ Full swarm infrastructure: shared LLM layer, corrected DAG protocols, narrative 
 8. DLQ topics wired for both services
 9. 49 TDD tests pass
 
-## What Phase 57 Builds
+## What Phase 66 Builds
 
 **SkepticAgent** — `IAlphaContributor` that asks "what's wrong with this signal?" via LLM. Shadow-validates against `signal_ledger` outcomes.
+
+Note: Phase 57 (IntelligencePipelineComputeAgent) and Phase 58 (Pipeline Parallelization) are already complete. Phase 66 is the next available number after Phase 65 (Gradient Audit).
