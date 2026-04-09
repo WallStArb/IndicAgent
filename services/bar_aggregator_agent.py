@@ -191,19 +191,43 @@ class BarAggregatorComputeAgent(BaseAgent):
         )
 
     async def _setup(self) -> None:
-        """Connect Kafka producer and consumer."""
-        self._kafka_producer = KafkaProducerClient(
-            bootstrap_servers=self._settings.kafka_bootstrap_servers
-        )
-        await self._kafka_producer.start()
+        """Connect Kafka producer and consumer with exponential-backoff retry."""
+        from aiokafka.errors import KafkaConnectionError as _KCE
 
-        self._kafka_consumer = self._make_consumer()
-        await self._kafka_consumer.start()
-        self.logger.info(
-            "bar_aggregator_agent.setup_complete",
-            topics_consumed=self.topics_consumed,
-            topics_produced=self.topics_produced,
-        )
+        _MAX_ATTEMPTS = 4   # 1 initial + 3 retries
+        _BASE_DELAY = 2.0   # seconds (doubles each attempt: 2, 4, 8)
+
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                self._kafka_producer = KafkaProducerClient(
+                    bootstrap_servers=self._settings.kafka_bootstrap_servers
+                )
+                await self._kafka_producer.start()
+
+                self._kafka_consumer = self._make_consumer()
+                await self._kafka_consumer.start()
+                self.logger.info(
+                    "bar_aggregator_agent.setup_complete",
+                    topics_consumed=self.topics_consumed,
+                    topics_produced=self.topics_produced,
+                )
+                return
+            except _KCE as exc:
+                if attempt == _MAX_ATTEMPTS:
+                    self.logger.error(
+                        "bar_aggregator_agent.setup_failed",
+                        attempt=attempt,
+                        error=str(exc),
+                    )
+                    raise
+                delay = _BASE_DELAY * (2 ** (attempt - 1))
+                self.logger.warning(
+                    "bar_aggregator_agent.setup_retry",
+                    attempt=attempt,
+                    delay_s=delay,
+                    error=str(exc),
+                )
+                await asyncio.sleep(delay)
 
     async def _teardown(self) -> None:
         """Drain and close Kafka connections."""
