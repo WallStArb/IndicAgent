@@ -1,8 +1,8 @@
-"""Unit tests for BarWriterAgent — TDD tests for Plan 053.1-01.
+"""Unit tests for BarWriterAgent — TDD tests for Plan 053.1-01 + Plan 63-06.
 
 Tests BarWriterAgent structural contract (BaseAgent inheritance, topics, metrics),
 behavioral contract (buffer bar, flush buffer, source tagging, error handling),
-and Golden Signals metrics.
+Golden Signals metrics, and contract cache invalidation.
 
 Uses ServiceClass.__new__(ServiceClass) pattern to bypass __init__ (per CLAUDE.md).
 """
@@ -50,6 +50,16 @@ _TEST_CONSUMER_LAG = Gauge(
     "Consumer lag (test)",
     ["agent"],
 )
+_TEST_CONTRACT_CACHE_SIZE = Gauge(
+    "test_bwa_contract_cache_size",
+    "Cache size (test)",
+    ["agent"],
+)
+_TEST_CONTRACT_CACHE_RELOADS = Counter(
+    "test_bwa_contract_cache_reloads_total",
+    "Cache reloads (test)",
+    ["agent"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +92,18 @@ def _make_agent():
     agent._bars_written_lbl: dict[str, Counter] = {
         tf: _TEST_BARS_WRITTEN.labels(agent="bar_writer_agent", tf=tf) for tf in _tfs
     }
-    agent._instruments_cache: dict[str, str] = {}  # symbol -> base mapping
+    # Contract cache (SoT: contract_metadata) — replaces _instruments_cache
+    agent._contract_cache: dict[str, str] = {
+        "ESM6": "ES",
+        "ESU6": "ES",
+        "NQM6": "NQ",
+        "NQU6": "NQ",
+        "CLK6": "CL",
+        "CLM6": "CL",
+        "GCJ6": "GC",
+    }  # contract_code -> base_symbol (mirrors contract_metadata fixture)
+    agent._contract_cache_size_lbl = _TEST_CONTRACT_CACHE_SIZE.labels(agent="bar_writer_agent")
+    agent._contract_cache_reloads_lbl = _TEST_CONTRACT_CACHE_RELOADS.labels(agent="bar_writer_agent")
     return agent
 
 
@@ -118,16 +139,20 @@ def test_init_name_and_metrics_port():
 
 
 # ---------------------------------------------------------------------------
-# Test 2: topics_consumed returns both bar topics
+# Test 2: topics_consumed returns all 3 subscribed topics
 # ---------------------------------------------------------------------------
 
 
 def test_topics_consumed():
-    """topics_consumed returns [topic_market_bars(env), topic_market_bars_htf(env)]."""
-    from src.core.stream_keys import topic_market_bars, topic_market_bars_htf
+    """topics_consumed returns [topic_market_bars, topic_market_bars_htf, topic_contract_updates]."""
+    from src.core.stream_keys import topic_contract_updates, topic_market_bars, topic_market_bars_htf
 
     agent = _make_agent()
-    expected = [topic_market_bars("dev"), topic_market_bars_htf("dev")]
+    expected = [
+        topic_market_bars("dev"),
+        topic_market_bars_htf("dev"),
+        topic_contract_updates("dev"),
+    ]
     assert agent.topics_consumed == expected
 
 
@@ -143,7 +168,7 @@ def test_topics_produced():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: _buffer_bar correctly appends a 9-tuple to the buffer
+# Test 4: _buffer_bar correctly appends a 10-tuple to the buffer
 # ---------------------------------------------------------------------------
 
 
@@ -190,9 +215,9 @@ async def test_flush_buffer_success():
     """_flush_buffer calls executemany, clears the buffer on success."""
     agent = _make_agent()
 
-    # Pre-populate buffer with a 1m bar
+    # Pre-populate buffer with a 1m bar (10-tuple: ts, symbol, base, tf, open, high, low, close, volume, source)
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    agent._buffer.append((ts, "ESM6", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
+    agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
 
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)
@@ -221,7 +246,7 @@ async def test_flush_buffer_leaves_buffer_on_error():
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    agent._buffer.append((ts, "ESM6", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
+    agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
 
     mock_pool = AsyncMock()
     mock_pool.acquire = MagicMock(return_value=AsyncMock(
@@ -254,3 +279,105 @@ async def test_flush_buffer_noop_when_empty():
 
     # pool.acquire should never be called when buffer is empty
     mock_pool.acquire.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 9: _buffer_bar resolves futures contract code to base symbol
+# ---------------------------------------------------------------------------
+
+
+def test_buffer_bar_resolves_futures_base():
+    """_buffer_bar resolves futures contract code to base symbol via _contract_cache."""
+    agent = _make_agent()
+    payload = _make_bar_payload(tf="1m", symbol="ESM6")
+
+    agent._buffer_bar(payload)
+
+    row = agent._buffer[0]
+    assert row[1] == "ESM6"   # symbol unchanged
+    assert row[2] == "ES"     # base resolved from contract_cache
+    assert row[3] == "1m"     # timeframe at correct index
+
+
+def test_buffer_bar_fallback_for_non_futures():
+    """_buffer_bar falls back to symbol as base for non-futures (ETF, FX)."""
+    agent = _make_agent()
+    payload = _make_bar_payload(tf="1m", symbol="DIA")
+
+    agent._buffer_bar(payload)
+
+    row = agent._buffer[0]
+    assert row[1] == "DIA"    # symbol
+    assert row[2] == "DIA"    # base == symbol (fallback — DIA not in contract_metadata)
+
+
+# ---------------------------------------------------------------------------
+# Test 10: _handle_contract_update reloads cache
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_contract_update_reloads_cache():
+    """_handle_contract_update() calls _load_contract_cache() on valid ContractUpdateEvent."""
+    agent = _make_agent()
+
+    reload_called = {"count": 0}
+
+    async def mock_load_contract_cache():
+        reload_called["count"] += 1
+        agent._contract_cache["ESU6"] = "ES"
+        agent._contract_cache_size_lbl.set(len(agent._contract_cache))
+        agent._contract_cache_reloads_lbl.inc()
+
+    agent._load_contract_cache = mock_load_contract_cache
+
+    payload = {
+        "base_symbol": "ES",
+        "old_contract": "ESM6",
+        "new_contract": "ESU6",
+        "promoted_at": "2026-06-13T14:30:00Z",
+    }
+    await agent._handle_contract_update(payload)
+
+    assert reload_called["count"] == 1
+    assert "ESU6" in agent._contract_cache
+
+
+@pytest.mark.asyncio
+async def test_handle_contract_update_survives_malformed_payload():
+    """_handle_contract_update() logs error and does not raise on bad payload."""
+    agent = _make_agent()
+
+    # Should not raise
+    await agent._handle_contract_update({"garbage": "data"})
+    agent.logger.error.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Test 11: _flush_buffer increments correct TF counter (row[3], not row[2])
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_flush_buffer_increments_tf_counter():
+    """_flush_buffer increments bars_written_lbl for correct timeframe (not base symbol)."""
+    agent = _make_agent()
+
+    ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
+    # 10-tuple: (ts, symbol, base, tf, open, high, low, close, volume, source)
+    agent._buffer.append((ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m"))
+
+    mock_conn = AsyncMock()
+    mock_conn.executemany = AsyncMock(return_value=None)
+    mock_pool = AsyncMock()
+    mock_pool.acquire = MagicMock(return_value=AsyncMock(
+        __aenter__=AsyncMock(return_value=mock_conn),
+        __aexit__=AsyncMock(return_value=None),
+    ))
+    agent._db_pool = mock_pool
+
+    before = agent._bars_written_lbl["1m"]._value.get()
+    await agent._flush_buffer()
+    after = agent._bars_written_lbl["1m"]._value.get()
+
+    assert after == before + 1  # exactly 1 bar written for "1m"
