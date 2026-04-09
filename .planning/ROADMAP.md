@@ -506,6 +506,9 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 63. Contract Lifecycle Automation | v2.2 | 5/5 | Complete | 2026-04-08 |
 | 63.1. Data Integrity: Aggregator Resilience + HTF Backfill | v2.2 | 1/1 | Planned | — |
 | 63.2. Signal Quality: Continuous IC + CIS Null Backfill | v2.2 | 1/1 | Planned | — |
+| 63.3. Pipeline Correctness: Plugin Dependency Violations | v2.2 | 0/1 | Planned | — |
+| 63.4. Signal Quality: ATR Caps + Backfill Gap Fix | v2.2 | 0/1 | Planned | — |
+| 63.5. Startup Safety: Plugin Validation Layer | v2.2 | 0/1 | Planned | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -634,6 +637,36 @@ Plans:
 
 Plans:
 - [ ] 63.2-01-PLAN.md — Continuous IC (compute_ic + compute_ic_metrics), repair_cis_nulls.py script, check_validate_alpha_eligibility.py gate
+
+### Phase 63.3: Pipeline Correctness — Plugin Dependency Violations for Wave Execution
+
+**Goal:** Fix 8 cross-tier and 6 internal dependency violations in the intelligence plugin DAG so I2/I3/I4/SMC tiers can be safely parallelized. Restructure into sub-waves (I2-WaveA/B, I4-WaveA/B, SMC-WaveA/B) that respect plugin execution order.
+**Source:** Todo 030
+**Depends on:** Phase 63
+**Plans:** 0/1 plans complete
+
+Plans:
+- [ ] 63.3-01-PLAN.md — Wave restructure: I2/I4/SMC sub-waves, move macd_events→I3, fix mtf_volatility I4→I5 circular dep
+
+### Phase 63.4: Signal Quality — ATR Caps + Backfill Gap Fix
+
+**Goal:** Fix two production quality bugs: (1) per-TF ATR multiplier caps in trade_framer so 1m stops aren't placed 8-16% away on CL/GC; (2) detect_gaps false positives in historical_backfill.py that waste IBKR pacing budget on market-closure windows.
+**Source:** Todos 003 + 009
+**Depends on:** Phase 63
+**Plans:** 0/1 plans complete
+
+Plans:
+- [ ] 63.4-01-PLAN.md — trade_framer per-TF ATR caps (1m→3×, 5m→5×, 15m→7×), detect_gaps tolerance multiplier
+
+### Phase 63.5: Startup Safety — Plugin Validation Layer
+
+**Goal:** Build PluginValidator that hard-crashes at service startup on plugin misconfiguration — missing regime_type, wrong tier registration, TREND_SETUPS drift. Prevents silent production failures.
+**Source:** Todo 008
+**Depends on:** Phase 63
+**Plans:** 0/1 plans complete
+
+Plans:
+- [ ] 63.5-01-PLAN.md — PluginValidator class, startup enforcement in intelligence_pipeline_agent, Prometheus metrics
 
 ### Phase 59: OFI Divergence Redesign
 
