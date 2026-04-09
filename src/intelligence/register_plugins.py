@@ -74,7 +74,6 @@ from .composites.derivative_oscillator import plugin as deriv_osc_plugin
 from .composites.donchian_position import plugin as donchian_pos_plugin
 from .composites.exhaustion_score import plugin as exhaustion_score_plugin
 from .composites.ma_composites import plugin as ma_compare_plugin
-from src.intelligence.features.i3_structure.macd_events import plugin as macd_events_plugin
 from .composites.momentum_accel import plugin as momentum_accel_plugin
 from .composites.obv_momentum import plugin as obv_momentum_plugin
 from .composites.rsi_events import plugin as rsi_events_plugin
@@ -87,13 +86,14 @@ from .context.garch_volatility import plugin as garch_vol_plugin
 from .context.hurst_exponent import plugin as hurst_plugin
 from .context.kalman_trend import plugin as kalman_trend_plugin
 from .context.momentum_context import plugin as momentum_ctx_plugin
-from src.intelligence.features.i5_patterns.mtf_volatility import plugin as mtf_vol_plugin
 from .context.session_context import plugin as session_ctx_plugin
 from .context.shannon_entropy import plugin as shannon_plugin
 from .context.trend_regime import plugin as trend_regime_plugin
 from .context.vix_regime import plugin as vix_regime_plugin
 from .context.volatility_regime import plugin as vol_regime_plugin
 from .context.volume_profile import plugin as volume_profile_plugin
+from .features.i3_structure.macd_events import plugin as macd_events_plugin
+from .features.i5_patterns.mtf_volatility import plugin as mtf_vol_plugin
 from .plugins import registry
 from .schemas import I3Structure, I4Context, I5Patterns, I6Confluence, SMCContext
 from .trading.anchored_vwap_reversion import plugin as anchored_vwap_reversion_plugin

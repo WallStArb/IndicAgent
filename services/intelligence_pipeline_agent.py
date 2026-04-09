@@ -358,6 +358,10 @@ _STATE_TOPIC_RETENTION_MS = 604800000  # 7 days
 
 _OUTPUT_QUEUE_MAXSIZE = 500
 
+# Type aliases for the wave-based analysis pipeline structure.
+type _WaveTierDef = tuple[str, tuple[str, ...]]
+type _AnalysisWave = tuple[_WaveTierDef, ...]
+
 
 def _timed_plugin_call(plugin, frames):
     """Wrapper that returns (result, duration_ms) tuple for per-plugin timing.
@@ -367,7 +371,7 @@ def _timed_plugin_call(plugin, frames):
     on every bar for stateful plugins like BOCPD and HMMRegime.
     """
     t0 = time.perf_counter()
-    if getattr(plugin, "supports_incremental", False) and plugin._state:
+    if plugin.supports_incremental and plugin._state:
         result = plugin.compute_next(frames)
     else:
         result = plugin.compute_full(frames)
@@ -1123,7 +1127,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ):
                 continue
             state_key = (plugin_name, symbol, tf)
-            # Restore per-(symbol, tf) state for incremental computation
             plugin._state = self._plugin_states.get(state_key, {})
             lock = self._get_state_lock(state_key)
 
@@ -1164,7 +1167,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
     #   Wave 3: I4-WaveB(1) + I5(16) — kalman after garch; I5 reads I1-I4
     #   Wave 4: I6(1) — cross-timeframe confluence
     # Same-tier sub-waves share a tier_key; merge logic accumulates outputs.
-    _ANALYSIS_WAVES: ClassVar[tuple[tuple[tuple[str, tuple[str, ...]], ...], ...]] = (
+    _ANALYSIS_WAVES: ClassVar[tuple[_AnalysisWave, ...]] = (
         (("i2", I2_WAVE_A), ("i3", TIER_I3), ("smc", SMC_WAVE_A)),
         (("i2", I2_WAVE_B), ("smc", SMC_WAVE_B), ("i4", I4_WAVE_A)),
         (("i4", I4_WAVE_B), ("i5", TIER_I5)),
@@ -1198,7 +1201,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ):
                 continue
             state_key = (plugin_name, symbol, tf)
-            # Restore per-(symbol, tf) state for incremental computation
             plugin._state = self._plugin_states.get(state_key, {})
             lock = self._get_state_lock(state_key)
             tasks.append(
@@ -1262,9 +1264,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
                 else:
                     tiered[tier_key] = result
                 frames[tier_key] = tiered[tier_key]
-                features = frames.get("features") or {}
+                # Dual-write: keyed frames[tier_key] for typed tier access;
+                # flat frames["features"] for plugins that use the legacy flat dict.
+                features = frames.setdefault("features", {})
                 features.update(result)
-                frames["features"] = features
 
         return tiered
 
@@ -1312,7 +1315,6 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ):
                 continue
             state_key = (plugin_name, symbol, tf)
-            # Restore per-(symbol, tf) state for incremental computation
             plugin._state = self._plugin_states.get(state_key, {})
             lock = self._get_state_lock(state_key)
 
