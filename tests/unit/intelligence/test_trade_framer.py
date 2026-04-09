@@ -658,3 +658,71 @@ class TestVolumeProfileTargets:
         assert _vp_regime_active({"distance_to_vah_atr": 2.5, "distance_to_val_atr": 0.4})
         assert not _vp_regime_active({"distance_to_vah_atr": 1.0, "distance_to_val_atr": 1.0})
         assert not _vp_regime_active({})
+
+
+# ---------------------------------------------------------------------------
+# Per-TF ATR target cap
+# ---------------------------------------------------------------------------
+
+
+class TestPerTfAtrCap:
+    """Tests for ATR_TARGET_MAX_MULTIPLIER_BY_TF — tighter caps for lower timeframes."""
+
+    def test_1m_rejects_target_beyond_3x_atr(self):
+        """1m: target at 4x ATR rejected; target at 2x ATR accepted."""
+        stop = ENTRY - ATR * 2.0  # risk = 20
+        f = _features(timeframe="1m", nearest_resistance=ENTRY + ATR * 4.0)
+        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        assert not any(t.level_type == "sr" for t in targets)
+
+    def test_1m_keeps_target_at_2x_atr(self):
+        """1m: target at 2x ATR is within 3x cap — accepted."""
+        stop = ENTRY - ATR * 2.0
+        f = _features(timeframe="1m", nearest_resistance=ENTRY + ATR * 2.0)
+        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        assert any(t.level_type == "sr" for t in targets)
+
+    def test_5m_cap_is_5x(self):
+        """5m: target at 6x ATR rejected; 4x accepted."""
+        stop = ENTRY - ATR * 2.0
+        f_far = _features(timeframe="5m", nearest_resistance=ENTRY + ATR * 6.0)
+        assert not any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_far))
+
+        f_near = _features(timeframe="5m", nearest_resistance=ENTRY + ATR * 4.0)
+        assert any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_near))
+
+    def test_15m_cap_is_7x(self):
+        """15m: target at 7.5x ATR rejected; 6x accepted."""
+        stop = ENTRY - ATR * 2.0
+        f_far = _features(timeframe="15m", nearest_resistance=ENTRY + ATR * 7.5)
+        assert not any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_far))
+
+        f_near = _features(timeframe="15m", nearest_resistance=ENTRY + ATR * 6.0)
+        assert any(t.level_type == "sr" for t in _collect_targets_long(ENTRY, stop, ATR, f_near))
+
+    def test_1h_allows_8x(self):
+        """1h: still allows the full 8x ATR cap."""
+        stop = ENTRY - ATR * 2.0
+        f = _features(timeframe="1h", nearest_resistance=ENTRY + ATR * 7.5)
+        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        assert any(t.level_type == "sr" for t in targets)
+
+    def test_unknown_tf_falls_back_to_8x(self):
+        """Unknown/empty TF falls back to default 8x ATR."""
+        stop = ENTRY - ATR * 2.0
+        f = _features(timeframe="custom", nearest_resistance=ENTRY + ATR * 7.5)
+        targets = _collect_targets_long(ENTRY, stop, ATR, f)
+        assert any(t.level_type == "sr" for t in targets)
+
+    def test_short_side_mirrors_long(self):
+        """Short side: 1m rejects target beyond entry - 3x ATR."""
+        stop = ENTRY + ATR * 2.0  # risk = 20
+        # Target at entry - 4x ATR: beyond 1m cap of 3x
+        f_far = _features(timeframe="1m", nearest_support=ENTRY - ATR * 4.0)
+        targets = _collect_targets_short(ENTRY, stop, ATR, f_far)
+        assert not any(t.level_type == "sr" for t in targets)
+
+        # Target at entry - 2x ATR: within cap
+        f_near = _features(timeframe="1m", nearest_support=ENTRY - ATR * 2.0)
+        targets = _collect_targets_short(ENTRY, stop, ATR, f_near)
+        assert any(t.level_type == "sr" for t in targets)
