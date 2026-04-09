@@ -11,6 +11,7 @@ from src.persistence.repository.signal_ledger_repository import (
     _SELECT_ACTIVE_SQL,
     LedgerEntry,
     SignalLedgerRepository,
+    SignalStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -403,7 +404,7 @@ class TestRecordZoneResolution:
         exit_at = datetime(2026, 3, 14, 11, 0, 0, tzinfo=UTC)
 
         await SignalLedgerRepository(db).record_zone_resolution("aaaa-bbbb",
-                                           status="stopped_out",
+                                           status=SignalStatus.EXPIRED,
                                            exit_at=exit_at,
                                            exit_price=5085.0,
                                            exit_reason="stop_loss",
@@ -477,7 +478,7 @@ class TestRecordZoneWithActivation:
         await SignalLedgerRepository(db).record_zone_resolution_with_activation("aaaa-bbbb",
             activated_at=ts, activation_price=5098.0,
             zone_entry_pct=0.1, bars_to_activation=1,
-            status="stopped_out", exit_at=ts,
+            status=SignalStatus.EXPIRED, exit_at=ts,
             exit_price=5085.0, exit_reason="stop_loss",
             pnl_r=-0.87, pnl_dollars=-650.0,
             signal_quality=0.0, mae=-0.87, mfe=0.0,

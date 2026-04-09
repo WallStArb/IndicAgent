@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.persistence.repository.signal_ledger_repository import SignalStatus
+
 # ---------------------------------------------------------------------------
 # Task 2: Structural TDD tests (RED → GREEN)
 # ---------------------------------------------------------------------------
@@ -266,7 +268,7 @@ async def test_terminal_event_fires_on_normal_exit():
     bar_time = datetime(2026, 3, 6, 15, 5, tzinfo=UTC)
     transition = Transition(
         signal_id="uuid-exit",
-        new_status="stopped_out",
+        new_status=SignalStatus.EXPIRED,
         exit_reason="stop_hit",
         exit_price=6820.0,
         pnl_ticks=-20.0,
