@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from prometheus_client import REGISTRY as _PROM_REGISTRY
 from prometheus_client import Counter as PrometheusCounter
 from prometheus_client import Gauge as PrometheusGauge
 
@@ -24,6 +25,49 @@ from src.intelligence.register_plugins import (
     validate_schema_coverage,
 )
 from src.intelligence.trading.aggregator import TREND_SETUPS
+
+# ---------------------------------------------------------------------------
+# Module-level Prometheus metrics (guarded against duplicate registration)
+# ---------------------------------------------------------------------------
+
+def _get_or_create_gauge(name: str, doc: str, labelnames: list[str]) -> PrometheusGauge:
+    """Return existing gauge or create a new one."""
+    try:
+        return PrometheusGauge(name, doc, labelnames)
+    except ValueError:
+        for collector in list(_PROM_REGISTRY._names_to_collectors.values()):
+            if getattr(collector, "_name", "") == name:
+                return collector
+        # Fallback: return a dummy that won't crash
+        raise
+
+
+def _get_or_create_counter(name: str, doc: str, labelnames: list[str]) -> PrometheusCounter:
+    """Return existing counter or create a new one."""
+    try:
+        return PrometheusCounter(name, doc, labelnames)
+    except ValueError:
+        for collector in list(_PROM_REGISTRY._names_to_collectors.values()):
+            if getattr(collector, "_name", "") == name:
+                return collector
+        raise
+
+
+_REGISTERED_PLUGINS_GAUGE = _get_or_create_gauge(
+    "plugin_validator_registered_plugins_total",
+    "Total registered plugins per tier",
+    ["tier"],
+)
+_VALIDATION_STATUS_GAUGE = _get_or_create_gauge(
+    "plugin_validator_validation_status",
+    "Validation result status",
+    ["validation", "status"],
+)
+_VALIDATION_ERRORS_COUNTER = _get_or_create_counter(
+    "plugin_validator_validation_errors_total",
+    "Total validation errors",
+    ["validation"],
+)
 
 
 @dataclass
@@ -88,46 +132,12 @@ class PluginValidator:
         # Lazy import to avoid circular import
         from ..intelligence.plugins import registry
         self.registry = registry
-        setup_service_logging("plugin_validator")
+        setup_service_logging("logs/plugin_validator.log")
 
-        # Create Prometheus metrics once to avoid duplicates
-        # Handle duplicate registration gracefully (can happen in tests)
-        try:
-            self._registered_plugins_gauge = PrometheusGauge(
-                "plugin_validator_registered_plugins_total",
-                "Total registered plugins per tier",
-                ["tier"]
-            )
-        except ValueError:
-            # Already registered, get existing instance
-            from prometheus_client import REGISTRY
-            for collector in REGISTRY._collector_to_names:
-                if "plugin_validator_registered_plugins_total" in REGISTRY._collector_to_names[collector]:
-                    self._registered_plugins_gauge = collector
-
-        try:
-            self._validation_status_gauge = PrometheusGauge(
-                "plugin_validator_validation_status",
-                "Validation result status",
-                ["validation", "status"]
-            )
-        except ValueError:
-            from prometheus_client import REGISTRY
-            for collector in REGISTRY._collector_to_names:
-                if "plugin_validator_validation_status" in REGISTRY._collector_to_names[collector]:
-                    self._validation_status_gauge = collector
-
-        try:
-            self._validation_errors_counter = PrometheusCounter(
-                "plugin_validator_validation_errors_total",
-                "Total validation errors",
-                ["validation"]
-            )
-        except ValueError:
-            from prometheus_client import REGISTRY
-            for collector in REGISTRY._collector_to_names:
-                if "plugin_validator_validation_errors_total" in REGISTRY._collector_to_names[collector]:
-                    self._validation_errors_counter = collector
+        # Reference module-level Prometheus constants (guarded against dup registration)
+        self._registered_plugins_gauge = _REGISTERED_PLUGINS_GAUGE
+        self._validation_status_gauge = _VALIDATION_STATUS_GAUGE
+        self._validation_errors_counter = _VALIDATION_ERRORS_COUNTER
 
     def validate_all(self) -> ValidationReport:
         """Run all validations and return comprehensive report."""

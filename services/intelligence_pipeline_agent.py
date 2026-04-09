@@ -440,6 +440,10 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         ]:
             registry.validate_tier(tier_list, tier_name)
 
+        # Full plugin validation — hard-crashes on misconfiguration
+        from src.core.plugin_validator import PluginValidator
+        PluginValidator().validate_all()
+
         # Plugin caches
         self._plugin_cache: dict[str, Any] = {}
         for n in TIER_I1:
