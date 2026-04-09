@@ -80,6 +80,12 @@ from src.intelligence.plugins import registry
 
 # Re-import I1-I6 tiers from register_plugins (shared source of truth)
 from src.intelligence.register_plugins import (
+    I2_WAVE_A,
+    I2_WAVE_B,
+    I4_WAVE_A,
+    I4_WAVE_B,
+    SMC_WAVE_A,
+    SMC_WAVE_B,
     TIER_I1,
     TIER_I2,
     TIER_I3,
@@ -354,9 +360,17 @@ _OUTPUT_QUEUE_MAXSIZE = 500
 
 
 def _timed_plugin_call(plugin, frames):
-    """Wrapper that returns (result, duration_ms) tuple for per-plugin timing."""
+    """Wrapper that returns (result, duration_ms) tuple for per-plugin timing.
+
+    Uses incremental compute_next() when the plugin supports it and has state,
+    falling back to compute_full() otherwise. This avoids O(N) recomputation
+    on every bar for stateful plugins like BOCPD and HMMRegime.
+    """
     t0 = time.perf_counter()
-    result = plugin.compute_full(frames)
+    if getattr(plugin, "supports_incremental", False) and plugin._state:
+        result = plugin.compute_next(frames)
+    else:
+        result = plugin.compute_full(frames)
     duration_ms = (time.perf_counter() - t0) * 1000
     return result, duration_ms
 
@@ -381,7 +395,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
 
     Pipeline flow (per bar):
         BarMessage → gap_detection → BarHistory.append
-        → I1 → I2 → I3 → I4 → I5 → SMC → I6
+        → I1 → [I2+I3+I4] → [I5+SMC] → I6
         → IntelligenceEvent enqueued to output buffer
         → I7 plugins → attribution capture → quality_gate → regime_gate
         → tod_adjust → calibration → rank → select_winner
@@ -452,10 +466,13 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._last_events: dict = {}
         self._pattern_reliability: dict = {}
 
-        # Create custom executor with configurable or auto worker count
+        # Create custom executor — capped at 12 workers to reduce GIL contention.
+        # CPU-bound Python plugins can't parallelize under GIL; 48 workers just
+        # adds context-switching overhead. 8-12 is optimal for numpy/pandas ops
+        # that do release the GIL.
         cpu_count = os.cpu_count() or 24
         _configured = self._settings.intelligence_thread_pool_workers
-        _workers = _configured if _configured > 0 else cpu_count * 2
+        _workers = _configured if _configured > 0 else min(12, max(4, cpu_count // 2))
         self._executor = ThreadPoolExecutor(max_workers=_workers, thread_name_prefix="intel_")
         THREAD_POOL_WORKERS.set(_workers)
 
@@ -1106,6 +1123,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ):
                 continue
             state_key = (plugin_name, symbol, tf)
+            # Restore per-(symbol, tf) state for incremental computation
+            plugin._state = self._plugin_states.get(state_key, {})
             lock = self._get_state_lock(state_key)
 
             # Create PluginTask with coroutine
@@ -1135,19 +1154,21 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         return result
 
     # ------------------------------------------------------------------
-    # I2-I6 analysis pipeline — sequential tier execution
+    # I2-I6 analysis pipeline — wave-based tier execution
     # ------------------------------------------------------------------
 
-    # Tier definitions in register_plugins.py ARE the dependency declaration:
-    # I2 depends on I1, I3 depends on I1-I2, I4 on I1-I3, etc.
-    # The engine simply executes them in order — no manual wave grouping.
-    _ANALYSIS_TIER_ORDER: ClassVar[tuple[tuple[str, tuple[str, ...]], ...]] = (
-        ("i2", TIER_I2),
-        ("i3", TIER_I3),
-        ("i4", TIER_I4),
-        ("i5", TIER_I5),
-        ("smc", TIER_SMC),
-        ("i6", TIER_I6),
+    # Wave-based tier execution — tiers within each wave run in parallel.
+    # Dependency analysis (violations resolved via sub-waves):
+    #   Wave 1: I2-WaveA(8) + I3(8) + SMC-WaveA(10) — independent, need I1 only
+    #   Wave 2: I2-WaveB(2) + SMC-WaveB(3) + I4-WaveA(11) — I4 now has I3 data
+    #   Wave 3: I4-WaveB(1) + I5(16) — kalman after garch; I5 reads I1-I4
+    #   Wave 4: I6(1) — cross-timeframe confluence
+    # Same-tier sub-waves share a tier_key; merge logic accumulates outputs.
+    _ANALYSIS_WAVES: ClassVar[tuple[tuple[tuple[str, tuple[str, ...]], ...], ...]] = (
+        (("i2", I2_WAVE_A), ("i3", TIER_I3), ("smc", SMC_WAVE_A)),
+        (("i2", I2_WAVE_B), ("smc", SMC_WAVE_B), ("i4", I4_WAVE_A)),
+        (("i4", I4_WAVE_B), ("i5", TIER_I5)),
+        (("i6", TIER_I6),),
     )
 
     async def _run_tier(
@@ -1159,7 +1180,11 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         frames: dict,
         loop: asyncio.AbstractEventLoop,
     ) -> dict[str, Any]:
-        """Run one tier's plugins in parallel, merge outputs into frames."""
+        """Run one tier's plugins in parallel and return merged output dict.
+
+        Does NOT merge into frames — caller (_run_analysis_pipeline) handles
+        frame merging after each wave completes.
+        """
         tasks: list[PluginTask] = []
         for plugin_name in tier_plugins:
             plugin = self._plugin_cache.get(plugin_name)
@@ -1173,6 +1198,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ):
                 continue
             state_key = (plugin_name, symbol, tf)
+            # Restore per-(symbol, tf) state for incremental computation
+            plugin._state = self._plugin_states.get(state_key, {})
             lock = self._get_state_lock(state_key)
             tasks.append(
                 PluginTask(
@@ -1197,31 +1224,47 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             output.pop("_tier_key", None)
             tier_output.update(output)
 
-        # Merge into frames so next tier sees this tier's outputs
-        frames[tier_key] = tier_output
-        features = frames.get("features") or {}
-        features.update(tier_output)
-        frames["features"] = features
-
         return tier_output
 
     async def _run_analysis_pipeline(self, symbol: str, tf: str, frames: dict) -> dict | None:
-        """Run I2→I3→I4→I5→SMC→I6 — one tier at a time, parallel within each tier.
+        """Run I2-I6 in waves — parallel within each wave, sequential between waves.
 
-        Execution order is derived from _ANALYSIS_TIER_ORDER which mirrors the
-        tier definitions in register_plugins.py. Each tier runs all its plugins
-        in parallel via ThreadPoolExecutor, then merges outputs into `frames`
-        before the next tier executes. This guarantees that downstream plugins
-        see all upstream tier outputs without any manual wave configuration.
+        Wave 1: [I2-A + I3 + SMC-A] — independent, need I1 only
+        Wave 2: [I2-B + SMC-B + I4-A] — I4 now has I3 data
+        Wave 3: [I4-B + I5] — kalman after garch; I5 reads I1-I4
+        Wave 4: [I6] — cross-timeframe confluence
+
+        Within each wave, all tiers run concurrently via asyncio.gather.
+        After each wave, outputs are merged into frames before the next wave starts,
+        guaranteeing downstream plugins see all upstream tier outputs.
+        Sub-waves sharing a tier_key accumulate (not overwrite).
         """
         loop = asyncio.get_running_loop()
         tiered: dict[str, dict] = {}
 
-        for tier_key, tier_plugins in self._ANALYSIS_TIER_ORDER:
-            tier_output = await self._run_tier(
-                tier_key, tier_plugins, symbol, tf, frames, loop
-            )
-            tiered[tier_key] = tier_output
+        for wave in self._ANALYSIS_WAVES:
+            # Run all tiers in this wave concurrently
+            coros = [
+                self._run_tier(tier_key, tier_plugins, symbol, tf, frames, loop)
+                for tier_key, tier_plugins in wave
+            ]
+            results = await asyncio.gather(*coros, return_exceptions=True)
+
+            # Merge all wave results into shared frames for next wave.
+            # Sub-waves share tier keys — accumulate rather than overwrite.
+            for (tier_key, _), result in zip(wave, results, strict=True):
+                if isinstance(result, Exception):
+                    self.logger.error("wave.tier_error", tier=tier_key, error=str(result))
+                    tiered.setdefault(tier_key, {})
+                    continue
+                if tier_key in tiered:
+                    tiered[tier_key].update(result)
+                else:
+                    tiered[tier_key] = result
+                frames[tier_key] = tiered[tier_key]
+                features = frames.get("features") or {}
+                features.update(result)
+                frames["features"] = features
 
         return tiered
 
@@ -1269,6 +1312,8 @@ class IntelligencePipelineComputeAgent(BaseAgent):
             ):
                 continue
             state_key = (plugin_name, symbol, tf)
+            # Restore per-(symbol, tf) state for incremental computation
+            plugin._state = self._plugin_states.get(state_key, {})
             lock = self._get_state_lock(state_key)
 
             # Create PluginTask with coroutine and bar context

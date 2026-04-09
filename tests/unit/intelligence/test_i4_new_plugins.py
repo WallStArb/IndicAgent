@@ -151,7 +151,7 @@ class TestSessionContext:
 
 class TestMTFVolatility:
     def test_squeeze_within_expansion_detected(self):
-        from src.intelligence.context.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         features = {"squeeze_active": 1.0, "vol_expansion": -0.5}
         intel_15m = {"vol_expansion": 0.8}
@@ -159,7 +159,7 @@ class TestMTFVolatility:
         assert result.get("squeeze_within_expansion") == 1.0
 
     def test_no_squeeze_without_expansion(self):
-        from src.intelligence.context.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         features = {"squeeze_active": 1.0, "vol_expansion": -0.5}
         result = MTFVolatilityPlugin().compute_full({"features": features})
@@ -167,14 +167,14 @@ class TestMTFVolatility:
         assert result.get("squeeze_within_expansion") == 0.0
 
     def test_no_expansion_without_cache(self):
-        from src.intelligence.context.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         result = MTFVolatilityPlugin().compute_full({"features": {}})
         assert result.get("mtf_vol_expansion_15m") == 0.0
         assert result.get("mtf_vol_expansion_1h") == 0.0
 
     def test_both_tfs_expanding(self):
-        from src.intelligence.context.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         result = MTFVolatilityPlugin().compute_full(
             {
@@ -188,7 +188,7 @@ class TestMTFVolatility:
         assert result.get("vol_divergence_score", 0) > 0
 
     def test_divergence_score_clamped(self):
-        from src.intelligence.context.mtf_volatility import MTFVolatilityPlugin
+        from src.intelligence.features.i5_patterns.mtf_volatility import MTFVolatilityPlugin
 
         result = MTFVolatilityPlugin().compute_full(
             {
@@ -210,7 +210,7 @@ class TestI4Registration:
         from src.intelligence.register_plugins import TIER_I4
 
         assert "ctx_SessionContext" in TIER_I4
-        assert "ctx_MTFVolatility" in TIER_I4
+        # ctx_MTFVolatility moved to TIER_I5 (reads squeeze_active from I5)
 
     def test_i4context_accepts_new_fields(self):
         from src.intelligence.schemas import I4Context
@@ -219,8 +219,5 @@ class TestI4Registration:
             session_ny=1.0,
             in_ny_killzone=1.0,
             is_monday=1.0,
-            mtf_vol_expansion_15m=1.0,
-            squeeze_within_expansion=0.0,
         )
         assert obj.session_ny == 1.0
-        assert obj.mtf_vol_expansion_15m == 1.0

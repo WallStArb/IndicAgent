@@ -161,7 +161,8 @@ class I3Structure(BaseModel):
     - struct_SessionLevels (16 fields)
     - struct_FibonacciZones (12 fields)
     - struct_SwingMomentum (6 fields)
-    Total: 67 fields
+    - struct_MACDEvents (8 fields, migrated from I2Events — uses I3 support data)
+    Total: 75 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -248,6 +249,16 @@ class I3Structure(BaseModel):
     struct_energy: float | None = None
     struct_accel_bias: Literal[-1, 0, 1] | None = None
 
+    # MACDEventsPlugin outputs (migrated from I2Events — uses I3 support/resistance data)
+    macd_cross_bullish: float | None = None
+    macd_cross_bearish: float | None = None
+    macd_cross_bars_ago: float | None = None
+    macd_hist_positive: float | None = None
+    macd_hist_turning_up: float | None = None
+    macd_negative_support_test: float | None = None
+    macd_hist_accel: float | None = None
+    macd_hist_contracting: float | None = None
+
 
 class I4Context(BaseModel):
     """I4 context classification outputs — quantitative regime assessment.
@@ -259,14 +270,13 @@ class I4Context(BaseModel):
     - GARCHVolatility (4 fields)
     - KalmanTrend (7 fields)
     - SessionContext (27 fields: 12 legacy + 6 exchange-active + 3 break + 2 overlap + 4 sub-session)
-    - MTFVolatility (4 fields)
     - HurstExponent (3 fields)
     - ShannonEntropy (2 fields)
     - AnchoredVWAP (15 fields)
     - VolumeProfile (18 fields, migrated from I5Patterns in Phase 34-02)
     - VIXRegime (2 fields)
     - CrossAssetContext (2 fields)
-    Total: 97 fields
+    Total: 93 fields
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -338,12 +348,6 @@ class I4Context(BaseModel):
     is_opening_range: float | None = None
     is_lunch_consolidation: float | None = None
     is_power_hour: float | None = None
-
-    # MTFVolatilityPlugin outputs
-    mtf_vol_expansion_15m: float | None = None
-    mtf_vol_expansion_1h: float | None = None
-    squeeze_within_expansion: float | None = None
-    vol_divergence_score: float | None = None
 
     # HurstExponentPlugin outputs
     hurst_exponent: float | None = None
@@ -419,7 +423,8 @@ class I5Patterns(BaseModel):
     - patt_CupHandle (3 fields)
     - patt_MeasuredMove (4 fields)
     - patt_KeyLevelReaction (2 fields)
-    Total: 85 fields
+    - patt_MTFVolatility (4 fields, migrated from I4Context)
+    Total: 89 fields
 
     NOTE: VolumeProfile (18 fields) migrated to I4Context in Phase 34-02.
 
@@ -550,6 +555,12 @@ class I5Patterns(BaseModel):
     # KeyLevelReactionPlugin outputs
     key_level_reaction_type: float | None = None
     key_level_confluence_count: float | None = None
+
+    # MTFVolatilityPlugin outputs (migrated from I4Context — reads squeeze_active from I5)
+    mtf_vol_expansion_15m: float | None = None
+    mtf_vol_expansion_1h: float | None = None
+    squeeze_within_expansion: float | None = None
+    vol_divergence_score: float | None = None
 
 
 class SMCContext(BaseModel):

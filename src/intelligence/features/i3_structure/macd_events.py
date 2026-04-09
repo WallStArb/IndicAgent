@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..plugins import InputSpec
-from ..utils.common import crossover_detect, is_num, track_bars_ago
+from src.intelligence.plugins import InputSpec
+from src.intelligence.utils.common import crossover_detect, is_num, track_bars_ago
 
 
 @dataclass
 class MACDEventsPlugin:
-    name: str = "evt_MACDEvents"
+    name: str = "struct_MACDEvents"
     outputs: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
