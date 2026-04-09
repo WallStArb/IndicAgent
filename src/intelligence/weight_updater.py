@@ -497,7 +497,7 @@ async def compute_shadow_plugin_stats(db_manager: Any) -> None:
         SHADOW_WIN_RATE,
     )
 
-    SHADOW_PLUGINS = ("trad_DualDivergence",)
+    SHADOW_PLUGINS: tuple[str, ...] = ()  # no shadow plugins remaining
     WIN_OUTCOMES = {"target_1", "target_1_2", "target_full"}
     N_GATE = 100  # per D-07
 
