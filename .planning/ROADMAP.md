@@ -504,6 +504,8 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 61. Signal Auditor & CIS Contract Enforcement | v2.2 | 1/1 | Complete | 2026-04-06 |
 | 62. Service Watchdog + SSE Cleanup | v2.2 | 1/1 | Complete | 2026-04-07 |
 | 63. Contract Lifecycle Automation | v2.2 | 5/5 | Complete | 2026-04-08 |
+| 63.1. Data Integrity: Aggregator Resilience + HTF Backfill | v2.2 | 1/1 | Planned | — |
+| 63.2. Signal Quality: Continuous IC + CIS Null Backfill | v2.2 | 1/1 | Planned | — |
 
 ### Phase 52.5: Parity Auditor Agent
 
@@ -614,6 +616,24 @@ Plans:
 - [x] 63-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
 - [x] 63-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
 - [ ] 63-06-PLAN.md — BarWriterAgent base symbol fix: contract_metadata lookup + backfill
+
+### Phase 63.1: Data Integrity — Aggregator Resilience + HTF Backfill
+
+**Goal:** Prevent HTF bar data loss when Redpanda blips, repair stale test fixtures that assert `stopped_out`, and provide a one-shot backfill script to replay lost HTF bars from existing `market_data_ohlcv` rows.
+**Depends on:** Phase 63
+**Plans:** 1/1 plans complete
+
+Plans:
+- [ ] 63.1-01-PLAN.md — Kafka retry in bar_aggregator_agent, backfill_htf_bars.py script, stopped_out→expired fixture fixes
+
+### Phase 63.2: Signal Quality — Continuous IC + CIS Null Backfill
+
+**Goal:** Replace binary ±1.0 IC outcomes with continuous `pnl_r` values, write a chunked CIS null backfill script for 488k rows missing CIS scores, and gate validate_alpha graduation for bootstrap plugins (DerivOsc, ACOsc).
+**Depends on:** Phase 63
+**Plans:** 1/1 plans complete
+
+Plans:
+- [ ] 63.2-01-PLAN.md — Continuous IC (compute_ic + compute_ic_metrics), repair_cis_nulls.py script, check_validate_alpha_eligibility.py gate
 
 ### Phase 59: OFI Divergence Redesign
 
