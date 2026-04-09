@@ -317,30 +317,25 @@ def test_buffer_bar_fallback_for_non_futures():
 
 
 @pytest.mark.asyncio
-async def test_handle_contract_update_reloads_cache():
-    """_handle_contract_update() calls _load_contract_cache() on valid ContractUpdateEvent."""
+async def test_handle_contract_update_updates_cache():
+    """_handle_contract_update() adds new contract and removes old one from cache."""
     agent = _make_agent()
 
-    reload_called = {"count": 0}
-
-    async def mock_load_contract_cache():
-        reload_called["count"] += 1
-        agent._contract_cache["ESU6"] = "ES"
-        agent._contract_cache_size_lbl.set(len(agent._contract_cache))
-        agent._contract_cache_reloads_lbl.inc()
-
-    agent._load_contract_cache = mock_load_contract_cache
-
+    # ESZ6 (December) is not in the fixture — clean test of add+remove
     payload = {
         "base_symbol": "ES",
         "old_contract": "ESM6",
-        "new_contract": "ESU6",
-        "promoted_at": "2026-06-13T14:30:00Z",
+        "new_contract": "ESZ6",
+        "promoted_at": "2026-09-19T14:30:00Z",
     }
+    assert "ESM6" in agent._contract_cache
+    assert "ESZ6" not in agent._contract_cache
+
     await agent._handle_contract_update(payload)
 
-    assert reload_called["count"] == 1
-    assert "ESU6" in agent._contract_cache
+    assert "ESZ6" in agent._contract_cache
+    assert agent._contract_cache["ESZ6"] == "ES"
+    assert "ESM6" not in agent._contract_cache
 
 
 @pytest.mark.asyncio
