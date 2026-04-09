@@ -78,7 +78,11 @@ async def _amain(dry_run: bool) -> None:
               AND m.base != cm.base_symbol;
         """
         result = await conn.execute(update_sql)
-        updated = int(result.split()[-1])
+        try:
+            updated = int(result.split()[-1])
+        except (ValueError, IndexError):
+            print(f"WARNING: could not parse update count from '{result}' — assuming 0")
+            updated = 0
         print(f"Updated: {updated:,} rows")
 
         # Step 4: Verify
