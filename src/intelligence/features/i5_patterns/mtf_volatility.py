@@ -39,8 +39,16 @@ class MTFVolatilityPlugin:
         mtf_exp_1h = 1.0 if float(exp_1h) > 0 else 0.0
 
         # squeeze_within_expansion: current TF squeezing while higher TF expanding
-        squeeze_active = features.get("squeeze_active", 0.0) or 0.0
-        is_squeezing = isinstance(squeeze_active, (int, float)) and float(squeeze_active) > 0
+        # Compute squeeze independently from I1 BB and Keltner bands — no dependency
+        # on bollinger_squeeze plugin output (which runs concurrently in the same wave).
+        bb_upper = features.get("bb_20_2_upper") or features.get("bb_upper")
+        bb_lower = features.get("bb_20_2_lower") or features.get("bb_lower")
+        kc_upper = features.get("keltner_upper")
+        kc_lower = features.get("keltner_lower")
+        if all(isinstance(v, (int, float)) for v in [bb_upper, bb_lower, kc_upper, kc_lower]):
+            is_squeezing = float(bb_upper) < float(kc_upper) and float(bb_lower) > float(kc_lower)
+        else:
+            is_squeezing = False
         higher_expanding = bool(mtf_exp_15m or mtf_exp_1h)
         squeeze_within = 1.0 if (is_squeezing and higher_expanding) else 0.0
 
