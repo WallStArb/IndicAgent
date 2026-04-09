@@ -67,6 +67,14 @@ ATR_ZONE_LOW_MULTIPLIER = 1.0  # Zone lower bound: entry - ATR×1.0
 ATR_ZONE_HIGH_MULTIPLIER = 0.5  # Zone upper bound: entry + ATR×0.5
 ATR_TARGET_MIN_MULTIPLIER = 0.5  # Minimum target distance: entry ± ATR×0.5
 ATR_TARGET_MAX_MULTIPLIER = 8.0  # Maximum target distance: entry ± ATR×8.0
+ATR_TARGET_MAX_MULTIPLIER_BY_TF: dict[str, float] = {
+    "1m": 3.0,
+    "5m": 5.0,
+    "15m": 7.0,
+    "1h": 8.0,
+    "4h": 8.0,
+    "1d": 8.0,
+}
 VP_PROXIMITY_THRESHOLD_ATR = 0.5  # Volume Profile: price within VAH/VAL ± ATR×0.5 activates regime
 
 # ATR target multipliers for fallback (RR-based)
@@ -532,7 +540,9 @@ def _collect_targets_long(
         return []
 
     min_level = entry + atr * ATR_TARGET_MIN_MULTIPLIER
-    max_level = entry + atr * ATR_TARGET_MAX_MULTIPLIER
+    tf = features.get("timeframe", "")
+    tf_max_mult = ATR_TARGET_MAX_MULTIPLIER_BY_TF.get(tf, ATR_TARGET_MAX_MULTIPLIER)
+    max_level = entry + atr * tf_max_mult
 
     candidates: list[tuple[float, str, str]] = []  # (price, label, level_type)
 
@@ -631,7 +641,9 @@ def _collect_targets_short(
     if risk <= EPSILON_TOLERANCE:
         return []
 
-    min_level = entry - atr * ATR_TARGET_MAX_MULTIPLIER
+    tf = features.get("timeframe", "")
+    tf_max_mult = ATR_TARGET_MAX_MULTIPLIER_BY_TF.get(tf, ATR_TARGET_MAX_MULTIPLIER)
+    min_level = entry - atr * tf_max_mult
     max_level = entry - atr * ATR_TARGET_MIN_MULTIPLIER
 
     candidates: list[tuple[float, str, str]] = []

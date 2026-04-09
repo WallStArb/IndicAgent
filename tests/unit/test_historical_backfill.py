@@ -2,6 +2,7 @@ import sys
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -529,3 +530,93 @@ class TestCISColumnsInSQL:
         assert row[27] is None, f"signal_quality should be None, got {row[27]}"
         # market_entry_price is position 28 — None when no bar_history passed
         assert row[28] is None, f"market_entry_price should be None, got {row[28]}"
+
+
+class TestDetectGaps:
+    """Regression tests for detect_gaps — session-aware gap detection.
+
+    Verifies that weekends, holidays, and maintenance windows are NOT reported
+    as gaps, while genuine intraday missing bars ARE detected.
+    """
+
+    def _mock_conn(self, fetchall_result=None):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_cursor.fetchall.return_value = fetchall_result or []
+        return mock_conn
+
+    @pytest.mark.unit
+    def test_cme_futures_over_weekend_no_gaps(self):
+        """CME futures over a Sat-Sun weekend: zero gaps (market closed)."""
+        from historical_backfill import detect_gaps
+
+        # Saturday Jan 3 -> Sunday Jan 4, 2026 (full weekend)
+        start = datetime(2026, 1, 3, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 1, 4, 23, 59, tzinfo=UTC)
+        mock_conn = self._mock_conn()
+        gaps = detect_gaps(mock_conn, "ESH6", "1h", start, end, "futures_24_5", "CME")
+        assert gaps == []
+
+    @pytest.mark.unit
+    def test_nyse_over_weekend_no_gaps(self):
+        """NYSE session over Saturday-Sunday: zero gaps (PMC returns no slots)."""
+        from unittest.mock import patch
+
+        from historical_backfill import detect_gaps
+
+        start = datetime(2026, 1, 3, 0, 0, tzinfo=UTC)  # Saturday
+        end = datetime(2026, 1, 4, 23, 59, tzinfo=UTC)  # Sunday
+        mock_conn = self._mock_conn()
+        with patch("historical_backfill.generate_session_slots", return_value=[]):
+            gaps = detect_gaps(mock_conn, "SPY", "5m", start, end, "nyse", "NYSE")
+        assert gaps == []
+
+    @pytest.mark.unit
+    def test_nyse_on_holiday_no_gaps(self):
+        """NYSE on 2026-01-01 (New Year's Day): zero gaps (PMC returns no slots)."""
+        from unittest.mock import patch
+
+        from historical_backfill import detect_gaps
+
+        start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 1, 1, 23, 59, tzinfo=UTC)
+        mock_conn = self._mock_conn()
+        with patch("historical_backfill.generate_session_slots", return_value=[]):
+            gaps = detect_gaps(mock_conn, "SPY", "5m", start, end, "nyse", "NYSE")
+        assert gaps == []
+
+    @pytest.mark.unit
+    def test_genuine_intraday_gap_detected(self):
+        """Genuine intraday gap IS detected when expected slots are missing from DB."""
+        from unittest.mock import patch
+
+        from historical_backfill import detect_gaps
+
+        # Use 1h timeframe with known expected slots
+        start = datetime(2026, 1, 2, 15, 0, tzinfo=UTC)
+        end = datetime(2026, 1, 2, 18, 0, tzinfo=UTC)
+
+        expected_slots = [
+            datetime(2026, 1, 2, 15, 0, tzinfo=UTC),
+            datetime(2026, 1, 2, 16, 0, tzinfo=UTC),
+            datetime(2026, 1, 2, 17, 0, tzinfo=UTC),
+            datetime(2026, 1, 2, 18, 0, tzinfo=UTC),
+        ]
+
+        # DB only has 15:00 and 18:00 — 16:00 and 17:00 are missing
+        mock_conn = self._mock_conn(
+            fetchall_result=[
+                (datetime(2026, 1, 2, 15, 0, tzinfo=UTC),),
+                (datetime(2026, 1, 2, 18, 0, tzinfo=UTC),),
+            ]
+        )
+        with patch("historical_backfill.generate_session_slots", return_value=expected_slots):
+            gaps = detect_gaps(mock_conn, "SPY", "1h", start, end, "nyse", "NYSE")
+        # Should detect a contiguous gap covering 16:00 and 17:00
+        assert len(gaps) == 1
+        assert gaps[0] == (
+            datetime(2026, 1, 2, 16, 0, tzinfo=UTC),
+            datetime(2026, 1, 2, 17, 0, tzinfo=UTC),
+        )
