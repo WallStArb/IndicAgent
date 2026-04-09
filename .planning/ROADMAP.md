@@ -14,8 +14,8 @@
 - ✅ **v1.9 I7 Alpha Engine** — Phases 31-38 (shipped 2026-03-18)
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
-- ✅ **v2.2 Operational Excellence** — Phases 53.1–58, 60–63 (shipped 2026-04-08)
-- ⏸ **v2.3 ML Foundation** — Phases 55-56, 59, 64 (deferred until 30+ days clean signal data)
+- ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
+- ⏸ **v2.3 ML Foundation** — Phases 55-56, 64 (deferred until 30+ days clean signal data)
 
 ## Phases
 
@@ -423,7 +423,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–63 shipped 2026-04-08). v2.3 deferred (Phases 55-56, awaiting 30+ days clean signal data).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 deferred (Phases 55-56, awaiting 30+ days clean signal data).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -499,7 +499,7 @@ Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.
 | 57. IntelligencePipelineComputeAgent | v2.2 | 3/3 | Complete    | 2026-03-29 |
 | 57.1. SignalWriterAgent — signal_generator_agent Retirement | v2.2 | 1/1 | Complete | 2026-03-30 |
 | 58. Pipeline Parallelization Renaissance | v2.2 | 3/3 | Complete | 2026-03-28 |
-| 59. OFI Divergence Redesign | v2.3 | 0/1 | Planned | — |
+| 59. OFI Divergence Redesign | v2.2 | 1/1 | Complete | 2026-04-05 |
 | 60. Signal Metrics Redesign | v2.2 | 3/3 | Complete | 2026-04-05 |
 | 61. Signal Auditor & CIS Contract Enforcement | v2.2 | 1/1 | Complete | 2026-04-06 |
 | 62. Service Watchdog + SSE Cleanup | v2.2 | 1/1 | Complete | 2026-04-07 |
@@ -668,15 +668,15 @@ Plans:
 Plans:
 - [ ] 63.5-01-PLAN.md — PluginValidator class, startup enforcement in intelligence_pipeline_agent, Prometheus metrics
 
-### Phase 59: OFI Divergence Redesign
+### Phase 59: OFI Divergence Redesign ✅ Complete 2026-04-05
 
 **Goal:** Replace discrete `{-2..+2}` `ofi_divergence` I1 field with a continuous z-score factor. Fix multi-symbol state corruption in OFIPlugin. Rewrite `OFIDivergencePlugin` (I7) with persistence, peak magnitude tracking, EWMA soft factor, and principled `tanh` confidence.
 **Design doc:** `docs/plans/2026-04-05-ofi-divergence-redesign-design.md`
-**Plans:** 0/1 plan complete
+**Plans:** 1/1 plan complete ✅ Shipped 2026-04-05
 **Depends on:** Phase 63
 
 Plans:
-- [ ] 59-PLAN.md — Full rewrite: I1 state keyed by (symbol, tf), continuous ofi_divergence z-score, I7 OFIDivergencePlugin persistence + tanh confidence
+- [x] 59-PLAN.md — Full rewrite: I1 state keyed by (symbol, tf), continuous ofi_divergence z-score, I7 OFIDivergencePlugin persistence + tanh confidence
 
 ### Phase 60: Signal Metrics Redesign — Renaissance-Aligned Performance System
 
