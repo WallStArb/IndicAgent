@@ -192,11 +192,7 @@ class BarWriterAgent(BaseAgent):
         Cache size: ~33 rows (11 base symbols × 3 expiries each) — trivial footprint.
         Reloaded on ContractUpdateEvent (quarterly rolls) and at startup.
         """
-        query = """
-            SELECT symbol, base_symbol
-            FROM contract_metadata
-            WHERE symbol IS NOT NULL AND base_symbol IS NOT NULL;
-        """
+        query = "SELECT symbol, base_symbol FROM contract_metadata;"
         async with self._db_pool.acquire() as conn:
             rows = await conn.fetch(query)
 
@@ -208,11 +204,7 @@ class BarWriterAgent(BaseAgent):
         if cache_size == 0:
             self.logger.warning(
                 "bar_writer_agent.contract_cache_empty",
-                msg=(
-                    "contract_metadata has no rows — ContractMetadataWriterAgent may not have "
-                    "seeded yet. Futures bars will fall back to contract code as base symbol "
-                    "until cache is populated."
-                ),
+                reason="ContractMetadataWriterAgent may not have seeded yet — futures bars fall back to contract code",
             )
         else:
             self.logger.info(
@@ -248,11 +240,10 @@ class BarWriterAgent(BaseAgent):
             should_flush = len(self._buffer) >= _BATCH_SIZE or (
                 self._buffer and time.monotonic() - self._last_flush > _FLUSH_INTERVAL
             )
+            self._persistence_consumer_lag_lbl.set(len(self._buffer))
+
             if should_flush:
                 await self._flush_buffer()
-
-            # Update consumer lag gauge (buffer depth as proxy)
-            self._persistence_consumer_lag_lbl.set(len(self._buffer))
 
     def _buffer_bar(self, payload: dict) -> None:
         """Parse payload and append a 10-tuple to the write buffer.
@@ -303,7 +294,6 @@ class BarWriterAgent(BaseAgent):
                 with self._persistence_batch_latency_lbl.time():
                     await conn.executemany(_INSERT_OHLCV_SQL, batch)
 
-            # Increment per-tf write counters (row[3] = tf; row[2] = base)
             for row in batch:
                 tf = row[3]
                 if tf in self._bars_written_lbl:
@@ -343,11 +333,15 @@ class BarWriterAgent(BaseAgent):
                 new_contract=event.new_contract,
                 promoted_at=str(event.promoted_at),
             )
-            await self._load_contract_cache()
+            self._contract_cache[event.new_contract] = event.base_symbol
+            self._contract_cache.pop(event.old_contract, None)
+            self._contract_cache_size_lbl.set(len(self._contract_cache))
+            self._contract_cache_reloads_lbl.inc()
             self.logger.info(
-                "bar_writer_agent.contract_cache_reloaded",
+                "bar_writer_agent.contract_cache_updated",
+                old_contract=event.old_contract,
+                new_contract=event.new_contract,
                 cache_size=len(self._contract_cache),
-                trigger="ContractUpdateEvent",
             )
         except Exception as exc:
             self.logger.error(
