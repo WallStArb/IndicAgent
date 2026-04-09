@@ -172,7 +172,7 @@ def _compute_results(
         valid_pnl = [p for p in pnl_rs if p is not None]
         avg_pnl_r = sum(valid_pnl) / len(valid_pnl) if valid_pnl else None
 
-        ic_score, ic_p_value, ic_n = compute_ic(confidences, outcomes)
+        ic_score, ic_p_value, ic_n = compute_ic(confidences, pnl_rs)
         ic_significant = is_ic_significant(ic_score, ic_p_value, ic_n)
 
         results.append(
@@ -284,7 +284,8 @@ async def _amain(args: argparse.Namespace) -> int:
 
         print("Grouping by (plugin, timeframe, symbol, regime)...")
         groups = _group_signals(rows, args.regime)
-        print(f"  Groups: {len(groups):,} ({sum(1 for g in groups.values() if len(g) >= IC_MIN_SAMPLE_SIZE):,} with N >= {IC_MIN_SAMPLE_SIZE})")
+        groups_meeting_n = sum(1 for g in groups.values() if len(g) >= IC_MIN_SAMPLE_SIZE)
+        print(f"  Groups: {len(groups):,} ({groups_meeting_n:,} with N >= {IC_MIN_SAMPLE_SIZE})")
 
         print("Computing IC scores...")
         results = _compute_results(groups, args.window_days, args.min_ic)

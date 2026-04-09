@@ -19,17 +19,17 @@ from src.intelligence.ml.information_coefficient import (
 
 
 def _make_pairs(n: int, win_fraction: float = 0.6, seed: int = 42):
-    """Generate synthetic (confidence, outcome) pairs with controlled IC.
+    """Generate synthetic (confidence, pnl_r) pairs with controlled IC.
 
-    High confidence -> win, low confidence -> loss, giving positive IC.
+    High confidence -> high pnl_r, low confidence -> low pnl_r, giving positive IC.
     """
     rng = np.random.default_rng(seed)
     wins = int(n * win_fraction)
-    outcomes = ["target_1"] * wins + ["stopped_in_trade"] * (n - wins)
+    pnl_rs = [2.0] * wins + [-1.0] * (n - wins)
     conf_win = rng.uniform(0.6, 0.9, wins)
     conf_loss = rng.uniform(0.3, 0.6, n - wins)
     confidences = list(conf_win) + list(conf_loss)
-    return confidences, outcomes
+    return confidences, pnl_rs
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ def _make_pairs(n: int, win_fraction: float = 0.6, seed: int = 42):
 def test_compute_ic_returns_none_below_min_sample():
     """IC must return None when sample size < IC_MIN_SAMPLE_SIZE."""
     n = IC_MIN_SAMPLE_SIZE - 1
-    ic, pv, count = compute_ic([0.7] * n, ["target_1"] * n)
+    ic, pv, count = compute_ic([0.7] * n, [1.0] * n)
     assert ic is None
     assert pv is None
     assert count == n
@@ -70,18 +70,18 @@ def test_compute_ic_noise_signal_large_n():
     rng = np.random.default_rng(99)
     n = 200
     conf = list(rng.uniform(0.3, 0.9, n))
-    # Random outcomes — no relationship to confidence
-    outcomes = ["target_1" if rng.random() > 0.5 else "stopped_in_trade" for _ in range(n)]
-    ic, pv, n_used = compute_ic(conf, outcomes)
+    # Random pnl_r — no relationship to confidence
+    pnl_rs = list(rng.uniform(-2.0, 2.0, n))
+    ic, pv, n_used = compute_ic(conf, pnl_rs)
     assert n_used == n
     assert ic is not None
 
 
-def test_compute_ic_skips_none_outcomes():
-    """None outcomes must be excluded from IC computation."""
+def test_compute_ic_skips_none_pnl_rs():
+    """None pnl_rs (never_activated) must be excluded from IC computation."""
     conf = [0.7] * 50 + [0.3] * 50
-    outcomes = ["target_1"] * 50 + [None] * 50
-    ic, pv, n = compute_ic(conf, outcomes)
+    pnl_rs = [1.0] * 50 + [None] * 50
+    ic, pv, n = compute_ic(conf, pnl_rs)
     # Only 50 resolved signals used
     assert n == 50
 
@@ -90,19 +90,19 @@ def test_compute_ic_zero_variance_confidence():
     """Zero-variance confidence array should return None (cannot compute correlation)."""
     n = 50
     conf = [0.7] * n  # All same value -> zero variance
-    outcomes = ["target_1"] * 25 + ["stopped_in_trade"] * 25
-    ic, pv, count = compute_ic(conf, outcomes)
+    pnl_rs = [2.0] * 25 + [-1.0] * 25
+    ic, pv, count = compute_ic(conf, pnl_rs)
     assert ic is None
     assert pv is None
     assert count == n
 
 
-def test_compute_ic_zero_variance_outcome():
-    """All-win outcomes (zero variance in binary) should return None."""
+def test_compute_ic_zero_variance_pnl_r():
+    """Zero-variance pnl_r array should return None (cannot compute correlation)."""
     n = 50
     conf = list(np.linspace(0.3, 0.9, n))
-    outcomes = ["target_1"] * n  # All wins -> zero variance in binary encoding
-    ic, pv, count = compute_ic(conf, outcomes)
+    pnl_rs = [1.0] * n  # All same value -> zero variance
+    ic, pv, count = compute_ic(conf, pnl_rs)
     assert ic is None
     assert pv is None
     assert count == n
@@ -110,7 +110,7 @@ def test_compute_ic_zero_variance_outcome():
 
 def test_compute_ic_returns_tuple_of_three():
     """compute_ic must always return a 3-tuple."""
-    result = compute_ic([0.5] * 5, ["target_1"] * 5)
+    result = compute_ic([0.5] * 5, [1.0] * 5)
     assert len(result) == 3
 
 
@@ -233,3 +233,60 @@ def test_ic_result_is_frozen():
     r = _make_ic_result(0.10, 0.001)
     with pytest.raises(Exception):
         r.ic_score = 0.99  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Continuous pnl_r IC tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeIcContinuous:
+    """Tests for continuous pnl_r-based IC (replaces binary outcome coding)."""
+
+    def _make_pairs(self, n, conf_high=0.8, conf_low=0.4, pnl_high=2.0, pnl_low=-1.0):
+        """n/2 high-confidence wins + n/2 low-confidence losses."""
+        half = n // 2
+        confs = [conf_high] * half + [conf_low] * half
+        pnls = [pnl_high] * half + [pnl_low] * half
+        return confs, pnls
+
+    def test_returns_none_when_insufficient_data(self):
+        confs = [0.7] * (IC_MIN_SAMPLE_SIZE - 1)
+        pnls = [1.0] * (IC_MIN_SAMPLE_SIZE - 1)
+        ic, p, n = compute_ic(confs, pnls)
+        assert ic is None
+        assert p is None
+        assert n == IC_MIN_SAMPLE_SIZE - 1
+
+    def test_positive_ic_when_high_conf_correlates_with_high_pnl(self):
+        confs, pnls = self._make_pairs(60)
+        ic, p, n = compute_ic(confs, pnls)
+        assert ic is not None
+        assert ic > 0
+        assert p < 0.05
+
+    def test_negative_ic_when_high_conf_anticorrelates(self):
+        confs, pnls = self._make_pairs(60, conf_high=0.8, pnl_high=-2.0,
+                                        conf_low=0.4, pnl_low=2.0)
+        ic, p, n = compute_ic(confs, pnls)
+        assert ic is not None
+        assert ic < 0
+
+    def test_none_pnl_values_are_skipped(self):
+        """never_activated signals (pnl_r=None) are excluded from IC."""
+        confs = [0.8] * 20 + [0.4] * 20 + [0.9] * 10
+        pnls = [2.0] * 20 + [-1.0] * 20 + [None] * 10  # 10 never_activated
+        ic, p, n = compute_ic(confs, pnls)
+        assert n == 40  # only 40 resolved pairs
+
+    def test_all_losses_no_longer_produces_zero_variance(self):
+        """With continuous pnl_r, varying loss magnitudes produce non-zero variance.
+
+        This is the key regression: with binary coding, all losses mapped to -1.0
+        (zero variance) -> IC was always None. With pnl_r, -0.5R and -3.0R differ.
+        """
+        confs = [0.8] * 30 + [0.4] * 30
+        pnls = [-3.0] * 30 + [-0.5] * 30
+        ic, p, n = compute_ic(confs, pnls)
+        assert ic is not None
+        assert n == 60
