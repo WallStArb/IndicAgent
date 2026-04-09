@@ -225,7 +225,7 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
   - [x] trad_DualDivergence shadow confirmed (IS_SHADOW=True)
   - ⏸ D-21 validation blocked by schema mismatch → fix in Phase 63
   - ⏸ RollComputeAgent graduation → handled by Phase 63
-  - ⏸ trad_DualDivergence promotion → awaiting SHADOW-04 gate (N≥100 signals)
+  - ⏸ trad_DualDivergence promotion → handled in Phase 63-06 (IS_SHADOW=False, no stat gate needed — no real prod)
 - [x] **Phase 54: Provider Abstraction Layer — Broker-Agnostic Data Foundation** ✅ Complete 2026-03-28 — `BaseProviderAgent` + adapter pattern; `IBKRAdapter` wraps `IBKRProvider`; `ProviderMergerAgent` canonical author of `market.bars`; ports :9129/:9130
 - [x] **Phase 57: IntelligencePipelineComputeAgent — Unified I1-I7 Pipeline** ✅ Complete 2026-03-29 — `IntelligencePipelineComputeAgent` merges I1-I7 into single in-process pipeline; Kafka/DB are output sinks only; state checkpointing to compacted topic; `pre_quality_confidence`/`pre_calibration_confidence` on `signal_ledger`; port :9125
   Design doc: `docs/plans/archive/2026-03-29-intelligence-agent-unified-pipeline-design.md`
