@@ -61,11 +61,16 @@ SwarmOrchestratorAgent (new service: indicagent-swarm-orchestrator)
 SwarmWriterAgent (new service: indicagent-swarm-writer)
   subscribes to: swarm.alpha.path_a + swarm.alpha.path_b
   writes to: alpha_multiplier_shadow hypertable (shadow only until validated)
+  DLQ: swarm.writer.dlq  (unprocessable payloads — malformed schema, DB insert failure)
+
+SwarmOrchestratorAgent DLQs:
+  swarm.orchestrator.dlq  (signals with no cache entry, unresolvable SwarmContext)
 
 AlphaShadowAnalyzer (script: scripts/alpha_promotion.py — extended)
   reads: alpha_multiplier_shadow JOIN signal_ledger (on signal_id)
-  computes: Pearson(agent_confidence, realized_pnl_r) per agent
-  promotes: agents where ρ ≥ 0.4, n ≥ 100, p < 0.05 → production flag
+  computes: Pearson(agent_confidence, realized_pnl_r) segmented by (symbol, timeframe, hmm_regime)
+  promotes: agents where ρ ≥ 0.4, n ≥ 100, p < 0.05 per segment → production flag
+  note: a global ρ = 0.4 does NOT qualify — must hold within each regime segment
 
 
 Narrative Service (refactored)
@@ -544,7 +549,7 @@ production/systemd/
 ### Wave 4 (Sequential — depends on 56-03, 56-04)
 
 **Plan 56-06: Swarm Infrastructure (DB + Stream Keys + Migration)**
-- Add `topic_swarm_alpha_path_a()`, `topic_swarm_alpha_path_b()`, `topic_swarm_world_state()` to `src/core/stream_keys.py`
+- Add `topic_swarm_alpha_path_a()`, `topic_swarm_alpha_path_b()`, `topic_swarm_world_state()`, `topic_swarm_orchestrator_dlq()`, `topic_swarm_writer_dlq()` to `src/core/stream_keys.py`
 - Write migration `migrations/058_alpha_multiplier_shadow.sql`:
   ```sql
   CREATE TABLE alpha_multiplier_shadow (
@@ -567,7 +572,7 @@ production/systemd/
   SELECT create_hypertable('alpha_multiplier_shadow', 'ts');
   CREATE INDEX ON alpha_multiplier_shadow (signal_id, agent_id);
   ```
-- Tests: `tests/unit/test_stream_keys.py` additions (3 tests)
+- Tests: `tests/unit/test_stream_keys.py` additions (5 tests — 3 alpha/world-state + 2 DLQ topics)
 
 ### Wave 5 (Sequential — depends on 56-03, 56-04, 56-06)
 
@@ -579,13 +584,15 @@ production/systemd/
   - `BoundedLRUSet` deduplication (10,000 entries)
   - World state delta publishing to compacted topic
   - Backpressure (lag > 50 bars → skip bar update)
+  - DLQ publish to `swarm.orchestrator.dlq` on unresolvable `SwarmContext`
   - SIGTERM graceful drain
 - Write `services/swarm_writer_agent.py` — `SwarmWriterAgent`
   - Subscribes to `swarm.alpha.path_a` + `swarm.alpha.path_b`
   - Batch writes to `alpha_multiplier_shadow` (same pattern as `signal_writer_agent.py`)
+  - DLQ publish to `swarm.writer.dlq` on malformed payload or DB insert failure
   - SIGTERM graceful drain
 - Write systemd units: `indicagent-swarm-orchestrator.service`, `indicagent-swarm-writer.service`
-- Extend `scripts/alpha_promotion.py` with calibration curves + ensemble diversity
+- Extend `scripts/alpha_promotion.py`: calibration curves, ensemble diversity, **regime segmentation** — Pearson computed per `(symbol, timeframe, hmm_regime)` cell; global correlation alone does not qualify for promotion
 - Tests: `tests/unit/service_tests/test_swarm_orchestrator_agent.py` (4 tests)
          `tests/unit/service_tests/test_swarm_writer_agent.py` (2 tests)
 
@@ -613,8 +620,9 @@ production/systemd/
 4. `SafeSwarmWrapper` wraps instances, reports violations to Prometheus
 5. `SwarmOrchestratorAgent` runs as independent service, publishes Path A within 10ms
 6. `alpha_multiplier_shadow` hypertable exists and receives writes
-7. All shadow agents stay `shadow_only=True` until `alpha_promotion.py` promotes them
-8. 47 TDD tests pass, integration test confirms end-to-end flow
+7. All shadow agents stay `shadow_only=True` until `alpha_promotion.py` promotes them per regime segment
+8. DLQ topics exist for both services; unprocessable payloads routed there (not silently dropped)
+9. 49 TDD tests pass, integration test confirms end-to-end flow
 
 ---
 
