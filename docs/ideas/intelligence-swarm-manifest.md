@@ -2,10 +2,9 @@
 
 **Status:** Active Reference — Core swarm architecture principles
 **Created:** 2026-03-07  
-**Updated:** 2026-04-08
+**Updated:** 2026-04-09
 **Related:** 
-- `docs/plans/2026-04-08-ai-layer-refactor-design.md` — Phase 3 swarm integration
-- `docs/plans/2026-04-08-ai-extensions-design.md` — Swarm extensions roadmap
+- `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md` — Phase 56 swarm infrastructure build
 
 ---
 
@@ -103,17 +102,24 @@ To prevent prompt injection/hallucinations, the system employs a "SafeSwarm" pat
 - IAlphaContributor protocol established
 - Shadow-first validation framework designed
 
-**🔄 Integration In Progress** (2026-04-08)
-- **Phase 3 of AI Layer Refactor:** Integrating swarm agents with shared LLM infrastructure
-- See: `docs/plans/2026-04-08-ai-layer-refactor-design.md#phase-3`
-- Framework wiring: Context enrichment, Kafka bridge, shadow-table schema sync
+**🚧 Phase 56: Swarm Foundation** (2026-04-09) — Ready to Execute
+- Shared LLM layer (`src/core/llm/`), corrected DAG protocols, narrative refactor, `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable
+- See: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 
-**📋 Extensions Roadmap** (2026-04-08)
-- 14 new swarm agents designed (S1-S7 + narrative extensions N1-N6)
-- See: `docs/plans/2026-04-08-ai-extensions-design.md#part-2-swarm-agents-improvements`
-- Priority: S6 (SkepticAgent), S1 (Correlation Cluster), S2 (Volume Profile)
+**🎯 Agent Build Backlog** (build 1 at a time, validate before next)
+
+| Priority | Agent | Tagline | What it does | Testable hypothesis | Build | Validate |
+|----------|-------|---------|--------------|---------------------|-------|----------|
+| 1 | **SkepticAgent (S6)** | *"What's wrong with this signal?"* | Analyze signal features, predict failure probability. "This signal has 30% fail risk because: [reasons]" | Do high fail-prob signals actually fail more? | 2-3d | 7-14d |
+| 2 | **Volume Profile Anomaly (S2)** | *"Price rejected at VAH/VAL — reversal coming?"* | Detect VP rejections (price touches VAH/VAL and reverses). "VP rejection at VAH — potential reversal incoming" | Do VP rejections correlate with reversals? | 3-4d | 7-14d |
+| 3 | **Regime Explainer (N6)** | *"Why was this signal suppressed?"* | Explain regime gating logic in plain language. "Signal suppressed: trend filter (-0.3), regime disagreement (0.2)" | Do humans understand system decisions better? | 1-2d | 3-5d (human feedback) |
+| 4 | **Trade Journal (Service 4)** | *Daily summary: signals taken, outcomes, lessons learned* | Aggregate signal_ledger daily. "Today: 12 signals, 8 winners, +2.3R. Top signal: CIS +1.8R" | Do humans who read it improve faster? | 2-3d | 14-30d |
+| 5 | **Counterfactual Narratives (N5)** | *"What if we'd taken the other signal?"* | Compare 2 signals with outcomes. "You took CIS (+1.2R). Alpha setup (-0.8R). Correct decision." | Do humans make better decisions after seeing these? | 3-4d | 14-30d |
+| 6 | **Correlation Cluster (S1)** | *"Equities decoupled — regime breakdown?"* | Track equity correlations, detect breakdowns. "ES/NQ decorrelation (0.12) → potential regime change" | Do decorrelation periods predict regime changes? | 4-5d | 14-30d |
+
+**Rule:** p < 0.05, n ≥ 30 → keep it and build next. p > 0.05 → kill it, re-prioritize.
 
 **🎯 Next Steps:**
-1. Complete AI Layer Refactor Phase 3 (Week 2)
-2. Implement shadow-mode validation for existing agents
-3. Begin high-priority extensions (S6, S1, S2)
+1. Execute Phase 56 (Swarm Foundation infrastructure)
+2. Build Priority 1: SkepticAgent (Phase 57)
+3. Track → validate → decide before building Priority 2
