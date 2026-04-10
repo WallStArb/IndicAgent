@@ -21,6 +21,7 @@ SOURCE_IBKR_SEED       = "ibkr_seed"            # Historical seed bar from DB ba
 SOURCE_HTF_DERIVED     = "htf_derived"          # Aggregated from 1m bars by BarAccumulator (BarMessage bus)
 SOURCE_DERIVED_1M      = "derived_1m"           # Aggregated from 1m bars in DB (market_data_ohlcv)
 SOURCE_SYNTHETIC_FILL  = "synthetic_fill"       # Flat fill for canonical grid gaps
+SOURCE_REPLAY          = "replay"               # Historical bar re-published by BarReplayAgent for signal recomputation
 
 # Minutes per timeframe
 _TF_MINUTES: dict[str, int] = {
