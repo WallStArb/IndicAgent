@@ -15,7 +15,7 @@
 - ✅ **v2.0 Signal Integrity & ML Foundation** — Phases 39-47 (shipped 2026-03-22)
 - ✅ **v2.1 Data Foundation & Signal Confidence** — Phases 48-52.8 (shipped 2026-03-28)
 - ✅ **v2.2 Operational Excellence** — Phases 53.1–59, 60–63 (shipped 2026-04-08)
-- ⏸ **v2.3 ML Foundation** — Phases 55-56, 64 (deferred until 30+ days clean signal data)
+- ⏸ **v2.3 ML Foundation** — Phases 56, 67, 64 (deferred until 30+ days clean signal data)
 
 ## Phases
 
@@ -239,14 +239,15 @@ Full details: `.planning/milestones/v2.1-ROADMAP.md`
 </details>
 
 <details>
-<summary>⏸ v2.3 ML Foundation (Phases 55-56, 66) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
+<summary>⏸ v2.3 ML Foundation (Phases 56, 66, 67) — DEFERRED, requires 30+ days clean signal data from v2.1</summary>
 
 **Milestone Goal:** A statistically validated ML scoring layer trained on clean signal_ledger outcomes, with Renaissance-grade observability (attribution, A/B testing, causal inference) proving each pipeline stage earns its compute cost.
 
-- [ ] **Phase 55: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
 - [ ] **Phase 56: Swarm Foundation** — Shared LLM layer (`src/core/llm/`), corrected DAG protocols (`IAlphaContributor`, `SwarmContext`), narrative module extraction (1,327→200 lines), `SwarmOrchestratorAgent` + `SwarmWriterAgent`, `alpha_multiplier_shadow` hypertable — 7 plans, shadow-only, 49 TDD tests
   Design doc: `docs/plans/2026-04-09-phase-56-swarm-foundation-design.md`
 - [ ] **Phase 66: SkepticAgent** — First swarm agent on Phase 56 infrastructure. `IAlphaContributor`: "what's wrong with this signal?" Tracks predictions to `alpha_multiplier_shadow`, validates p < 0.05 n ≥ 30 before next agent.
+  **Plans:** 3 plans (66-01 through 66-03) — see `### Phase 66` in Phase Details
+- [ ] **Phase 67: ML Scoring Model** — LightGBM feature builder with stationarity gates, global + regime-specific models, walk-forward retraining, shadow ml_score, blend promotion (α=0.20 after 8-week shadow gate), SHAP attribution
 
 </details>
 
@@ -387,10 +388,10 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 
 | Item | Notes | Analysis |
 |------|-------|---------|
-| **Intelligence Swarm** | 9 autonomous agents (Regime Sentinel, Volatility Arbiter, SMC Validator, Liquidity Decay, Correlation Contagion, Macro Event Observer, Execution Quality, SkepticAgent) providing alpha multipliers; shadow-first validation; `AlphaMultiplier` schema; hook into signal_lifecycle_service. Requires PydanticAI safety wrapper + 14-day correlation analysis infra. | `docs/ideas/intelligence-swarm-manifest.md` |
-| **Phase 55: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 55` in Phase Details section |
-| **Phase 66: SkepticAgent** | First swarm agent built on Phase 56 infrastructure. `IAlphaContributor` that asks "what's wrong with this signal?" — predicts failure probability via LLM. Tracks predictions to `alpha_multiplier_shadow`. Gate: p < 0.05, n ≥ 30 before building next agent. | `docs/ideas/intelligence-swarm-manifest.md` |
-| **Renaissance Observability** | Deferred from v2.0 — depends on Phase 55 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
+| **Phase 67: ML Scoring Model** | Deferred from v2.0 — requires 30+ days of clean signal_ledger outcomes from v2.1 + roll monitor graduated + market_data_5m populated. Feature builder, stationarity gates, global + regime-specific LightGBM, walk-forward retraining, shadow ml_score, blend promotion, SHAP attribution. `_shadow` dict already captured in all I7 plugins (Phase 45). | Phase Detail: see `### Phase 67` in Phase Details section |
+| **Phase 66: SkepticAgent** | First synthesis agent. Reads full I7 signal features, predicts failure probability via LLM. Tracks predictions to `alpha_multiplier_shadow`. Gate: p < 0.05, n ≥ 30 before building next agent. | `docs/ideas/intelligence-swarm-manifest.md` |
+| **Renaissance Observability** | Deferred from v2.0 — depends on Phase 67 (ML provides causal analysis features). Performance attribution per DAG stage, A/B test framework, causal inference, counterfactual analysis, LLM gate optimizer; intelligence tier audit surface, staleness as first-class quality signal. | `docs/ideas/renaissance-gap-analysis.md` |
+| **Synthesis Agent Backlog** | Domain-expert agents that read the I1-I7 intelligence snapshot and produce conviction judgments in their specialty. Each synthesizes structured pipeline data into higher-order reasoning. Build 1 at a time post-Phase 66, validate p < 0.05 n ≥ 30 before building next. **Sequenced candidates:** (1) TrendSynthesisAgent — multi-TF + cross-asset trend conviction (I4 regimes across TFs/assets → "4h trending, 1h pullback = textbook entry"); (2) LiquidityAgent — OFI/CVD orderflow synthesis across TFs (I1 → "orderflow confirming/diverging at key level"); (3) StructureAgent — SMC + VP level significance (I4 VP + I5 OB/FVG → "signal at high-confluence structural zone"); (4) RegimeAgent — macro context synthesis (I4 VIX/yield-curve → "risk-off, dampen longs"); (5) MomentumAgent — acceleration/exhaustion across TFs (I2/I3 → "momentum decelerating into resistance"); (6) SessionContextAgent — TOD + session type synthesis (session win rates + Asian H/L proximity → "45min into RTH, historically fades"); (7) VolatilityContextAgent — setup-type suitability in current vol regime (mean-reversion signal in expanding vol → dampen); (8) LevelProximityAgent — structural confluence significance (POC + prior day H/L + VWAP → high/low significance); (9) CrossPluginConsensusAgent — plugin agreement meta-signal (5/8 I7 plugins bullish → boost); (10) CyclePositionAgent — Hurst/entropy cycle phase (Hurst > 0.6 = momentum phase → favor trend setups); (11) ConflictAgent — cross-signal contradiction detector (opposing signals across TFs/assets → reduce conviction); (12) LeadLagContagionAgent — NQ→ES lead-lag propagation (NQ weakening while ES signal fires → downgrade). | `docs/ideas/intelligence-swarm-manifest.md` |
 | VWAP/Session plugin TF guards | Research: VWAP and session plugins may fire on TFs where they're not meaningful (e.g. 1d). Add guards. | `.planning/todos/pending/2026-03-10-research-vwap-and-session-plugin-timeframe-guards.md` |
 | LLM Call Tracking | Real token counts (Ollama eval counts), error details, cis_score/zone fields, retry chain visibility. | `.planning/todos/pending/2026-03-07-improve-llm-call-tracking.md` |
 | BSL/SSL level clusters | Schema change: list of levels vs single nearest level. More useful for signal proximity scoring. | `.planning/todos/pending/2026-02-27-support-bsl-ssl-level-clusters-not-just-single-levels.md` |
@@ -423,7 +424,7 @@ Re-prioritized 2026-03-19 after v2.0 roadmap defined.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 deferred (Phases 55-56, awaiting 30+ days clean signal data).
+Phases execute in numeric order. v1.0–v1.9 complete (Phases 0-38 shipped). v2.0 complete (Phases 39-47 shipped 2026-03-22). v2.1 complete (Phases 48-52.8 shipped 2026-03-28). v2.2 complete (Phases 53.1–59, 60–63 shipped 2026-04-08). v2.3 deferred (Phases 56, 66, 67, awaiting 30+ days clean signal data).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -605,12 +606,12 @@ Plans:
 - [x] 58-03-PLAN.md — Systemd unit wiring for configurable pool size and metrics port
 
 
-### Phase 63: Contract Lifecycle Automation
+### Phase 63: Contract Lifecycle Automation ✅ Complete 2026-04-09
 
 **Goal:** Eliminate all manual futures roll tasks via a four-stage DAG: seed contract_metadata from settings, detect rolls via RollComputeAgent, promote front-month atomically via ContractMetadataWriterAgent, and audit bars with session-aligned windows.
 **Requirements**: [CLA-01, CLA-02, CLA-03, CLA-04, CLA-05]
 **Depends on:** Phase 58
-**Plans:** 5/6 plans complete
+**Plans:** 6/6 plans complete ✅ Shipped 2026-04-09
 
 Plans:
 - [x] 63-01-PLAN.md — Foundation types: TradingSession methods, stream keys, ContractUpdateEvent schema
@@ -618,7 +619,7 @@ Plans:
 - [x] 63-03-PLAN.md — BarAuditorAgent session-aligned windows and derived completeness threshold
 - [x] 63-04-PLAN.md — RollComputeAgent graduation: backtest script + systemd enable
 - [x] 63-05-PLAN.md — settings.py SoT cleanup: base-symbol templates
-- [ ] 63-06-PLAN.md — BarWriterAgent base symbol fix: contract_metadata lookup + backfill
+- [x] 63-06-PLAN.md — BarWriterAgent base symbol fix: contract_metadata lookup + backfill
 
 ### Phase 63.1: Data Integrity — Aggregator Resilience + HTF Backfill
 
@@ -781,3 +782,26 @@ Plans:
 - [ ] 65-03-PLAN.md — I3/SMC/I5 additive gradient companion fields + schema registration
 - [ ] 65-04-PLAN.md — I7 HMM regime equality graduation + flat confidence base replacement
 - [ ] 65-05-PLAN.md — Verification: scanner zero violations + CI test gate + full suite
+
+### Phase 66: SkepticAgent — First Swarm Agent
+
+**Goal:** Build the first `IAlphaContributor` swarm agent on Phase 56 infrastructure. SkepticAgent asks "what's wrong with this signal?" — predicts failure probability via LLM, tracks predictions to `alpha_multiplier_shadow`, validates p < 0.05 n ≥ 30 before the next swarm agent is built.
+
+**Design doc:** `docs/plans/2026-04-08-ai-layer-refactor-design-v3.md` (Phase 3, Priority 1)
+**Depends on:** Phase 56 (SwarmOrchestratorAgent, `IAlphaContributor` protocol, `alpha_multiplier_shadow` table, `LLMProviderChain`)
+**Plans:** 3 plans
+
+**Success Criteria:**
+1. `SkepticAgent` implements `IAlphaContributor.compute(SwarmContext)` — returns `fail_probability ∈ [0.0, 1.0]` + reasoning string
+2. Agent runs shadow-only — predictions written to `alpha_multiplier_shadow` with `agent_id="skeptic"`, never touches live sizing
+3. Signal feature extraction: 12 features (CIS, regime, confluence scores, TF, hour_et, ATR ratio, volume_z, hmm_prob, I5/I6/I7 top scores)
+4. Prompt uses structured template: signal context → "Rate failure probability 0-100% and list top 3 reasons"
+5. `SkepticWriterAgent` batch-writes predictions to `alpha_multiplier_shadow` with 5s flush interval
+6. Prometheus: `skeptic_predictions_total`, `skeptic_latency_ms`, `skeptic_provider_failures_total`
+7. Validation script: `production/scripts/validate_skeptic_alpha.py` — computes Pearson(fail_prob, 1-win), p-value, n count
+8. 18 TDD tests pass (SkepticAgent: 10, SkepticWriterAgent: 5, validation script: 3)
+
+**Plans:**
+- [ ] 66-01-PLAN.md — SkepticAgent: `IAlphaContributor` impl, 12-feature extraction, LLM prompt template, SafeSwarmWrapper wiring, unit tests
+- [ ] 66-02-PLAN.md — SkepticWriterAgent: Kafka consumer of `intelligence.swarm.skeptic`, batch writer to `alpha_multiplier_shadow`, DLQ, systemd unit, Prometheus metrics
+- [ ] 66-03-PLAN.md — Validation tooling: `validate_skeptic_alpha.py` (Pearson correlation, p-value, n gate), outcome backfill query, README on promotion criteria
