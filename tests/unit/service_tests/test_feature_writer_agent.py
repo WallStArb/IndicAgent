@@ -422,7 +422,7 @@ def test_kafka_consumer_group_is_feature_writer_group():
     """KAFKA-07: FeatureWriterAgent uses CONSUMER_GROUP='feature_writer_group'."""
     from services.feature_writer_agent import CONSUMER_GROUP, FeatureWriterAgent
 
-    assert CONSUMER_GROUP == "feature_writer_consumer"
+    assert CONSUMER_GROUP == "feature_writer_group"
     svc = FeatureWriterAgent.__new__(FeatureWriterAgent)
     assert not hasattr(svc, "redis_client"), (
         "redis_client must not be present after Kafka migration"

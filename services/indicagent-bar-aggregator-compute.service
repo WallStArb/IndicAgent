@@ -1,5 +1,5 @@
 [Unit]
-Description=IndicAgent Bar Aggregator Agent — 1m->HTF bar aggregation
+Description=IndicAgent Bar Aggregator Compute Agent — 1m->HTF bar aggregation
 After=network-online.target indicagent-ibkr-provider.service
 Wants=indicagent-ibkr-provider.service
 StartLimitIntervalSec=300
@@ -14,12 +14,10 @@ Environment=PYTHONUNBUFFERED=1
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/bar_aggregator_agent.py
 Restart=always
-WatchdogSec=60
-NotifyAccess=main
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=indicagent-bar-aggregator
+SyslogIdentifier=indicagent-bar-aggregator-compute
 LimitNOFILE=65536
 
 [Install]

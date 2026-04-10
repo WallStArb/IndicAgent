@@ -109,7 +109,7 @@ _STOP_SERVICES = [
     "indicagent-ibkr-provider",
     "indicagent-provider-merger",
     # Bar pipeline
-    "indicagent-bar-aggregator",
+    "indicagent-bar-aggregator-compute",
     "indicagent-bar-writer",
     "indicagent-bar-auditor",
     # Intelligence + signal pipeline
@@ -125,7 +125,7 @@ _START_SERVICES = [
     "indicagent-ibkr-provider",
     "indicagent-provider-merger",
     # Bar pipeline
-    "indicagent-bar-aggregator",
+    "indicagent-bar-aggregator-compute",
     "indicagent-bar-writer",
     "indicagent-bar-auditor",
     # Intelligence + signal pipeline

@@ -46,7 +46,7 @@ from src.observability.metrics import (
 
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
-CONSUMER_GROUP: str = "llm_writer_consumer"
+CONSUMER_GROUP: str = "llm_writer"
 CONSUMER_NAME: str = "llm_writer_1"
 SCORE_RECOMPUTE_INTERVAL_SECS: float = 900.0  # 15 minutes
 SCORE_MIN_N_OUTCOMES: int = 30

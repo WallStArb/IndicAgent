@@ -6,7 +6,7 @@ after each bar's I7 run). Converts signal dicts to LedgerEntry objects and
 batch-inserts to signal_ledger via SignalLedgerRepository.
 
 WriterAgent role: DB-only, zero compute. No plugin execution.
-Consumer group: signal_writer_consumer
+Consumer group: signal_writer_group
 Metrics port: 9119
 """
 
@@ -43,7 +43,7 @@ from src.persistence.repository.signal_ledger_repository import (
 # Constants
 # ---------------------------------------------------------------------------
 
-CONSUMER_GROUP = "signal_writer_consumer"
+CONSUMER_GROUP = "signal_writer_group"
 BATCH_SIZE = 100  # flush after this many LedgerEntry rows
 FLUSH_INTERVAL_SECS = 5.0  # or after this many seconds, whichever comes first
 MAX_BUFFER_SIZE = 10_000  # drop oldest entries if buffer exceeds this (memory safety)

@@ -62,7 +62,7 @@ Each service reads from one or more Redpanda topics, computes intelligence, and 
 |---------|-----------|-----------|
 | `indicagent-ibkr-provider` | IBKR TWS (5s real-time bars) | `market.bars.raw.ibkr` |
 | `indicagent-provider-merger` | `market.bars.raw.*` | `market.bars` (canonical 1m) |
-| `indicagent-bar-aggregator` | `market.bars` | `market.bars.htf` (5m–1d) |
+| `indicagent-bar-aggregator-compute` | `market.bars` | `market.bars.htf` (5m–1d) |
 | `indicagent-intelligence-pipeline` | `market.bars` + `market.bars.htf` | `intelligence` + `intelligence.i7.signals` |
 | `indicagent-signal-writer` | `intelligence.i7.signals` | `signal_ledger` (new rows) |
 | `indicagent-signal-tracker` | `market.bars` | `signal_ledger` (lifecycle updates) |
