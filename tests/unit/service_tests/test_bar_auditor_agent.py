@@ -163,7 +163,8 @@ class TestDetectGapsBatch:
         """When batch_bar_completeness returns low-completeness 1m result, gap request published."""
         agent = _make_agent_stub()
         agent._canonical_completeness = MagicMock()
-        agent._db_pool = MagicMock()  # pool passed to batch_bar_completeness but not called directly
+        # pool passed to batch_bar_completeness but not called directly
+        agent._db_pool = MagicMock()
 
         instrument = _make_instrument("BTC", "crypto_24_7")
         result = _make_bar_completeness_result(symbol="BTC", tf="1m", expected=1440, actual=10)
@@ -183,7 +184,7 @@ class TestDetectGapsBatch:
 
     @pytest.mark.asyncio
     async def test_htf_low_completeness_publishes_gap_request_with_htf_tf(self):
-        """When batch_bar_completeness returns low-completeness HTF result, gap request has tf='5m'."""
+        """HTF result with low completeness → gap request with tf='5m'."""
         agent = _make_agent_stub()
         agent._canonical_completeness = MagicMock()
         agent._db_pool = MagicMock()
