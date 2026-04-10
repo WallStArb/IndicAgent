@@ -404,7 +404,7 @@ class CrossAssetService:
         self._consumer = KafkaConsumerClient(
             intelligence_topic,
             bootstrap_servers=self._kafka_bootstrap,
-            group_id="cross_asset_consumer",
+            group_id="cross_asset_group",
             auto_offset_reset="latest",
         )
         self._producer = KafkaProducerClient(bootstrap_servers=self._kafka_bootstrap)

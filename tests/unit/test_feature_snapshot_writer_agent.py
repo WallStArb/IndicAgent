@@ -16,11 +16,11 @@ def test_feature_snapshot_writer_agent_class_exists():
 
 
 def test_uses_snapshot_writer_consumer_group():
-    """Consumer group must differ from primary feature_writer_consumer."""
+    """Consumer group must differ from primary feature_writer_group."""
     import pathlib
 
     src = pathlib.Path("services/feature_snapshot_writer_agent.py").read_text()
-    assert "feature_snapshot_writer_consumer" in src
+    assert "feature_snapshot_writer_group" in src
 
 
 def test_subscribes_to_intelligence_journal():
@@ -36,7 +36,7 @@ def test_consumer_group_constant():
     """CONSUMER_GROUP module constant must be the distinct snapshot group."""
     from services.feature_snapshot_writer_agent import CONSUMER_GROUP
 
-    assert CONSUMER_GROUP == "feature_snapshot_writer_consumer"
+    assert CONSUMER_GROUP == "feature_snapshot_writer_group"
     # Sanity: different from primary writer
     from services.feature_writer_agent import CONSUMER_GROUP as PRIMARY_GROUP
 

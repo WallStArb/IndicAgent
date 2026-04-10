@@ -1,0 +1,21 @@
+[Unit]
+Description=IndicAgent CIS Weight Updater
+Documentation=https://github.com/bg/indicagent
+Wants=network-online.target docker.service
+After=network-online.target docker.service indicant-redpanda-ready.service
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+# Wait for TimescaleDB with 60-second timeout (30 attempts × 2 seconds)
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do docker exec timescaledb pg_isready -U postgres 2>/dev/null && exit 0; sleep 2; done; exit 1'
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/weight_updater.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=indicant-weight-updater
+
+[Install]
+WantedBy=multi-user.target

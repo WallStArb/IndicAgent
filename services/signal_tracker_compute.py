@@ -11,8 +11,8 @@ index in real-time, eliminating the need for periodic DB re-seeding.
 ComputeAgent role: zero DB writes, pure compute. Bootstrap is the only DB read.
 
 Consumer groups:
-  - signal_tracker_compute_consumer (bars)
-  - signal_tracker_compute_signals_consumer (i7.signals)
+  - signal_tracker_compute (bars)
+  - signal_tracker_compute_signals (i7.signals)
 """
 
 import asyncio
@@ -71,7 +71,7 @@ def _bars_in_trade(activated_at: datetime | None, exit_at: datetime, timeframe: 
     return max(0, int(delta / tf_secs))
 
 
-class SignalTrackerComputeAgent(BaseAgent):
+class SignalTrackerCompute(BaseAgent):
     """DB-ignorant lifecycle evaluation agent.
 
     Consumes bars from Kafka, evaluates signal lifecycle transitions using
@@ -85,7 +85,7 @@ class SignalTrackerComputeAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(name="signal_tracker_compute_agent", metrics_port=9127)
+        super().__init__(name="SignalTrackerCompute", metrics_port=9127)
         settings = Settings()
         self._settings = settings
         self._env_name = settings.env_name or ""
@@ -141,7 +141,7 @@ class SignalTrackerComputeAgent(BaseAgent):
             topic_market_bars(self._env_name),
             topic_market_bars_htf(self._env_name),
             bootstrap_servers=self._kafka_bootstrap,
-            group_id="signal_tracker_compute_consumer",
+            group_id="signal_tracker_compute",
             auto_offset_reset="latest",
         )
         await self._bar_consumer.start()
@@ -150,7 +150,7 @@ class SignalTrackerComputeAgent(BaseAgent):
         self._signal_consumer = KafkaConsumerClient(
             topic_intelligence_i7_signals(self._env_name),
             bootstrap_servers=self._kafka_bootstrap,
-            group_id="signal_tracker_compute_signals_consumer",
+            group_id="signal_tracker_compute_signals",
             auto_offset_reset="latest",
         )
         await self._signal_consumer.start()
@@ -677,7 +677,7 @@ class SignalTrackerComputeAgent(BaseAgent):
 
 
 async def main() -> None:
-    agent = SignalTrackerComputeAgent()
+    agent = SignalTrackerCompute()
     try:
         await agent.start()
     except KeyboardInterrupt:

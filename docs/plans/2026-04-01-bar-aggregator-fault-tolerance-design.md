@@ -229,12 +229,12 @@
 
 ```bash
 # Immediate rollback (if issues detected)
-echo '***REDACTED-SUDO-PASSWORD***' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator
+echo '***REDACTED-SUDO-PASSWORD***' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator-compute
 
 # Full rollback (if bad commit deployed)
 git checkout main
 git reset --hard HEAD~1
-echo '***REDACTED-SUDO-PASSWORD***' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator
+echo '***REDACTED-SUDO-PASSWORD***' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator-compute
 ```
 
 ## Success Criteria

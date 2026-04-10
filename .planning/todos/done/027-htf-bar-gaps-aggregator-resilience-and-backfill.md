@@ -19,7 +19,7 @@ the rest of that day despite 1m bars being 99.9% complete.
 
 ## Evidence
 
-- `journalctl -u indicagent-bar-aggregator` shows crash at 14:00:23,
+- `journalctl -u indicagent-bar-aggregator-compute` shows crash at 14:00:23,
   one restart at 14:00:33, then silence
 - `logs/bar_aggregator_agent.log` never created (crashed before setup_service_logging)
 - BTCUSD Apr 2: 1439 1m bars, only 177/288 5m, 59/96 15m, 16/24 1h, 4/6 4h

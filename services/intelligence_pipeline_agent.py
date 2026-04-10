@@ -505,7 +505,7 @@ class IntelligencePipelineComputeAgent(BaseAgent):
         self._shadow_mode: bool = os.environ.get("INTELLIGENCE_PIPELINE_SHADOW", "0") == "1"
 
         # Consumer group
-        self._consumer_group = "intelligence_pipeline_consumer"
+        self._consumer_group = "intelligence_pipeline_group"
 
         # --- Prometheus metrics ---
         self._output_buffer_depth = gauge(

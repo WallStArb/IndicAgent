@@ -256,6 +256,16 @@ def topic_signal_audit(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.signal.audit"
 
 
+def topic_signal_replay_requests(env_name: str) -> str:
+    """Kafka topic for SignalReplayRequest events from SignalAuditorAgent.
+
+    BarReplayAgent consumes these and re-publishes historical bars from
+    market_data_ohlcv to market.bars / market.bars.htf so the intelligence
+    pipeline can recompute missing signals.
+    """
+    return f"{env_prefix(env_name)}market.events.signal_replay_requests"
+
+
 def topic_signal_metrics(env_name: str) -> str:
     """Kafka topic for SignalMetricsComputeAgent output events.
 
