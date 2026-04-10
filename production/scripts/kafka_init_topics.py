@@ -21,7 +21,6 @@ Used by pipeline_reset.py to delete + recreate all topics on a full reset.
 _HOT_MS: int = 7_200_000          # 2 hours
 _PIPELINE_MS: int = 14_400_000    # 4 hours
 _OUTPUT_MS: int = 86_400_000      # 24 hours
-_COMPACT_MS: int = 0              # compacted — no time retention
 
 # ---------------------------------------------------------------------------
 # Topic specifications

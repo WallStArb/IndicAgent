@@ -70,16 +70,18 @@ def validate_signal_row(
     min_tick = DEFAULT_MIN_TICK
     if symbol and tick_sizes:
         # Try exact match first (e.g. "HG" → "HG")
-        min_tick = tick_sizes.get(symbol)
-        if min_tick is None:
+        resolved = tick_sizes.get(symbol)
+        if resolved is None:
             # Try progressively shorter prefixes for compound symbols:
             # "EURUSD" → "EURUS", "EURU", "EUR" (matches EUR in dict)
             # "ESM6"   → "ESM" (no match) → "ES" (matches ES in dict)
             for end in range(len(symbol) - 1, 0, -1):
                 candidate = symbol[:end]
                 if candidate in tick_sizes:
-                    min_tick = tick_sizes[candidate]
+                    resolved = tick_sizes[candidate]
                     break
+        if resolved is not None:
+            min_tick = resolved
 
     if entry_price is None or stop_loss is None:
         return ValidationResult(is_valid=False, reason_code="risk_below_min_tick")
