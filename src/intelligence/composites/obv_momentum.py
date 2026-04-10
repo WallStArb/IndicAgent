@@ -26,6 +26,7 @@ class OBVMomentumPlugin(PatternPlugin):
         default_factory=lambda: frozenset({"volume", "momentum"})
     )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=_WINDOW + 5),)
+    supports_incremental: bool = False
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:
