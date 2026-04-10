@@ -668,6 +668,18 @@ Plans:
 Plans:
 - [x] 63.5-01-PLAN.md — PluginValidator class, startup enforcement in intelligence_pipeline_agent, Prometheus metrics
 
+### Phase 63.6: Parallel Self-Healing Auditor Pipeline
+
+**Goal:** Eliminate 826+ sequential DB roundtrips per 5-minute audit cycle by vectorizing all auditor queries into batch SQL, parallelizing ServiceAuditorAgent systemd checks, and adding self-healing for HTF bar gaps and signal coverage gaps via a new BarReplayAgent.
+**Design doc:** `docs/plans/2026-04-10-parallel-self-healing-auditors-design.md`
+**Depends on:** Phase 63
+**Plans:** 3 plans
+
+Plans:
+- [ ] 63.6-01-PLAN.md — audit_utils.py (batch SQL) + BarAuditorAgent vectorization (1 query, all TFs)
+- [ ] 63.6-02-PLAN.md — SignalAuditorAgent vectorization + BarReplayAgent + signal gap self-healing
+- [ ] 63.6-03-PLAN.md — ServiceAuditorAgent asyncio.gather + BaseProviderAgent semaphore + systemd units
+
 ### Phase 59: OFI Divergence Redesign ✅ Complete 2026-04-05
 
 **Goal:** Replace discrete `{-2..+2}` `ofi_divergence` I1 field with a continuous z-score factor. Fix multi-symbol state corruption in OFIPlugin. Rewrite `OFIDivergencePlugin` (I7) with persistence, peak magnitude tracking, EWMA soft factor, and principled `tanh` confidence.
