@@ -88,7 +88,7 @@ After each phase completion, verify:
 Verify service health and conventions:
 - `systemctl list-units --all | grep indicagent` — check all units + states (active/inactive/failed)
 - `grep "^class.*Agent.*:" services/*_agent.py | grep -v "BaseAgent\|archived"` — find agents missing BaseAgent inheritance
-- `systemctl status indicant-<name>` — check if systemd unit exists (typo = "not found")
+- `systemctl status indicagent-<name>` — check if systemd unit exists (typo = "not found")
 - `journalctl -u <service> --since "X hours ago"` — investigate why service stopped
 - `systemctl show <service> -p StartLimitBurst,StartLimitIntervalSec` — check restart limits
 - `grep -r "from services.<old_module>" . --include="*.py"` — find broken imports after archival
@@ -250,10 +250,10 @@ IBKR TWS → intelligence_pipeline_agent (I1-I7 unified, in-process) →
 |---------|------|---------|
 | Intelligence Pipeline | `indicagent-intelligence-pipeline` | I1-I7 unified in-process pipeline; subscribes to `market.bars` + `market.bars.htf`; outputs to `signal_ledger` + Kafka `intelligence.*` topics |
 | IBKR Provider | `indicagent-ibkr-provider` | IBKR dual streams: 5s RTB → 1m aggregation + official reconciliation |
-| Bar Aggregator | `indicagent-bar-aggregator-compute` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator |
+| Bar Aggregator | `indicagent-bar-aggregator` | 1m→HTF bar aggregation (5m-1d) via BarAccumulator |
 | Feature Writer | `indicagent-feature-writer` | Redpanda → `intelligence_features` batch writer |
 | Signal Writer | `indicagent-signal-writer` | `intelligence.*` → `signal_ledger` batch writer |
-| Signal Tracker | `indicagent-signal-tracker` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome |
+| Signal Tracker | `indicagent-signal-tracker-compute` | Zone-aware lifecycle: activation, MAE/MFE, 8-class outcome |
 | AI Narrative | `indicagent-ai-narrative` | I8: LLM → `narratives:SYMBOL:TF` |
 | API | `indicagent-api` | FastAPI + SSE on :8000 |
 

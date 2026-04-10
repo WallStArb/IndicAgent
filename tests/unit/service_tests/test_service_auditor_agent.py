@@ -35,9 +35,9 @@ def test_registry_covers_all_active_services():
     units = {s.unit for s in SERVICE_REGISTRY}
     required = {
         "indicagent-ibkr-provider", "indicagent-provider-merger",
-        "indicagent-bar-aggregator-compute", "indicagent-bar-writer",
+        "indicagent-bar-aggregator", "indicagent-bar-writer",
         "indicagent-bar-auditor", "indicagent-intelligence-pipeline@1",
-        "indicagent-signal-tracker", "indicagent-signal-writer",
+        "indicagent-signal-tracker-compute", "indicagent-signal-writer",
         "indicagent-ai-narrative", "indicagent-feature-writer",
         "indicagent-llm-writer", "indicagent-cross-asset",
     }
@@ -48,8 +48,8 @@ def test_registry_dag_order_sources_before_sinks():
     from services.service_auditor_agent import SERVICE_REGISTRY
     by_unit = {s.unit: s.dag_order for s in SERVICE_REGISTRY}
     assert by_unit["indicagent-ibkr-provider"] < by_unit["indicagent-provider-merger"]
-    assert by_unit["indicagent-provider-merger"] < by_unit["indicagent-bar-aggregator-compute"]
-    assert by_unit["indicagent-bar-aggregator-compute"] < by_unit["indicagent-intelligence-pipeline@1"]
+    assert by_unit["indicagent-provider-merger"] < by_unit["indicagent-bar-aggregator"]
+    assert by_unit["indicagent-bar-aggregator"] < by_unit["indicagent-intelligence-pipeline@1"]
     assert by_unit["indicagent-intelligence-pipeline@1"] < by_unit["indicagent-feature-writer"]
 
 

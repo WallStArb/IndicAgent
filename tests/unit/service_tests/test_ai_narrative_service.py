@@ -387,7 +387,7 @@ def _make_service_new():
     svc.shutdown_requested = False
     svc.env_prefix = "development:"
     svc.env_name = "development"
-    svc.consumer_group = "ai_narrative"
+    svc.consumer_group = "ai_narrative_consumer"
     svc.consumer_name = "narrative_test"
     svc._stream_map = {}
     svc._latest_signals = {}
@@ -840,7 +840,7 @@ def _make_service_concurrent():
     svc.shutdown_requested = False
     svc.env_prefix = "development:"
     svc.env_name = "development"
-    svc.consumer_group = "ai_narrative"
+    svc.consumer_group = "ai_narrative_consumer"
     svc.consumer_name = "narrative_test"
     svc._stream_map = {}
     svc._latest_signals = {}

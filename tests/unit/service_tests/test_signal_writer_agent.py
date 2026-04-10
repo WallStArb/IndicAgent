@@ -89,7 +89,7 @@ class TestSignalWriterAgentStructure:
     def test_consumer_group_constant(self):
         from services.signal_writer_agent import CONSUMER_GROUP
 
-        assert CONSUMER_GROUP == "signal_writer_group"
+        assert CONSUMER_GROUP == "signal_writer_consumer"
 
     def test_batch_size_and_flush_interval_defined(self):
         from services.signal_writer_agent import BATCH_SIZE, FLUSH_INTERVAL_SECS
