@@ -22,6 +22,7 @@ class DonchianPositionPlugin(PatternPlugin):
         default_factory=lambda: frozenset({"structure", "channel"})
     )
     inputs: tuple[InputSpec, ...] = (InputSpec(symbol=".*", timeframe="1m", lookback=25),)
+    supports_incremental: bool = False
     _state: dict = field(default_factory=dict)
 
     def compute_full(self, frames: dict[str, Any]) -> dict[str, Any]:

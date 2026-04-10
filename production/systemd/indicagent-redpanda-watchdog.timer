@@ -1,0 +1,13 @@
+[Unit]
+Description=IndicAgent Redpanda Watchdog Timer — check every 2 minutes
+
+[Timer]
+# Check every 2 minutes (offset from :00 and :30 to avoid thundering herd)
+OnCalendar=*:03:00
+OnCalendar=*:17:00
+OnCalendar=*:33:00
+OnCalendar=*:47:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

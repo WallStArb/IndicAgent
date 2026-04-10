@@ -1,0 +1,9 @@
+[Unit]
+Description=IndicAgent Redpanda Watchdog — health check + auto-restart
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/bg/dev/indicagent/production/scripts/redpanda_watchdog.sh
+TimeoutStartSec=120
