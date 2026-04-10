@@ -68,9 +68,7 @@ def from_dict(d: dict) -> LifecycleTransition:
         transition_type = TransitionType(raw_type)
     except ValueError as exc:
         valid = ", ".join(t.value for t in TransitionType)
-        raise ValueError(
-            f"Invalid transition_type '{raw_type}'. Must be one of: {valid}"
-        ) from exc
+        raise ValueError(f"Invalid transition_type '{raw_type}'. Must be one of: {valid}") from exc
 
     bar_ts_str = d["bar_ts"]
     bar_ts = datetime.fromisoformat(bar_ts_str)

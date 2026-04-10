@@ -783,3 +783,155 @@ SET shadow_tracking_start_ts = $2
 WHERE signal_id = $1::uuid
 """
         await self._db_manager.execute_command(sql, signal_id, start_ts)
+
+    # ------------------------------------------------------------------
+    # Batch transition persistence (consumed by LifecycleWriterAgent)
+    # ------------------------------------------------------------------
+
+    _BATCH_ACTIVATION_SQL = """
+UPDATE signal_ledger
+SET status = 'active',
+    activated_at = $2,
+    activation_price = $3,
+    zone_entry_pct = $4,
+    bars_to_activation = $5
+WHERE signal_id = $1::uuid
+"""
+
+    _BATCH_EXIT_SQL = """
+UPDATE signal_ledger
+SET status = $2,
+    exit_at = $3,
+    exit_price = $4,
+    exit_reason = $5,
+    pnl_r = $6,
+    pnl_dollars = $7,
+    signal_quality = $8,
+    mae = $9,
+    mfe = $10,
+    bars_in_trade = $11,
+    outcome = $12
+WHERE signal_id = $1::uuid
+"""
+
+    _BATCH_CHANDELIER_UPDATE_SQL = """
+UPDATE signal_ledger
+SET trailing_stop_price = $2::jsonb,
+    trailing_stop_tightening_rate = $3,
+    staleness_score = $4,
+    staleness_trigger_reason = $5,
+    chandelier_vol_source = COALESCE(chandelier_vol_source, $6)
+WHERE signal_id = $1::uuid
+"""
+
+    _BATCH_MAE_MFE_UPDATE_SQL = """
+UPDATE signal_ledger
+SET mae = $2,
+    mfe = $3
+WHERE signal_id = $1::uuid
+"""
+
+    _BATCH_SHADOW_OUTCOME_SQL = """
+UPDATE signal_ledger
+SET shadow_tracking_start_ts = $2,
+    shadow_mae = $3,
+    shadow_mfe = $4,
+    shadow_outcome = $5
+WHERE signal_id = $1::uuid
+"""
+
+    async def batch_execute(self, transition_type: str, items: list[dict]) -> None:
+        """Batch-write lifecycle transitions grouped by type.
+
+        Parameters
+        ----------
+        transition_type:
+            One of ``"activation"``, ``"exit"``, ``"chandelier_update"``,
+            ``"mae_mfe_update"``, ``"shadow_outcome"``.
+        items:
+            List of transition data dicts. Each must contain ``"signal_id"``
+            plus the fields relevant to the transition type.
+
+        Raises
+        ------
+        ValueError
+            If *transition_type* is not recognised.
+        """
+        if not items:
+            return
+
+        if transition_type == "activation":
+            sql = self._BATCH_ACTIVATION_SQL
+            params = [
+                (
+                    d["signal_id"],
+                    d.get("activated_at"),
+                    d.get("activation_price"),
+                    d.get("zone_entry_pct"),
+                    d.get("bars_to_activation"),
+                )
+                for d in items
+            ]
+        elif transition_type == "exit":
+            sql = self._BATCH_EXIT_SQL
+            params = [
+                (
+                    d["signal_id"],
+                    d.get("status"),
+                    d.get("exit_at"),
+                    d.get("exit_price"),
+                    d.get("exit_reason"),
+                    d.get("pnl_r"),
+                    d.get("pnl_dollars"),
+                    d.get("signal_quality"),
+                    d.get("mae"),
+                    d.get("mfe"),
+                    d.get("bars_in_trade"),
+                    d.get("outcome"),
+                )
+                for d in items
+            ]
+        elif transition_type == "chandelier_update":
+            sql = self._BATCH_CHANDELIER_UPDATE_SQL
+            params = [
+                (
+                    d["signal_id"],
+                    d.get("trailing_stop_price"),
+                    d.get("trailing_stop_tightening_rate"),
+                    d.get("staleness_score"),
+                    d.get("staleness_trigger_reason"),
+                    d.get("chandelier_vol_source"),
+                )
+                for d in items
+            ]
+        elif transition_type == "mae_mfe_update":
+            sql = self._BATCH_MAE_MFE_UPDATE_SQL
+            params = [
+                (d["signal_id"], d.get("mae"), d.get("mfe"))
+                for d in items
+            ]
+        elif transition_type == "shadow_outcome":
+            sql = self._BATCH_SHADOW_OUTCOME_SQL
+            params = [
+                (
+                    d["signal_id"],
+                    d.get("shadow_tracking_start_ts"),
+                    d.get("shadow_mae"),
+                    d.get("shadow_mfe"),
+                    d.get("shadow_outcome"),
+                )
+                for d in items
+            ]
+        else:
+            raise ValueError(
+                f"Unknown transition_type '{transition_type}'. "
+                "Must be one of: activation, exit, chandelier_update, "
+                "mae_mfe_update, shadow_outcome"
+            )
+
+        await self._db_manager.execute_batch(sql, params)
+        logger.info(
+            "batch_execute completed",
+            transition_type=transition_type,
+            count=len(items),
+        )
