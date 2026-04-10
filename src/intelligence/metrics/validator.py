@@ -12,14 +12,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# ES/NQ minimum tick size in points. Signals with |entry - stop| < this
-# produce pnl_r blowups (CVDDivergence -496 Sharpe bug).
-MIN_TICK_SIZE: float = 0.25
-
 # Signals with |pnl_r| > this are data anomalies, not market moves.
 # 10R in a single trade requires price to move 10x the initial risk — possible
 # only with near-zero stops, which Gate 2 should catch first.
 MAX_VALID_R: float = 10.0
+
+# Default minimum tick size when instrument is unknown.
+# Covers the most common case (equities/ETFs with 0.01 tick).
+DEFAULT_MIN_TICK: float = 0.01
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,8 @@ def validate_signal_row(
     stop_loss: float | None,
     pnl_r: float | None,
     hmm_regime_at_fire: int | None,
+    symbol: str | None = None,
+    tick_sizes: dict[str, float] | None = None,
 ) -> ValidationResult:
     """Apply 4 data quality gates to a signal_ledger row.
 
@@ -49,6 +51,8 @@ def validate_signal_row(
         stop_loss:         signal stop loss (stop_loss column)
         pnl_r:             realised P&L in R-multiples; None = never activated
         hmm_regime_at_fire: HMM state at signal fire time (0/1/2)
+        symbol:            instrument symbol for per-instrument tick lookup
+        tick_sizes:        dict mapping base symbol → minimum tick size
 
     Returns:
         ValidationResult(is_valid=True, reason_code=None) when valid.
@@ -62,9 +66,24 @@ def validate_signal_row(
         return ValidationResult(is_valid=False, reason_code="invalid_direction")
 
     # Gate 2: risk must be at least one tick (prevents pnl_r blowup)
+    # Resolve instrument-specific tick size from symbol lookup
+    min_tick = DEFAULT_MIN_TICK
+    if symbol and tick_sizes:
+        # Try exact match first (e.g. "HG" → "HG")
+        min_tick = tick_sizes.get(symbol)
+        if min_tick is None:
+            # Try progressively shorter prefixes for compound symbols:
+            # "EURUSD" → "EURUS", "EURU", "EUR" (matches EUR in dict)
+            # "ESM6"   → "ESM" (no match) → "ES" (matches ES in dict)
+            for end in range(len(symbol) - 1, 0, -1):
+                candidate = symbol[:end]
+                if candidate in tick_sizes:
+                    min_tick = tick_sizes[candidate]
+                    break
+
     if entry_price is None or stop_loss is None:
         return ValidationResult(is_valid=False, reason_code="risk_below_min_tick")
-    if abs(entry_price - stop_loss) < MIN_TICK_SIZE:
+    if abs(entry_price - stop_loss) < min_tick:
         return ValidationResult(is_valid=False, reason_code="risk_below_min_tick")
 
     # Gate 3: pnl_r magnitude must be plausible

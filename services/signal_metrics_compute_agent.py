@@ -111,7 +111,7 @@ class SignalMetricsComputeAgent(BaseAgent):
     Publishes three event types to intelligence.signal_metrics:
       - metrics_computed: one per (track, setup, tf, regime, window) group
       - ic_computed:      one per (setup, tf, regime, window) group
-      - metrics_dq_failure: one per invalid pnl_r row
+      - metrics_dq_failure: one per invalid pnl_r row (new failures only)
     """
 
     def __init__(self) -> None:
@@ -123,6 +123,20 @@ class SignalMetricsComputeAgent(BaseAgent):
         self._db: DatabaseManager | None = None
         self._producer: KafkaProducerClient | None = None
         self._interval_seconds = _INTERVAL_SECONDS
+        self._tick_sizes: dict[str, float] = {}
+        self._published_dq_keys: set[str] = set()
+
+    async def _load_tick_sizes(self) -> None:
+        """Load per-instrument tick sizes from instruments table."""
+        rows = await self._db.execute_query(
+            "SELECT symbol, (contract_details->>'tick_size')::float as tick_size "
+            "FROM instruments WHERE is_active = true AND contract_details->>'tick_size' IS NOT NULL"
+        )
+        self._tick_sizes = {r["symbol"]: r["tick_size"] for r in rows if r.get("tick_size")}
+        self.logger.info(
+            "signal_metrics_compute.tick_sizes_loaded",
+            instruments=len(self._tick_sizes),
+        )
 
     async def _setup(self) -> None:
         """Connect DB pool and Kafka producer."""
@@ -133,9 +147,13 @@ class SignalMetricsComputeAgent(BaseAgent):
             bootstrap_servers=self._settings.kafka_bootstrap_servers,
         )
         await self._producer.start()
+
+        await self._load_tick_sizes()
+
         self.logger.info(
             "signal_metrics_compute.setup_complete",
             interval_seconds=self._interval_seconds,
+            tick_sizes=len(self._tick_sizes),
         )
 
     async def _teardown(self) -> None:
@@ -168,6 +186,9 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     async def _run_compute_cycle(self) -> None:
         """Fetch rows, validate, compute metrics, publish events."""
+        # Refresh tick sizes each cycle (instruments can change on roll)
+        await self._load_tick_sizes()
+
         rows = await self._db.execute_query(_QUERY)
         if not rows:
             self.logger.info("signal_metrics_compute.cycle rows=0 nothing_to_compute")
@@ -179,7 +200,8 @@ class SignalMetricsComputeAgent(BaseAgent):
         topic = topic_signal_metrics(self._settings.env_name)
         now_iso = datetime.now(UTC).isoformat()
 
-        # Publish DQ failures for rows with invalid pnl_r values
+        # Publish DQ failures for NEW invalid rows only (dedup by signal_id + reason_code)
+        new_dq_count = 0
         for row in rows:
             pnl_r = row.get("pnl_r")
             if pnl_r is None:
@@ -190,8 +212,15 @@ class SignalMetricsComputeAgent(BaseAgent):
                 stop_loss=row.get("stop_loss"),
                 pnl_r=pnl_r,
                 hmm_regime_at_fire=row.get("hmm_regime_at_fire"),
+                symbol=row.get("symbol"),
+                tick_sizes=self._tick_sizes,
             )
             if not vr.is_valid:
+                dq_key = f"{row.get('signal_id')}:{vr.reason_code}"
+                if dq_key in self._published_dq_keys:
+                    continue  # already published in a previous cycle
+                self._published_dq_keys.add(dq_key)
+                new_dq_count += 1
                 _DQ_FAILURES.labels(agent=_AGENT_NAME, reason_code=vr.reason_code).inc()
                 await self._producer.publish(
                     topic,
@@ -223,7 +252,10 @@ class SignalMetricsComputeAgent(BaseAgent):
                 ) >= cutoff
             ]
             for track in ("zone", "market"):
-                metric_rows = compute_signal_metrics(window_rows, track=track, window_days=window_days)
+                metric_rows = compute_signal_metrics(
+                    window_rows, track=track, window_days=window_days,
+                    tick_sizes=self._tick_sizes,
+                )
                 for mr in metric_rows:
                     await self._producer.publish(
                         topic,
@@ -273,6 +305,8 @@ class SignalMetricsComputeAgent(BaseAgent):
             "signal_metrics_compute.cycle_complete",
             windows=list(WINDOWS),
             tracks="zone,market",
+            new_dq_failures=new_dq_count,
+            total_dq_keys_tracked=len(self._published_dq_keys),
         )
 
 

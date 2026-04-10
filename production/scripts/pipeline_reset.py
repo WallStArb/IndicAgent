@@ -50,7 +50,7 @@ from production.scripts.historical_backfill import (  # noqa: E402
     replay_symbol,
     seed_roll_chain,
 )
-from production.scripts.kafka_init_topics import get_topic_specs
+from production.scripts.kafka_init_topics import _COMPACTED_TOPICS, get_topic_specs
 from src.config.settings import Settings
 from src.core.database_manager import DatabaseManager
 from src.intelligence.register_plugins import register_all_plugins
@@ -200,15 +200,34 @@ async def clear_kafka_topics(
     Returns number of topics cleared.
     """
     prefix = f"{env_prefix}." if env_prefix else ""
+    # Standard topics: (suffix, partitions, retention_ms, cleanup_policy)
     new_topics = [
         NewTopic(
             name=f"{prefix}{suffix}",
             num_partitions=partitions,
             replication_factor=1,
-            topic_configs={"retention.ms": retention_ms},
+            topic_configs={
+                "retention.ms": str(retention_ms),
+                "cleanup.policy": cleanup_policy,
+            },
         )
-        for suffix, partitions, retention_ms in get_topic_specs(providers)
+        for suffix, partitions, retention_ms, cleanup_policy in get_topic_specs(providers)
     ]
+    # Compacted topics: (suffix, partitions)
+    for suffix, partitions in _COMPACTED_TOPICS:
+        new_topics.append(
+            NewTopic(
+                name=f"{prefix}{suffix}",
+                num_partitions=partitions,
+                replication_factor=1,
+                topic_configs={
+                    "cleanup.policy": "compact",
+                    "min.cleanable.dirty.ratio": "0.1",
+                    "segment.ms": "3600000",
+                },
+            )
+        )
+
     topic_names = [t.name for t in new_topics]
 
     client = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers, request_timeout_ms=30000)

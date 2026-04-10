@@ -252,22 +252,23 @@ def test_kafka_init_topics_importable():
 
 
 def test_kafka_init_topics_spec_shape():
-    """Each entry in _TOPIC_SPECS must be a (suffix, partitions, retention_ms) tuple."""
+    """Each entry in _TOPIC_SPECS must be a (suffix, partitions, retention_ms, cleanup_policy) tuple."""
     from production.scripts.kafka_init_topics import _TOPIC_SPECS
 
     for entry in _TOPIC_SPECS:
-        assert len(entry) == 3, f"Expected 3-tuple, got {entry}"
-        suffix, partitions, retention_ms = entry
+        assert len(entry) == 4, f"Expected 4-tuple, got {entry}"
+        suffix, partitions, retention_ms, cleanup_policy = entry
         assert isinstance(suffix, str)
         assert isinstance(partitions, int)
         assert isinstance(retention_ms, int)
+        assert cleanup_policy in ("delete", "compact")
 
 
 def test_kafka_init_topics_includes_core_topics():
     """Core market data topics must be present in _TOPIC_SPECS."""
     from production.scripts.kafka_init_topics import _TOPIC_SPECS
 
-    suffixes = {s for s, _, _ in _TOPIC_SPECS}
+    suffixes = {s for s, _, _, _ in _TOPIC_SPECS}
     assert "market.bars" in suffixes
     assert "market.bars.htf" in suffixes
     assert "market.ticks" in suffixes
@@ -279,11 +280,11 @@ def test_kafka_init_topics_includes_provider_raw_topic():
     from production.scripts.kafka_init_topics import get_topic_specs
 
     specs = get_topic_specs(["ibkr"])
-    suffixes = {s for s, _, _ in specs}
+    suffixes = {s for s, _, _, _ in specs}
     assert "market.bars.raw.ibkr" in suffixes
 
     specs_multi = get_topic_specs(["ibkr", "polygon"])
-    suffixes_multi = {s for s, _, _ in specs_multi}
+    suffixes_multi = {s for s, _, _, _ in specs_multi}
     assert "market.bars.raw.ibkr" in suffixes_multi
     assert "market.bars.raw.polygon" in suffixes_multi
 
@@ -292,7 +293,7 @@ def test_kafka_init_topics_includes_quality_topic():
     """market.data.quality must be in _TOPIC_SPECS (Phase 54 new topic)."""
     from production.scripts.kafka_init_topics import _TOPIC_SPECS
 
-    suffixes = {s for s, _, _ in _TOPIC_SPECS}
+    suffixes = {s for s, _, _, _ in _TOPIC_SPECS}
     assert "market.data.quality" in suffixes
 
 
@@ -300,5 +301,5 @@ def test_kafka_init_topics_all_use_dots_not_colons():
     """All topic suffixes must use dots as separators, never colons (CLAUDE.md rule)."""
     from production.scripts.kafka_init_topics import _TOPIC_SPECS
 
-    for suffix, _, _ in _TOPIC_SPECS:
+    for suffix, _, _, _ in _TOPIC_SPECS:
         assert ":" not in suffix, f"Colon found in topic suffix: {suffix}"
