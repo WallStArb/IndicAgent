@@ -49,7 +49,8 @@ def test_registry_dag_order_sources_before_sinks():
     by_unit = {s.unit: s.dag_order for s in SERVICE_REGISTRY}
     assert by_unit["indicagent-ibkr-provider"] < by_unit["indicagent-provider-merger"]
     assert by_unit["indicagent-provider-merger"] < by_unit["indicagent-bar-aggregator-compute"]
-    assert by_unit["indicagent-bar-aggregator-compute"] < by_unit["indicagent-intelligence-pipeline@1"]
+    pipeline_unit = "indicagent-intelligence-pipeline@1"
+    assert by_unit["indicagent-bar-aggregator-compute"] < by_unit[pipeline_unit]
     assert by_unit["indicagent-intelligence-pipeline@1"] < by_unit["indicagent-feature-writer"]
 
 
@@ -260,20 +261,19 @@ async def test_systemd_check_loop_uses_asyncio_gather():
     with patch("services.service_auditor_agent.asyncio.gather", side_effect=_patched_gather):
         try:
             await asyncio.wait_for(agent._systemd_check_loop(), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     assert len(gather_called_with_count) >= 1, "asyncio.gather was never called"
     # Should have been called with one coroutine per registry entry
-    assert gather_called_with_count[0] == len(_SORTED_REGISTRY), (
-        f"Expected gather with {len(_SORTED_REGISTRY)} coroutines, got {gather_called_with_count[0]}"
-    )
+    expected = len(_SORTED_REGISTRY)
+    actual = gather_called_with_count[0]
+    assert actual == expected, f"Expected gather with {expected} coroutines, got {actual}"
 
 
 @pytest.mark.asyncio
 async def test_systemd_check_loop_skips_exception_results():
     """Exception results from asyncio.gather must be logged and skipped, not propagated."""
-    from services.service_auditor_agent import _SORTED_REGISTRY
 
     agent = _make_agent()
     # _stop_event not set → running=True initially
@@ -303,7 +303,7 @@ async def test_systemd_check_loop_skips_exception_results():
     with patch("services.service_auditor_agent.asyncio.sleep", side_effect=_mock_sleep):
         try:
             await asyncio.wait_for(agent._systemd_check_loop(), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     # _evaluate_service should NOT have been called for the exception result
@@ -316,7 +316,7 @@ async def test_systemd_check_loop_skips_exception_results():
 @pytest.mark.asyncio
 async def test_systemd_check_loop_calls_evaluate_on_failed():
     """asyncio.gather result with active='failed' must trigger _evaluate_service."""
-    from services.service_auditor_agent import ServiceState, _SORTED_REGISTRY
+    from services.service_auditor_agent import _SORTED_REGISTRY, ServiceState
 
     agent = _make_agent()
     # _stop_event not set → running=True initially
@@ -344,7 +344,7 @@ async def test_systemd_check_loop_calls_evaluate_on_failed():
     with patch("services.service_auditor_agent.asyncio.sleep", side_effect=_mock_sleep):
         try:
             await asyncio.wait_for(agent._systemd_check_loop(), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     # _evaluate_service must have been called at least once (for failed services)
