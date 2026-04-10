@@ -209,7 +209,7 @@ def test_stop_services_includes_bar_pipeline():
     """_STOP_SERVICES must include bar-aggregator, bar-writer, bar-auditor."""
     from production.scripts.pipeline_reset import _STOP_SERVICES
 
-    assert "indicagent-bar-aggregator" in _STOP_SERVICES
+    assert "indicagent-bar-aggregator-compute" in _STOP_SERVICES
     assert "indicagent-bar-writer" in _STOP_SERVICES
     assert "indicagent-bar-auditor" in _STOP_SERVICES
 
@@ -225,7 +225,7 @@ def test_start_services_includes_bar_pipeline():
     """_START_SERVICES must include bar-aggregator, bar-writer, bar-auditor after reset."""
     from production.scripts.pipeline_reset import _START_SERVICES
 
-    assert "indicagent-bar-aggregator" in _START_SERVICES
+    assert "indicagent-bar-aggregator-compute" in _START_SERVICES
     assert "indicagent-bar-writer" in _START_SERVICES
     assert "indicagent-bar-auditor" in _START_SERVICES
 

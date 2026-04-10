@@ -728,7 +728,7 @@ class AINarrativeService:
         self._kafka_consumer = KafkaConsumerClient(
             topic_signals_aggregated(self.env_name),
             bootstrap_servers=self._kafka_bootstrap,
-            group_id="ai_narrative_consumer",
+            group_id="ai_narrative",
             auto_offset_reset="earliest",
             enable_auto_commit=False,
         )

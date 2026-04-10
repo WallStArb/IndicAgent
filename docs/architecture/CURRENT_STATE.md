@@ -22,7 +22,7 @@ IndicAgent v2.1 is a real-time market intelligence platform with a unified I1-I7
 |---------|------|--------------|--------------|---------|
 | IBKR Provider | `ibkr_provider_agent.py` | `indicagent-ibkr-provider` | :9129 | IBKR dual streams (5s RTB + 1m aggregation) |
 | Provider Merger | `provider_merger_agent.py` | `indicagent-provider-merger` | :9130 | Routes `market.bars.raw.*` → `market.bars` |
-| Bar Aggregator | `bar_aggregator_agent.py` | `indicagent-bar-aggregator` | :9120 | 1m → HTF (5m-1d) aggregation |
+| Bar Aggregator | `bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF (5m-1d) aggregation |
 | Bar Writer | `bar_writer_agent.py` | `indicagent-bar-writer` | :9121 | Writes `market_data_ohlcv` (batch) |
 | Bar Auditor | `bar_auditor_agent.py` | `indicagent-bar-auditor` | :9123 | Gap detection → `market.events.gap_requests` |
 | Roll Compute | `roll_compute_agent.py` | `indicagent-roll-compute` | :9122 | Calendar + volume z-score roll detection |

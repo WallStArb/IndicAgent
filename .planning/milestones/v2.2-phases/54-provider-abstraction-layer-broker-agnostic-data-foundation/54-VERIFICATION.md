@@ -130,7 +130,7 @@ This is a docs-only reference in a diagnostics section and does not affect any c
 
 ### Stale systemd dependencies in existing units (informational)
 
-`services/indicagent-bar-aggregator.service` and `services/indicagent-roll-compute.service` still have `After=indicagent-data-provider.service` and `Wants=indicagent-data-provider.service`. These are pre-existing units not in scope for Phase 54. Since `indicagent-data-provider.service` is no longer in `/etc/systemd/system/`, the `Wants=` dependency will fail silently (systemd ignores missing Wants targets). This does not break Phase 54 goal but should be cleaned up in a follow-on phase. Severity: Warning.
+`services/indicagent-bar-aggregator-compute.service` and `services/indicagent-roll-compute.service` still have `After=indicagent-data-provider.service` and `Wants=indicagent-data-provider.service`. These are pre-existing units not in scope for Phase 54. Since `indicagent-data-provider.service` is no longer in `/etc/systemd/system/`, the `Wants=` dependency will fail silently (systemd ignores missing Wants targets). This does not break Phase 54 goal but should be cleaned up in a follow-on phase. Severity: Warning.
 
 ### data_provider_agent.py file still present
 
@@ -140,7 +140,7 @@ This is a docs-only reference in a diagnostics section and does not affect any c
 |------|------|---------|----------|--------|
 | `src/config/settings.py` | 155, 196, 260 | E501 comment lines | Info | None — pre-existing, comments only |
 | `CLAUDE.md` | 356 | Stale `indicagent-data-provider` troubleshooting reference | Info | None — docs only |
-| `services/indicagent-bar-aggregator.service` | 3-4 | `Wants/After=indicagent-data-provider.service` | Warning | Silent on startup; existing units unaffected |
+| `services/indicagent-bar-aggregator-compute.service` | 3-4 | `Wants/After=indicagent-data-provider.service` | Warning | Silent on startup; existing units unaffected |
 | `services/data_provider_agent.py` | — | Dead file (not deployed, not referenced by Phase 54) | Warning | None currently; cleanup recommended |
 
 No blocker anti-patterns found.

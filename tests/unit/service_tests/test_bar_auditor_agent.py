@@ -5,7 +5,7 @@ Tests cover:
 - Constructor attributes (name, metrics_port)
 - topics_consumed/topics_produced contract
 - _expected_bars_for_date for crypto_24_7, nyse, futures_24_5
-- _detect_gaps with mocked asyncpg pool
+- _detect_gaps with mocked batch_bar_completeness (not direct DB pool)
 - _run_audit with mocked producer verifying BarGapRequest publish calls
 """
 
@@ -121,44 +121,58 @@ def _make_agent_stub(env_name="development"):
     agent.logger.info = MagicMock()
     agent.logger.debug = MagicMock()
     agent.logger.error = MagicMock()
+    # Updated: 3-tuple dedup key after Phase 63.6 refactor
     agent._requested_today: set = set()
     agent._requested_today_date: str = ""
     return agent
 
 
-class TestDetectGaps:
-    """Test _detect_gaps with mocked database pool."""
+def _make_instrument(symbol="BTC", session_id="crypto_24_7"):
+    """Return a minimal Instrument stub."""
+    from src.core.models import AssetClass, Instrument
+
+    return Instrument(symbol=symbol, asset_class=AssetClass.CRYPTO, session_id=session_id)
+
+
+def _make_bar_completeness_result(
+    symbol: str = "BTC",
+    tf: str = "1m",
+    expected: int = 1440,
+    actual: int = 10,
+):
+    """Build a BarCompletenessResult with sensible defaults."""
+    from src.core.audit_utils import BarCompletenessResult
+
+    session_start = datetime(2026, 1, 6, 0, 0, tzinfo=UTC)  # Tuesday
+    session_end = datetime(2026, 1, 7, 0, 0, tzinfo=UTC)
+    return BarCompletenessResult(
+        symbol=symbol,
+        tf=tf,
+        session_start=session_start,
+        session_end=session_end,
+        expected=expected,
+        actual=actual,
+    )
+
+
+class TestDetectGapsBatch:
+    """Test _detect_gaps delegates to batch_bar_completeness and publishes HTF gap requests."""
 
     @pytest.mark.asyncio
-    async def test_detect_gaps_returns_request_for_low_completeness(self):
-        """_detect_gaps returns BarGapRequest when actual bars < 95% of expected.
-
-        Uses crypto_24_7 session which trades every day (including weekends),
-        avoiding test failures when running on days where yesterday was a non-trading day for NYSE.
-        """
+    async def test_low_completeness_1m_publishes_gap_request(self):
+        """When batch_bar_completeness returns low-completeness 1m result, gap request published."""
         agent = _make_agent_stub()
-
-        from src.core.models import AssetClass, Instrument
-
-        mock_instrument = Instrument(
-            symbol="BTC",
-            asset_class=AssetClass.CRYPTO,
-            session_id="crypto_24_7",
-        )
-
-        # Mock the completeness gauge
         agent._canonical_completeness = MagicMock()
+        agent._db_pool = MagicMock()  # pool passed to batch_bar_completeness but not called directly
 
-        # Mock DB pool — returns count well below 95% of 1440
-        mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=10)  # 10/1440 = 0.7% completeness
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        agent._db_pool = mock_pool
+        instrument = _make_instrument("BTC", "crypto_24_7")
+        result = _make_bar_completeness_result(symbol="BTC", tf="1m", expected=1440, actual=10)
 
-        gaps = await agent._detect_gaps(instruments=[mock_instrument], lookback_days=1)
+        with patch(
+            "services.bar_auditor_agent.batch_bar_completeness",
+            new=AsyncMock(return_value=[result]),
+        ):
+            gaps = await agent._detect_gaps(instruments=[instrument], lookback_days=1)
 
         assert len(gaps) >= 1
         gap = gaps[0]
@@ -168,40 +182,87 @@ class TestDetectGaps:
         assert gap.source == "bar_auditor"
 
     @pytest.mark.asyncio
-    async def test_detect_gaps_skips_nontrading_days(self):
-        """_detect_gaps skips days with 0 expected bars (non-trading days)."""
+    async def test_htf_low_completeness_publishes_gap_request_with_htf_tf(self):
+        """When batch_bar_completeness returns low-completeness HTF result, gap request has tf='5m'."""
         agent = _make_agent_stub()
-
-        from src.core.models import AssetClass, Instrument
-
-        # Use nyse session — weekends return 0
-        mock_instrument = Instrument(
-            symbol="AAPL",
-            asset_class=AssetClass.EQUITY,
-            session_id="nyse",
-        )
-
         agent._canonical_completeness = MagicMock()
+        agent._db_pool = MagicMock()
 
-        mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=0)
-        mock_pool = AsyncMock()
-        mock_pool.acquire = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-        agent._db_pool = mock_pool
+        instrument = _make_instrument("BTC", "crypto_24_7")
+        result = _make_bar_completeness_result(symbol="BTC", tf="5m", expected=288, actual=0)
 
-        _date = "services.bar_auditor_agent.date"
-        with patch(_date) as mock_date:
-            # Make today() return a Sunday so lookback_days=1 gives Saturday
-            mock_date.today.return_value = date(2026, 3, 22)  # Sunday
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-            gaps = await agent._detect_gaps(instruments=[mock_instrument], lookback_days=1)
+        with patch(
+            "services.bar_auditor_agent.batch_bar_completeness",
+            new=AsyncMock(return_value=[result]),
+        ):
+            gaps = await agent._detect_gaps(instruments=[instrument], lookback_days=1)
 
-        # Saturday = non-trading day for NYSE → no gap requests
+        assert len(gaps) >= 1
+        gap = gaps[0]
+        assert gap.tf == "5m"
+        assert gap.symbol == "BTC"
+
+    @pytest.mark.asyncio
+    async def test_high_completeness_skips_gap_request(self):
+        """When completeness >= threshold, no gap request is created."""
+        agent = _make_agent_stub()
+        agent._canonical_completeness = MagicMock()
+        agent._db_pool = MagicMock()
+
+        instrument = _make_instrument("BTC", "crypto_24_7")
+        # 1440/1440 = 100% completeness — well above threshold
+        result = _make_bar_completeness_result(symbol="BTC", tf="1m", expected=1440, actual=1440)
+
+        with patch(
+            "services.bar_auditor_agent.batch_bar_completeness",
+            new=AsyncMock(return_value=[result]),
+        ):
+            gaps = await agent._detect_gaps(instruments=[instrument], lookback_days=1)
+
         assert gaps == []
-        # DB should not have been queried for non-trading days
-        mock_conn.fetchval.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dedup_same_symbol_date_tf_not_added_twice(self):
+        """Same (symbol, date_str, tf) gap key is only published once per UTC day."""
+        agent = _make_agent_stub()
+        agent._canonical_completeness = MagicMock()
+        agent._db_pool = MagicMock()
+
+        instrument = _make_instrument("BTC", "crypto_24_7")
+        result = _make_bar_completeness_result(symbol="BTC", tf="1m", expected=1440, actual=10)
+
+        with patch(
+            "services.bar_auditor_agent.batch_bar_completeness",
+            new=AsyncMock(return_value=[result]),
+        ):
+            # First call — should publish
+            gaps_first = await agent._detect_gaps(instruments=[instrument], lookback_days=1)
+            # Second call — same (symbol, date_str, tf) already in dedup set
+            gaps_second = await agent._detect_gaps(instruments=[instrument], lookback_days=1)
+
+        assert len(gaps_first) >= 1
+        assert gaps_second == []
+
+    @pytest.mark.asyncio
+    async def test_completeness_gauge_called_with_tf_label(self):
+        """_detect_gaps calls _canonical_completeness.labels with the result's tf value."""
+        agent = _make_agent_stub()
+        agent._canonical_completeness = MagicMock()
+        agent._db_pool = MagicMock()
+
+        instrument = _make_instrument("BTC", "crypto_24_7")
+        result = _make_bar_completeness_result(symbol="BTC", tf="5m", expected=288, actual=280)
+
+        with patch(
+            "services.bar_auditor_agent.batch_bar_completeness",
+            new=AsyncMock(return_value=[result]),
+        ):
+            await agent._detect_gaps(instruments=[instrument], lookback_days=1)
+
+        agent._canonical_completeness.labels.assert_called()
+        call_kwargs = agent._canonical_completeness.labels.call_args
+        # labels called with tf="5m"
+        assert call_kwargs[1].get("tf") == "5m" or "5m" in str(call_kwargs)
 
 
 class TestRunAudit:

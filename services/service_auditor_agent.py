@@ -52,12 +52,12 @@ class ServiceSpec:
 SERVICE_REGISTRY: list[ServiceSpec] = [
     ServiceSpec("indicagent-ibkr-provider", 9129, 0, 1, False),
     ServiceSpec("indicagent-provider-merger", 9130, 500, 2, True),
-    ServiceSpec("indicagent-bar-aggregator", 9120, 500, 3, True),
+    ServiceSpec("indicagent-bar-aggregator-compute", 9120, 500, 3, True),
     ServiceSpec("indicagent-bar-auditor", 9123, 200, 3, True),
     ServiceSpec("indicagent-bar-writer", 9121, 1000, 4, True),
     ServiceSpec("indicagent-intelligence-pipeline@1", 9125, 500, 5, True),
     ServiceSpec("indicagent-feature-writer", 9116, 1000, 6, True),
-    ServiceSpec("indicagent-signal-tracker-compute", 9115, 500, 6, True),
+    ServiceSpec("indicagent-signal-tracker", 9115, 500, 6, True),
     ServiceSpec("indicagent-signal-writer", 9119, 500, 6, True),
     ServiceSpec("indicagent-ai-narrative", 9113, 200, 7, True),
     ServiceSpec("indicagent-llm-writer", 9117, 500, 7, True),
@@ -70,10 +70,10 @@ _SORTED_REGISTRY: list[ServiceSpec] = sorted(SERVICE_REGISTRY, key=lambda s: s.d
 # Maps persistence_consumer_lag agent_id label -> systemd unit name
 _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_writer_agent": "indicagent-bar-writer",
-    "bar_aggregator_agent": "indicagent-bar-aggregator",
+    "bar_aggregator_agent": "indicagent-bar-aggregator-compute",
     "intelligence_pipeline_agent": "indicagent-intelligence-pipeline@1",
     "feature_writer_agent": "indicagent-feature-writer",
-    "signal_tracker_agent": "indicagent-signal-tracker-compute",
+    "signal_tracker_agent": "indicagent-signal-tracker",
     "signal_writer_agent": "indicagent-signal-writer",
     "ai_narrative_service": "indicagent-ai-narrative",
     "llm_writer_service": "indicagent-llm-writer",

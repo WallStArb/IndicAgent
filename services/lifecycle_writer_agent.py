@@ -5,7 +5,7 @@ Consumes lifecycle.transitions Kafka topic, buffers transitions,
 groups by type, and batch-writes to signal_ledger via execute_batch().
 
 WriterAgent role: DB-only, zero compute. No lifecycle evaluation.
-Consumer group: lifecycle_writer_consumer
+Consumer group: lifecycle_writer_group
 Metrics port: 9128
 """
 
@@ -41,7 +41,7 @@ from src.persistence.repository.signal_ledger_repository import (
 # Constants
 # ---------------------------------------------------------------------------
 
-CONSUMER_GROUP = "lifecycle_writer_consumer"
+CONSUMER_GROUP = "lifecycle_writer_group"
 BATCH_SIZE = 100  # flush after this many transitions
 FLUSH_INTERVAL_SECS = 5.0  # or after this many seconds, whichever comes first
 MAX_BUFFER_SIZE = 10_000  # drop oldest transitions if buffer exceeds this
