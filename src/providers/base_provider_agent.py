@@ -55,6 +55,8 @@ class BaseProviderAgent(BaseAgent):
     - SLA:      provider_gaps_filled_total{provider, agent}
     """
 
+    _MAX_CONCURRENT_GAP_FILLS: int = 3  # IBKR pacing limit: exceed this → Error 162
+
     def __init__(self) -> None:
         # config-before-super pattern (Phase 52.2 convention — see bar_aggregator_agent.py)
         self._settings = Settings()
@@ -286,11 +288,12 @@ class BaseProviderAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     async def _gap_requests_loop(self) -> None:
-        """Consume BarGapRequest events and re-fetch bars from the adapter.
+        """Consume BarGapRequest events with semaphore-bounded concurrent gap fill.
 
-        Pure Kafka consumer — no dependency on adapter connection state.
-        Submitted once; IBKR disconnects do NOT cancel it. The per-message
-        try/except handles fetch failures gracefully.
+        Fire-and-track task pool: consumer loop creates tasks immediately; semaphore
+        caps concurrent IBKR historical requests at _MAX_CONCURRENT_GAP_FILLS (3).
+        Exceeding IBKR's pacing limit causes Error 162 (pacing violation).
+        All in-flight tasks drain on SIGTERM via the finally block.
 
         Gap-fill bars are published to topic_market_bars_raw(env, provider)
         so MergerAgent routes them into the canonical stream.
@@ -311,58 +314,71 @@ class BaseProviderAgent(BaseAgent):
             group_id=group_id,
         )
 
+        sem = asyncio.Semaphore(self._MAX_CONCURRENT_GAP_FILLS)
+        tasks: set[asyncio.Task] = set()
         try:
             async for _topic, _key, payload in gap_consumer.messages():
                 if self._stop_event.is_set():
                     break
                 try:
                     req = BarGapRequest.model_validate(payload)
-                    self.logger.info(
-                        "provider_agent.gap_requests_loop.received",
-                        agent=self.name,
-                        request_id=str(req.request_id),
-                        symbol=req.symbol,
-                        tf=req.tf,
-                        start_ts=req.start_ts.isoformat(),
-                        end_ts=req.end_ts.isoformat(),
-                    )
-
-                    bars = await self._adapter.fetch_historical(
-                        symbol=req.symbol,
-                        tf=req.tf,
-                        start=req.start_ts,
-                        end=req.end_ts,
-                    )
-
-                    for bar in bars:
-                        await self._kafka_producer.publish(
-                            self._raw_topic,
-                            bar.model_dump(mode="json"),
-                            key=message_key(req.symbol, req.tf),
-                        )
-                        self._m_gaps_filled.inc()
-
-                    self.logger.info(
-                        "provider_agent.gap_requests_loop.fulfilled",
-                        agent=self.name,
-                        request_id=str(req.request_id),
-                        symbol=req.symbol,
-                        bars_fetched=len(bars),
-                    )
-
-                except CancelledError:
-                    raise
                 except Exception as exc:
                     self.logger.error(
-                        "provider_agent.gap_requests_loop.error",
+                        "provider_agent.gap_requests_loop.parse_error",
                         agent=self.name,
                         error=str(exc),
                         payload_preview=str(payload)[:200],
                     )
-                    # Continue consuming — don't crash the loop on a single failure
-
+                    continue
+                task = asyncio.create_task(self._fill_gap(req, sem))
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
         finally:
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
             await gap_consumer.stop()
+
+    async def _fill_gap(self, req: BarGapRequest, sem: asyncio.Semaphore) -> None:
+        """Fetch historical bars and publish to raw topic, bounded by semaphore."""
+        async with sem:
+            try:
+                self.logger.info(
+                    "provider_agent.gap_requests_loop.received",
+                    agent=self.name,
+                    request_id=str(req.request_id),
+                    symbol=req.symbol,
+                    tf=req.tf,
+                    start_ts=req.start_ts.isoformat(),
+                    end_ts=req.end_ts.isoformat(),
+                )
+                bars = await self._adapter.fetch_historical(
+                    symbol=req.symbol,
+                    tf=req.tf,
+                    start=req.start_ts,
+                    end=req.end_ts,
+                )
+                for bar in bars:
+                    await self._kafka_producer.publish(
+                        self._raw_topic,
+                        bar.model_dump(mode="json"),
+                        key=message_key(req.symbol, req.tf),
+                    )
+                    self._m_gaps_filled.inc()
+                self.logger.info(
+                    "provider_agent.gap_requests_loop.fulfilled",
+                    agent=self.name,
+                    request_id=str(req.request_id),
+                    symbol=req.symbol,
+                    bars_fetched=len(bars),
+                )
+            except CancelledError:
+                raise
+            except Exception as exc:
+                self.logger.error(
+                    "provider_agent.gap_requests_loop.error",
+                    agent=self.name,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------
     # Bar publishing
