@@ -50,6 +50,7 @@ def _make_transition(
     signal_id: str = "sig-001",
     symbol: str = "ES",
     timeframe: str = "1m",
+    data: dict | None = None,
 ) -> dict:
     """Build a minimal lifecycle transition dict (as consumed from Kafka)."""
     return {
@@ -58,7 +59,7 @@ def _make_transition(
         "symbol": symbol,
         "timeframe": timeframe,
         "bar_ts": datetime.now(UTC).isoformat(),
-        "data": {},
+        "data": data or {},
     }
 
 
@@ -115,9 +116,9 @@ class TestFlushGroupsByType:
         """Two activations + one exit → two batch_execute calls."""
         agent = _make_agent()
         agent._buffer.extend([
-            _make_transition("activation", "sig-001"),
-            _make_transition("exit", "sig-002"),
-            _make_transition("activation", "sig-003"),
+            _make_transition("activation", "sig-001", data={"activation_price": 100.0}),
+            _make_transition("exit", "sig-002", data={"exit_price": 105.0}),
+            _make_transition("activation", "sig-003", data={"activation_price": 200.0}),
         ])
         await agent._flush()
 
@@ -126,13 +127,17 @@ class TestFlushGroupsByType:
         calls = agent._repo.batch_execute.call_args_list
         types_called = {c[0][0] for c in calls}
         assert types_called == {"activation", "exit"}
-        # Verify counts per group
+        # Verify counts per group and signal_id merged into data
         for c in calls:
             ttype, items = c[0][0], c[0][1]
             if ttype == "activation":
                 assert len(items) == 2
+                assert items[0]["signal_id"] == "sig-001"
+                assert items[0]["activation_price"] == 100.0
             elif ttype == "exit":
                 assert len(items) == 1
+                assert items[0]["signal_id"] == "sig-002"
+                assert items[0]["exit_price"] == 105.0
 
     @pytest.mark.asyncio
     async def test_flush_clears_buffer_on_success(self):

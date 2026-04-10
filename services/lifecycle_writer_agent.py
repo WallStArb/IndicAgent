@@ -142,10 +142,11 @@ class LifecycleWriterAgent(BaseAgent):
         batch = self._buffer[:]
         t0 = time.perf_counter()
 
-        # Group by transition_type
+        # Group by transition_type — merge signal_id into data for batch_execute
         groups: dict[str, list[dict]] = defaultdict(list)
         for item in batch:
-            groups[item["transition_type"]].append(item["data"])
+            entry = {"signal_id": item["signal_id"], **item["data"]}
+            groups[item["transition_type"]].append(entry)
 
         try:
             for ttype, items in groups.items():
