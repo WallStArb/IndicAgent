@@ -26,6 +26,7 @@ from src.core.bar_normalizer import (
     SOURCE_IBKR_GENERIC,
     SOURCE_IBKR_NAMED,
     SOURCE_IBKR_SEED,
+    SOURCE_REPLAY,
 )
 
 
@@ -78,7 +79,7 @@ class BarMessage(BaseModel):
     low: float
     close: float
     volume: int
-    source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED, SOURCE_IBKR_GENERIC]
+    source: Literal[SOURCE_IBKR_NAMED, SOURCE_IBKR_SEED, SOURCE_HTF_DERIVED, SOURCE_IBKR_GENERIC, SOURCE_REPLAY]
     session_type: SessionType
     gap_preceding: bool = False
     is_flat_bar: bool = False
