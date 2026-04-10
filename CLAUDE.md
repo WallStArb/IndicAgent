@@ -275,6 +275,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 ```
 **Real-time pipeline never touches the database directly.**
 
+**Signal lifecycle is a different concern from signal generation.** Generation is real-time compute (ms latency, per-bar). Lifecycle is business object tracking (minutes to days, state accumulates). The signal tracker is the only service that violates the compute→Kafka→writer DAG pattern — it reads and writes signal_ledger in the same process. Fix plan: `docs/plans/2026-04-10-pipeline-health-fixes-design.md`.
+
 ### TimescaleDB Tables
 - `market_data_ohlcv` — raw OHLCV (backfill + live via BarWriterAgent; keep forever — ground truth).
 - `intelligence_features` — full feature vectors per bar incl. i7/i8 JSONB (ML training dataset; keep forever). Column name is `ts` not `feature_ts`.
@@ -340,6 +342,8 @@ Cold: BarWriterAgent + feature_writer_service → TimescaleDB (batch, async)
 
 **Data & Database**
 - **TimescaleDB migration**: Never use pg_dump/restore for hypertables — chunks do not restore cleanly. Use raw volume copy: `docker run --rm -v old-vol:/src:ro -v new-vol:/dst alpine sh -c "cd /src && cp -a . /dst/"`. Also: `pg_dump` with `2>&1` corrupts `--Fc` binary output — always redirect stderr separately.
+- **Disable compression order**: Must `SELECT decompress_chunk(...)` on all compressed chunks BEFORE `ALTER TABLE SET (timescaledb.compress = false)` — the ALTER fails if any chunk is still compressed.
+- **signal_ledger columns**: `exit_at` (not `exit_ts`), `activated_at`, `outcome`, `exit_reason`, `pnl_r`, `mae`, `mfe`, `bars_in_trade`. Primary time column is `timestamp` (not `ts` or `feature_ts`).
 - **`bar_close_price` implicit**: no need to store in `signal_ledger` — JOIN to `intelligence_features` on `(symbol, feature_ts, feature_tf)` gives full bar OHLCV including close price.
 - **_STANDARD_TFS configuration:** When adding new timeframes, update 2 locations: (1) `intelligence_pipeline_agent.py` `_STANDARD_TFS` tuple, (2) `BarAccumulator._TF_MINUTES` dict in `src/core/bar_accumulator.py`. BarAccumulator initialization auto-uses `_TF_MINUTES.keys()` as default. Missing one causes aggregation or warmup failures.
 - **Canonical bar enforcement:** With continuous 1m bar flow (60 bars/hour), BarAccumulator emits: 24× 1h/day, 6× 4h/day, 1× 1d/day. Session break logic at RTH close prevents cross-session contamination. Overnight gaps don't skip bars—period boundary crossing on next 1m bar triggers emission of accumulated HTF bar.
