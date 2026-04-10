@@ -1,4 +1,4 @@
-"""Unit tests for SignalAuditorAgent.
+"""DEPRECATED: tests for SignalAuditorAgent._check_coverage and _check_pipeline_lag — 2026-04-10 — Phase 63.6-02 replaced these methods with batch_signal_coverage() — see tests/unit/service_tests/test_signal_auditor_agent.py
 
 Tests verify:
 - Signal coverage gap detection and event emission
