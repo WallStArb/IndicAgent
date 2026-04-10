@@ -673,12 +673,12 @@ Plans:
 **Goal:** Eliminate 826+ sequential DB roundtrips per 5-minute audit cycle by vectorizing all auditor queries into batch SQL, parallelizing ServiceAuditorAgent systemd checks, and adding self-healing for HTF bar gaps and signal coverage gaps via a new BarReplayAgent.
 **Design doc:** `docs/plans/2026-04-10-parallel-self-healing-auditors-design.md`
 **Depends on:** Phase 63
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 
 Plans:
-- [ ] 63.6-01-PLAN.md — audit_utils.py (batch SQL) + BarAuditorAgent vectorization (1 query, all TFs)
-- [ ] 63.6-02-PLAN.md — SignalAuditorAgent vectorization + BarReplayAgent + signal gap self-healing
-- [ ] 63.6-03-PLAN.md — ServiceAuditorAgent asyncio.gather + BaseProviderAgent semaphore + systemd units
+- [x] 63.6-01-PLAN.md — audit_utils.py (batch SQL) + BarAuditorAgent vectorization (1 query, all TFs)
+- [x] 63.6-02-PLAN.md — SignalAuditorAgent vectorization + BarReplayAgent + signal gap self-healing
+- [x] 63.6-03-PLAN.md — ServiceAuditorAgent asyncio.gather + BaseProviderAgent semaphore + systemd units
 
 ### Phase 59: OFI Divergence Redesign ✅ Complete 2026-04-05
 
