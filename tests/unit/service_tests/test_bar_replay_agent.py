@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.core.schemas.market_events import SignalReplayRequest
-from src.core.stream_keys import topic_market_bars, topic_market_bars_htf, topic_signal_replay_requests
+from src.core.stream_keys import (
+    topic_market_bars,
+    topic_market_bars_htf,
+    topic_signal_replay_requests,
+)
 
 
 def _make_agent(env_name: str = "development"):

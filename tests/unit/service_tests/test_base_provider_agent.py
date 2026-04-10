@@ -269,7 +269,6 @@ async def test_gap_fills_published_to_raw_topic():
     )
 
     published_topics: list[str] = []
-    original_publish = agent._kafka_producer.publish
 
     async def _capture_publish(topic, payload, key=None):
         published_topics.append(topic)
@@ -405,9 +404,9 @@ def test_fill_gap_method_exists():
 async def test_gap_requests_loop_creates_tasks_not_sequential():
     """_gap_requests_loop must create asyncio.Task objects (fire-and-track) not await each one."""
     from datetime import UTC, datetime
+    from unittest.mock import patch
 
     from src.core.schemas.market_events import BarGapRequest
-    from unittest.mock import patch
 
     agent, _ = _make_concrete_agent()
 
@@ -441,9 +440,10 @@ async def test_gap_requests_loop_creates_tasks_not_sequential():
     mock_consumer.start = AsyncMock()
     mock_consumer.stop = AsyncMock()
 
+    create_task_path = "src.providers.base_provider_agent.asyncio.create_task"
     with (
         patch("src.providers.base_provider_agent.KafkaConsumerClient", return_value=mock_consumer),
-        patch("src.providers.base_provider_agent.asyncio.create_task", side_effect=_track_create_task),
+        patch(create_task_path, side_effect=_track_create_task),
     ):
         await agent._gap_requests_loop()
 
@@ -490,7 +490,6 @@ async def test_semaphore_limits_concurrency():
     agent, _ = _make_concrete_agent()
 
     execution_order: list[str] = []
-    acquired = asyncio.Event()
 
     async def _slow_fetch(**kwargs):
         execution_order.append("fetch_start")
