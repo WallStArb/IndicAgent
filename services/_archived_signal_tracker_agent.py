@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""
+"""DEPRECATED: signal_tracker_agent 2026-04-10 — compute/persistence separation.
+Compute logic moved to signal_tracker_compute.py.
+Persistence moved to lifecycle_writer_agent.py.
+
 SignalTrackerAgent — institutional-grade signal lifecycle tracker.
 
 Inherits BaseAgent for SIGTERM drain, lag reporting, and structured logging.
