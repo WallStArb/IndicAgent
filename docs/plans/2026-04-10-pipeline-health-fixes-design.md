@@ -12,7 +12,7 @@ Fix the three critical blockers identified in the 2026-04-10 pipeline health aud
 
 ## Problem
 
-The signal tracker is the only service in the system that interleaves compute and persistence. Every other data path follows:
+The signal tracker violates the system's DAG architecture. Every other data path follows:
 
 ```
 ComputeAgent (DB-ignorant) → Kafka topic → WriterAgent (zero compute) → DB
@@ -24,6 +24,20 @@ The tracker reads from DB, evaluates lifecycle transitions, and writes to DB in 
 - 515K signals stuck at `pending` (zero activations for crypto)
 - TimescaleDB decompression errors on every bar for 3 futures symbols
 - 65K intelligence pipeline lag (separate issue, self-draining at 4.5 bars/sec)
+
+## Why the Tracker Stays Separate
+
+Signal generation and signal lifecycle are different concerns:
+
+| | Signal Generation | Signal Lifecycle |
+|---|---|---|
+| **Latency** | Milliseconds (per-bar) | Minutes to days |
+| **Concern** | What patterns exist in this bar? | What happened to this business object? |
+| **State** | Bounded (warmup windows) | Growing (accumulates with each new signal) |
+| **Failure mode** | Miss a signal on this bar | Lose tracking of an active trade setup |
+| **Scaling** | More symbols × more plugins | More signals × longer holding periods |
+
+Lifecycle tracking is a TrackerAgent concern, not a ComputeAgent concern. It stays separate from the intelligence pipeline. But it follows the same DAG: compute in-memory, publish to Kafka, writer persists.
 
 ## Solution
 
@@ -37,7 +51,7 @@ Pipeline throughput optimization (P3) is deferred. The pipeline catches up in ~5
 
 ### P1.1: Set TimescaleDB decompression limit to unlimited
 
-The default `max_tuples_decompressed_per_dml_transaction = 100,000` (was previously 1,000, raised but not enough). The tracker's UPDATE queries on signal_ledger hit compressed chunks and exceed the limit on every bar for NQM6, RTYM6, ESM6.
+Current `max_tuples_decompressed_per_dml_transaction = 100,000` (was raised from 1,000 but not enough). Tracker UPDATE queries hit compressed chunks and exceed the limit for NQM6, RTYM6, ESM6.
 
 ```sql
 ALTER SYSTEM SET timescaledb.max_tuples_decompressed_per_dml_transaction = 0;
@@ -53,7 +67,6 @@ ALTER TABLE signal_ledger SET (
     timescaledb.compress = false
 );
 
--- Decompress existing compressed chunks
 SELECT decompress_chunk(chunk_schema || '.' || chunk_name)
 FROM timescaledb_information.chunks
 WHERE hypertable_name = 'signal_ledger'
@@ -62,7 +75,7 @@ WHERE hypertable_name = 'signal_ledger'
 
 3.7M rows at ~104KB compressed — uncompressed size is still small. Storage cost is negligible.
 
-### P1.3: Expire orphaned pre-restart pending signals
+### P1.3: Expire orphaned pre-restart signals
 
 135K signals from before Apr 7 restart that sit outside topic retention (7 days). The tracker will never evaluate them.
 
@@ -78,13 +91,11 @@ WHERE status = 'pending'
 
 ### P1.4: Restart signal tracker
 
-After config changes and orphan cleanup, restart to clear error state.
-
 ```bash
 sudo systemctl restart indicagent-signal-tracker
 ```
 
-**Verification:** Zero new decompression errors in tracker log. Lag starts decreasing within minutes.
+**Verification:** Zero new decompression errors. Lag starts decreasing.
 
 ---
 
@@ -100,31 +111,36 @@ Single service that:
 - Consumes bars one at a time from Kafka
 - Queries DB for active signals every 60s (N queries for N symbols)
 - Evaluates lifecycle transitions (pure compute)
-- `await`s individual DB writes per transition (activation, resolution, chandelier)
+- `await`s individual DB writes per transition
 - Commits Kafka after every bar
+- Processes ALL bars even for symbols with zero active signals
 
 ### Target Architecture (follows DAG)
 
 ```
-market.bars ─────────────────────────────────────────────────────┐
-market.bars.htf ─────────────────────────────────────────────────┤
-                                                                 ↓
-                                              signal_tracker_compute
-                                              (DB-ignorant, in-memory)
-                                                                 │
-                                                                 ↓
-                                                    lifecycle.transitions
-                                                    (new Kafka topic)
-                                                                 │
-                                                                 ↓
-                                                   lifecycle_writer_agent
-                                                   (batch persist, zero compute)
-                                                                 │
-                                                                 ↓
-                                                         signal_ledger
+market.bars ──────────────────────────────┐
+market.bars.htf ──────────────────────────┤
+                                          ↓
+                           signal_tracker_compute
+                           (TrackerAgent, DB-ignorant)
+                           ├─ symbol filter (skip ~70% of bars)
+                           ├─ timeframe filter (1m signals ↔ 1m bars)
+                           ├─ batch consume (getmany)
+                           └─ transitions → Kafka
+                                          │
+                                          ↓
+                             lifecycle.transitions
+                             (Kafka topic, 7-day retention)
+                                          │
+                                          ↓
+                          lifecycle_writer_agent
+                          (WriterAgent, zero compute, batch persist)
+                                          │
+                                          ↓
+                                  signal_ledger
 ```
 
-Two services, following the exact same pattern as:
+Same DAG pattern as:
 - `intelligence_pipeline` → `intelligence.journal` → `feature_writer` → `intelligence_features`
 - `intelligence_pipeline` → `intelligence.i7.signals` → `signal_writer` → `signal_ledger`
 
@@ -134,47 +150,46 @@ Two services, following the exact same pattern as:
 
 **File:** `services/signal_tracker_compute.py`
 **Unit:** `indicagent-signal-tracker-compute`
-**Consumer group:** `signal_tracker_compute` (new group, starts fresh)
+**Consumer group:** `signal_tracker_compute` (new, starts fresh)
 **Metrics port:** :9127
 
 **Responsibilities:**
 - Consume bars from `market.bars` + `market.bars.htf`
-- Maintain active signals in-memory
+- Filter to symbols with active/pending signals (~70% of bars skipped)
 - Evaluate lifecycle transitions via existing `evaluate_signal()` logic
 - Publish transition events to `lifecycle.transitions` Kafka topic
-- Checkpoint state to compacted topic for restart recovery
 
 **Compute layer design:**
 
 ```
-getmany() batch of bars
+getmany(max_records=100, timeout=1.0)
        ↓
 for each bar:
-    filter active signals by symbol + timeframe
+    if symbol not in _active_signal_index: SKIP   ← ~70% of bars skipped here
+    filter signals by timeframe matching bar        ← 1m signals only on 1m bars
     evaluate_signal() per signal (pure function, unchanged)
-    collect transitions (activations, exits, chandelier updates, MAE/MFE)
+    collect transitions
        ↓
-publish all transitions to lifecycle.transitions topic
+publish all transitions to lifecycle.transitions
        ↓
-commit Kafka offsets (every batch, not every bar)
+commit Kafka offsets (per batch, not per bar)
 ```
 
-**Key changes from current tracker:**
-- `getmany(max_records=100, timeout=1.0)` instead of single-message iteration
-- Zero `await` on DB writes — transitions are Kafka publishes only
-- Kafka commits per batch, not per bar
-- Chandelier state updates published as transitions (not direct DB writes)
+**Symbol filtering:** Maintain an in-memory set `_active_symbols` populated from the signal index. On each bar, check `if bar.symbol not in _active_symbols: continue`. This is O(1) per bar and skips ~70% of processing.
+
+**Timeframe filtering:** When processing a bar from `market.bars` (1m), only evaluate signals with `timeframe='1m'`. When processing from `market.bars.htf`, match the bar's timeframe to signal timeframes. Don't cross-evaluate.
 
 **State management:**
 
-Bootstrap: On startup, query DB once for all active signals:
+Bootstrap: On startup, single DB query loads all active signals:
 ```sql
-SELECT * FROM signal_ledger WHERE status IN ('pending', 'active', 'regime_suppressed');
+SELECT * FROM signal_ledger
+WHERE status IN ('pending', 'active', 'regime_suppressed');
 ```
 
-Checkpoint: Periodically serialize in-memory state to a compacted Kafka topic `lifecycle.checkpoint` (same pattern as `intelligence_pipeline` state checkpointing).
+Signal ingestion: Subscribe to `intelligence.i7.signals` Kafka topic (second consumer group). New signals stream into the in-memory index as they're generated. No periodic DB polling.
 
-Signal ingestion: The ComputeAgent subscribes to `intelligence.i7.signals` Kafka topic (same topic `signal_writer_agent` consumes). New signals are added to the in-memory index as they arrive. This replaces the current reseed-from-DB-every-60s pattern with a streaming update. The ComputeAgent is a second consumer on the same topic (different consumer group `signal_tracker_compute`), which Kafka supports natively.
+No checkpointing. On restart: bootstrap from DB + resume Kafka offsets. Signal evaluation is idempotent — double-processing a bar produces the same result (status guards prevent double transitions).
 
 **What stays the same:**
 - `evaluate_signal()` pure function (untouched)
@@ -188,8 +203,10 @@ Signal ingestion: The ComputeAgent subscribes to `intelligence.i7.signals` Kafka
 - No DB reads after initial bootstrap
 - No DB writes at all
 - All transitions published to Kafka
-- Batch bar consumption
+- Batch bar consumption (`getmany`)
 - Periodic Kafka commits
+- Symbol filtering (skip irrelevant bars)
+- Timeframe filtering (match bar TF to signal TF)
 
 ---
 
@@ -202,42 +219,36 @@ Signal ingestion: The ComputeAgent subscribes to `intelligence.i7.signals` Kafka
 
 **Responsibilities:**
 - Consume transition events from `lifecycle.transitions` topic
-- Buffer transitions in memory
-- Batch-write to `signal_ledger` via `execute_batch()`
-- Standard writer metrics (batch latency, buffer depth, consumer lag)
+- Buffer transitions, batch-write to `signal_ledger` via `execute_batch()`
+- Zero compute — pure persistence
 
-**Pattern:** Exact copy of `signal_writer_agent.py` conventions:
+**Pattern:** Same conventions as `signal_writer_agent.py`:
 
 ```python
-BATCH_SIZE = 100          # flush after this many transitions
-FLUSH_INTERVAL_SECS = 5.0 # or after this many seconds
-MAX_BUFFER_SIZE = 10_000   # memory safety cap
+BATCH_SIZE = 100
+FLUSH_INTERVAL_SECS = 5.0
+MAX_BUFFER_SIZE = 10_000
 ```
 
-**Transition types to persist:**
-- `activation` — signal status pending → active
-- `exit` — signal status active → expired/stopped_out/target_hit
+**Batch SQL by transition type:** Group buffered transitions by type before flushing. One `execute_batch()` call per type per flush cycle (5 types max), instead of one per signal.
+
+**Transition types:**
+- `activation` — signal pending → active
+- `exit` — signal active → expired/stopped_out/target_hit
 - `chandelier_update` — trailing stop state change
 - `mae_mfe_update` — max adverse/favorable excursion update
-- `shadow_outcome` — regime_suppressed signal outcome recording
-
-Each transition type maps to a specific UPDATE statement on signal_ledger. The writer batches transitions of the same type together for efficient `execute_batch()` calls.
+- `shadow_outcome` — regime_suppressed signal outcome
 
 **What stays the same:**
-- Repository methods in `SignalLedgerRepository` for DB interaction
+- Repository methods in `SignalLedgerRepository`
 - All DB schema and column names
-
-**What's new:**
-- Kafka topic `lifecycle.transitions` (via `stream_keys.py`)
-- The writer service itself
-- Systemd unit
 
 ---
 
 ### P2.3: Kafka Topic
 
-**Topic:** `lifecycle.transitions` (constructed via `topic_lifecycle_transitions()` in `stream_keys.py`)
-**Config:** compacted (for checkpoint recovery), 7-day retention
+**Topic:** `lifecycle.transitions` via `topic_lifecycle_transitions()` in `stream_keys.py`
+**Config:** Standard 7-day retention. No compaction needed — transitions are consumed within seconds and persisted to DB.
 
 **Transition event schema:**
 
@@ -248,7 +259,7 @@ Each transition type maps to a specific UPDATE statement on signal_ledger. The w
   "symbol": "BTCUSD",
   "timeframe": "1m",
   "bar_ts": "2026-04-10T04:02:00Z",
-  "data": { ... }  // type-specific payload
+  "data": { ... }
 }
 ```
 
@@ -307,16 +318,16 @@ Each transition type maps to a specific UPDATE statement on signal_ledger. The w
 
 ### P2.4: Migration Plan
 
-1. Create new Kafka topic `lifecycle.transitions`
+1. Create Kafka topic `lifecycle.transitions`
 2. Create `services/signal_tracker_compute.py` — extract compute logic from `signal_tracker_agent.py`
-3. Create `services/lifecycle_writer_agent.py` — new WriterAgent consuming transitions
+3. Create `services/lifecycle_writer_agent.py` — new WriterAgent
 4. Add `topic_lifecycle_transitions()` to `src/core/stream_keys.py`
 5. Add transition type enum to `src/intelligence/trading/lifecycle_tracker.py`
 6. Create systemd units for both new services
-7. Deploy: start lifecycle_writer first (consumer ready), then signal_tracker_compute, then stop old signal_tracker
-8. Archive `services/signal_tracker_agent.py` as `_archived_signal_tracker_agent.py`
+7. Deploy: start lifecycle_writer first, then signal_tracker_compute, then stop old signal_tracker
+8. Archive `services/signal_tracker_agent.py` → `_archived_signal_tracker_agent.py`
 
-**No data loss risk:** During switchover, the old tracker's pending transitions drain first. The new ComputeAgent bootstraps from DB, picking up where the old tracker left off.
+**No data loss risk:** Old tracker drains pending transitions first. New ComputeAgent bootstraps from DB, picks up where old tracker left off. Signal evaluation is idempotent.
 
 ---
 
@@ -327,16 +338,20 @@ Each transition type maps to a specific UPDATE statement on signal_ledger. The w
 | Decompression limit → 0 | P1 | Unblocks tracker for 3 futures symbols |
 | Disable signal_ledger compression | P1 | Eliminates decompression overhead on all writes |
 | Expire orphaned signals | P1 | Clears 135K unprocessable pending signals |
+| Symbol filtering | P2 | Skip ~70% of bars (symbols with no active signals) |
+| Timeframe filtering | P2 | No cross-TF evaluation (1m signals on 1m bars only) |
 | Batch bar consumption (`getmany`) | P2 | Process N bars per iteration instead of 1 |
 | Periodic Kafka commits | P2 | Removes per-bar commit round-trip |
 | Compute/persistence separation | P2 | Compute never waits on DB writes |
 | Chandelier through writer | P2 | Eliminates per-bar, per-signal DB writes |
-| Bootstrap once (not every 60s) | P2 | Eliminates N DB queries every 60 seconds |
-| Checkpoint to Kafka | P2 | Restart recovery without DB queries |
+| One bootstrap (not every 60s) | P2 | Eliminates N DB queries every 60 seconds |
+| Streaming signal ingestion (i7.signals) | P2 | New signals enter tracker immediately via Kafka |
+| No checkpointing | P2 | Simpler restart (DB bootstrap + Kafka offsets, idempotent) |
+| Batch SQL by transition type | P2 | 5 batch calls per flush instead of N per signal |
 
 ## Out of Scope
 
-- Intelligence pipeline throughput optimization (deferred — self-draining at 4.5 bars/sec, big refactor needed for 5000 symbols)
+- Intelligence pipeline throughput optimization (deferred — self-draining, big refactor needed for 5000 symbols)
 - Historical backfill for equity/crypto feature gaps
 - HMM fallback investigation (NC-1)
 - IBKR provider log noise (NC-2)
