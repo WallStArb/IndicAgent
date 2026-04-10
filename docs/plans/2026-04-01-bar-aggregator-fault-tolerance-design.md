@@ -229,12 +229,12 @@
 
 ```bash
 # Immediate rollback (if issues detected)
-echo '!123Angelina' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator-compute
+echo '!123Angelina' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator
 
 # Full rollback (if bad commit deployed)
 git checkout main
 git reset --hard HEAD~1
-echo '!123Angelina' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator-compute
+echo '!123Angelina' | /usr/bin/sudo.ws -S systemctl restart indicagent-bar-aggregator
 ```
 
 ## Success Criteria

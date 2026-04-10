@@ -108,7 +108,7 @@ The taxonomy covers the full DAG from data ingestion to quality control. Every a
 | :--- | :--- | :--- | :--- | :--- |
 | `IBKRProviderAgent` | `services/ibkr_provider_agent.py` | `indicagent-ibkr-provider` | `ProviderAgent` | `market.bars.raw.ibkr` |
 | `ProviderMergerAgent` | `services/provider_merger_agent.py` | `indicagent-provider-merger` | `MergerAgent` | `market.bars` |
-| `BarAggregatorComputeAgent` | `services/bar_aggregator_agent.py` | `indicagent-bar-aggregator-compute` | `ComputeAgent` | `market.bars.htf` |
+| `BarAggregatorComputeAgent` | `services/bar_aggregator_agent.py` | `indicagent-bar-aggregator` | `ComputeAgent` | `market.bars.htf` |
 | `RollComputeAgent` | `services/roll_compute_agent.py` | `indicagent-roll-compute` | `ComputeAgent` | futures roll events |
 | `BarAuditorAgent` | `services/bar_auditor_agent.py` | `indicagent-bar-auditor` | `AuditorAgent` | `market.events.gap_requests` |
 | `BarWriterAgent` | `services/bar_writer_agent.py` | `indicagent-bar-writer` | `WriterAgent` | `market_data_ohlcv` (DB) |

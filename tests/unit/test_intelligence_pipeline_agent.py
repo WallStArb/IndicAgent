@@ -51,7 +51,7 @@ def _make_agent():
     agent._kafka_producer = AsyncMock()
     agent._db = None
     agent.AGENT_VERSION = "v1"
-    agent._consumer_group = "intelligence_pipeline_group"
+    agent._consumer_group = "intelligence_pipeline_consumer"
     return agent
 
 

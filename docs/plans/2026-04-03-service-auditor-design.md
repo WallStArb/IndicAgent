@@ -41,7 +41,7 @@ The Prometheus config points at 3 dead service names (`indicagent-indicator`, `i
 |---------|------|
 | indicagent-ibkr-provider | 9129 |
 | indicagent-provider-merger | 9130 |
-| indicagent-bar-aggregator-compute | 9120 |
+| indicagent-bar-aggregator | 9120 |
 | indicagent-bar-writer | 9121 |
 | indicagent-bar-auditor | 9123 |
 | indicagent-intelligence-pipeline | 9125 |
@@ -161,7 +161,7 @@ Every state transition emits to `system.health.events`:
 ```json
 {
   "ts": "2026-04-03T14:00:00Z",
-  "service": "indicagent-bar-aggregator-compute",
+  "service": "indicagent-bar-aggregator",
   "event_type": "restart",
   "previous_state": "failed",
   "reason": "StartLimitHit",

@@ -23,7 +23,7 @@ Full-stack health check from 1m bar ingestion → HTF aggregation → intelligen
 
 All services `active (running)`:
 - `indicagent-ibkr-provider` — connected to TWS, publishing bars
-- `indicagent-bar-aggregator-compute` — 1m→HTF aggregation, **0 lag**
+- `indicagent-bar-aggregator` — 1m→HTF aggregation, **0 lag**
 - `indicagent-intelligence-pipeline` — I1-I7 unified, **67K lag on market.bars**
 - `indicagent-feature-writer` — intelligence.journal → TimescaleDB, **8 lag**
 - `indicagent-signal-writer` — i7.signals → signal_ledger, **6 lag**

@@ -2,15 +2,15 @@
 """FeatureSnapshotWriterAgent — shadow persistence for parity validation.
 
 Consumes BarIntelligenceRecord from intelligence.journal under consumer group
-'feature_snapshot_writer_group' (separate from 'feature_writer_group') and writes
+'feature_snapshot_writer_consumer' (separate from 'feature_writer_consumer') and writes
 to feature_snapshots_shadow. ParityAuditorAgent (Phase 52.5) will compare both
 tables to certify that FeatureRepository produces identical results to
 FeatureWriterAgent before primary-write cutover.
 
 Architecture:
     intelligence.journal topic
-      ├── feature_writer_group         -> intelligence_features       (existing primary)
-      └── feature_snapshot_writer_group -> feature_snapshots_shadow   (this agent)
+      ├── feature_writer_consumer         -> intelligence_features       (existing primary)
+      └── feature_snapshot_writer_consumer -> feature_snapshots_shadow   (this agent)
 
 Design invariant: this agent is intentionally thin — no business logic.
 All param-building is delegated to _record_to_insert_params() from feature_writer_agent.
@@ -47,7 +47,7 @@ from src.persistence.repository.feature_repository import FeatureRepository
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
-CONSUMER_GROUP: str = "feature_snapshot_writer_group"
+CONSUMER_GROUP: str = "feature_snapshot_writer_consumer"
 CONSUMER_TOPIC_FN = topic_intelligence_journal
 SHADOW_TABLE: str = "feature_snapshots_shadow"
 BATCH_SIZE: int = 50
