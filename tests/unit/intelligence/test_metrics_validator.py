@@ -1,4 +1,4 @@
-"""Tests for DataQualityValidator — all 4 gates."""
+"""Tests for DataQualityValidator — all 4 gates + per-instrument tick sizes."""
 from src.intelligence.metrics.validator import validate_signal_row
 
 
@@ -23,14 +23,45 @@ class TestGate1Direction:
 
 
 class TestGate2Risk:
-    def test_valid_risk_one_tick(self):
-        # ES: entry 5000.0, stop 4999.75 = 0.25 tick = exactly MIN_TICK_SIZE
-        r = validate_signal_row(1, 5000.0, 4999.75, -0.5, 1)
+    def test_valid_risk_one_tick_es(self):
+        # ES: entry 5000.0, stop 4999.75 = 0.25 tick = exactly min tick
+        r = validate_signal_row(1, 5000.0, 4999.75, -0.5, 1, symbol="ES", tick_sizes={"ES": 0.25})
         assert r.is_valid is True
 
-    def test_risk_below_min_tick(self):
-        # CVDDivergence bug: stop almost equal to entry
-        r = validate_signal_row(1, 5000.0, 4999.974, -193.0, 1)
+    def test_risk_below_min_tick_es(self):
+        # CVDDivergence bug: stop almost equal to entry (ES tick=0.25)
+        r = validate_signal_row(1, 5000.0, 4999.974, -193.0, 1, symbol="ES", tick_sizes={"ES": 0.25})
+        assert r.is_valid is False
+        assert r.reason_code == "risk_below_min_tick"
+
+    def test_forex_small_tick_valid(self):
+        # EURUSD tick=0.0001, risk=0.0002 > 0.0001
+        r = validate_signal_row(1, 1.1200, 1.1198, 0.5, 1, symbol="EURUSD", tick_sizes={"EUR": 0.0001})
+        assert r.is_valid is True
+
+    def test_forex_risk_below_tick(self):
+        # EURUSD tick=0.0001, risk=0.00005 < 0.0001
+        r = validate_signal_row(1, 1.1200, 1.11995, -10.0, 1, symbol="EURUSD", tick_sizes={"EUR": 0.0001})
+        assert r.is_valid is False
+        assert r.reason_code == "risk_below_min_tick"
+
+    def test_bond_tick_size(self):
+        # ZN (10y Treasury): tick = 1/64 = 0.015625
+        r = validate_signal_row(1, 110.50, 110.484375, 0.5, 1, symbol="ZNM6", tick_sizes={"ZN": 0.015625})
+        assert r.is_valid is True
+
+    def test_copper_tick_size(self):
+        # HG copper: tick = 0.0005, risk = 0.0006 > tick
+        r = validate_signal_row(1, 5.5000, 5.4994, 0.5, 1, symbol="HG", tick_sizes={"HG": 0.0005})
+        assert r.is_valid is True
+
+    def test_default_tick_when_unknown_instrument(self):
+        # Unknown instrument uses DEFAULT_MIN_TICK (0.01)
+        r = validate_signal_row(1, 100.0, 99.99, 0.5, 1)
+        assert r.is_valid is True
+
+    def test_default_tick_rejects_zero_risk(self):
+        r = validate_signal_row(1, 100.0, 100.0, 0.5, 1)
         assert r.is_valid is False
         assert r.reason_code == "risk_below_min_tick"
 
@@ -43,6 +74,11 @@ class TestGate2Risk:
         r = validate_signal_row(1, 5000.0, None, 0.5, 1)
         assert r.is_valid is False
         assert r.reason_code == "risk_below_min_tick"
+
+    def test_futures_base_symbol_resolution(self):
+        # ESM6 should resolve to ES base symbol
+        r = validate_signal_row(1, 5000.0, 4999.75, 0.5, 1, symbol="ESM6", tick_sizes={"ES": 0.25})
+        assert r.is_valid is True
 
 
 class TestGate3PnlR:

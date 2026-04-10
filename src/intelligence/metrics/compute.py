@@ -158,6 +158,7 @@ def compute_signal_metrics(
     rows: list[dict],
     track: str,
     window_days: int,
+    tick_sizes: dict[str, float] | None = None,
 ) -> list[SignalMetricsResult]:
     """Compute per-segment metrics for one track and window.
 
@@ -172,6 +173,7 @@ def compute_signal_metrics(
         rows:       list of signal_ledger row dicts (already fetched from DB)
         track:      'zone' or 'market'
         window_days: rolling window (7, 30, or 90)
+        tick_sizes: dict mapping base symbol → minimum tick size
     """
     # Per-regime accumulators keyed by (plugin, tf, regime_label)
     regime_accs: dict[tuple, dict] = defaultdict(_empty_acc)
@@ -217,6 +219,8 @@ def compute_signal_metrics(
             stop_loss=row.get("stop_loss"),
             pnl_r=pnl_r,
             hmm_regime_at_fire=hmm,
+            symbol=row.get("symbol"),
+            tick_sizes=tick_sizes,
         )
         if not vr.is_valid:
             for acc in (regime_accs[regime_key], all_accs[all_key]):
