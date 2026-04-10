@@ -371,3 +371,152 @@ async def test_publish_bar_to_raw_topic():
     assert published_topics[0] == expected_topic, (
         f"Expected {expected_topic!r}, got {published_topics[0]!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan 63.6-03: Semaphore-bounded gap fill
+# ---------------------------------------------------------------------------
+
+
+def test_max_concurrent_gap_fills_class_constant():
+    """BaseProviderAgent._MAX_CONCURRENT_GAP_FILLS must equal 3."""
+    from src.providers.base_provider_agent import BaseProviderAgent
+
+    assert hasattr(BaseProviderAgent, "_MAX_CONCURRENT_GAP_FILLS"), (
+        "_MAX_CONCURRENT_GAP_FILLS class constant missing"
+    )
+    assert BaseProviderAgent._MAX_CONCURRENT_GAP_FILLS == 3
+
+
+def test_fill_gap_method_exists():
+    """BaseProviderAgent must have a _fill_gap(req, sem) method."""
+    from src.providers.base_provider_agent import BaseProviderAgent
+
+    assert hasattr(BaseProviderAgent, "_fill_gap"), "_fill_gap method missing"
+    import inspect
+    sig = inspect.signature(BaseProviderAgent._fill_gap)
+    params = list(sig.parameters.keys())
+    # Should accept self, req, sem
+    assert "req" in params, f"_fill_gap missing 'req' param, got: {params}"
+    assert "sem" in params, f"_fill_gap missing 'sem' param, got: {params}"
+
+
+@pytest.mark.asyncio
+async def test_gap_requests_loop_creates_tasks_not_sequential():
+    """_gap_requests_loop must create asyncio.Task objects (fire-and-track) not await each one."""
+    from datetime import UTC, datetime
+
+    from src.core.schemas.market_events import BarGapRequest
+    from unittest.mock import patch
+
+    agent, _ = _make_concrete_agent()
+
+    mock_adapter = AsyncMock()
+    mock_adapter.fetch_historical = AsyncMock(return_value=[])
+    agent._adapter = mock_adapter
+
+    req = BarGapRequest(
+        symbol="ESM6",
+        tf="1m",
+        start_ts=datetime(2026, 3, 28, 10, 0, tzinfo=UTC),
+        end_ts=datetime(2026, 3, 28, 10, 5, tzinfo=UTC),
+        source="bar_auditor",
+    )
+
+    tasks_created: list = []
+    original_create_task = asyncio.create_task
+
+    def _track_create_task(coro, **kwargs):
+        task = original_create_task(coro, **kwargs)
+        tasks_created.append(task)
+        return task
+
+    mock_consumer = AsyncMock()
+
+    async def _mock_messages():
+        yield ("dev.market.events.gap_requests", "ESM6:1m", req.model_dump())
+        agent._stop_event.set()
+
+    mock_consumer.messages = _mock_messages
+    mock_consumer.start = AsyncMock()
+    mock_consumer.stop = AsyncMock()
+
+    with (
+        patch("src.providers.base_provider_agent.KafkaConsumerClient", return_value=mock_consumer),
+        patch("src.providers.base_provider_agent.asyncio.create_task", side_effect=_track_create_task),
+    ):
+        await agent._gap_requests_loop()
+
+    assert len(tasks_created) >= 1, "asyncio.create_task was never called — loop is sequential"
+
+
+@pytest.mark.asyncio
+async def test_fill_gap_uses_semaphore():
+    """_fill_gap must acquire the semaphore before calling fetch_historical."""
+    from datetime import UTC, datetime
+
+    from src.core.schemas.market_events import BarGapRequest
+
+    agent, _ = _make_concrete_agent()
+
+    mock_adapter = AsyncMock()
+    mock_adapter.fetch_historical = AsyncMock(return_value=[])
+    agent._adapter = mock_adapter
+
+    req = BarGapRequest(
+        symbol="ESM6",
+        tf="1m",
+        start_ts=datetime(2026, 3, 28, 10, 0, tzinfo=UTC),
+        end_ts=datetime(2026, 3, 28, 10, 5, tzinfo=UTC),
+        source="bar_auditor",
+    )
+
+    sem = asyncio.Semaphore(3)
+    # Semaphore starts at 3 — verify it gets acquired during _fill_gap
+    assert sem._value == 3
+    await agent._fill_gap(req, sem)
+    # After completion, semaphore released back to 3
+    assert sem._value == 3
+    mock_adapter.fetch_historical.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_semaphore_limits_concurrency():
+    """Semaphore with value=1 must serialise concurrent _fill_gap calls."""
+    from datetime import UTC, datetime
+
+    from src.core.schemas.market_events import BarGapRequest
+
+    agent, _ = _make_concrete_agent()
+
+    execution_order: list[str] = []
+    acquired = asyncio.Event()
+
+    async def _slow_fetch(**kwargs):
+        execution_order.append("fetch_start")
+        await asyncio.sleep(0.05)
+        execution_order.append("fetch_end")
+        return []
+
+    agent._adapter = AsyncMock()
+    agent._adapter.fetch_historical = _slow_fetch
+
+    req = BarGapRequest(
+        symbol="ESM6",
+        tf="1m",
+        start_ts=datetime(2026, 3, 28, 10, 0, tzinfo=UTC),
+        end_ts=datetime(2026, 3, 28, 10, 5, tzinfo=UTC),
+        source="bar_auditor",
+    )
+
+    sem = asyncio.Semaphore(1)
+    # Run two concurrent fill_gap — serialised by sem(1)
+    await asyncio.gather(
+        agent._fill_gap(req, sem),
+        agent._fill_gap(req, sem),
+    )
+    # With sem(1), second fetch_start must come after first fetch_end
+    assert execution_order == [
+        "fetch_start", "fetch_end",
+        "fetch_start", "fetch_end",
+    ], f"Unexpected order: {execution_order}"

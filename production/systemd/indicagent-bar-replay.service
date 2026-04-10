@@ -1,0 +1,18 @@
+[Unit]
+Description=IndicAgent Bar Replay Agent — signal gap self-healer
+After=network.target timescaledb.service
+
+[Service]
+Type=simple
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+Environment=INDICAGENT_ENV=development
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/bar_replay_agent.py
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Install]
+WantedBy=multi-user.target
