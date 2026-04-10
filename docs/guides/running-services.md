@@ -13,7 +13,7 @@ sudo systemctl status 'indicagent-*'
 # Individual service management
 sudo systemctl restart indicagent-ibkr-provider
 sudo systemctl restart indicagent-provider-merger
-sudo systemctl restart indicagent-bar-aggregator
+sudo systemctl restart indicagent-bar-aggregator-compute
 sudo systemctl restart indicagent-bar-writer
 sudo systemctl restart indicagent-bar-auditor
 sudo systemctl restart indicagent-roll-compute
@@ -44,7 +44,7 @@ journalctl -u indicagent-intelligence-pipeline -f
 |------|---------|------|
 | `indicagent-ibkr-provider` | IBKR dual streams (5s RTB + 1m aggregation) | 9129 |
 | `indicagent-provider-merger` | Routes `market.bars.raw.*` → `market.bars` | 9130 |
-| `indicagent-bar-aggregator` | 1m → HTF (5m-1d) aggregation | 9120 |
+| `indicagent-bar-aggregator-compute` | 1m → HTF (5m-1d) aggregation | 9120 |
 | `indicagent-bar-writer` | Writes `market_data_ohlcv` (batch) | 9121 |
 | `indicagent-bar-auditor` | Gap detection → `market.events.gap_requests` | 9123 |
 | `indicagent-roll-compute` | Calendar + volume z-score roll detection | 9122 |

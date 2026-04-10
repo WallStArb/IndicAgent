@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Feature Writer Agent — persists BarIntelligenceRecord to intelligence_features hypertable.
 
-Consumes development.intelligence.record via Kafka consumer group 'feature_writer_consumer'
+Consumes development.intelligence.record via Kafka consumer group 'feature_writer_group'
 and batch-writes complete rows to the intelligence_features TimescaleDB hypertable.
 
 Phase 44.3: Single atomic INSERT per bar from BarIntelligenceRecord.
@@ -48,7 +48,7 @@ from src.observability.metrics import (
 
 BATCH_SIZE: int = 50
 FLUSH_INTERVAL_SECS: float = 5.0
-CONSUMER_GROUP: str = "feature_writer_consumer"
+CONSUMER_GROUP: str = "feature_writer_group"
 CONSUMER_NAME: str = "feature_writer_1"
 
 # ── Module-level SQL ──────────────────────────────────────────────────────────

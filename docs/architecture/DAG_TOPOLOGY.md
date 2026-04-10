@@ -280,7 +280,7 @@ All topic strings constructed via `src/core/stream_keys.py` — never hardcoded.
 |------|-------|------|------|
 | `services/ibkr_provider_agent.py` | `IBKRProviderAgent` | `indicagent-ibkr-provider` | :9129 |
 | `services/provider_merger_agent.py` | `ProviderMergerAgent` | `indicagent-provider-merger` | :9130 |
-| `services/bar_aggregator_agent.py` | `BarAggregatorComputeAgent` | `indicagent-bar-aggregator` | :9120 |
+| `services/bar_aggregator_agent.py` | `BarAggregatorComputeAgent` | `indicagent-bar-aggregator-compute` | :9120 |
 | `services/bar_writer_agent.py` | `BarWriterAgent` | `indicagent-bar-writer` | :9121 |
 | `services/bar_auditor_agent.py` | `BarAuditorAgent` | `indicagent-bar-auditor` | :9123 |
 | `services/roll_compute_agent.py` | `RollComputeAgent` | `indicagent-roll-compute` | :9122 |

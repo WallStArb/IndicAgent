@@ -151,7 +151,7 @@ from src.core.stream_keys import (
 |---------|------|---------|---------|
 | IBKR Provider | `indicagent-ibkr-provider` | :9129 | IBKR dual streams → `market.bars.raw.ibkr` |
 | Provider Merger | `indicagent-provider-merger` | :9130 | Routes `market.bars.raw.*` → `market.bars` |
-| Bar Aggregator | `indicagent-bar-aggregator` | :9120 | 1m → HTF aggregation → `market.bars.htf` |
+| Bar Aggregator | `indicagent-bar-aggregator-compute` | :9120 | 1m → HTF aggregation → `market.bars.htf` |
 | Intelligence Pipeline | `indicagent-intelligence-pipeline` | :9125 | I1-I7 unified in-process pipeline |
 | Feature Writer | `indicagent-feature-writer` | :9116 | `intelligence.journal` → `intelligence_features` (DB) |
 | Signal Writer | `indicagent-signal-writer` | :9119 | `intelligence.i7.signals` → `signal_ledger` (DB) |

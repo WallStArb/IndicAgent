@@ -327,7 +327,7 @@ All 8 current consumers of `market.bars` are untouched. The merger is transparen
 | `PluginCircuitBreaker` config | `src/providers/ibkr.py` (module-level singleton) |
 | Gap-fill request loop | `services/data_provider_agent.py:_gap_requests_loop()` |
 | OTel `init_tracing()` in `__main__` | `services/bar_aggregator_agent.py` |
-| Systemd unit with `PYTHONUNBUFFERED=1` | `services/indicagent-bar-aggregator.service` |
+| Systemd unit with `PYTHONUNBUFFERED=1` | `services/indicagent-bar-aggregator-compute.service` |
 
 ## What is NOT built in Phase 54
 - Actual Alpaca/TastyTrade adapters (Protocol only — stub when needed)

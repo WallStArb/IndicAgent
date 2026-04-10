@@ -22,7 +22,7 @@ for f in production/migrations/0*.sql; do psql -U postgres -d indicagent -f "$f"
 sudo systemctl status 'indicagent-*'
 sudo systemctl restart indicagent-ibkr-provider
 sudo systemctl restart indicagent-provider-merger
-sudo systemctl restart indicagent-bar-aggregator
+sudo systemctl restart indicagent-bar-aggregator-compute
 sudo systemctl restart indicagent-intelligence-pipeline
 sudo systemctl restart indicagent-signal-writer
 sudo systemctl restart indicagent-signal-tracker
