@@ -30,6 +30,7 @@ def _make_agent() -> SignalTrackerCompute:
     # In-memory state
     agent._active_index: dict[tuple[str, str], list[dict]] = defaultdict(list)
     agent._active_symbols: set[str] = set()
+    agent._signal_ids: set[str] = set()
     agent._mae: dict[str, float] = {}
     agent._mfe: dict[str, float] = {}
     agent._chandelier_state: dict[str, dict] = {}

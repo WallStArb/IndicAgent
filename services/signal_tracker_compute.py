@@ -97,6 +97,7 @@ class SignalTrackerCompute(BaseAgent):
         self._active_symbols: set[str] = set()
 
         # Per-signal tracking state
+        self._signal_ids: set[str] = set()
         self._mae: dict[str, float] = {}
         self._mfe: dict[str, float] = {}
         self._chandelier_state: dict[str, dict] = {}
@@ -197,7 +198,6 @@ class SignalTrackerCompute(BaseAgent):
                 break
             try:
                 self._record_message_consumed()
-                # Parse symbol:timeframe from Kafka key
                 key_str = key if isinstance(key, str) else (key.decode() if key else "")
                 parts = key_str.split(":")
                 if len(parts) != 2:
@@ -293,16 +293,14 @@ class SignalTrackerCompute(BaseAgent):
         if not symbol or not tf:
             return
 
-        # Avoid duplicate ingestion
-        key = (symbol, tf)
-        existing_ids = {s.get("signal_id") for s in self._active_index.get(key, [])}
-        if sid in existing_ids:
+        if sid in self._signal_ids:
             return
 
+        self._signal_ids.add(sid)
+        key = (symbol, tf)
         self._active_index[key].append(sig)
         self._active_symbols.add(symbol)
 
-        # Cache point value if available
         if symbol not in self._point_values:
             pv = get_point_value(symbol)
             if pv is not None:
@@ -333,6 +331,7 @@ class SignalTrackerCompute(BaseAgent):
         ]
 
         # Clean up per-signal state
+        self._signal_ids.discard(signal_id)
         self._mae.pop(signal_id, None)
         self._mfe.pop(signal_id, None)
         self._chandelier_state.pop(signal_id, None)
@@ -652,6 +651,7 @@ class SignalTrackerCompute(BaseAgent):
                     if sig.get("status") == SignalStatus.ACTIVE and sig.get("activated_at"):
                         self._activated_at[sid] = sig["activated_at"]
 
+                    self._signal_ids.add(sid)
                     self._active_index[(symbol, tf)].append(sig)
                     self._active_symbols.add(symbol)
 
