@@ -125,6 +125,7 @@ class SignalMetricsComputeAgent(BaseAgent):
         self._interval_seconds = _INTERVAL_SECONDS
         self._tick_sizes: dict[str, float] = {}
         self._published_dq_keys: set[str] = set()
+        self._cycle_count: int = 0
 
     async def _load_tick_sizes(self) -> None:
         """Load per-instrument tick sizes from instruments table."""
@@ -186,8 +187,10 @@ class SignalMetricsComputeAgent(BaseAgent):
 
     async def _run_compute_cycle(self) -> None:
         """Fetch rows, validate, compute metrics, publish events."""
-        # Refresh tick sizes each cycle (instruments can change on roll)
-        await self._load_tick_sizes()
+        self._cycle_count += 1
+        # Refresh tick sizes every 24h (96 cycles) — tick sizes are static per instrument
+        if self._cycle_count % 96 == 1:
+            await self._load_tick_sizes()
 
         rows = await self._db.execute_query(_QUERY)
         if not rows:
@@ -308,6 +311,13 @@ class SignalMetricsComputeAgent(BaseAgent):
             new_dq_failures=new_dq_count,
             total_dq_keys_tracked=len(self._published_dq_keys),
         )
+
+        # Prune DQ keys for signals no longer in the 90-day window
+        active_signal_ids = {r.get("signal_id") for r in rows}
+        self._published_dq_keys = {
+            k for k in self._published_dq_keys
+            if k.split(":")[0] in active_signal_ids
+        }
 
 
 async def _amain() -> None:

@@ -19,6 +19,7 @@ class TestSignalMetricsComputeAgent:
         agent._interval_seconds = 900
         agent._tick_sizes = {"ES": 0.25}
         agent._published_dq_keys = set()
+        agent._cycle_count = 1  # skip tick_sizes refresh (already populated)
         return agent
 
     def test_agent_has_required_attributes(self):
@@ -32,8 +33,8 @@ class TestSignalMetricsComputeAgent:
         agent._db.execute_query = AsyncMock(return_value=[])
         agent._producer.publish = AsyncMock()
         await agent._run_compute_cycle()
-        # Called twice: once for tick_sizes, once for signal_ledger
-        assert agent._db.execute_query.call_count >= 1
+        # tick_sizes already populated in fixture; only signal_ledger query expected
+        assert agent._db.execute_query.call_count == 1
 
     @pytest.mark.asyncio
     async def test_run_compute_cycle_publishes_no_events_for_empty_db(self):
