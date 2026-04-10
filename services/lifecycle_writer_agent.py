@@ -15,6 +15,7 @@ import asyncio
 import sys
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 project_root = Path(__file__).parent.parent
@@ -44,6 +45,26 @@ CONSUMER_GROUP = "lifecycle_writer_group"
 BATCH_SIZE = 100  # flush after this many transitions
 FLUSH_INTERVAL_SECS = 5.0  # or after this many seconds, whichever comes first
 MAX_BUFFER_SIZE = 10_000  # drop oldest transitions if buffer exceeds this
+
+# Fields that asyncpg expects as Python datetime, not ISO strings
+_TIMESTAMP_FIELDS = frozenset({
+    "activated_at", "exit_at", "shadow_tracking_start_ts",
+})
+
+
+def _ensure_datetimes(entry: dict) -> None:
+    """Convert ISO timestamp strings to datetime objects for asyncpg.
+
+    Kafka JSON serialization turns datetime objects into ISO strings.
+    asyncpg requires Python datetime objects for timestamptz columns.
+    """
+    for key in _TIMESTAMP_FIELDS:
+        val = entry.get(key)
+        if isinstance(val, str):
+            dt = datetime.fromisoformat(val)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            entry[key] = dt
 
 
 class LifecycleWriterAgent(BaseAgent):
@@ -146,6 +167,7 @@ class LifecycleWriterAgent(BaseAgent):
         groups: dict[str, list[dict]] = defaultdict(list)
         for item in batch:
             entry = {"signal_id": item["signal_id"], **item["data"]}
+            _ensure_datetimes(entry)
             groups[item["transition_type"]].append(entry)
 
         try:
