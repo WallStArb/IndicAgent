@@ -275,6 +275,16 @@ def topic_market_data_quality(env_name: str) -> str:
     return f"{env_prefix(env_name)}market.data.quality"
 
 
+def topic_lifecycle_transitions(env_name: str) -> str:
+    """Kafka topic for signal lifecycle transition events.
+
+    Published by IntelligencePipelineComputeAgent on each signal state change
+    (activation, exit, MAE/MFE update, shadow outcome, chandelier update).
+    Consumed by LifecycleWriterAgent for atomic persistence to signal_ledger.
+    """
+    return f"{env_prefix(env_name)}lifecycle.transitions"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
