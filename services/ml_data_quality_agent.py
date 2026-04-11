@@ -63,6 +63,7 @@ class MLDataQualityAuditorAgent(BaseAgent):
         self.logger.info("ml_data_quality.starting")
         try:
             score = await self._compute_quality_score()
+            await self._write_score(score)
             await self._emit_metric(score)
             await self._maybe_publish_alert(score)
             self.logger.info("ml_data_quality.complete", score=round(score, 4))
@@ -162,6 +163,18 @@ class MLDataQualityAuditorAgent(BaseAgent):
         if outlier_count <= _OUTLIER_MAX:
             return 1.0
         return max(0.0, 1.0 - (outlier_count - _OUTLIER_MAX) / 1000.0)
+
+    async def _write_score(self, score: float) -> None:
+        """Persist quality score to ml_data_quality_runs so orchestrator can read it."""
+        from datetime import UTC, datetime
+
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO ml_data_quality_runs (ts, score) VALUES ($1, $2)",
+                datetime.now(UTC),
+                round(score, 4),
+            )
+        self.logger.info("ml_data_quality.score_written", score=round(score, 4))
 
     async def _emit_metric(self, score: float) -> None:
         """Update Prometheus gauge."""
