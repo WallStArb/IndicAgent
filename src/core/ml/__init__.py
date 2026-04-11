@@ -5,6 +5,16 @@ All FeatureVector fields defined once here, used identically at:
   - Inference time: IntelligenceEvent → FeatureVector
 """
 
+from src.core.ml.extractor import FeatureExtractor
 from src.core.ml.features import FeatureVector
+from src.core.ml.registry import ModelRegistry
+from src.core.ml.shadow import ShadowRecorder
+from src.core.ml.training_data import TrainingDataQuery
 
-__all__ = ["FeatureVector"]
+__all__ = [
+    "FeatureVector",
+    "FeatureExtractor",
+    "ShadowRecorder",
+    "ModelRegistry",
+    "TrainingDataQuery",
+]
