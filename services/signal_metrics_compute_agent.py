@@ -139,6 +139,24 @@ class SignalMetricsComputeAgent(BaseAgent):
             instruments=len(self._tick_sizes),
         )
 
+    async def _load_published_dq_keys(self) -> None:
+        """Populate in-memory dedup set from DB on startup.
+
+        Prevents re-publishing DQ failures that were already recorded in a
+        previous process lifetime. Without this, every restart re-publishes
+        all failures from the 90-day window, flooding signal_metrics_dq_failures.
+        """
+        rows = await self._db.execute_query(
+            "SELECT signal_id::text || ':' || reason_code AS dq_key "
+            "FROM signal_metrics_dq_failures "
+            "WHERE created_at > NOW() - INTERVAL '90 days'"
+        )
+        self._published_dq_keys = {r["dq_key"] for r in rows}
+        self.logger.info(
+            "signal_metrics_compute.dq_keys_loaded",
+            existing_dq_keys=len(self._published_dq_keys),
+        )
+
     async def _setup(self) -> None:
         """Connect DB pool and Kafka producer."""
         self._db = DatabaseManager(self._settings.database_url)
@@ -149,7 +167,7 @@ class SignalMetricsComputeAgent(BaseAgent):
         )
         await self._producer.start()
 
-        await self._load_tick_sizes()
+        await asyncio.gather(self._load_tick_sizes(), self._load_published_dq_keys())
 
         self.logger.info(
             "signal_metrics_compute.setup_complete",
@@ -312,8 +330,9 @@ class SignalMetricsComputeAgent(BaseAgent):
             total_dq_keys_tracked=len(self._published_dq_keys),
         )
 
-        # Prune DQ keys for signals no longer in the 90-day window
-        active_signal_ids = {r.get("signal_id") for r in rows}
+        # Prune DQ keys for signals no longer in the 90-day window.
+        # Use str() — asyncpg returns UUID objects; k.split(":")[0] is a string.
+        active_signal_ids = {str(r.get("signal_id")) for r in rows}
         self._published_dq_keys = {
             k for k in self._published_dq_keys
             if k.split(":")[0] in active_signal_ids
