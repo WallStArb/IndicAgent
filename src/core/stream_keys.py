@@ -285,6 +285,26 @@ def topic_lifecycle_transitions(env_name: str) -> str:
     return f"{env_prefix(env_name)}lifecycle.transitions"
 
 
+# ---------------------------------------------------------------------------
+# ML topics (Phase 56)
+# ---------------------------------------------------------------------------
+
+
+def topic_ml_data_quality_alerts(env_name: str) -> str:
+    """MLDataQualityAuditorAgent publishes here when score < DATA_QUALITY_MIN_SCORE."""
+    return f"{env_prefix(env_name)}ml.data_quality.alerts"
+
+
+def topic_ml_discovery_results(env_name: str) -> str:
+    """MLDiscoveryComputeAgent publishes top-IC feature summaries here."""
+    return f"{env_prefix(env_name)}ml.discovery.results"
+
+
+def topic_ml_orchestrator_dlq(env_name: str) -> str:
+    """DLQ for MLOrchestratorComputeAgent — node failures."""
+    return f"{env_prefix(env_name)}ml.orchestrator.dlq"
+
+
 def message_key(symbol: str, timeframe: str | None = None) -> str:
     """Kafka partition routing key.
 
