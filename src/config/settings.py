@@ -77,7 +77,14 @@ class Settings(BaseSettings):
     # LLM providers
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_models: str = Field(
-        default="openrouter/free",
+        default=(
+            "openrouter/free,"
+            "nvidia/nemotron-super-49b-v1:free,"
+            "arcee-ai/trinity-large-preview:free,"
+            "minimax/minimax-m2.5:free,"
+            "google/gemma-4-31b-it:free,"
+            "z-ai/glm-4.5-air:free"
+        ),
         validation_alias="OPENROUTER_MODELS",
         description=(
             "Comma-separated OpenRouter model slugs in priority order. "
