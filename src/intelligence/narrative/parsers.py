@@ -30,7 +30,7 @@ def parse_bar_intelligence_record(record: BarIntelligenceRecord) -> dict[str, An
         "direction": direction,
         "confidence": record.winner_confidence or 0.0,
         "plugin": record.winner_plugin or "unknown",
-        "close": intel.bar.close,
+        "close": intel.bar.c,
         "regime": getattr(intel.i4, "hmm_regime", None),
         "regime_prob": getattr(intel.i4, "hmm_regime_prob", None),
         "ctf_trend_alignment": getattr(intel.i6, "ctf_trend_alignment", None),
